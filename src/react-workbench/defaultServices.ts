@@ -505,6 +505,8 @@ function mapMessage(
     ...(contextReferences.length ? { contextReferences } : {}),
     ...(message.reasoningContent ? { reasoningText: message.reasoningContent } : {}),
     ...(toolCalls.length ? { toolCalls } : {}),
+    ...(message.turnId ? { turnId: message.turnId } : {}),
+    ...(message.turnStatus ? { turnStatus: message.turnStatus } : {}),
   };
 }
 

@@ -9,7 +9,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { BookOpen, Bot, ChevronRight, Code2, Command, FileText, Folder, MessageSquare, Settings, Wrench, X } from "lucide-react";
+import { BookOpen, Bot, ChevronRight, Code2, Command, FileText, Folder, MessageSquare, Minus, Settings, Square, Wrench, X } from "lucide-react";
 import { ChatPage } from "../chat/ChatPage";
 import type { AppServices, WorkspaceFileSummary } from "../services";
 
@@ -33,7 +33,8 @@ const routeItems: Array<{ id: AppRoute; label: string; icon: typeof MessageSquar
 ];
 
 type WindowFrameControls = {
-  startDragging(): Promise<void>;
+  close(): Promise<void>;
+  minimize(): Promise<void>;
   toggleMaximize(): Promise<void>;
 };
 
@@ -204,18 +205,18 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
     return () => window.removeEventListener("pointerdown", onWindowPointerDown);
   }, []);
 
-  function handleFramePointerDown(event: ReactPointerEvent<HTMLElement>) {
-    if (event.button !== 0 || isWindowFrameInteractiveTarget(event.target, event.currentTarget)) {
-      return;
-    }
-    void frameControls?.startDragging().catch(logWindowFrameError);
-  }
-
   function handleFrameDoubleClick(event: ReactMouseEvent<HTMLElement>) {
     if (isWindowFrameInteractiveTarget(event.target, event.currentTarget)) {
       return;
     }
     void frameControls?.toggleMaximize().catch(logWindowFrameError);
+  }
+
+  function runWindowFrameAction(action: "close" | "minimize" | "toggleMaximize") {
+    if (!frameControls) {
+      return;
+    }
+    void frameControls[action]().catch(logWindowFrameError);
   }
 
   function handleTopMenuTrigger(event: ReactMouseEvent<HTMLButtonElement>, label: TopMenuLabel) {
@@ -335,7 +336,6 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
         data-tauri-drag-region=""
         role="banner"
         onDoubleClick={handleFrameDoubleClick}
-        onPointerDown={handleFramePointerDown}
       >
         <div className="react-window-frame__brand" data-tauri-drag-region="">Tinybot</div>
         <nav className="react-top-menu" aria-label="Application menu">
@@ -383,6 +383,42 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
         >
           <Command aria-hidden="true" size={16} />
         </button>
+        <div
+          aria-label="Window controls"
+          className="react-window-frame__controls"
+          data-no-window-drag=""
+          role="group"
+          onDoubleClick={stopWindowFrameEvent}
+          onPointerDown={stopWindowFrameEvent}
+        >
+          <button
+            aria-label="Minimize window"
+            className="react-window-frame__control"
+            title="Minimize"
+            type="button"
+            onClick={() => runWindowFrameAction("minimize")}
+          >
+            <Minus aria-hidden="true" size={14} />
+          </button>
+          <button
+            aria-label="Maximize window"
+            className="react-window-frame__control"
+            title="Maximize"
+            type="button"
+            onClick={() => runWindowFrameAction("toggleMaximize")}
+          >
+            <Square aria-hidden="true" size={12} />
+          </button>
+          <button
+            aria-label="Close window"
+            className="react-window-frame__control react-window-frame__control--close"
+            title="Close"
+            type="button"
+            onClick={() => runWindowFrameAction("close")}
+          >
+            <X aria-hidden="true" size={15} />
+          </button>
+        </div>
       </header>
 
       <div className="react-workbench-layout">

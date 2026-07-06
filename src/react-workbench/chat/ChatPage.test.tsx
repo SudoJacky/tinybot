@@ -375,6 +375,102 @@ describe("ChatPage", () => {
     expect(screen.getByRole("button", { name: /open details for shell/i })).toBeTruthy();
   });
 
+  it("hides copy and branch actions for reasoning-only assistant messages", async () => {
+    const stores = createStores();
+    const reasoningOnlyMessages: ReactChatMessage[] = [
+      {
+        id: "a-thinking",
+        role: "assistant",
+        createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+        text: "",
+        reasoningText: "Checking the current workspace before answering.",
+        status: "complete",
+      },
+    ];
+    stores.chatStore.load = vi.fn(async () => reasoningOnlyMessages);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const message = await screen.findByTestId("message-a-thinking");
+    expect(within(message).getByLabelText("Thinking").textContent).toContain("Checking the current workspace before answering.");
+    expect(within(message).queryByRole("button", { name: "Copy message" })).toBeNull();
+    expect(within(message).queryByRole("button", { name: "Branch from here" })).toBeNull();
+    expect(message.querySelector(".react-message__actions")).toBeNull();
+  });
+
+  it("hides assistant copy and branch actions until the turn completes", async () => {
+    const stores = createStores({
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Planning notes",
+        updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+        status: "running",
+      }],
+    });
+    const midTurnMessages: ReactChatMessage[] = [
+      {
+        id: "a-mid-turn",
+        role: "assistant",
+        createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+        text: "Partial body that arrived before the turn completed.",
+        status: "complete",
+      },
+    ];
+    stores.chatStore.load = vi.fn(async () => midTurnMessages);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const message = await screen.findByTestId("message-a-mid-turn");
+    expect(within(message).queryByRole("button", { name: "Copy message" })).toBeNull();
+    expect(within(message).queryByRole("button", { name: "Branch from here" })).toBeNull();
+    expect(message.querySelector(".react-message__actions")).toBeNull();
+  });
+
+  it("keeps actions on completed turn messages while a later turn is running", async () => {
+    const stores = createStores({
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Planning notes",
+        updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+        status: "running",
+      }],
+    });
+    const turnScopedMessages: ReactChatMessage[] = [
+      {
+        id: "a-completed-turn",
+        role: "assistant",
+        createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+        text: "Final answer from the previous turn.",
+        status: "complete",
+        turnId: "turn-1",
+        turnStatus: "completed",
+      },
+      {
+        id: "a-running-turn",
+        role: "assistant",
+        createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+        text: "Current turn body before the turn is done.",
+        status: "complete",
+        turnId: "turn-2",
+        turnStatus: "running",
+      },
+    ];
+    stores.chatStore.load = vi.fn(async () => turnScopedMessages);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const completedMessage = await screen.findByTestId("message-a-completed-turn");
+    expect(within(completedMessage).getByRole("button", { name: "Copy message" })).toBeTruthy();
+    expect(within(completedMessage).getByRole("button", { name: "Branch from here" })).toBeTruthy();
+
+    const runningMessage = await screen.findByTestId("message-a-running-turn");
+    expect(within(runningMessage).queryByRole("button", { name: "Copy message" })).toBeNull();
+    expect(within(runningMessage).queryByRole("button", { name: "Branch from here" })).toBeNull();
+    expect(runningMessage.querySelector(".react-message__actions")).toBeNull();
+  });
+
   it("renders tool activity as collapsible agent steps", async () => {
     const user = userEvent.setup();
     const stores = createStores();
@@ -555,10 +651,8 @@ describe("ChatPage", () => {
     const card = await screen.findByRole("form", { name: "Travel preferences" });
     expect(card.textContent).toContain("Collect itinerary constraints before planning.");
 
-    await user.clear(within(card).getByLabelText("Destination"));
-    await user.type(within(card).getByLabelText("Destination"), "Singapore");
-    await user.clear(within(card).getByLabelText("Nights"));
-    await user.type(within(card).getByLabelText("Nights"), "4");
+    fireEvent.change(within(card).getByLabelText("Destination"), { target: { value: "Singapore" } });
+    fireEvent.change(within(card).getByLabelText("Nights"), { target: { value: "4" } });
     await user.click(within(card).getByRole("button", { name: "Save preferences" }));
 
     expect(submitAgentUiForm).toHaveBeenCalledWith("travel-preferences-1", {
@@ -586,6 +680,21 @@ describe("ChatPage", () => {
     expect(assistantActions?.getAttribute("data-align")).toBe("left");
   });
 
+  it("keeps assistant messages as inline prose instead of rounded bubbles", () => {
+    const css = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
+
+    expect(css).toMatch(/\.react-message__body\s*{\s*min-width:\s*0;\s*padding:\s*2px 0;\s*}/s);
+    expect(css).toMatch(/\.react-message-reasoning\s*{[^}]*margin-bottom:\s*10px;[^}]*color:\s*var\(--color-muted\);/s);
+    expect(css).not.toMatch(/\.react-message-reasoning\s*{[^}]*padding-left:/s);
+    expect(css).not.toMatch(/\.react-message-reasoning\s*{[^}]*border-left:/s);
+    expect(css).toMatch(
+      /\.react-message\[data-role="user"\]\s*{[^}]*justify-self:\s*end;[^}]*max-width:\s*min\(680px, 92%\);[^}]*width:\s*fit-content;/s,
+    );
+    expect(css).toMatch(
+      /\.react-message\[data-role="user"\] \.react-message__body\s*{[^}]*border:\s*1px solid var\(--color-hairline\);[^}]*border-radius:\s*8px;[^}]*background:\s*var\(--color-surface-card\);[^}]*padding:\s*12px 14px;/s,
+    );
+  });
+
   it("renders assistant Markdown tables instead of raw pipe text", async () => {
     const stores = createStores();
     const markdownMessages: ReactChatMessage[] = [
@@ -611,6 +720,18 @@ describe("ChatPage", () => {
   it("copies individual message text from message actions", async () => {
     const user = userEvent.setup();
     const stores = createStores();
+    const copyMessages: ReactChatMessage[] = [
+      {
+        id: "a-copy",
+        role: "assistant",
+        createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+        text: "Visible answer.",
+        reasoningText: "Hidden planning.",
+        contextReferences: [{ id: "ctx-1", kind: "memory", title: "Memory", detail: "Context detail" }],
+        status: "complete",
+      },
+    ];
+    stores.chatStore.load = vi.fn(async () => copyMessages);
     const writeText = vi.fn(async () => undefined);
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
@@ -619,10 +740,10 @@ describe("ChatPage", () => {
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
-    const assistantMessage = await screen.findByTestId("message-a1");
+    const assistantMessage = await screen.findByTestId("message-a-copy");
     await user.click(within(assistantMessage).getByRole("button", { name: "Copy message" }));
 
-    expect(writeText).toHaveBeenCalledWith("Yes.");
+    expect(writeText).toHaveBeenCalledWith("Visible answer.");
   });
 
   it("switches to the branched session after branching from a message", async () => {
@@ -705,7 +826,7 @@ describe("ChatPage", () => {
     const assistantMessage = await screen.findByTestId("message-a1");
     expect(within(assistantMessage).queryByRole("button", { name: "Branch from here" })).toBeNull();
 
-    subscribed?.({ type: "message.completed" });
+    subscribed?.({ type: "agent.event", eventType: "agent.turn.completed" });
 
     await waitFor(() => expect(within(assistantMessage).getByRole("button", { name: "Branch from here" })).toBeTruthy());
   });
@@ -791,7 +912,7 @@ describe("ChatPage", () => {
     expect(screen.getByText("Already have 5 queued messages. Wait for processing or delete one before sending more.")).toBeTruthy();
   });
 
-  it("dispatches one queued composer input after normal completion", async () => {
+  it("dispatches one queued composer input after agent turn completion", async () => {
     const user = userEvent.setup();
     let subscribed: ((event: ChatEvent) => void) | undefined;
     const runningSession = {
@@ -819,7 +940,7 @@ describe("ChatPage", () => {
     await user.type(input, "second queued{enter}");
     expect(stores.chatStore.send).not.toHaveBeenCalled();
 
-    subscribed?.({ type: "message.completed" });
+    subscribed?.({ type: "agent.event", eventType: "agent.turn.completed" });
 
     await waitFor(() => expect(stores.chatStore.send).toHaveBeenCalledWith("s1", {
       text: "first queued",
@@ -830,7 +951,7 @@ describe("ChatPage", () => {
     expect(queuedInputs.textContent).not.toContain("first queued");
     expect(queuedInputs.textContent).toContain("second queued");
 
-    subscribed?.({ type: "message.completed" });
+    subscribed?.({ type: "agent.event", eventType: "agent.turn.completed" });
 
     await waitFor(() => expect(stores.chatStore.send).toHaveBeenCalledWith("s1", {
       text: "second queued",
@@ -840,7 +961,7 @@ describe("ChatPage", () => {
     expect(screen.queryByLabelText("Queued inputs")).toBeNull();
   });
 
-  it("dispatches queued input when a completion event also carries a message", async () => {
+  it("keeps queued input waiting after structured message completion until the turn completes", async () => {
     const user = userEvent.setup();
     let subscribed: ((event: ChatEvent) => void) | undefined;
     const runningSession = {
@@ -864,27 +985,23 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     const input = await screen.findByRole("textbox", { name: /message/i });
-    await user.type(input, "queued after event message{enter}");
+    await user.type(input, "queued after full turn{enter}");
 
-    subscribed?.({
-      message: {
-        id: "assistant-completed",
-        role: "assistant",
-        createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
-        text: "Done.",
-        status: "complete",
-      },
-      type: "message.completed",
-    });
+    subscribed?.({ type: "agent.event", eventType: "message.completed" });
 
-    expect(await screen.findByTestId("message-assistant-completed")).toBeTruthy();
+    expect(stores.sessionStore.list).toHaveBeenCalledTimes(1);
+    expect(stores.chatStore.send).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Queued inputs").textContent).toContain("queued after full turn");
+
+    subscribed?.({ type: "agent.event", eventType: "agent.turn.completed" });
+
     await waitFor(() => expect(stores.chatStore.send).toHaveBeenCalledWith("s1", {
-      text: "queued after event message",
+      text: "queued after full turn",
       usePersistentRag: true,
     }));
   });
 
-  it("keeps queued inputs waiting when completion enters approval state", async () => {
+  it("ignores legacy completion events that carry a message", async () => {
     const user = userEvent.setup();
     let subscribed: ((event: ChatEvent) => void) | undefined;
     const runningSession = {
@@ -894,11 +1011,35 @@ describe("ChatPage", () => {
       updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
       status: "running" as const,
     };
-    const approvalSession = { ...runningSession, status: "waiting_approval" as const };
     const stores = createStores({ sessions: [runningSession] });
-    stores.sessionStore.list = vi.fn()
-      .mockResolvedValueOnce([runningSession])
-      .mockResolvedValueOnce([approvalSession]);
+    stores.chatStore.subscribe = vi.fn((_sessionId, listener) => {
+      subscribed = listener;
+      return () => undefined;
+    });
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const input = await screen.findByRole("textbox", { name: /message/i });
+    await user.type(input, "queued after event message{enter}");
+
+    subscribed?.({ type: "message.completed" });
+
+    expect(screen.queryByTestId("message-assistant-completed")).toBeNull();
+    expect(stores.chatStore.send).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Queued inputs").textContent).toContain("queued after event message");
+  });
+
+  it("ignores legacy completion events for queued input dispatch", async () => {
+    const user = userEvent.setup();
+    let subscribed: ((event: ChatEvent) => void) | undefined;
+    const runningSession = {
+      id: "s1",
+      chatId: "chat-1",
+      title: "Planning notes",
+      updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+      status: "running" as const,
+    };
+    const stores = createStores({ sessions: [runningSession] });
     stores.chatStore.subscribe = vi.fn((_sessionId, listener) => {
       subscribed = listener;
       return () => undefined;
@@ -911,8 +1052,8 @@ describe("ChatPage", () => {
 
     subscribed?.({ type: "message.completed" });
 
-    await waitFor(() => expect(stores.sessionStore.list).toHaveBeenCalledTimes(2));
     expect(stores.chatStore.send).not.toHaveBeenCalled();
+    expect(stores.sessionStore.list).toHaveBeenCalledTimes(1);
     const queuedInputs = screen.getByLabelText("Queued inputs");
     expect(queuedInputs.textContent).toContain("after approval");
     expect(queuedInputs.textContent).toContain("Waiting");
@@ -992,22 +1133,26 @@ describe("ChatPage", () => {
     const user = userEvent.setup();
     let subscribed: ((event: ChatEvent) => void) | undefined;
     const stores = createStores();
-    stores.chatStore.load = vi.fn(async () => []);
+    let sent = false;
+    const optimisticMessages: ReactChatMessage[] = [{
+      id: "local-user",
+      role: "user",
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+      text: "Hello immediately",
+      status: "complete",
+    }];
+    stores.chatStore.load = vi.fn(async () => (
+      sent
+        ? optimisticMessages
+        : []
+    ));
     stores.chatStore.subscribe = vi.fn((_sessionId, listener) => {
       subscribed = listener;
       return () => undefined;
     });
     stores.chatStore.send = vi.fn(async () => {
-      subscribed?.({
-        message: {
-          id: "local-user",
-          role: "user",
-          createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
-          text: "Hello immediately",
-          status: "complete",
-        },
-        type: "message-sent",
-      });
+      sent = true;
+      subscribed?.({ type: "message-sent" });
     });
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
@@ -1017,6 +1162,48 @@ describe("ChatPage", () => {
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
     expect((await screen.findByTestId("message-local-user")).textContent).toContain("Hello immediately");
+  });
+
+  it("preserves the optimistic first message while a pending session is being created", async () => {
+    const user = userEvent.setup();
+    let subscribed: ((event: ChatEvent) => void) | undefined;
+    const stores = createStores({ sessions: [] });
+    const pendingSession = {
+      id: "pending:1",
+      title: "New session",
+      updatedAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+      status: "running" as const,
+    };
+    const optimisticMessage: ReactChatMessage = {
+      id: "local-user",
+      role: "user",
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+      text: "Summarize this pending chat",
+      status: "complete",
+    };
+    stores.sessionStore.list = vi.fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([pendingSession]);
+    stores.sessionStore.create = vi.fn(async () => pendingSession);
+    stores.chatStore.load = vi.fn(async () => []);
+    stores.chatStore.subscribe = vi.fn((_sessionId, listener) => {
+      subscribed = listener;
+      return () => undefined;
+    });
+    stores.chatStore.send = vi.fn(async () => {
+      subscribed?.({ type: "message-sent", message: optimisticMessage });
+    });
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    await screen.findByText("No sessions yet.");
+    await user.click(screen.getByRole("button", { name: "New Chat" }));
+    const input = await screen.findByRole("textbox", { name: /message/i });
+    await user.type(input, "Summarize this pending chat");
+    await user.click(screen.getByRole("button", { name: /send message/i }));
+
+    expect((await screen.findByTestId("message-local-user")).textContent).toContain("Summarize this pending chat");
+    expect(screen.queryByText("No sessions yet.")).toBeNull();
   });
 
   it("renders assistant thinking and context separately from the answer", async () => {

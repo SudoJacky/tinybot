@@ -63,7 +63,8 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
 describe("DesktopShell", () => {
   it("keeps the React window frame draggable and top menus compact", () => {
     const controls = {
-      startDragging: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      minimize: vi.fn(async () => undefined),
       toggleMaximize: vi.fn(async () => undefined),
     };
     render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={createServices()} windowControls={controls} />);
@@ -75,16 +76,33 @@ describe("DesktopShell", () => {
     expect(appMenuButton.querySelector(".react-top-menu__icon")).toBeTruthy();
     expect(appMenuButton.querySelector(".react-top-menu__label")?.textContent).toBe("App");
 
-    fireEvent.pointerDown(frame as Element);
-    expect(controls.startDragging).toHaveBeenCalledTimes(1);
-
     fireEvent.pointerDown(appMenuButton);
-    expect(controls.startDragging).toHaveBeenCalledTimes(1);
 
     fireEvent.doubleClick(frame as Element);
     expect(controls.toggleMaximize).toHaveBeenCalledTimes(1);
 
     fireEvent.doubleClick(appMenuButton);
+    expect(controls.toggleMaximize).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders working custom window control buttons", async () => {
+    const user = userEvent.setup();
+    const controls = {
+      close: vi.fn(async () => undefined),
+      minimize: vi.fn(async () => undefined),
+      toggleMaximize: vi.fn(async () => undefined),
+    };
+    render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={createServices()} windowControls={controls} />);
+
+    await user.click(screen.getByRole("button", { name: "Minimize window" }));
+    await user.click(screen.getByRole("button", { name: "Maximize window" }));
+    await user.click(screen.getByRole("button", { name: "Close window" }));
+
+    expect(controls.minimize).toHaveBeenCalledTimes(1);
+    expect(controls.toggleMaximize).toHaveBeenCalledTimes(1);
+    expect(controls.close).toHaveBeenCalledTimes(1);
+
+    fireEvent.doubleClick(screen.getByRole("group", { name: "Window controls" }));
     expect(controls.toggleMaximize).toHaveBeenCalledTimes(1);
   });
 
@@ -280,7 +298,8 @@ describe("DesktopShell", () => {
     });
     render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={services} />);
 
-    await screen.findByRole("button", { name: "Stop generation" });
+    const stopButton = await screen.findByRole("button", { name: "Stop generation" });
+    await waitFor(() => expect((stopButton as HTMLButtonElement).disabled).toBe(false));
     fireEvent.keyDown(window, { ctrlKey: true, key: "." });
 
     expect(services.chatStore.stop).toHaveBeenCalledWith("s1");

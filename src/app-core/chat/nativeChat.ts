@@ -30,6 +30,8 @@ export type NativeChatMessage = {
   references?: NativeChatReference[];
   timestamp: string;
   messageId: string;
+  turnId?: string;
+  turnStatus?: string;
 };
 
 export type NativeChatToolActivity = {
@@ -95,7 +97,6 @@ export type NativeChatState = {
   activeSessionKey: string;
   activeChatId: string;
   respondingSessionKeys: Set<string>;
-  streamMessageKeys: Map<string, string>;
   error: string;
 };
 
@@ -107,7 +108,6 @@ export function createNativeChatState(): NativeChatState {
     activeSessionKey: "",
     activeChatId: "",
     respondingSessionKeys: new Set(),
-    streamMessageKeys: new Map(),
     error: "",
   };
 }
@@ -184,10 +184,6 @@ export function setSessions(state: NativeChatState, sessions: NativeChatSession[
   }));
   state.activeSessionKey = canonicalSessionKey(state.activeSessionKey, state.activeChatId) || state.activeSessionKey;
   state.respondingSessionKeys = new Set([...state.respondingSessionKeys].map((key) => canonicalSessionKey(key) || key));
-  state.streamMessageKeys = new Map([...state.streamMessageKeys].map(([messageId, sessionKey]) => [
-    messageId,
-    canonicalSessionKey(sessionKey) || sessionKey,
-  ]));
   state.sessions = nextSessions;
   for (const session of nextSessions) {
     const bucket = sessionKeyAliases(session.key, session.chatId)
@@ -595,144 +591,11 @@ export function applyChatEvent(state: NativeChatState, event: NormalizedGatewayE
       envelope.event_type === "agent.turn.completed"
       || envelope.event_type === "agent.turn.failed"
       || envelope.event_type === "agent.turn.interrupted"
-      || envelope.event_type === "message.completed"
     ) {
       state.respondingSessionKeys.delete(sessionKey);
     } else {
       state.respondingSessionKeys.add(sessionKey);
     }
-    return;
-  }
-
-  if (event.kind === "message.delta") {
-    const sessionKey =
-      event.messageId && state.streamMessageKeys.has(event.messageId)
-        ? state.streamMessageKeys.get(event.messageId) || ""
-        : sessionKeyForChatState(state, event.chatId || state.activeChatId);
-    if (!sessionKey) {
-      logDesktopNativeChatDebug("state.event.after", {
-        dropped: "missing session key",
-        event: summarizeChatEvent(event),
-        state: summarizeNativeChatState(state),
-      });
-      return;
-    }
-    const bucket = ensureMessageBucket(state, sessionKey);
-    const existingMessage = findStreamingDeltaMessage(bucket, event.messageId);
-    const targetMessage = existingMessage ?? {
-      role: "assistant",
-      content: "",
-      reasoningContent: "",
-      timestamp: new Date().toISOString(),
-      messageId: event.messageId || "",
-    };
-    if (event.reasoning) {
-      targetMessage.reasoningContent += event.text;
-    } else {
-      targetMessage.content += event.text;
-    }
-    if (!existingMessage) {
-      bucket.push(targetMessage);
-    }
-    if (event.messageId) {
-      state.streamMessageKeys.set(event.messageId, sessionKey);
-    }
-    state.respondingSessionKeys.add(sessionKey);
-    state.error = "";
-    logDesktopNativeChatDebug("state.event.after", {
-      event: summarizeChatEvent(event),
-      state: summarizeNativeChatState(state),
-      targetSessionKey: sessionKey,
-    });
-    return;
-  }
-
-  if (event.kind === "message.completed") {
-    const sessionKey = sessionKeyForChatState(state, event.chatId || state.activeChatId);
-    if (!sessionKey) {
-      logDesktopNativeChatDebug("state.event.after", {
-        dropped: "missing session key",
-        event: summarizeChatEvent(event),
-        state: summarizeNativeChatState(state),
-      });
-      return;
-    }
-    const toolMessage = nativeToolMessageFromEvent(event);
-    const references = normalizeMessageReferences(event.raw);
-    const bucket = ensureMessageBucket(state, sessionKey);
-    const existingMessage = event.messageId
-      ? bucket.find((message) => message.messageId === event.messageId && message.role === "assistant")
-      : undefined;
-    if (!toolMessage && existingMessage) {
-      if (!existingMessage.content && event.text) {
-        existingMessage.content = event.text;
-      }
-      if (references.length) {
-        existingMessage.references = [...(existingMessage.references ?? []), ...references];
-      }
-      state.respondingSessionKeys.delete(sessionKey);
-      state.error = "";
-      logDesktopNativeChatDebug("state.event.after", {
-        event: summarizeChatEvent(event),
-        state: summarizeNativeChatState(state),
-        targetSessionKey: sessionKey,
-      });
-      return;
-    }
-    if (toolMessage && upsertToolActivityMessage(bucket, toolMessage)) {
-      state.respondingSessionKeys.delete(sessionKey);
-      state.error = "";
-      logDesktopNativeChatDebug("state.event.after", {
-        event: summarizeChatEvent(event),
-        state: summarizeNativeChatState(state),
-        targetSessionKey: sessionKey,
-      });
-      return;
-    }
-    const nextMessage: NativeChatMessage = {
-      role: "assistant",
-      content: toolMessage ? "" : event.text,
-      reasoningContent: "",
-      ...(toolMessage ? { toolActivities: [toolMessage] } : {}),
-      ...(references.length ? { references } : {}),
-      timestamp: new Date().toISOString(),
-      messageId: event.messageId || "",
-    };
-    if (toolMessage) {
-      insertToolActivityMessage(bucket, nextMessage);
-    } else {
-      bucket.push(nextMessage);
-    }
-    state.respondingSessionKeys.delete(sessionKey);
-    state.error = "";
-    logDesktopNativeChatDebug("state.event.after", {
-      event: summarizeChatEvent(event),
-      state: summarizeNativeChatState(state),
-      targetSessionKey: sessionKey,
-    });
-    return;
-  }
-
-  if (event.kind === "message.stream.completed") {
-    const sessionKey =
-      event.messageId && state.streamMessageKeys.has(event.messageId)
-        ? state.streamMessageKeys.get(event.messageId) || ""
-        : sessionKeyForChatState(state, event.chatId || state.activeChatId);
-    if (sessionKey) {
-      state.respondingSessionKeys.delete(sessionKey);
-      const references = normalizeMessageReferences(event.raw);
-      if (references.length && event.messageId) {
-        attachMessageReferences(state, sessionKey, event.messageId, references);
-      }
-    }
-    if (event.messageId) {
-      state.streamMessageKeys.delete(event.messageId);
-    }
-    logDesktopNativeChatDebug("state.event.after", {
-      event: summarizeChatEvent(event),
-      state: summarizeNativeChatState(state),
-      targetSessionKey: sessionKey,
-    });
     return;
   }
 
@@ -759,19 +622,6 @@ export function applyChatEvent(state: NativeChatState, event: NormalizedGatewayE
     event: summarizeChatEvent(event),
     state: summarizeNativeChatState(state),
   });
-}
-
-function findStreamingDeltaMessage(bucket: NativeChatMessage[], messageId: string | undefined): NativeChatMessage | undefined {
-  if (messageId) {
-    return bucket.find((message) => message.role === "assistant" && message.messageId === messageId);
-  }
-  for (let index = bucket.length - 1; index >= 0; index -= 1) {
-    const message = bucket[index];
-    if (message.role === "assistant" && !message.messageId) {
-      return message;
-    }
-  }
-  return undefined;
 }
 
 function upsertToolActivityMessage(bucket: NativeChatMessage[], nextActivity: NativeChatToolActivity): boolean {
@@ -904,19 +754,6 @@ function summarizeNativeToolActivity(activity: NativeChatToolActivity): Record<s
   };
 }
 
-function attachMessageReferences(
-  state: NativeChatState,
-  sessionKey: string,
-  messageId: string,
-  references: NativeChatReference[],
-) {
-  const message = ensureMessageBucket(state, sessionKey).find((item) => item.messageId === messageId);
-  if (!message) {
-    return;
-  }
-  message.references = [...(message.references ?? []), ...references];
-}
-
 function coalesceToolActivityMessages(messages: NativeChatMessage[]): NativeChatMessage[] {
   const coalesced: NativeChatMessage[] = [];
   for (const message of messages) {
@@ -997,16 +834,17 @@ function summarizeNativeChatState(state: NativeChatState): Record<string, unknow
     activeSessionKey: state.activeSessionKey,
     respondingSessionKeys: [...state.respondingSessionKeys],
     sessionCount: state.sessions.length,
-    streamMessageKeys: [...state.streamMessageKeys.entries()],
   };
 }
 
 function summarizeChatEvent(event: NormalizedGatewayEvent): Record<string, unknown> {
+  const messageId = "messageId" in event && typeof event.messageId === "string" ? event.messageId : "";
+  const text = "text" in event && typeof event.text === "string" ? event.text : "";
   return {
     chatId: "chatId" in event ? event.chatId : "",
     kind: event.kind,
-    messageId: "messageId" in event ? event.messageId : "",
-    text: "text" in event ? summarizeDebugText(event.text) : undefined,
+    messageId,
+    text: text ? summarizeDebugText(text) : undefined,
   };
 }
 
@@ -1097,6 +935,8 @@ function conversationMessagesToNativeMessages(messages: ReturnType<typeof turnsT
     } : {}),
     timestamp: message.time,
     messageId: message.messageId || `agent-run:${index}`,
+    ...(message.turnId ? { turnId: message.turnId } : {}),
+    ...(message.turnStatus ? { turnStatus: message.turnStatus } : {}),
   }));
 }
 
@@ -1231,14 +1071,6 @@ function normalizeToolActivities(message: Record<string, unknown>): NativeChatTo
   }
 
   return activities;
-}
-
-function nativeToolMessageFromEvent(event: Extract<NormalizedGatewayEvent, { kind: "message.completed" }>): NativeChatToolActivity | null {
-  return toolActivityFromMessage({
-    ...event.raw,
-    content: event.text,
-    message_id: event.messageId,
-  });
 }
 
 function toolActivityFromMessage(message: Record<string, unknown>): NativeChatToolActivity | null {

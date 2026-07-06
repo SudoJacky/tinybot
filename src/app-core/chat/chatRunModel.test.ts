@@ -438,6 +438,9 @@ describe("chat run model", () => {
     }
     let turns = state.turnsBySession.get("WebSocket:chat-1") ?? [];
     expect(turns[0].steps.filter((step) => step.kind === "message")).toHaveLength(1);
+    const streamMessages = turnsToConversationMessages(turns);
+    expect(streamMessages[0]).toEqual(expect.objectContaining({ turnId: "turn-1", turnStatus: "running" }));
+    expect(streamMessages[1]).toEqual(expect.objectContaining({ turnId: "turn-1", turnStatus: "running" }));
     expect(turns[0].steps.find((step) => step.kind === "message")?.summary).toBe("你好!");
     expect(turnsToConversationMessages(turns)).toEqual([
       expect.objectContaining({ body: ["Say hello"], tone: "user" }),
@@ -461,10 +464,26 @@ describe("chat run model", () => {
 
     turns = state.turnsBySession.get("WebSocket:chat-1") ?? [];
     expect(turns[0].steps.filter((step) => step.kind === "message")).toHaveLength(1);
+    const finalMessageBeforeTurnComplete = turnsToConversationMessages(turns)[1];
+    expect(finalMessageBeforeTurnComplete).toEqual(expect.objectContaining({ copyable: true, turnId: "turn-1", turnStatus: "running" }));
     expect(turnsToConversationMessages(turns)).toEqual([
       expect.objectContaining({ body: ["Say hello"], tone: "user" }),
       expect.objectContaining({ body: ["你好!"], copyable: true, tone: "assistant" }),
     ]);
+    reduceAgentEvent(state, {
+      schema_version: "tinybot.agent_event.v1",
+      event_id: "event-turn-completed",
+      event_type: "agent.turn.completed",
+      chat_id: "chat-1",
+      session_key: "WebSocket:chat-1",
+      turn_id: "turn-1",
+      sequence: 6,
+      created_at: "2026-06-27T04:00:05.000Z",
+      payload: {},
+    });
+
+    turns = state.turnsBySession.get("WebSocket:chat-1") ?? [];
+    expect(turnsToConversationMessages(turns)[1]).toEqual(expect.objectContaining({ copyable: true, turnId: "turn-1", turnStatus: "completed" }));
   });
 
   test("stores delegated trace updates on the child agent state", () => {

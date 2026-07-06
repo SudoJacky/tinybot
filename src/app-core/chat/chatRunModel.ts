@@ -102,6 +102,8 @@ export interface ChatMessageProjection {
   time: string;
   tone: "assistant" | "user";
   toolActivities?: ChatToolActivityProjection[];
+  turnId?: string;
+  turnStatus?: ChatTurnStatus;
 }
 
 export type DelegatedAgentState = {
@@ -526,6 +528,9 @@ export function reduceAgentEvent(state: ChatRunState, event: AgentEventEnvelope)
   }
 
   if (event.event_type === "message.delta" || event.event_type === "message.completed") {
+    if (turn.status === "pending") {
+      turn.status = "running";
+    }
     const text = stringValue(event.payload.text);
     const messageId = stringValue(event.payload.message_id) || stableId("message", turn.id, event.sequence);
     const stepId = messageStepId(turn.id, messageId);
@@ -541,8 +546,6 @@ export function reduceAgentEvent(state: ChatRunState, event: AgentEventEnvelope)
         text,
         timestamp: event.created_at,
       };
-      turn.status = "completed";
-      turn.completedAt = event.created_at;
     }
     upsertStep(turn, event, {
       kind: "message",
@@ -976,12 +979,14 @@ export function turnsToConversationMessages(turns: ChatTurn[]): ChatMessageProje
       time: turn.userMessage.timestamp,
       tone: "user",
       toolActivities: [],
+      turnId: turn.id,
+      turnStatus: turn.status,
     }];
     for (const step of turn.steps) {
       if (turn.finalMessage && step.kind === "message") {
         continue;
       }
-      messages.push(stepToConversationMessage(step));
+      messages.push(stepToConversationMessage(step, turn));
     }
     if (turn.finalMessage) {
       messages.push({
@@ -994,6 +999,8 @@ export function turnsToConversationMessages(turns: ChatTurn[]): ChatMessageProje
         time: turn.finalMessage.timestamp,
         tone: "assistant",
         toolActivities: [],
+        turnId: turn.id,
+        turnStatus: turn.status,
       });
     }
     return messages;
@@ -1028,7 +1035,7 @@ export function sanitizeTextPreview(value: string): string {
     .replace(/\b(api_key|token|secret|password|authorization|cookie|credential|private_key)\s*[:=]\s*([^\s,;]+)/gi, "$1=[redacted]");
 }
 
-function stepToConversationMessage(step: ChatStep): ChatMessageProjection {
+function stepToConversationMessage(step: ChatStep, turn: ChatTurn): ChatMessageProjection {
   return {
     author: "Tinybot",
     body: step.kind === "message" && step.summary ? [step.summary] : [],
@@ -1040,6 +1047,8 @@ function stepToConversationMessage(step: ChatStep): ChatMessageProjection {
     time: step.startedAt || step.completedAt || "",
     tone: "assistant",
     toolActivities: stepToToolActivities(step),
+    turnId: turn.id,
+    turnStatus: turn.status,
   };
 }
 
