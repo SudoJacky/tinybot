@@ -1,4 +1,5 @@
 import type { ReactChatMessage } from "./chat/messageActions";
+import type { AgentUiForm } from "../app-core/agent-ui/agentUiEvents";
 
 export type SessionSummary = {
   id: string;
@@ -22,6 +23,14 @@ export type ChatEvent = {
   message?: ReactChatMessage;
 };
 
+export type ApprovalAction = "approveOnce" | "approveSession" | "deny";
+
+export type ApprovalResolutionInput = {
+  action: ApprovalAction;
+  approvalId: string;
+  guidance?: string;
+};
+
 export type SessionStore = {
   list(): Promise<SessionSummary[]>;
   create(input?: { title?: string }): Promise<SessionSummary>;
@@ -35,6 +44,10 @@ export type ChatStore = {
   load(sessionId: string): Promise<ReactChatMessage[]>;
   send(sessionId: string, input: ChatInput): Promise<void>;
   stop(sessionId: string): Promise<void>;
+  resolveApproval(sessionId: string, input: ApprovalResolutionInput): Promise<void>;
+  listAgentUiForms(sessionId: string): Promise<AgentUiForm[]>;
+  submitAgentUiForm(formId: string, values: Record<string, unknown>): Promise<void>;
+  cancelAgentUiForm(formId: string): Promise<void>;
   branchFromMessage(sessionId: string, messageId: string): Promise<SessionSummary>;
   copyMarkdown(sessionId: string): Promise<string>;
   subscribe(sessionId: string, listener: (event: ChatEvent) => void): () => void;

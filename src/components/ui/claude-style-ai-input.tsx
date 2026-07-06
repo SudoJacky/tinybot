@@ -14,6 +14,7 @@ import {
   Music,
   Plus,
   SlidersHorizontal,
+  Square,
   Video,
   X,
 } from "lucide-react";
@@ -73,6 +74,8 @@ export interface ClaudeStyleAiInputProps {
   defaultModel?: string;
   onModelChange?: (modelId: string) => void;
   tools?: ComposerToolOption[];
+  responding?: boolean;
+  onStopResponding?: () => void | Promise<void>;
 }
 
 const MAX_FILES = 10;
@@ -98,7 +101,9 @@ export function ClaudeStyleAiInput({
   models = EMPTY_MODELS,
   onModelChange,
   onSendMessage,
+  onStopResponding,
   placeholder = "Message Tinybot",
+  responding = false,
   tools = EMPTY_TOOLS,
 }: ClaudeStyleAiInputProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -171,6 +176,15 @@ export function ClaudeStyleAiInput({
       setError("Message could not be sent.");
     } finally {
       setSending(false);
+    }
+  }
+
+  async function handleStopResponding() {
+    setError("");
+    try {
+      await onStopResponding?.();
+    } catch {
+      setError("Generation could not be stopped.");
     }
   }
 
@@ -411,15 +425,28 @@ export function ClaudeStyleAiInput({
             </div>
           </div>
 
-          <button
-            aria-label="Send message"
-            className="claude-ai-input__send"
-            disabled={!canSend}
-            title="Send message"
-            type="submit"
-          >
-            <ArrowUp aria-hidden="true" size={18} />
-          </button>
+          {responding ? (
+            <button
+              aria-label="Stop generation"
+              className="claude-ai-input__send"
+              disabled={disabled}
+              title="Stop generation"
+              type="button"
+              onClick={() => void handleStopResponding()}
+            >
+              <Square aria-hidden="true" size={15} />
+            </button>
+          ) : (
+            <button
+              aria-label="Send message"
+              className="claude-ai-input__send"
+              disabled={!canSend}
+              title="Send message"
+              type="submit"
+            >
+              <ArrowUp aria-hidden="true" size={18} />
+            </button>
+          )}
         </div>
       </div>
     </form>

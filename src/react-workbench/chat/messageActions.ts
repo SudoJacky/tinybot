@@ -1,8 +1,22 @@
 export type ToolCallSummary = {
+  approvalId?: string;
+  approvalStatus?: string;
+  argsText?: string;
+  childRunId?: string;
+  delegateId?: string;
+  delegateTask?: string;
+  delegateTitle?: string;
+  delegateType?: string;
+  finalOutput?: string;
   id: string;
   name: string;
+  parentRunId?: string;
+  parentTurnId?: string;
+  responseText?: string;
+  sessionKey?: string;
   status: "pending" | "running" | "complete" | "failed" | "blocked" | string;
   summary?: string;
+  traceRef?: string;
 };
 
 export type ContextReferenceSummary = {

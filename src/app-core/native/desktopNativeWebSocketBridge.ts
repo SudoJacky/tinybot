@@ -398,13 +398,6 @@ class DesktopNativeWebSocket extends EventTarget {
         runId,
         text: summarizeDebugText(text),
       });
-      this.emitJson({
-        event: "delta",
-        chat_id: run.chatId,
-        message_id: run.messageId,
-        text,
-        is_reasoning: eventName === "agent.reasoning_delta",
-      });
       this.emitAgentEventFrame(run, runId, eventName === "agent.reasoning_delta" ? "reasoning.delta" : "message.delta", {
         message_id: run.messageId,
         ...(eventName === "agent.reasoning_delta" ? { summary: text } : {}),

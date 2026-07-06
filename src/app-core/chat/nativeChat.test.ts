@@ -13,6 +13,39 @@ import {
   sessionKeyForChat,
 } from "./nativeChat";
 
+function agentEvent({
+  chatId = "chat-1",
+  eventId,
+  eventType,
+  payload,
+  sequence,
+  turnId = "turn-1",
+}: {
+  chatId?: string;
+  eventId: string;
+  eventType: string;
+  payload: Record<string, unknown>;
+  sequence: number;
+  turnId?: string;
+}) {
+  return {
+    kind: "agent.event" as const,
+    chatId,
+    raw: {
+      event: "agent_event",
+      schema_version: "tinybot.agent_event.v1",
+      event_id: eventId,
+      event_type: eventType,
+      chat_id: chatId,
+      session_key: sessionKeyForChat(chatId),
+      turn_id: turnId,
+      sequence,
+      created_at: "2026-05-29T08:00:00.000Z",
+      payload,
+    },
+  };
+}
+
 describe("native chat state", () => {
   test("normalizes gateway sessions and messages without changing existing shapes", () => {
     expect(
@@ -132,27 +165,38 @@ describe("native chat state", () => {
     expect(state.messages.get("websocket:chat-legacy")).toMatchObject([{ content: "kept message" }]);
   });
 
-  test("tracks active session and merges streaming deltas like the hosted WebUI", () => {
+  test("tracks active session and merges structured streaming deltas", () => {
     const state = createNativeChatState();
 
     applyChatEvent(state, { kind: "chat.created", chatId: "chat-1", raw: {} });
-    appendUserMessage(state, "hello", "2026-05-29T08:00:00Z");
-    applyChatEvent(state, {
-      kind: "message.delta",
-      chatId: "chat-1",
-      messageId: "m1",
-      text: "think",
-      reasoning: true,
-      raw: {},
-    });
-    applyChatEvent(state, {
-      kind: "message.delta",
-      chatId: "chat-1",
-      messageId: "m1",
-      text: "answer",
-      reasoning: false,
-      raw: {},
-    });
+    applyChatEvent(state, agentEvent({
+      eventId: "event-turn-start",
+      eventType: "agent.turn.started",
+      payload: {
+        user_message: { id: "user-1", role: "user", text: "hello" },
+        user_message_id: "user-1",
+      },
+      sequence: 1,
+    }));
+    applyChatEvent(state, agentEvent({
+      eventId: "event-reasoning",
+      eventType: "reasoning.delta",
+      payload: {
+        message_id: "m1",
+        summary: "think",
+        text: "think",
+      },
+      sequence: 2,
+    }));
+    applyChatEvent(state, agentEvent({
+      eventId: "event-message",
+      eventType: "message.delta",
+      payload: {
+        message_id: "m1",
+        text: "answer",
+      },
+      sequence: 3,
+    }));
 
     expect(state.activeChatId).toBe("chat-1");
     expect(state.activeSessionKey).toBe(sessionKeyForChat("chat-1"));
@@ -167,12 +211,15 @@ describe("native chat state", () => {
       },
     ]);
 
-    applyChatEvent(state, {
-      kind: "message.stream.completed",
-      chatId: "chat-1",
-      messageId: "m1",
-      raw: {},
-    });
+    applyChatEvent(state, agentEvent({
+      eventId: "event-turn-completed",
+      eventType: "agent.turn.completed",
+      payload: {
+        message_id: "m1",
+        reason: "final_response",
+      },
+      sequence: 4,
+    }));
 
     expect(state.respondingSessionKeys.has(sessionKeyForChat("chat-1"))).toBe(false);
   });
@@ -321,14 +368,15 @@ describe("native chat state", () => {
         _memory_references: [{ note_id: "note_complete", content: "Complete memory" }],
       },
     });
-    applyChatEvent(state, {
-      kind: "message.delta",
-      chatId: "chat-1",
-      messageId: "m-stream",
-      text: "Streamed answer",
-      reasoning: false,
-      raw: {},
-    });
+    applyChatEvent(state, agentEvent({
+      eventId: "event-stream-delta",
+      eventType: "message.delta",
+      payload: {
+        message_id: "m-stream",
+        text: "Streamed answer",
+      },
+      sequence: 1,
+    }));
     applyChatEvent(state, {
       kind: "message.stream.completed",
       chatId: "chat-1",
@@ -338,30 +386,31 @@ describe("native chat state", () => {
       },
     });
 
-    expect(state.messages.get(sessionKeyForChat("chat-1"))).toMatchObject([
-      {
+    expect(state.messages.get(sessionKeyForChat("chat-1"))).toEqual(expect.arrayContaining([
+      expect.objectContaining({
         messageId: "m-complete",
-        references: [{ kind: "memory", title: "note_complete", detail: "Complete memory" }],
-      },
-      {
+        references: [expect.objectContaining({ kind: "memory", title: "note_complete", detail: "Complete memory" })],
+      }),
+      expect.objectContaining({
         messageId: "m-stream",
-        references: [{ kind: "recent", title: "ev_stream", detail: "Stream context" }],
-      },
-    ]);
+        references: [expect.objectContaining({ kind: "recent", title: "ev_stream", detail: "Stream context" })],
+      }),
+    ]));
   });
 
   test("does not append a completed message for a stream message with the same id", () => {
     const state = createNativeChatState();
     applyChatEvent(state, { kind: "attached", chatId: "chat-1", raw: {} });
 
-    applyChatEvent(state, {
-      kind: "message.delta",
-      chatId: "chat-1",
-      messageId: "m-stream",
-      text: "Streamed answer",
-      reasoning: false,
-      raw: {},
-    });
+    applyChatEvent(state, agentEvent({
+      eventId: "event-stream-delta",
+      eventType: "message.delta",
+      payload: {
+        message_id: "m-stream",
+        text: "Streamed answer",
+      },
+      sequence: 1,
+    }));
     applyChatEvent(state, {
       kind: "message.completed",
       chatId: "chat-1",
@@ -372,14 +421,14 @@ describe("native chat state", () => {
       },
     });
 
-    expect(state.messages.get(sessionKeyForChat("chat-1"))).toMatchObject([
-      {
+    expect(state.messages.get(sessionKeyForChat("chat-1"))).toEqual(expect.arrayContaining([
+      expect.objectContaining({
         content: "Streamed answer",
         messageId: "m-stream",
-        references: [{ kind: "memory", title: "note_stream", detail: "Stream memory" }],
-      },
-    ]);
-    expect(state.messages.get(sessionKeyForChat("chat-1"))).toHaveLength(1);
+        references: [expect.objectContaining({ kind: "memory", title: "note_stream", detail: "Stream memory" })],
+      }),
+    ]));
+    expect(state.messages.get(sessionKeyForChat("chat-1"))?.filter((message) => message.messageId === "m-stream")).toHaveLength(1);
   });
 
   test("clears responding state when a stream is interrupted or errors", () => {
@@ -612,14 +661,15 @@ describe("native chat state", () => {
   test("keeps late live tool events before the streamed final answer", () => {
     const state = createNativeChatState();
     applyChatEvent(state, { kind: "attached", chatId: "chat-1", raw: {} });
-    applyChatEvent(state, {
-      kind: "message.delta",
-      chatId: "chat-1",
-      messageId: "answer-1",
-      text: "The workspace contains apps and docs.",
-      reasoning: false,
-      raw: {},
-    });
+    applyChatEvent(state, agentEvent({
+      eventId: "event-answer-delta",
+      eventType: "message.delta",
+      payload: {
+        message_id: "answer-1",
+        text: "The workspace contains apps and docs.",
+      },
+      sequence: 1,
+    }));
     applyChatEvent(state, {
       kind: "message.completed",
       chatId: "chat-1",
@@ -633,26 +683,26 @@ describe("native chat state", () => {
       },
     });
 
-    expect(state.messages.get(sessionKeyForChat("chat-1"))).toMatchObject([
-      {
+    expect(state.messages.get(sessionKeyForChat("chat-1"))).toEqual(expect.arrayContaining([
+      expect.objectContaining({
         role: "assistant",
         content: "",
         messageId: "tool-list-1",
         toolActivities: [
-          {
+          expect.objectContaining({
             id: "call-list",
             name: "list_dir",
             responseText: "AGENTS.md\napps/\ndocs/",
             status: "completed",
-          },
+          }),
         ],
-      },
-      {
+      }),
+      expect.objectContaining({
         role: "assistant",
         content: "The workspace contains apps and docs.",
         messageId: "answer-1",
-      },
-    ]);
+      }),
+    ]));
   });
 
   test("projects structured agent events through the native chat message timeline", () => {

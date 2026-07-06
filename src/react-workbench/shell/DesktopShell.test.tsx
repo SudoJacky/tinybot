@@ -5,11 +5,12 @@ import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DesktopShell } from "./DesktopShell";
-import type { AppServices } from "../services";
+import type { AppServices, SessionSummary } from "../services";
+import type { ReactChatMessage } from "../chat/messageActions";
 
 afterEach(() => cleanup());
 
-function createServices(): AppServices & {
+function createServices(options: { messages?: ReactChatMessage[]; sessions?: SessionSummary[] } = {}): AppServices & {
   workspaceStore: { listFiles: ReturnType<typeof vi.fn> };
   knowledgeStore: { listDocuments: ReturnType<typeof vi.fn>; stats: ReturnType<typeof vi.fn> };
   toolsStore: { listSkills: ReturnType<typeof vi.fn> };
@@ -17,7 +18,7 @@ function createServices(): AppServices & {
 } {
   return {
     sessionStore: {
-      list: vi.fn(async () => []),
+      list: vi.fn(async () => options.sessions ?? []),
       create: vi.fn(async () => ({ id: "s1", chatId: "chat-1", title: "New session", updatedAtMs: Date.now() })),
       delete: vi.fn(async () => undefined),
       rename: vi.fn(async () => undefined),
@@ -25,9 +26,13 @@ function createServices(): AppServices & {
       archive: vi.fn(async () => undefined),
     },
     chatStore: {
-      load: vi.fn(async () => []),
+      load: vi.fn(async () => options.messages ?? []),
       send: vi.fn(async () => undefined),
       stop: vi.fn(async () => undefined),
+      resolveApproval: vi.fn(async () => undefined),
+      listAgentUiForms: vi.fn(async () => []),
+      submitAgentUiForm: vi.fn(async () => undefined),
+      cancelAgentUiForm: vi.fn(async () => undefined),
       branchFromMessage: vi.fn(async () => ({ id: "s1", chatId: "chat-1", title: "Branch", updatedAtMs: Date.now() })),
       copyMarkdown: vi.fn(async () => ""),
       subscribe: vi.fn(() => () => undefined),
@@ -224,6 +229,61 @@ describe("DesktopShell", () => {
     await user.click(within(screen.getByRole("menu", { name: "Application menu" })).getByRole("menuitem", { name: /Toggle Sidebar/ }));
 
     expect(sidebar.getAttribute("data-collapsed")).toBe("false");
+  });
+
+  it("runs Stop Generation from the App menu for the active running chat", async () => {
+    const user = userEvent.setup();
+    const services = createServices({
+      messages: [{
+        id: "u1",
+        role: "user",
+        createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+        text: "Keep going",
+        status: "complete",
+      }],
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Running chat",
+        updatedAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+        status: "running",
+      }],
+    });
+    render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={services} />);
+
+    await screen.findByRole("heading", { name: "Running chat" });
+    await user.click(screen.getByRole("button", { name: "App" }));
+    const stopCommand = within(screen.getByRole("menu", { name: "Application menu" })).getByRole("menuitem", { name: /Stop Generation/ });
+
+    expect((stopCommand as HTMLButtonElement).disabled).toBe(false);
+    await user.click(stopCommand);
+
+    expect(services.chatStore.stop).toHaveBeenCalledWith("s1");
+  });
+
+  it("runs Stop Generation from the keyboard shortcut for the active running chat", async () => {
+    const services = createServices({
+      messages: [{
+        id: "u1",
+        role: "user",
+        createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+        text: "Keep going",
+        status: "complete",
+      }],
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Running chat",
+        updatedAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+        status: "running",
+      }],
+    });
+    render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={services} />);
+
+    await screen.findByRole("button", { name: "Stop generation" });
+    fireEvent.keyDown(window, { ctrlKey: true, key: "." });
+
+    expect(services.chatStore.stop).toHaveBeenCalledWith("s1");
   });
 
   it("runs route commands from the command palette", async () => {

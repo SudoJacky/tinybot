@@ -2,6 +2,16 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { createDesktopChatSessionController } from "../app-core/chat/desktopChatSessionController";
 import { sessionKeyForChat, type NativeChatMessage, type NativeChatReference, type NativeChatSession } from "../app-core/chat/nativeChat";
+import { submitDesktopApprovalAction } from "../app-core/agent-ui/desktopApprovalActions";
+import {
+  AGENT_UI_FORM_STATUSES,
+  buildAgentUiFormCancelRequest,
+  buildAgentUiFormSubmitRequest,
+  createAgentUiEventState,
+  normalizeAgentUiEvents,
+  reduceAgentUiEventState,
+  type AgentUiForm,
+} from "../app-core/agent-ui/agentUiEvents";
 import { DEFAULT_GATEWAY_CONFIG, resolveGatewayConfig } from "../app-core/gateway/gatewayConfig";
 import { installDesktopGatewayBridge } from "../app-core/gateway/desktopGatewayBridge";
 import { ensureGatewayReady } from "../app-core/gateway/desktopGatewayStartup";
@@ -78,6 +88,7 @@ export function createDesktopAppServices(): AppServices {
   let pendingNewSessionId = "";
   let pendingNewSession: SessionSummary | null = null;
   let pendingNewSessionTitle = "";
+  const agentUiState = createAgentUiEventState();
 
   const controller = createDesktopChatSessionController({
     api: {
@@ -148,6 +159,7 @@ export function createDesktopAppServices(): AppServices {
   async function handleGatewayEvent(event: NormalizedGatewayEvent): Promise<void> {
     const titleForCreatedSession = event.kind === "chat.created" ? pendingNewSessionTitle : "";
     await controller.handleGatewayEvent(event);
+    reduceAgentUiEventsFromGatewayEvent(event);
     if (event.kind === "chat.created") {
       if (titleForCreatedSession) {
         await persistAutoSessionTitle(sessionKeyForChat(event.chatId), titleForCreatedSession);
@@ -157,6 +169,15 @@ export function createDesktopAppServices(): AppServices {
       pendingNewSessionTitle = "";
     }
     notifyAll(chatEventFromGatewayEvent(event));
+  }
+
+  function reduceAgentUiEventsFromGatewayEvent(event: NormalizedGatewayEvent): void {
+    if (event.kind !== "agent-ui.form" && event.kind !== "agent-ui.event" && event.kind !== "browser.frame" && event.kind !== "browser.snapshot") {
+      return;
+    }
+    for (const agentUiEvent of normalizeAgentUiEvents(event.raw)) {
+      reduceAgentUiEventState(agentUiState, agentUiEvent);
+    }
   }
 
   function notifyAll(event: ChatEvent): void {
@@ -307,6 +328,61 @@ export function createDesktopAppServices(): AppServices {
         controller.interruptActiveChat();
         notifyAll({ type: "chat-stopped" });
       },
+      async resolveApproval(sessionId, input) {
+        await initialize();
+        await submitDesktopApprovalAction({
+          action: input.action,
+          approvalId: input.approvalId,
+          gatewayTools: gatewayApi.tools,
+          ...(input.guidance ? { guidance: input.guidance } : {}),
+          invoke,
+          preferNativeWorkerResume: nativeMode,
+          sessionKey: sessionId,
+        });
+        await controller.loadSessions();
+        notifySession(sessionId, { type: "approval-resolved" });
+      },
+      async listAgentUiForms(sessionId) {
+        await initialize();
+        return Array.from(agentUiState.forms.values()).filter((form) => formMatchesSession(form, sessionId));
+      },
+      async submitAgentUiForm(formId, values) {
+        await initialize();
+        const form = agentUiState.forms.get(formId);
+        if (!form) {
+          return;
+        }
+        const request = buildAgentUiFormSubmitRequest(form, values);
+        if (!request) {
+          return;
+        }
+        await gatewayApi.agentUi.submitForm(formId, request);
+        agentUiState.forms.set(formId, {
+          ...form,
+          status: AGENT_UI_FORM_STATUSES.submitted,
+          submitting: false,
+          values: { ...values },
+        });
+        notifyAll({ type: "agent-ui.form" });
+      },
+      async cancelAgentUiForm(formId) {
+        await initialize();
+        const form = agentUiState.forms.get(formId);
+        if (!form) {
+          return;
+        }
+        const request = buildAgentUiFormCancelRequest(form);
+        if (!request) {
+          return;
+        }
+        await gatewayApi.agentUi.cancelForm(formId, request);
+        agentUiState.forms.set(formId, {
+          ...form,
+          status: AGENT_UI_FORM_STATUSES.cancelled,
+          submitting: false,
+        });
+        notifyAll({ type: "agent-ui.form" });
+      },
       async branchFromMessage(sessionId, messageId) {
         await initialize();
         const payload = await gatewayApi.sessions.branch?.({ session_key: sessionId, message_id: messageId });
@@ -399,10 +475,24 @@ function mapMessage(
     ? message.role
     : "assistant";
   const toolCalls = (message.toolActivities ?? []).map((activity) => ({
+    ...(activity.approvalId ? { approvalId: activity.approvalId } : {}),
+    ...(activity.approvalStatus ? { approvalStatus: activity.approvalStatus } : {}),
+    ...(activity.argsText ? { argsText: activity.argsText } : {}),
+    ...(activity.childRunId ? { childRunId: activity.childRunId } : {}),
+    ...(activity.delegateId ? { delegateId: activity.delegateId } : {}),
+    ...(activity.delegateTask ? { delegateTask: activity.delegateTask } : {}),
+    ...(activity.delegateTitle ? { delegateTitle: activity.delegateTitle } : {}),
+    ...(activity.delegateType ? { delegateType: activity.delegateType } : {}),
+    ...(activity.finalOutput ? { finalOutput: activity.finalOutput } : {}),
     id: activity.id,
     name: activity.name,
+    ...(activity.parentRunId ? { parentRunId: activity.parentRunId } : {}),
+    ...(activity.parentTurnId ? { parentTurnId: activity.parentTurnId } : {}),
+    ...(activity.responseText ? { responseText: activity.responseText } : {}),
+    ...(activity.sessionKey ? { sessionKey: activity.sessionKey } : {}),
     status: activity.status || activity.approvalStatus || (activity.kind === "result" ? "complete" : "running"),
     summary: activity.responseText || activity.argsText,
+    ...(activity.traceRef ? { traceRef: activity.traceRef } : {}),
   }));
   const streaming = role === "assistant" && Boolean(options.sessionRunning && options.isLatest);
   const contextReferences = (message.references ?? []).map(mapContextReference);
@@ -547,6 +637,12 @@ function normalizeSettingsSummary(snapshot: unknown, config: { httpBaseUrl: stri
 }
 
 function chatEventFromGatewayEvent(event: NormalizedGatewayEvent): ChatEvent {
+  if (event.kind === "agent-ui.event") {
+    return {
+      type: event.kind,
+      ...(event.eventType ? { eventType: event.eventType } : {}),
+    };
+  }
   if (event.kind !== "agent.event") {
     return { type: event.kind };
   }
@@ -555,6 +651,14 @@ function chatEventFromGatewayEvent(event: NormalizedGatewayEvent): ChatEvent {
     type: event.kind,
     ...(eventType ? { eventType } : {}),
   };
+}
+
+function formMatchesSession(form: AgentUiForm, sessionId: string): boolean {
+  const chatId = stringValue(form.chat_id || form.correlation.chat_id);
+  const sessionKey = stringValue(form.correlation.session_key ?? form.correlation.sessionKey);
+  return sessionKey === sessionId
+    || chatId === sessionId
+    || (Boolean(chatId) && sessionId.endsWith(`:${chatId}`));
 }
 
 function normalizeChatModelOptions(

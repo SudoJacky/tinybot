@@ -2,6 +2,8 @@ import { describe, expect, test } from "vitest";
 import {
   MAX_QUEUED_INPUTS,
   SESSION_APPROVAL_GRANT_POLICY,
+  deleteQueuedInput,
+  dispatchNextQueuedInput,
   pauseQueuedInputs,
   resolveComposerMode,
   resumeNextQueuedInput,
@@ -106,7 +108,44 @@ describe("chat input state", () => {
       remainingInputs: [{ ...queuedInputs[1], status: "paused" }],
     });
   });
+
+  test("dispatches one queued input on normal completion and preserves the rest", () => {
+    const queuedInputs = [
+      queued("queued-1", "first"),
+      queued("queued-2", "second"),
+      queued("queued-3", "third"),
+    ];
+
+    expect(dispatchNextQueuedInput(queuedInputs)).toEqual({
+      nextInput: { ...queuedInputs[0], status: "queued" },
+      remainingInputs: [queuedInputs[1], queuedInputs[2]],
+    });
+  });
+
+  test("deletes an unsent queued input by id", () => {
+    const queuedInputs = [
+      queued("queued-1", "first"),
+      queued("queued-2", "second"),
+      { ...queued("queued-3", "third"), status: "sent" as const },
+    ];
+
+    expect(deleteQueuedInput(queuedInputs, "queued-2")).toEqual([
+      queuedInputs[0],
+      queuedInputs[2],
+    ]);
+    expect(deleteQueuedInput(queuedInputs, "queued-3")).toEqual(queuedInputs);
+  });
 });
+
+function queued(id: string, content: string): QueuedInput {
+  return {
+    id,
+    mode: "queued",
+    content,
+    createdAt: "2026-07-01T10:12:00Z",
+    status: "queued",
+  };
+}
 
 function approval(id: string): ApprovalRequest {
   return {
