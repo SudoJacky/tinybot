@@ -6768,9 +6768,21 @@ fn renderer_diagnostic_log_line(input: serde_json::Value) -> String {
     if line.len() <= MAX_RENDERER_DIAGNOSTIC_LOG_LINE {
         return line;
     }
-    let mut truncated = line;
-    truncated.truncate(MAX_RENDERER_DIAGNOSTIC_LOG_LINE);
-    format!("{truncated}...")
+    truncate_utf8_with_ellipsis(line, MAX_RENDERER_DIAGNOSTIC_LOG_LINE)
+}
+
+fn truncate_utf8_with_ellipsis(mut value: String, max_bytes: usize) -> String {
+    if value.len() <= max_bytes {
+        return value;
+    }
+    let boundary = value
+        .char_indices()
+        .map(|(index, _)| index)
+        .take_while(|index| *index <= max_bytes)
+        .last()
+        .unwrap_or(0);
+    value.truncate(boundary);
+    format!("{value}...")
 }
 
 fn worker_manager_frontend_event(event: WorkerManagerEvent) -> (String, serde_json::Value) {
@@ -11756,6 +11768,17 @@ mod tests {
         assert!(contents.contains("\"type\":\"react.render\""));
         assert!(contents.contains("\"message\":\"render exploded\""));
         assert!(contents.contains("\"stage\":\"socket.frame\""));
+    }
+
+    #[test]
+    fn renderer_diagnostics_truncate_on_utf8_boundary() {
+        let line = format!("{}你好", "a".repeat((16 * 1024) - 1));
+
+        let truncated = truncate_utf8_with_ellipsis(line, 16 * 1024);
+
+        assert!(truncated.ends_with("..."));
+        assert!(truncated.is_char_boundary(truncated.len()));
+        assert_eq!(truncated, format!("{}...", "a".repeat((16 * 1024) - 1)));
     }
 
     #[test]

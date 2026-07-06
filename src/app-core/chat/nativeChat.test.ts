@@ -224,6 +224,78 @@ describe("native chat state", () => {
     expect(state.respondingSessionKeys.has(sessionKeyForChat("chat-1"))).toBe(false);
   });
 
+  test("keeps legacy normalized message deltas streaming without agent events", () => {
+    const state = createNativeChatState();
+    applyChatEvent(state, { kind: "attached", chatId: "chat-1", raw: {} });
+
+    applyChatEvent(state, {
+      kind: "message.delta",
+      chatId: "chat-1",
+      messageId: "legacy-stream-1",
+      text: "Hello",
+      reasoning: false,
+      raw: { event: "delta" },
+    });
+    applyChatEvent(state, {
+      kind: "message.delta",
+      chatId: "chat-1",
+      messageId: "legacy-stream-1",
+      text: " world",
+      reasoning: false,
+      raw: { event: "message_delta" },
+    });
+
+    expect(state.messages.get(sessionKeyForChat("chat-1"))).toMatchObject([
+      {
+        role: "assistant",
+        content: "Hello world",
+        reasoningContent: "",
+        messageId: "legacy-stream-1",
+      },
+    ]);
+    expect(state.respondingSessionKeys.has(sessionKeyForChat("chat-1"))).toBe(true);
+
+    applyChatEvent(state, {
+      kind: "message.stream.completed",
+      chatId: "chat-1",
+      messageId: "legacy-stream-1",
+      raw: { event: "stream_end" },
+    });
+
+    expect(state.respondingSessionKeys.has(sessionKeyForChat("chat-1"))).toBe(false);
+  });
+
+  test("keeps legacy normalized reasoning deltas on the assistant message", () => {
+    const state = createNativeChatState();
+    applyChatEvent(state, { kind: "attached", chatId: "chat-1", raw: {} });
+
+    applyChatEvent(state, {
+      kind: "message.delta",
+      chatId: "chat-1",
+      messageId: "legacy-stream-2",
+      text: "Thinking",
+      reasoning: true,
+      raw: { event: "reasoning_delta" },
+    });
+    applyChatEvent(state, {
+      kind: "message.delta",
+      chatId: "chat-1",
+      messageId: "legacy-stream-2",
+      text: " done",
+      reasoning: false,
+      raw: { event: "delta" },
+    });
+
+    expect(state.messages.get(sessionKeyForChat("chat-1"))).toMatchObject([
+      {
+        role: "assistant",
+        content: " done",
+        reasoningContent: "Thinking",
+        messageId: "legacy-stream-2",
+      },
+    ]);
+  });
+
   test("normalizes backend memory and recent context references from persisted messages", () => {
     expect(
       normalizeMessagesPayload({

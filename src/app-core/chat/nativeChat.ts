@@ -604,6 +604,49 @@ export function applyChatEvent(state: NativeChatState, event: NormalizedGatewayE
     return;
   }
 
+  if (event.kind === "message.delta") {
+    const sessionKey =
+      event.messageId && state.streamMessageKeys.has(event.messageId)
+        ? state.streamMessageKeys.get(event.messageId) || ""
+        : sessionKeyForChatState(state, event.chatId || state.activeChatId);
+    if (!sessionKey) {
+      logDesktopNativeChatDebug("state.event.after", {
+        dropped: "missing session key",
+        event: summarizeChatEvent(event),
+        state: summarizeNativeChatState(state),
+      });
+      return;
+    }
+    const bucket = ensureMessageBucket(state, sessionKey);
+    const existingMessage = findStreamingDeltaMessage(bucket, event.messageId);
+    const targetMessage = existingMessage ?? {
+      role: "assistant",
+      content: "",
+      reasoningContent: "",
+      timestamp: new Date().toISOString(),
+      messageId: event.messageId || "",
+    };
+    if (event.reasoning) {
+      targetMessage.reasoningContent += event.text;
+    } else {
+      targetMessage.content += event.text;
+    }
+    if (!existingMessage) {
+      bucket.push(targetMessage);
+    }
+    if (event.messageId) {
+      state.streamMessageKeys.set(event.messageId, sessionKey);
+    }
+    state.respondingSessionKeys.add(sessionKey);
+    state.error = "";
+    logDesktopNativeChatDebug("state.event.after", {
+      event: summarizeChatEvent(event),
+      state: summarizeNativeChatState(state),
+      targetSessionKey: sessionKey,
+    });
+    return;
+  }
+
   if (event.kind === "message.completed") {
     const sessionKey = sessionKeyForChatState(state, event.chatId || state.activeChatId);
     if (!sessionKey) {
@@ -716,6 +759,19 @@ export function applyChatEvent(state: NativeChatState, event: NormalizedGatewayE
     event: summarizeChatEvent(event),
     state: summarizeNativeChatState(state),
   });
+}
+
+function findStreamingDeltaMessage(bucket: NativeChatMessage[], messageId: string | undefined): NativeChatMessage | undefined {
+  if (messageId) {
+    return bucket.find((message) => message.role === "assistant" && message.messageId === messageId);
+  }
+  for (let index = bucket.length - 1; index >= 0; index -= 1) {
+    const message = bucket[index];
+    if (message.role === "assistant" && !message.messageId) {
+      return message;
+    }
+  }
+  return undefined;
 }
 
 function upsertToolActivityMessage(bucket: NativeChatMessage[], nextActivity: NativeChatToolActivity): boolean {
