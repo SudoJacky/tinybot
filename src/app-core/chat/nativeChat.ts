@@ -10,6 +10,7 @@ import {
   type AgentEventEnvelope,
   type BackendAgentRunRuntimeState,
   type ChatRunState,
+  type TokenUsage,
 } from "./chatRunModel";
 
 export type NativeChatSession = {
@@ -32,6 +33,7 @@ export type NativeChatMessage = {
   messageId: string;
   turnId?: string;
   turnStatus?: string;
+  usage?: TokenUsage;
 };
 
 export type NativeChatToolActivity = {
@@ -937,6 +939,7 @@ function conversationMessagesToNativeMessages(messages: ReturnType<typeof turnsT
     messageId: message.messageId || `agent-run:${index}`,
     ...(message.turnId ? { turnId: message.turnId } : {}),
     ...(message.turnStatus ? { turnStatus: message.turnStatus } : {}),
+    ...(message.usage ? { usage: message.usage } : {}),
   }));
 }
 

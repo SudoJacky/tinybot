@@ -33,6 +33,8 @@ pub enum ConfigDiagnosticLevel {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConfigDiagnosticCode {
     MissingConfig,
+    DefaultConfigCreated,
+    DefaultConfigCreateFailed,
     InvalidJson,
     InvalidConfig,
     AliasConflict,
@@ -560,6 +562,7 @@ fn canonical_config_segment(parent: &[String], _index: usize, segment: &str) -> 
             "active_profile" => "activeProfile".to_string(),
             "max_tokens" => "maxTokens".to_string(),
             "context_block_limit" => "contextBlockLimit".to_string(),
+            "context_window_strategy" => "contextWindowStrategy".to_string(),
             "max_tool_result_chars" => "maxToolResultChars".to_string(),
             "reasoning_effort" => "reasoningEffort".to_string(),
             other => other.to_string(),
@@ -576,6 +579,17 @@ fn canonical_config_segment(parent: &[String], _index: usize, segment: &str) -> 
     }
     if parent == ["gateway", "heartbeat"] && segment == "interval_s" {
         return "intervalS".to_string();
+    }
+    if parent.len() == 3 && parent[0] == "providers" && parent[1] == "profiles" {
+        return match segment {
+            "display_name" => "displayName".to_string(),
+            "api_key" => "apiKey".to_string(),
+            "api_base" => "apiBase".to_string(),
+            "request_timeout_ms" => "requestTimeoutMs".to_string(),
+            "default_model" => "defaultModel".to_string(),
+            "supports_model_discovery" => "supportsModelDiscovery".to_string(),
+            other => other.to_string(),
+        };
     }
     if parent == ["knowledge"] {
         return match segment {
@@ -1190,7 +1204,7 @@ mod tests {
         assert_eq!(snapshot.explicit_public_config, json!({}));
         assert_eq!(
             snapshot.effective_public_config["agents"]["defaults"]["model"],
-            "deepseek-reasoner"
+            "deepseek-v4-pro"
         );
         assert_eq!(snapshot.origins["agents.defaults.model"], "default");
     }
@@ -1373,7 +1387,7 @@ mod tests {
         let fixture = ConfigStoreFixture::new();
         let path = fixture.write(
             "config.json",
-            r#"{"agents":{"defaults":{"maxTokens":2048,"max_tokens":2048}}}"#,
+            r#"{"agents":{"defaults":{"maxTokens":2048,"max_tokens":2048,"contextWindowStrategy":"discard","context_window_strategy":"discard"}}}"#,
         );
         let mut store = ConfigStore::load(path.clone(), default_snapshot())
             .expect("fixture config should load");
@@ -1381,21 +1395,40 @@ mod tests {
         let result = store
             .apply_operations(ConfigOperationRequest {
                 expected_revision: Some(store.revision()),
-                operations: vec![ConfigOperation::Replace {
-                    path: "agents.defaults.max_tokens".to_string(),
-                    value: json!(8192),
-                }],
+                operations: vec![
+                    ConfigOperation::Replace {
+                        path: "agents.defaults.max_tokens".to_string(),
+                        value: json!(8192),
+                    },
+                    ConfigOperation::Replace {
+                        path: "agents.defaults.context_window_strategy".to_string(),
+                        value: json!("compact"),
+                    },
+                ],
             })
             .expect("alias operation should save");
 
         assert!(result.ok);
-        assert_eq!(result.updated_fields, vec!["agents.defaults.maxTokens"]);
+        assert_eq!(
+            result.updated_fields,
+            vec![
+                "agents.defaults.maxTokens",
+                "agents.defaults.contextWindowStrategy"
+            ]
+        );
         let saved = serde_json::from_str::<serde_json::Value>(
             &fs::read_to_string(path).expect("patched config should save"),
         )
         .expect("patched config should be JSON");
         assert_eq!(saved["agents"]["defaults"]["maxTokens"], 8192);
+        assert_eq!(
+            saved["agents"]["defaults"]["contextWindowStrategy"],
+            "compact"
+        );
         assert!(saved["agents"]["defaults"].get("max_tokens").is_none());
+        assert!(saved["agents"]["defaults"]
+            .get("context_window_strategy")
+            .is_none());
     }
 
     #[test]
@@ -1509,7 +1542,7 @@ mod tests {
         json!({
             "agents": {
                 "defaults": {
-                    "model": "deepseek-reasoner"
+                    "model": "deepseek-v4-pro"
                 }
             }
         })

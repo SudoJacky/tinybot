@@ -90,6 +90,7 @@ function canonicalConfigSegment(parent: readonly string[], segment: string): str
       active_profile: "activeProfile",
       max_tokens: "maxTokens",
       context_block_limit: "contextBlockLimit",
+      context_window_strategy: "contextWindowStrategy",
       max_tool_result_chars: "maxToolResultChars",
       reasoning_effort: "reasoningEffort",
     } as Record<string, string>)[segment] ?? segment;

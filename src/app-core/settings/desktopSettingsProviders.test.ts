@@ -729,6 +729,7 @@ describe("desktop settings and provider helpers", () => {
       ],
     });
     expect(fields["general.temperature"]).toMatchObject({ control: "number", requirement: "optional", configurationMode: "numeric", advanced: true });
+    expect(fields["general.contextWindowStrategy"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed", advanced: true });
     expect(fields["general.reasoningEffort"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed", advanced: true });
     expect(fields["tools-approvals.mcpServers"]).toMatchObject({ control: "textarea", requirement: "optional", configurationMode: "json", advanced: true });
     expect(fields["tools-approvals.searchProvider"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed", advanced: true });

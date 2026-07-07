@@ -1,5 +1,11 @@
 import type { ReactChatMessage } from "./chat/messageActions";
 import type { AgentUiForm } from "../app-core/agent-ui/agentUiEvents";
+import type { AgentDefaultsSettingsData } from "../app-core/settings/agentDefaultsSettings";
+import type {
+  ProviderModelFetchInput,
+  ProviderModelFetchResult,
+  ProviderModelsSettingsData,
+} from "../app-core/settings/providerModelsSettings";
 
 export type SessionSummary = {
   id: string;
@@ -87,6 +93,11 @@ export type ToolsStore = {
 export type SettingsStore = {
   load(): Promise<Array<{ label: string; value: string }>>;
   loadChatModels?(): Promise<ChatModelOption[]>;
+  loadAgentDefaultsSettings?(): Promise<AgentDefaultsSettingsData>;
+  saveAgentDefaultsSettings?(currentConfig: unknown, patch: unknown): Promise<AgentDefaultsSettingsData>;
+  loadProviderSettings?(): Promise<ProviderModelsSettingsData>;
+  fetchProviderModels?(input: ProviderModelFetchInput): Promise<ProviderModelFetchResult>;
+  saveProviderSettings?(currentConfig: unknown, patch: unknown): Promise<ProviderModelsSettingsData>;
 };
 
 export type ChatModelOption = {

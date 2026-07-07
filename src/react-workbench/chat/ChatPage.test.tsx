@@ -158,16 +158,51 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     const sessionEmptyState = await screen.findByLabelText("No sessions yet.");
-    const conversationEmptyState = await screen.findByLabelText("Select or create a session.");
+    const start = await screen.findByLabelText("Start a new chat");
 
     expect(sessionEmptyState.classList.contains("react-text-type")).toBe(true);
     expect(sessionEmptyState.getAttribute("data-text-type")).toBe("once");
     expect(sessionEmptyState.getAttribute("aria-label")).toBe("No sessions yet.");
     expect(within(sessionEmptyState).getByTestId("text-type-visual")).toBeTruthy();
-    expect(conversationEmptyState.classList.contains("react-text-type")).toBe(true);
-    expect(conversationEmptyState.getAttribute("data-text-type")).toBe("once");
-    expect(conversationEmptyState.getAttribute("aria-label")).toBe("Select or create a session.");
-    expect(within(conversationEmptyState).getByTestId("text-type-visual")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "New Chat" })).toBeTruthy();
+    expect(screen.queryByLabelText("Select or create a session.")).toBeNull();
+    expect(stores.sessionStore.create).not.toHaveBeenCalled();
+    expect(within(start).getByLabelText("Prompt suggestions")).toBeTruthy();
+  });
+
+  it("starts in a draft new chat when there are no sessions", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({ sessions: [] });
+    const created = {
+      id: "s-new",
+      chatId: "chat-new",
+      title: "New session",
+      updatedAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+      status: "idle" as const,
+    };
+    stores.sessionStore.create = vi.fn(async () => created);
+    stores.sessionStore.list = vi.fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([created]);
+    stores.chatStore.load = vi.fn(async () => []);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    await screen.findByLabelText("Start a new chat");
+    const input = screen.getByRole("textbox", { name: /message/i }) as HTMLTextAreaElement;
+
+    expect(input.disabled).toBe(false);
+    expect(screen.getByRole("heading", { name: "New Chat" })).toBeTruthy();
+    expect(stores.sessionStore.create).not.toHaveBeenCalled();
+
+    await user.type(input, "Hello from an empty app");
+    await user.click(screen.getByRole("button", { name: /send message/i }));
+
+    await waitFor(() => expect(stores.sessionStore.create).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(stores.chatStore.send).toHaveBeenCalledWith("s-new", {
+      text: "Hello from an empty app",
+      usePersistentRag: true,
+    }));
   });
 
   it("adds Animated List hooks to session rows", async () => {
@@ -297,6 +332,42 @@ describe("ChatPage", () => {
     expect(composer.classList.contains("react-composer--raised")).toBe(false);
     expect(screen.getByRole("textbox", { name: /message/i }).getAttribute("placeholder")).toBe("Message Tinybot");
     expect(message).toBeTruthy();
+  });
+
+  it("renders context window usage as an icon-only composer indicator", async () => {
+    const stores = createStores();
+    const usageMessages: ReactChatMessage[] = [
+      {
+        id: "u1",
+        role: "user",
+        createdAtMs: Date.UTC(2026, 6, 4, 11, 57, 0),
+        text: "Can you help?",
+        status: "complete",
+      },
+      {
+        id: "a1",
+        role: "assistant",
+        createdAtMs: Date.UTC(2026, 6, 4, 11, 58, 0),
+        text: "Yes.",
+        status: "complete",
+        usage: {
+          contextWindowRemainingTokens: 168000,
+          contextWindowStrategy: "compact",
+          contextWindowTokens: 256000,
+          contextWindowUsedTokens: 88000,
+          percent: 34.4,
+        },
+      },
+    ];
+    stores.chatStore.load = vi.fn(async () => usageMessages);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const indicator = await screen.findByLabelText("Context window 34% used, 66% left");
+    expect(indicator.classList.contains("claude-ai-input__context-usage")).toBe(true);
+    expect(indicator.getAttribute("data-state")).toBe("normal");
+    expect(indicator.textContent).toContain("88k / 256k tokens used");
+    expect(indicator.textContent).toContain("Strategy: compact");
   });
 
   it("rotates empty-session title and suggestion groups every eight seconds", async () => {
@@ -1491,6 +1562,34 @@ describe("ChatPage", () => {
     expect(css).toContain("react-session-dissolve");
     expect(css).toContain("react-session-particle-burst");
     expect(css).toContain(".react-session-row__particles");
+  });
+
+  it("applies a warm border glow treatment to the composer panel", () => {
+    const css = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
+    const inputSource = readFileSync("src/components/ui/claude-style-ai-input.tsx", "utf8");
+
+    expect(inputSource).toContain("function handlePanelPointerMove");
+    expect(inputSource).toContain("--claude-ai-panel-glow-x");
+    expect(inputSource).toContain("--claude-ai-panel-glow-y");
+    expect(inputSource).toContain("--claude-ai-panel-glow-opacity");
+    expect(css).toContain("--claude-ai-panel-glow-opacity: 0");
+    expect(css).toContain("--claude-ai-panel-glow-x: 50%");
+    expect(css).toContain("--claude-ai-panel-glow-y: 100%");
+    expect(css).toContain("overflow: visible");
+    expect(css).toContain(".claude-ai-input__panel::before");
+    expect(css).toContain("circle at var(--claude-ai-panel-glow-x) var(--claude-ai-panel-glow-y)");
+    expect(css).toContain("var(--color-warning) 0");
+    expect(css).toContain("var(--color-primary) 24px");
+    expect(css).toContain("padding: 2px");
+    expect(css).toContain("transition: opacity 260ms var(--motion-ease-standard)");
+    expect(css).toContain("border-color: color-mix(in srgb, var(--color-primary) 24%, var(--color-hairline))");
+    expect(css).toContain("var(--color-primary)");
+    expect(css).toContain("var(--color-warning)");
+    expect(css).toContain("-webkit-mask-composite: xor");
+    expect(css).toContain(".claude-ai-input__panel:focus-within");
+    expect(css).toContain(".claude-ai-input__context-usage");
+    expect(css).toContain(".claude-ai-input__context-usage-tip");
+    expect(inputSource).toContain("strokeDasharray={`${view.percent} 100`}");
   });
 
   it("uses a dense warm-white micro-particle burst for the session delete dissolve", () => {

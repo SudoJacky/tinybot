@@ -39,6 +39,7 @@ export interface DesktopSettingsFormState {
     temperature: number | null;
     maxTokens: number | null;
     contextWindowTokens: number | null;
+    contextWindowStrategy: string | null;
     maxToolIterations: number | null;
     reasoningEffort: string | null;
     timezone: string | null;
@@ -610,7 +611,8 @@ export function buildDesktopSettingsFormState(
       provider: selectedProvider,
       temperature: numberOrDefault(pick(defaults, "temperature"), 0.1),
       maxTokens: numberOrDefault(pick(defaults, "maxTokens", "max_tokens"), 8192),
-      contextWindowTokens: numberOrDefault(pick(defaults, "contextWindowTokens", "context_window_tokens"), 65536),
+      contextWindowTokens: numberOrDefault(pick(defaults, "contextWindowTokens", "context_window_tokens"), 128000),
+      contextWindowStrategy: stringOrDefault(pick(defaults, "contextWindowStrategy", "context_window_strategy"), "discard"),
       maxToolIterations: numberOrDefault(pick(defaults, "maxToolIterations", "max_tool_iterations"), 200),
       reasoningEffort: stringOrNull(pick(defaults, "reasoningEffort", "reasoning_effort")),
       timezone: stringOrDefault(pick(defaults, "timezone"), "UTC"),
@@ -906,6 +908,7 @@ function createDesktopSettingsFullPatch(
         temperature: state.agent.temperature,
         max_tokens: state.agent.maxTokens,
         context_window_tokens: state.agent.contextWindowTokens,
+        context_window_strategy: state.agent.contextWindowStrategy,
         max_tool_iterations: state.agent.maxToolIterations,
         reasoning_effort: state.agent.reasoningEffort,
         timezone: state.agent.timezone,
@@ -1006,6 +1009,8 @@ function getDesktopSettingsPatchPathValue(state: DesktopSettingsFormState, path:
       return state.agent.maxTokens;
     case "agents.defaults.context_window_tokens":
       return state.agent.contextWindowTokens;
+    case "agents.defaults.context_window_strategy":
+      return state.agent.contextWindowStrategy;
     case "agents.defaults.max_tool_iterations":
       return state.agent.maxToolIterations;
     case "agents.defaults.reasoning_effort":
@@ -1424,6 +1429,10 @@ export function applyDesktopSettingsFieldEdit(
     case "contextWindowTokens":
       nextState.agent.contextWindowTokens = numberOrNullInput(text);
       markDesktopSettingsTouched(nextState, "agents.defaults.context_window_tokens");
+      break;
+    case "contextWindowStrategy":
+      nextState.agent.contextWindowStrategy = stringOrNullInput(text) || "discard";
+      markDesktopSettingsTouched(nextState, "agents.defaults.context_window_strategy");
       break;
     case "maxToolIterations":
       nextState.agent.maxToolIterations = numberOrNullInput(text);
@@ -2138,6 +2147,13 @@ function buildDesktopSettingsPaneGroups(
           min: 1,
           step: 1,
         }),
+        field("contextWindowStrategy", "Context window strategy", state.agent.contextWindowStrategy, {
+          control: "select",
+          options: fixedOptions(["discard", "compact"]),
+          requirement: "optional",
+          configurationMode: "fixed",
+          advanced: true,
+        }),
         field("maxToolIterations", "Max tool iterations", state.agent.maxToolIterations, {
           control: "number",
           requirement: "optional",
@@ -2549,6 +2565,7 @@ function getDesktopSettingsPaneFieldPersistentPath(
     "general.temperature": "agents.defaults.temperature",
     "general.maxTokens": "agents.defaults.maxTokens",
     "general.contextWindowTokens": "agents.defaults.contextWindowTokens",
+    "general.contextWindowStrategy": "agents.defaults.contextWindowStrategy",
     "general.maxToolIterations": "agents.defaults.maxToolIterations",
     "general.reasoningEffort": "agents.defaults.reasoningEffort",
     "provider-models.selectedProvider": "desktop.ui.settings.providerEditor.selectedProvider",

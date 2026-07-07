@@ -148,6 +148,7 @@ export function ChatPage({
   settingsStore,
 }: ChatPageProps) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState("");
   const [messages, setMessages] = useState<ReactChatMessage[]>([]);
   const [loadedMessageSessionId, setLoadedMessageSessionId] = useState("");
@@ -168,16 +169,22 @@ export function ChatPage({
   const queuedInputSequence = useRef(0);
   const deleteDissolveTimers = useRef<number[]>([]);
   const lastCreateSessionSignal = useRef(createSessionSignal);
+  const draftSessionCreatePromise = useRef<Promise<SessionSummary> | null>(null);
   const resolvedSessionSidebarCollapsed = sessionSidebarCollapsed ?? localSessionSidebarCollapsed;
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId) ?? sessions[0],
     [activeSessionId, sessions],
   );
+  const draftNewSession = sessionsLoaded && !activeSession;
   const messagesLoaded = Boolean(activeSession) && loadedMessageSessionId === activeSession?.id;
-  const emptyActiveSession = messagesLoaded && messages.length === 0;
+  const emptyActiveSession = draftNewSession || (messagesLoaded && messages.length === 0);
   const sessionRunning = activeSession?.status === "running" || activeSession?.status === "waiting_approval";
   const sessionResponding = sessionRunning && !emptyActiveSession;
   const activeQueuedInputs = activeSession ? queuedInputsBySession.get(activeSession.id) ?? [] : [];
+  const activeContextUsage = useMemo(
+    () => [...messages].reverse().find((message) => message.usage)?.usage,
+    [messages],
+  );
 
   useEffect(() => {
     sessionsRef.current = sessions;
@@ -198,6 +205,7 @@ export function ChatPage({
       }
       sessionsRef.current = nextSessions;
       setSessions(nextSessions);
+      setSessionsLoaded(true);
       setActiveSessionId((current) => current || nextSessions[0]?.id || "");
     });
     return () => {
@@ -293,8 +301,7 @@ export function ChatPage({
 
   async function handleCreateSession() {
     const created = await sessionStore.create();
-    setSessions((current) => [created, ...current]);
-    setActiveSessionId(created.id);
+    activateCreatedSession(created);
   }
 
   async function handleCreateSessionFromSearch() {
@@ -387,21 +394,22 @@ export function ChatPage({
     options: ComposerSendOptions,
   ) {
     const text = formatComposerMessage(message, files, pastedContent);
-    if (!text || !activeSession) {
+    const sendSession = activeSession ?? await createSessionForDraft();
+    if (!text || !sendSession) {
       return;
     }
     const queuedResult = submitComposerText({
       approvals: [],
       content: text,
-      isRunning: isQueueableRunningSession(activeSession, emptyActiveSession),
+      isRunning: isQueueableRunningSession(sendSession, emptyActiveSession),
       now: nextQueuedInputTimestamp(),
       queuedInputs: activeQueuedInputs,
     });
     if (queuedResult.kind !== "send_message") {
-      handleQueuedComposerResult(activeSession.id, queuedResult, options);
+      handleQueuedComposerResult(sendSession.id, queuedResult, options);
       return;
     }
-    await chatStore.send(activeSession.id, {
+    await chatStore.send(sendSession.id, {
       text: queuedResult.content,
       ...(options.model ? { model: options.model } : {}),
       ...(typeof options.usePersistentRag === "boolean" ? { usePersistentRag: options.usePersistentRag } : {}),
@@ -431,6 +439,29 @@ export function ChatPage({
       }]);
       return next;
     });
+  }
+
+  async function createSessionForDraft(): Promise<SessionSummary | null> {
+    if (!draftNewSession) {
+      return null;
+    }
+    if (!draftSessionCreatePromise.current) {
+      draftSessionCreatePromise.current = sessionStore.create()
+        .then((created) => {
+          activateCreatedSession(created);
+          return created;
+        })
+        .finally(() => {
+          draftSessionCreatePromise.current = null;
+        });
+    }
+    return draftSessionCreatePromise.current;
+  }
+
+  function activateCreatedSession(created: SessionSummary): void {
+    sessionsRef.current = [created, ...sessionsRef.current.filter((session) => session.id !== created.id)];
+    setSessions((current) => [created, ...current.filter((session) => session.id !== created.id)]);
+    setActiveSessionId(created.id);
   }
 
   function handleDeleteQueuedInput(sessionId: string, inputId: string) {
@@ -568,6 +599,7 @@ export function ChatPage({
   }
 
   const visibleAgentUiForms = agentUiForms.filter(isVisibleAgentUiForm);
+  const headerTitle = activeSession?.title ?? (draftNewSession ? "New Chat" : "No session selected");
 
   return (
     <section className="react-chat-page" aria-label="Chat" data-session-sidebar-collapsed={resolvedSessionSidebarCollapsed}>
@@ -666,7 +698,7 @@ export function ChatPage({
 
       <main className="react-chat-surface" data-empty-session={emptyActiveSession ? "true" : undefined}>
         <header className="react-chat-header">
-          <h1>{activeSession?.title ?? "No session selected"}</h1>
+          <h1>{headerTitle}</h1>
           <div className="react-chat-header__actions">
             <button
               aria-label="Open conversation menu"
@@ -731,8 +763,9 @@ export function ChatPage({
         {queueMessage ? <p className="react-queued-inputs__message">{queueMessage}</p> : null}
         <ClaudeStyleAiInput
           className={["react-composer", emptyActiveSession ? "react-composer--raised" : ""].filter(Boolean).join(" ")}
-          disabled={!activeSession}
+          disabled={!activeSession && !draftNewSession}
           defaultModel={defaultComposerModel}
+          contextUsage={activeContextUsage}
           models={composerModels}
           responding={sessionResponding}
           placeholder={emptyActiveSession ? "输入任务，或粘贴/拖入文件" : "Message Tinybot"}

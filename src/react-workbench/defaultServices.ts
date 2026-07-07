@@ -27,6 +27,7 @@ import {
   type NormalizedGatewayEvent,
 } from "../app-core/gateway/gatewayWebSocketClient";
 import { createDesktopNativeConfigApi } from "../app-core/native/desktopNativeConfig";
+import { applyNativeConfigPatch } from "../app-core/native/desktopNativeConfigPatch";
 import { createDesktopNativeCoworkApi } from "../app-core/native/desktopNativeCowork";
 import { createDesktopNativeKnowledgeApi } from "../app-core/native/desktopNativeKnowledge";
 import { createDesktopNativeSessionsApi } from "../app-core/native/desktopNativeSessions";
@@ -43,6 +44,12 @@ import {
   buildDesktopSettingsFormState,
   buildDesktopSettingsPaneModel,
 } from "../app-core/settings/desktopSettingsProviders";
+import { saveDesktopSettingsConfig } from "../app-core/settings/desktopSettingsSave";
+import { buildAgentDefaultsSettings } from "../app-core/settings/agentDefaultsSettings";
+import {
+  buildProviderModelsSettings,
+  normalizeProviderModelFetchResult,
+} from "../app-core/settings/providerModelsSettings";
 import type {
   AppServices,
   ChatModelOption,
@@ -451,6 +458,58 @@ export function createDesktopAppServices(): AppServices {
         const pane = buildDesktopSettingsPaneModel(state, { providerCatalog });
         return normalizeChatModelOptions(pane);
       },
+      async loadProviderSettings() {
+        await initialize();
+        return buildProviderModelsSettings(await loadSettingsSnapshot());
+      },
+      async loadAgentDefaultsSettings() {
+        await initialize();
+        return buildAgentDefaultsSettings(await loadSettingsSnapshot());
+      },
+      async saveAgentDefaultsSettings(currentConfig, patch) {
+        await initialize();
+        const result = await saveDesktopSettingsConfig(currentConfig, patch, {
+          applyNativeConfigPatch: nativeMode
+            ? (configToPatch, nativePatch) => applyNativeConfigPatch(configToPatch, nativePatch, { invoke })
+            : undefined,
+          applyGatewayConfigPatch: (gatewayPatch) => gatewayApi.config.patch(gatewayPatch),
+        });
+        const savedConfig = result.persistedRevision && isRecord(result.config)
+          ? { ...result.config, revision: result.persistedRevision }
+          : result.config;
+        return buildAgentDefaultsSettings(savedConfig);
+      },
+      async fetchProviderModels(input) {
+        await initialize();
+        if (input.modelDiscovery.status !== "openai-compatible") {
+          return {
+            ok: true,
+            models: [],
+            warning: "This provider uses a static model list.",
+            url: null,
+            error: null,
+          };
+        }
+        return normalizeProviderModelFetchResult(await gatewayApi.config.providerModels({
+          provider: input.providerId,
+          profile: input.profileId,
+          apiBase: input.apiBase,
+          refreshLive: true,
+        }));
+      },
+      async saveProviderSettings(currentConfig, patch) {
+        await initialize();
+        const result = await saveDesktopSettingsConfig(currentConfig, patch, {
+          applyNativeConfigPatch: nativeMode
+            ? (configToPatch, nativePatch) => applyNativeConfigPatch(configToPatch, nativePatch, { invoke })
+            : undefined,
+          applyGatewayConfigPatch: (gatewayPatch) => gatewayApi.config.patch(gatewayPatch),
+        });
+        const savedConfig = result.persistedRevision && isRecord(result.config)
+          ? { ...result.config, revision: result.persistedRevision }
+          : result.config;
+        return buildProviderModelsSettings(savedConfig);
+      },
     },
   };
 }
@@ -507,6 +566,7 @@ function mapMessage(
     ...(toolCalls.length ? { toolCalls } : {}),
     ...(message.turnId ? { turnId: message.turnId } : {}),
     ...(message.turnStatus ? { turnStatus: message.turnStatus } : {}),
+    ...(message.usage ? { usage: normalizeUsage(message.usage) } : {}),
   };
 }
 
@@ -540,6 +600,25 @@ function mapContextReference(reference: NativeChatReference, index: number) {
     ...(reference.detail ? { detail: reference.detail } : {}),
     ...(reference.sourcePath ? { sourcePath: reference.sourcePath } : {}),
     ...(typeof reference.sourceLine === "number" ? { sourceLine: reference.sourceLine } : {}),
+  };
+}
+
+function normalizeUsage(value: unknown) {
+  const payload = isRecord(value) ? value : {};
+  if (!Object.keys(payload).length) {
+    return undefined;
+  }
+  return {
+    cachedTokens: numberValue(payload.cached_tokens ?? payload.cachedTokens),
+    completionTokens: numberValue(payload.completion_tokens ?? payload.completionTokens),
+    contextWindowRemainingTokens: numberValue(payload.context_window_remaining_tokens ?? payload.contextWindowRemainingTokens),
+    contextWindowStrategy: stringValue(payload.context_window_strategy ?? payload.contextWindowStrategy) || undefined,
+    contextWindowTokens: numberValue(payload.context_window_tokens ?? payload.contextWindowTokens),
+    contextWindowUsedTokens: numberValue(payload.context_window_used_tokens ?? payload.contextWindowUsedTokens),
+    estimatedContextTokens: numberValue(payload.estimated_context_tokens ?? payload.estimatedContextTokens),
+    percent: numberValue(payload.percent ?? payload.percentage ?? payload.token_usage_percent ?? payload.tokenUsagePercent),
+    promptTokens: numberValue(payload.prompt_tokens ?? payload.promptTokens),
+    totalTokens: numberValue(payload.total_tokens ?? payload.totalTokens),
   };
 }
 
@@ -668,8 +747,12 @@ function normalizeChatModelOptions(
 ): ChatModelOption[] {
   const defaultModel = stringValue(pane.defaultRouting?.model);
   const defaultProviderId = stringValue(pane.defaultRouting?.providerId);
+  const defaultProvider = pane.providerCatalog.find((provider) => provider.id === defaultProviderId);
+  const providers = defaultProvider
+    ? [defaultProvider]
+    : pane.providerCatalog.filter((provider) => provider.enabled !== false);
   const options = new Map<string, ChatModelOption>();
-  for (const provider of pane.providerCatalog) {
+  for (const provider of providers) {
     if (provider.enabled === false) {
       continue;
     }
@@ -689,7 +772,6 @@ function normalizeChatModelOptions(
     }
   }
   if (defaultModel && !options.has(defaultModel)) {
-    const defaultProvider = pane.providerCatalog.find((provider) => provider.id === defaultProviderId);
     options.set(defaultModel, {
       id: defaultModel,
       label: defaultModel,

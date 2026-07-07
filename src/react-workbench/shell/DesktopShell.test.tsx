@@ -5,6 +5,8 @@ import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DesktopShell } from "./DesktopShell";
+import { buildAgentDefaultsSettings } from "../../app-core/settings/agentDefaultsSettings";
+import { buildProviderModelsSettings } from "../../app-core/settings/providerModelsSettings";
 import type { AppServices, SessionSummary } from "../services";
 import type { ReactChatMessage } from "../chat/messageActions";
 
@@ -14,7 +16,13 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
   workspaceStore: { listFiles: ReturnType<typeof vi.fn> };
   knowledgeStore: { listDocuments: ReturnType<typeof vi.fn>; stats: ReturnType<typeof vi.fn> };
   toolsStore: { listSkills: ReturnType<typeof vi.fn> };
-  settingsStore: { load: ReturnType<typeof vi.fn> };
+  settingsStore: {
+    load: ReturnType<typeof vi.fn>;
+    loadAgentDefaultsSettings?: ReturnType<typeof vi.fn>;
+    saveAgentDefaultsSettings?: ReturnType<typeof vi.fn>;
+    loadProviderSettings?: ReturnType<typeof vi.fn>;
+    saveProviderSettings?: ReturnType<typeof vi.fn>;
+  };
 } {
   return {
     sessionStore: {
@@ -113,6 +121,11 @@ describe("DesktopShell", () => {
     expect(css).toMatch(/\.react-top-menu__trigger\s*{[^}]*font-size:\s*12px;/s);
     expect(css).toMatch(/\.react-top-menu__menu-item\s*{[^}]*font-size:\s*13px;/s);
     expect(css).toMatch(/\.react-activity-rail button\s*{[^}]*font-size:\s*10px;/s);
+    expect(css).toMatch(/\.react-workbench-layout\s*{[^}]*grid-template-columns:\s*58px minmax\(0,\s*1fr\);/s);
+    expect(css).toMatch(/\.react-activity-rail button span\s*{[^}]*display:\s*none;/s);
+    expect(css).toMatch(/\.react-activity-rail button::after\s*{[^}]*content:\s*attr\(data-label\);/s);
+    expect(css).toMatch(/\.react-session-list\s*{[^}]*transition:\s*width 260ms var\(--motion-ease-standard\);/s);
+    expect(css).toMatch(/\.react-session-list\[data-collapsed="true"\]\s*{[^}]*width:\s*64px;/s);
     expect(css).toMatch(/\.react-session-list__new\s*{[^}]*font-size:\s*12px;/s);
     expect(css).toMatch(/\.react-session-row__title\s*{[^}]*font-size:\s*12px;/s);
   });
@@ -124,19 +137,15 @@ describe("DesktopShell", () => {
 
     await user.click(screen.getByRole("button", { name: "App" }));
     const appMenu = screen.getByRole("menu", { name: "Application menu" });
-    for (const item of ["New Chat", "Search Sessions", "Command Palette", "Stop Generation", "Toggle Theme", "Toggle Sidebar"]) {
+    for (const item of ["New Chat", "Search Sessions", "Stop Generation", "Toggle Theme", "Toggle Sidebar"]) {
       expect(within(appMenu).getByRole("menuitem", { name: new RegExp(item) })).toBeTruthy();
     }
+    expect(within(appMenu).queryByRole("menuitem", { name: /Command Palette/ })).toBeNull();
     expect(within(appMenu).getAllByRole("separator")).toHaveLength(2);
     expect(within(appMenu).getByText("Ctrl+N").classList.contains("react-top-menu__shortcut")).toBe(true);
 
     await user.click(within(appMenu).getByRole("menuitem", { name: /New Chat/ }));
     await waitFor(() => expect(services.sessionStore.create).toHaveBeenCalledTimes(1));
-
-    await user.click(screen.getByRole("button", { name: "App" }));
-    await user.click(within(screen.getByRole("menu", { name: "Application menu" })).getByRole("menuitem", { name: /Command Palette/ }));
-    expect(screen.getByRole("dialog", { name: "Command palette" })).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Close command palette" }));
 
     await user.click(screen.getByRole("button", { name: "Resources" }));
     const resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
@@ -221,14 +230,194 @@ describe("DesktopShell", () => {
     expect(screen.queryByText(/Vue/i)).toBeNull();
   });
 
-  it("opens and closes the command palette from the keyboard", async () => {
+  it("renders provider preset cards and saves provider configuration from Settings", async () => {
+    const user = userEvent.setup();
+    const initialProviderConfig = {
+      revision: "hash:1",
+      agents: { defaults: { activeProfile: "deepseek-default", model: "deepseek-v4-pro" } },
+      providers: {
+        profiles: {
+          "deepseek-default": {
+            provider: "deepseek",
+            enabled: true,
+            apiKeyConfigured: true,
+            models: ["deepseek-v4-pro"],
+            defaultModel: "deepseek-v4-pro",
+          },
+          "openai-default": {
+            provider: "openai",
+            enabled: true,
+            apiKeyConfigured: true,
+            models: ["gpt-4.1"],
+            defaultModel: "gpt-4.1",
+          },
+        },
+      },
+    };
+    const savedProviderConfig = {
+      revision: "hash:2",
+      agents: { defaults: { activeProfile: "openai-default", model: "deepseek-v4-pro" } },
+      providers: {
+        profiles: {
+          "deepseek-default": {
+            provider: "deepseek",
+            enabled: true,
+            apiKeyConfigured: true,
+            models: ["deepseek-v4-pro"],
+          },
+          "openai-default": {
+            provider: "openai",
+            enabled: true,
+            apiBase: "https://api.openai.com/v1",
+            apiKeyConfigured: true,
+          },
+        },
+      },
+    };
+    const saveProviderSettings = vi.fn(async (_currentConfig: unknown, _patch: unknown) => buildProviderModelsSettings(savedProviderConfig));
+    const fetchProviderModels = vi.fn(async () => ({
+      ok: true,
+      models: ["deepseek-v4-pro", "deepseek-live"],
+      warning: null,
+      url: "https://api.deepseek.com/models",
+    }));
+    const services = createServices();
+    services.settingsStore.loadProviderSettings = vi.fn(async () => buildProviderModelsSettings(initialProviderConfig));
+    services.settingsStore.saveProviderSettings = saveProviderSettings;
+    services.settingsStore.fetchProviderModels = fetchProviderModels;
+    render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={services} />);
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+
+    expect(await screen.findByRole("heading", { name: "Provider & Models" })).toBeTruthy();
+    expect(screen.getByRole("navigation", { name: "Settings categories" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Provider & Models" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("region", { name: "Provider & Models" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Default LLM" })).toBeTruthy();
+    await user.selectOptions(screen.getByLabelText("Provider"), "openai-default");
+    await user.selectOptions(screen.getByLabelText("Model"), "gpt-4.1");
+    await user.click(screen.getByRole("button", { name: "Save default LLM" }));
+
+    await waitFor(() => expect(saveProviderSettings).toHaveBeenCalledTimes(1));
+    expect(saveProviderSettings.mock.calls[0][1]).toEqual({
+      agents: { defaults: { activeProfile: "openai-default", model: "gpt-4.1" } },
+    });
+
+    expect(screen.getByRole("article", { name: "DeepSeek provider" })).toBeTruthy();
+    expect(screen.getByRole("article", { name: "DashScope provider" })).toBeTruthy();
+    expect(screen.getByRole("article", { name: "OpenAI provider" })).toBeTruthy();
+    expect(screen.getAllByText("Available").length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: "Manage DeepSeek models" }));
+    const modelsDialog = screen.getByRole("dialog", { name: "DeepSeek models" });
+    expect(modelsDialog).toBeTruthy();
+    expect(within(modelsDialog).getAllByText("deepseek-v4-pro").length).toBeGreaterThan(0);
+    await user.click(within(modelsDialog).getByRole("button", { name: "Refresh models" }));
+    await waitFor(() => expect(fetchProviderModels).toHaveBeenCalledWith({
+      providerId: "deepseek",
+      profileId: "deepseek-default",
+      apiBase: "https://api.deepseek.com",
+      modelDiscovery: { status: "openai-compatible", endpoint: "/models" },
+    }));
+    await waitFor(() => expect(within(modelsDialog).getAllByText("deepseek-live").length).toBeGreaterThan(0));
+    await user.click(screen.getByRole("button", { name: "Close models" }));
+
+    await user.click(screen.getByRole("button", { name: "Configure OpenAI" }));
+    const dialog = screen.getByRole("dialog", { name: "Configure OpenAI" });
+    expect((within(dialog).getByLabelText("API base") as HTMLInputElement).value).toBe("https://api.openai.com/v1");
+    await user.type(within(dialog).getByLabelText("API key"), "sk-test");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(saveProviderSettings).toHaveBeenCalledTimes(2));
+    expect(saveProviderSettings.mock.calls[1][1]).toEqual({
+      providers: {
+        profiles: {
+          "openai-default": {
+            provider: "openai",
+            displayName: "OpenAI",
+            enabled: true,
+            apiBase: "https://api.openai.com/v1",
+            apiKey: "sk-test",
+          },
+        },
+      },
+    });
+  });
+
+  it("renders Agent Defaults settings and jumps back to Provider & Models", async () => {
+    const user = userEvent.setup();
+    const initialConfig = {
+      revision: "hash:1",
+      agents: {
+        defaults: {
+          activeProfile: "deepseek-default",
+          model: "deepseek-v4-pro",
+          timezone: "Asia/Singapore",
+          temperature: 0.3,
+          maxTokens: 4096,
+          contextWindowTokens: 128000,
+          contextWindowStrategy: "discard",
+          maxToolIterations: 12,
+          reasoningEffort: "medium",
+        },
+      },
+    };
+    const savedConfig = {
+      revision: "hash:2",
+      agents: {
+        defaults: {
+          ...initialConfig.agents.defaults,
+          temperature: 0.6,
+          maxTokens: 2048,
+        },
+      },
+    };
+    const services = createServices();
+    const saveAgentDefaultsSettings = vi.fn(async (_currentConfig: unknown, _patch: unknown) => buildAgentDefaultsSettings(savedConfig));
+    services.settingsStore.loadProviderSettings = vi.fn(async () => buildProviderModelsSettings(initialConfig));
+    services.settingsStore.saveProviderSettings = vi.fn(async (_currentConfig: unknown, _patch: unknown) => buildProviderModelsSettings(initialConfig));
+    services.settingsStore.loadAgentDefaultsSettings = vi.fn(async () => buildAgentDefaultsSettings(initialConfig));
+    services.settingsStore.saveAgentDefaultsSettings = saveAgentDefaultsSettings;
+    render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={services} />);
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(await screen.findByRole("button", { name: "Agent Defaults" }));
+
+    expect(await screen.findByRole("heading", { name: "Agent Defaults" })).toBeTruthy();
+    expect(screen.getByText("deepseek-default")).toBeTruthy();
+    expect(screen.getByText("deepseek-v4-pro")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Change default model in Provider & Models" }));
+    expect(await screen.findByRole("heading", { name: "Provider & Models" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Agent Defaults" }));
+    await user.clear(await screen.findByLabelText("Temperature"));
+    await user.type(screen.getByLabelText("Temperature"), "0.6");
+    await user.clear(screen.getByLabelText("Max output tokens"));
+    await user.type(screen.getByLabelText("Max output tokens"), "2048");
+    await user.selectOptions(screen.getByLabelText("Context window strategy"), "compact");
+    await user.click(screen.getByRole("button", { name: "Save agent defaults" }));
+
+    await waitFor(() => expect(saveAgentDefaultsSettings).toHaveBeenCalledTimes(1));
+    expect(saveAgentDefaultsSettings.mock.calls[0][1]).toEqual({
+      agents: {
+        defaults: {
+          timezone: "Asia/Singapore",
+          temperature: 0.6,
+          maxTokens: 2048,
+          contextWindowTokens: 128000,
+          contextWindowStrategy: "compact",
+          maxToolIterations: 12,
+          reasoningEffort: "medium",
+        },
+      },
+    });
+  });
+
+  it("does not reserve Ctrl+K for a command palette", async () => {
     const user = userEvent.setup();
     render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={createServices()} />);
 
     await user.keyboard("{Control>}k{/Control}");
-    expect(screen.getByRole("dialog", { name: "Command palette" })).toBeTruthy();
-
-    await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "Command palette" })).toBeNull();
   });
 
@@ -305,15 +494,4 @@ describe("DesktopShell", () => {
     expect(services.chatStore.stop).toHaveBeenCalledWith("s1");
   });
 
-  it("runs route commands from the command palette", async () => {
-    const user = userEvent.setup();
-    render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={createServices()} />);
-
-    await user.keyboard("{Control>}k{/Control}");
-    await user.type(screen.getByRole("textbox", { name: "Search commands" }), "files");
-    await user.click(screen.getByRole("button", { name: "Open Files" }));
-
-    expect(await screen.findByRole("heading", { name: "Workspace Files" })).toBeTruthy();
-    expect(screen.queryByRole("dialog", { name: "Command palette" })).toBeNull();
-  });
 });

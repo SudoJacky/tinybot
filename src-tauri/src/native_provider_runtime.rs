@@ -5,7 +5,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-const DEFAULT_AGENT_MODEL: &str = "deepseek-reasoner";
+const DEFAULT_AGENT_MODEL: &str = "deepseek-v4-pro";
 const DEFAULT_PROVIDER_TIMEOUT_MS: u64 = 120_000;
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -84,17 +84,7 @@ const PROVIDER_CATALOG: &[NativeProviderCatalogEntry] = &[
         Some("https://api.openai.com/v1"),
         &["OPENAI_API_KEY"],
         &["OPENAI_BASE_URL"],
-        &[
-            "gpt-5.5",
-            "gpt-5.5-pro",
-            "gpt-5.4",
-            "gpt-5.4-mini",
-            "gpt-5.4-nano",
-            "gpt-5-mini",
-            "gpt-4.1",
-            "gpt-4o",
-            "gpt-4o-mini",
-        ],
+        &["gpt-4.1"],
         &["gpt", "o1", "o3", "o4"],
     ),
     catalog_entry(
@@ -105,65 +95,21 @@ const PROVIDER_CATALOG: &[NativeProviderCatalogEntry] = &[
         Some("https://api.deepseek.com"),
         &["DEEPSEEK_API_KEY"],
         &["DEEPSEEK_BASE_URL"],
-        &[
-            "deepseek-v4-pro",
-            "deepseek-v4-flash",
-            "deepseek-chat",
-            "deepseek-reasoner",
-        ],
+        &["deepseek-v4-pro", "deepseek-v4-flash"],
         &["deepseek"],
     ),
-    catalog_entry(
-        "openrouter",
-        "OpenRouter",
-        &["open router"],
-        &["built_in", "aggregator"],
-        Some("https://openrouter.ai/api/v1"),
-        &["OPENROUTER_API_KEY", "OPENAI_API_KEY"],
-        &["OPENROUTER_BASE_URL"],
-        &[
-            "anthropic/claude-opus-4.7",
-            "anthropic/claude-sonnet-4.6",
-            "openai/gpt-5.5",
-            "openai/gpt-5.4-mini",
-        ],
-        &["openrouter", "anthropic", "openai", "google", "qwen"],
+    catalog_entry_with_discovery(
+        "dashscope",
+        "DashScope",
+        &["dash scope", "model studio", "qwen"],
+        &["built_in"],
+        Some("https://dashscope.aliyuncs.com/compatible-mode/v1"),
+        &["DASHSCOPE_API_KEY"],
+        &["DASHSCOPE_BASE_URL"],
+        true,
+        &["qwen-plus", "qwen-max", "qwen-turbo"],
+        &["qwen"],
     ),
-    catalog_entry(
-        "ollama",
-        "Ollama",
-        &["local ollama"],
-        &["local"],
-        Some("http://127.0.0.1:11434/v1"),
-        &[],
-        &[],
-        &["llama3.1", "qwen2.5", "mistral"],
-        &["ollama", "llama", "mistral"],
-    ),
-    catalog_entry(
-        "custom",
-        "Custom OpenAI-compatible",
-        &["custom", "openai compatible", "compatible endpoint"],
-        &["custom"],
-        None,
-        &[],
-        &[],
-        &[],
-        &[],
-    ),
-    NativeProviderCatalogEntry {
-        id: "fixture",
-        display_name: "Fixture",
-        aliases: &["test fixture"],
-        categories: &["local", "test"],
-        default_api_base: None,
-        api_key_env_vars: &[],
-        api_base_env_vars: &[],
-        supports_model_discovery: false,
-        curated_model_ids: &["fixture-model"],
-        model_prefixes: &["fixture"],
-        backend: "fixture",
-    },
 ];
 
 const fn catalog_entry(
@@ -177,6 +123,32 @@ const fn catalog_entry(
     curated_model_ids: &'static [&'static str],
     model_prefixes: &'static [&'static str],
 ) -> NativeProviderCatalogEntry {
+    catalog_entry_with_discovery(
+        id,
+        display_name,
+        aliases,
+        categories,
+        default_api_base,
+        api_key_env_vars,
+        api_base_env_vars,
+        true,
+        curated_model_ids,
+        model_prefixes,
+    )
+}
+
+const fn catalog_entry_with_discovery(
+    id: &'static str,
+    display_name: &'static str,
+    aliases: &'static [&'static str],
+    categories: &'static [&'static str],
+    default_api_base: Option<&'static str>,
+    api_key_env_vars: &'static [&'static str],
+    api_base_env_vars: &'static [&'static str],
+    supports_model_discovery: bool,
+    curated_model_ids: &'static [&'static str],
+    model_prefixes: &'static [&'static str],
+) -> NativeProviderCatalogEntry {
     NativeProviderCatalogEntry {
         id,
         display_name,
@@ -185,7 +157,7 @@ const fn catalog_entry(
         default_api_base,
         api_key_env_vars,
         api_base_env_vars,
-        supports_model_discovery: true,
+        supports_model_discovery,
         curated_model_ids,
         model_prefixes,
         backend: "openai",
@@ -530,6 +502,7 @@ pub fn list_provider_models(
                 discover_openai_models(
                     api_base.clone().unwrap_or_default(),
                     api_key.unwrap_or_default(),
+                    profile.request_timeout_ms,
                 )
                 .map(|models| (models, api_base.as_deref().map(join_models_url)))
             };
@@ -593,16 +566,25 @@ pub fn list_provider_models(
     })
 }
 
-fn discover_openai_models(api_base: String, api_key: String) -> Result<Vec<String>, String> {
+fn discover_openai_models(
+    api_base: String,
+    api_key: String,
+    timeout_ms: u64,
+) -> Result<Vec<String>, String> {
     tauri::async_runtime::block_on(async move {
+        let timeout = Duration::from_millis(timeout_ms.max(1));
         let config = OpenAIConfig::new()
             .with_api_base(api_base)
             .with_api_key(api_key);
         let client = Client::with_config(config);
-        client
-            .models()
-            .list()
+        tokio::time::timeout(timeout, client.models().list())
             .await
+            .map_err(|_| {
+                format!(
+                    "provider request timed out after {} ms",
+                    timeout.as_millis()
+                )
+            })?
             .map(|response| response.data.into_iter().map(|model| model.id).collect())
             .map_err(|error| error.to_string())
     })
@@ -675,7 +657,9 @@ fn native_chat_completion_with_observer(
     if request.stream {
         let observed_stream = observer.is_some();
         let stream_result = match observer {
-            Some(ref mut observer) => complete_openai_chat_stream(profile, request, Some(&mut **observer)),
+            Some(ref mut observer) => {
+                complete_openai_chat_stream(profile, request, Some(&mut **observer))
+            }
             None => complete_openai_chat_stream(profile, request, None),
         };
         stream_result.map(|body| NativeChatRouteBody {
@@ -946,10 +930,7 @@ fn push_sse_json(body: &mut String, value: &Value) {
     body.push_str("\n\n");
 }
 
-fn observe_stream_chunk(
-    chunk: &Value,
-    observer: &mut dyn FnMut(NativeProviderStreamEvent),
-) {
+fn observe_stream_chunk(chunk: &Value, observer: &mut dyn FnMut(NativeProviderStreamEvent)) {
     if let Some(delta) = chunk
         .pointer("/choices/0/delta/content")
         .and_then(Value::as_str)
@@ -1338,6 +1319,22 @@ mod tests {
     }
 
     #[test]
+    fn provider_catalog_exposes_current_built_in_providers_only() {
+        let body = provider_catalog_body(&json!({}));
+        let provider_ids = body["providers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["id"].as_str().unwrap())
+            .collect::<Vec<_>>();
+
+        assert_eq!(provider_ids, vec!["openai", "deepseek", "dashscope"]);
+        assert!(!provider_ids.contains(&"openrouter"));
+        assert!(!provider_ids.contains(&"ollama"));
+        assert!(!provider_ids.contains(&"custom"));
+    }
+
+    #[test]
     fn resolves_provider_profile_from_config_and_defaults() {
         let profile = resolve_provider_profile(
             &json!({
@@ -1466,6 +1463,88 @@ mod tests {
         assert!(result.models.contains(&"profile-model".to_string()));
         assert!(result.models.contains(&"manual-a".to_string()));
         assert!(result.models.contains(&"live-model".to_string()));
+        assert_eq!(result.sources["live"], 1);
+    }
+
+    #[test]
+    fn provider_models_fetches_openai_compatible_model_list() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("test listener should bind");
+        let api_base = format!("http://{}", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buffer = [0_u8; 2048];
+                let _ = stream.read(&mut buffer);
+                let body = r#"{"object":"list","data":[{"id":"live-a","object":"model","created":1,"owned_by":"test"},{"id":"live-b","object":"model","created":1,"owned_by":"test"}]}"#;
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{body}",
+                    body.len()
+                );
+            }
+        });
+
+        let result = list_provider_models(
+            &json!({
+                "providers": {
+                    "openai": {
+                        "api_key": "sk-test",
+                        "api_base": api_base
+                    }
+                }
+            }),
+            NativeProviderModelsRequest {
+                provider_id: Some("openai".to_string()),
+                refresh_live: Some(true),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let _ = server.join();
+
+        assert!(result.ok);
+        assert!(result.models.contains(&"live-a".to_string()));
+        assert!(result.models.contains(&"live-b".to_string()));
+        assert_eq!(result.sources["live"], 2);
+    }
+
+    #[test]
+    fn dashscope_models_use_openai_compatible_discovery() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("test listener should bind");
+        let api_base = format!("http://{}", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buffer = [0_u8; 2048];
+                let _ = stream.read(&mut buffer);
+                let body = r#"{"object":"list","data":[{"id":"qwen-live","object":"model","created":1,"owned_by":"test"}]}"#;
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{body}",
+                    body.len()
+                );
+            }
+        });
+
+        let result = list_provider_models(
+            &json!({
+                "providers": {
+                    "dashscope": {
+                        "api_key": "sk-test",
+                        "api_base": api_base
+                    }
+                }
+            }),
+            NativeProviderModelsRequest {
+                provider_id: Some("dashscope".to_string()),
+                refresh_live: Some(true),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let _ = server.join();
+
+        assert!(result.ok);
+        assert!(result.models.contains(&"qwen-plus".to_string()));
+        assert!(result.models.contains(&"qwen-live".to_string()));
         assert_eq!(result.sources["live"], 1);
     }
 

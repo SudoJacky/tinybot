@@ -148,11 +148,17 @@ pub fn build_settings_snapshot(input: SettingsSnapshotInput) -> SettingsSnapshot
                 config_field(
                     "active-profile",
                     "Active profile",
-                    "agents.defaults.active_profile",
+                    "agents.defaults.activeProfile",
                     SettingScope::RunDefault,
                     SettingValueType::String,
                     true,
-                    get_path(config, &["agents", "defaults", "active_profile"]),
+                    pick_path(
+                        config,
+                        &[
+                            &["agents", "defaults", "activeProfile"],
+                            &["agents", "defaults", "active_profile"],
+                        ],
+                    ),
                 ),
                 config_field(
                     "default-model",
@@ -184,38 +190,77 @@ pub fn build_settings_snapshot(input: SettingsSnapshotInput) -> SettingsSnapshot
                 config_field(
                     "max-tokens",
                     "Max output tokens",
-                    "agents.defaults.max_tokens",
+                    "agents.defaults.maxTokens",
                     SettingScope::RunDefault,
                     SettingValueType::Number,
                     true,
-                    get_path(config, &["agents", "defaults", "max_tokens"]),
+                    pick_path(
+                        config,
+                        &[
+                            &["agents", "defaults", "maxTokens"],
+                            &["agents", "defaults", "max_tokens"],
+                        ],
+                    ),
                 ),
                 config_field(
                     "context-window-tokens",
                     "Context window budget",
-                    "agents.defaults.context_window_tokens",
+                    "agents.defaults.contextWindowTokens",
                     SettingScope::RunDefault,
                     SettingValueType::Number,
                     true,
-                    get_path(config, &["agents", "defaults", "context_window_tokens"]),
+                    pick_path(
+                        config,
+                        &[
+                            &["agents", "defaults", "contextWindowTokens"],
+                            &["agents", "defaults", "context_window_tokens"],
+                        ],
+                    ),
+                ),
+                config_field(
+                    "context-window-strategy",
+                    "Context window strategy",
+                    "agents.defaults.contextWindowStrategy",
+                    SettingScope::RunDefault,
+                    SettingValueType::String,
+                    true,
+                    pick_path(
+                        config,
+                        &[
+                            &["agents", "defaults", "contextWindowStrategy"],
+                            &["agents", "defaults", "context_window_strategy"],
+                        ],
+                    ),
                 ),
                 config_field(
                     "max-tool-iterations",
                     "Max tool iterations",
-                    "agents.defaults.max_tool_iterations",
+                    "agents.defaults.maxToolIterations",
                     SettingScope::RunDefault,
                     SettingValueType::Number,
                     true,
-                    get_path(config, &["agents", "defaults", "max_tool_iterations"]),
+                    pick_path(
+                        config,
+                        &[
+                            &["agents", "defaults", "maxToolIterations"],
+                            &["agents", "defaults", "max_tool_iterations"],
+                        ],
+                    ),
                 ),
                 config_field(
                     "reasoning-effort",
                     "Reasoning effort",
-                    "agents.defaults.reasoning_effort",
+                    "agents.defaults.reasoningEffort",
                     SettingScope::RunDefault,
                     SettingValueType::String,
                     true,
-                    get_path(config, &["agents", "defaults", "reasoning_effort"]),
+                    pick_path(
+                        config,
+                        &[
+                            &["agents", "defaults", "reasoningEffort"],
+                            &["agents", "defaults", "reasoning_effort"],
+                        ],
+                    ),
                 ),
             ],
         ),
@@ -510,11 +555,17 @@ pub fn build_settings_snapshot(input: SettingsSnapshotInput) -> SettingsSnapshot
                 config_field(
                     "mcp-default-approval-policy",
                     "Default MCP approval policy",
-                    "mcp.default_approval_policy",
+                    "tools.defaultApprovalPolicy",
                     SettingScope::Workspace,
                     SettingValueType::Select,
                     true,
-                    get_path(config, &["mcp", "default_approval_policy"]),
+                    pick_path(
+                        config,
+                        &[
+                            &["tools", "defaultApprovalPolicy"],
+                            &["mcp", "default_approval_policy"],
+                        ],
+                    ),
                 )
                 .with_risk(SettingRisk::Sensitive),
                 config_field(
@@ -656,11 +707,17 @@ fn provider_models_group(config: &Value) -> SettingsGroup {
         config_field(
             "active-profile",
             "Active profile",
-            "agents.defaults.active_profile",
+            "agents.defaults.activeProfile",
             SettingScope::RunDefault,
             SettingValueType::String,
             true,
-            get_path(config, &["agents", "defaults", "active_profile"]),
+            pick_path(
+                config,
+                &[
+                    &["agents", "defaults", "activeProfile"],
+                    &["agents", "defaults", "active_profile"],
+                ],
+            ),
         ),
         config_field(
             "agent-default-model",
@@ -681,11 +738,14 @@ fn provider_models_group(config: &Value) -> SettingsGroup {
             fields.push(config_field(
                 &format!("provider-profile-{profile_id}-display-name"),
                 "Profile display name",
-                &format!("{prefix}.display_name"),
+                &format!("{prefix}.displayName"),
                 SettingScope::Profile,
                 SettingValueType::String,
                 true,
-                profile.get("display_name").cloned(),
+                profile
+                    .get("displayName")
+                    .or_else(|| profile.get("display_name"))
+                    .cloned(),
             ));
             fields.push(config_field(
                 &format!("provider-profile-{profile_id}-provider"),
@@ -708,27 +768,35 @@ fn provider_models_group(config: &Value) -> SettingsGroup {
             fields.push(secret_field(
                 &format!("provider-profile-{profile_id}-api-key"),
                 "API key",
-                &format!("{prefix}.api_key"),
+                &format!("{prefix}.apiKey"),
                 SettingScope::Profile,
-                sensitive_value_configured(profile.get("api_key")),
+                sensitive_value_configured(
+                    profile.get("apiKey").or_else(|| profile.get("api_key")),
+                ),
             ));
             fields.push(config_field(
                 &format!("provider-profile-{profile_id}-api-base"),
                 "API base",
-                &format!("{prefix}.api_base"),
+                &format!("{prefix}.apiBase"),
                 SettingScope::Profile,
                 SettingValueType::String,
                 true,
-                profile.get("api_base").cloned(),
+                profile
+                    .get("apiBase")
+                    .or_else(|| profile.get("api_base"))
+                    .cloned(),
             ));
             fields.push(config_field(
                 &format!("provider-profile-{profile_id}-request-timeout"),
                 "Request timeout",
-                &format!("{prefix}.request_timeout_ms"),
+                &format!("{prefix}.requestTimeoutMs"),
                 SettingScope::Profile,
                 SettingValueType::Number,
                 true,
-                profile.get("request_timeout_ms").cloned(),
+                profile
+                    .get("requestTimeoutMs")
+                    .or_else(|| profile.get("request_timeout_ms"))
+                    .cloned(),
             ));
             fields.push(config_field(
                 &format!("provider-profile-{profile_id}-models"),
@@ -742,11 +810,14 @@ fn provider_models_group(config: &Value) -> SettingsGroup {
             fields.push(config_field(
                 &format!("provider-profile-{profile_id}-default-model"),
                 "Profile default model",
-                &format!("{prefix}.default_model"),
+                &format!("{prefix}.defaultModel"),
                 SettingScope::Profile,
                 SettingValueType::String,
                 true,
-                profile.get("default_model").cloned(),
+                profile
+                    .get("defaultModel")
+                    .or_else(|| profile.get("default_model"))
+                    .cloned(),
             ));
         }
     }
@@ -761,11 +832,18 @@ fn provider_models_group(config: &Value) -> SettingsGroup {
 
 fn mcp_servers_group(config: &Value) -> SettingsGroup {
     let mut fields = Vec::new();
-    if let Some(servers) =
-        get_path(config, &["mcp", "servers"]).and_then(|value| value.as_object().cloned())
+    if let Some(servers) = pick_path(
+        config,
+        &[
+            &["tools", "mcpServers"],
+            &["tools", "mcp_servers"],
+            &["mcp", "servers"],
+        ],
+    )
+    .and_then(|value| value.as_object().cloned())
     {
         for (server_id, server) in servers {
-            let prefix = format!("mcp.servers.{server_id}");
+            let prefix = format!("tools.mcpServers.{server_id}");
             fields.push(config_field(
                 &format!("mcp-{server_id}-enabled"),
                 "Server enabled",
@@ -991,6 +1069,10 @@ fn get_path(value: &Value, path: &[&str]) -> Option<Value> {
     Some(current.clone())
 }
 
+fn pick_path(value: &Value, paths: &[&[&str]]) -> Option<Value> {
+    paths.iter().find_map(|path| get_path(value, path))
+}
+
 fn public_config_snapshot(snapshot: &Value) -> Value {
     omit_sensitive_descendants(snapshot)
 }
@@ -1114,7 +1196,7 @@ mod tests {
         });
 
         let field = snapshot
-            .field("providers.profiles.openai-work.api_key")
+            .field("providers.profiles.openai-work.apiKey")
             .expect("provider api key field should exist");
 
         assert_eq!(field.value_type, SettingValueType::Secret);

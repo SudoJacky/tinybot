@@ -33,6 +33,12 @@ export type ArtifactRef = {
 export type TokenUsage = {
   cachedTokens?: number;
   completionTokens?: number;
+  contextWindowRemainingTokens?: number;
+  contextWindowStrategy?: string;
+  contextWindowTokens?: number;
+  contextWindowUsedTokens?: number;
+  estimatedContextTokens?: number;
+  percent?: number;
   promptTokens?: number;
   totalTokens?: number;
 };
@@ -104,6 +110,7 @@ export interface ChatMessageProjection {
   toolActivities?: ChatToolActivityProjection[];
   turnId?: string;
   turnStatus?: ChatTurnStatus;
+  usage?: TokenUsage;
 }
 
 export type DelegatedAgentState = {
@@ -487,6 +494,11 @@ export function reduceAgentEvent(state: ChatRunState, event: AgentEventEnvelope)
   if (event.event_type === "agent.turn.updated") {
     turn.status = turnStatusValue(event.payload.status) || turn.status;
     turn.usage = normalizeUsage(event.payload.usage) ?? turn.usage;
+    return state;
+  }
+
+  if (event.event_type === "agent.usage") {
+    turn.usage = normalizeUsage(event.payload.usage ?? event.payload) ?? turn.usage;
     return state;
   }
 
@@ -1001,6 +1013,7 @@ export function turnsToConversationMessages(turns: ChatTurn[]): ChatMessageProje
         toolActivities: [],
         turnId: turn.id,
         turnStatus: turn.status,
+        ...(turn.usage ? { usage: turn.usage } : {}),
       });
     }
     return messages;
@@ -1049,6 +1062,7 @@ function stepToConversationMessage(step: ChatStep, turn: ChatTurn): ChatMessageP
     toolActivities: stepToToolActivities(step),
     turnId: turn.id,
     turnStatus: turn.status,
+    ...(turn.usage ? { usage: turn.usage } : {}),
   };
 }
 
@@ -1562,6 +1576,12 @@ function normalizeUsage(value: unknown): TokenUsage | undefined {
   return {
     cachedTokens: numberValue(payload.cached_tokens ?? payload.cachedTokens),
     completionTokens: numberValue(payload.completion_tokens ?? payload.completionTokens),
+    contextWindowRemainingTokens: numberValue(payload.context_window_remaining_tokens ?? payload.contextWindowRemainingTokens),
+    contextWindowStrategy: stringValue(payload.context_window_strategy ?? payload.contextWindowStrategy) || undefined,
+    contextWindowTokens: numberValue(payload.context_window_tokens ?? payload.contextWindowTokens),
+    contextWindowUsedTokens: numberValue(payload.context_window_used_tokens ?? payload.contextWindowUsedTokens),
+    estimatedContextTokens: numberValue(payload.estimated_context_tokens ?? payload.estimatedContextTokens),
+    percent: numberValue(payload.percent ?? payload.percentage ?? payload.token_usage_percent ?? payload.tokenUsagePercent),
     promptTokens: numberValue(payload.prompt_tokens ?? payload.promptTokens),
     totalTokens: numberValue(payload.total_tokens ?? payload.totalTokens),
   };
