@@ -155,9 +155,26 @@ Known worker error sources:
 | `apply_config_patch_result` | `{ result: ConfigPatchBridgeResult }` | `ConfigPatchApplyResult` |
 | `apply_config_operations` | `{ request: ConfigOperationRequest }` | `ConfigPatchApplyResult` |
 
+Config commands use `$HOME/.tinybot/config.json`. On Rust backend startup, and before each config
+command loads the store, the backend ensures the config file exists. If the file is missing it creates
+a schema v1 default config with:
+
+- `schemaVersion: 1`
+- `agents.defaults.activeProfile: "deepseek-default"`
+- `agents.defaults.model: "deepseek-v4-pro"`
+- `providers.profiles.deepseek-default` with DeepSeek V4 models
+- `gateway.host: "127.0.0.1"` and `gateway.port: 18790`
+
+Existing files are never overwritten by this initialization path, including invalid JSON or non-object
+config files. If default creation succeeds, config snapshots include an info diagnostic with code
+`DefaultConfigCreated`. If default creation fails, snapshots still return effective in-memory defaults
+and include a warning diagnostic with code `DefaultConfigCreateFailed`.
+
 `SettingsSnapshot` is the Rust-owned settings control-center projection for the first settings MVP.
 It is intended for frontend settings UI callers that need grouped fields, scope/source metadata,
 readonly runtime status, and secret-safe field metadata without reading arbitrary raw config JSON.
+Returned field paths are canonical camelCase config paths; legacy snake_case paths are accepted for
+read compatibility and normalized on save.
 
 ```json
 {
@@ -175,7 +192,7 @@ readonly runtime status, and secret-safe field metadata without reading arbitrar
         {
           "id": "provider-profile-openai-work-api-key",
           "label": "API key",
-          "path": "providers.profiles.openai-work.api_key",
+          "path": "providers.profiles.openai-work.apiKey",
           "scope": "profile",
           "source": "secret",
           "valueType": "secret",
@@ -187,7 +204,7 @@ readonly runtime status, and secret-safe field metadata without reading arbitrar
             "copyable": true,
             "exportable": false,
             "loggable": false,
-            "displayValue": "••••••••"
+            "displayValue": "********"
           },
           "risk": "sensitive",
           "sideEffect": "none"
@@ -218,6 +235,24 @@ The first version intentionally does not include Knowledge, Memory, Cowork, Chan
 web/exec/browser tool toggles, telemetry/crash-report controls, or raw JSON editing fields.
 `gateway.host` is projected as readonly `127.0.0.1`; `gateway.port` is editable. Secret fields
 return `value: null` with `secret` metadata and must remain redacted in exported/public config.
+Provider selection is profile-based. New config should use `agents.defaults.activeProfile` and
+`providers.profiles.<profileId>.provider`; `agents.defaults.provider: "auto"` is a legacy value only.
+The built-in provider catalog currently exposes only `deepseek`, `dashscope`, and `openai`.
+
+Provider model discovery:
+
+- `deepseek` uses the OpenAI-compatible `GET {apiBase}/models` API. The default `apiBase` is
+  `https://api.deepseek.com`, so discovery calls `https://api.deepseek.com/models`.
+- `openai` uses `GET https://api.openai.com/v1/models` by default.
+- `dashscope` uses the same OpenAI-compatible model discovery shape against its configured
+  `apiBase`, so the default discovery URL is
+  `https://dashscope.aliyuncs.com/compatible-mode/v1/models`.
+
+`POST /api/provider-models` accepts `{ provider, profile, apiBase, refreshLive }`. When
+`refreshLive: true` is used for an OpenAI-compatible provider, the backend reads the configured
+profile API key server-side and merges live results into the returned `models` list with source
+`live`. Missing credentials or unsupported discovery are returned as `warning` without exposing
+secrets.
 
 `ConfigEditorSnapshot`:
 
@@ -233,16 +268,20 @@ return `value: null` with `secret` metadata and must remain redacted in exported
 }
 ```
 
+The editor snapshot is intended for expert/debug views and public config summaries. Regular Settings
+UI should prefer `SettingsSnapshot` once the frontend is migrated to the Rust-owned settings schema.
+
 `ConfigOperationRequest`:
 
 ```json
 {
   "expectedRevision": "optional-current-revision",
   "operations": [
-    { "op": "replace", "path": "agents.defaults.model", "value": "gpt-5" },
+    { "op": "replace", "path": "agents.defaults.model", "value": "deepseek-v4-pro" },
+    { "op": "replace", "path": "agents.defaults.activeProfile", "value": "deepseek-default" },
     { "op": "remove", "path": "agents.defaults.timezone" },
-    { "op": "secretReplace", "path": "providers.openai.api_key", "value": "sk-..." },
-    { "op": "secretRemove", "path": "providers.openai.api_key" }
+    { "op": "secretReplace", "path": "providers.profiles.deepseek-default.apiKey", "value": "sk-..." },
+    { "op": "secretRemove", "path": "providers.profiles.deepseek-default.apiKey" }
   ]
 }
 ```
@@ -282,7 +321,7 @@ return `value: null` with `secret` metadata and must remain redacted in exported
   "runId": "run-1",
   "sessionId": "websocket:chat-1",
   "messages": [{ "role": "user", "content": "Hello" }],
-  "model": "gpt-5",
+  "model": "deepseek-v4-pro",
   "maxIterations": 20,
   "stream": true,
   "metadata": {}
@@ -328,8 +367,8 @@ Key response shapes used by the lower-level session RPC:
   "started_at": "...",
   "updated_at": "...",
   "completed_at": null,
-  "model": "gpt-5",
-  "provider": "openai",
+  "model": "deepseek-v4-pro",
+  "provider": "deepseek",
   "hasCheckpoint": true,
   "finalContentPreview": "..."
 }
@@ -528,7 +567,7 @@ await invoke("worker_transport_dispatch_websocket_message", {
     attachedChatId: "chat-1",
     sessionExists: true,
     editablePaths: ["src/main.ts"],
-    model: "gpt-5",
+    model: "deepseek-v4-pro",
     maxIterations: 20,
     runId: "run-1",
     stream: true
@@ -727,6 +766,36 @@ The Rust backend can emit live events through Tauri. Dotted worker event names a
 - `diagnostics.log`
 - `worker.status`
 
+`agent.usage` payloads preserve provider-returned OpenAI-compatible usage fields such as
+`prompt_tokens`, `completion_tokens`, and `total_tokens`. The Rust agent runtime also appends
+context-window budget fields:
+
+- `context_window_tokens` / `contextWindowTokens`: effective context window from
+  `agents.defaults.contextWindowTokens` or the backend default.
+- `context_window_used_tokens` / `contextWindowUsedTokens`: provider `prompt_tokens` when present,
+  then provider `total_tokens`, otherwise the local request estimate.
+- `context_window_remaining_tokens` / `contextWindowRemainingTokens`: remaining context budget.
+- `estimated_context_tokens` / `estimatedContextTokens`: local approximate token count for the
+  request sent after context-window trimming.
+- `context_window_strategy` / `contextWindowStrategy`: effective strategy, currently `discard` or
+  `compact`.
+- `percent`: context-window usage percentage.
+
+Rust agent context-window controls are read from `agents.defaults` or the run spec:
+
+- `contextWindowTokens` / `context_window_tokens`: effective context window. The fallback is
+  `128000`.
+- `contextWindowStrategy` / `context_window_strategy`: `discard` or `compact`. The fallback is
+  `discard`.
+- `compactTriggerPercent` / `compact_trigger_percent`: percentage threshold for `compact`; default
+  `90`.
+- `compactSummaryMaxTokens` / `compact_summary_max_tokens`: max completion tokens for the internal
+  summary request; default `1024`.
+
+`discard` keeps the newest messages that fit the window. `compact` sends older messages through an
+internal non-streaming `chat/completions` request, inserts the returned summary as a system message,
+and keeps recent messages. If compaction fails, the runtime falls back to `discard`.
+
 `NativeBackendEvent` shape:
 
 ```json
@@ -816,7 +885,7 @@ await invoke("apply_config_operations", {
   request: {
     expectedRevision: currentRevision,
     operations: [
-      { op: "replace", path: "agents.defaults.model", value: "gpt-5" }
+      { op: "replace", path: "agents.defaults.model", value: "deepseek-v4-pro" }
     ]
   }
 });

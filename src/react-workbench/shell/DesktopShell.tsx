@@ -11,6 +11,8 @@ import {
 } from "react";
 import { BookOpen, Bot, ChevronRight, Code2, Command, FileText, Folder, MessageSquare, Minus, Settings, Square, Wrench, X } from "lucide-react";
 import { ChatPage } from "../chat/ChatPage";
+import { AgentDefaultsSettingsPage } from "../settings/AgentDefaultsSettingsPage";
+import { ProviderModelsSettingsPage } from "../settings/ProviderModelsSettingsPage";
 import type { AppServices, WorkspaceFileSummary } from "../services";
 
 type AppRoute = "chat" | "files" | "knowledge" | "cowork" | "github" | "docs" | "tools" | "settings";
@@ -54,7 +56,6 @@ type TopMenuCommandId =
   | "open-safe-mode"
   | "toggle-theme"
   | "toggle-sidebar"
-  | "open-command-palette"
   | "refresh-gateway-status";
 
 type TopMenuCommand = {
@@ -88,7 +89,6 @@ const topMenuItems: TopMenuItem[] = [
       menuCommand({ id: "new-chat", label: "New Chat", shortcut: "Ctrl+N" }),
       menuCommand({ id: "search-sessions", label: "Search Sessions", shortcut: "Ctrl+F", enabled: false }),
       menuSeparator("app-primary-separator"),
-      menuCommand({ id: "open-command-palette", label: "Command Palette", shortcut: "Ctrl+Shift+P / Ctrl+K" }),
       menuCommand({ id: "stop-generation", label: "Stop Generation", shortcut: "Ctrl+.", enabled: false }),
       menuSeparator("app-view-separator"),
       menuCommand({ id: "toggle-theme", label: "Toggle Theme", shortcut: "Ctrl+Shift+T" }),
@@ -139,7 +139,6 @@ const topMenuItems: TopMenuItem[] = [
 
 export function DesktopShell({ now, services, windowControls }: DesktopShellProps) {
   const [route, setRoute] = useState<AppRoute>("chat");
-  const [paletteOpen, setPaletteOpen] = useState(false);
   const [activeTopMenu, setActiveTopMenu] = useState<TopMenuLabel | null>(null);
   const [activeTopSubmenu, setActiveTopSubmenu] = useState<string | null>(null);
   const [sessionSidebarCollapsed, setSessionSidebarCollapsed] = useState(false);
@@ -147,14 +146,6 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
   const [stopGenerationSessionId, setStopGenerationSessionId] = useState("");
   const stopGenerationSessionIdRef = useRef("");
   const frameControls = useMemo(() => windowControls ?? resolveWindowFrameControls(), [windowControls]);
-  const commands = useMemo(() => routeItems.map((item) => ({
-    id: `open:${item.id}`,
-    label: `Open ${item.label}`,
-    run: () => {
-      setRoute(item.id);
-      setPaletteOpen(false);
-    },
-  })), []);
 
   function handleStopGenerationTargetChange(sessionId: string) {
     stopGenerationSessionIdRef.current = sessionId;
@@ -170,10 +161,6 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        setPaletteOpen(true);
-      }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "b") {
         event.preventDefault();
         setSessionSidebarCollapsed((collapsed) => !collapsed);
@@ -183,7 +170,6 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
         stopActiveGeneration();
       }
       if (event.key === "Escape") {
-        setPaletteOpen(false);
         setActiveTopMenu(null);
         setActiveTopSubmenu(null);
       }
@@ -244,9 +230,6 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
         return;
       case "open-docs":
         setRoute("docs");
-        return;
-      case "open-command-palette":
-        setPaletteOpen(true);
         return;
       case "stop-generation":
         stopActiveGeneration();
@@ -372,17 +355,6 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
           ))}
         </nav>
         <div className="react-window-frame__drag-space" data-tauri-drag-region="" />
-        <button
-          aria-label="Open command palette"
-          data-no-window-drag=""
-          title="Open command palette"
-          type="button"
-          onClick={() => setPaletteOpen(true)}
-          onDoubleClick={stopWindowFrameEvent}
-          onPointerDown={stopWindowFrameEvent}
-        >
-          <Command aria-hidden="true" size={16} />
-        </button>
         <div
           aria-label="Window controls"
           className="react-window-frame__controls"
@@ -429,6 +401,7 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
               <button
                 aria-label={item.label}
                 data-active={route === item.id}
+                data-label={item.label}
                 key={item.id}
                 title={item.label}
                 type="button"
@@ -454,7 +427,6 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
         </section>
       </div>
 
-      {paletteOpen ? <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} /> : null}
     </div>
   );
 }
@@ -604,6 +576,32 @@ function ToolsPage({ services }: { services: AppServices }) {
 
 function SettingsPage({ services }: { services: AppServices }) {
   const settings = useAsyncList(() => services.settingsStore.load(), [services]);
+  const [activeSettingsModuleId, setActiveSettingsModuleId] = useState<SettingsModuleId>("provider-models");
+  if (services.settingsStore.loadProviderSettings && services.settingsStore.saveProviderSettings) {
+    const availableModules = settingsModules.filter((module) => module.id !== "agent-defaults"
+      || (services.settingsStore.loadAgentDefaultsSettings && services.settingsStore.saveAgentDefaultsSettings));
+    const activeModuleId = availableModules.some((module) => module.id === activeSettingsModuleId)
+      ? activeSettingsModuleId
+      : "provider-models";
+    return (
+      <WorkbenchPage title="Settings">
+        <SettingsLayout
+          activeModuleId={activeModuleId}
+          modules={availableModules}
+          onSelectModule={setActiveSettingsModuleId}
+        >
+          {activeModuleId === "agent-defaults" ? (
+            <AgentDefaultsSettingsPage
+              onNavigateToProviderModels={() => setActiveSettingsModuleId("provider-models")}
+              settingsStore={services.settingsStore}
+            />
+          ) : (
+            <ProviderModelsSettingsPage settingsStore={services.settingsStore} />
+          )}
+        </SettingsLayout>
+      </WorkbenchPage>
+    );
+  }
   return (
     <WorkbenchPage title="Settings">
       <DataList
@@ -617,6 +615,49 @@ function SettingsPage({ services }: { services: AppServices }) {
         )}
       />
     </WorkbenchPage>
+  );
+}
+
+type SettingsModuleId = "provider-models" | "agent-defaults";
+
+const settingsModules: Array<{ id: SettingsModuleId; label: string; description: string }> = [
+  { id: "provider-models", label: "Provider & Models", description: "Providers, API keys, and model defaults" },
+  { id: "agent-defaults", label: "Agent Defaults", description: "Runtime behavior for new agent runs" },
+];
+
+function SettingsLayout({
+  activeModuleId,
+  children,
+  modules,
+  onSelectModule,
+}: {
+  activeModuleId: SettingsModuleId;
+  children: ReactNode;
+  modules: Array<{ id: SettingsModuleId; label: string; description: string }>;
+  onSelectModule: (moduleId: SettingsModuleId) => void;
+}) {
+  return (
+    <div className="react-settings-layout">
+      <aside className="react-settings-sidebar">
+        <nav aria-label="Settings categories">
+          {modules.map((module) => (
+            <button
+              key={module.id}
+              aria-current={module.id === activeModuleId ? "page" : undefined}
+              aria-label={module.label}
+              onClick={() => onSelectModule(module.id)}
+              type="button"
+            >
+              <span>{module.label}</span>
+              <small>{module.description}</small>
+            </button>
+          ))}
+        </nav>
+      </aside>
+      <div className="react-settings-detail">
+        {children}
+      </div>
+    </div>
   );
 }
 
@@ -647,43 +688,6 @@ function PlaceholderPage({ title }: { title: string }) {
     <div className="react-placeholder-page">
       <h1>{title}</h1>
       <p>This React placeholder keeps navigation available while the page-specific implementation is rebuilt.</p>
-    </div>
-  );
-}
-
-function CommandPalette({
-  commands,
-  onClose,
-}: {
-  commands: Array<{ id: string; label: string; run: () => void }>;
-  onClose: () => void;
-}) {
-  const [query, setQuery] = useState("");
-  const filteredCommands = commands.filter((command) => command.label.toLowerCase().includes(query.trim().toLowerCase()));
-  return (
-    <div className="react-command-palette-backdrop">
-      <section aria-label="Command palette" className="react-command-palette" role="dialog">
-        <div>
-          <h2>Command palette</h2>
-          <button aria-label="Close command palette" type="button" onClick={onClose}>
-            <X aria-hidden="true" size={16} />
-          </button>
-        </div>
-        <input
-          aria-label="Search commands"
-          autoFocus
-          placeholder="Search commands"
-          value={query}
-          onChange={(event) => setQuery(event.currentTarget.value)}
-        />
-        <div className="react-command-list">
-          {filteredCommands.map((command) => (
-            <button key={command.id} type="button" onClick={command.run}>
-              {command.label}
-            </button>
-          ))}
-        </div>
-      </section>
     </div>
   );
 }

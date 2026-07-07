@@ -112,7 +112,7 @@ describe("desktop native config patch host action", () => {
 
     await applyNativeConfigPatch(
       {},
-      { agents: { defaults: { max_tokens: 8192 } } },
+      { agents: { defaults: { max_tokens: 8192, context_window_strategy: "compact" } } },
       { invoke },
     );
 
@@ -124,6 +124,11 @@ describe("desktop native config patch host action", () => {
             op: "replace",
             path: "agents.defaults.maxTokens",
             value: 8192,
+          },
+          {
+            op: "replace",
+            path: "agents.defaults.contextWindowStrategy",
+            value: "compact",
           },
         ],
       },

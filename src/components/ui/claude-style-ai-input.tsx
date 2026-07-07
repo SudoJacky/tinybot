@@ -1,7 +1,8 @@
 "use client";
 
-import type { ChangeEvent, ClipboardEvent, FormEvent, KeyboardEvent, ReactNode } from "react";
+import type { ChangeEvent, ClipboardEvent, FormEvent, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { TokenUsage } from "../../app-core/chat/chatRunModel";
 import {
   AlertCircle,
   Archive,
@@ -73,6 +74,7 @@ export interface ClaudeStyleAiInputProps {
   models?: ModelOption[];
   defaultModel?: string;
   onModelChange?: (modelId: string) => void;
+  contextUsage?: TokenUsage;
   tools?: ComposerToolOption[];
   responding?: boolean;
   onStopResponding?: () => void | Promise<void>;
@@ -94,6 +96,7 @@ function nextInputId(prefix: string): string {
 export function ClaudeStyleAiInput({
   acceptedFileTypes = [],
   className,
+  contextUsage,
   defaultModel,
   disabled = false,
   maxFileSize = MAX_FILE_SIZE,
@@ -107,6 +110,7 @@ export function ClaudeStyleAiInput({
   tools = EMPTY_TOOLS,
 }: ClaudeStyleAiInputProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
   const toolMenuRef = useRef<HTMLDivElement | null>(null);
   const [message, setMessage] = useState("");
@@ -122,6 +126,7 @@ export function ClaudeStyleAiInput({
     () => models.find((model) => model.id === selectedModelId) ?? models[0],
     [models, selectedModelId],
   );
+  const contextUsageView = useMemo(() => buildContextUsageView(contextUsage), [contextUsage]);
   const enabledToolIdSet = useMemo(() => new Set(enabledToolIds), [enabledToolIds]);
   const canSend = !disabled && !sending && Boolean(message.trim() || files.length || pastedContent.length);
 
@@ -272,6 +277,29 @@ export function ClaudeStyleAiInput({
     });
   }
 
+  function handlePanelPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const panel = panelRef.current;
+    if (!panel) {
+      return;
+    }
+
+    const rect = panel.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    const edgeDistance = Math.min(x, y, rect.width - x, rect.height - y);
+    const edgeSensitivity = Math.min(76, Math.max(36, Math.min(rect.width, rect.height) * 0.38));
+    const edgeProximity = Math.max(0, Math.min(1, 1 - edgeDistance / edgeSensitivity));
+    const opacity = Math.round(Math.pow(edgeProximity, 0.68) * 100) / 100;
+
+    panel.style.setProperty("--claude-ai-panel-glow-x", `${x}px`);
+    panel.style.setProperty("--claude-ai-panel-glow-y", `${y}px`);
+    panel.style.setProperty("--claude-ai-panel-glow-opacity", `${opacity}`);
+  }
+
+  function handlePanelPointerLeave() {
+    panelRef.current?.style.setProperty("--claude-ai-panel-glow-opacity", "0");
+  }
+
   return (
     <form
       aria-label="Message composer"
@@ -310,7 +338,12 @@ export function ClaudeStyleAiInput({
         </div>
       ) : null}
 
-      <div className="claude-ai-input__panel">
+      <div
+        ref={panelRef}
+        className="claude-ai-input__panel"
+        onPointerLeave={handlePanelPointerLeave}
+        onPointerMove={handlePanelPointerMove}
+      >
         <textarea
           aria-label="Message"
           className="claude-ai-input__textarea"
@@ -423,6 +456,7 @@ export function ClaudeStyleAiInput({
                 </div>
               ) : null}
             </div>
+            {contextUsageView ? <ContextUsageIndicator view={contextUsageView} /> : null}
           </div>
 
           {responding ? (
@@ -451,6 +485,97 @@ export function ClaudeStyleAiInput({
       </div>
     </form>
   );
+}
+
+type ContextUsageView = {
+  ariaLabel: string;
+  leftPercent: number;
+  percent: number;
+  state: "normal" | "warn" | "critical";
+  strategy?: string;
+  tokenLabel: string;
+};
+
+function ContextUsageIndicator({ view }: { view: ContextUsageView }) {
+  return (
+    <div
+      aria-label={view.ariaLabel}
+      className="claude-ai-input__context-usage"
+      data-state={view.state}
+      role="img"
+      tabIndex={0}
+    >
+      <svg aria-hidden="true" viewBox="0 0 24 24">
+        <circle className="claude-ai-input__context-usage-track" cx="12" cy="12" r="8.5" pathLength={100} />
+        <circle
+          className="claude-ai-input__context-usage-value"
+          cx="12"
+          cy="12"
+          r="8.5"
+          pathLength={100}
+          strokeDasharray={`${view.percent} 100`}
+        />
+      </svg>
+      <span className="claude-ai-input__context-usage-tip" role="tooltip">
+        <strong>Context window</strong>
+        <span>{view.percent}% used ({view.leftPercent}% left)</span>
+        <span>{view.tokenLabel}</span>
+        {view.strategy ? <span>Strategy: {view.strategy}</span> : null}
+      </span>
+    </div>
+  );
+}
+
+function buildContextUsageView(usage: TokenUsage | undefined): ContextUsageView | undefined {
+  if (!usage) {
+    return undefined;
+  }
+  const windowTokens = positiveNumber(usage.contextWindowTokens);
+  const usedTokens = positiveNumber(usage.contextWindowUsedTokens ?? usage.promptTokens ?? usage.totalTokens);
+  const percent = boundedPercent(usage.percent ?? (
+    windowTokens !== undefined && usedTokens !== undefined ? (usedTokens / windowTokens) * 100 : undefined
+  ));
+  if (percent === undefined) {
+    return undefined;
+  }
+
+  const leftPercent = Math.max(0, Math.round(100 - percent));
+  const tokenLabel = windowTokens !== undefined && usedTokens !== undefined
+    ? `${formatTokenCount(usedTokens)} / ${formatTokenCount(windowTokens)} tokens used`
+    : "Token budget reported by provider";
+  return {
+    ariaLabel: `Context window ${percent}% used, ${leftPercent}% left`,
+    leftPercent,
+    percent,
+    state: percent >= 85 ? "critical" : percent >= 60 ? "warn" : "normal",
+    strategy: usage.contextWindowStrategy,
+    tokenLabel,
+  };
+}
+
+function boundedPercent(value: number | undefined): number | undefined {
+  if (value === undefined || !Number.isFinite(value)) {
+    return undefined;
+  }
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function positiveNumber(value: number | undefined): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function formatTokenCount(value: number): string {
+  if (value >= 1_000_000) {
+    return `${trimDecimal(value / 1_000_000)}M`;
+  }
+  if (value >= 1_000) {
+    return `${trimDecimal(value / 1_000)}k`;
+  }
+  return String(Math.round(value));
+}
+
+function trimDecimal(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, "");
 }
 
 function AttachmentChip({

@@ -28,6 +28,10 @@ pub enum NativeAgentRuntimeMode {
 const TEST_COMPAT_FAKE_AWAITING_APPROVAL: &str = "fakeAwaitingApproval";
 const TEST_COMPAT_FAKE_AWAITING_FORM: &str = "fakeAwaitingForm";
 const TEST_COMPAT_FAKE_CHECKPOINT: &str = "fakeCheckpoint";
+const DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS: i64 = 128_000;
+const DEFAULT_COMPACT_TRIGGER_PERCENT: i64 = 90;
+const DEFAULT_COMPACT_SUMMARY_MAX_TOKENS: i64 = 1024;
+const APPROX_BYTES_PER_TOKEN: usize = 4;
 
 #[derive(Clone)]
 pub struct NativeAgentCancellationContext {
@@ -305,6 +309,26 @@ impl NativeAgentRunState {
         let message = self.pending_guidance_message.take()?;
         self.messages.push(message.clone());
         Some(message)
+    }
+
+    fn record_usage(
+        &mut self,
+        context: &NativeAgentRunContext,
+        iteration: i64,
+        usage: Value,
+        estimated_context_tokens: i64,
+    ) {
+        let usage = enrich_usage_with_context_window(context, usage, estimated_context_tokens);
+        self.usage.push(usage.clone());
+        self.emit_event(
+            "agent.usage",
+            serde_json::json!({
+                "runId": context.run_id,
+                "sessionId": context.session_id,
+                "iteration": iteration,
+                "usage": usage,
+            }),
+        );
     }
 }
 
@@ -903,16 +927,17 @@ impl NativeAgentProvider for RustNativeAgentProvider {
     ) -> Result<NativeAgentProviderResponse, String> {
         let request = agent_chat_completion_request(context)?;
         let provider_config = agent_provider_config(context);
-        let mut provider_observer = |event: crate::native_provider_runtime::NativeProviderStreamEvent| {
-            match event {
+        let mut provider_observer =
+            |event: crate::native_provider_runtime::NativeProviderStreamEvent| match event {
                 crate::native_provider_runtime::NativeProviderStreamEvent::ContentDelta(delta) => {
                     observer(NativeAgentProviderStreamEvent::ContentDelta(delta));
                 }
-                crate::native_provider_runtime::NativeProviderStreamEvent::ReasoningDelta(delta) => {
+                crate::native_provider_runtime::NativeProviderStreamEvent::ReasoningDelta(
+                    delta,
+                ) => {
                     observer(NativeAgentProviderStreamEvent::ReasoningDelta(delta));
                 }
-            }
-        };
+            };
         let completion = crate::native_provider_runtime::complete_chat_for_agent_with_observer(
             &provider_config,
             &request,
@@ -1172,6 +1197,9 @@ fn agent_chat_completion_request(context: &NativeAgentRunContext) -> Result<Valu
         "messages": messages,
         "stream": context.stream,
     });
+    if context.stream {
+        request["stream_options"] = serde_json::json!({ "include_usage": true });
+    }
     if let Some(max_tokens) = context
         .spec
         .get("maxCompletionTokens")
@@ -1223,9 +1251,263 @@ fn set_agent_default(config: &mut Value, key: &str, value: Value) {
 
 fn agent_chat_messages(context: &NativeAgentRunContext) -> Result<Value, String> {
     if !context.messages.is_empty() {
-        return Ok(Value::Array(context.messages.clone()));
+        return Ok(Value::Array(context_window_messages(context)));
     }
     Err("agent run requires at least one chat message".to_string())
+}
+
+fn context_window_messages(context: &NativeAgentRunContext) -> Vec<Value> {
+    let context_window_tokens = effective_context_window_tokens(context);
+    let full_estimate = estimate_messages_tokens(&context.messages);
+    if context_window_strategy(context) == "compact"
+        && compact_threshold_reached(context, full_estimate, context_window_tokens)
+    {
+        if let Some(messages) = compact_messages_to_context_window(context, context_window_tokens) {
+            return messages;
+        }
+    }
+
+    if full_estimate <= context_window_tokens {
+        return context.messages.clone();
+    }
+
+    trim_messages_to_context_window(&context.messages, context_window_tokens)
+}
+
+fn effective_context_window_tokens(context: &NativeAgentRunContext) -> i64 {
+    positive_i64_field(&context.spec, "contextWindowTokens")
+        .or_else(|| positive_i64_field(&context.spec, "context_window_tokens"))
+        .or_else(|| {
+            context
+                .config_snapshot
+                .get("agents")
+                .and_then(|agents| agents.get("defaults"))
+                .and_then(|defaults| {
+                    positive_i64_field(defaults, "contextWindowTokens")
+                        .or_else(|| positive_i64_field(defaults, "context_window_tokens"))
+                })
+        })
+        .unwrap_or(DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS)
+}
+
+fn context_window_strategy(context: &NativeAgentRunContext) -> String {
+    string_config_field(context, "contextWindowStrategy")
+        .or_else(|| string_config_field(context, "context_window_strategy"))
+        .map(|strategy| strategy.to_ascii_lowercase())
+        .filter(|strategy| strategy == "compact")
+        .unwrap_or_else(|| "discard".to_string())
+}
+
+fn compact_trigger_percent(context: &NativeAgentRunContext) -> i64 {
+    positive_i64_field(&context.spec, "compactTriggerPercent")
+        .or_else(|| positive_i64_field(&context.spec, "compact_trigger_percent"))
+        .or_else(|| {
+            context
+                .config_snapshot
+                .get("agents")
+                .and_then(|agents| agents.get("defaults"))
+                .and_then(|defaults| {
+                    positive_i64_field(defaults, "compactTriggerPercent")
+                        .or_else(|| positive_i64_field(defaults, "compact_trigger_percent"))
+                })
+        })
+        .unwrap_or(DEFAULT_COMPACT_TRIGGER_PERCENT)
+        .clamp(1, 100)
+}
+
+fn compact_summary_max_tokens(context: &NativeAgentRunContext) -> i64 {
+    positive_i64_field(&context.spec, "compactSummaryMaxTokens")
+        .or_else(|| positive_i64_field(&context.spec, "compact_summary_max_tokens"))
+        .or_else(|| {
+            context
+                .config_snapshot
+                .get("agents")
+                .and_then(|agents| agents.get("defaults"))
+                .and_then(|defaults| {
+                    positive_i64_field(defaults, "compactSummaryMaxTokens")
+                        .or_else(|| positive_i64_field(defaults, "compact_summary_max_tokens"))
+                })
+        })
+        .unwrap_or(DEFAULT_COMPACT_SUMMARY_MAX_TOKENS)
+}
+
+fn string_config_field(context: &NativeAgentRunContext, key: &str) -> Option<String> {
+    string_field(&context.spec, key).or_else(|| {
+        context
+            .config_snapshot
+            .get("agents")
+            .and_then(|agents| agents.get("defaults"))
+            .and_then(|defaults| string_field(defaults, key))
+    })
+}
+
+fn compact_threshold_reached(
+    context: &NativeAgentRunContext,
+    full_estimate: i64,
+    context_window_tokens: i64,
+) -> bool {
+    let threshold = context_window_tokens.saturating_mul(compact_trigger_percent(context)) / 100;
+    full_estimate >= threshold.max(1)
+}
+
+fn positive_i64_field(value: &Value, key: &str) -> Option<i64> {
+    value
+        .get(key)
+        .and_then(value_as_i64)
+        .filter(|number| *number > 0)
+}
+
+fn value_as_i64(value: &Value) -> Option<i64> {
+    value
+        .as_i64()
+        .or_else(|| value.as_u64().and_then(|number| i64::try_from(number).ok()))
+}
+
+fn trim_messages_to_context_window(messages: &[Value], context_window_tokens: i64) -> Vec<Value> {
+    if messages.is_empty() {
+        return Vec::new();
+    }
+    let budget = context_window_tokens.max(1);
+    let mut selected = Vec::new();
+    let mut used_tokens = 0i64;
+
+    for message in messages.iter().rev() {
+        let message_tokens = estimate_message_tokens(message);
+        if selected.is_empty() || used_tokens.saturating_add(message_tokens) <= budget {
+            selected.push(message.clone());
+            used_tokens = used_tokens.saturating_add(message_tokens);
+        } else {
+            break;
+        }
+    }
+
+    selected.reverse();
+    selected
+}
+
+fn compact_messages_to_context_window(
+    context: &NativeAgentRunContext,
+    context_window_tokens: i64,
+) -> Option<Vec<Value>> {
+    let recent_budget = (context_window_tokens.saturating_mul(2) / 3).max(1);
+    let recent_messages = trim_messages_to_context_window(&context.messages, recent_budget);
+    let old_count = context.messages.len().saturating_sub(recent_messages.len());
+    if old_count == 0 {
+        return None;
+    }
+    let old_messages = &context.messages[..old_count];
+    let summary = compact_old_messages(context, old_messages).ok()?;
+    if summary.trim().is_empty() {
+        return None;
+    }
+
+    let mut compacted = vec![serde_json::json!({
+        "role": "system",
+        "content": format!("Conversation summary so far:\n{}", summary.trim()),
+    })];
+    compacted.extend(recent_messages);
+    Some(trim_messages_to_context_window(
+        &compacted,
+        context_window_tokens,
+    ))
+}
+
+fn compact_old_messages(
+    context: &NativeAgentRunContext,
+    messages: &[Value],
+) -> Result<String, String> {
+    let body = serde_json::json!({
+        "model": context.model,
+        "stream": false,
+        "max_completion_tokens": compact_summary_max_tokens(context),
+        "messages": [
+            {
+                "role": "system",
+                "content": "Summarize earlier conversation context for a coding agent. Preserve user goals, decisions, constraints, file paths, commands, tool results, and unresolved tasks. Be concise and factual."
+            },
+            {
+                "role": "user",
+                "content": format!(
+                    "Summarize these earlier messages so the next model call can continue without the full transcript:\n{}",
+                    serde_json::to_string(messages).unwrap_or_else(|_| "[]".to_string())
+                )
+            }
+        ]
+    });
+    let provider_config = agent_provider_config(context);
+    let completion =
+        crate::native_provider_runtime::complete_chat_for_agent(&provider_config, &body)?;
+    Ok(chat_completion_content(&completion))
+}
+
+fn estimate_context_tokens_for_request(context: &NativeAgentRunContext) -> i64 {
+    agent_chat_messages(context)
+        .ok()
+        .and_then(|messages| messages.as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .map(estimate_message_tokens)
+        .fold(0i64, i64::saturating_add)
+}
+
+fn estimate_messages_tokens(messages: &[Value]) -> i64 {
+    messages
+        .iter()
+        .map(estimate_message_tokens)
+        .fold(0i64, i64::saturating_add)
+}
+
+fn estimate_message_tokens(message: &Value) -> i64 {
+    let text = serde_json::to_string(message).unwrap_or_default();
+    let tokens = (text
+        .len()
+        .saturating_add(APPROX_BYTES_PER_TOKEN.saturating_sub(1)))
+        / APPROX_BYTES_PER_TOKEN;
+    i64::try_from(tokens.max(1)).unwrap_or(i64::MAX)
+}
+
+fn enrich_usage_with_context_window(
+    context: &NativeAgentRunContext,
+    usage: Value,
+    estimated_context_tokens: i64,
+) -> Value {
+    let mut usage = match usage {
+        Value::Object(map) => Value::Object(map),
+        other => serde_json::json!({ "raw": other }),
+    };
+    let context_window_tokens = effective_context_window_tokens(context);
+    let used_tokens = usage_context_used_tokens(&usage).unwrap_or(estimated_context_tokens);
+    let remaining_tokens = context_window_tokens.saturating_sub(used_tokens).max(0);
+    let percent = if context_window_tokens > 0 {
+        ((used_tokens as f64 / context_window_tokens as f64) * 100.0).clamp(0.0, 100.0)
+    } else {
+        0.0
+    };
+
+    usage["context_window_strategy"] = serde_json::json!(context_window_strategy(context));
+    usage["contextWindowStrategy"] = serde_json::json!(context_window_strategy(context));
+    usage["context_window_tokens"] = serde_json::json!(context_window_tokens);
+    usage["contextWindowTokens"] = serde_json::json!(context_window_tokens);
+    usage["context_window_used_tokens"] = serde_json::json!(used_tokens);
+    usage["contextWindowUsedTokens"] = serde_json::json!(used_tokens);
+    usage["context_window_remaining_tokens"] = serde_json::json!(remaining_tokens);
+    usage["contextWindowRemainingTokens"] = serde_json::json!(remaining_tokens);
+    usage["estimated_context_tokens"] = serde_json::json!(estimated_context_tokens);
+    usage["estimatedContextTokens"] = serde_json::json!(estimated_context_tokens);
+    usage["percent"] = serde_json::json!(percent);
+    usage
+}
+
+fn usage_context_used_tokens(usage: &Value) -> Option<i64> {
+    [
+        "prompt_tokens",
+        "promptTokens",
+        "total_tokens",
+        "totalTokens",
+        "total",
+    ]
+    .iter()
+    .find_map(|key| positive_i64_field(usage, key))
 }
 
 fn initial_agent_messages(spec: &Value) -> Vec<Value> {
@@ -1479,6 +1761,7 @@ pub fn run_native_agent_turn_with_config(
         );
         context.messages = state.messages.clone();
         context.spec["messages"] = Value::Array(state.messages.clone());
+        let estimated_context_tokens = estimate_context_tokens_for_request(&context);
         let mut provider_streamed_content = false;
         let mut provider_streamed_reasoning = false;
         let provider_response = {
@@ -1524,7 +1807,9 @@ pub fn run_native_agent_turn_with_config(
                     );
                 }
             };
-            services.provider.complete_streaming(&context, &mut stream_observer)
+            services
+                .provider
+                .complete_streaming(&context, &mut stream_observer)
         };
         let provider_response = match provider_response {
             Ok(response) => response,
@@ -1561,7 +1846,11 @@ pub fn run_native_agent_turn_with_config(
 
         let current_phase = state.phase.as_str().to_string();
         maybe_emit_checkpoint(services, &context, &mut state, &current_phase);
-        if let Some(reasoning_delta) = provider_response.reasoning_delta.clone().filter(|_| !provider_streamed_reasoning) {
+        if let Some(reasoning_delta) = provider_response
+            .reasoning_delta
+            .clone()
+            .filter(|_| !provider_streamed_reasoning)
+        {
             state.transition_phase(
                 AgentRuntimePhase::StreamingModel,
                 iteration,
@@ -1577,7 +1866,10 @@ pub fn run_native_agent_turn_with_config(
                 }),
             );
         }
-        if context.stream && !provider_response.final_content.is_empty() && !provider_streamed_content {
+        if context.stream
+            && !provider_response.final_content.is_empty()
+            && !provider_streamed_content
+        {
             state.transition_phase(AgentRuntimePhase::StreamingModel, iteration, "agent.delta");
             state.emit_event(
                 "agent.delta",
@@ -1819,34 +2111,26 @@ pub fn run_native_agent_turn_with_config(
                 );
             }
 
-            if let Some(usage) = provider_response.usage {
-                state.usage.push(usage.clone());
-                state.emit_event(
-                    "agent.usage",
-                    serde_json::json!({
-                        "runId": context.run_id,
-                        "sessionId": context.session_id,
-                        "iteration": iteration,
-                        "usage": usage,
-                    }),
-                );
-            }
+            state.record_usage(
+                &context,
+                iteration,
+                provider_response
+                    .usage
+                    .unwrap_or_else(|| serde_json::json!({})),
+                estimated_context_tokens,
+            );
             continue;
         }
 
         let final_content = provider_response.final_content;
-        if let Some(usage) = provider_response.usage {
-            state.usage.push(usage.clone());
-            state.emit_event(
-                "agent.usage",
-                serde_json::json!({
-                    "runId": context.run_id,
-                    "sessionId": context.session_id,
-                    "iteration": iteration,
-                    "usage": usage,
-                }),
-            );
-        }
+        state.record_usage(
+            &context,
+            iteration,
+            provider_response
+                .usage
+                .unwrap_or_else(|| serde_json::json!({})),
+            estimated_context_tokens,
+        );
         state.transition_phase(
             AgentRuntimePhase::Finalizing,
             iteration,
@@ -3705,6 +3989,221 @@ mod tests {
             "final_response"
         );
         assert!(result["events"][3]["payload"].get("finalContent").is_none());
+    }
+
+    #[test]
+    fn agent_chat_request_trims_old_messages_to_context_window() {
+        let context = NativeAgentRunContext::from_spec(
+            json!({
+                "runtime": "rust",
+                "runId": "run-context-window",
+                "sessionId": "websocket:chat-context-window",
+                "messages": [
+                    { "role": "user", "content": "old message ".repeat(200) },
+                    { "role": "assistant", "content": "old answer ".repeat(200) },
+                    { "role": "user", "content": "current question" }
+                ]
+            }),
+            json!({
+                "agents": {
+                    "defaults": {
+                        "provider": "fixture",
+                        "model": "fixture-model",
+                        "contextWindowTokens": 32
+                    }
+                }
+            }),
+        );
+
+        let request = agent_chat_completion_request(&context).expect("request should build");
+        let messages = request["messages"]
+            .as_array()
+            .expect("messages should be an array");
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0]["content"], "current question");
+    }
+
+    #[test]
+    fn agent_chat_request_requests_stream_usage() {
+        let context = NativeAgentRunContext::from_spec(
+            json!({
+                "runtime": "rust",
+                "runId": "run-stream-usage",
+                "sessionId": "websocket:chat-stream-usage",
+                "stream": true,
+                "messages": [{ "role": "user", "content": "hello" }]
+            }),
+            json!({
+                "agents": {
+                    "defaults": {
+                        "provider": "fixture",
+                        "model": "fixture-model"
+                    }
+                }
+            }),
+        );
+
+        let request = agent_chat_completion_request(&context).expect("request should build");
+
+        assert_eq!(request["stream"], true);
+        assert_eq!(request["stream_options"]["include_usage"], true);
+    }
+
+    #[test]
+    fn agent_chat_request_compacts_old_messages_when_strategy_is_compact() {
+        let context = NativeAgentRunContext::from_spec(
+            json!({
+                "runtime": "rust",
+                "runId": "run-context-compact",
+                "sessionId": "websocket:chat-context-compact",
+                "messages": [
+                    { "role": "user", "content": "old context ".repeat(200) },
+                    { "role": "assistant", "content": "old answer ".repeat(200) },
+                    { "role": "user", "content": "current question" }
+                ]
+            }),
+            json!({
+                "agents": {
+                    "defaults": {
+                        "provider": "fixture",
+                        "model": "fixture-model",
+                        "contextWindowTokens": 80,
+                        "contextWindowStrategy": "compact",
+                        "compactTriggerPercent": 50
+                    }
+                },
+                "providers": { "fixture": { "responses": [{ "content": "summary of earlier turns" }] } }
+            }),
+        );
+
+        let request = agent_chat_completion_request(&context).expect("request should build");
+        let messages = request["messages"]
+            .as_array()
+            .expect("messages should be an array");
+
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0]["role"], "system");
+        assert!(messages[0]["content"]
+            .as_str()
+            .expect("summary content should be text")
+            .contains("summary of earlier turns"));
+        assert_eq!(messages[1]["content"], "current question");
+    }
+
+    #[test]
+    fn agent_usage_event_includes_context_window_budget() {
+        let result = run_native_agent_turn_with_config(
+            &NativeAgentRuntimeServices::default(),
+            json!({
+                "runtime": "rust",
+                "runId": "run-usage-window",
+                "sessionId": "websocket:chat-usage-window",
+                "messages": [{ "role": "user", "content": "hello" }]
+            }),
+            json!({
+                "agents": {
+                    "defaults": {
+                        "provider": "fixture",
+                        "model": "fixture-model",
+                        "contextWindowTokens": 100
+                    }
+                },
+                "providers": { "fixture": { "responses": [{ "content": "fixture answer" }] } }
+            }),
+        )
+        .expect("fixture provider run should succeed");
+
+        let usage_event = result["events"]
+            .as_array()
+            .expect("events should be an array")
+            .iter()
+            .find(|event| event["eventName"] == "agent.usage")
+            .expect("usage event should be present");
+        let usage = &usage_event["payload"]["usage"];
+
+        assert_eq!(usage["context_window_tokens"], 100);
+        assert!(usage["context_window_remaining_tokens"].is_number());
+        assert!(usage["context_window_used_tokens"].is_number());
+    }
+
+    #[test]
+    fn agent_usage_event_falls_back_to_estimated_context_when_provider_omits_usage() {
+        struct NoUsageProvider;
+
+        impl NativeAgentProvider for NoUsageProvider {
+            fn complete(
+                &self,
+                _context: &NativeAgentRunContext,
+            ) -> Result<NativeAgentProviderResponse, String> {
+                Ok(NativeAgentProviderResponse {
+                    final_content: "no usage answer".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: Vec::new(),
+                })
+            }
+
+            fn complete_streaming(
+                &self,
+                _context: &NativeAgentRunContext,
+                observer: &mut dyn FnMut(NativeAgentProviderStreamEvent),
+            ) -> Result<NativeAgentProviderResponse, String> {
+                observer(NativeAgentProviderStreamEvent::ContentDelta(
+                    "no usage answer".to_string(),
+                ));
+                Ok(NativeAgentProviderResponse {
+                    final_content: "no usage answer".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: Vec::new(),
+                })
+            }
+        }
+
+        let services = NativeAgentRuntimeServices {
+            provider: Arc::new(NoUsageProvider),
+            ..NativeAgentRuntimeServices::default()
+        };
+        let result = run_native_agent_turn_with_config(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-estimated-usage",
+                "sessionId": "websocket:chat-estimated-usage",
+                "messages": [{ "role": "user", "content": "hello world" }]
+            }),
+            json!({
+                "agents": {
+                    "defaults": {
+                        "provider": "fixture",
+                        "model": "fixture-model",
+                        "contextWindowTokens": 128000
+                    }
+                }
+            }),
+        )
+        .expect("run should succeed");
+
+        let usage_event = result["events"]
+            .as_array()
+            .expect("events should be an array")
+            .iter()
+            .find(|event| event["eventName"] == "agent.usage")
+            .expect("usage event should be present");
+        let usage = &usage_event["payload"]["usage"];
+
+        assert_eq!(usage["context_window_tokens"], 128000);
+        assert!(
+            usage["estimated_context_tokens"]
+                .as_i64()
+                .unwrap_or_default()
+                > 0
+        );
+        assert_eq!(
+            usage["context_window_used_tokens"],
+            usage["estimated_context_tokens"]
+        );
     }
 
     #[test]
@@ -6006,8 +6505,12 @@ mod tests {
                 observer(NativeAgentProviderStreamEvent::ReasoningDelta(
                     "thinking".to_string(),
                 ));
-                observer(NativeAgentProviderStreamEvent::ContentDelta("Hel".to_string()));
-                observer(NativeAgentProviderStreamEvent::ContentDelta("lo".to_string()));
+                observer(NativeAgentProviderStreamEvent::ContentDelta(
+                    "Hel".to_string(),
+                ));
+                observer(NativeAgentProviderStreamEvent::ContentDelta(
+                    "lo".to_string(),
+                ));
                 Ok(NativeAgentProviderResponse {
                     final_content: "Hello".to_string(),
                     reasoning_delta: Some("thinking".to_string()),

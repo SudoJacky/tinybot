@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => {
   const gatewayApi = {
     config: {
       get: vi.fn(async () => ({})),
-      providers: vi.fn(async () => []),
+      providers: vi.fn(async (): Promise<unknown> => []),
     },
     knowledge: {
       documents: vi.fn(async () => []),
@@ -426,5 +426,54 @@ describe("default desktop app services", () => {
     await services.chatStore.send("websocket:chat-1", { text: "new title candidate", usePersistentRag: true });
 
     expect(mocks.gatewayApi.sessions.patch).not.toHaveBeenCalled();
+  });
+
+  test("loads chat models only for the current default provider", async () => {
+    mocks.gatewayApi.config.get.mockResolvedValueOnce({
+      agents: {
+        defaults: {
+          provider: "deepseek",
+          activeProfile: "deepseek-default",
+          model: "deepseek-v4-pro",
+        },
+      },
+      providers: {
+        profiles: {
+          "deepseek-default": {
+            provider: "deepseek",
+            api_key_configured: true,
+            models: ["deepseek-v4-pro", "deepseek-v4-flash"],
+          },
+          "dashscope-default": {
+            provider: "dashscope",
+            api_key_configured: true,
+            models: ["qwen3-plus"],
+          },
+        },
+      },
+    });
+    mocks.gatewayApi.config.providers.mockResolvedValueOnce({
+      providers: [
+        { id: "deepseek", displayName: "DeepSeek", status: "ready" },
+        { id: "dashscope", displayName: "DashScope", status: "ready" },
+      ],
+    });
+    const services = createDesktopAppServices();
+    const models = await services.settingsStore.loadChatModels?.();
+
+    expect(models).toEqual([
+      expect.objectContaining({
+        id: "deepseek-v4-pro",
+        providerId: "deepseek",
+        default: true,
+      }),
+      expect.objectContaining({
+        id: "deepseek-v4-flash",
+        providerId: "deepseek",
+      }),
+    ]);
+    expect(models).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "qwen3-plus" }),
+    ]));
   });
 });

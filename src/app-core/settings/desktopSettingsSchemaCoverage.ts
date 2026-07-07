@@ -21,7 +21,7 @@ type DispositionRule = {
 };
 
 const DISPOSITION_RULES: DispositionRule[] = [
-  { pattern: /^agents\.defaults\.(model|provider|activeProfile|temperature|timezone|workspace|maxTokens|contextWindowTokens|maxToolIterations|reasoningEffort)$/, disposition: "essential" },
+  { pattern: /^agents\.defaults\.(model|provider|activeProfile|temperature|timezone|workspace|maxTokens|contextWindowTokens|contextWindowStrategy|maxIterations|reasoningEffort)$/, disposition: "essential" },
   { pattern: /^agents\.defaults\.(contextBlockLimit|maxToolResultChars|embedding\..+)$/, disposition: "advanced" },
   { pattern: /^providers\.[^.]+\.(api_key|api_base|enabled|models)$/, disposition: "essential" },
   { pattern: /^providers\.profiles\.[^.]+\.(provider|api_key|api_base|enabled|models)$/, disposition: "essential" },
@@ -45,8 +45,10 @@ export function canonicalizeDesktopSettingsPersistentPath(path: string): string 
     .replace(/^agents\.defaults\.reasoning_effort$/, "agents.defaults.reasoningEffort")
     .replace(/^agents\.defaults\.context_block_limit$/, "agents.defaults.contextBlockLimit")
     .replace(/^agents\.defaults\.context_window_tokens$/, "agents.defaults.contextWindowTokens")
+    .replace(/^agents\.defaults\.context_window_strategy$/, "agents.defaults.contextWindowStrategy")
     .replace(/^agents\.defaults\.max_tool_result_chars$/, "agents.defaults.maxToolResultChars")
-    .replace(/^agents\.defaults\.max_tool_iterations$/, "agents.defaults.maxToolIterations")
+    .replace(/^agents\.defaults\.maxToolIterations$/, "agents.defaults.maxIterations")
+    .replace(/^agents\.defaults\.max_tool_iterations$/, "agents.defaults.maxIterations")
     .replace(/^tools\.mcp_servers(?=\.|$)/, "tools.mcpServers")
     .replace(/^tools\.ssrf_whitelist(?=\.|$)/, "tools.ssrfWhitelist")
     .replace(/^channels\.send_progress(?=\.|$)/, "channels.sendProgress")

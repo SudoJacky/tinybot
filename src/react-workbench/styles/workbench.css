@@ -354,25 +354,62 @@ button:disabled {
 
 .react-workbench-layout {
   display: grid;
-  grid-template-columns: 76px minmax(0, 1fr);
+  grid-template-columns: 58px minmax(0, 1fr);
   min-height: 0;
 }
 
 .react-activity-rail {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 6px;
-  padding: 10px 8px;
+  overflow: visible;
+  padding: 10px 7px;
   border-right: 1px solid var(--color-hairline);
   background: var(--color-surface-soft);
 }
 
 .react-activity-rail button {
-  gap: 4px;
-  width: 100%;
-  min-height: 48px;
+  position: relative;
+  width: 42px;
+  min-width: 42px;
+  min-height: 42px;
+  padding: 0;
   color: var(--color-muted);
   font-size: 10px;
+}
+
+.react-activity-rail button span {
+  display: none;
+}
+
+.react-activity-rail button::after {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 9px);
+  z-index: 50;
+  min-width: max-content;
+  border: 1px solid var(--color-hairline);
+  border-radius: 7px;
+  background: #fff;
+  box-shadow: 0 12px 28px rgb(20 20 19 / 12%);
+  color: var(--color-ink);
+  content: attr(data-label);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+  opacity: 0;
+  padding: 7px 9px;
+  pointer-events: none;
+  transform: translate(-4px, -50%);
+  transition: opacity 160ms ease, transform 220ms ease;
+  white-space: nowrap;
+}
+
+.react-activity-rail button:hover::after,
+.react-activity-rail button:focus-visible::after {
+  opacity: 1;
+  transform: translate(0, -50%);
 }
 
 .react-activity-rail button[data-active="true"] {
@@ -387,23 +424,28 @@ button:disabled {
 
 .react-chat-page {
   display: grid;
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr);
   width: 100%;
   height: 100%;
   font-size: 13px;
   min-height: 0;
-}
-
-.react-chat-page[data-session-sidebar-collapsed="true"] {
-  grid-template-columns: 64px minmax(0, 1fr);
+  transition: grid-template-columns 260ms var(--motion-ease-standard);
 }
 
 .react-session-list {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
+  width: clamp(220px, 25vw, 280px);
   min-height: 0;
+  overflow: hidden;
   border-right: 1px solid var(--color-hairline);
   background: var(--color-surface-soft);
+  transition: width 260ms var(--motion-ease-standard);
+  will-change: width;
+}
+
+.react-session-list[data-collapsed="true"] {
+  width: 64px;
 }
 
 .react-session-list__header {
@@ -436,6 +478,25 @@ button:disabled {
   line-height: 1.25;
 }
 
+.react-session-list__header h2,
+.react-session-list__search,
+.react-session-list__new span,
+.react-session-row__title,
+.react-session-row__select small,
+.react-session-row__delete {
+  transition:
+    opacity 180ms var(--motion-ease-standard),
+    transform 220ms var(--motion-ease-standard),
+    max-width 240ms var(--motion-ease-standard);
+}
+
+.react-session-list__header h2 {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .react-session-list__new {
   display: inline-flex;
   align-items: center;
@@ -446,6 +507,13 @@ button:disabled {
   color: #fff;
   padding: 0 10px;
   font-size: 12px;
+}
+
+.react-session-list__new span {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .react-session-list__new:hover,
@@ -473,6 +541,11 @@ button:disabled {
   min-height: 32px;
   padding: 0;
   color: var(--color-muted);
+  transition:
+    opacity 180ms var(--motion-ease-standard),
+    transform 220ms var(--motion-ease-standard),
+    width 240ms var(--motion-ease-standard),
+    min-width 240ms var(--motion-ease-standard);
 }
 
 .react-session-list__search:hover,
@@ -503,7 +576,15 @@ button:disabled {
 .react-session-list[data-collapsed="true"] .react-session-row__title,
 .react-session-list[data-collapsed="true"] .react-session-row__select small,
 .react-session-list[data-collapsed="true"] .react-session-row__delete {
-  display: none;
+  max-width: 0;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-6px);
+}
+
+.react-session-list[data-collapsed="true"] .react-session-list__search {
+  width: 0;
+  min-width: 0;
 }
 
 .react-session-list[data-collapsed="true"] .react-session-list__new,
@@ -547,6 +628,7 @@ button:disabled {
   width: 100%;
   min-width: 0;
   min-height: 44px;
+  overflow: hidden;
   border-radius: inherit;
   padding: 10px;
   text-align: left;
@@ -578,11 +660,13 @@ button:disabled {
 }
 
 .react-session-row__title {
+  max-width: 180px;
   color: var(--color-ink);
   font-size: 12px;
 }
 
 .react-session-row__select small {
+  max-width: 44px;
   color: var(--color-muted);
   font-size: 10px;
   justify-self: end;
@@ -602,6 +686,7 @@ button:disabled {
 
 .react-session-list[data-collapsed="true"] .react-session-row__select {
   grid-template-columns: 28px;
+  column-gap: 0;
   justify-content: center;
   width: 40px;
   min-height: 40px;
@@ -1264,10 +1349,13 @@ button:disabled {
 }
 
 .react-composer--raised .claude-ai-input__panel {
+  --claude-ai-panel-bg: color-mix(in srgb, #fff 92%, var(--color-surface-soft));
+  --claude-ai-panel-radius: 18px;
   min-height: 150px;
-  border-radius: 18px;
-  background: color-mix(in srgb, #fff 92%, var(--color-surface-soft));
-  box-shadow: 0 18px 44px rgb(20 20 19 / 11%);
+  box-shadow:
+    0 18px 44px rgb(20 20 19 / 11%),
+    0 0 0 1px color-mix(in srgb, var(--color-primary) 18%, transparent),
+    0 0 34px color-mix(in srgb, var(--color-primary) 16%, transparent);
 }
 
 .react-composer--raised .claude-ai-input__textarea {
@@ -1279,13 +1367,92 @@ button:disabled {
 }
 
 .claude-ai-input__panel {
+  --claude-ai-panel-bg: #fff;
+  --claude-ai-panel-glow-opacity: 0;
+  --claude-ai-panel-glow-x: 50%;
+  --claude-ai-panel-glow-y: 100%;
+  --claude-ai-panel-radius: 16px;
   display: grid;
+  position: relative;
+  isolation: isolate;
+  overflow: visible;
   gap: 8px;
   border: 1px solid var(--color-hairline);
-  border-radius: 16px;
-  background: #fff;
+  border-radius: var(--claude-ai-panel-radius);
+  background: var(--claude-ai-panel-bg);
   padding: 10px;
   box-shadow: 0 1px 3px rgb(20 20 19 / 8%);
+  transition:
+    border-color var(--motion-duration-fast) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-medium) var(--motion-ease-standard);
+}
+
+.claude-ai-input__panel::before,
+.claude-ai-input__panel::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  transition: opacity 260ms var(--motion-ease-standard);
+}
+
+.claude-ai-input__panel::before {
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  padding: 2px;
+  background:
+    radial-gradient(
+      circle at var(--claude-ai-panel-glow-x) var(--claude-ai-panel-glow-y),
+      var(--color-warning) 0,
+      var(--color-primary) 24px,
+      color-mix(in srgb, var(--color-primary) 72%, transparent) 46px,
+      transparent 82px
+    );
+  opacity: var(--claude-ai-panel-glow-opacity);
+  filter:
+    drop-shadow(0 0 10px color-mix(in srgb, var(--color-primary) 70%, transparent))
+    drop-shadow(0 0 24px color-mix(in srgb, var(--color-warning) 42%, transparent));
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+
+.claude-ai-input__panel::after {
+  inset: 1px;
+  z-index: 0;
+  border-radius: calc(var(--claude-ai-panel-radius) - 1px);
+  background:
+    radial-gradient(
+      circle at var(--claude-ai-panel-glow-x) var(--claude-ai-panel-glow-y),
+      color-mix(in srgb, var(--color-warning) 16%, transparent) 0,
+      color-mix(in srgb, var(--color-primary) 13%, transparent) 52px,
+      transparent 124px
+    );
+  opacity: calc(var(--claude-ai-panel-glow-opacity) * 0.86);
+}
+
+.claude-ai-input__panel > * {
+  position: relative;
+  z-index: 1;
+}
+
+.claude-ai-input__panel:focus-within {
+  border-color: color-mix(in srgb, var(--color-primary) 24%, var(--color-hairline));
+  box-shadow:
+    0 3px 12px rgb(20 20 19 / 9%),
+    0 0 28px color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+
+.react-composer--raised .claude-ai-input__panel:is(:hover, :focus-within) {
+  box-shadow:
+    0 20px 50px rgb(20 20 19 / 12%),
+    0 0 0 1px color-mix(in srgb, var(--color-primary) 16%, transparent),
+    0 0 42px color-mix(in srgb, var(--color-primary) 16%, transparent);
 }
 
 .claude-ai-input__textarea {
@@ -1378,7 +1545,8 @@ button:disabled {
 }
 
 .claude-ai-input__tool,
-.claude-ai-input__model {
+.claude-ai-input__model,
+.claude-ai-input__context-usage {
   position: relative;
   min-width: 0;
 }
@@ -1398,6 +1566,93 @@ button:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.claude-ai-input__context-usage {
+  --context-usage-color: var(--color-primary);
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  border-radius: 999px;
+  color: var(--context-usage-color);
+  cursor: default;
+}
+
+.claude-ai-input__context-usage[data-state="warn"] {
+  --context-usage-color: var(--color-warning);
+}
+
+.claude-ai-input__context-usage[data-state="critical"] {
+  --context-usage-color: var(--color-error);
+}
+
+.claude-ai-input__context-usage:hover,
+.claude-ai-input__context-usage:focus-visible {
+  background: var(--color-surface-soft);
+  outline: none;
+}
+
+.claude-ai-input__context-usage svg {
+  width: 22px;
+  height: 22px;
+  transform: rotate(-90deg);
+}
+
+.claude-ai-input__context-usage-track,
+.claude-ai-input__context-usage-value {
+  fill: none;
+  stroke-linecap: round;
+  stroke-width: 2.2;
+}
+
+.claude-ai-input__context-usage-track {
+  stroke: var(--color-hairline);
+}
+
+.claude-ai-input__context-usage-value {
+  stroke: currentColor;
+  filter: drop-shadow(0 0 5px color-mix(in srgb, currentColor 34%, transparent));
+}
+
+.claude-ai-input__context-usage-tip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  z-index: 36;
+  display: grid;
+  min-width: 186px;
+  gap: 4px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 18px 42px rgb(20 20 19 / 14%);
+  color: var(--color-body);
+  font-size: 12px;
+  line-height: 1.35;
+  opacity: 0;
+  padding: 9px 10px;
+  pointer-events: none;
+  transform: translate(-50%, 4px);
+  transition:
+    opacity var(--motion-duration-fast) var(--motion-ease-standard),
+    transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.claude-ai-input__context-usage-tip strong {
+  color: var(--color-ink);
+  font-size: 12px;
+}
+
+.claude-ai-input__context-usage-tip span {
+  white-space: nowrap;
+}
+
+.claude-ai-input__context-usage:hover .claude-ai-input__context-usage-tip,
+.claude-ai-input__context-usage:focus-visible .claude-ai-input__context-usage-tip {
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
 
 .claude-ai-input__tool-menu,
@@ -1980,6 +2235,635 @@ button:disabled {
 .react-data-row small {
   color: var(--color-muted);
   font-size: 12px;
+}
+
+.react-settings-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.react-settings-sidebar {
+  position: sticky;
+  top: 16px;
+}
+
+.react-settings-sidebar nav {
+  display: grid;
+  gap: 6px;
+}
+
+.react-settings-sidebar button {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  min-height: 44px;
+  border-radius: 8px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.react-settings-sidebar button[aria-current="page"] {
+  background: var(--color-surface-card);
+  color: var(--color-ink);
+}
+
+.react-settings-sidebar span,
+.react-settings-sidebar small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-settings-sidebar span {
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.react-settings-sidebar small {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.react-settings-detail {
+  min-width: 0;
+}
+
+.react-provider-settings,
+.react-agent-defaults-settings {
+  display: grid;
+  gap: 14px;
+}
+
+.react-provider-settings__header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.react-provider-settings__header h2 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 18px;
+}
+
+.react-provider-settings__header p {
+  max-width: 620px;
+  margin: 4px 0 0;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.react-provider-settings__summary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.react-provider-settings__summary span {
+  border: 1px solid var(--color-hairline);
+  border-radius: 999px;
+  background: #fff;
+  padding: 4px 8px;
+}
+
+.react-provider-settings__summary strong {
+  color: var(--color-ink);
+  font-weight: 650;
+}
+
+.react-settings-save-status,
+.react-settings-alert {
+  margin: 0;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+  padding: 9px 10px;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.react-default-llm-panel {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+  padding: 18px 20px;
+}
+
+.react-default-llm-panel h3 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 15px;
+}
+
+.react-default-llm-panel__controls {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.react-default-llm-panel label {
+  display: grid;
+  gap: 7px;
+  color: var(--color-body);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.react-default-llm-panel select {
+  min-height: 34px;
+  min-width: 0;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+  padding: 0 10px;
+  color: var(--color-ink);
+  font-size: 13px;
+}
+
+.react-default-llm-panel button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 120px;
+  min-height: 34px;
+  gap: 6px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.react-default-llm-panel button:disabled {
+  opacity: 0.55;
+}
+
+.react-default-llm-panel p,
+.react-default-llm-panel small {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.react-settings-linked-summary,
+.react-agent-defaults-form {
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+  padding: 18px 20px;
+}
+
+.react-settings-linked-summary {
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.2fr) auto;
+  align-items: center;
+}
+
+.react-settings-linked-summary h3,
+.react-agent-defaults-form h3 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 15px;
+}
+
+.react-settings-linked-summary p {
+  margin: 4px 0 0;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.react-settings-linked-summary dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.react-settings-linked-summary dt,
+.react-settings-linked-summary dd {
+  margin: 0;
+}
+
+.react-settings-linked-summary dt {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.react-settings-linked-summary dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.react-settings-linked-summary button,
+.react-agent-defaults-form button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.react-settings-linked-summary button {
+  padding: 0 12px;
+}
+
+.react-agent-defaults-form section {
+  display: grid;
+  gap: 12px;
+}
+
+.react-agent-defaults-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.react-agent-defaults-grid label {
+  display: grid;
+  gap: 7px;
+  color: var(--color-body);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.react-agent-defaults-grid input,
+.react-agent-defaults-grid select {
+  min-height: 34px;
+  min-width: 0;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+  padding: 0 10px;
+  color: var(--color-ink);
+  font-size: 13px;
+}
+
+.react-agent-defaults-grid small {
+  color: #b42318;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.react-agent-defaults-form footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.react-agent-defaults-form footer small {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.react-agent-defaults-form button {
+  min-width: 120px;
+  padding: 0 12px;
+}
+
+.react-provider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.react-provider-card {
+  display: grid;
+  gap: 14px;
+  min-height: 224px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+  padding: 16px;
+  transition:
+    border-color var(--motion-duration-fast) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-fast) var(--motion-ease-standard),
+    transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-provider-card:hover,
+.react-provider-card:focus-within {
+  border-color: color-mix(in srgb, var(--color-primary) 42%, var(--color-hairline));
+  box-shadow: 0 12px 30px rgb(20 20 19 / 8%);
+  transform: translateY(-1px);
+}
+
+.react-provider-card__top,
+.react-provider-card__title,
+.react-provider-card__actions,
+.react-provider-model-add,
+.react-provider-model-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.react-provider-card__top {
+  justify-content: space-between;
+}
+
+.react-provider-card__mark {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-surface-soft);
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.react-provider-card__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.react-provider-card__status span {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--color-muted-soft);
+}
+
+.react-provider-card[data-status="available"] .react-provider-card__status {
+  color: var(--color-success);
+}
+
+.react-provider-card[data-status="available"] .react-provider-card__status span {
+  background: var(--color-success);
+}
+
+.react-provider-card[data-status="not_ready"] .react-provider-card__status {
+  color: var(--color-warning);
+}
+
+.react-provider-card[data-status="not_ready"] .react-provider-card__status span {
+  background: var(--color-warning);
+}
+
+.react-provider-card__title {
+  flex-wrap: wrap;
+}
+
+.react-provider-card__title h3 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 18px;
+}
+
+.react-provider-card__title span,
+.react-provider-model-row > span {
+  border-radius: 6px;
+  background: var(--color-surface-soft);
+  padding: 3px 6px;
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.react-provider-card__facts {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.react-provider-card__facts div {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.react-provider-card__facts dt {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.react-provider-card__facts dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-body);
+  font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-provider-card__actions {
+  margin-top: auto;
+}
+
+.react-provider-card__actions button,
+.react-settings-dialog footer button,
+.react-provider-model-add button,
+.react-provider-model-row button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  gap: 6px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+  padding: 0 10px;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.react-provider-card__actions button {
+  flex: 1 1 0;
+}
+
+.react-settings-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  background: rgb(20 20 19 / 34%);
+  padding: 24px;
+}
+
+.react-settings-dialog {
+  display: grid;
+  width: min(760px, 100%);
+  max-height: min(720px, calc(100vh - 48px));
+  gap: 16px;
+  overflow: auto;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+  padding: 20px;
+  box-shadow: 0 24px 80px rgb(20 20 19 / 18%);
+}
+
+.react-settings-dialog--wide {
+  width: min(820px, 100%);
+}
+
+.react-settings-dialog header,
+.react-settings-dialog footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.react-settings-dialog header h2 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 16px;
+}
+
+.react-settings-dialog header button {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  padding: 0;
+}
+
+.react-settings-dialog label {
+  display: grid;
+  gap: 7px;
+  color: var(--color-body);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.react-settings-dialog input {
+  min-height: 34px;
+  min-width: 0;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+  padding: 0 10px;
+  color: var(--color-ink);
+  font-size: 13px;
+}
+
+.react-settings-checkbox {
+  display: flex !important;
+  grid-template-columns: unset;
+  align-items: center;
+  gap: 8px !important;
+  font-weight: 500 !important;
+}
+
+.react-settings-checkbox input {
+  min-height: 0;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+}
+
+.react-settings-dialog__advanced {
+  border-top: 1px solid var(--color-hairline);
+  padding-top: 14px;
+}
+
+.react-settings-dialog__advanced h3,
+.react-settings-dialog__advanced p {
+  margin: 0;
+}
+
+.react-settings-dialog__advanced h3 {
+  color: var(--color-ink);
+  font-size: 13px;
+}
+
+.react-settings-dialog__advanced p {
+  margin-top: 4px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.react-provider-model-list {
+  display: grid;
+  gap: 8px;
+  overflow: auto;
+  max-height: 340px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.react-provider-model-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  min-height: 44px;
+  border-radius: 8px;
+  padding: 7px 8px;
+}
+
+.react-provider-model-row:hover {
+  background: var(--color-surface-soft);
+}
+
+.react-provider-model-row div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.react-provider-model-row strong,
+.react-provider-model-row small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-provider-model-row strong {
+  color: var(--color-ink);
+  font-size: 13px;
+}
+
+.react-provider-model-row small {
+  color: var(--color-muted);
+  font: 12px/1.3 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.react-provider-model-row button:disabled,
+.react-settings-dialog footer button:disabled {
+  opacity: 0.45;
+}
+
+.react-provider-model-add {
+  align-items: stretch;
+}
+
+.react-provider-model-add input {
+  flex: 1 1 auto;
 }
 
 .react-placeholder-page p,

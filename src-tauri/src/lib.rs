@@ -55,8 +55,8 @@ use crate::agent_loop_runtime_protocol::{
     AgentRuntimeEventSource, AgentRuntimeEventVisibility, AgentRuntimePhase,
 };
 use crate::config_store::{
-    ConfigEditorSnapshot, ConfigOperationRequest, ConfigPatchApplyResult, ConfigPatchBridgeResult,
-    ConfigStore,
+    ConfigDiagnostic, ConfigDiagnosticCode, ConfigDiagnosticLevel, ConfigEditorSnapshot,
+    ConfigOperationRequest, ConfigPatchApplyResult, ConfigPatchBridgeResult, ConfigStore,
 };
 use crate::desktop_cron::{
     start_worker_cron_timer, stop_worker_cron_timer, worker_cron_dispatch_due,
@@ -2028,6 +2028,8 @@ fn apply_config_patch_result_to_path(
     default_snapshot: serde_json::Value,
     result: ConfigPatchBridgeResult,
 ) -> Result<ConfigPatchApplyResult, String> {
+    ensure_default_config_file(config_path)
+        .map_err(|error| format!("failed to initialize default config: {error}"))?;
     let mut store = ConfigStore::load(config_path.to_path_buf(), default_snapshot)
         .map_err(|error| format!("failed to load config store: {error}"))?;
     store
@@ -2039,22 +2041,30 @@ fn config_editor_snapshot_from_path(
     config_path: &Path,
     default_snapshot: serde_json::Value,
 ) -> Result<ConfigEditorSnapshot, String> {
+    let ensure_diagnostics = ensure_default_config_file(config_path)
+        .map_err(|error| format!("failed to initialize default config: {error}"))?;
     let store = ConfigStore::load(config_path.to_path_buf(), default_snapshot)
         .map_err(|error| format!("failed to load config store: {error}"))?;
-    Ok(store.editor_snapshot())
+    let mut snapshot = store.editor_snapshot();
+    snapshot.diagnostics.splice(0..0, ensure_diagnostics);
+    Ok(snapshot)
 }
 
 fn get_settings_snapshot_from_path(
     config_path: &Path,
     default_snapshot: serde_json::Value,
 ) -> Result<SettingsSnapshot, String> {
+    let ensure_diagnostics = ensure_default_config_file(config_path)
+        .map_err(|error| format!("failed to initialize default config: {error}"))?;
     let store = ConfigStore::load(config_path.to_path_buf(), default_snapshot)
         .map_err(|error| format!("failed to load config store: {error}"))?;
+    let mut diagnostics = ensure_diagnostics;
+    diagnostics.extend(store.diagnostics().to_vec());
     Ok(build_settings_snapshot(SettingsSnapshotInput {
         config: store.snapshot().clone(),
         config_path: store.config_path().to_path_buf(),
         revision: store.revision(),
-        diagnostics: store.diagnostics().to_vec(),
+        diagnostics,
     }))
 }
 
@@ -2063,11 +2073,45 @@ fn apply_config_operations_to_path(
     default_snapshot: serde_json::Value,
     request: ConfigOperationRequest,
 ) -> Result<ConfigPatchApplyResult, String> {
+    ensure_default_config_file(config_path)
+        .map_err(|error| format!("failed to initialize default config: {error}"))?;
     let mut store = ConfigStore::load(config_path.to_path_buf(), default_snapshot)
         .map_err(|error| format!("failed to load config store: {error}"))?;
     store
         .apply_operations(request)
         .map_err(|error| format!("failed to apply native config operations: {error}"))
+}
+
+fn ensure_default_config_file(config_path: &Path) -> Result<Vec<ConfigDiagnostic>, std::io::Error> {
+    match std::fs::metadata(config_path) {
+        Ok(_) => Ok(Vec::new()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            match write_default_config_file(config_path) {
+                Ok(()) => Ok(vec![ConfigDiagnostic {
+                    level: ConfigDiagnosticLevel::Info,
+                    code: ConfigDiagnosticCode::DefaultConfigCreated,
+                    message: "default config file created".to_string(),
+                    path: Some(config_path.to_path_buf()),
+                }]),
+                Err(error) => Ok(vec![ConfigDiagnostic {
+                    level: ConfigDiagnosticLevel::Warning,
+                    code: ConfigDiagnosticCode::DefaultConfigCreateFailed,
+                    message: format!("failed to create default config file: {error}"),
+                    path: Some(config_path.to_path_buf()),
+                }]),
+            }
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn write_default_config_file(config_path: &Path) -> Result<(), std::io::Error> {
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let contents = serde_json::to_string_pretty(&experimental_worker_default_config_snapshot())
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+    std::fs::write(config_path, contents)
 }
 
 fn worker_echo_agent_with_options(
@@ -6711,10 +6755,30 @@ fn expand_tinybot_workspace_path(workspace: &str) -> PathBuf {
 
 fn experimental_worker_default_config_snapshot() -> serde_json::Value {
     serde_json::json!({
+        "schemaVersion": 1,
         "agents": {
             "defaults": {
-                "provider": "auto"
+                "activeProfile": "deepseek-default",
+                "model": "deepseek-v4-pro",
+                "workspace": "~/.tinybot/workspace"
             }
+        },
+        "providers": {
+            "profiles": {
+                "deepseek-default": {
+                    "provider": "deepseek",
+                    "displayName": "DeepSeek",
+                    "enabled": true,
+                    "apiBase": "https://api.deepseek.com",
+                    "models": ["deepseek-v4-pro", "deepseek-v4-flash"],
+                    "defaultModel": "deepseek-v4-pro",
+                    "supportsModelDiscovery": true
+                }
+            }
+        },
+        "gateway": {
+            "host": "127.0.0.1",
+            "port": 18790
         }
     })
 }
@@ -6869,6 +6933,21 @@ pub fn run() {
         .manage(gateway_state)
         .setup(move |app| {
             install_desktop_application_menu(app)?;
+            match ensure_default_config_file(&default_tinybot_config_path()) {
+                Ok(diagnostics) => {
+                    for diagnostic in diagnostics {
+                        if diagnostic.code == ConfigDiagnosticCode::DefaultConfigCreateFailed {
+                            push_log(&setup_state, &diagnostic.message);
+                        }
+                    }
+                }
+                Err(error) => {
+                    push_log(
+                        &setup_state,
+                        &format!("failed to initialize default config: {error}"),
+                    );
+                }
+            }
             let app_handle = app.handle().clone();
             let log_state = setup_state.clone();
             let runtime = lock_runtime(&setup_state);
@@ -7343,17 +7422,37 @@ mod tests {
     }
 
     #[test]
-    fn experimental_worker_config_defaults_to_auto_provider_without_config_file() {
+    fn experimental_worker_config_defaults_to_schema_v1_deepseek_profile_without_config_file() {
         let fixture = WorkspaceFixture::new();
         assert_eq!(
             experimental_worker_config_snapshot_from_path(
                 &fixture.root.join("missing-config.json")
             ),
             serde_json::json!({
+                "schemaVersion": 1,
                 "agents": {
                     "defaults": {
-                        "provider": "auto"
+                        "activeProfile": "deepseek-default",
+                        "model": "deepseek-v4-pro",
+                        "workspace": "~/.tinybot/workspace"
                     }
+                },
+                "providers": {
+                    "profiles": {
+                        "deepseek-default": {
+                            "provider": "deepseek",
+                            "displayName": "DeepSeek",
+                            "enabled": true,
+                            "apiBase": "https://api.deepseek.com",
+                            "models": ["deepseek-v4-pro", "deepseek-v4-flash"],
+                            "defaultModel": "deepseek-v4-pro",
+                            "supportsModelDiscovery": true
+                        }
+                    }
+                },
+                "gateway": {
+                    "host": "127.0.0.1",
+                    "port": 18790
                 }
             })
         );
@@ -10015,7 +10114,7 @@ mod tests {
     fn cron_model_from_config_defaults_to_agent_model() {
         assert_eq!(
             cron_model_from_config(&serde_json::json!({})),
-            "deepseek-reasoner"
+            "deepseek-v4-pro"
         );
     }
 
@@ -11926,6 +12025,141 @@ mod tests {
     }
 
     #[test]
+    fn ensure_default_config_file_creates_schema_v1_deepseek_profile_when_missing() {
+        let fixture = WorkspaceFixture::new();
+        let config_path = fixture.root.join(".tinybot").join("config.json");
+
+        let diagnostics = ensure_default_config_file(&config_path)
+            .expect("missing config should initialize default file");
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.code)
+                .collect::<Vec<_>>(),
+            vec![crate::config_store::ConfigDiagnosticCode::DefaultConfigCreated]
+        );
+        let saved = serde_json::from_str::<serde_json::Value>(
+            &std::fs::read_to_string(&config_path).expect("default config should be created"),
+        )
+        .expect("default config should be JSON");
+        assert_eq!(saved["schemaVersion"], 1);
+        assert_eq!(
+            saved["agents"]["defaults"]["activeProfile"],
+            "deepseek-default"
+        );
+        assert_eq!(saved["agents"]["defaults"]["model"], "deepseek-v4-pro");
+        assert!(saved["agents"]["defaults"].get("provider").is_none());
+        assert_eq!(
+            saved["providers"]["profiles"]["deepseek-default"]["provider"],
+            "deepseek"
+        );
+        assert_eq!(
+            saved["providers"]["profiles"]["deepseek-default"]["models"],
+            serde_json::json!(["deepseek-v4-pro", "deepseek-v4-flash"])
+        );
+        assert_eq!(saved["gateway"]["host"], "127.0.0.1");
+        assert_eq!(saved["gateway"]["port"], 18790);
+        assert!(!fixture.root.join(".tinybot").join("workspace").exists());
+    }
+
+    #[test]
+    fn ensure_default_config_file_does_not_overwrite_existing_or_invalid_config() {
+        let fixture = WorkspaceFixture::new();
+        let valid_path = fixture.root.join("valid").join("config.json");
+        if let Some(parent) = valid_path.parent() {
+            std::fs::create_dir_all(parent).expect("valid parent should create");
+        }
+        std::fs::write(&valid_path, r#"{"agents":{"defaults":{"model":"custom"}}}"#)
+            .expect("fixture config should write");
+
+        let diagnostics = ensure_default_config_file(&valid_path)
+            .expect("existing config should not be overwritten");
+
+        assert!(diagnostics.is_empty());
+        assert_eq!(
+            std::fs::read_to_string(&valid_path).expect("valid config should remain"),
+            r#"{"agents":{"defaults":{"model":"custom"}}}"#
+        );
+
+        let invalid_path = fixture.root.join("invalid").join("config.json");
+        if let Some(parent) = invalid_path.parent() {
+            std::fs::create_dir_all(parent).expect("invalid parent should create");
+        }
+        std::fs::write(&invalid_path, "{ invalid json").expect("invalid fixture should write");
+
+        let diagnostics = ensure_default_config_file(&invalid_path)
+            .expect("invalid existing config should not be overwritten");
+
+        assert!(diagnostics.is_empty());
+        assert_eq!(
+            std::fs::read_to_string(&invalid_path).expect("invalid config should remain"),
+            "{ invalid json"
+        );
+    }
+
+    #[test]
+    fn config_editor_snapshot_ensures_missing_default_config_before_loading() {
+        let fixture = WorkspaceFixture::new();
+        let config_path = fixture.root.join(".tinybot").join("config.json");
+
+        let snapshot = config_editor_snapshot_from_path(
+            &config_path,
+            experimental_worker_default_config_snapshot(),
+        )
+        .expect("editor snapshot should initialize missing config");
+
+        assert!(config_path.exists());
+        assert_eq!(
+            snapshot.effective_public_config["agents"]["defaults"]["activeProfile"],
+            "deepseek-default"
+        );
+        assert_eq!(
+            snapshot
+                .diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.code)
+                .collect::<Vec<_>>(),
+            vec![crate::config_store::ConfigDiagnosticCode::DefaultConfigCreated]
+        );
+    }
+
+    #[test]
+    fn config_editor_snapshot_reports_default_config_create_failure_as_diagnostic() {
+        let fixture = WorkspaceFixture::new();
+        let blocked_parent = fixture.root.join("blocked");
+        std::fs::write(&blocked_parent, "not a directory")
+            .expect("blocking parent file should write");
+        let config_path = blocked_parent.join("config.json");
+
+        let snapshot = config_editor_snapshot_from_path(
+            &config_path,
+            experimental_worker_default_config_snapshot(),
+        )
+        .expect("editor snapshot should remain readable with in-memory defaults");
+
+        assert_eq!(
+            snapshot
+                .diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.code)
+                .collect::<Vec<_>>(),
+            vec![
+                crate::config_store::ConfigDiagnosticCode::DefaultConfigCreateFailed,
+                crate::config_store::ConfigDiagnosticCode::MissingConfig,
+            ]
+        );
+        assert_eq!(
+            snapshot.effective_public_config["agents"]["defaults"]["activeProfile"],
+            "deepseek-default"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&blocked_parent).expect("blocked parent should remain a file"),
+            "not a directory"
+        );
+    }
+
+    #[test]
     fn native_settings_snapshot_returns_registry_projection() {
         let fixture = WorkspaceFixture::new();
         let config_path = fixture.root.join(".tinybot").join("config.json");
@@ -11977,7 +12211,7 @@ mod tests {
         let api_key = provider_group
             .fields
             .iter()
-            .find(|field| field.path == "providers.profiles.openai-work.api_key")
+            .find(|field| field.path == "providers.profiles.openai-work.apiKey")
             .expect("api key field should exist");
         assert_eq!(api_key.value, serde_json::Value::Null);
         assert_eq!(

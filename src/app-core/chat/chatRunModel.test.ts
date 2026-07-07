@@ -479,11 +479,77 @@ describe("chat run model", () => {
       turn_id: "turn-1",
       sequence: 6,
       created_at: "2026-06-27T04:00:05.000Z",
-      payload: {},
+      payload: {
+        usage: {
+          context_window_remaining_tokens: 168000,
+          context_window_strategy: "compact",
+          context_window_tokens: 256000,
+          context_window_used_tokens: 88000,
+          percent: 34.4,
+          prompt_tokens: 88000,
+          total_tokens: 88400,
+        },
+      },
     });
 
     turns = state.turnsBySession.get("WebSocket:chat-1") ?? [];
-    expect(turnsToConversationMessages(turns)[1]).toEqual(expect.objectContaining({ copyable: true, turnId: "turn-1", turnStatus: "completed" }));
+    expect(turns[0].usage).toEqual(expect.objectContaining({
+      contextWindowRemainingTokens: 168000,
+      contextWindowStrategy: "compact",
+      contextWindowTokens: 256000,
+      contextWindowUsedTokens: 88000,
+      percent: 34.4,
+      promptTokens: 88000,
+      totalTokens: 88400,
+    }));
+    expect(turnsToConversationMessages(turns)[1]).toEqual(expect.objectContaining({
+      copyable: true,
+      turnId: "turn-1",
+      turnStatus: "completed",
+      usage: expect.objectContaining({ contextWindowTokens: 256000, contextWindowUsedTokens: 88000 }),
+    }));
+  });
+
+  test("applies standalone agent usage events to the active turn", () => {
+    const state = createChatRunState();
+    reduceAgentEvent(state, {
+      schema_version: "tinybot.agent_event.v1",
+      event_id: "event-turn-start",
+      event_type: "agent.turn.started",
+      chat_id: "chat-1",
+      session_key: "WebSocket:chat-1",
+      turn_id: "turn-usage",
+      sequence: 1,
+      created_at: "2026-06-27T04:00:00.000Z",
+      payload: {
+        user_message: { text: "Measure context" },
+        user_message_id: "user-usage",
+      },
+    });
+    reduceAgentEvent(state, {
+      schema_version: "tinybot.agent_event.v1",
+      event_id: "event-usage",
+      event_type: "agent.usage",
+      chat_id: "chat-1",
+      session_key: "WebSocket:chat-1",
+      turn_id: "turn-usage",
+      sequence: 2,
+      created_at: "2026-06-27T04:00:01.000Z",
+      payload: {
+        usage: {
+          contextWindowTokens: 128000,
+          contextWindowUsedTokens: 64000,
+          percent: 50,
+        },
+      },
+    });
+
+    const turns = state.turnsBySession.get("WebSocket:chat-1") ?? [];
+    expect(turns[0].usage).toEqual(expect.objectContaining({
+      contextWindowTokens: 128000,
+      contextWindowUsedTokens: 64000,
+      percent: 50,
+    }));
   });
 
   test("stores delegated trace updates on the child agent state", () => {

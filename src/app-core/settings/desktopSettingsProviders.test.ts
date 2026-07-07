@@ -729,6 +729,7 @@ describe("desktop settings and provider helpers", () => {
       ],
     });
     expect(fields["general.temperature"]).toMatchObject({ control: "number", requirement: "optional", configurationMode: "numeric", advanced: true });
+    expect(fields["general.contextWindowStrategy"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed", advanced: true });
     expect(fields["general.reasoningEffort"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed", advanced: true });
     expect(fields["tools-approvals.mcpServers"]).toMatchObject({ control: "textarea", requirement: "optional", configurationMode: "json", advanced: true });
     expect(fields["tools-approvals.searchProvider"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed", advanced: true });
@@ -950,6 +951,7 @@ describe("desktop settings and provider helpers", () => {
     expect(Object.fromEntries(editableFields)).toMatchObject({
       "general.model": { persistentPath: "agents.defaults.model", valueOrigin: "explicit", applyEffect: "immediate" },
       "general.temperature": { persistentPath: "agents.defaults.temperature", valueOrigin: "default" },
+      "general.maxToolIterations": { persistentPath: "agents.defaults.maxIterations" },
       "provider-models.selectedProvider": { sourceKind: "local-ui-preference" },
       "provider-models.apiKey": { persistentPath: "providers.deepseek.api_key", sensitive: true },
       "files-workspace.workspace": { persistentPath: "agents.defaults.workspace", applyEffect: "workspace-reload" },

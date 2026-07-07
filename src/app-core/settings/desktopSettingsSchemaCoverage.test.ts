@@ -18,6 +18,9 @@ import {
 describe("desktop settings schema coverage", () => {
   test("canonicalizes known legacy aliases used by settings persistence", () => {
     expect(canonicalizeDesktopSettingsPersistentPath("agents.defaults.max_tokens")).toBe("agents.defaults.maxTokens");
+    expect(canonicalizeDesktopSettingsPersistentPath("agents.defaults.maxToolIterations")).toBe("agents.defaults.maxIterations");
+    expect(canonicalizeDesktopSettingsPersistentPath("agents.defaults.max_tool_iterations")).toBe("agents.defaults.maxIterations");
+    expect(canonicalizeDesktopSettingsPersistentPath("agents.defaults.context_window_strategy")).toBe("agents.defaults.contextWindowStrategy");
     expect(canonicalizeDesktopSettingsPersistentPath("tools.mcp_servers.docs.command")).toBe("tools.mcpServers.docs.command");
     expect(canonicalizeDesktopSettingsPersistentPath("gateway.heartbeat.interval_s")).toBe("gateway.heartbeat.intervalS");
   });

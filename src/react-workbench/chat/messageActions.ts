@@ -1,3 +1,5 @@
+import type { TokenUsage } from "../../app-core/chat/chatRunModel";
+
 export type ToolCallSummary = {
   approvalId?: string;
   approvalStatus?: string;
@@ -39,6 +41,7 @@ export type ReactChatMessage = {
   toolCalls?: ToolCallSummary[];
   turnId?: string;
   turnStatus?: string;
+  usage?: TokenUsage;
 };
 
 export type MessageActionContext = {

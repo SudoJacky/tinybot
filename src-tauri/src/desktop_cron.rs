@@ -242,6 +242,6 @@ pub(crate) fn cron_model_from_config(config_snapshot: &serde_json::Value) -> Str
         .pointer("/agents/defaults/model")
         .and_then(serde_json::Value::as_str)
         .filter(|model| !model.trim().is_empty())
-        .unwrap_or("deepseek-reasoner")
+        .unwrap_or("deepseek-v4-pro")
         .to_string()
 }
