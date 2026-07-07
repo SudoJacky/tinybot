@@ -150,9 +150,74 @@ Known worker error sources:
 
 | Command | Args | Response |
 | --- | --- | --- |
+| `get_settings_snapshot` | none | `SettingsSnapshot` |
 | `get_config_editor_snapshot` | none | `ConfigEditorSnapshot` |
 | `apply_config_patch_result` | `{ result: ConfigPatchBridgeResult }` | `ConfigPatchApplyResult` |
 | `apply_config_operations` | `{ request: ConfigOperationRequest }` | `ConfigPatchApplyResult` |
+
+`SettingsSnapshot` is the Rust-owned settings control-center projection for the first settings MVP.
+It is intended for frontend settings UI callers that need grouped fields, scope/source metadata,
+readonly runtime status, and secret-safe field metadata without reading arbitrary raw config JSON.
+
+```json
+{
+  "areas": [
+    { "id": "core", "label": "Core" },
+    { "id": "application", "label": "Application" },
+    { "id": "system", "label": "System" }
+  ],
+  "groups": [
+    {
+      "id": "provider-models",
+      "label": "Provider & Models",
+      "area": "core",
+      "fields": [
+        {
+          "id": "provider-profile-openai-work-api-key",
+          "label": "API key",
+          "path": "providers.profiles.openai-work.api_key",
+          "scope": "profile",
+          "source": "secret",
+          "valueType": "secret",
+          "editable": true,
+          "value": null,
+          "secret": {
+            "configured": true,
+            "revealable": true,
+            "copyable": true,
+            "exportable": false,
+            "loggable": false,
+            "displayValue": "••••••••"
+          },
+          "risk": "sensitive",
+          "sideEffect": "none"
+        }
+      ]
+    }
+  ],
+  "configPath": ".../.tinybot/config.json",
+  "revision": "hash",
+  "diagnostics": []
+}
+```
+
+First-version group ids returned by `get_settings_snapshot`:
+
+- `general`
+- `provider-models`
+- `workspace`
+- `mcp-servers`
+- `skills`
+- `automations`
+- `gateway-runtime`
+- `security-approvals`
+- `logs-diagnostics`
+- `expert-config`
+
+The first version intentionally does not include Knowledge, Memory, Cowork, Channels, generic
+web/exec/browser tool toggles, telemetry/crash-report controls, or raw JSON editing fields.
+`gateway.host` is projected as readonly `127.0.0.1`; `gateway.port` is editable. Secret fields
+return `value: null` with `secret` metadata and must remain redacted in exported/public config.
 
 `ConfigEditorSnapshot`:
 
@@ -755,5 +820,11 @@ await invoke("apply_config_operations", {
     ]
   }
 });
+```
+
+Read the settings control-center projection:
+
+```ts
+const snapshot = await invoke("get_settings_snapshot");
 ```
 
