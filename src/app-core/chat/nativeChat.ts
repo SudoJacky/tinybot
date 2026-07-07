@@ -589,15 +589,52 @@ export function applyChatEvent(state: NativeChatState, event: NormalizedGatewayE
     reduceAgentEvent(state.chatRuns, { ...envelope, session_key: sessionKey });
     const turns = state.chatRuns.turnsBySession.get(sessionKey) ?? [];
     state.messages.set(sessionKey, coalesceToolActivityMessages(conversationMessagesToNativeMessages(turnsToConversationMessages(turns))));
-    if (
-      envelope.event_type === "agent.turn.completed"
-      || envelope.event_type === "agent.turn.failed"
-      || envelope.event_type === "agent.turn.interrupted"
-    ) {
+    const turn = turns.find((item) => item.id === envelope.turn_id);
+    if (turn && isTerminalTurnStatus(turn.status)) {
       state.respondingSessionKeys.delete(sessionKey);
-    } else {
+    } else if (turn?.status === "running" || turn?.status === "pending" || turn?.status === "awaiting_approval" || turn?.status === "awaiting_user") {
       state.respondingSessionKeys.add(sessionKey);
     }
+    logDesktopNativeChatDebug("state.event.after", {
+      event: summarizeChatEvent(event),
+      state: summarizeNativeChatState(state),
+      targetSessionKey: sessionKey,
+      turnStatus: turn?.status,
+    });
+    return;
+  }
+
+  if (event.kind === "usage") {
+    const sessionKey = sessionKeyForChatState(state, event.chatId || state.activeChatId);
+    if (!sessionKey) {
+      return;
+    }
+    const turns = state.chatRuns.turnsBySession.get(sessionKey) ?? [];
+    const turn = turns[turns.length - 1];
+    if (!turn) {
+      return;
+    }
+    const sequence = numberValue(event.raw.sequence) ?? state.chatRuns.appliedEventIds.size + 1;
+    reduceAgentEvent(state.chatRuns, {
+      chat_id: event.chatId || state.activeChatId,
+      created_at: stringValue(event.raw.created_at) || new Date().toISOString(),
+      event_id: stringValue(event.raw.event_id) || `usage:${sessionKey}:${turn.id}:${sequence}`,
+      event_type: "agent.usage",
+      payload: {
+        usage: isRecord(event.raw.usage) ? event.raw.usage : event.raw,
+      },
+      schema_version: "tinybot.agent_event.v1",
+      sequence,
+      session_key: sessionKey,
+      turn_id: turn.id,
+    });
+    const updatedTurns = state.chatRuns.turnsBySession.get(sessionKey) ?? [];
+    state.messages.set(sessionKey, coalesceToolActivityMessages(conversationMessagesToNativeMessages(turnsToConversationMessages(updatedTurns))));
+    logDesktopNativeChatDebug("state.event.after", {
+      event: summarizeChatEvent(event),
+      state: summarizeNativeChatState(state),
+      targetSessionKey: sessionKey,
+    });
     return;
   }
 
@@ -848,6 +885,10 @@ function summarizeChatEvent(event: NormalizedGatewayEvent): Record<string, unkno
     messageId,
     text: text ? summarizeDebugText(text) : undefined,
   };
+}
+
+function isTerminalTurnStatus(status: string): boolean {
+  return status === "completed" || status === "failed" || status === "interrupted";
 }
 
 function agentEventEnvelopeFromRaw(raw: Record<string, unknown>): AgentEventEnvelope | null {

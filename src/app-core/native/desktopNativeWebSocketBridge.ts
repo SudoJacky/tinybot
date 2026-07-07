@@ -350,7 +350,23 @@ class DesktopNativeWebSocket extends EventTarget {
     if (!runId) {
       return;
     }
+    if (this.completedStreamedRunIds.has(runId)) {
+      logDesktopNativeDebug("nativeWebSocket.agentEvent.ignored", {
+        eventName,
+        reason: "completed run",
+        runId,
+      });
+      return;
+    }
     if (!this.activeRuns.has(runId)) {
+      if (eventName === "agent.usage") {
+        logDesktopNativeDebug("nativeWebSocket.agentEvent.dropped", {
+          eventName,
+          reason: "unknown run",
+          runId,
+        });
+        return;
+      }
       const events = this.pendingAgentEvents.get(runId) ?? [];
       events.push({ eventName, payload: record });
       this.pendingAgentEvents.set(runId, events);

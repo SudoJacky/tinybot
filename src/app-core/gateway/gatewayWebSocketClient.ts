@@ -102,12 +102,14 @@ export function openGatewaySocket(config: GatewayConfig = DEFAULT_GATEWAY_CONFIG
       const normalized = normalizeGatewayFrame(raw);
       const messageId = "messageId" in normalized && typeof normalized.messageId === "string" ? normalized.messageId : "";
       const text = "text" in normalized && typeof normalized.text === "string" ? normalized.text : "";
+      const tokenUsage = "tokenUsage" in normalized ? normalized.tokenUsage : "";
       logDesktopNativeChatDebug("socket.frame", {
         chatId: "chatId" in normalized ? normalized.chatId : "",
         event: isRecord(raw) ? stringValue(raw.event) : "",
         kind: normalized.kind,
         messageId,
         text: text ? summarizeDebugText(text) : undefined,
+        tokenUsage: tokenUsage || undefined,
       });
       handlers.onEvent(normalized);
     } catch {
@@ -172,9 +174,6 @@ function optionalString(value: unknown): string | undefined {
 function formatTokenUsage(value: unknown): string {
   const usage = isRecord(value) ? value : {};
   const explicitPercent = numberValue(usage.percent ?? usage.percentage ?? usage.token_usage_percent ?? usage.tokenUsagePercent);
-  if (explicitPercent !== null) {
-    return `${boundedPercent(explicitPercent)}%`;
-  }
   const total = numberValue(usage.total_tokens ?? usage.totalTokens ?? usage.total) ?? 0;
   const contextWindow = numberValue(
     usage.context_window_tokens ??
@@ -184,13 +183,14 @@ function formatTokenUsage(value: unknown): string {
     usage.max_context_tokens ??
     usage.maxContextTokens,
   );
+  const percent = explicitPercent ?? (contextWindow && contextWindow > 0 ? (total / contextWindow) * 100 : null);
   if (contextWindow === null) {
-    return "-";
+    return total > 0 ? `${total} tokens` : explicitPercent !== null ? `${boundedPercent(explicitPercent)}%` : "-";
   }
   if (contextWindow <= 0) {
-    return "0%";
+    return total > 0 ? `${total} tokens` : "0%";
   }
-  return `${boundedPercent((total / contextWindow) * 100)}%`;
+  return `${total} / ${contextWindow} tokens (${boundedPercent(percent ?? 0)}%)`;
 }
 
 function numberValue(value: unknown): number | null {

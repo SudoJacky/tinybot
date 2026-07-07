@@ -2367,9 +2367,9 @@ button:disabled {
 
 .react-default-llm-panel__controls {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr) auto;
-  align-items: end;
-  gap: 12px;
+  grid-template-columns: repeat(2, minmax(220px, 1fr)) 180px;
+  align-items: start;
+  gap: 18px;
 }
 
 .react-default-llm-panel label {
@@ -2391,6 +2391,142 @@ button:disabled {
   font-size: 13px;
 }
 
+.react-settings-choice {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+}
+
+.react-settings-choice__label {
+  color: var(--color-body);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.react-settings-choice-trigger {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 16px;
+  align-items: center;
+  min-width: 0;
+  min-height: 40px;
+  gap: 12px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px 10px;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color var(--motion-duration-fast) var(--motion-ease-standard),
+    background-color var(--motion-duration-fast) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-settings-choice-trigger:hover,
+.react-settings-choice-trigger:focus-visible,
+.react-settings-choice-trigger[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--color-primary) 42%, var(--color-hairline));
+  background: var(--color-surface-soft);
+}
+
+.react-settings-choice-trigger:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 24%, transparent);
+}
+
+.react-settings-choice-trigger[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--color-primary) 56%, var(--color-hairline));
+  background: var(--color-surface-card);
+}
+
+.react-settings-choice-trigger > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  justify-items: start;
+}
+
+.react-settings-choice-trigger strong,
+.react-settings-choice-trigger small,
+.react-settings-choice-item strong,
+.react-settings-choice-item small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-settings-choice-trigger strong,
+.react-settings-choice-item strong {
+  color: var(--color-ink);
+  font-size: 13px;
+}
+
+.react-settings-choice-trigger small,
+.react-settings-choice-item small {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.react-settings-choice-trigger svg {
+  justify-self: end;
+  color: var(--color-muted);
+  transition: transform 160ms ease, color 160ms ease;
+}
+
+.react-settings-choice-trigger[aria-expanded="true"] svg {
+  color: var(--color-primary-active);
+  transform: rotate(180deg);
+}
+
+.react-settings-choice-popover {
+  top: calc(100% + 8px);
+  right: 0;
+  left: 0;
+  width: auto;
+  max-height: 260px;
+  overflow: auto;
+  z-index: 55;
+}
+
+.react-settings-choice-item {
+  grid-template-columns: minmax(0, 1fr) 18px;
+  min-height: 42px;
+  gap: 10px;
+  padding: 7px 10px;
+}
+
+.react-settings-choice-item .react-top-menu__menu-label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 14px;
+  white-space: normal;
+}
+
+.react-settings-choice-item strong {
+  justify-self: start;
+}
+
+.react-settings-choice-item small {
+  justify-self: end;
+}
+
+.react-settings-choice-item[aria-checked="true"] {
+  background: var(--color-surface-card);
+}
+
+.react-settings-choice-item svg {
+  color: var(--color-primary-active);
+}
+
+.react-settings-choice > small {
+  color: #b42318;
+  font-size: 12px;
+  font-weight: 500;
+}
+
 .react-default-llm-panel button {
   display: inline-flex;
   align-items: center;
@@ -2404,6 +2540,12 @@ button:disabled {
   color: var(--color-ink);
   font-size: 12px;
   font-weight: 650;
+}
+
+.react-default-llm-panel__controls > button {
+  align-self: end;
+  width: 100%;
+  min-height: 40px;
 }
 
 .react-default-llm-panel button:disabled {

@@ -233,7 +233,7 @@ export function ChatPage({
     let cancelled = false;
     const loadMessages = () => chatStore.load(activeSessionId).then((nextMessages) => {
       if (!cancelled) {
-        setMessages(nextMessages);
+        setMessages((current) => mergeLoadedMessagesWithLiveUsage(current, nextMessages));
         setLoadedMessageSessionId(activeSessionId);
       }
     });
@@ -246,10 +246,13 @@ export function ChatPage({
     void loadAgentUiForms();
     const unsubscribe = chatStore.subscribe(activeSessionId, (event) => {
       if (event.message) {
+        const nextMessage = event.message;
         setMessages((current) => (
-          current.some((message) => message.id === event.message?.id)
-            ? current
-            : [...current, event.message as ReactChatMessage]
+          current.some((message) => message.id === nextMessage.id)
+            ? current.map((message) => (
+              message.id === nextMessage.id ? { ...message, ...nextMessage } : message
+            ))
+            : [...current, nextMessage]
         ));
         setLoadedMessageSessionId(activeSessionId);
         return;
@@ -330,11 +333,17 @@ export function ChatPage({
     }
   }
 
-  async function handleSessionStoreRefresh(): Promise<SessionSummary[]> {
-    const nextSessions = await sessionStore.list();
+  async function handleSessionStoreRefresh(preserveSession?: SessionSummary): Promise<SessionSummary[]> {
+    const listedSessions = await sessionStore.list();
+    const nextSessions = preserveSession && !listedSessions.some((session) => session.id === preserveSession.id)
+      ? [preserveSession, ...listedSessions]
+      : listedSessions;
     sessionsRef.current = nextSessions;
     setSessions(nextSessions);
     setActiveSessionId((current) => {
+      if (preserveSession && current === preserveSession.id) {
+        return preserveSession.id;
+      }
       if (!nextSessions.length) {
         return "";
       }
@@ -414,7 +423,7 @@ export function ChatPage({
       ...(options.model ? { model: options.model } : {}),
       ...(typeof options.usePersistentRag === "boolean" ? { usePersistentRag: options.usePersistentRag } : {}),
     });
-    await handleSessionStoreRefresh();
+    await handleSessionStoreRefresh(sendSession);
   }
 
   function handleQueuedComposerResult(
@@ -1034,6 +1043,28 @@ function shouldPauseQueuedInputsForChatEvent(event: ChatEvent): boolean {
 
 function canDispatchQueuedInputForSession(session: SessionSummary | undefined): boolean {
   return session?.status !== "running" && session?.status !== "waiting_approval" && session?.status !== "failed";
+}
+
+function mergeLoadedMessagesWithLiveUsage(
+  currentMessages: ReactChatMessage[],
+  loadedMessages: ReactChatMessage[],
+): ReactChatMessage[] {
+  if (!currentMessages.some((message) => message.usage)) {
+    return loadedMessages;
+  }
+  return loadedMessages.map((message) => {
+    if (message.usage) {
+      return message;
+    }
+    const liveMessage = currentMessages.find((current) => current.id === message.id)
+      ?? currentMessages.find((current) => (
+        current.role === "assistant"
+        && message.role === "assistant"
+        && Boolean(current.turnId)
+        && current.turnId === message.turnId
+      ));
+    return liveMessage?.usage ? { ...message, usage: liveMessage.usage } : message;
+  });
 }
 
 function isQueueableRunningSession(session: SessionSummary, emptyActiveSession: boolean): boolean {

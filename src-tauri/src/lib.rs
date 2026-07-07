@@ -2887,7 +2887,9 @@ fn persist_native_agent_turn_if_final(
         .and_then(serde_json::Value::as_str)
         .unwrap_or("native-rust-run");
     let mut messages = native_agent_user_messages(&spec);
-    messages.extend(native_agent_assistant_messages(result));
+    let mut assistant_messages = native_agent_assistant_messages(result);
+    attach_native_agent_latest_usage(&mut assistant_messages, result);
+    messages.extend(assistant_messages);
     if messages.is_empty() {
         return Ok(());
     }
@@ -2987,6 +2989,26 @@ fn native_agent_assistant_messages(result: &serde_json::Value) -> Vec<serde_json
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn attach_native_agent_latest_usage(
+    messages: &mut [serde_json::Value],
+    result: &serde_json::Value,
+) {
+    let Some(usage) = native_agent_usage(result).into_iter().last() else {
+        return;
+    };
+    let Some(message) = messages.iter_mut().rev().find(|message| {
+        message.get("role").and_then(serde_json::Value::as_str) == Some("assistant")
+    }) else {
+        return;
+    };
+    let Some(object) = message.as_object_mut() else {
+        return;
+    };
+    if !object.get("usage").is_some_and(|value| !value.is_null()) {
+        object.insert("usage".to_string(), usage);
+    }
 }
 
 fn hydrate_native_agent_history_for_runtime(
@@ -7657,10 +7679,20 @@ mod tests {
     #[test]
     fn worker_run_agent_persists_rust_turn_messages_in_session_store() {
         let fixture = WorkspaceFixture::new();
-        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+        let shared = Arc::new(Mutex::new(GatewayRuntime {
+            native_agent_runtime: NativeAgentRuntimeServices::new(
+                Arc::new(UsageNativeAgentProvider),
+                Arc::new(crate::worker_agent_runtime::FakeNativeAgentToolDispatcher),
+                Arc::new(
+                    crate::worker_agent_runtime::InMemoryNativeAgentCheckpointStore::default(),
+                ),
+                Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCancellation::default()),
+            ),
+            ..GatewayRuntime::default()
+        }));
         let config = serde_json::json!({
             "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
-            "providers": { "fixture": { "responses": [{ "content": "persisted assistant" }] } }
+            "providers": { "fixture": { "responses": [{ "content": "unused fixture response" }] } }
         });
 
         let result = worker_run_agent_with_options(
@@ -7690,6 +7722,30 @@ mod tests {
         assert_eq!(history["messages"][0]["content"], "persist me");
         assert_eq!(history["messages"][1]["role"], "assistant");
         assert_eq!(history["messages"][1]["content"], "persisted assistant");
+        assert_eq!(history["messages"][1]["usage"]["prompt_tokens"], 10);
+        assert_eq!(history["messages"][1]["usage"]["completion_tokens"], 97);
+        assert_eq!(history["messages"][1]["usage"]["total_tokens"], 107);
+    }
+
+    #[derive(Clone)]
+    struct UsageNativeAgentProvider;
+
+    impl crate::worker_agent_runtime::NativeAgentProvider for UsageNativeAgentProvider {
+        fn complete(
+            &self,
+            _context: &crate::worker_agent_runtime::NativeAgentRunContext,
+        ) -> Result<crate::worker_agent_runtime::NativeAgentProviderResponse, String> {
+            Ok(crate::worker_agent_runtime::NativeAgentProviderResponse {
+                final_content: "persisted assistant".to_string(),
+                reasoning_delta: None,
+                usage: Some(serde_json::json!({
+                    "prompt_tokens": 10,
+                    "completion_tokens": 97,
+                    "total_tokens": 107,
+                })),
+                tool_calls: Vec::new(),
+            })
+        }
     }
 
     #[derive(Clone)]

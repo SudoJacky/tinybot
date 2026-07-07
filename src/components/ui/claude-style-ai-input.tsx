@@ -528,7 +528,13 @@ function ContextUsageIndicator({ view }: { view: ContextUsageView }) {
 
 function buildContextUsageView(usage: TokenUsage | undefined): ContextUsageView | undefined {
   if (!usage) {
-    return undefined;
+    return {
+      ariaLabel: "Context window 0% used, 100% left",
+      leftPercent: 100,
+      percent: 0,
+      state: "normal",
+      tokenLabel: "0 tokens used",
+    };
   }
   const windowTokens = positiveNumber(usage.contextWindowTokens);
   const usedTokens = positiveNumber(usage.contextWindowUsedTokens ?? usage.promptTokens ?? usage.totalTokens);

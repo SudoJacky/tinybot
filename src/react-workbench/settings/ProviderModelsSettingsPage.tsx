@@ -12,6 +12,7 @@ import {
   type ProviderModelsSettingsData,
 } from "../../app-core/settings/providerModelsSettings";
 import type { SettingsStore } from "../services";
+import { SettingsChoiceList } from "./SettingsChoiceList";
 
 type ProviderModelsSettingsPageProps = {
   settingsStore: SettingsStore;
@@ -171,35 +172,32 @@ function DefaultLlmPanel({
     <section className="react-default-llm-panel" aria-labelledby="default-llm-title">
       <h3 id="default-llm-title">Default LLM</h3>
       <div className="react-default-llm-panel__controls">
-        <label>
-          <span>Provider</span>
-          <select
-            aria-label="Provider"
-            value={profileId}
-            onChange={(event) => {
-              const nextProfileId = event.currentTarget.value;
-              const nextProvider = data.providers.find((provider) => provider.profileId === nextProfileId);
-              setProfileId(nextProfileId);
-              setModel(nextProvider?.defaultModel ?? nextProvider?.models[0]?.id ?? "");
-            }}
-          >
-            {data.providers.map((provider) => (
-              <option key={provider.profileId} value={provider.profileId}>
-                {provider.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>Model</span>
-          <select aria-label="Model" value={model} onChange={(event) => setModel(event.currentTarget.value)}>
-            {modelOptions.length
-              ? modelOptions.map((option) => (
-                <option key={option.id} value={option.id}>{option.label} ({option.id})</option>
-              ))
-              : <option value="">No models configured</option>}
-          </select>
-        </label>
+        <SettingsChoiceList
+          label="Provider"
+          options={data.providers.map((provider) => ({
+            value: provider.profileId,
+            label: provider.label,
+            description: provider.modelCount ? `${provider.modelCount} models` : provider.statusLabel,
+          }))}
+          value={profileId}
+          onChange={(nextProfileId) => {
+            const nextProvider = data.providers.find((provider) => provider.profileId === nextProfileId);
+            setProfileId(nextProfileId);
+            setModel(nextProvider?.defaultModel ?? nextProvider?.models[0]?.id ?? "");
+          }}
+        />
+        <SettingsChoiceList
+          label="Model"
+          options={modelOptions.length
+            ? modelOptions.map((option) => ({
+              value: option.id,
+              label: option.label,
+              description: option.id === option.label ? modelSourceLabel(option.source) : `${option.id} - ${modelSourceLabel(option.source)}`,
+            }))
+            : [{ value: "", label: "No models configured", disabled: true }]}
+          value={model}
+          onChange={setModel}
+        />
         <button type="button" aria-label="Save default LLM" disabled={!canSave} onClick={saveDefaultLlm}>
           <Check aria-hidden="true" size={15} />
           {saving ? "Saving" : dirty ? "Save" : "Saved"}

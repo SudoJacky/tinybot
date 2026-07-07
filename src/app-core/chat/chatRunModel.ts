@@ -487,7 +487,7 @@ export function reduceAgentEvent(state: ChatRunState, event: AgentEventEnvelope)
   if (event.event_type === "agent.turn.completed") {
     turn.status = "completed";
     turn.completedAt = event.created_at;
-    turn.usage = normalizeUsage(event.payload.usage);
+    turn.usage = normalizeUsage(event.payload.usage) ?? turn.usage;
     return state;
   }
 
@@ -1578,7 +1578,14 @@ function normalizeUsage(value: unknown): TokenUsage | undefined {
     completionTokens: numberValue(payload.completion_tokens ?? payload.completionTokens),
     contextWindowRemainingTokens: numberValue(payload.context_window_remaining_tokens ?? payload.contextWindowRemainingTokens),
     contextWindowStrategy: stringValue(payload.context_window_strategy ?? payload.contextWindowStrategy) || undefined,
-    contextWindowTokens: numberValue(payload.context_window_tokens ?? payload.contextWindowTokens),
+    contextWindowTokens: numberValue(
+      payload.context_window_tokens
+        ?? payload.contextWindowTokens
+        ?? payload.context_window
+        ?? payload.contextWindow
+        ?? payload.max_context_tokens
+        ?? payload.maxContextTokens,
+    ),
     contextWindowUsedTokens: numberValue(payload.context_window_used_tokens ?? payload.contextWindowUsedTokens),
     estimatedContextTokens: numberValue(payload.estimated_context_tokens ?? payload.estimatedContextTokens),
     percent: numberValue(payload.percent ?? payload.percentage ?? payload.token_usage_percent ?? payload.tokenUsagePercent),

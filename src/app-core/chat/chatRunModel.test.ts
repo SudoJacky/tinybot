@@ -537,7 +537,7 @@ describe("chat run model", () => {
       created_at: "2026-06-27T04:00:01.000Z",
       payload: {
         usage: {
-          contextWindowTokens: 128000,
+          context_window: 128000,
           contextWindowUsedTokens: 64000,
           percent: 50,
         },
@@ -545,6 +545,24 @@ describe("chat run model", () => {
     });
 
     const turns = state.turnsBySession.get("WebSocket:chat-1") ?? [];
+    expect(turns[0].usage).toEqual(expect.objectContaining({
+      contextWindowTokens: 128000,
+      contextWindowUsedTokens: 64000,
+      percent: 50,
+    }));
+
+    reduceAgentEvent(state, {
+      schema_version: "tinybot.agent_event.v1",
+      event_id: "event-turn-completed",
+      event_type: "agent.turn.completed",
+      chat_id: "chat-1",
+      session_key: "WebSocket:chat-1",
+      turn_id: "turn-usage",
+      sequence: 3,
+      created_at: "2026-06-27T04:00:02.000Z",
+      payload: {},
+    });
+
     expect(turns[0].usage).toEqual(expect.objectContaining({
       contextWindowTokens: 128000,
       contextWindowUsedTokens: 64000,

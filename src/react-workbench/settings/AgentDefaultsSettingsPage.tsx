@@ -9,6 +9,7 @@ import {
   type AgentDefaultsValidationErrors,
 } from "../../app-core/settings/agentDefaultsSettings";
 import type { SettingsStore } from "../services";
+import { SettingsChoiceList } from "./SettingsChoiceList";
 
 type AgentDefaultsSettingsPageProps = {
   onNavigateToProviderModels: () => void;
@@ -139,39 +140,33 @@ export function AgentDefaultsSettingsPage({ onNavigateToProviderModels, settings
               value={values.contextWindowTokens}
               onChange={(value) => editValue("contextWindowTokens", value)}
             />
-            <label>
-              <span>Context window strategy</span>
-              <select
-                aria-label="Context window strategy"
-                value={values.contextWindowStrategy}
-                onChange={(event) => editValue("contextWindowStrategy", event.currentTarget.value)}
-              >
-                <option value="discard">Discard old messages</option>
-                <option value="compact">Compact old messages</option>
-              </select>
-              {errors.contextWindowStrategy ? (
-                <small role="alert">{errors.contextWindowStrategy}</small>
-              ) : null}
-            </label>
+            <SettingsChoiceList
+              error={errors.contextWindowStrategy}
+              label="Context window strategy"
+              options={[
+                { value: "discard", label: "Discard old messages", description: "Keep the active context lean." },
+                { value: "compact", label: "Compact old messages", description: "Summarize older turns before trimming." },
+              ]}
+              value={values.contextWindowStrategy}
+              onChange={(value) => editValue("contextWindowStrategy", value)}
+            />
             <AgentDefaultInput
               error={errors.maxToolIterations}
               label="Max tool iterations"
               value={values.maxToolIterations}
               onChange={(value) => editValue("maxToolIterations", value)}
             />
-            <label>
-              <span>Reasoning effort</span>
-              <select
-                aria-label="Reasoning effort"
-                value={values.reasoningEffort}
-                onChange={(event) => editValue("reasoningEffort", event.currentTarget.value)}
-              >
-                <option value="">Default</option>
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-              </select>
-            </label>
+            <SettingsChoiceList
+              label="Reasoning effort"
+              options={[
+                { value: "", label: "Default", description: "Use the model provider default." },
+                { value: "low", label: "Low", description: "Faster, lighter reasoning." },
+                { value: "medium", label: "Medium", description: "Balanced reasoning depth." },
+                { value: "high", label: "High", description: "More deliberate reasoning." },
+              ]}
+              value={values.reasoningEffort}
+              onChange={(value) => editValue("reasoningEffort", value)}
+            />
           </div>
         </section>
         <footer>
