@@ -46,7 +46,7 @@ export function buildAgentDefaultsSettings(config: unknown): AgentDefaultsSettin
         pick(defaults, "contextWindowStrategy", "context_window_strategy"),
       ) || DEFAULT_AGENT_CONTEXT_WINDOW_STRATEGY,
       maxToolIterations: formNumber(
-        pick(defaults, "maxToolIterations", "max_tool_iterations"),
+        pick(defaults, "maxIterations", "max_iterations", "maxToolIterations", "max_tool_iterations"),
         DEFAULT_AGENT_MAX_TOOL_ITERATIONS,
       ),
       reasoningEffort: stringValue(pick(defaults, "reasoningEffort", "reasoning_effort")) || DEFAULT_AGENT_REASONING_EFFORT,
@@ -57,6 +57,9 @@ export function buildAgentDefaultsSettings(config: unknown): AgentDefaultsSettin
 export function validateAgentDefaultsInput(values: AgentDefaultsFormValues): AgentDefaultsValidationErrors {
   const errors: AgentDefaultsValidationErrors = {};
   const temperature = parseOptionalNumber(values.temperature);
+  if (temperature !== null && !Number.isFinite(temperature)) {
+    errors.temperature = "Temperature must be a number between 0 and 2.";
+  }
   if (temperature !== null && (temperature < 0 || temperature > 2)) {
     errors.temperature = "Temperature must be between 0 and 2.";
   }
@@ -82,7 +85,7 @@ export function buildAgentDefaultsPatch(values: AgentDefaultsFormValues): JsonRe
     defaults.timezone = timezone;
   }
   const temperature = parseOptionalNumber(values.temperature);
-  if (temperature !== null) {
+  if (temperature !== null && Number.isFinite(temperature)) {
     defaults.temperature = temperature;
   }
   setOptionalInteger(defaults, "maxTokens", values.maxTokens);
@@ -91,7 +94,7 @@ export function buildAgentDefaultsPatch(values: AgentDefaultsFormValues): JsonRe
   if (contextWindowStrategy) {
     defaults.contextWindowStrategy = contextWindowStrategy;
   }
-  setOptionalInteger(defaults, "maxToolIterations", values.maxToolIterations);
+  setOptionalInteger(defaults, "maxIterations", values.maxToolIterations);
   const reasoningEffort = values.reasoningEffort.trim();
   if (reasoningEffort) {
     defaults.reasoningEffort = reasoningEffort;

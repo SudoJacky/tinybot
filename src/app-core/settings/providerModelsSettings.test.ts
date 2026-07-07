@@ -102,7 +102,7 @@ describe("provider models settings", () => {
       defaultModel: "custom-model",
       setAgentDefault: true,
     })).toEqual({
-      agents: { defaults: { model: "custom-model" } },
+      agents: { defaults: { activeProfile: "deepseek-default", model: "custom-model" } },
       providers: {
         profiles: {
           "deepseek-default": {

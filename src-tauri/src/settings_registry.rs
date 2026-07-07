@@ -235,13 +235,15 @@ pub fn build_settings_snapshot(input: SettingsSnapshotInput) -> SettingsSnapshot
                 config_field(
                     "max-tool-iterations",
                     "Max tool iterations",
-                    "agents.defaults.maxToolIterations",
+                    "agents.defaults.maxIterations",
                     SettingScope::RunDefault,
                     SettingValueType::Number,
                     true,
                     pick_path(
                         config,
                         &[
+                            &["agents", "defaults", "maxIterations"],
+                            &["agents", "defaults", "max_iterations"],
                             &["agents", "defaults", "maxToolIterations"],
                             &["agents", "defaults", "max_tool_iterations"],
                         ],
@@ -1234,6 +1236,23 @@ mod tests {
     }
 
     #[test]
+    fn max_tool_iterations_projects_runtime_key_with_legacy_aliases() {
+        let snapshot = build_settings_snapshot(SettingsSnapshotInput {
+            config: config_fixture(),
+            config_path: PathBuf::from("C:/Users/example/.tinybot/config.json"),
+            revision: "rev-1".to_string(),
+            diagnostics: Vec::new(),
+        });
+
+        let field = snapshot
+            .field("agents.defaults.maxIterations")
+            .expect("max tool iterations field should use runtime key");
+
+        assert_eq!(field.value_type, SettingValueType::Number);
+        assert_eq!(field.value, json!(12));
+    }
+
+    #[test]
     fn expert_config_exposes_redacted_effective_config() {
         let snapshot = build_settings_snapshot(SettingsSnapshotInput {
             config: config_fixture(),
@@ -1263,7 +1282,8 @@ mod tests {
                 "defaults": {
                     "active_profile": "openai-work",
                     "model": "gpt-5",
-                    "timezone": "Asia/Singapore"
+                    "timezone": "Asia/Singapore",
+                    "maxToolIterations": 12
                 }
             },
             "providers": {

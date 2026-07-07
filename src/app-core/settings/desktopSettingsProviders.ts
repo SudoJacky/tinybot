@@ -613,7 +613,7 @@ export function buildDesktopSettingsFormState(
       maxTokens: numberOrDefault(pick(defaults, "maxTokens", "max_tokens"), 8192),
       contextWindowTokens: numberOrDefault(pick(defaults, "contextWindowTokens", "context_window_tokens"), 128000),
       contextWindowStrategy: stringOrDefault(pick(defaults, "contextWindowStrategy", "context_window_strategy"), "discard"),
-      maxToolIterations: numberOrDefault(pick(defaults, "maxToolIterations", "max_tool_iterations"), 200),
+      maxToolIterations: numberOrDefault(pick(defaults, "maxIterations", "max_iterations", "maxToolIterations", "max_tool_iterations"), 200),
       reasoningEffort: stringOrNull(pick(defaults, "reasoningEffort", "reasoning_effort")),
       timezone: stringOrDefault(pick(defaults, "timezone"), "UTC"),
     },
@@ -909,7 +909,7 @@ function createDesktopSettingsFullPatch(
         max_tokens: state.agent.maxTokens,
         context_window_tokens: state.agent.contextWindowTokens,
         context_window_strategy: state.agent.contextWindowStrategy,
-        max_tool_iterations: state.agent.maxToolIterations,
+        maxIterations: state.agent.maxToolIterations,
         reasoning_effort: state.agent.reasoningEffort,
         timezone: state.agent.timezone,
         embedding: {
@@ -1011,7 +1011,7 @@ function getDesktopSettingsPatchPathValue(state: DesktopSettingsFormState, path:
       return state.agent.contextWindowTokens;
     case "agents.defaults.context_window_strategy":
       return state.agent.contextWindowStrategy;
-    case "agents.defaults.max_tool_iterations":
+    case "agents.defaults.maxIterations":
       return state.agent.maxToolIterations;
     case "agents.defaults.reasoning_effort":
       return state.agent.reasoningEffort;
@@ -1436,7 +1436,7 @@ export function applyDesktopSettingsFieldEdit(
       break;
     case "maxToolIterations":
       nextState.agent.maxToolIterations = numberOrNullInput(text);
-      markDesktopSettingsTouched(nextState, "agents.defaults.max_tool_iterations");
+      markDesktopSettingsTouched(nextState, "agents.defaults.maxIterations");
       break;
     case "reasoningEffort":
       nextState.agent.reasoningEffort = stringOrNullInput(text);
@@ -2566,7 +2566,7 @@ function getDesktopSettingsPaneFieldPersistentPath(
     "general.maxTokens": "agents.defaults.maxTokens",
     "general.contextWindowTokens": "agents.defaults.contextWindowTokens",
     "general.contextWindowStrategy": "agents.defaults.contextWindowStrategy",
-    "general.maxToolIterations": "agents.defaults.maxToolIterations",
+    "general.maxToolIterations": "agents.defaults.maxIterations",
     "general.reasoningEffort": "agents.defaults.reasoningEffort",
     "provider-models.selectedProvider": "desktop.ui.settings.providerEditor.selectedProvider",
     "provider-models.profileId": "agents.defaults.activeProfile",

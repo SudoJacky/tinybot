@@ -406,7 +406,7 @@ describe("DesktopShell", () => {
           maxTokens: 2048,
           contextWindowTokens: 128000,
           contextWindowStrategy: "compact",
-          maxToolIterations: 12,
+          maxIterations: 12,
           reasoningEffort: "medium",
         },
       },

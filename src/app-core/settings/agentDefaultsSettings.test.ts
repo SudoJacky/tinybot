@@ -18,7 +18,7 @@ describe("agent defaults settings", () => {
           maxTokens: 4096,
           contextWindowTokens: 128000,
           contextWindowStrategy: "compact",
-          maxToolIterations: 12,
+          maxIterations: 12,
           reasoningEffort: "medium",
         },
       },
@@ -76,8 +76,38 @@ describe("agent defaults settings", () => {
           maxTokens: 2048,
           contextWindowTokens: 64000,
           contextWindowStrategy: "compact",
-          maxToolIterations: 8,
+          maxIterations: 8,
           reasoningEffort: "high",
+        },
+      },
+    });
+  });
+
+  test("rejects non-numeric temperature values before save", () => {
+    expect(validateAgentDefaultsInput({
+      timezone: "UTC",
+      temperature: "abc",
+      maxTokens: "2048",
+      contextWindowTokens: "64000",
+      contextWindowStrategy: "compact",
+      maxToolIterations: "8",
+      reasoningEffort: "high",
+    })).toEqual({
+      temperature: "Temperature must be a number between 0 and 2.",
+    });
+    expect(buildAgentDefaultsPatch({
+      timezone: "UTC",
+      temperature: "abc",
+      maxTokens: "",
+      contextWindowTokens: "",
+      contextWindowStrategy: "discard",
+      maxToolIterations: "",
+      reasoningEffort: "",
+    })).toEqual({
+      agents: {
+        defaults: {
+          timezone: "UTC",
+          contextWindowStrategy: "discard",
         },
       },
     });

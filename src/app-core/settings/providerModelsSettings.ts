@@ -161,7 +161,7 @@ export function buildProviderModelsPatch(input: ProviderModelsPatchInput): JsonR
   if (defaultModel) {
     profile.defaultModel = defaultModel;
   }
-  return withOptionalAgentsPatch(input.setAgentDefault && defaultModel ? { model: defaultModel } : null, {
+  return withOptionalAgentsPatch(input.setAgentDefault && defaultModel ? { activeProfile: profileId, model: defaultModel } : null, {
     providers: {
       profiles: {
         [profileId]: profile,

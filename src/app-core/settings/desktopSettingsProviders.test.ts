@@ -951,6 +951,7 @@ describe("desktop settings and provider helpers", () => {
     expect(Object.fromEntries(editableFields)).toMatchObject({
       "general.model": { persistentPath: "agents.defaults.model", valueOrigin: "explicit", applyEffect: "immediate" },
       "general.temperature": { persistentPath: "agents.defaults.temperature", valueOrigin: "default" },
+      "general.maxToolIterations": { persistentPath: "agents.defaults.maxIterations" },
       "provider-models.selectedProvider": { sourceKind: "local-ui-preference" },
       "provider-models.apiKey": { persistentPath: "providers.deepseek.api_key", sensitive: true },
       "files-workspace.workspace": { persistentPath: "agents.defaults.workspace", applyEffect: "workspace-reload" },
