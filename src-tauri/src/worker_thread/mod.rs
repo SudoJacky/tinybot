@@ -290,14 +290,6 @@ impl WorkerThreadRpc {
         self.runtime.interrupt(request)
     }
 
-    pub fn record_agent_run(
-        &self,
-        record: &AgentRunRecord,
-    ) -> Result<AppendThreadItemsResult, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionWrite)?;
-        self.store.record_agent_run(record)
-    }
-
     pub fn record_session_turn(
         &self,
         session_id: &str,
@@ -308,40 +300,12 @@ impl WorkerThreadRpc {
         session_adapter::record_session_turn(&self.store, session_id, run_id, messages)
     }
 
-    pub fn project_session_history_if_writable(
-        &self,
-        session_id: &str,
-        messages: &[Value],
-    ) -> Result<Option<AppendThreadItemsResult>, WorkerProtocolError> {
-        if !self.policy.allows(&WorkerCapability::SessionWrite) {
-            return Ok(None);
-        }
-        session_adapter::project_session_history_if_empty(&self.store, session_id, messages)
-    }
-
-    pub fn sync_session_metadata(
-        &self,
-        session: &SessionMetadata,
-    ) -> Result<ThreadRecord, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionWrite)?;
-        session_adapter::sync_session_metadata(&self.store, session)
-    }
-
     pub fn archive_session_thread(
         &self,
         session_id: &str,
     ) -> Result<Option<ThreadRecord>, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         session_adapter::archive_session_thread(&self.store, session_id)
-    }
-
-    pub fn record_agent_run_trace(
-        &self,
-        record: &AgentRunRecord,
-        event: Value,
-    ) -> Result<AppendThreadItemsResult, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionWrite)?;
-        self.store.record_agent_run_trace(record, event)
     }
 
     pub fn list_agent_run_trace_events(
@@ -380,22 +344,6 @@ impl WorkerThreadRpc {
     ) -> Result<Option<AgentRunRecord>, WorkerProtocolError> {
         self.require(WorkerCapability::SessionMetadataRead)?;
         self.store.get_agent_run_from_threads(session_id, run_id)
-    }
-
-    pub fn record_agent_run_checkpoint(
-        &self,
-        record: &AgentRunRecord,
-    ) -> Result<AppendThreadItemsResult, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionWrite)?;
-        self.store.record_agent_run_checkpoint(record)
-    }
-
-    pub fn record_agent_run_terminal(
-        &self,
-        record: &AgentRunRecord,
-    ) -> Result<AppendThreadItemsResult, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionWrite)?;
-        self.store.record_agent_run_terminal(record)
     }
 
     pub fn record_subagent_spawn(

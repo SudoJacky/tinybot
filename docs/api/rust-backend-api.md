@@ -384,6 +384,15 @@ JSONL file under `.tinybot/threads/YYYY/MM/DD/thread-*.jsonl`.
 session/thread id lookup, archive metadata, and the canonical JSONL path. The JSONL thread file is
 the canonical history source.
 
+Compatibility `session.*` and `agent_run.*` routes keep their response shapes for older callers, but
+new writes do not mirror completed history, checkpoints, metadata patches, or agent-run lifecycle
+events into the legacy `.tinybot/threads/threads.sqlite` projection. Those routes write their own
+canonical store (`thread_log` for durable history and usage, legacy `sessions.sqlite` only for
+legacy active session state) and read legacy thread projections only as a fallback for existing data.
+Thread-owned commands such as `worker_submit_thread_turn`, `worker_resolve_thread_approval`, and
+`worker_submit_thread_form` update the thread timeline explicitly through `thread.start_turn` and
+`thread.apply_op`.
+
 `session.get_history` returns frontend-compatible messages. When a thread has token usage, the
 backend derives the message `usage` field from the latest persisted `token_count` event. A malformed
 thread log line, malformed `token_count` event, or malformed compaction payload is treated as a

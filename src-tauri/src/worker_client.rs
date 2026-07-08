@@ -1,8 +1,9 @@
 use std::{path::PathBuf, time::Duration};
 
+use crate::desktop_commands::agent::ensure_experimental_fixture_worker_running;
 use crate::worker_manager::WorkerManager;
 use crate::worker_protocol::WorkerRequest;
-use crate::{ensure_experimental_fixture_worker_running, lock_runtime, SharedGateway};
+use crate::{lock_runtime, SharedGateway};
 
 #[derive(Clone)]
 pub(crate) struct WorkerClient {

@@ -39,7 +39,7 @@ use crate::worker_thread::{
     DeleteThreadRequest, ForkThreadRequest, InterruptThreadRequest, ListThreadsRequest,
     ReadThreadRequest, RestoreThreadCheckpointRequest, ResumeThreadRequest, SearchThreadsRequest,
     StartThreadTurnRequest, ThreadActivityRequest, ThreadAgentRegistryRequest,
-    ThreadApplyOpRequest, ThreadEventsRequest, ThreadIdParams, ThreadOp, ThreadRecord,
+    ThreadApplyOpRequest, ThreadEventsRequest, ThreadIdParams, ThreadOp,
     UpdateThreadMetadataRequest, WorkerThreadRpc,
 };
 use crate::worker_thread_log::WorkerThreadLogRpc;
@@ -51,17 +51,27 @@ use crate::worker_tool_registry::{ToolRegistrySearchRequest, WorkerToolRegistryR
 use crate::worker_workspace::{WorkerWorkspaceRpc, WorkspaceReadFormat, WorkspaceReadOptions};
 use serde::Deserialize;
 use serde_json::Value;
-use std::collections::HashSet;
 use std::path::PathBuf;
 
 mod approval;
+mod background_dispatch;
 mod channel;
+mod config_dispatch;
 mod errors;
 mod form;
+mod interaction_dispatch;
+mod knowledge_dispatch;
 mod mcp;
+mod memory_dispatch;
 mod method;
+mod persistence_facade;
 pub(crate) mod protocol;
 mod runtime;
+mod runtime_dispatch;
+mod subagent_dispatch;
+mod thread_dispatch;
+mod tool_dispatch;
+mod workspace_dispatch;
 
 use self::approval::{
     shell_execute_approval, workspace_delete_approval, workspace_write_approval, WorkerApprovalRpc,
@@ -226,1032 +236,47 @@ impl WorkerRpcRouter {
     ) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
         let _namespace = classify_method(&request.method);
         match request.method.as_str() {
-            "workspace.resolve_path" => {
-                let params: PathParams = parse_params(request)?;
-                serde_json::to_value(self.workspace.resolve_path(&params.path)?)
-                    .map_err(serialization_error)
-            }
-            "workspace.read_file" => {
-                let params: ReadFileParams = parse_params(request)?;
-                serde_json::to_value(self.workspace.read_file_with_options(
-                    &params.path,
-                    WorkspaceReadOptions {
-                        offset: params.offset,
-                        limit: params.limit,
-                        format: params.format.unwrap_or(WorkspaceReadFormat::Raw),
-                    },
-                )?)
-                .map_err(serialization_error)
-            }
-            "workspace.read_bootstrap_files" => {
-                let params: BootstrapFilesParams = parse_params(request)?;
-                serde_json::to_value(self.workspace.read_bootstrap_files(&params.files)?)
-                    .map_err(serialization_error)
-            }
-            "workspace.write_file" => {
-                let params: WriteFileParams = parse_params(request)?;
-                if !params.internal_operation.unwrap_or(false) {
-                    self.approval
-                        .require_sensitive_operation(workspace_write_approval(
-                            &params.path,
-                            params.session_id.clone(),
-                            params.run_id.clone(),
-                            params.approval_fingerprint.clone(),
-                            params.approval_session_fingerprint.clone(),
-                        ))?;
-                }
-                serde_json::to_value(self.workspace.write_file_with_expected(
-                    &params.path,
-                    &params.contents,
-                    params.expected_updated_at.as_deref(),
-                )?)
-                .map_err(serialization_error)
-            }
-            "workspace.create_dir" => {
-                let params: PathParams = parse_params(request)?;
-                serde_json::to_value(self.workspace.create_dir(&params.path)?)
-                    .map_err(serialization_error)
-            }
-            "workspace.list_dir" => {
-                let params: ListDirParams = parse_params(request)?;
-                serde_json::to_value(self.workspace.list_dir(
-                    &params.path,
-                    params.recursive.unwrap_or(false),
-                    params.max_entries,
-                )?)
-                .map_err(serialization_error)
-            }
-            "workspace.delete_file" => {
-                let params: DeleteFileParams = parse_params(request)?;
-                if !params.internal_operation.unwrap_or(false) {
-                    self.approval
-                        .require_sensitive_operation(workspace_delete_approval(
-                            &params.path,
-                            params.session_id.clone(),
-                            params.run_id.clone(),
-                        ))?;
-                }
-                serde_json::to_value(
-                    self.workspace
-                        .delete_file(&params.path, params.recursive.unwrap_or(false))?,
-                )
-                .map_err(serialization_error)
-            }
-            "workspace.list_files" => {
-                serde_json::to_value(self.workspace.list_files()?).map_err(serialization_error)
-            }
-            "skills.list" => {
-                serde_json::to_value(self.workspace.list_skills()?).map_err(serialization_error)
-            }
-            "skills.webui_list" => self
-                .workspace
-                .webui_list_skills(enabled_skills_from_snapshot(
-                    &self.config.snapshot_public()?.value,
-                )),
-            "skills.webui_detail" => {
-                let params: SkillNameParams = parse_params(request)?;
-                self.workspace.webui_skill_detail(&params.name)
-            }
-            "skills.webui_create" => {
-                let params: SkillCreateParams = parse_params(request)?;
-                self.workspace.webui_create_skill(params.body)
-            }
-            "skills.webui_update" => {
-                let params: SkillUpdateParams = parse_params(request)?;
-                self.workspace.webui_update_skill(&params.name, params.body)
-            }
-            "skills.webui_delete" => {
-                let params: SkillNameParams = parse_params(request)?;
-                self.workspace.webui_delete_skill(&params.name)
-            }
-            "skills.webui_validate" => {
-                let params: SkillNameParams = parse_params(request)?;
-                self.workspace.webui_validate_skill(&params.name)
-            }
-            "config.get" => {
-                let params: PathParams = parse_params(request)?;
-                serde_json::to_value(self.config.get(&params.path)?).map_err(serialization_error)
-            }
-            "config.snapshot_public" => {
-                serde_json::to_value(self.config.snapshot_public()?).map_err(serialization_error)
-            }
-            "config.apply_patch_result" => {
-                let params: ConfigPatchBridgeResult = parse_params(request)?;
-                let result = if let Some(config_store) = self.config_store.as_mut() {
-                    self.config
-                        .apply_patch_result_to_store(config_store, params)?
-                } else {
-                    self.config.apply_patch_result(params)?
-                };
-                if result.ok {
-                    self.secret.update_snapshot(self.config.snapshot().clone());
-                }
-                serde_json::to_value(result).map_err(serialization_error)
-            }
-            "config.apply_operations" => {
-                let params: crate::config_store::ConfigOperationRequest = parse_params(request)?;
-                let result = if let Some(config_store) = self.config_store.as_mut() {
-                    self.config
-                        .apply_operations_to_store(config_store, params)?
-                } else {
-                    return Err(WorkerProtocolError::new(
-                        WorkerProtocolErrorCode::InvalidProtocol,
-                        "config operation writes require a config store",
-                        serde_json::json!({ "method": request.method }),
-                        false,
-                        WorkerProtocolErrorSource::RustCore,
-                    ));
-                };
-                if result.ok {
-                    self.secret.update_snapshot(self.config.snapshot().clone());
-                }
-                serde_json::to_value(result).map_err(serialization_error)
-            }
-            "provider.resolve_secret" => {
-                let params: ProviderResolveSecretParams = parse_params(request)?;
-                serde_json::to_value(self.secret.resolve_secret(params)?)
-                    .map_err(serialization_error)
-            }
-            "session.get_metadata" => {
-                let params: SessionIdParams = parse_params(request)?;
-                if let Some(session) = self.thread_log.get_session_metadata(&params.session_id)? {
-                    return serde_json::to_value(session).map_err(serialization_error);
-                }
-                let session = match self.session.get_metadata(&params.session_id) {
-                    Ok(session) => session,
-                    Err(error) => match self
-                        .thread
-                        .get_session_metadata_from_threads(&params.session_id)?
-                    {
-                        Some(session) => session,
-                        None => return Err(error),
-                    },
-                };
-                serde_json::to_value(session).map_err(serialization_error)
-            }
-            "session.get_history" => {
-                let params: SessionHistoryParams = parse_params(request)?;
-                if let Some(projection) = self
-                    .thread_log
-                    .get_session_history(&params.session_id, params.limit.unwrap_or(80))?
-                {
-                    return serde_json::to_value(projection).map_err(serialization_error);
-                }
-                let projection = self
-                    .session
-                    .get_history(&params.session_id, params.limit.unwrap_or(80))?;
-                let projection =
-                    if projection.messages.is_empty() && projection.updated_at.is_empty() {
-                        self.thread
-                            .get_session_history_from_threads(
-                                &params.session_id,
-                                params.limit.unwrap_or(80),
-                            )?
-                            .unwrap_or(projection)
-                    } else {
-                        self.thread.project_session_history_if_writable(
-                            &projection.session_id,
-                            &projection.messages,
-                        )?;
-                        projection
-                    };
-                serde_json::to_value(projection).map_err(serialization_error)
-            }
-            "session.list_metadata" => {
-                let thread_log_sessions = self.thread_log.list_session_metadata()?;
-                let sessions = self.session.list_metadata()?;
-                let mut merged = self.thread.list_session_metadata_with_threads(&sessions)?;
-                for session in thread_log_sessions {
-                    if let Some(existing_index) = merged
-                        .iter()
-                        .position(|existing| existing.session_id == session.session_id)
-                    {
-                        merged[existing_index] = session;
-                    } else {
-                        merged.push(session);
-                    }
-                }
-                merged.sort_by(|left, right| {
-                    session_updated_sort_millis(&right.updated_at)
-                        .cmp(&session_updated_sort_millis(&left.updated_at))
-                        .then_with(|| left.session_id.cmp(&right.session_id))
-                });
-                serde_json::to_value(merged).map_err(serialization_error)
-            }
-            "session.get_checkpoint" => {
-                let params: SessionIdParams = parse_params(request)?;
-                serde_json::to_value(self.session.get_checkpoint(&params.session_id)?)
-                    .map_err(serialization_error)
-            }
-            "session.set_checkpoint" => {
-                let params: SessionCheckpointParams = parse_params(request)?;
-                let checkpoint = params.checkpoint;
-                let run_id = checkpoint_run_id(&checkpoint);
-                let session = self
-                    .session
-                    .set_checkpoint(&params.session_id, checkpoint)?;
-                if let Some(run_id) = run_id {
-                    if let Some(record) = agent_run_from_session_metadata(&session, &run_id) {
-                        let append = self.thread.record_agent_run_checkpoint(&record)?;
-                        self.session
-                            .upsert_agent_run(agent_run_with_thread(record, &append.thread))?;
-                    }
-                }
-                serde_json::to_value(session).map_err(serialization_error)
-            }
-            "session.clear_checkpoint" => {
-                let params: SessionIdParams = parse_params(request)?;
-                serde_json::to_value(self.session.clear_checkpoint(&params.session_id)?)
-                    .map_err(serialization_error)
-            }
-            "session.clear" => {
-                let params: SessionIdParams = parse_params(request)?;
-                let legacy_result = self.session.clear_session(&params.session_id)?;
-                let thread_log_result = self.thread_log.clear_session(&params.session_id)?;
-                serde_json::to_value(thread_log_result.unwrap_or(legacy_result))
-                    .map_err(serialization_error)
-            }
-            "session.trim" => {
-                let params: SessionTrimParams = parse_params(request)?;
-                serde_json::to_value(
-                    self.session
-                        .trim_session(&params.session_id, params.keep_recent_messages)?,
-                )
-                .map_err(serialization_error)
-            }
-            "session.delete" => {
-                let params: SessionIdParams = parse_params(request)?;
-                let result = self.session.delete_session(&params.session_id)?;
-                let thread_log_result = self.thread_log.delete_session(&params.session_id)?;
-                if result.deleted {
-                    self.thread.archive_session_thread(&params.session_id)?;
-                }
-                let deleted = result.deleted || thread_log_result.deleted;
-                serde_json::to_value(crate::worker_session::DeleteSessionResult {
-                    session_id: params.session_id,
-                    deleted,
-                })
-                .map_err(serialization_error)
-            }
-            "session.patch_metadata" => {
-                let params: SessionPatchMetadataParams = parse_params(request)?;
-                let thread_log_session = self
-                    .thread_log
-                    .patch_metadata(&params.session_id, &params.metadata)?;
-                let session = match self
-                    .session
-                    .patch_metadata(&params.session_id, params.metadata)
-                {
-                    Ok(session) => {
-                        self.thread.sync_session_metadata(&session)?;
-                        thread_log_session.unwrap_or(session)
-                    }
-                    Err(error) => match thread_log_session {
-                        Some(session) if is_legacy_session_not_found_error(&error) => session,
-                        None => return Err(error),
-                        Some(_) => return Err(error),
-                    },
-                };
-                serde_json::to_value(session).map_err(serialization_error)
-            }
-            "session.patch_user_profile" => {
-                let params: SessionPatchUserProfileParams = parse_params(request)?;
-                serde_json::to_value(self.session.patch_user_profile(
-                    &params.session_id,
-                    params.user_profile,
-                    params.metadata.unwrap_or_else(|| serde_json::json!({})),
-                )?)
-                .map_err(serialization_error)
-            }
-            "session.temporary_file.upload" => {
-                let params: SessionTemporaryFileUploadParams = parse_params(request)?;
-                self.session.upload_temporary_file(
-                    &params.session_id,
-                    &params.name,
-                    &params.file_type,
-                    &params.content,
-                    params
-                        .size_bytes
-                        .unwrap_or_else(|| params.content.len() as u64),
-                )
-            }
-            "session.append_messages" => {
-                let params: SessionAppendMessagesParams = parse_params(request)?;
-                serde_json::to_value(
-                    self.session
-                        .append_messages(&params.session_id, params.messages)?,
-                )
-                .map_err(serialization_error)
-            }
-            "session.task_progress.upsert" => {
-                let params: SessionTaskProgressUpsertParams = parse_params(request)?;
-                serde_json::to_value(self.session.upsert_task_progress(
-                    &params.session_id,
-                    &params.plan_id,
-                    params.progress,
-                    params.content,
-                )?)
-                .map_err(serialization_error)
-            }
-            "session.persist_turn" => {
-                let params: SessionPersistTurnParams = parse_params(request)?;
-                let _legacy_clear_checkpoint = params.clear_checkpoint;
-                let _legacy_context_metadata = params.context_metadata();
-                let result = self.thread_log.persist_session_turn(
-                    &params.session_id,
-                    &params.run_id,
-                    params.messages,
-                )?;
-                serde_json::to_value(result).map_err(serialization_error)
-            }
-            "thread.create" => {
-                let params: CreateThreadRequest = parse_params(request)?;
-                serde_json::to_value(self.thread.create_thread(params)?)
-                    .map_err(serialization_error)
-            }
-            "thread.read" => {
-                let params: ReadThreadRequest = parse_params(request)?;
-                let sessions = self.session.list_metadata()?;
-                serde_json::to_value(
-                    self.thread
-                        .read_thread_with_legacy_sessions(params, &sessions)?,
-                )
-                .map_err(serialization_error)
-            }
-            "thread.resume" => {
-                let params: ResumeThreadRequest = parse_params(request)?;
-                serde_json::to_value(self.thread.resume_thread(params)?)
-                    .map_err(serialization_error)
-            }
-            "thread.status" => {
-                let params: ThreadIdParams = parse_params(request)?;
-                let sessions = self.session.list_metadata()?;
-                serde_json::to_value(
-                    self.thread
-                        .get_thread_status_with_legacy_sessions(params, &sessions)?,
-                )
-                .map_err(serialization_error)
-            }
-            "thread.list" => {
-                let params: ListThreadsRequest = parse_params(request)?;
-                let sessions = self.session.list_metadata()?;
-                serde_json::to_value(
-                    self.thread
-                        .list_threads_with_legacy_sessions(params, &sessions)?,
-                )
-                .map_err(serialization_error)
-            }
-            "thread.search" => {
-                let params: SearchThreadsRequest = parse_params(request)?;
-                let sessions = self.session.list_metadata()?;
-                serde_json::to_value(
-                    self.thread
-                        .search_threads_with_legacy_sessions(params, &sessions)?,
-                )
-                .map_err(serialization_error)
-            }
-            "thread.update_metadata" => {
-                let params: UpdateThreadMetadataRequest = parse_params(request)?;
-                serde_json::to_value(self.thread.update_thread_metadata(params)?)
-                    .map_err(serialization_error)
-            }
-            "thread.archive" => {
-                let params: ArchiveThreadRequest = parse_params(request)?;
-                serde_json::to_value(self.thread.archive_thread(params)?)
-                    .map_err(serialization_error)
-            }
-            "thread.unarchive" => {
-                let mut params: ArchiveThreadRequest = parse_params(request)?;
-                params.archived = Some(false);
-                serde_json::to_value(self.thread.unarchive_thread(params)?)
-                    .map_err(serialization_error)
-            }
-            "thread.delete" => {
-                let params: DeleteThreadRequest = parse_params(request)?;
-                serde_json::to_value(self.thread.delete_thread(params)?)
-                    .map_err(serialization_error)
-            }
-            "thread.fork" => {
-                let params: ForkThreadRequest = parse_params(request)?;
-                serde_json::to_value(self.thread.fork_thread(params)?).map_err(serialization_error)
-            }
-            "thread.append_items" => {
-                let params: AppendThreadItemsRequest = parse_params(request)?;
-                serde_json::to_value(self.thread.append_items(params)?).map_err(serialization_error)
-            }
-            "thread.events" => {
-                let params: ThreadEventsRequest = parse_params(request)?;
-                serde_json::to_value(self.thread.thread_events(params)?)
-                    .map_err(serialization_error)
-            }
-            "thread.restore_checkpoint" => {
-                let params: RestoreThreadCheckpointRequest = parse_params(request)?;
-                serde_json::to_value(self.thread.restore_checkpoint(params)?)
-                    .map_err(serialization_error)
-            }
-            "thread.agent_registry" => {
-                let params: ThreadAgentRegistryRequest = parse_params(request)?;
-                serde_json::to_value(self.thread.agent_registry(params)?)
-                    .map_err(serialization_error)
-            }
-            "thread.activity" => {
-                let params: ThreadActivityRequest = parse_params(request)?;
-                serde_json::to_value(self.thread.activity(params)?).map_err(serialization_error)
-            }
-            "thread.start_turn" => {
-                let params: StartThreadTurnRequest = parse_params(request)?;
-                serde_json::to_value(self.thread.start_turn(params)?).map_err(serialization_error)
-            }
-            "thread.apply_op" => {
-                let params: ThreadApplyOpRequest = parse_params(request)?;
-                serde_json::to_value(self.thread.apply_op(params)?).map_err(serialization_error)
-            }
-            "thread.continue_turn" => {
-                let params: ContinueThreadTurnRequest = parse_params(request)?;
-                serde_json::to_value(self.thread.continue_turn(params)?)
-                    .map_err(serialization_error)
-            }
-            "thread.interrupt" => {
-                let params: InterruptThreadRequest = parse_params(request)?;
-                serde_json::to_value(self.thread.interrupt(params)?).map_err(serialization_error)
-            }
-            "agent_run.upsert" => {
-                let params: AgentRunUpsertParams = parse_params(request)?;
-                let record = self.session.upsert_agent_run(params.record)?;
-                let append = self.thread.record_agent_run(&record)?;
-                let record = self
-                    .session
-                    .upsert_agent_run(agent_run_with_thread(record, &append.thread))?;
-                serde_json::to_value(record).map_err(serialization_error)
-            }
-            "agent_run.list" => {
-                let params: AgentRunListParams = parse_params(request)?;
-                let runs = merge_agent_run_records(
-                    self.session.list_agent_runs(&params.session_id)?,
-                    self.thread
-                        .list_agent_runs_from_threads(&params.session_id)?,
-                )
-                .iter()
-                .map(AgentRunSummary::from_record)
-                .collect::<Vec<_>>();
-                Ok(serde_json::json!({
-                    "sessionId": params.session_id,
-                    "runs": runs,
-                }))
-            }
-            "agent_run.get" => {
-                let params: AgentRunIdParams = parse_params(request)?;
-                let record = match self
-                    .session
-                    .get_agent_run(&params.session_id, &params.run_id)
-                {
-                    Ok(record) => record,
-                    Err(session_error) => match self
-                        .thread
-                        .get_agent_run_from_threads(&params.session_id, &params.run_id)?
-                    {
-                        Some(record) => record,
-                        None => return Err(session_error),
-                    },
-                };
-                serde_json::to_value(record).map_err(serialization_error)
-            }
-            "agent_run.list_trace" => {
-                let params: AgentRunListTraceParams = parse_params(request)?;
-                let trace_page = match self.thread.list_agent_run_trace_events(
-                    &params.session_id,
-                    &params.run_id,
-                    params.cursor.as_deref(),
-                    params.limit,
-                )? {
-                    Some(trace_page) => trace_page,
-                    None => self.session.list_agent_run_trace_events(
-                        &params.session_id,
-                        &params.run_id,
-                        params.cursor.as_deref(),
-                        params.limit,
-                    )?,
-                };
-                serde_json::to_value(trace_page).map_err(serialization_error)
-            }
-            "agent_run.runtime_state" => {
-                let params: AgentRunIdParams = parse_params(request)?;
-                let runtime_state = match self
-                    .thread
-                    .get_agent_run_runtime_state(&params.session_id, &params.run_id)?
-                {
-                    Some(runtime_state) => runtime_state,
-                    None => self
-                        .session
-                        .get_agent_run_runtime_state(&params.session_id, &params.run_id)?,
-                };
-                serde_json::to_value(runtime_state).map_err(serialization_error)
-            }
-            "agent_run.append_trace" => {
-                let params: AgentRunAppendTraceParams = parse_params(request)?;
-                let event = params.event.clone();
-                let record = self.session.append_agent_run_trace_event(
-                    &params.session_id,
-                    &params.run_id,
-                    params.event,
-                )?;
-                let append = self.thread.record_agent_run_trace(&record, event)?;
-                let record = self
-                    .session
-                    .upsert_agent_run(agent_run_with_thread(record, &append.thread))?;
-                serde_json::to_value(record).map_err(serialization_error)
-            }
-            "agent_run.set_checkpoint" => {
-                let params: AgentRunCheckpointParams = parse_params(request)?;
-                let record = self.session.set_agent_run_checkpoint(
-                    &params.session_id,
-                    &params.run_id,
-                    params.checkpoint,
-                )?;
-                let append = self.thread.record_agent_run_checkpoint(&record)?;
-                let record = self
-                    .session
-                    .upsert_agent_run(agent_run_with_thread(record, &append.thread))?;
-                serde_json::to_value(record).map_err(serialization_error)
-            }
-            "agent_run.get_checkpoint" => {
-                let params: AgentRunIdParams = parse_params(request)?;
-                serde_json::to_value(
-                    self.session
-                        .get_agent_run_checkpoint(&params.session_id, &params.run_id)?,
-                )
-                .map_err(serialization_error)
-            }
-            "agent_run.clear_checkpoint" => {
-                let params: AgentRunIdParams = parse_params(request)?;
-                serde_json::to_value(
-                    self.session
-                        .clear_agent_run_checkpoint(&params.session_id, &params.run_id)?,
-                )
-                .map_err(serialization_error)
-            }
-            "agent_run.mark_completed" => {
-                let params: AgentRunMarkCompletedParams = parse_params(request)?;
-                let record = self.session.mark_agent_run_completed(
-                    &params.session_id,
-                    &params.run_id,
-                    &params.stop_reason,
-                    params.final_content,
-                )?;
-                let append = self.thread.record_agent_run_terminal(&record)?;
-                let record = self
-                    .session
-                    .upsert_agent_run(agent_run_with_thread(record, &append.thread))?;
-                if let Some(token_usage_info) = record.token_usage_info.clone() {
-                    let info_value =
-                        serde_json::to_value(token_usage_info).map_err(serialization_error)?;
-                    let info = serde_json::from_value::<crate::worker_thread_log::TokenUsageInfo>(
-                        info_value,
-                    )
-                    .map_err(serialization_error)?;
-                    self.thread_log
-                        .append_token_count(&record.session_id, info)?;
-                }
-                serde_json::to_value(record).map_err(serialization_error)
-            }
-            "agent_run.mark_failed" => {
-                let params: AgentRunMarkFailedParams = parse_params(request)?;
-                let record = self.session.mark_agent_run_failed(
-                    &params.session_id,
-                    &params.run_id,
-                    &params.stop_reason,
-                    params.error,
-                )?;
-                let append = self.thread.record_agent_run_terminal(&record)?;
-                let record = self
-                    .session
-                    .upsert_agent_run(agent_run_with_thread(record, &append.thread))?;
-                serde_json::to_value(record).map_err(serialization_error)
-            }
-            "agent_run.mark_cancelled" => {
-                let params: AgentRunIdParams = parse_params(request)?;
-                let record = self
-                    .session
-                    .mark_agent_run_cancelled(&params.session_id, &params.run_id)?;
-                let append = self.thread.record_agent_run_terminal(&record)?;
-                let record = self
-                    .session
-                    .upsert_agent_run(agent_run_with_thread(record, &append.thread))?;
-                serde_json::to_value(record).map_err(serialization_error)
-            }
-            "diagnostics.append" => {
-                let params: DiagnosticsAppendParams = parse_params(request)?;
-                serde_json::to_value(self.diagnostics.append(&params.stream, &params.line)?)
-                    .map_err(serialization_error)
-            }
-            "channel.connector.start" => self.channel_connector.start_from_request(request),
-            "channel.connector.stop" => self.channel_connector.stop_from_request(request),
-            "channel.connector.login" => self.channel_connector.login_from_request(request),
-            "channel.connector.send_text" => self.channel_connector.send_text_from_request(request),
-            "channel.connector.send_delta" => {
-                self.channel_connector.send_delta_from_request(request)
-            }
-            "channel.connector.send_usage" => {
-                self.channel_connector.send_usage_from_request(request)
-            }
-            "channel.connector.transcribe_audio" => self
-                .channel_connector
-                .transcribe_audio_from_request(request),
-            "shell.execute" => {
-                let params: ShellExecuteRequestParams = parse_params(request)?;
-                self.approval
-                    .require_sensitive_operation(shell_execute_approval(
-                        &params.command,
-                        params.session_id.clone(),
-                        params.run_id.clone(),
-                    ))?;
-                serde_json::to_value(self.shell.execute(params.into_shell_params())?)
-                    .map_err(serialization_error)
-            }
-            "approval.request" => self.approval.request_from_request(request),
-            "approval.resolve" => self.approval.resolve_from_request(request),
-            "approval.list_pending" => self.approval.list_pending_from_request(request),
-            "form.request" => self.form.request_from_request(request),
-            "memory.search" => self.memory.search_from_request(request),
-            "memory.recall" => self.memory.recall_from_request(request),
-            "memory.rebuild_index" => self.memory.rebuild_index(),
-            "memory.refresh_views" => self.memory.refresh_views(),
-            "memory.migrate_legacy_notes" => self.memory.migrate_legacy_notes(),
-            "memory.dream_run" => self.memory.dream_run_from_request(request),
-            "memory.dream_pending" => self.memory.dream_pending_from_request(request),
-            "memory.dream_apply" => self.memory.dream_apply_from_request(request),
-            "memory.dream_log" => self.memory.dream_log_from_request(request),
-            "memory.dream_restore" => self.memory.dream_restore_from_request(request),
-            "memory.capture_evidence" => self.memory.capture_evidence_from_request(request),
-            "memory.list_evidence" => self.memory.list_evidence_from_request(request),
-            "memory.save" => self.memory.save_from_request(request),
-            "memory.trace" => self.memory.trace_from_request(request),
-            "memory.reject" => self.memory.reject_from_request(request),
-            "memory.supersede" => self.memory.supersede_from_request(request),
-            "knowledge.add_document" => {
-                let params: KnowledgeAddDocumentParams = parse_params(request)?;
-                serde_json::to_value(self.knowledge.add_document(params)?)
-                    .map_err(serialization_error)
-            }
-            "knowledge.list_documents" => {
-                let params: KnowledgeListDocumentsParams = parse_params(request)?;
-                serde_json::to_value(self.knowledge.list_documents(params)?)
-                    .map_err(serialization_error)
-            }
-            "knowledge.get_document" => {
-                let params: KnowledgeDocumentIdParams = parse_params(request)?;
-                serde_json::to_value(self.knowledge.get_document(params)?)
-                    .map_err(serialization_error)
-            }
-            "knowledge.document_tree" => {
-                let params: KnowledgeDocumentIdParams = parse_params(request)?;
-                serde_json::to_value(self.knowledge.document_tree(params)?)
-                    .map_err(serialization_error)
-            }
-            "knowledge.delete_document" => {
-                let params: KnowledgeDocumentIdParams = parse_params(request)?;
-                serde_json::to_value(self.knowledge.delete_document(params)?)
-                    .map_err(serialization_error)
-            }
-            "knowledge.start_index_job" => {
-                let params: KnowledgeStartIndexJobParams = parse_params(request)?;
-                serde_json::to_value(self.knowledge.start_index_job(params)?)
-                    .map_err(serialization_error)
-            }
-            "knowledge.get_job" => {
-                let params: KnowledgeJobIdParams = parse_params(request)?;
-                serde_json::to_value(self.knowledge.get_job(params)?).map_err(serialization_error)
-            }
-            "knowledge.rebuild_index" => {
-                let params: KnowledgeRebuildIndexParams = parse_params(request)?;
-                serde_json::to_value(self.knowledge.rebuild_index(params)?)
-                    .map_err(serialization_error)
-            }
-            "knowledge.graph" => {
-                let params: KnowledgeGraphParams = parse_params(request)?;
-                serde_json::to_value(self.knowledge.document_graph(params)?)
-                    .map_err(serialization_error)
-            }
-            "knowledge.save_entity_graph_extraction" => {
-                let params: KnowledgeEntityGraphExtractionParams = parse_params(request)?;
-                serde_json::to_value(self.knowledge.save_entity_graph_extraction(params)?)
-                    .map_err(serialization_error)
-            }
-            "knowledge.stats" => {
-                serde_json::to_value(self.knowledge.stats()?).map_err(serialization_error)
-            }
-            "knowledge.context" => {
-                let params: KnowledgeContextParams = parse_params(request)?;
-                let session_files = params
-                    .session_key
-                    .as_deref()
-                    .and_then(|session_key| self.session.get_metadata(session_key).ok())
-                    .and_then(|session| {
-                        session
-                            .extra
-                            .get("temporary_files")
-                            .and_then(Value::as_array)
-                            .cloned()
-                    })
-                    .unwrap_or_default();
-                serde_json::to_value(
-                    self.knowledge
-                        .context_with_session_files(params, session_files)?,
-                )
-                .map_err(serialization_error)
-            }
-            "knowledge.session_upload" => {
-                let params: SessionTemporaryFileUploadParams = parse_params(request)?;
-                self.session.upload_temporary_file(
-                    &params.session_id,
-                    &params.name,
-                    &params.file_type,
-                    &params.content,
-                    params
-                        .size_bytes
-                        .unwrap_or_else(|| params.content.len() as u64),
-                )
-            }
-            "knowledge.session_list" => {
-                let params: SessionIdParams = parse_params(request)?;
-                self.session.list_temporary_files(&params.session_id)
-            }
-            "knowledge.session_clear" => {
-                let params: SessionIdParams = parse_params(request)?;
-                self.session.clear_temporary_files(&params.session_id)
-            }
-            "rag.query" => {
-                let params: RagQueryParams = parse_params(request)?;
-                self.query_rag(params)
-            }
-            "knowledge.query" => {
-                let params: KnowledgeQueryParams = parse_params(request)?;
-                serde_json::to_value(self.knowledge.query(params)?).map_err(serialization_error)
-            }
-            "task.store.load" => {
-                serde_json::to_value(self.task.load_store()?).map_err(serialization_error)
-            }
-            "task.plan.list" => {
-                let params: TaskPlanListParams = parse_params(request)?;
-                serde_json::to_value(self.task.list_plans(params)?).map_err(serialization_error)
-            }
-            "task.plan.get" => {
-                let params: TaskPlanIdParams = parse_params(request)?;
-                serde_json::to_value(self.task.get_plan(params)?).map_err(serialization_error)
-            }
-            "task.plan.save" => {
-                let params: TaskPlanSaveParams = parse_params(request)?;
-                serde_json::to_value(self.task.save_plan(params)?).map_err(serialization_error)
-            }
-            "task.plan.delete" => {
-                let params: TaskPlanIdParams = parse_params(request)?;
-                serde_json::to_value(self.task.delete_plan(params)?).map_err(serialization_error)
-            }
-            "cron.job.add" => {
-                let params: CronJobAddParams = parse_params(request)?;
-                serde_json::to_value(self.cron.add_job(params)?).map_err(serialization_error)
-            }
-            "cron.job.list" => {
-                serde_json::to_value(self.cron.list_jobs()?).map_err(serialization_error)
-            }
-            "cron.job.due" => {
-                let params: CronJobDueParams = parse_params(request)?;
-                serde_json::to_value(self.cron.due_jobs(params)?).map_err(serialization_error)
-            }
-            "cron.job.record_runs" => {
-                let params: CronJobRecordRunsParams = parse_params(request)?;
-                serde_json::to_value(self.cron.record_runs(params)?).map_err(serialization_error)
-            }
-            "cron.job.remove" => {
-                let params: CronJobRemoveParams = parse_params(request)?;
-                serde_json::to_value(self.cron.remove_job(params)?).map_err(serialization_error)
-            }
-            "background.run.list" => {
-                serde_json::to_value(self.background.list_runs()?).map_err(serialization_error)
-            }
-            "background.run.upsert" => {
-                let params: BackgroundRunUpsertParams = parse_params(request)?;
-                serde_json::to_value(self.background.upsert_run(params)?)
-                    .map_err(serialization_error)
-            }
-            "background.run.complete" => {
-                let params: BackgroundRunCompleteParams = parse_params(request)?;
-                serde_json::to_value(self.background.complete_run(params)?)
-                    .map_err(serialization_error)
-            }
-            "background.trace.append" => {
-                let params: BackgroundTraceAppendParams = parse_params(request)?;
-                serde_json::to_value(self.background.append_trace_event(params)?)
-                    .map_err(serialization_error)
-            }
-            "background.trace.list" => {
-                let params: BackgroundTraceListParams = parse_params(request)?;
-                serde_json::to_value(self.background.list_trace_events(params)?)
-                    .map_err(serialization_error)
-            }
-            "background.trace.get_delegate_trace" => {
-                let params: BackgroundTraceGetDelegateTraceParams = parse_params(request)?;
-                serde_json::to_value(self.background.get_delegate_trace(params)?)
-                    .map_err(serialization_error)
-            }
-            "background.trace.get_artifact" => {
-                let params: BackgroundTraceGetArtifactParams = parse_params(request)?;
-                serde_json::to_value(self.background.get_artifact(params)?)
-                    .map_err(serialization_error)
-            }
-            "background.subagent.enqueue_input" => {
-                let mut params: BackgroundSubagentEnqueueInputParams = parse_params(request)?;
-                if let Some(manager) = &self.subagents {
-                    let live = manager.enqueue_input(SubagentSendInputParams {
-                        session_key: params.session_key.clone(),
-                        subagent_id: params.subagent_id.clone(),
-                        content: params.content.clone(),
-                        sender: SubagentInputSender::User,
-                        turn_id: params.turn_id.clone(),
-                        child_run_id: params.child_run_id.clone(),
-                        trace_ref: params.trace_ref.clone(),
-                        created_at: params.created_at.clone(),
-                        metadata: params.metadata.clone(),
-                    });
-                    if !live.accepted {
-                        return serde_json::to_value(live).map_err(serialization_error);
-                    }
-                    if live.delivery == "live_delivered" {
-                        params.delivery = Some(live.delivery.clone());
-                        let persisted = self.background.enqueue_subagent_input(params)?;
-                        return Ok(serde_json::json!({
-                            "accepted": true,
-                            "delivery": live.delivery,
-                            "event": persisted.event,
-                            "input": live.input,
-                            "subagent": live.subagent,
-                        }));
-                    }
-                }
-                serde_json::to_value(self.background.enqueue_subagent_input(params)?)
-                    .map_err(serialization_error)
-            }
-            "subagent.spawn" => {
-                let params: SubagentSpawnParams = parse_params(request)?;
-                let Some(manager) = &self.subagents else {
-                    return Err(unavailable_subagent_manager());
-                };
-                let result = manager.spawn(params);
-                if result.accepted {
-                    if let Some(subagent) = &result.subagent {
-                        self.thread.record_subagent_spawn(
-                            subagent,
-                            result
-                                .event
-                                .as_ref()
-                                .map(serde_json::to_value)
-                                .transpose()
-                                .map_err(serialization_error)?,
-                        )?;
-                    }
-                }
-                serde_json::to_value(result).map_err(serialization_error)
-            }
-            "subagent.list" => {
-                let params: SubagentListParams = parse_params(request)?;
-                let Some(manager) = &self.subagents else {
-                    return Err(unavailable_subagent_manager());
-                };
-                let trace_events = self
-                    .background
-                    .list_trace_events(BackgroundTraceListParams {
-                        filter: Some(BackgroundTraceListFilter {
-                            session_key: Some(params.session_key.clone()),
-                            ..Default::default()
-                        }),
-                    })?
-                    .events;
-                manager.restore_interrupted_from_trace_events(&params.session_key, &trace_events);
-                serde_json::to_value(manager.list(&params.session_key)).map_err(serialization_error)
-            }
-            "subagent.query" => {
-                let params: SubagentTargetParams = parse_params(request)?;
-                let Some(manager) = &self.subagents else {
-                    return Err(unavailable_subagent_manager());
-                };
-                serde_json::to_value(manager.query(params)).map_err(serialization_error)
-            }
-            "subagent.send_input" => {
-                let params: SubagentSendInputParams = parse_params(request)?;
-                let Some(manager) = &self.subagents else {
-                    return Err(unavailable_subagent_manager());
-                };
-                let result = manager.enqueue_input(params);
-                if result.accepted {
-                    if let (Some(subagent), Some(input)) = (&result.subagent, &result.input) {
-                        self.thread.record_subagent_input(
-                            subagent,
-                            input,
-                            result
-                                .event
-                                .as_ref()
-                                .map(serde_json::to_value)
-                                .transpose()
-                                .map_err(serialization_error)?,
-                        )?;
-                    }
-                }
-                serde_json::to_value(result).map_err(serialization_error)
-            }
-            "subagent.wait" => {
-                let params: SubagentWaitParams = parse_params(request)?;
-                let Some(manager) = &self.subagents else {
-                    return Err(unavailable_subagent_manager());
-                };
-                let result = manager.wait(params);
-                for subagent in &result.statuses {
-                    self.thread.record_subagent_status(subagent, None)?;
-                }
-                serde_json::to_value(result).map_err(serialization_error)
-            }
-            "subagent.cancel" => {
-                let params: SubagentTargetParams = parse_params(request)?;
-                let Some(manager) = &self.subagents else {
-                    return Err(unavailable_subagent_manager());
-                };
-                let result = manager.cancel(params);
-                if result.accepted {
-                    if let Some(subagent) = &result.subagent {
-                        self.thread.record_subagent_status(
-                            subagent,
-                            result
-                                .event
-                                .as_ref()
-                                .map(serde_json::to_value)
-                                .transpose()
-                                .map_err(serialization_error)?,
-                        )?;
-                    }
-                }
-                serde_json::to_value(result).map_err(serialization_error)
-            }
-            "subagent.close" => {
-                let params: SubagentTargetParams = parse_params(request)?;
-                let Some(manager) = &self.subagents else {
-                    return Err(unavailable_subagent_manager());
-                };
-                let result = manager.close(params);
-                if result.accepted {
-                    if let Some(subagent) = &result.subagent {
-                        self.thread.record_subagent_status(
-                            subagent,
-                            result
-                                .event
-                                .as_ref()
-                                .map(serde_json::to_value)
-                                .transpose()
-                                .map_err(serialization_error)?,
-                        )?;
-                    }
-                }
-                serde_json::to_value(result).map_err(serialization_error)
-            }
-            "mcp.call_tool" => self.mcp.call_tool_from_request(request),
-            "mcp.list_tools" => self.mcp.list_tools(),
-            "permission_profile.current" => serde_json::to_value(
-                self.permission_profile
-                    .current_profile(self.tool_registry.list_tools().tools),
-            )
-            .map_err(serialization_error),
-            "permission_profile.evaluate_tool" => {
-                let params: PermissionEvaluateToolRequest = parse_params(request)?;
-                let tool = self
-                    .tool_registry
-                    .get_tool(&params.tool_id)
-                    .ok_or_else(|| {
-                        self.permission_profile
-                            .tool_not_found_error(&params.tool_id)
-                    })?;
-                serde_json::to_value(self.permission_profile.evaluate_tool(&tool, params))
-                    .map_err(serialization_error)
-            }
-            "permission_profile.request_tool_approval" => {
-                let params: PermissionRequestToolApprovalRequest = parse_params(request)?;
-                self.request_tool_approval(request, params)
-            }
-            "permission_profile.resolve_tool_approval" => {
-                let params: PermissionResolveToolApprovalRequest = parse_params(request)?;
-                self.resolve_tool_approval(request, params)
-            }
-            "tool_executor.execute" => {
-                let params: ToolExecutorExecuteRequest = parse_params(request)?;
-                self.execute_registered_tool(request, params)
-            }
-            "tool_registry.list" => {
-                serde_json::to_value(self.tool_registry.list_tools()).map_err(serialization_error)
-            }
-            "tool_registry.search" => {
-                let params: ToolRegistrySearchRequest = parse_params(request)?;
-                serde_json::to_value(self.tool_registry.search_tools(params))
-                    .map_err(serialization_error)
-            }
-            "runtime.now" => self.runtime.now_from_request(request),
-            "runtime.restart" => self.runtime.restart_from_request(request),
+            method if method.starts_with("workspace.") || method.starts_with("skills.") => {
+                self.dispatch_workspace_method(request)
+            }
+            method if method.starts_with("config.") || method == "provider.resolve_secret" => {
+                self.dispatch_config_method(request)
+            }
+            method if method.starts_with("session.") => self.dispatch_session_persistence(request),
+            method if method.starts_with("thread.") => self.dispatch_thread_method(request),
+            method if method.starts_with("agent_run.") => {
+                self.dispatch_agent_run_persistence(request)
+            }
+            method
+                if method == "diagnostics.append"
+                    || method.starts_with("channel.connector.")
+                    || method == "shell.execute"
+                    || method.starts_with("approval.")
+                    || method == "form.request" =>
+            {
+                self.dispatch_interaction_method(request)
+            }
+            method if method.starts_with("memory.") => self.dispatch_memory_method(request),
+            method if method.starts_with("knowledge.") || method == "rag.query" => {
+                self.dispatch_knowledge_method(request)
+            }
+            method
+                if method.starts_with("task.")
+                    || method.starts_with("cron.")
+                    || method.starts_with("background.") =>
+            {
+                self.dispatch_background_method(request)
+            }
+            method if method.starts_with("subagent.") => self.dispatch_subagent_method(request),
+            method
+                if method.starts_with("mcp.")
+                    || method.starts_with("permission_profile.")
+                    || method.starts_with("tool_executor.")
+                    || method.starts_with("tool_registry.") =>
+            {
+                self.dispatch_tool_method(request)
+            }
+            method if method.starts_with("runtime.") => self.dispatch_runtime_method(request),
             _ => Err(unknown_method_error(request)),
         }
     }
@@ -1935,11 +960,6 @@ fn serialization_error(error: serde_json::Error) -> crate::worker_protocol::Work
     )
 }
 
-fn is_legacy_session_not_found_error(error: &WorkerProtocolError) -> bool {
-    error.code == WorkerProtocolErrorCode::InvalidProtocol
-        && error.message == "session metadata not found"
-}
-
 fn session_updated_sort_millis(value: &str) -> i128 {
     if let Some(rest) = value.strip_prefix("unix-ms:") {
         let digits = rest
@@ -2075,62 +1095,6 @@ fn rag_query_terms(query: &str) -> Vec<String> {
     terms.sort();
     terms.dedup();
     terms
-}
-
-fn merge_agent_run_records(
-    primary_records: Vec<AgentRunRecord>,
-    fallback_records: Vec<AgentRunRecord>,
-) -> Vec<AgentRunRecord> {
-    let mut seen = HashSet::new();
-    let mut records = Vec::new();
-    for record in primary_records.into_iter().chain(fallback_records) {
-        if seen.insert(record.run_id.clone()) {
-            records.push(record);
-        }
-    }
-    records.sort_by(|left, right| {
-        right
-            .updated_at
-            .cmp(&left.updated_at)
-            .then_with(|| left.run_id.cmp(&right.run_id))
-    });
-    records
-}
-
-fn agent_run_with_thread(mut record: AgentRunRecord, thread: &ThreadRecord) -> AgentRunRecord {
-    record.thread_id = Some(thread.thread_id.clone());
-    record.parent_thread_id = thread.parent_thread_id.clone();
-    if record.turn_id.is_none() {
-        record.turn_id = thread
-            .active_run_id
-            .clone()
-            .or_else(|| thread.root_run_id.clone());
-    }
-    record
-}
-
-fn checkpoint_run_id(checkpoint: &Value) -> Option<String> {
-    checkpoint
-        .get("runId")
-        .or_else(|| checkpoint.get("run_id"))
-        .and_then(Value::as_str)
-        .filter(|value| !value.trim().is_empty())
-        .map(str::to_string)
-}
-
-fn agent_run_from_session_metadata(
-    session: &SessionMetadata,
-    run_id: &str,
-) -> Option<AgentRunRecord> {
-    session
-        .extra
-        .get("agent_runs")
-        .and_then(Value::as_array)
-        .and_then(|runs| {
-            runs.iter()
-                .find(|run| run.get("runId").and_then(Value::as_str) == Some(run_id))
-        })
-        .and_then(|run| serde_json::from_value::<AgentRunRecord>(run.clone()).ok())
 }
 
 fn rag_document_score(path: &str, contents: &str, terms: &[String]) -> usize {
@@ -3285,7 +2249,7 @@ mod tests {
     }
 
     #[test]
-    fn dispatches_session_get_history_projects_empty_thread_when_writable() {
+    fn dispatches_session_get_history_does_not_project_legacy_history_on_read() {
         let fixture = WorkspaceFixture::new();
         let mut session = session_fixture();
         session.extra = json!({
@@ -3319,36 +2283,12 @@ mod tests {
                 .len(),
             2
         );
-
-        let thread_list = router.dispatch(&WorkerRequest::new(
-            "req-thread-list-after-history",
-            "trace-history-project",
-            "thread.list",
-            json!({ "includeArchived": true }),
-        ));
-        assert_eq!(thread_list.error, None);
-        let thread_id = thread_list.result.as_ref().unwrap()["threads"][0]["threadId"]
-            .as_str()
-            .expect("history projection should create a thread")
-            .to_string();
-
-        let thread_read = router.dispatch(&WorkerRequest::new(
-            "req-thread-read-after-history",
-            "trace-history-project",
-            "thread.read",
-            json!({ "threadId": thread_id }),
-        ));
-        assert_eq!(thread_read.error, None);
-        let item_kinds = thread_read.result.as_ref().unwrap()["items"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|item| item["kind"]["type"].as_str().unwrap().to_string())
-            .collect::<Vec<_>>();
-        assert_eq!(
-            item_kinds,
-            vec!["user_message", "assistant_message_completed"]
-        );
+        assert!(!fixture
+            .root
+            .join(".tinybot")
+            .join("threads")
+            .join("threads.sqlite")
+            .exists());
     }
 
     #[test]
@@ -3445,25 +2385,12 @@ mod tests {
         );
         assert_eq!(response.result.as_ref().unwrap()["title"], "Patched title");
         assert!(response.error.is_none());
-
-        let thread_list = router.dispatch(&WorkerRequest::new(
-            "req-thread-after-session-patch",
-            "trace-1",
-            "thread.list",
-            json!({ "includeArchived": true }),
-        ));
-        assert_eq!(thread_list.error, None);
-        let thread = &thread_list.result.as_ref().unwrap()["threads"][0];
-        assert_eq!(thread["sessionKey"], "session-1");
-        assert_eq!(thread["title"], "Patched title");
-        assert_eq!(
-            thread["metadata"]["extra"]["metadata"],
-            json!({
-                "pinned": true,
-                "title": "Patched title",
-                "topic": "old"
-            })
-        );
+        assert!(!fixture
+            .root
+            .join(".tinybot")
+            .join("threads")
+            .join("threads.sqlite")
+            .exists());
     }
 
     #[test]
@@ -3580,22 +2507,6 @@ mod tests {
         );
 
         let set_response = router.dispatch(&set_request);
-        let thread_list = router.dispatch(&WorkerRequest::new(
-            "req-session-checkpoint-thread-list",
-            "trace-1",
-            "thread.list",
-            json!({ "includeArchived": true }),
-        ));
-        let thread_id = thread_list.result.as_ref().unwrap()["threads"][0]["threadId"]
-            .as_str()
-            .unwrap()
-            .to_string();
-        let thread_read = router.dispatch(&WorkerRequest::new(
-            "req-session-checkpoint-thread-read",
-            "trace-1",
-            "thread.read",
-            json!({ "threadId": thread_id }),
-        ));
         let clear_response = router.dispatch(&clear_request);
 
         assert_eq!(
@@ -3606,20 +2517,12 @@ mod tests {
                 "checkpointId": "checkpoint-session-route"
             })
         );
-        assert_eq!(thread_list.error, None);
-        assert_eq!(
-            thread_read.result.as_ref().unwrap()["latestCheckpoint"]["checkpointId"],
-            "checkpoint-session-route"
-        );
-        assert_eq!(
-            thread_read.result.as_ref().unwrap()["latestCheckpoint"]["runId"],
-            "run-session-checkpoint"
-        );
-        assert!(thread_read.result.as_ref().unwrap()["items"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["kind"]["type"] == "checkpoint_created"));
+        assert!(!fixture
+            .root
+            .join(".tinybot")
+            .join("threads")
+            .join("threads.sqlite")
+            .exists());
         assert!(clear_response.result.as_ref().unwrap()["extra"]
             .get("runtime_checkpoint")
             .is_none());
@@ -4880,7 +3783,7 @@ mod tests {
     }
 
     #[test]
-    fn session_patch_metadata_returns_legacy_persistence_error_after_thread_log_patch() {
+    fn session_patch_metadata_prefers_thread_log_over_legacy_persistence() {
         let fixture = WorkspaceFixture::new();
         let mut legacy_session = session_fixture();
         legacy_session.session_id = "session-patch-legacy-error".to_string();
@@ -4920,11 +3823,11 @@ mod tests {
             }),
         ));
 
-        assert!(patch.error.is_some());
         assert_eq!(
-            patch.error.as_ref().unwrap().code,
-            crate::worker_protocol::WorkerProtocolErrorCode::WorkerError
+            patch.result.as_ref().unwrap()["title"],
+            "Should not hide legacy failure"
         );
+        assert!(patch.error.is_none());
     }
 
     #[test]
@@ -9113,22 +8016,6 @@ mod tests {
             "agent_run.get_checkpoint",
             json!({ "session_id": "session-1", "run_id": "run-1" }),
         ));
-        let thread_list = router.dispatch(&WorkerRequest::new(
-            "req-thread-list-after-checkpoint",
-            "trace-agent-run",
-            "thread.list",
-            json!({}),
-        ));
-        let thread_id = thread_list.result.as_ref().unwrap()["threads"][0]["threadId"]
-            .as_str()
-            .unwrap()
-            .to_string();
-        let thread_read = router.dispatch(&WorkerRequest::new(
-            "req-thread-read-after-checkpoint",
-            "trace-agent-run",
-            "thread.read",
-            json!({ "threadId": thread_id }),
-        ));
         let list = router.dispatch(&WorkerRequest::new(
             "req-list",
             "trace-agent-run",
@@ -9185,27 +8072,25 @@ mod tests {
             get_checkpoint.result.as_ref().unwrap()["checkpoint"]["phase"],
             "awaiting_tool"
         );
-        assert_eq!(thread_list.error, None);
-        assert_eq!(upsert.result.as_ref().unwrap()["threadId"], thread_id);
-        assert_eq!(append_trace.result.as_ref().unwrap()["threadId"], thread_id);
+        assert_eq!(upsert.result.as_ref().unwrap()["threadId"], json!(null));
         assert_eq!(
-            set_checkpoint.result.as_ref().unwrap()["threadId"],
-            thread_id
+            append_trace.result.as_ref().unwrap()["threadId"],
+            json!(null)
         );
         assert_eq!(
-            thread_read.result.as_ref().unwrap()["latestCheckpoint"]["restorePayload"]["phase"],
-            "awaiting_tool"
+            set_checkpoint.result.as_ref().unwrap()["threadId"],
+            json!(null)
         );
         assert_eq!(list.result.as_ref().unwrap()["sessionId"], "session-1");
         assert_eq!(list.result.as_ref().unwrap()["runs"][0]["runId"], "run-1");
         assert_eq!(
             list.result.as_ref().unwrap()["runs"][0]["threadId"],
-            thread_id
+            json!(null)
         );
         assert!(list.result.as_ref().unwrap()["runs"][0]
             .get("traceEvents")
             .is_none());
-        assert_eq!(get.result.as_ref().unwrap()["threadId"], thread_id);
+        assert_eq!(get.result.as_ref().unwrap()["threadId"], json!(null));
         assert_eq!(
             get.result.as_ref().unwrap()["traceEvents"]
                 .as_array()
@@ -9245,11 +8130,11 @@ mod tests {
         );
         assert_eq!(completed.result.as_ref().unwrap()["status"], "completed");
         assert_eq!(completed.result.as_ref().unwrap()["phase"], "completed");
-        assert_eq!(completed.result.as_ref().unwrap()["threadId"], thread_id);
+        assert_eq!(completed.result.as_ref().unwrap()["threadId"], json!(null));
         assert_eq!(get_completed.error, None);
         assert_eq!(
             get_completed.result.as_ref().unwrap()["threadId"],
-            thread_id
+            json!(null)
         );
         assert_eq!(
             get_completed.result.as_ref().unwrap()["stopReason"],
@@ -9260,6 +8145,13 @@ mod tests {
             json!(null)
         );
 
+        assert!(!fixture
+            .root
+            .join(".tinybot")
+            .join("threads")
+            .join("threads.sqlite")
+            .exists());
+
         let thread_list = router.dispatch(&WorkerRequest::new(
             "req-thread-list-after-agent-run",
             "trace-agent-run",
@@ -9267,41 +8159,13 @@ mod tests {
             json!({ "includeArchived": true }),
         ));
         assert_eq!(thread_list.error, None);
-        let thread_id = thread_list.result.as_ref().unwrap()["threads"][0]["threadId"]
-            .as_str()
-            .expect("projected thread id should be present")
-            .to_string();
         assert_eq!(
             thread_list.result.as_ref().unwrap()["threads"][0]["sessionKey"],
             "session-1"
         );
         assert_eq!(
-            thread_list.result.as_ref().unwrap()["threads"][0]["metadata"]["runCount"],
-            1
-        );
-
-        let thread_read = router.dispatch(&WorkerRequest::new(
-            "req-thread-read-after-agent-run",
-            "trace-agent-run",
-            "thread.read",
-            json!({ "threadId": thread_id }),
-        ));
-        assert_eq!(thread_read.error, None);
-        let item_kinds = thread_read.result.as_ref().unwrap()["items"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|item| item["kind"]["type"].as_str().unwrap().to_string())
-            .collect::<Vec<_>>();
-        assert_eq!(
-            item_kinds,
-            vec![
-                "agent_run_started",
-                "tool_call_output",
-                "assistant_message_completed",
-                "checkpoint_created",
-                "agent_run_completed",
-            ]
+            thread_list.result.as_ref().unwrap()["threads"][0]["source"],
+            "legacy_session_projection"
         );
     }
 

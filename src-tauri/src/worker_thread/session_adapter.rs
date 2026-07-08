@@ -273,43 +273,6 @@ pub fn record_session_turn(
     store.append_items(&thread_id, items).map(Some)
 }
 
-pub fn project_session_history_if_empty(
-    store: &LocalThreadStore,
-    session_id: &str,
-    messages: &[Value],
-) -> Result<Option<AppendThreadItemsResult>, WorkerProtocolError> {
-    if messages.is_empty() {
-        return Ok(None);
-    }
-    let run_id = "legacy-history";
-    let thread_id = ensure_thread_for_session(store, session_id, run_id)?;
-    let snapshot = store.read_thread(ReadThreadRequest {
-        thread_id: thread_id.clone(),
-        cursor: None,
-        before_sequence: None,
-        checkpoint_sequence: None,
-        checkpoint_id: None,
-        limit: Some(1),
-    })?;
-    if snapshot.pagination.item_count > 0 {
-        return Ok(None);
-    }
-    let items = messages
-        .iter()
-        .enumerate()
-        .map(|(index, message)| session_message_item(session_id, run_id, index, message))
-        .collect::<Vec<_>>();
-    store.append_items(&thread_id, items).map(Some)
-}
-
-pub fn sync_session_metadata(
-    store: &LocalThreadStore,
-    session: &SessionMetadata,
-) -> Result<ThreadRecord, WorkerProtocolError> {
-    let thread_id = ensure_thread_for_session(store, &session.session_id, session_run_id(session))?;
-    store.update_thread_metadata(&thread_id, metadata_patch_from_session(session))
-}
-
 pub fn archive_session_thread(
     store: &LocalThreadStore,
     session_id: &str,
@@ -362,26 +325,6 @@ fn find_thread_id_for_session(
         .into_iter()
         .find(|thread| thread.session_key.as_deref() == Some(session_id))
         .map(|thread| thread.thread_id))
-}
-
-fn metadata_patch_from_session(session: &SessionMetadata) -> ThreadMetadataPatch {
-    let metadata = session
-        .extra
-        .get("metadata")
-        .cloned()
-        .unwrap_or_else(|| json!({}));
-    ThreadMetadataPatch {
-        title: Some(session.title.clone()),
-        working_directory: Some(session.workspace_dir.clone()),
-        last_activity_at: Some(session.updated_at.clone()),
-        extra: Some(json!({
-            "sessionId": session.session_id,
-            "sessionUpdatedAt": session.updated_at,
-            "metadata": metadata,
-            "source": "session.metadata"
-        })),
-        ..ThreadMetadataPatch::default()
-    }
 }
 
 fn project_session_metadata(session: &SessionMetadata) -> ThreadRecord {
@@ -811,14 +754,6 @@ fn legacy_session_matches(session: &SessionMetadata, thread: &ThreadRecord, quer
                 .or_else(|| message.get("text").and_then(Value::as_str))
                 .is_some_and(|text| text.to_lowercase().contains(query))
         })
-}
-
-fn session_run_id(session: &SessionMetadata) -> &str {
-    session
-        .extra
-        .get("last_persisted_run_id")
-        .and_then(Value::as_str)
-        .unwrap_or("legacy-session")
 }
 
 fn session_message_item(

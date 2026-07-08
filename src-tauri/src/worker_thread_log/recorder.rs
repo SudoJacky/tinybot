@@ -42,11 +42,39 @@ impl ThreadRecorder {
         self.append_line(path, ThreadLogLine { timestamp, item })
     }
 
+    pub fn append_items(
+        &self,
+        path: &Path,
+        timestamp: String,
+        items: Vec<ThreadLogItem>,
+    ) -> Result<(), WorkerProtocolError> {
+        self.validate_thread_path(path)?;
+        let lines = items
+            .into_iter()
+            .map(|item| ThreadLogLine {
+                timestamp: timestamp.clone(),
+                item,
+            })
+            .collect();
+        self.append_lines(path, lines)
+    }
+
     pub fn validate_thread_path(&self, path: &Path) -> Result<(), WorkerProtocolError> {
         validate_thread_path(&self.root, path)
     }
 
     fn append_line(&self, path: &Path, line: ThreadLogLine) -> Result<(), WorkerProtocolError> {
+        self.append_lines(path, vec![line])
+    }
+
+    fn append_lines(
+        &self,
+        path: &Path,
+        lines: Vec<ThreadLogLine>,
+    ) -> Result<(), WorkerProtocolError> {
+        if lines.is_empty() {
+            return Ok(());
+        }
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(thread_log_io_error)?;
         }
@@ -55,10 +83,12 @@ impl ThreadRecorder {
             .append(true)
             .open(path)
             .map_err(thread_log_io_error)?;
-        let mut serialized = serde_json::to_string(&line).map_err(thread_log_json_error)?;
-        serialized.push('\n');
-        file.write_all(serialized.as_bytes())
-            .map_err(thread_log_io_error)?;
+        for line in lines {
+            let mut serialized = serde_json::to_string(&line).map_err(thread_log_json_error)?;
+            serialized.push('\n');
+            file.write_all(serialized.as_bytes())
+                .map_err(thread_log_io_error)?;
+        }
         file.flush().map_err(thread_log_io_error)
     }
 
@@ -360,6 +390,44 @@ mod tests {
         assert_eq!(lines.len(), 2);
         assert!(matches!(lines[0].item, ThreadLogItem::ThreadMeta(_)));
         assert!(matches!(lines[1].item, ThreadLogItem::EventMsg(_)));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn recorder_batch_appends_items_after_meta_in_order() {
+        let root = temp_root("batch-append");
+        let _ = fs::remove_dir_all(&root);
+        let recorder = ThreadRecorder::new(root.clone());
+        let path = recorder
+            .create_thread(thread_meta(
+                &root,
+                "thread-batch-append",
+                "2026-07-08T10:12:30Z",
+            ))
+            .unwrap();
+
+        recorder
+            .append_items(
+                &path,
+                "2026-07-08T10:13:30Z".to_string(),
+                vec![
+                    value_event("turn_started", serde_json::json!({ "runId": "run-1" })),
+                    ThreadLogItem::ResponseItem(serde_json::json!({
+                        "type": "message",
+                        "role": "assistant",
+                        "content": "done"
+                    })),
+                    value_event("turn_complete", serde_json::json!({ "runId": "run-1" })),
+                ],
+            )
+            .unwrap();
+
+        let lines = read_thread_lines(&path).unwrap();
+        assert_eq!(lines.len(), 4);
+        assert!(matches!(lines[0].item, ThreadLogItem::ThreadMeta(_)));
+        assert!(matches!(lines[1].item, ThreadLogItem::EventMsg(_)));
+        assert!(matches!(lines[2].item, ThreadLogItem::ResponseItem(_)));
+        assert!(matches!(lines[3].item, ThreadLogItem::EventMsg(_)));
         let _ = fs::remove_dir_all(root);
     }
 
