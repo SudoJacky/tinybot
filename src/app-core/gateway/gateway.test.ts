@@ -2224,6 +2224,7 @@ describe("gateway WebSocket client", () => {
       kind: "usage",
       chatId: "chat-1",
       tokenUsage: "32768 / 65536 tokens (50%)",
+      usage: { total_tokens: 32768, context_window_tokens: 65536 },
     });
 
     expect(

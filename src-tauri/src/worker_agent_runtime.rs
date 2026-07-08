@@ -4465,6 +4465,7 @@ mod tests {
                 "agent.tool_call.delta",
                 "agent.tool.start",
                 "agent.tool.result",
+                "agent.usage",
                 "agent.error"
             ]
         );

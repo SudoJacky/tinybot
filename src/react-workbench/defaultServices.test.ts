@@ -142,7 +142,9 @@ describe("default desktop app services", () => {
     const services = createDesktopAppServices();
     await services.sessionStore.list();
     const events: Array<{ type: string; message?: unknown }> = [];
+    const otherSessionEvents: Array<{ type: string; message?: unknown }> = [];
     services.chatStore.subscribe("websocket:chat-1", (event) => events.push(event));
+    services.chatStore.subscribe("websocket:chat-2", (event) => otherSessionEvents.push(event));
 
     const socket = mocks.openGatewaySocket.mock.results[0]?.value;
     socket.handlers.onEvent({
@@ -196,6 +198,7 @@ describe("default desktop app services", () => {
         }),
       }),
     }));
+    expect(otherSessionEvents).not.toContainEqual(expect.objectContaining({ type: "usage" }));
     expect(mocks.gatewayApi.sessions.messages).toHaveBeenCalledTimes(1);
   });
 

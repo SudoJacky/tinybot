@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { createDesktopChatSessionController } from "../app-core/chat/desktopChatSessionController";
-import { sessionKeyForChat, type NativeChatMessage, type NativeChatReference, type NativeChatSession } from "../app-core/chat/nativeChat";
+import { sessionKeyForChat, sessionKeyForChatState, type NativeChatMessage, type NativeChatReference, type NativeChatSession } from "../app-core/chat/nativeChat";
 import { submitDesktopApprovalAction } from "../app-core/agent-ui/desktopApprovalActions";
 import {
   AGENT_UI_FORM_STATUSES,
@@ -175,14 +175,20 @@ export function createDesktopAppServices(): AppServices {
       pendingNewSession = null;
       pendingNewSessionTitle = "";
     }
-    notifyAll(chatEventFromGatewayEvent(event, latestMessageForGatewayEvent(event)));
+    const chatEvent = chatEventFromGatewayEvent(event, latestMessageForGatewayEvent(event));
+    const usageSessionId = event.kind === "usage" ? sessionKeyForGatewayEvent(event) : "";
+    if (usageSessionId) {
+      notifySession(usageSessionId, chatEvent);
+    } else {
+      notifyAll(chatEvent);
+    }
   }
 
   function latestMessageForGatewayEvent(event: NormalizedGatewayEvent): ReactChatMessage | undefined {
     if (event.kind !== "usage") {
       return undefined;
     }
-    const sessionId = event.chatId ? sessionKeyForChat(event.chatId) : controller.state.activeSessionKey;
+    const sessionId = sessionKeyForGatewayEvent(event);
     if (!sessionId) {
       return undefined;
     }
@@ -193,6 +199,13 @@ export function createDesktopAppServices(): AppServices {
       sessionRunning,
     }));
     return [...messages].reverse().find((message) => message.usage) ?? messages[messages.length - 1];
+  }
+
+  function sessionKeyForGatewayEvent(event: NormalizedGatewayEvent): string {
+    if (event.kind === "usage" && event.chatId) {
+      return sessionKeyForChatState(controller.state, event.chatId) || sessionKeyForChat(event.chatId);
+    }
+    return controller.state.activeSessionKey;
   }
 
   function reduceAgentUiEventsFromGatewayEvent(event: NormalizedGatewayEvent): void {

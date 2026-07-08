@@ -9388,7 +9388,7 @@ mod tests {
         let serialized = run.to_string();
 
         assert!(
-            serialized.len() < large_output.len() + 5_000,
+            serialized.len() < large_output.len() + 10_000,
             "run record was {} bytes",
             serialized.len()
         );

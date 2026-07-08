@@ -18,7 +18,7 @@ export type NormalizedGatewayEvent =
   | { kind: "attached"; chatId: string; raw: Record<string, unknown> }
   | { kind: "chat.created"; chatId: string; raw: Record<string, unknown> }
   | { kind: "agent.event"; chatId?: string; raw: Record<string, unknown> }
-  | { kind: "usage"; chatId?: string; tokenUsage: string; raw: Record<string, unknown> }
+  | { kind: "usage"; chatId?: string; tokenUsage: string; usage?: Record<string, unknown>; raw: Record<string, unknown> }
   | { kind: "browser.frame"; raw: Record<string, unknown> }
   | { kind: "browser.snapshot"; raw: Record<string, unknown> }
   | { kind: "agent-ui.form"; raw: Record<string, unknown> }
@@ -42,6 +42,7 @@ export function normalizeGatewayFrame(frame: unknown): NormalizedGatewayEvent {
         kind: "usage",
         chatId: optionalString(raw.chat_id),
         tokenUsage: formatTokenUsage(raw.usage),
+        ...(isRecord(raw.usage) ? { usage: raw.usage } : {}),
         raw,
       };
     case "browser_frame":
@@ -56,10 +57,12 @@ export function normalizeGatewayFrame(frame: unknown): NormalizedGatewayEvent {
       const eventType = stringValue(payload.event_type ?? payload.type);
       const eventPayload = isRecord(payload.payload) ? payload.payload : {};
       if (eventType === "usage.updated") {
+        const usage = isRecord(eventPayload.usage) ? eventPayload.usage : eventPayload;
         return {
           kind: "usage",
           chatId: optionalString(payload.chat_id) ?? optionalString(raw.chat_id),
-          tokenUsage: formatTokenUsage(eventPayload.usage ?? eventPayload),
+          tokenUsage: formatTokenUsage(usage),
+          usage,
           raw,
         };
       }

@@ -621,7 +621,7 @@ export function applyChatEvent(state: NativeChatState, event: NormalizedGatewayE
       event_id: stringValue(event.raw.event_id) || `usage:${sessionKey}:${turn.id}:${sequence}`,
       event_type: "agent.usage",
       payload: {
-        usage: isRecord(event.raw.usage) ? event.raw.usage : event.raw,
+        usage: event.usage ?? (isRecord(event.raw.usage) ? event.raw.usage : event.raw),
       },
       schema_version: "tinybot.agent_event.v1",
       sequence,

@@ -286,6 +286,42 @@ describe("native chat state", () => {
         totalTokens: 42,
       },
     });
+
+    applyChatEvent(state, {
+      kind: "usage",
+      chatId: "chat-1",
+      tokenUsage: "43 / 100 tokens",
+      usage: {
+        total_tokens: 43,
+        context_window_tokens: 100,
+        context_window_used_tokens: 43,
+        context_window_remaining_tokens: 57,
+      },
+      raw: {
+        event: "agent_ui_event",
+        chat_id: "chat-1",
+        agent_ui_event: {
+          event_type: "usage.updated",
+          payload: {
+            usage: {
+              total_tokens: 43,
+              context_window_tokens: 100,
+              context_window_used_tokens: 43,
+              context_window_remaining_tokens: 57,
+            },
+          },
+        },
+      },
+    });
+
+    expect(state.messages.get(sessionKeyForChat("chat-1"))?.[1]).toMatchObject({
+      usage: {
+        contextWindowRemainingTokens: 57,
+        contextWindowTokens: 100,
+        contextWindowUsedTokens: 43,
+        totalTokens: 43,
+      },
+    });
   });
 
   test("normalizes backend memory and recent context references from persisted messages", () => {

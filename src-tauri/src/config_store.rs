@@ -123,20 +123,22 @@ impl ConfigStore {
                 contents,
                 default_snapshot,
             )),
-            Err(source) if source.kind() == io::ErrorKind::NotFound => Ok(Self {
-                config_path: config_path.clone(),
-                snapshot: default_snapshot,
-                diagnostics: vec![ConfigDiagnostic {
-                    level: ConfigDiagnosticLevel::Info,
-                    code: ConfigDiagnosticCode::MissingConfig,
-                    message: "config file is missing; using defaults".to_string(),
-                    path: Some(config_path),
-                }],
-            }),
-            Err(source) => Err(ConfigStoreError::Io {
-                path: config_path,
-                source,
-            }),
+            Err(source) => match source.kind() {
+                io::ErrorKind::NotFound | io::ErrorKind::NotADirectory => Ok(Self {
+                    config_path: config_path.clone(),
+                    snapshot: default_snapshot,
+                    diagnostics: vec![ConfigDiagnostic {
+                        level: ConfigDiagnosticLevel::Info,
+                        code: ConfigDiagnosticCode::MissingConfig,
+                        message: "config file is missing; using defaults".to_string(),
+                        path: Some(config_path),
+                    }],
+                }),
+                _ => Err(ConfigStoreError::Io {
+                    path: config_path,
+                    source,
+                }),
+            },
         }
     }
 
