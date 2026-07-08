@@ -2085,23 +2085,25 @@ fn apply_config_operations_to_path(
 fn ensure_default_config_file(config_path: &Path) -> Result<Vec<ConfigDiagnostic>, std::io::Error> {
     match std::fs::metadata(config_path) {
         Ok(_) => Ok(Vec::new()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            match write_default_config_file(config_path) {
-                Ok(()) => Ok(vec![ConfigDiagnostic {
-                    level: ConfigDiagnosticLevel::Info,
-                    code: ConfigDiagnosticCode::DefaultConfigCreated,
-                    message: "default config file created".to_string(),
-                    path: Some(config_path.to_path_buf()),
-                }]),
-                Err(error) => Ok(vec![ConfigDiagnostic {
-                    level: ConfigDiagnosticLevel::Warning,
-                    code: ConfigDiagnosticCode::DefaultConfigCreateFailed,
-                    message: format!("failed to create default config file: {error}"),
-                    path: Some(config_path.to_path_buf()),
-                }]),
+        Err(error) => match error.kind() {
+            std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory => {
+                match write_default_config_file(config_path) {
+                    Ok(()) => Ok(vec![ConfigDiagnostic {
+                        level: ConfigDiagnosticLevel::Info,
+                        code: ConfigDiagnosticCode::DefaultConfigCreated,
+                        message: "default config file created".to_string(),
+                        path: Some(config_path.to_path_buf()),
+                    }]),
+                    Err(error) => Ok(vec![ConfigDiagnostic {
+                        level: ConfigDiagnosticLevel::Warning,
+                        code: ConfigDiagnosticCode::DefaultConfigCreateFailed,
+                        message: format!("failed to create default config file: {error}"),
+                        path: Some(config_path.to_path_buf()),
+                    }]),
+                }
             }
-        }
-        Err(error) => Err(error),
+            _ => Err(error),
+        },
     }
 }
 
