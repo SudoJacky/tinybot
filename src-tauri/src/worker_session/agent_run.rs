@@ -518,6 +518,7 @@ fn agent_run_from_checkpoint(
         checkpoint: Some(checkpoint.clone()),
         artifacts: Vec::new(),
         usage: Vec::new(),
+        token_usage_info: None,
         error: None,
     }
 }

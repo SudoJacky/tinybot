@@ -2,11 +2,11 @@ use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource,
 };
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
 use std::{
-    fs,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -15,7 +15,7 @@ use std::{
 pub struct WorkerSessionRpc {
     sessions: Vec<SessionMetadata>,
     policy: CapabilityPolicy,
-    store_path: Option<PathBuf>,
+    sqlite_path: Option<PathBuf>,
 }
 
 include!("worker_session/metadata.rs");

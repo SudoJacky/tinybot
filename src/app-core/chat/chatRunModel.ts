@@ -1573,6 +1573,16 @@ function normalizeUsage(value: unknown): TokenUsage | undefined {
   if (!Object.keys(payload).length) {
     return undefined;
   }
+  const promptTokens = numberValue(payload.prompt_tokens ?? payload.promptTokens);
+  const totalTokens = numberValue(payload.total_tokens ?? payload.totalTokens);
+  const reportedContextWindowUsedTokens = numberValue(payload.context_window_used_tokens ?? payload.contextWindowUsedTokens);
+  const estimatedContextTokens = numberValue(payload.estimated_context_tokens ?? payload.estimatedContextTokens);
+  const contextWindowUsedTokens = normalizeContextWindowUsedTokens(
+    reportedContextWindowUsedTokens,
+    estimatedContextTokens,
+    promptTokens,
+    totalTokens,
+  );
   return {
     cachedTokens: numberValue(payload.cached_tokens ?? payload.cachedTokens),
     completionTokens: numberValue(payload.completion_tokens ?? payload.completionTokens),
@@ -1586,12 +1596,27 @@ function normalizeUsage(value: unknown): TokenUsage | undefined {
         ?? payload.max_context_tokens
         ?? payload.maxContextTokens,
     ),
-    contextWindowUsedTokens: numberValue(payload.context_window_used_tokens ?? payload.contextWindowUsedTokens),
-    estimatedContextTokens: numberValue(payload.estimated_context_tokens ?? payload.estimatedContextTokens),
+    contextWindowUsedTokens,
+    estimatedContextTokens,
     percent: numberValue(payload.percent ?? payload.percentage ?? payload.token_usage_percent ?? payload.tokenUsagePercent),
-    promptTokens: numberValue(payload.prompt_tokens ?? payload.promptTokens),
-    totalTokens: numberValue(payload.total_tokens ?? payload.totalTokens),
+    promptTokens,
+    totalTokens,
   };
+}
+
+function normalizeContextWindowUsedTokens(
+  reported: number | undefined,
+  estimated: number | undefined,
+  promptTokens: number | undefined,
+  totalTokens: number | undefined,
+): number | undefined {
+  if (reported !== undefined) {
+    if (estimated !== undefined && reported <= estimated) {
+      return totalTokens ?? promptTokens ?? reported;
+    }
+    return reported;
+  }
+  return totalTokens ?? promptTokens;
 }
 
 function normalizeReferences(value: unknown): NativeChatReference[] | undefined {

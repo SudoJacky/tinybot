@@ -292,10 +292,11 @@ describe("native chat state", () => {
       chatId: "chat-1",
       tokenUsage: "43 / 100 tokens",
       usage: {
-        total_tokens: 43,
-        context_window_tokens: 100,
-        context_window_used_tokens: 43,
-        context_window_remaining_tokens: 57,
+        total_tokens: 172,
+        context_window_tokens: 128000,
+        context_window_used_tokens: 5,
+        context_window_remaining_tokens: 127995,
+        estimated_context_tokens: 5,
       },
       raw: {
         event: "agent_ui_event",
@@ -304,10 +305,11 @@ describe("native chat state", () => {
           event_type: "usage.updated",
           payload: {
             usage: {
-              total_tokens: 43,
-              context_window_tokens: 100,
-              context_window_used_tokens: 43,
-              context_window_remaining_tokens: 57,
+              total_tokens: 172,
+              context_window_tokens: 128000,
+              context_window_used_tokens: 5,
+              context_window_remaining_tokens: 127995,
+              estimated_context_tokens: 5,
             },
           },
         },
@@ -316,10 +318,11 @@ describe("native chat state", () => {
 
     expect(state.messages.get(sessionKeyForChat("chat-1"))?.[1]).toMatchObject({
       usage: {
-        contextWindowRemainingTokens: 57,
-        contextWindowTokens: 100,
-        contextWindowUsedTokens: 43,
-        totalTokens: 43,
+        contextWindowRemainingTokens: 127995,
+        contextWindowTokens: 128000,
+        contextWindowUsedTokens: 172,
+        estimatedContextTokens: 5,
+        totalTokens: 172,
       },
     });
   });

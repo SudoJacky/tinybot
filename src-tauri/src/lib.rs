@@ -46,6 +46,7 @@ pub mod worker_storage;
 pub mod worker_subagent_manager;
 pub mod worker_task;
 pub mod worker_thread;
+pub mod worker_thread_log;
 pub mod worker_tool_executor;
 pub mod worker_tool_registry;
 pub mod worker_workspace;
@@ -2434,6 +2435,7 @@ fn native_agent_run_record(
         "checkpoint": checkpoint,
         "artifacts": native_agent_artifacts(result),
         "usage": native_agent_usage(result),
+        "tokenUsageInfo": native_agent_token_usage_info(result),
         "error": error,
     })
 }
@@ -2578,6 +2580,53 @@ fn native_agent_usage(result: &serde_json::Value) -> Vec<serde_json::Value> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn native_agent_token_usage_info(result: &serde_json::Value) -> Option<serde_json::Value> {
+    let usage = native_agent_usage(result).into_iter().last()?;
+    let last_total = usage_i64_field(
+        &usage,
+        &[
+            "totalTokens",
+            "total_tokens",
+            "contextUsageTokens",
+            "context_usage_tokens",
+            "total",
+        ],
+    )
+    .unwrap_or_default();
+    let total_usage = usage_i64_field(
+        &usage,
+        &["cumulativeUsageTokens", "cumulative_usage_tokens"],
+    )
+    .unwrap_or(last_total);
+    Some(serde_json::json!({
+        "totalTokenUsage": {
+            "inputTokens": 0,
+            "cachedInputTokens": 0,
+            "outputTokens": 0,
+            "reasoningOutputTokens": 0,
+            "totalTokens": total_usage,
+        },
+        "lastTokenUsage": {
+            "inputTokens": usage_i64_field(&usage, &["inputTokens", "input_tokens", "promptTokens", "prompt_tokens"]).unwrap_or_default(),
+            "cachedInputTokens": usage_i64_field(&usage, &["cachedInputTokens", "cached_input_tokens", "cachedTokens", "cached_tokens"]).unwrap_or_default(),
+            "outputTokens": usage_i64_field(&usage, &["outputTokens", "output_tokens", "completionTokens", "completion_tokens"]).unwrap_or_default(),
+            "reasoningOutputTokens": usage_i64_field(&usage, &["reasoningOutputTokens", "reasoning_output_tokens", "reasoningTokens", "reasoning_tokens"]).unwrap_or_default(),
+            "totalTokens": last_total,
+        },
+        "modelContextWindow": usage_i64_field(&usage, &["contextWindowTokens", "context_window_tokens"]),
+    }))
+}
+
+fn usage_i64_field(value: &serde_json::Value, keys: &[&str]) -> Option<i64> {
+    keys.iter().find_map(|key| {
+        value.get(*key).and_then(|value| {
+            value
+                .as_i64()
+                .or_else(|| value.as_u64().and_then(|number| i64::try_from(number).ok()))
+        })
+    })
 }
 
 fn native_agent_runtime_trace_events(
@@ -7729,6 +7778,60 @@ mod tests {
         assert_eq!(history["messages"][1]["usage"]["total_tokens"], 107);
     }
 
+    #[test]
+    fn native_agent_run_record_includes_structured_token_usage_info() {
+        let spec = serde_json::json!({
+            "runtime": "rust",
+            "runId": "run-token-info",
+            "sessionId": "websocket:chat-token-info",
+            "messages": [{ "role": "user", "content": "hello" }]
+        });
+        let result = serde_json::json!({
+            "runtime": "rust",
+            "runId": "run-token-info",
+            "sessionId": "websocket:chat-token-info",
+            "stopReason": "final_response",
+            "events": [{
+                "eventName": "agent.usage",
+                "payload": {
+                    "usage": {
+                        "prompt_tokens": 5,
+                        "completion_tokens": 167,
+                        "total_tokens": 172,
+                        "contextWindowTokens": 128000,
+                        "contextUsageTokens": 172,
+                        "cumulativeUsageTokens": 1172
+                    }
+                }
+            }]
+        });
+
+        let record = native_agent_run_record(
+            &spec,
+            &result,
+            &serde_json::json!({
+                "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } }
+            }),
+            "websocket:chat-token-info",
+            "run-token-info",
+        );
+
+        assert_eq!(
+            record["tokenUsageInfo"]["lastTokenUsage"]["totalTokens"],
+            172
+        );
+        assert_eq!(record["tokenUsageInfo"]["lastTokenUsage"]["inputTokens"], 5);
+        assert_eq!(
+            record["tokenUsageInfo"]["lastTokenUsage"]["outputTokens"],
+            167
+        );
+        assert_eq!(
+            record["tokenUsageInfo"]["totalTokenUsage"]["totalTokens"],
+            1172
+        );
+        assert_eq!(record["tokenUsageInfo"]["modelContextWindow"], 128000);
+    }
+
     #[derive(Clone)]
     struct UsageNativeAgentProvider;
 
@@ -8294,7 +8397,7 @@ mod tests {
     }
 
     #[test]
-    fn worker_run_agent_projects_real_rust_run_into_thread_history() {
+    fn worker_run_agent_projects_real_rust_run_into_canonical_session_history() {
         let fixture = WorkspaceFixture::new();
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
         let config = serde_json::json!({
@@ -8338,54 +8441,51 @@ mod tests {
         .expect("Rust runtime should complete tool-backed turn");
         assert_eq!(result["stopReason"], "final_response");
 
-        let thread_list = call_rust_state_service(
+        let history = worker_session_messages_with_options(
+            &shared,
+            session_id.to_string(),
+            fixture.root.clone(),
+            config.clone(),
+            Duration::from_millis(10),
+        )
+        .expect("real Rust run should be visible in canonical session history");
+        let messages = history["messages"]
+            .as_array()
+            .expect("session messages should be an array");
+        assert!(messages.iter().any(|message| {
+            message["role"] == "user" && message["content"] == "read README into thread"
+        }));
+        assert!(messages.iter().any(|message| {
+            message["role"] == "assistant" && message["content"] == "thread projected answer"
+        }));
+        assert!(messages.iter().all(|message| message["role"] != "tool"));
+
+        let run = call_rust_state_service(
             fixture.root.clone(),
             config.clone(),
             WorkerRequest::new(
-                "req-real-run-thread-list",
-                "trace-real-run-thread-list",
-                "thread.list",
-                serde_json::json!({ "includeArchived": true }),
+                "req-real-run-agent-get",
+                "trace-real-run-agent-get",
+                "agent_run.get",
+                serde_json::json!({
+                    "session_id": session_id,
+                    "run_id": "run-thread-real"
+                }),
             ),
-            "real run thread list",
+            "real Rust run agent record",
         )
-        .expect("real Rust run should be visible in thread list");
-        let thread = thread_list["threads"]
+        .expect("real Rust run should persist an agent run record");
+        assert_eq!(run["status"], "completed");
+        assert_eq!(run["stopReason"], "final_response");
+        assert_eq!(
+            run["completedToolResults"][0]["toolCallId"],
+            "call-thread-run-trace"
+        );
+        assert!(run["traceEvents"]
             .as_array()
-            .expect("thread list should be an array")
+            .expect("trace events should be an array")
             .iter()
-            .find(|thread| thread["sessionKey"] == session_id)
-            .expect("real Rust run should create a session-linked thread");
-        let thread_id = thread["threadId"]
-            .as_str()
-            .expect("thread id should be present")
-            .to_string();
-
-        let snapshot = call_rust_state_service(
-            fixture.root.clone(),
-            config,
-            WorkerRequest::new(
-                "req-real-run-thread-read",
-                "trace-real-run-thread-read",
-                "thread.read",
-                serde_json::json!({ "threadId": thread_id }),
-            ),
-            "real run thread read",
-        )
-        .expect("real Rust run thread should be readable");
-        let item_kinds = snapshot["items"]
-            .as_array()
-            .expect("thread items should be an array")
-            .iter()
-            .map(|item| item["kind"]["type"].as_str().unwrap().to_string())
-            .collect::<Vec<_>>();
-
-        assert!(item_kinds.contains(&"user_message".to_string()));
-        assert!(item_kinds.contains(&"tool_call_output".to_string()));
-        assert!(item_kinds.contains(&"assistant_message_completed".to_string()));
-        assert!(item_kinds.contains(&"agent_run_completed".to_string()));
-        assert_eq!(snapshot["activeRun"], serde_json::json!(null));
-        assert_eq!(snapshot["thread"]["status"], "idle");
+            .any(|event| event["eventName"] == "agent.tool.result"));
     }
 
     #[test]
@@ -10508,30 +10608,26 @@ mod tests {
     #[test]
     fn worker_session_read_commands_use_rust_session_store() {
         let fixture = WorkspaceFixture::new();
-        fixture.write(
-            "sessions/store.json",
-            &serde_json::json!({
-                "version": 1,
-                "sessions": [{
-                    "session_id": "websocket:chat-1",
-                    "title": "Native session",
-                    "workspace_dir": "D:/Code/py/tinybot",
-                    "created_at": "2026-06-29T08:00:00Z",
-                    "updated_at": "2026-06-29T08:30:00Z",
-                    "extra": {
-                        "messages": [
-                            {
-                                "role": "user",
-                                "content": "Use Rust state",
-                                "message_id": "msg-1",
-                                "timestamp": "2026-06-29T08:00:01Z"
-                            }
-                        ]
-                    }
-                }]
-            })
-            .to_string(),
-        );
+        fixture.write_session_store(serde_json::json!({
+            "version": 1,
+            "sessions": [{
+                "session_id": "websocket:chat-1",
+                "title": "Native session",
+                "workspace_dir": "D:/Code/py/tinybot",
+                "created_at": "2026-06-29T08:00:00Z",
+                "updated_at": "2026-06-29T08:30:00Z",
+                "extra": {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": "Use Rust state",
+                            "message_id": "msg-1",
+                            "timestamp": "2026-06-29T08:00:01Z"
+                        }
+                    ]
+                }
+            }]
+        }));
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
 
         let sessions = worker_sessions_list_with_options(
@@ -10565,58 +10661,54 @@ mod tests {
     #[test]
     fn worker_agent_run_runtime_commands_use_rust_session_store() {
         let fixture = WorkspaceFixture::new();
-        fixture.write(
-            "sessions/store.json",
-            &serde_json::json!({
-                "version": 1,
-                "sessions": [{
-                    "session_id": "websocket:chat-1",
-                    "title": "Native session",
-                    "workspace_dir": "D:/Code/py/tinybot",
-                    "created_at": "2026-07-03T01:00:00Z",
-                    "updated_at": "2026-07-03T01:00:02Z",
-                    "extra": {
-                        "agent_runs": [{
+        fixture.write_session_store(serde_json::json!({
+            "version": 1,
+            "sessions": [{
+                "session_id": "websocket:chat-1",
+                "title": "Native session",
+                "workspace_dir": "D:/Code/py/tinybot",
+                "created_at": "2026-07-03T01:00:00Z",
+                "updated_at": "2026-07-03T01:00:02Z",
+                "extra": {
+                    "agent_runs": [{
+                        "sessionId": "websocket:chat-1",
+                        "runId": "run-1",
+                        "status": "completed",
+                        "phase": "completed",
+                        "startedAt": "2026-07-03T01:00:00Z",
+                        "updatedAt": "2026-07-03T01:00:02Z",
+                        "completedAt": "2026-07-03T01:00:02Z",
+                        "stopReason": "stop",
+                        "model": "test-model",
+                        "provider": "test",
+                        "maxIterations": 4,
+                        "currentIteration": 1,
+                        "conversationMessageIds": [],
+                        "traceMessages": [],
+                        "traceEvents": [{
+                            "schemaVersion": "tinybot.agent_event.v1",
+                            "eventId": "run-1:agent-done:0000000000000001",
+                            "sequence": 1,
                             "sessionId": "websocket:chat-1",
-                            "runId": "run-1",
-                            "status": "completed",
+                            "turnId": "run-1",
+                            "itemId": "run-1:assistant",
+                            "eventName": "agent.done",
                             "phase": "completed",
-                            "startedAt": "2026-07-03T01:00:00Z",
-                            "updatedAt": "2026-07-03T01:00:02Z",
-                            "completedAt": "2026-07-03T01:00:02Z",
-                            "stopReason": "stop",
-                            "model": "test-model",
-                            "provider": "test",
-                            "maxIterations": 4,
-                            "currentIteration": 1,
-                            "conversationMessageIds": [],
-                            "traceMessages": [],
-                            "traceEvents": [{
-                                "schemaVersion": "tinybot.agent_event.v1",
-                                "eventId": "run-1:agent-done:0000000000000001",
-                                "sequence": 1,
-                                "sessionId": "websocket:chat-1",
-                                "turnId": "run-1",
-                                "itemId": "run-1:assistant",
-                                "eventName": "agent.done",
-                                "phase": "completed",
-                                "timestamp": "2026-07-03T01:00:02Z",
-                                "source": "rust_backend",
-                                "visibility": "user",
-                                "payload": { "finalContent": "Done from runtime state" }
-                            }],
-                            "completedToolResults": [],
-                            "pendingToolCalls": [],
-                            "checkpoint": null,
-                            "artifacts": [],
-                            "usage": [],
-                            "error": null
-                        }]
-                    }
-                }]
-            })
-            .to_string(),
-        );
+                            "timestamp": "2026-07-03T01:00:02Z",
+                            "source": "rust_backend",
+                            "visibility": "user",
+                            "payload": { "finalContent": "Done from runtime state" }
+                        }],
+                        "completedToolResults": [],
+                        "pendingToolCalls": [],
+                        "checkpoint": null,
+                        "artifacts": [],
+                        "usage": [],
+                        "error": null
+                    }]
+                }
+            }]
+        }));
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
 
         let runs = worker_agent_runs_list_with_options(
@@ -10650,24 +10742,20 @@ mod tests {
     #[test]
     fn worker_session_write_commands_use_rust_session_store_on_rust_backend() {
         let fixture = WorkspaceFixture::new();
-        fixture.write(
-            "sessions/store.json",
-            &serde_json::json!({
-                "version": 1,
-                "sessions": [{
-                    "session_id": "websocket:chat-1",
-                    "title": "Native session",
-                    "workspace_dir": "D:/Code/py/tinybot",
-                    "created_at": "2026-06-29T08:00:00Z",
-                    "updated_at": "2026-06-29T08:30:00Z",
-                    "extra": {
-                        "messages": [{ "role": "user", "content": "Keep this" }],
-                        "metadata": { "pinned": false }
-                    }
-                }]
-            })
-            .to_string(),
-        );
+        fixture.write_session_store(serde_json::json!({
+            "version": 1,
+            "sessions": [{
+                "session_id": "websocket:chat-1",
+                "title": "Native session",
+                "workspace_dir": "D:/Code/py/tinybot",
+                "created_at": "2026-06-29T08:00:00Z",
+                "updated_at": "2026-06-29T08:30:00Z",
+                "extra": {
+                    "messages": [{ "role": "user", "content": "Keep this" }],
+                    "metadata": { "pinned": false }
+                }
+            }]
+        }));
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
 
         let uploaded = worker_session_upload_temporary_file_with_options(
@@ -10762,24 +10850,20 @@ mod tests {
     #[test]
     fn worker_session_branch_creates_new_session_without_runtime_state() {
         let fixture = WorkspaceFixture::new();
-        fixture.write(
-            "sessions/store.json",
-            &serde_json::json!({
-                "version": 1,
-                "sessions": [{
-                    "session_id": "websocket:chat-1",
-                    "title": "Source session",
-                    "workspace_dir": "D:/Code/py/tinybot",
-                    "created_at": "2026-06-29T08:00:00Z",
-                    "updated_at": "2026-06-29T08:30:00Z",
-                    "extra": {
-                        "messages": [{ "role": "user", "content": "Keep this", "message_id": "m1" }],
-                        "runtime_checkpoint": { "phase": "running" }
-                    }
-                }]
-            })
-            .to_string(),
-        );
+        fixture.write_session_store(serde_json::json!({
+            "version": 1,
+            "sessions": [{
+                "session_id": "websocket:chat-1",
+                "title": "Source session",
+                "workspace_dir": "D:/Code/py/tinybot",
+                "created_at": "2026-06-29T08:00:00Z",
+                "updated_at": "2026-06-29T08:30:00Z",
+                "extra": {
+                    "messages": [{ "role": "user", "content": "Keep this", "message_id": "m1" }],
+                    "runtime_checkpoint": { "phase": "running" }
+                }
+            }]
+        }));
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
 
         let branch = worker_session_branch_with_options(
@@ -10968,21 +11052,17 @@ mod tests {
     fn worker_webui_route_serves_rust_owned_state_routes_on_rust_backend() {
         let fixture = WorkspaceFixture::new();
         fixture.write("docs/readme.md", "hello route");
-        fixture.write(
-            "sessions/store.json",
-            &serde_json::json!({
-                "version": 1,
-                "sessions": [{
-                    "session_id": "websocket:chat-1",
-                    "title": "Route session",
-                    "workspace_dir": "D:/Code/py/tinybot",
-                    "created_at": "2026-06-29T08:00:00Z",
-                    "updated_at": "2026-06-29T08:30:00Z",
-                    "extra": { "messages": [{ "role": "user", "content": "route" }] }
-                }]
-            })
-            .to_string(),
-        );
+        fixture.write_session_store(serde_json::json!({
+            "version": 1,
+            "sessions": [{
+                "session_id": "websocket:chat-1",
+                "title": "Route session",
+                "workspace_dir": "D:/Code/py/tinybot",
+                "created_at": "2026-06-29T08:00:00Z",
+                "updated_at": "2026-06-29T08:30:00Z",
+                "extra": { "messages": [{ "role": "user", "content": "route" }] }
+            }]
+        }));
         let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
 
         let bootstrap = worker_webui_route_with_options(
@@ -12804,6 +12884,81 @@ mod tests {
                 std::fs::create_dir_all(parent).expect("fixture parent should create");
             }
             std::fs::write(path, contents).expect("fixture file should write");
+        }
+
+        fn write_session_store(&self, store: serde_json::Value) {
+            let path = self.root.join("sessions").join("sessions.sqlite");
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).expect("fixture session parent should create");
+            }
+            let mut connection =
+                rusqlite::Connection::open(path).expect("fixture session sqlite should open");
+            connection
+                .execute_batch(
+                    "
+                    CREATE TABLE IF NOT EXISTS sessions (
+                        session_id TEXT PRIMARY KEY NOT NULL,
+                        title TEXT NOT NULL,
+                        workspace_dir TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        session_json TEXT NOT NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_sessions_updated_at
+                        ON sessions(updated_at DESC, session_id ASC);
+                    ",
+                )
+                .expect("fixture session schema should create");
+            let transaction = connection
+                .transaction()
+                .expect("fixture session transaction should start");
+            transaction
+                .execute("DELETE FROM sessions", [])
+                .expect("fixture sessions should clear");
+            {
+                let mut statement = transaction
+                    .prepare(
+                        "INSERT INTO sessions (
+                            session_id,
+                            title,
+                            workspace_dir,
+                            created_at,
+                            updated_at,
+                            session_json
+                        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    )
+                    .expect("fixture session insert should prepare");
+                let sessions = store
+                    .get("sessions")
+                    .and_then(serde_json::Value::as_array)
+                    .expect("fixture session store should contain sessions");
+                for session in sessions {
+                    statement
+                        .execute(rusqlite::params![
+                            session["session_id"]
+                                .as_str()
+                                .expect("fixture session id should be a string"),
+                            session["title"]
+                                .as_str()
+                                .expect("fixture session title should be a string"),
+                            session["workspace_dir"]
+                                .as_str()
+                                .expect("fixture workspace dir should be a string"),
+                            session["created_at"]
+                                .as_str()
+                                .expect("fixture created_at should be a string"),
+                            session["updated_at"]
+                                .as_str()
+                                .expect("fixture updated_at should be a string"),
+                            serde_json::to_string(session)
+                                .expect("fixture session should serialize")
+                        ])
+                        .expect("fixture session should insert");
+                }
+            }
+            transaction
+                .commit()
+                .expect("fixture session transaction should commit");
         }
     }
 
