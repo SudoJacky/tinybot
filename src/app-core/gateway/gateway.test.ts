@@ -724,6 +724,26 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
+  test("does not hide native Rust session list failures behind gateway bootstrap fallback", async () => {
+    const fetchFn = vi.fn(async () => {
+      throw new Error("gateway fallback should not be used");
+    });
+    const nativeSessions = {
+      list: vi.fn(async () => {
+        throw new Error("native session list failed");
+      }),
+      messages: vi.fn(),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeSessions,
+    });
+
+    await expect(client.sessions.list()).rejects.toThrow("native session list failed");
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   test("prefers native Rust session messages when both native paths are available", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
     const nativeWebui = {
@@ -2049,6 +2069,25 @@ describe("gateway HTTP client", () => {
     expect(fetchFn.mock.calls[2][1]).toMatchObject({
       headers: expect.objectContaining({ Authorization: "Bearer token-2" }),
     });
+  });
+
+  test("reports a clear gateway bootstrap timeout reason", async () => {
+    const fetchFn = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      await new Promise((_resolve, reject) => {
+        const signal = init?.signal;
+        signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+      return new Response(JSON.stringify({ token: "late-token" }), { status: 200 });
+    });
+    const client = createGatewayApiClient({
+      config: resolveGatewayConfig({
+        ...DEFAULT_GATEWAY_CONFIG,
+        requestTimeoutMs: 5,
+      }),
+      fetchFn,
+    });
+
+    await expect(client.sessions.list()).rejects.toThrow("Gateway bootstrap timed out after 5 ms");
   });
 
   test("bootstraps a fresh token and retries once when an authenticated request receives 401", async () => {

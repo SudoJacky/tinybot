@@ -538,8 +538,10 @@ describe("chat run model", () => {
       payload: {
         usage: {
           context_window: 128000,
-          contextWindowUsedTokens: 64000,
+          contextWindowUsedTokens: 5,
+          estimated_context_tokens: 5,
           percent: 50,
+          total_tokens: 64000,
         },
       },
     });
@@ -548,7 +550,36 @@ describe("chat run model", () => {
     expect(turns[0].usage).toEqual(expect.objectContaining({
       contextWindowTokens: 128000,
       contextWindowUsedTokens: 64000,
+      estimatedContextTokens: 5,
       percent: 50,
+      totalTokens: 64000,
+    }));
+
+    reduceAgentEvent(state, {
+      schema_version: "tinybot.agent_event.v1",
+      event_id: "event-usage-total-only",
+      event_type: "agent.usage",
+      chat_id: "chat-1",
+      session_key: "WebSocket:chat-1",
+      turn_id: "turn-usage",
+      sequence: 3,
+      created_at: "2026-06-27T04:00:01.500Z",
+      payload: {
+        usage: {
+          context_window: 128000,
+          completion_tokens: 43,
+          prompt_tokens: 10,
+          total_tokens: 53,
+        },
+      },
+    });
+
+    expect(turns[0].usage).toEqual(expect.objectContaining({
+      completionTokens: 43,
+      contextWindowTokens: 128000,
+      contextWindowUsedTokens: 53,
+      promptTokens: 10,
+      totalTokens: 53,
     }));
 
     reduceAgentEvent(state, {
@@ -558,15 +589,15 @@ describe("chat run model", () => {
       chat_id: "chat-1",
       session_key: "WebSocket:chat-1",
       turn_id: "turn-usage",
-      sequence: 3,
+      sequence: 4,
       created_at: "2026-06-27T04:00:02.000Z",
       payload: {},
     });
 
     expect(turns[0].usage).toEqual(expect.objectContaining({
       contextWindowTokens: 128000,
-      contextWindowUsedTokens: 64000,
-      percent: 50,
+      contextWindowUsedTokens: 53,
+      totalTokens: 53,
     }));
   });
 

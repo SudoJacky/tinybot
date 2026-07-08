@@ -90,7 +90,7 @@ mod tests {
         )
         .expect("message should append");
 
-        let store_path = root.join("sessions").join("store.json");
+        let store_path = root.join("sessions").join("sessions.sqlite");
         assert!(
             store_path.exists(),
             "persistent sessions should write under workspace sessions"
@@ -119,7 +119,7 @@ mod tests {
     }
 
     #[test]
-    fn persistent_store_loads_existing_session_store_fixture() {
+    fn persistent_store_ignores_existing_json_session_store_fixture() {
         let root = temp_workspace_root("session-existing-store");
         let _cleanup = TempWorkspaceCleanup(root.clone());
         let store_path = root.join("sessions").join("store.json");
@@ -156,14 +156,13 @@ mod tests {
         let sessions = rpc
             .list_metadata()
             .expect("existing session metadata should list");
-        assert_eq!(sessions.len(), 1);
-        assert_eq!(sessions[0].session_id, "desktop:existing-session");
+        assert_eq!(sessions.len(), 0);
 
         let history = rpc
             .get_history("desktop:existing-session", 10)
             .expect("existing session history should load");
-        assert_eq!(history.messages.len(), 2);
-        assert_eq!(history.user_profile["name"], "fixture-user");
+        assert_eq!(history.messages.len(), 0);
+        assert_eq!(history.user_profile, json!({}));
     }
 
     #[test]
@@ -198,6 +197,7 @@ mod tests {
             })),
             artifacts: vec![json!({ "type": "file", "path": "report.md" })],
             usage: vec![json!({ "totalTokens": 12 })],
+            token_usage_info: None,
             error: Some(json!({ "message": "waiting" })),
         };
 
@@ -1820,6 +1820,7 @@ mod tests {
             checkpoint: None,
             artifacts: Vec::new(),
             usage: Vec::new(),
+            token_usage_info: None,
             error: None,
         }
     }

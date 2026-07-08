@@ -30,35 +30,113 @@ fn default_session_store_version() -> usize {
     1
 }
 
-fn session_store_path(root: &Path) -> PathBuf {
-    root.join("sessions").join("store.json")
+fn session_sqlite_path(root: &Path) -> PathBuf {
+    root.join("sessions").join("sessions.sqlite")
 }
 
 fn read_session_store(path: &Path) -> Result<Option<SessionStore>, WorkerProtocolError> {
-    let contents = match fs::read_to_string(path) {
-        Ok(contents) => contents,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(session_io_error(error)),
-    };
-    if contents.trim().is_empty() {
+    if !path.exists() {
         return Ok(None);
     }
-    let store = serde_json::from_str(&contents).map_err(|error| {
-        WorkerProtocolError::new(
-            WorkerProtocolErrorCode::WorkerError,
-            format!("failed to parse session store: {error}"),
-            serde_json::json!({ "method": "session" }),
-            false,
-            WorkerProtocolErrorSource::RustCore,
-        )
-    })?;
+    let connection = open_session_connection(path)?;
+    ensure_session_schema(&connection)?;
+    let mut statement = connection
+        .prepare("SELECT session_json FROM sessions ORDER BY updated_at DESC, session_id ASC")
+        .map_err(session_sqlite_error)?;
+    let rows = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(session_sqlite_error)?;
+    let mut sessions = Vec::new();
+    for row in rows {
+        let session_json = row.map_err(session_sqlite_error)?;
+        sessions.push(serde_json::from_str(&session_json).map_err(session_serialization_error)?);
+    }
+    let store = SessionStore {
+        version: default_session_store_version(),
+        sessions,
+    };
     Ok(Some(store))
+}
+
+fn write_session_store(path: &Path, store: &SessionStore) -> Result<(), WorkerProtocolError> {
+    let mut connection = open_session_connection(path)?;
+    ensure_session_schema(&connection)?;
+    let transaction = connection.transaction().map_err(session_sqlite_error)?;
+    transaction
+        .execute("DELETE FROM sessions", [])
+        .map_err(session_sqlite_error)?;
+    {
+        let mut statement = transaction
+            .prepare(
+                "INSERT INTO sessions (
+                    session_id,
+                    title,
+                    workspace_dir,
+                    created_at,
+                    updated_at,
+                    session_json
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            )
+            .map_err(session_sqlite_error)?;
+        for session in &store.sessions {
+            let session_json =
+                serde_json::to_string(session).map_err(session_serialization_error)?;
+            statement
+                .execute(params![
+                    session.session_id.as_str(),
+                    session.title.as_str(),
+                    session.workspace_dir.as_str(),
+                    session.created_at.as_str(),
+                    session.updated_at.as_str(),
+                    session_json
+                ])
+                .map_err(session_sqlite_error)?;
+        }
+    }
+    transaction.commit().map_err(session_sqlite_error)
+}
+
+fn open_session_connection(path: &Path) -> Result<Connection, WorkerProtocolError> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(session_io_error)?;
+    }
+    Connection::open(path).map_err(session_sqlite_error)
+}
+
+fn ensure_session_schema(connection: &Connection) -> Result<(), WorkerProtocolError> {
+    connection
+        .execute_batch(
+            "
+            PRAGMA foreign_keys = ON;
+            CREATE TABLE IF NOT EXISTS sessions (
+                session_id TEXT PRIMARY KEY NOT NULL,
+                title TEXT NOT NULL,
+                workspace_dir TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                session_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_sessions_updated_at
+                ON sessions(updated_at DESC, session_id ASC);
+            ",
+        )
+        .map_err(session_sqlite_error)
 }
 
 fn session_io_error(error: std::io::Error) -> WorkerProtocolError {
     WorkerProtocolError::new(
         WorkerProtocolErrorCode::WorkerError,
         format!("session store IO error: {error}"),
+        serde_json::json!({ "method": "session" }),
+        false,
+        WorkerProtocolErrorSource::RustCore,
+    )
+}
+
+fn session_sqlite_error(error: rusqlite::Error) -> WorkerProtocolError {
+    WorkerProtocolError::new(
+        WorkerProtocolErrorCode::WorkerError,
+        format!("session store SQLite error: {error}"),
         serde_json::json!({ "method": "session" }),
         false,
         WorkerProtocolErrorSource::RustCore,

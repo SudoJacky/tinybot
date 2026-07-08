@@ -19,19 +19,16 @@ use crate::worker_protocol::{
 use crate::worker_session::{
     AgentRunRecord, AgentRunRuntimeState, AgentRunStatus, AgentRunTracePage,
 };
-use crate::worker_storage::{
-    read_json_store, read_jsonl_strict, write_json_pretty_atomic, write_jsonl_atomic,
-    AtomicWriteOptions, WorkerStorageError,
-};
 use crate::worker_subagent_manager::{
     SubagentMailboxInput, SubagentThreadStatus, SubagentThreadSummary,
 };
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::{fs, io, path::PathBuf};
+use std::{fs, path::PathBuf};
 
 const THREAD_STORE_VERSION: usize = 1;
 const DEFAULT_READ_LIMIT: usize = 200;
@@ -117,12 +114,8 @@ impl LocalThreadStore {
         }
     }
 
-    fn index_path(&self) -> PathBuf {
-        self.root.join("index.json")
-    }
-
-    fn items_path(&self, thread_id: &str) -> PathBuf {
-        self.root.join("items").join(format!("{thread_id}.jsonl"))
+    fn sqlite_path(&self) -> PathBuf {
+        self.root.join("threads.sqlite")
     }
 
     pub fn append_items_with_client_event_id(
@@ -621,26 +614,88 @@ impl LocalThreadStore {
     }
 
     fn read_index(&self) -> Result<ThreadIndex, WorkerProtocolError> {
-        let mut index: ThreadIndex =
-            read_json_store(&self.index_path()).map_err(thread_storage_error)?;
-        if index.version == 0 {
-            index.version = THREAD_STORE_VERSION;
+        let connection = self.open_connection()?;
+        let mut statement = connection
+            .prepare("SELECT record_json FROM threads ORDER BY rowid ASC")
+            .map_err(thread_sqlite_error)?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(thread_sqlite_error)?;
+        let mut threads = Vec::new();
+        for row in rows {
+            let record_json = row.map_err(thread_sqlite_error)?;
+            threads.push(serde_json::from_str(&record_json).map_err(thread_json_error)?);
         }
-        Ok(index)
+        Ok(ThreadIndex {
+            version: THREAD_STORE_VERSION,
+            threads,
+        })
     }
 
     fn write_index(&self, index: &ThreadIndex) -> Result<(), WorkerProtocolError> {
-        write_json_pretty_atomic(
-            &self.index_path(),
-            index,
-            AtomicWriteOptions::default().with_backup_suffix(".bak"),
-        )
-        .map_err(thread_storage_error)
+        let mut connection = self.open_connection()?;
+        let transaction = connection.transaction().map_err(thread_sqlite_error)?;
+        transaction
+            .execute("DELETE FROM threads", [])
+            .map_err(thread_sqlite_error)?;
+        {
+            let mut statement = transaction
+                .prepare(
+                    "INSERT INTO threads (
+                        thread_id,
+                        title,
+                        status,
+                        session_key,
+                        parent_thread_id,
+                        source,
+                        created_at,
+                        updated_at,
+                        archived_at,
+                        record_json
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                )
+                .map_err(thread_sqlite_error)?;
+            for thread in &index.threads {
+                let record_json = serde_json::to_string(thread).map_err(thread_json_error)?;
+                statement
+                    .execute(params![
+                        thread.thread_id.as_str(),
+                        thread.title.as_str(),
+                        format!("{:?}", thread.status),
+                        thread.session_key.as_deref(),
+                        thread.parent_thread_id.as_deref(),
+                        thread.source.as_str(),
+                        thread.created_at.as_str(),
+                        thread.updated_at.as_str(),
+                        thread.archived_at.as_deref(),
+                        record_json
+                    ])
+                    .map_err(thread_sqlite_error)?;
+            }
+        }
+        transaction.commit().map_err(thread_sqlite_error)
     }
 
     fn read_items(&self, thread_id: &str) -> Result<Vec<ThreadItem>, WorkerProtocolError> {
         validate_thread_id(thread_id)?;
-        read_jsonl_strict(&self.items_path(thread_id)).map_err(thread_storage_error)
+        let connection = self.open_connection()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT item_json
+                 FROM thread_items
+                 WHERE thread_id = ?1
+                 ORDER BY sequence ASC",
+            )
+            .map_err(thread_sqlite_error)?;
+        let rows = statement
+            .query_map(params![thread_id], |row| row.get::<_, String>(0))
+            .map_err(thread_sqlite_error)?;
+        let mut items = Vec::new();
+        for row in rows {
+            let item_json = row.map_err(thread_sqlite_error)?;
+            items.push(serde_json::from_str(&item_json).map_err(thread_json_error)?);
+        }
+        Ok(items)
     }
 
     fn write_items(
@@ -649,12 +704,67 @@ impl LocalThreadStore {
         items: &[ThreadItem],
     ) -> Result<(), WorkerProtocolError> {
         validate_thread_id(thread_id)?;
-        write_jsonl_atomic(
-            &self.items_path(thread_id),
-            items,
-            AtomicWriteOptions::default().with_backup_suffix(".bak"),
-        )
-        .map_err(thread_storage_error)
+        let mut connection = self.open_connection()?;
+        let transaction = connection.transaction().map_err(thread_sqlite_error)?;
+        transaction
+            .execute(
+                "DELETE FROM thread_items WHERE thread_id = ?1",
+                params![thread_id],
+            )
+            .map_err(thread_sqlite_error)?;
+        {
+            let mut statement = transaction
+                .prepare(
+                    "INSERT INTO thread_items (
+                        thread_id,
+                        sequence,
+                        item_id,
+                        run_id,
+                        turn_id,
+                        parent_item_id,
+                        created_at,
+                        kind,
+                        item_json
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                )
+                .map_err(thread_sqlite_error)?;
+            for item in items {
+                let item_json = serde_json::to_string(item).map_err(thread_json_error)?;
+                statement
+                    .execute(params![
+                        item.thread_id.as_str(),
+                        item.sequence,
+                        item.item_id.as_str(),
+                        item.run_id.as_deref(),
+                        item.turn_id.as_deref(),
+                        item.parent_item_id.as_deref(),
+                        item.created_at.as_str(),
+                        thread_item_kind_name(&item.kind),
+                        item_json
+                    ])
+                    .map_err(thread_sqlite_error)?;
+            }
+        }
+        transaction.commit().map_err(thread_sqlite_error)
+    }
+
+    fn delete_items(&self, thread_id: &str) -> Result<(), WorkerProtocolError> {
+        validate_thread_id(thread_id)?;
+        let connection = self.open_connection()?;
+        connection
+            .execute(
+                "DELETE FROM thread_items WHERE thread_id = ?1",
+                params![thread_id],
+            )
+            .map_err(thread_sqlite_error)?;
+        Ok(())
+    }
+
+    fn open_connection(&self) -> Result<Connection, WorkerProtocolError> {
+        fs::create_dir_all(&self.root).map_err(|error| thread_io_error("create", error))?;
+        let connection = Connection::open(self.sqlite_path()).map_err(thread_sqlite_error)?;
+        ensure_thread_schema(&connection)?;
+        Ok(connection)
     }
 
     pub fn record_agent_run(
@@ -1115,12 +1225,22 @@ fn agent_run_record_from_thread_run(
         checkpoint: None,
         artifacts: Vec::new(),
         usage: Vec::new(),
+        token_usage_info: thread_token_usage_info(thread),
         error: (run.status == ThreadStatus::Failed).then(|| {
             serde_json::json!({
                 "message": "thread run failed"
             })
         }),
     }
+}
+
+fn thread_token_usage_info(thread: &ThreadRecord) -> Option<crate::worker_session::TokenUsageInfo> {
+    thread
+        .metadata
+        .extra
+        .get("tokenUsageInfo")
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok())
 }
 
 fn child_thread_ids_for_run(
@@ -1591,7 +1711,7 @@ impl ThreadStore for LocalThreadStore {
             .retain(|thread| !delete_ids.contains(&thread.thread_id));
         self.write_index(&index)?;
         for thread_id in &delete_ids {
-            remove_items_file(&self.items_path(thread_id))?;
+            self.delete_items(thread_id)?;
         }
         Ok(DeleteThreadResult {
             thread_id: request.thread_id,
@@ -2146,6 +2266,15 @@ fn set_metadata_extra_string(extra: &mut Value, key: &str, value: &str) {
     }
 }
 
+fn set_metadata_extra_value(extra: &mut Value, key: &str, value: Value) {
+    if !extra.is_object() {
+        *extra = Value::Object(Default::default());
+    }
+    if let Some(map) = extra.as_object_mut() {
+        map.insert(key.to_string(), value);
+    }
+}
+
 fn recompute_dynamic_metadata(record: &mut ThreadRecord, items: &[ThreadItem]) {
     const DEFAULT_RUN_KEY: &str = "__thread_default_run__";
 
@@ -2207,6 +2336,15 @@ fn recompute_dynamic_metadata(record: &mut ThreadRecord, items: &[ThreadItem]) {
                 lifecycle.last_sequence = item.sequence;
             }
             ThreadItemKind::AgentRunCompleted(_) => {
+                if let ThreadItemKind::AgentRunCompleted(payload) = &item.kind {
+                    if let Some(token_usage_info) = payload.get("tokenUsageInfo") {
+                        set_metadata_extra_value(
+                            &mut record.metadata.extra,
+                            "tokenUsageInfo",
+                            token_usage_info.clone(),
+                        );
+                    }
+                }
                 let lifecycle = run_lifecycles.entry(run_key).or_default();
                 if !lifecycle.terminal {
                     lifecycle.active = false;
@@ -2396,6 +2534,8 @@ fn thread_item_kind_for_agent_event(event_name: &str, event: Value) -> ThreadIte
         "agent.awaiting_approval" => ThreadItemKind::ApprovalRequested(event),
         "agent.approval.decision" => ThreadItemKind::ApprovalResolved(event),
         "agent.checkpoint" => ThreadItemKind::CheckpointCreated(event),
+        "agent.context.trimmed" => ThreadItemKind::ContextTrimmed(event),
+        "agent.context.compacted" => ThreadItemKind::ContextCompaction(event),
         "agent.error" => ThreadItemKind::Error(event),
         "agent.cancelled" => ThreadItemKind::Cancelled(event),
         name if name.starts_with("agent.delegate.spawn") => ThreadItemKind::SubagentSpawned(event),
@@ -3055,6 +3195,8 @@ fn trace_event_from_thread_item(item: &ThreadItem) -> Option<Value> {
         ThreadItemKind::ApprovalResolved(value) => (value, Some("agent.approval.decision")),
         ThreadItemKind::AgentRunStep(value) => (value, Some("agent.step")),
         ThreadItemKind::CheckpointCreated(value) => (value, None),
+        ThreadItemKind::ContextTrimmed(value) => (value, Some("agent.context.trimmed")),
+        ThreadItemKind::ContextCompaction(value) => (value, Some("agent.context.compacted")),
         ThreadItemKind::SubagentSpawned(value) => (value, Some("agent.delegate.spawned")),
         ThreadItemKind::SubagentMessage(value) => (value, Some("agent.delegate.message")),
         ThreadItemKind::SubagentCompleted(value) => (value, Some("agent.delegate.completed")),
@@ -3207,31 +3349,105 @@ fn now_millis() -> u128 {
         .as_millis()
 }
 
-fn thread_storage_error(error: WorkerStorageError) -> WorkerProtocolError {
-    let code = if matches!(error, WorkerStorageError::Io { .. }) {
-        WorkerProtocolErrorCode::WorkerError
-    } else {
-        WorkerProtocolErrorCode::InvalidProtocol
-    };
+fn ensure_thread_schema(connection: &Connection) -> Result<(), WorkerProtocolError> {
+    connection
+        .execute_batch(
+            "
+            PRAGMA foreign_keys = ON;
+            CREATE TABLE IF NOT EXISTS threads (
+                thread_id TEXT PRIMARY KEY NOT NULL,
+                title TEXT NOT NULL,
+                status TEXT NOT NULL,
+                session_key TEXT,
+                parent_thread_id TEXT,
+                source TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                archived_at TEXT,
+                record_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_threads_updated_at
+                ON threads(updated_at DESC, thread_id ASC);
+            CREATE INDEX IF NOT EXISTS idx_threads_session_key
+                ON threads(session_key);
+            CREATE INDEX IF NOT EXISTS idx_threads_parent
+                ON threads(parent_thread_id);
+            CREATE TABLE IF NOT EXISTS thread_items (
+                thread_id TEXT NOT NULL,
+                sequence INTEGER NOT NULL,
+                item_id TEXT NOT NULL,
+                run_id TEXT,
+                turn_id TEXT,
+                parent_item_id TEXT,
+                created_at TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                item_json TEXT NOT NULL,
+                PRIMARY KEY (thread_id, sequence),
+                UNIQUE (thread_id, item_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_thread_items_run
+                ON thread_items(thread_id, run_id);
+            CREATE INDEX IF NOT EXISTS idx_thread_items_created
+                ON thread_items(thread_id, created_at);
+            ",
+        )
+        .map_err(thread_sqlite_error)
+}
+
+fn thread_item_kind_name(kind: &ThreadItemKind) -> &'static str {
+    match kind {
+        ThreadItemKind::UserMessage(_) => "user_message",
+        ThreadItemKind::AssistantMessageDelta(_) => "assistant_message_delta",
+        ThreadItemKind::AssistantMessageCompleted(_) => "assistant_message_completed",
+        ThreadItemKind::Reasoning(_) => "reasoning",
+        ThreadItemKind::ToolCallStarted(_) => "tool_call_started",
+        ThreadItemKind::ToolCallOutput(_) => "tool_call_output",
+        ThreadItemKind::ApprovalRequested(_) => "approval_requested",
+        ThreadItemKind::ApprovalResolved(_) => "approval_resolved",
+        ThreadItemKind::AgentRunStarted(_) => "agent_run_started",
+        ThreadItemKind::AgentRunStep(_) => "agent_run_step",
+        ThreadItemKind::AgentRunCompleted(_) => "agent_run_completed",
+        ThreadItemKind::CheckpointCreated(_) => "checkpoint_created",
+        ThreadItemKind::ContextTrimmed(_) => "context_trimmed",
+        ThreadItemKind::ContextCompaction(_) => "context_compaction",
+        ThreadItemKind::SubagentSpawned(_) => "subagent_spawned",
+        ThreadItemKind::SubagentMessage(_) => "subagent_message",
+        ThreadItemKind::SubagentCompleted(_) => "subagent_completed",
+        ThreadItemKind::SettingsChanged(_) => "settings_changed",
+        ThreadItemKind::Error(_) => "error",
+        ThreadItemKind::Cancelled(_) => "cancelled",
+        ThreadItemKind::Event(_) => "event",
+    }
+}
+
+fn thread_io_error(operation: &'static str, error: std::io::Error) -> WorkerProtocolError {
     WorkerProtocolError::new(
-        code,
-        "thread store failed",
-        serde_json::json!({ "error": error.to_string() }),
+        WorkerProtocolErrorCode::WorkerError,
+        format!("thread store IO error during {operation}: {error}"),
+        serde_json::json!({ "method": "thread" }),
         false,
         WorkerProtocolErrorSource::RustCore,
     )
 }
 
-fn remove_items_file(path: &PathBuf) -> Result<(), WorkerProtocolError> {
-    match fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(source) => Err(thread_storage_error(WorkerStorageError::Io {
-            operation: "delete",
-            path: path.clone(),
-            source,
-        })),
-    }
+fn thread_sqlite_error(error: rusqlite::Error) -> WorkerProtocolError {
+    WorkerProtocolError::new(
+        WorkerProtocolErrorCode::WorkerError,
+        format!("thread store SQLite error: {error}"),
+        serde_json::json!({ "method": "thread" }),
+        false,
+        WorkerProtocolErrorSource::RustCore,
+    )
+}
+
+fn thread_json_error(error: serde_json::Error) -> WorkerProtocolError {
+    WorkerProtocolError::new(
+        WorkerProtocolErrorCode::InvalidProtocol,
+        format!("thread store JSON error: {error}"),
+        serde_json::json!({ "method": "thread" }),
+        false,
+        WorkerProtocolErrorSource::RustCore,
+    )
 }
 
 fn unknown_thread_error(thread_id: &str) -> WorkerProtocolError {
@@ -4181,6 +4397,108 @@ mod tests {
 
         assert_eq!(checkpoint.checkpoint_id, "checkpoint-2");
         assert_eq!(checkpoint.restore_payload["phase"], "new");
+    }
+
+    #[test]
+    fn local_thread_store_persists_context_window_items_and_token_usage_metadata() {
+        let root = temp_root("context-window-items-token-usage");
+        let _cleanup = Cleanup(root.clone());
+        let store = LocalThreadStore::new(root);
+        let thread = store.create_thread(CreateThreadRequest::default()).unwrap();
+        let token_usage_info = json!({
+            "totalTokenUsage": {
+                "inputTokens": 0,
+                "cachedInputTokens": 0,
+                "outputTokens": 0,
+                "reasoningOutputTokens": 0,
+                "totalTokens": 172
+            },
+            "lastTokenUsage": {
+                "inputTokens": 10,
+                "cachedInputTokens": 0,
+                "outputTokens": 162,
+                "reasoningOutputTokens": 41,
+                "totalTokens": 172
+            },
+            "modelContextWindow": 128000
+        });
+
+        store
+            .append_items(
+                &thread.thread_id,
+                vec![
+                    ThreadItem {
+                        item_id: String::new(),
+                        thread_id: String::new(),
+                        run_id: Some("run-context".to_string()),
+                        turn_id: Some("run-context".to_string()),
+                        parent_item_id: None,
+                        sequence: 0,
+                        created_at: String::new(),
+                        kind: ThreadItemKind::ContextTrimmed(json!({
+                            "runId": "run-context",
+                            "strategy": "discard",
+                            "droppedMessageCount": 2
+                        })),
+                    },
+                    ThreadItem {
+                        item_id: String::new(),
+                        thread_id: String::new(),
+                        run_id: Some("run-context".to_string()),
+                        turn_id: Some("run-context".to_string()),
+                        parent_item_id: None,
+                        sequence: 0,
+                        created_at: String::new(),
+                        kind: ThreadItemKind::ContextCompaction(json!({
+                            "runId": "run-context",
+                            "strategy": "compact",
+                            "droppedMessageCount": 2
+                        })),
+                    },
+                    ThreadItem {
+                        item_id: String::new(),
+                        thread_id: String::new(),
+                        run_id: Some("run-context".to_string()),
+                        turn_id: Some("run-context".to_string()),
+                        parent_item_id: None,
+                        sequence: 0,
+                        created_at: String::new(),
+                        kind: ThreadItemKind::AgentRunCompleted(json!({
+                            "runId": "run-context",
+                            "tokenUsageInfo": token_usage_info
+                        })),
+                    },
+                ],
+            )
+            .unwrap();
+
+        let snapshot = store
+            .read_thread(ReadThreadRequest {
+                thread_id: thread.thread_id,
+                cursor: None,
+                before_sequence: None,
+                checkpoint_sequence: None,
+                checkpoint_id: None,
+                limit: None,
+            })
+            .unwrap();
+
+        assert!(matches!(
+            snapshot.items[0].kind,
+            ThreadItemKind::ContextTrimmed(_)
+        ));
+        assert!(matches!(
+            snapshot.items[1].kind,
+            ThreadItemKind::ContextCompaction(_)
+        ));
+        assert_eq!(
+            snapshot.thread.metadata.extra["tokenUsageInfo"]["lastTokenUsage"]["totalTokens"],
+            172
+        );
+        assert_eq!(
+            snapshot.thread.metadata.extra["tokenUsageInfo"]["modelContextWindow"],
+            128000
+        );
     }
 
     #[test]

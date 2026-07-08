@@ -318,7 +318,18 @@ impl NativeAgentRunState {
         usage: Value,
         estimated_context_tokens: i64,
     ) {
-        let usage = enrich_usage_with_context_window(context, usage, estimated_context_tokens);
+        let cumulative_before = latest_cumulative_usage_tokens(&self.usage).unwrap_or_else(|| {
+            self.usage
+                .iter()
+                .filter_map(usage_context_used_tokens)
+                .fold(0i64, i64::saturating_add)
+        });
+        let usage = enrich_usage_with_context_window(
+            context,
+            usage,
+            estimated_context_tokens,
+            cumulative_before,
+        );
         self.usage.push(usage.clone());
         self.emit_event(
             "agent.usage",
@@ -1256,22 +1267,88 @@ fn agent_chat_messages(context: &NativeAgentRunContext) -> Result<Value, String>
     Err("agent run requires at least one chat message".to_string())
 }
 
+#[derive(Clone, Debug)]
+struct ContextWindowProjection {
+    messages: Vec<Value>,
+    action: Option<ContextWindowAction>,
+}
+
+#[derive(Clone, Debug)]
+struct ContextWindowAction {
+    event_name: &'static str,
+    strategy: &'static str,
+    dropped_message_count: usize,
+    retained_message_count: usize,
+    replacement_message_count: usize,
+    context_window_tokens: i64,
+    estimated_tokens_before: i64,
+    estimated_tokens_after: i64,
+}
+
+#[derive(Clone, Debug)]
+struct CompactedContextMessages {
+    messages: Vec<Value>,
+    old_count: usize,
+    recent_count: usize,
+}
+
 fn context_window_messages(context: &NativeAgentRunContext) -> Vec<Value> {
+    if bool_field(&context.spec, "_contextWindowProjected") {
+        return context.messages.clone();
+    }
+    context_window_projection(context).messages
+}
+
+fn context_window_projection(context: &NativeAgentRunContext) -> ContextWindowProjection {
     let context_window_tokens = effective_context_window_tokens(context);
     let full_estimate = estimate_messages_tokens(&context.messages);
     if context_window_strategy(context) == "compact"
         && compact_threshold_reached(context, full_estimate, context_window_tokens)
     {
-        if let Some(messages) = compact_messages_to_context_window(context, context_window_tokens) {
-            return messages;
+        if let Some(compacted) = compact_messages_to_context_window(context, context_window_tokens)
+        {
+            let estimated_tokens_after = estimate_messages_tokens(&compacted.messages);
+            let replacement_message_count = compacted.messages.len();
+            return ContextWindowProjection {
+                messages: compacted.messages,
+                action: Some(ContextWindowAction {
+                    event_name: "agent.context.compacted",
+                    strategy: "compact",
+                    dropped_message_count: compacted.old_count,
+                    retained_message_count: compacted.recent_count,
+                    replacement_message_count,
+                    context_window_tokens,
+                    estimated_tokens_before: full_estimate,
+                    estimated_tokens_after,
+                }),
+            };
         }
     }
 
     if full_estimate <= context_window_tokens {
-        return context.messages.clone();
+        return ContextWindowProjection {
+            messages: context.messages.clone(),
+            action: None,
+        };
     }
 
-    trim_messages_to_context_window(&context.messages, context_window_tokens)
+    let messages = trim_messages_to_context_window(&context.messages, context_window_tokens);
+    let dropped_message_count = context.messages.len().saturating_sub(messages.len());
+    let retained_message_count = messages.len();
+    let estimated_tokens_after = estimate_messages_tokens(&messages);
+    ContextWindowProjection {
+        messages,
+        action: (dropped_message_count > 0).then_some(ContextWindowAction {
+            event_name: "agent.context.trimmed",
+            strategy: "discard",
+            dropped_message_count,
+            retained_message_count,
+            replacement_message_count: retained_message_count,
+            context_window_tokens,
+            estimated_tokens_before: full_estimate,
+            estimated_tokens_after,
+        }),
+    }
 }
 
 fn effective_context_window_tokens(context: &NativeAgentRunContext) -> i64 {
@@ -1385,12 +1462,43 @@ fn trim_messages_to_context_window(messages: &[Value], context_window_tokens: i6
     selected
 }
 
+fn context_window_action_payload(
+    context: &NativeAgentRunContext,
+    iteration: i64,
+    action: &ContextWindowAction,
+) -> Value {
+    serde_json::json!({
+        "runId": context.run_id,
+        "sessionId": context.session_id,
+        "iteration": iteration,
+        "strategy": action.strategy,
+        "droppedMessageCount": action.dropped_message_count,
+        "retainedMessageCount": action.retained_message_count,
+        "replacementMessageCount": action.replacement_message_count,
+        "contextWindowTokens": action.context_window_tokens,
+        "estimatedTokensBefore": action.estimated_tokens_before,
+        "estimatedTokensAfter": action.estimated_tokens_after,
+    })
+}
+
+fn context_with_projected_messages(
+    context: &NativeAgentRunContext,
+    messages: Vec<Value>,
+) -> NativeAgentRunContext {
+    let mut projected = context.clone();
+    projected.messages = messages.clone();
+    projected.spec["messages"] = Value::Array(messages);
+    projected.spec["_contextWindowProjected"] = Value::Bool(true);
+    projected
+}
+
 fn compact_messages_to_context_window(
     context: &NativeAgentRunContext,
     context_window_tokens: i64,
-) -> Option<Vec<Value>> {
+) -> Option<CompactedContextMessages> {
     let recent_budget = (context_window_tokens.saturating_mul(2) / 3).max(1);
     let recent_messages = trim_messages_to_context_window(&context.messages, recent_budget);
+    let recent_count = recent_messages.len();
     let old_count = context.messages.len().saturating_sub(recent_messages.len());
     if old_count == 0 {
         return None;
@@ -1406,10 +1514,11 @@ fn compact_messages_to_context_window(
         "content": format!("Conversation summary so far:\n{}", summary.trim()),
     })];
     compacted.extend(recent_messages);
-    Some(trim_messages_to_context_window(
-        &compacted,
-        context_window_tokens,
-    ))
+    Some(CompactedContextMessages {
+        messages: trim_messages_to_context_window(&compacted, context_window_tokens),
+        old_count,
+        recent_count,
+    })
 }
 
 fn compact_old_messages(
@@ -1470,13 +1579,21 @@ fn enrich_usage_with_context_window(
     context: &NativeAgentRunContext,
     usage: Value,
     estimated_context_tokens: i64,
+    cumulative_usage_tokens_before: i64,
 ) -> Value {
     let mut usage = match usage {
         Value::Object(map) => Value::Object(map),
         other => serde_json::json!({ "raw": other }),
     };
+    normalize_provider_usage_fields(&mut usage);
     let context_window_tokens = effective_context_window_tokens(context);
+    let usage_source = if usage_context_used_tokens(&usage).is_some() {
+        "provider_usage"
+    } else {
+        "local_estimator"
+    };
     let used_tokens = usage_context_used_tokens(&usage).unwrap_or(estimated_context_tokens);
+    let cumulative_usage_tokens = cumulative_usage_tokens_before.saturating_add(used_tokens);
     let remaining_tokens = context_window_tokens.saturating_sub(used_tokens).max(0);
     let percent = if context_window_tokens > 0 {
         ((used_tokens as f64 / context_window_tokens as f64) * 100.0).clamp(0.0, 100.0)
@@ -1490,6 +1607,12 @@ fn enrich_usage_with_context_window(
     usage["contextWindowTokens"] = serde_json::json!(context_window_tokens);
     usage["context_window_used_tokens"] = serde_json::json!(used_tokens);
     usage["contextWindowUsedTokens"] = serde_json::json!(used_tokens);
+    usage["context_usage_tokens"] = serde_json::json!(used_tokens);
+    usage["contextUsageTokens"] = serde_json::json!(used_tokens);
+    usage["cumulative_usage_tokens"] = serde_json::json!(cumulative_usage_tokens);
+    usage["cumulativeUsageTokens"] = serde_json::json!(cumulative_usage_tokens);
+    usage["token_usage_source"] = serde_json::json!(usage_source);
+    usage["tokenUsageSource"] = serde_json::json!(usage_source);
     usage["context_window_remaining_tokens"] = serde_json::json!(remaining_tokens);
     usage["contextWindowRemainingTokens"] = serde_json::json!(remaining_tokens);
     usage["estimated_context_tokens"] = serde_json::json!(estimated_context_tokens);
@@ -1498,16 +1621,49 @@ fn enrich_usage_with_context_window(
     usage
 }
 
+fn normalize_provider_usage_fields(usage: &mut Value) {
+    copy_usage_number(usage, "prompt_tokens", "promptTokens");
+    copy_usage_number(usage, "completion_tokens", "completionTokens");
+    copy_usage_number(usage, "total_tokens", "totalTokens");
+}
+
+fn copy_usage_number(usage: &mut Value, snake_key: &str, camel_key: &str) {
+    if usage.get(camel_key).is_some() {
+        return;
+    }
+    let Some(value) = usage.get(snake_key).cloned() else {
+        return;
+    };
+    if value.is_number() {
+        usage[camel_key] = value;
+    }
+}
+
 fn usage_context_used_tokens(usage: &Value) -> Option<i64> {
     [
-        "prompt_tokens",
-        "promptTokens",
         "total_tokens",
         "totalTokens",
+        "context_usage_tokens",
+        "contextUsageTokens",
         "total",
+        "prompt_tokens",
+        "promptTokens",
     ]
     .iter()
     .find_map(|key| positive_i64_field(usage, key))
+}
+
+fn latest_cumulative_usage_tokens(usages: &[Value]) -> Option<i64> {
+    usages
+        .iter()
+        .rev()
+        .find_map(|usage| positive_i64_field(usage, "cumulative_usage_tokens"))
+        .or_else(|| {
+            usages
+                .iter()
+                .rev()
+                .find_map(|usage| positive_i64_field(usage, "cumulativeUsageTokens"))
+        })
 }
 
 fn initial_agent_messages(spec: &Value) -> Vec<Value> {
@@ -1761,7 +1917,13 @@ pub fn run_native_agent_turn_with_config(
         );
         context.messages = state.messages.clone();
         context.spec["messages"] = Value::Array(state.messages.clone());
-        let estimated_context_tokens = estimate_context_tokens_for_request(&context);
+        let projection = context_window_projection(&context);
+        if let Some(action) = projection.action.as_ref() {
+            let payload = context_window_action_payload(&context, iteration, action);
+            state.emit_event(action.event_name, payload);
+        }
+        let provider_context = context_with_projected_messages(&context, projection.messages);
+        let estimated_context_tokens = estimate_context_tokens_for_request(&provider_context);
         let mut provider_streamed_content = false;
         let mut provider_streamed_reasoning = false;
         let provider_response = {
@@ -1809,7 +1971,7 @@ pub fn run_native_agent_turn_with_config(
             };
             services
                 .provider
-                .complete_streaming(&context, &mut stream_observer)
+                .complete_streaming(&provider_context, &mut stream_observer)
         };
         let provider_response = match provider_response {
             Ok(response) => response,
@@ -3004,6 +3166,14 @@ fn approval_denied_guidance_result(
         Ok(provider_response) => {
             let final_content = provider_response.final_content;
             if let Some(usage) = provider_response.usage {
+                let estimated_context_tokens =
+                    estimate_context_tokens_for_request(&resumed_context);
+                let usage = enrich_usage_with_context_window(
+                    &resumed_context,
+                    usage,
+                    estimated_context_tokens,
+                    0,
+                );
                 events.push(event(
                     "agent.usage",
                     serde_json::json!({
@@ -4025,6 +4195,46 @@ mod tests {
     }
 
     #[test]
+    fn agent_run_emits_context_trim_event_when_old_messages_are_discarded() {
+        let result = run_native_agent_turn_with_config(
+            &NativeAgentRuntimeServices::default(),
+            json!({
+                "runtime": "rust",
+                "runId": "run-context-trim-event",
+                "sessionId": "websocket:chat-context-trim-event",
+                "messages": [
+                    { "role": "user", "content": "old message ".repeat(200) },
+                    { "role": "assistant", "content": "old answer ".repeat(200) },
+                    { "role": "user", "content": "current question" }
+                ]
+            }),
+            json!({
+                "agents": {
+                    "defaults": {
+                        "provider": "fixture",
+                        "model": "fixture-model",
+                        "contextWindowTokens": 32
+                    }
+                },
+                "providers": { "fixture": { "responses": [{ "content": "fixture answer" }] } }
+            }),
+        )
+        .expect("fixture provider run should succeed");
+
+        let trim_event = result["events"]
+            .as_array()
+            .expect("events should be an array")
+            .iter()
+            .find(|event| event["eventName"] == "agent.context.trimmed")
+            .expect("context trim event should be emitted");
+
+        assert_eq!(trim_event["payload"]["strategy"], "discard");
+        assert_eq!(trim_event["payload"]["droppedMessageCount"], 2);
+        assert_eq!(trim_event["payload"]["retainedMessageCount"], 1);
+        assert_eq!(trim_event["payload"]["contextWindowTokens"], 32);
+    }
+
+    #[test]
     fn agent_chat_request_requests_stream_usage() {
         let context = NativeAgentRunContext::from_spec(
             json!({
@@ -4092,6 +4302,56 @@ mod tests {
     }
 
     #[test]
+    fn agent_run_emits_context_compaction_event_when_old_messages_are_summarized() {
+        let result = run_native_agent_turn_with_config(
+            &NativeAgentRuntimeServices::default(),
+            json!({
+                "runtime": "rust",
+                "runId": "run-context-compact-event",
+                "sessionId": "websocket:chat-context-compact-event",
+                "messages": [
+                    { "role": "user", "content": "old context ".repeat(200) },
+                    { "role": "assistant", "content": "old answer ".repeat(200) },
+                    { "role": "user", "content": "current question" }
+                ]
+            }),
+            json!({
+                "agents": {
+                    "defaults": {
+                        "provider": "fixture",
+                        "model": "fixture-model",
+                        "contextWindowTokens": 80,
+                        "contextWindowStrategy": "compact",
+                        "compactTriggerPercent": 50
+                    }
+                },
+                "providers": {
+                    "fixture": {
+                        "responses": [
+                            { "content": "summary of earlier turns" },
+                            { "content": "fixture answer" }
+                        ]
+                    }
+                }
+            }),
+        )
+        .expect("fixture provider run should succeed");
+
+        let compact_event = result["events"]
+            .as_array()
+            .expect("events should be an array")
+            .iter()
+            .find(|event| event["eventName"] == "agent.context.compacted")
+            .expect("context compaction event should be emitted");
+
+        assert_eq!(compact_event["payload"]["strategy"], "compact");
+        assert_eq!(compact_event["payload"]["droppedMessageCount"], 2);
+        assert_eq!(compact_event["payload"]["retainedMessageCount"], 1);
+        assert_eq!(compact_event["payload"]["replacementMessageCount"], 2);
+        assert_eq!(compact_event["payload"]["contextWindowTokens"], 80);
+    }
+
+    #[test]
     fn agent_usage_event_includes_context_window_budget() {
         let result = run_native_agent_turn_with_config(
             &NativeAgentRuntimeServices::default(),
@@ -4125,6 +4385,46 @@ mod tests {
         assert_eq!(usage["context_window_tokens"], 100);
         assert!(usage["context_window_remaining_tokens"].is_number());
         assert!(usage["context_window_used_tokens"].is_number());
+    }
+
+    #[test]
+    fn usage_context_window_prefers_provider_total_tokens() {
+        let context = NativeAgentRunContext::from_spec(
+            json!({
+                "runtime": "rust",
+                "runId": "run-total-usage",
+                "sessionId": "websocket:chat-total-usage",
+                "messages": [{ "role": "user", "content": "hello" }]
+            }),
+            json!({
+                "agents": {
+                    "defaults": {
+                        "provider": "fixture",
+                        "model": "fixture-model",
+                        "contextWindowTokens": 128000
+                    }
+                }
+            }),
+        );
+
+        let usage = enrich_usage_with_context_window(
+            &context,
+            json!({
+                "prompt_tokens": 5,
+                "completion_tokens": 167,
+                "total_tokens": 172
+            }),
+            9,
+            1000,
+        );
+
+        assert_eq!(usage["promptTokens"], 5);
+        assert_eq!(usage["completionTokens"], 167);
+        assert_eq!(usage["totalTokens"], 172);
+        assert_eq!(usage["contextWindowUsedTokens"], 172);
+        assert_eq!(usage["contextUsageTokens"], 172);
+        assert_eq!(usage["cumulativeUsageTokens"], 1172);
+        assert_eq!(usage["tokenUsageSource"], "provider_usage");
     }
 
     #[test]

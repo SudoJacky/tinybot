@@ -116,7 +116,33 @@ pub struct AgentRunRecord {
     pub artifacts: Vec<Value>,
     #[serde(default)]
     pub usage: Vec<Value>,
+    #[serde(default)]
+    pub token_usage_info: Option<TokenUsageInfo>,
     pub error: Option<Value>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenUsage {
+    #[serde(default)]
+    pub input_tokens: i64,
+    #[serde(default)]
+    pub cached_input_tokens: i64,
+    #[serde(default)]
+    pub output_tokens: i64,
+    #[serde(default)]
+    pub reasoning_output_tokens: i64,
+    #[serde(default)]
+    pub total_tokens: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenUsageInfo {
+    pub total_token_usage: TokenUsage,
+    pub last_token_usage: TokenUsage,
+    #[serde(default)]
+    pub model_context_window: Option<i64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]

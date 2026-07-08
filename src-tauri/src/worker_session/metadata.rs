@@ -3,7 +3,7 @@ impl WorkerSessionRpc {
         Self {
             sessions,
             policy,
-            store_path: None,
+            sqlite_path: None,
         }
     }
 
@@ -12,15 +12,16 @@ impl WorkerSessionRpc {
         sessions: Vec<SessionMetadata>,
         policy: CapabilityPolicy,
     ) -> Result<Self, WorkerProtocolError> {
-        let store_path = session_store_path(&root);
-        let sessions = match read_session_store(&store_path) {
+        let sqlite_path = session_sqlite_path(&root);
+        let sessions = match read_session_store(&sqlite_path) {
             Ok(Some(store)) => store.sessions,
-            Ok(None) | Err(_) => sessions,
+            Ok(None) => sessions,
+            Err(error) => return Err(error),
         };
         Ok(Self {
             sessions,
             policy,
-            store_path: Some(store_path),
+            sqlite_path: Some(sqlite_path),
         })
     }
 
@@ -197,17 +198,13 @@ impl WorkerSessionRpc {
     }
 
     fn persist_sessions(&self) -> Result<(), WorkerProtocolError> {
-        let Some(store_path) = &self.store_path else {
+        let Some(sqlite_path) = &self.sqlite_path else {
             return Ok(());
         };
-        if let Some(parent) = store_path.parent() {
-            fs::create_dir_all(parent).map_err(session_io_error)?;
-        }
         let store = SessionStore {
             version: 1,
             sessions: self.sessions.clone(),
         };
-        let contents = serde_json::to_string_pretty(&store).map_err(session_serialization_error)?;
-        fs::write(store_path, format!("{contents}\n")).map_err(session_io_error)
+        write_session_store(sqlite_path, &store)
     }
 }

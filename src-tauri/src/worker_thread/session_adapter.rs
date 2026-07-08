@@ -89,6 +89,7 @@ pub fn get_session_history_from_threads(
         let start = messages.len() - limit;
         messages = messages.split_off(start);
     }
+    attach_thread_token_usage_to_history(&mut messages, &snapshot.thread.metadata);
     let updated_at = snapshot
         .items
         .iter()
@@ -595,11 +596,103 @@ fn thread_item_to_session_message(item: &ThreadItem) -> Option<Value> {
         ThreadItemKind::AssistantMessageCompleted(payload) => ("assistant", payload),
         _ => return None,
     };
-    Some(json!({
+    let mut message = json!({
         "role": role,
         "content": thread_item_content(payload),
         "timestamp": item.created_at
+    });
+    copy_optional_message_fields(
+        payload,
+        &mut message,
+        &[
+            "id",
+            "messageId",
+            "message_id",
+            "usage",
+            "tokenUsageInfo",
+            "metadata",
+            "references",
+            "contextReferences",
+            "context_references",
+            "toolActivities",
+            "tool_activities",
+            "artifacts",
+            "reasoningContent",
+            "reasoning_content",
+        ],
+    );
+    Some(message)
+}
+
+fn copy_optional_message_fields(payload: &Value, message: &mut Value, fields: &[&str]) {
+    let Some(message_object) = message.as_object_mut() else {
+        return;
+    };
+    for field in fields {
+        if let Some(value) = payload.get(*field) {
+            message_object.insert((*field).to_string(), value.clone());
+        }
+    }
+}
+
+fn attach_thread_token_usage_to_history(messages: &mut [Value], metadata: &ThreadMetadata) {
+    if messages.is_empty() {
+        return;
+    }
+    let Some(token_usage_info) = metadata
+        .extra
+        .get("tokenUsageInfo")
+        .filter(|value| value.is_object())
+    else {
+        return;
+    };
+    let target_index = messages
+        .iter()
+        .rev()
+        .position(|message| message.get("role").and_then(Value::as_str) == Some("assistant"))
+        .map(|reverse_index| messages.len() - 1 - reverse_index)
+        .unwrap_or_else(|| messages.len() - 1);
+    let target = &mut messages[target_index];
+    if target.get("tokenUsageInfo").is_none() {
+        target["tokenUsageInfo"] = token_usage_info.clone();
+    }
+    if target.get("usage").is_none() {
+        if let Some(usage) = usage_from_token_usage_info(token_usage_info) {
+            target["usage"] = usage;
+        }
+    }
+}
+
+fn usage_from_token_usage_info(token_usage_info: &Value) -> Option<Value> {
+    let last = token_usage_info.get("lastTokenUsage")?;
+    let total = token_usage_info.get("totalTokenUsage");
+    let used_tokens = i64_field(last, "totalTokens")?;
+    let context_window = i64_field(token_usage_info, "modelContextWindow");
+    let remaining_tokens = context_window.map(|window| window.saturating_sub(used_tokens).max(0));
+    let percent = context_window
+        .filter(|window| *window > 0)
+        .map(|window| ((used_tokens as f64 / window as f64) * 100.0).clamp(0.0, 100.0));
+    Some(json!({
+        "cachedTokens": i64_field(last, "cachedInputTokens"),
+        "completionTokens": i64_field(last, "outputTokens"),
+        "contextWindowRemainingTokens": remaining_tokens,
+        "contextWindowTokens": context_window,
+        "contextWindowUsedTokens": used_tokens,
+        "estimatedContextTokens": used_tokens,
+        "promptTokens": i64_field(last, "inputTokens"),
+        "reasoningOutputTokens": i64_field(last, "reasoningOutputTokens"),
+        "totalTokens": used_tokens,
+        "cumulativeUsageTokens": total.and_then(|usage| i64_field(usage, "totalTokens")),
+        "percent": percent,
     }))
+}
+
+fn i64_field(value: &Value, key: &str) -> Option<i64> {
+    value.get(key).and_then(|field| {
+        field
+            .as_i64()
+            .or_else(|| field.as_u64().and_then(|number| i64::try_from(number).ok()))
+    })
 }
 
 fn thread_item_content(payload: &Value) -> String {

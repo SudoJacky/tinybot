@@ -56,6 +56,12 @@ function booleanValue(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
 }
 
+function abortAfter(controller: AbortController, timeoutMs: number, label: string): ReturnType<typeof globalThis.setTimeout> {
+  return globalThis.setTimeout(() => {
+    controller.abort(new Error(`${label} timed out after ${timeoutMs} ms`));
+  }, timeoutMs);
+}
+
 export type NativeSkillsApi = {
   list: () => Promise<unknown>;
   detail: (name: string) => Promise<unknown>;
@@ -265,7 +271,7 @@ async function checkHttpStatus(
   token: string,
 ): Promise<GatewayHealth["http"]> {
   const controller = new AbortController();
-  const timeout = globalThis.setTimeout(() => controller.abort(), config.requestTimeoutMs);
+  const timeout = abortAfter(controller, config.requestTimeoutMs, "Gateway status request");
   try {
     const response = await fetchFn(`${config.httpBaseUrl}/api/status`, {
       headers: authHeaders(token),
@@ -402,21 +408,25 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         () => options.nativeSessions?.list() ?? options.nativeWebui?.route({ method: "GET", path: "/api/sessions" }),
         () => request("/api/sessions"),
         "webui.sessions.list",
+        !options.nativeSessions,
       ),
       messages: (key: string) => nativeOrGateway(
         () => options.nativeSessions?.messages(key) ?? options.nativeWebui?.route({ method: "GET", path: `/api/sessions/${encodePathSegment(key)}/messages` }),
         () => request(`/api/sessions/${encodePathSegment(key)}/messages`),
         "webui.sessions.messages",
+        !options.nativeSessions,
       ),
       agentRuns: (key: string) => nativeOrGateway(
         () => options.nativeSessions?.agentRuns?.(key),
         () => Promise.resolve({ sessionId: key, runs: [] }),
         "webui.sessions.agentRuns",
+        !options.nativeSessions?.agentRuns,
       ),
       agentRunRuntimeState: (key: string, runId: string) => nativeOrGateway(
         () => options.nativeSessions?.agentRunRuntimeState?.(key, runId),
         () => Promise.resolve(null),
         "webui.sessions.agentRunRuntimeState",
+        !options.nativeSessions?.agentRunRuntimeState,
       ),
       profile: (key: string) => nativeOrGateway(
         () => options.nativeWebui?.route({ method: "GET", path: `/api/sessions/${encodePathSegment(key)}/profile` }),
@@ -430,6 +440,7 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         }),
         () => request(`/api/sessions/${encodePathSegment(key)}/temporary-files`),
         "webui.sessions.temporaryFiles",
+        !options.nativeSessions?.temporaryFiles,
       ),
       uploadTemporaryFile: (key: string, body: FormData) => nativeOrGateway(
         () => {
@@ -450,6 +461,7 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         },
         () => request(`/api/sessions/${encodePathSegment(key)}/temporary-files`, formRequest("POST", body)),
         "webui.sessions.uploadTemporaryFile",
+        !options.nativeSessions?.uploadTemporaryFile,
       ),
       clearTemporaryFiles: (key: string) => nativeOrGateway(
         () => options.nativeSessions?.clearTemporaryFiles?.(key) ?? options.nativeWebui?.route({
@@ -458,11 +470,13 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         }),
         () => request(`/api/sessions/${encodePathSegment(key)}/temporary-files`, { method: "DELETE" }),
         "webui.sessions.clearTemporaryFiles",
+        !options.nativeSessions?.clearTemporaryFiles,
       ),
       delete: (key: string) => nativeOrGateway(
         () => options.nativeSessions?.delete?.(key) ?? options.nativeWebui?.route({ method: "DELETE", path: `/api/sessions/${encodePathSegment(key)}` }),
         () => request(`/api/sessions/${encodePathSegment(key)}`, { method: "DELETE" }),
         "webui.sessions.delete",
+        !options.nativeSessions?.delete,
       ),
       patch: (key: string, body: unknown) => nativeOrGateway(
         () => options.nativeSessions?.patch?.(key, body) ?? options.nativeWebui?.route({
@@ -472,6 +486,7 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         }),
         () => request(`/api/sessions/${encodePathSegment(key)}`, jsonRequest("PATCH", body)),
         "webui.sessions.patch",
+        !options.nativeSessions?.patch,
       ),
       branch: (body: unknown) => nativeOrGateway(
         () => options.nativeSessions?.branch?.(body) ?? options.nativeWebui?.route({
@@ -481,6 +496,7 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         }),
         () => request("/api/sessions/branch", jsonRequest("POST", body)),
         "webui.sessions.branch",
+        !options.nativeSessions?.branch,
       ),
       clear: (key: string) => nativeOrGateway(
         () => options.nativeSessions?.clear?.(key) ?? options.nativeWebui?.route({
@@ -489,6 +505,7 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         }),
         () => request(`/api/sessions/${encodePathSegment(key)}/clear`, { method: "POST" }),
         "webui.sessions.clear",
+        !options.nativeSessions?.clear,
       ),
     },
     threads: {
@@ -1143,7 +1160,7 @@ async function bootstrapGateway(
     }
 > {
   const controller = new AbortController();
-  const timeout = globalThis.setTimeout(() => controller.abort(), config.requestTimeoutMs);
+  const timeout = abortAfter(controller, config.requestTimeoutMs, "Gateway bootstrap");
   logDesktopNativeDebug("gateway.bootstrap.start", {
     httpBaseUrl: config.httpBaseUrl,
     timeoutMs: config.requestTimeoutMs,
@@ -1208,7 +1225,7 @@ async function refreshGateway(
     }
 > {
   const controller = new AbortController();
-  const timeout = globalThis.setTimeout(() => controller.abort(), config.requestTimeoutMs);
+  const timeout = abortAfter(controller, config.requestTimeoutMs, "Gateway refresh");
   logDesktopNativeDebug("gateway.refresh.start", {
     refreshTokenPath: session.refreshTokenPath,
     timeoutMs: config.requestTimeoutMs,
@@ -1355,10 +1372,11 @@ async function nativeOrGateway(
   try {
     return await request;
   } catch (error) {
-    logDesktopNativeDebug(`${label}.nativeFallback`, { error: stringifyError(error) });
     if (!fallbackToGateway) {
+      logDesktopNativeDebug(`${label}.nativeError`, { error: stringifyError(error) });
       throw error;
     }
+    logDesktopNativeDebug(`${label}.nativeFallback`, { error: stringifyError(error) });
     return gatewayRequest();
   }
 }

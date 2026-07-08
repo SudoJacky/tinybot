@@ -189,6 +189,8 @@ pub enum ThreadItemKind {
     AgentRunStep(Value),
     AgentRunCompleted(Value),
     CheckpointCreated(Value),
+    ContextTrimmed(Value),
+    ContextCompaction(Value),
     SubagentSpawned(Value),
     SubagentMessage(Value),
     SubagentCompleted(Value),

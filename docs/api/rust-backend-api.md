@@ -374,6 +374,21 @@ Key response shapes used by the lower-level session RPC:
 }
 ```
 
+## Session and Thread Persistence
+
+Tinybot keeps the existing `session.*` API surface for frontend compatibility. Internally, a
+user-visible session maps to a durable backend thread. Each thread is persisted as an append-only
+JSONL file under `.tinybot/threads/YYYY/MM/DD/thread-*.jsonl`.
+
+`state.sqlite` lives under `.tinybot/state/state.sqlite` and is a derived index for listing,
+session/thread id lookup, archive metadata, and the canonical JSONL path. The JSONL thread file is
+the canonical history source.
+
+`session.get_history` returns frontend-compatible messages. When a thread has token usage, the
+backend derives the message `usage` field from the latest persisted `token_count` event. A malformed
+thread log line, malformed `token_count` event, or malformed compaction payload is treated as a
+backend error instead of being silently ignored.
+
 ## Thread Commands
 
 Thread Tauri commands all use `{ input: { body } }`, except the continuation helper commands listed separately.
