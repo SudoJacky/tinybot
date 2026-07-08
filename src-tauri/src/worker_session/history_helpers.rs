@@ -175,6 +175,7 @@ fn project_history_message(message: &Value) -> Option<Value> {
         "reasoningContent",
         "thinking_blocks",
         "thinkingBlocks",
+        "usage",
     ] {
         if let Some(value) = object.get(key) {
             projected.insert(key.to_string(), value.clone());

@@ -278,6 +278,14 @@ describe("desktop native WebSocket bridge", () => {
     const runId = (dispatched[0] as { runId?: string } | undefined)?.runId;
     handlers.get(toDesktopNativeTauriEventName("agent.delta"))?.({ runId, delta: "live" });
     handlers.get(toDesktopNativeTauriEventName("agent.done"))?.({ runId, stopReason: "final_response" });
+    handlers.get(toDesktopNativeTauriEventName("agent.usage"))?.({
+      runId,
+      usage: {
+        context_window_tokens: 128000,
+        context_window_used_tokens: 107,
+        total_tokens: 107,
+      },
+    });
     dispatch.resolve({
       transport: {
         kind: "message",
@@ -317,6 +325,66 @@ describe("desktop native WebSocket bridge", () => {
         text: "live final",
       }),
       turn_id: runId,
+    }));
+    expect(events).not.toContainEqual(expect.objectContaining({
+      event: "usage",
+      chat_id: "chat-native",
+    }));
+  });
+
+  test("drops late usage events for unknown runs instead of accumulating pending events", async () => {
+    const handlers = new Map<string, (payload: unknown) => void>();
+    const nativeTransport: NativeTransportApi = {
+      gatewayFrame: vi.fn(),
+      websocketMessage: vi.fn(),
+      dispatchWebsocketMessage: vi.fn(async () => ({
+        transport: {
+          kind: "message",
+          chatId: "chat-native",
+          sessionId: "websocket:chat-native",
+          frames: [],
+        },
+        agent: {
+          runId: "stale-run",
+          stopReason: "final_response",
+        },
+      })),
+      dispatchChannelInbound: vi.fn(),
+      startChannels: vi.fn(),
+      channelStatus: vi.fn(),
+      stopChannels: vi.fn(),
+    };
+    const socket = createDesktopNativeWebSocket({
+      url: "/ws",
+      nativeTransport,
+      listenToAgentEvent: (eventName, handler) => {
+        handlers.set(eventName, handler);
+      },
+    });
+    const events: Array<Record<string, unknown>> = [];
+    socket.addEventListener("message", (event) => {
+      events.push(JSON.parse(String((event as MessageEvent).data)) as Record<string, unknown>);
+    });
+
+    await flushMicrotasks();
+
+    for (let index = 0; index < 5; index += 1) {
+      handlers.get(toDesktopNativeTauriEventName("agent.usage"))?.({
+        runId: "stale-run",
+        usage: { total_tokens: index + 1 },
+      });
+    }
+    handlers.get(toDesktopNativeTauriEventName("agent.done"))?.({
+      runId: "stale-run",
+      stopReason: "final_response",
+    });
+    socket.send(JSON.stringify({ type: "attach", chat_id: "chat-native" }));
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(events).not.toContainEqual(expect.objectContaining({
+      event: "usage",
+      chat_id: "chat-native",
     }));
   });
 

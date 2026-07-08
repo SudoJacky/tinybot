@@ -222,6 +222,106 @@ describe("native chat state", () => {
     }));
 
     expect(state.respondingSessionKeys.has(sessionKeyForChat("chat-1"))).toBe(false);
+
+    applyChatEvent(state, agentEvent({
+      eventId: "event-status-after-completed",
+      eventType: "agent.status",
+      payload: {
+        status: "completed",
+      },
+      sequence: 5,
+    }));
+
+    expect(state.respondingSessionKeys.has(sessionKeyForChat("chat-1"))).toBe(false);
+  });
+
+  test("applies standalone usage frames to the active streamed turn", () => {
+    const state = createNativeChatState();
+
+    applyChatEvent(state, { kind: "chat.created", chatId: "chat-1", raw: {} });
+    applyChatEvent(state, agentEvent({
+      eventId: "event-usage-turn-start",
+      eventType: "agent.turn.started",
+      payload: {
+        user_message: { id: "user-usage", role: "user", text: "hello" },
+        user_message_id: "user-usage",
+      },
+      sequence: 1,
+      turnId: "turn-usage",
+    }));
+    applyChatEvent(state, agentEvent({
+      eventId: "event-usage-message",
+      eventType: "message.delta",
+      payload: {
+        message_id: "message-usage",
+        text: "answer",
+      },
+      sequence: 2,
+      turnId: "turn-usage",
+    }));
+
+    applyChatEvent(state, {
+      kind: "usage",
+      chatId: "chat-1",
+      tokenUsage: "42 / 100 tokens",
+      raw: {
+        event: "usage",
+        chat_id: "chat-1",
+        usage: {
+          total_tokens: 42,
+          context_window_tokens: 100,
+          context_window_used_tokens: 42,
+          context_window_remaining_tokens: 58,
+        },
+      },
+    });
+
+    expect(state.messages.get(sessionKeyForChat("chat-1"))?.[1]).toMatchObject({
+      role: "assistant",
+      content: "answer",
+      usage: {
+        contextWindowRemainingTokens: 58,
+        contextWindowTokens: 100,
+        contextWindowUsedTokens: 42,
+        totalTokens: 42,
+      },
+    });
+
+    applyChatEvent(state, {
+      kind: "usage",
+      chatId: "chat-1",
+      tokenUsage: "43 / 100 tokens",
+      usage: {
+        total_tokens: 43,
+        context_window_tokens: 100,
+        context_window_used_tokens: 43,
+        context_window_remaining_tokens: 57,
+      },
+      raw: {
+        event: "agent_ui_event",
+        chat_id: "chat-1",
+        agent_ui_event: {
+          event_type: "usage.updated",
+          payload: {
+            usage: {
+              total_tokens: 43,
+              context_window_tokens: 100,
+              context_window_used_tokens: 43,
+              context_window_remaining_tokens: 57,
+            },
+          },
+        },
+      },
+    });
+
+    expect(state.messages.get(sessionKeyForChat("chat-1"))?.[1]).toMatchObject({
+      usage: {
+        contextWindowRemainingTokens: 57,
+        contextWindowTokens: 100,
+        contextWindowUsedTokens: 43,
+        totalTokens: 43,
+      },
+    });
   });
 
   test("normalizes backend memory and recent context references from persisted messages", () => {

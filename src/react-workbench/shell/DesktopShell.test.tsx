@@ -128,6 +128,9 @@ describe("DesktopShell", () => {
     expect(css).toMatch(/\.react-session-list\[data-collapsed="true"\]\s*{[^}]*width:\s*64px;/s);
     expect(css).toMatch(/\.react-session-list__new\s*{[^}]*font-size:\s*12px;/s);
     expect(css).toMatch(/\.react-session-row__title\s*{[^}]*font-size:\s*12px;/s);
+    expect(css).toMatch(/\.react-default-llm-panel__controls\s*{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(220px,\s*1fr\)\) 180px;/s);
+    expect(css).toMatch(/\.react-default-llm-panel__controls > button\s*{[^}]*align-self:\s*end;/s);
+    expect(css).toMatch(/\.react-settings-choice-item \.react-top-menu__menu-label\s*{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\) max-content;/s);
   });
 
   it("opens legacy top menu command lists from the React window frame", async () => {
@@ -294,8 +297,16 @@ describe("DesktopShell", () => {
     expect(screen.getByRole("button", { name: "Provider & Models" }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("region", { name: "Provider & Models" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Default LLM" })).toBeTruthy();
-    await user.selectOptions(screen.getByLabelText("Provider"), "openai-default");
-    await user.selectOptions(screen.getByLabelText("Model"), "gpt-4.1");
+    await user.click(screen.getByRole("button", { name: "Provider: DeepSeek" }));
+    const providerMenu = screen.getByRole("menu", { name: "Provider options" });
+    expect(providerMenu.classList.contains("react-settings-choice-popover")).toBe(true);
+    expect(providerMenu.classList.contains("react-top-menu__popover")).toBe(true);
+    await user.click(within(providerMenu).getByRole("menuitemradio", { name: /OpenAI/ }));
+    expect(screen.queryByRole("menu", { name: "Provider options" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Model: gpt-4.1" }));
+    const modelMenu = screen.getByRole("menu", { name: "Model options" });
+    expect(modelMenu.classList.contains("react-settings-choice-popover")).toBe(true);
+    await user.click(within(modelMenu).getByRole("menuitemradio", { name: /gpt-4.1/ }));
     await user.click(screen.getByRole("button", { name: "Save default LLM" }));
 
     await waitFor(() => expect(saveProviderSettings).toHaveBeenCalledTimes(1));
@@ -394,7 +405,11 @@ describe("DesktopShell", () => {
     await user.type(screen.getByLabelText("Temperature"), "0.6");
     await user.clear(screen.getByLabelText("Max output tokens"));
     await user.type(screen.getByLabelText("Max output tokens"), "2048");
-    await user.selectOptions(screen.getByLabelText("Context window strategy"), "compact");
+    await user.click(screen.getByRole("button", { name: "Context window strategy: Discard old messages" }));
+    const strategyMenu = screen.getByRole("menu", { name: "Context window strategy options" });
+    expect(strategyMenu.classList.contains("react-settings-choice-popover")).toBe(true);
+    expect(screen.getByRole("button", { name: "Reasoning effort: Medium" }).classList.contains("react-settings-choice-trigger")).toBe(true);
+    await user.click(within(strategyMenu).getByRole("menuitemradio", { name: /Compact old messages/ }));
     await user.click(screen.getByRole("button", { name: "Save agent defaults" }));
 
     await waitFor(() => expect(saveAgentDefaultsSettings).toHaveBeenCalledTimes(1));

@@ -205,6 +205,36 @@ describe("ChatPage", () => {
     }));
   });
 
+  it("keeps a draft-created session selected when the refreshed list has not caught up", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({ sessions: [] });
+    const created = {
+      id: "s-new",
+      chatId: "chat-new",
+      title: "New session",
+      updatedAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+      status: "running" as const,
+    };
+    stores.sessionStore.create = vi.fn(async () => created);
+    stores.sessionStore.list = vi.fn(async () => []);
+    stores.chatStore.load = vi.fn(async () => []);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    await screen.findByLabelText("Start a new chat");
+    const input = screen.getByRole("textbox", { name: /message/i });
+    await user.type(input, "Hello from an empty app");
+    await user.click(screen.getByRole("button", { name: /send message/i }));
+
+    await waitFor(() => expect(stores.chatStore.send).toHaveBeenCalledWith("s-new", {
+      text: "Hello from an empty app",
+      usePersistentRag: true,
+    }));
+    expect(screen.getByRole("heading", { name: "New session" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "New session" }).closest(".react-session-row")?.getAttribute("data-active")).toBe("true");
+    expect(screen.queryByText("No sessions yet.")).toBeNull();
+  });
+
   it("adds Animated List hooks to session rows", async () => {
     const stores = createStores();
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
@@ -368,6 +398,62 @@ describe("ChatPage", () => {
     expect(indicator.getAttribute("data-state")).toBe("normal");
     expect(indicator.textContent).toContain("88k / 256k tokens used");
     expect(indicator.textContent).toContain("Strategy: compact");
+  });
+
+  it("renders a zero context window indicator before token usage arrives", async () => {
+    const stores = createStores();
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const indicator = await screen.findByLabelText("Context window 0% used, 100% left");
+    expect(indicator.classList.contains("claude-ai-input__context-usage")).toBe(true);
+    expect(indicator.getAttribute("data-state")).toBe("normal");
+    expect(indicator.textContent).toContain("0 tokens used");
+  });
+
+  it("updates an existing message when a subscription event carries usage", async () => {
+    const stores = createStores();
+    let listener: ((event: ChatEvent) => void) | undefined;
+    stores.chatStore.subscribe = vi.fn((_sessionId, callback) => {
+      listener = callback;
+      return () => undefined;
+    });
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    expect(await screen.findByText("Yes.")).toBeTruthy();
+    expect(screen.getByLabelText("Context window 0% used, 100% left")).toBeTruthy();
+
+    act(() => {
+      listener?.({
+        type: "usage",
+        message: {
+          id: "a1",
+          role: "assistant",
+          createdAtMs: Date.UTC(2026, 6, 4, 11, 58, 0),
+          text: "Yes.",
+          status: "complete",
+          usage: {
+            contextWindowRemainingTokens: 127893,
+            contextWindowTokens: 128000,
+            contextWindowUsedTokens: 107,
+            percent: 0.08359375,
+            promptTokens: 10,
+            totalTokens: 107,
+          },
+        },
+      });
+    });
+
+    const indicator = await screen.findByLabelText("Context window 0% used, 100% left");
+    expect(indicator.textContent).toContain("107 / 128k tokens used");
+
+    act(() => {
+      listener?.({ type: "agent.event", eventType: "agent.turn.completed" });
+    });
+
+    await waitFor(() => expect(stores.chatStore.load).toHaveBeenCalledTimes(2));
+    expect(screen.getByLabelText("Context window 0% used, 100% left").textContent).toContain("107 / 128k tokens used");
   });
 
   it("rotates empty-session title and suggestion groups every eight seconds", async () => {

@@ -138,6 +138,70 @@ describe("default desktop app services", () => {
     expect(mocks.gatewayApi.sessions.messages).toHaveBeenCalledTimes(1);
   });
 
+  test("notifies subscribers with updated usage from standalone usage frames", async () => {
+    const services = createDesktopAppServices();
+    await services.sessionStore.list();
+    const events: Array<{ type: string; message?: unknown }> = [];
+    const otherSessionEvents: Array<{ type: string; message?: unknown }> = [];
+    services.chatStore.subscribe("websocket:chat-1", (event) => events.push(event));
+    services.chatStore.subscribe("websocket:chat-2", (event) => otherSessionEvents.push(event));
+
+    const socket = mocks.openGatewaySocket.mock.results[0]?.value;
+    socket.handlers.onEvent({
+      kind: "agent.event",
+      chatId: "chat-1",
+      raw: agentEvent({
+        eventId: "event-message-delta",
+        eventType: "message.delta",
+        payload: {
+          message_id: "assistant-live",
+          text: "live",
+        },
+        sequence: 1,
+      }),
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    socket.handlers.onEvent({
+      kind: "usage",
+      chatId: "chat-1",
+      tokenUsage: "107 / 128000 tokens",
+      raw: {
+        event: "usage",
+        chat_id: "chat-1",
+        usage: {
+          prompt_tokens: 10,
+          completion_tokens: 97,
+          total_tokens: 107,
+          context_window: 128000,
+          context_window_used_tokens: 107,
+          context_window_remaining_tokens: 127893,
+          percent: 0.08359375,
+        },
+      },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "usage",
+      message: expect.objectContaining({
+        id: "assistant-live",
+        usage: expect.objectContaining({
+          completionTokens: 97,
+          contextWindowRemainingTokens: 127893,
+          contextWindowTokens: 128000,
+          contextWindowUsedTokens: 107,
+          promptTokens: 10,
+          totalTokens: 107,
+        }),
+      }),
+    }));
+    expect(otherSessionEvents).not.toContainEqual(expect.objectContaining({ type: "usage" }));
+    expect(mocks.gatewayApi.sessions.messages).toHaveBeenCalledTimes(1);
+  });
+
   test("maps live structured reasoning deltas to current chat thinking text", async () => {
     const services = createDesktopAppServices();
     await services.sessionStore.list();
