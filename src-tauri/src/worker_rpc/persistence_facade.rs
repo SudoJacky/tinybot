@@ -1,0 +1,351 @@
+use super::*;
+
+impl WorkerRpcRouter {
+    pub(super) fn dispatch_session_persistence(
+        &mut self,
+        request: &WorkerRequest,
+    ) -> Result<Value, WorkerProtocolError> {
+        match request.method.as_str() {
+            "session.get_metadata" => {
+                let params: SessionIdParams = parse_params(request)?;
+                if let Some(session) = self.thread_log.get_session_metadata(&params.session_id)? {
+                    return serde_json::to_value(session).map_err(serialization_error);
+                }
+                let session = match self.session.get_metadata(&params.session_id) {
+                    Ok(session) => session,
+                    Err(error) => match self
+                        .thread
+                        .get_session_metadata_from_threads(&params.session_id)?
+                    {
+                        Some(session) => session,
+                        None => return Err(error),
+                    },
+                };
+                serde_json::to_value(session).map_err(serialization_error)
+            }
+            "session.get_history" => {
+                let params: SessionHistoryParams = parse_params(request)?;
+                let limit = params.limit.unwrap_or(80);
+                if let Some(projection) = self
+                    .thread_log
+                    .get_session_history(&params.session_id, limit)?
+                {
+                    return serde_json::to_value(projection).map_err(serialization_error);
+                }
+                let projection = self.session.get_history(&params.session_id, limit)?;
+                let projection =
+                    if projection.messages.is_empty() && projection.updated_at.is_empty() {
+                        self.thread
+                            .get_session_history_from_threads(&params.session_id, limit)?
+                            .unwrap_or(projection)
+                    } else {
+                        projection
+                    };
+                serde_json::to_value(projection).map_err(serialization_error)
+            }
+            "session.list_metadata" => {
+                let thread_log_sessions = self.thread_log.list_session_metadata()?;
+                let sessions = self.session.list_metadata()?;
+                let mut merged = self.thread.list_session_metadata_with_threads(&sessions)?;
+                for session in thread_log_sessions {
+                    if let Some(existing_index) = merged
+                        .iter()
+                        .position(|existing| existing.session_id == session.session_id)
+                    {
+                        merged[existing_index] = session;
+                    } else {
+                        merged.push(session);
+                    }
+                }
+                merged.sort_by(|left, right| {
+                    session_updated_sort_millis(&right.updated_at)
+                        .cmp(&session_updated_sort_millis(&left.updated_at))
+                        .then_with(|| left.session_id.cmp(&right.session_id))
+                });
+                serde_json::to_value(merged).map_err(serialization_error)
+            }
+            "session.get_checkpoint" => {
+                let params: SessionIdParams = parse_params(request)?;
+                serde_json::to_value(self.session.get_checkpoint(&params.session_id)?)
+                    .map_err(serialization_error)
+            }
+            "session.set_checkpoint" => {
+                let params: SessionCheckpointParams = parse_params(request)?;
+                let session = self
+                    .session
+                    .set_checkpoint(&params.session_id, params.checkpoint)?;
+                serde_json::to_value(session).map_err(serialization_error)
+            }
+            "session.clear_checkpoint" => {
+                let params: SessionIdParams = parse_params(request)?;
+                serde_json::to_value(self.session.clear_checkpoint(&params.session_id)?)
+                    .map_err(serialization_error)
+            }
+            "session.clear" => {
+                let params: SessionIdParams = parse_params(request)?;
+                let legacy_result = self.session.clear_session(&params.session_id)?;
+                let thread_log_result = self.thread_log.clear_session(&params.session_id)?;
+                serde_json::to_value(thread_log_result.unwrap_or(legacy_result))
+                    .map_err(serialization_error)
+            }
+            "session.trim" => {
+                let params: SessionTrimParams = parse_params(request)?;
+                serde_json::to_value(
+                    self.session
+                        .trim_session(&params.session_id, params.keep_recent_messages)?,
+                )
+                .map_err(serialization_error)
+            }
+            "session.delete" => {
+                let params: SessionIdParams = parse_params(request)?;
+                let result = self.session.delete_session(&params.session_id)?;
+                let thread_log_result = self.thread_log.delete_session(&params.session_id)?;
+                if result.deleted {
+                    self.thread.archive_session_thread(&params.session_id)?;
+                }
+                let deleted = result.deleted || thread_log_result.deleted;
+                serde_json::to_value(crate::worker_session::DeleteSessionResult {
+                    session_id: params.session_id,
+                    deleted,
+                })
+                .map_err(serialization_error)
+            }
+            "session.patch_metadata" => {
+                let params: SessionPatchMetadataParams = parse_params(request)?;
+                let session = match self
+                    .thread_log
+                    .patch_metadata(&params.session_id, &params.metadata)?
+                {
+                    Some(session) => session,
+                    None => self
+                        .session
+                        .patch_metadata(&params.session_id, params.metadata)?,
+                };
+                serde_json::to_value(session).map_err(serialization_error)
+            }
+            "session.patch_user_profile" => {
+                let params: SessionPatchUserProfileParams = parse_params(request)?;
+                serde_json::to_value(self.session.patch_user_profile(
+                    &params.session_id,
+                    params.user_profile,
+                    params.metadata.unwrap_or_else(|| serde_json::json!({})),
+                )?)
+                .map_err(serialization_error)
+            }
+            "session.temporary_file.upload" => {
+                let params: SessionTemporaryFileUploadParams = parse_params(request)?;
+                self.session.upload_temporary_file(
+                    &params.session_id,
+                    &params.name,
+                    &params.file_type,
+                    &params.content,
+                    params
+                        .size_bytes
+                        .unwrap_or_else(|| params.content.len() as u64),
+                )
+            }
+            "session.append_messages" => {
+                let params: SessionAppendMessagesParams = parse_params(request)?;
+                serde_json::to_value(
+                    self.session
+                        .append_messages(&params.session_id, params.messages)?,
+                )
+                .map_err(serialization_error)
+            }
+            "session.task_progress.upsert" => {
+                let params: SessionTaskProgressUpsertParams = parse_params(request)?;
+                serde_json::to_value(self.session.upsert_task_progress(
+                    &params.session_id,
+                    &params.plan_id,
+                    params.progress,
+                    params.content,
+                )?)
+                .map_err(serialization_error)
+            }
+            "session.persist_turn" => {
+                let params: SessionPersistTurnParams = parse_params(request)?;
+                let _legacy_clear_checkpoint = params.clear_checkpoint;
+                let _legacy_context_metadata = params.context_metadata();
+                let result = self.thread_log.persist_session_turn(
+                    &params.session_id,
+                    &params.run_id,
+                    params.messages,
+                )?;
+                serde_json::to_value(result).map_err(serialization_error)
+            }
+            _ => Err(unknown_method_error(request)),
+        }
+    }
+
+    pub(super) fn dispatch_agent_run_persistence(
+        &mut self,
+        request: &WorkerRequest,
+    ) -> Result<Value, WorkerProtocolError> {
+        match request.method.as_str() {
+            "agent_run.upsert" => {
+                let params: AgentRunUpsertParams = parse_params(request)?;
+                let record = self.session.upsert_agent_run(params.record)?;
+                serde_json::to_value(record).map_err(serialization_error)
+            }
+            "agent_run.list" => {
+                let params: AgentRunListParams = parse_params(request)?;
+                let mut records = self.session.list_agent_runs(&params.session_id)?;
+                let mut seen_run_ids = records
+                    .iter()
+                    .map(|record| record.run_id.clone())
+                    .collect::<std::collections::HashSet<_>>();
+                if self.thread.has_thread_store() {
+                    for record in self
+                        .thread
+                        .list_agent_runs_from_threads(&params.session_id)?
+                    {
+                        if seen_run_ids.insert(record.run_id.clone()) {
+                            records.push(record);
+                        }
+                    }
+                }
+                records.sort_by(|left, right| {
+                    right
+                        .updated_at
+                        .cmp(&left.updated_at)
+                        .then_with(|| left.run_id.cmp(&right.run_id))
+                });
+                let runs = records
+                    .iter()
+                    .map(AgentRunSummary::from_record)
+                    .collect::<Vec<_>>();
+                Ok(serde_json::json!({
+                    "sessionId": params.session_id,
+                    "runs": runs,
+                }))
+            }
+            "agent_run.get" => {
+                let params: AgentRunIdParams = parse_params(request)?;
+                let record = match self
+                    .session
+                    .get_agent_run(&params.session_id, &params.run_id)
+                {
+                    Ok(record) => record,
+                    Err(session_error) => match self
+                        .thread
+                        .get_agent_run_from_threads(&params.session_id, &params.run_id)?
+                    {
+                        Some(record) => record,
+                        None => return Err(session_error),
+                    },
+                };
+                serde_json::to_value(record).map_err(serialization_error)
+            }
+            "agent_run.list_trace" => {
+                let params: AgentRunListTraceParams = parse_params(request)?;
+                let trace_page = match self.session.list_agent_run_trace_events(
+                    &params.session_id,
+                    &params.run_id,
+                    params.cursor.as_deref(),
+                    params.limit,
+                ) {
+                    Ok(trace_page) => trace_page,
+                    Err(session_error) => match self.thread.list_agent_run_trace_events(
+                        &params.session_id,
+                        &params.run_id,
+                        params.cursor.as_deref(),
+                        params.limit,
+                    )? {
+                        Some(trace_page) => trace_page,
+                        None => return Err(session_error),
+                    },
+                };
+                serde_json::to_value(trace_page).map_err(serialization_error)
+            }
+            "agent_run.runtime_state" => {
+                let params: AgentRunIdParams = parse_params(request)?;
+                let runtime_state = match self
+                    .session
+                    .get_agent_run_runtime_state(&params.session_id, &params.run_id)
+                {
+                    Ok(runtime_state) => runtime_state,
+                    Err(session_error) => match self
+                        .thread
+                        .get_agent_run_runtime_state(&params.session_id, &params.run_id)?
+                    {
+                        Some(runtime_state) => runtime_state,
+                        None => return Err(session_error),
+                    },
+                };
+                serde_json::to_value(runtime_state).map_err(serialization_error)
+            }
+            "agent_run.append_trace" => {
+                let params: AgentRunAppendTraceParams = parse_params(request)?;
+                let record = self.session.append_agent_run_trace_event(
+                    &params.session_id,
+                    &params.run_id,
+                    params.event,
+                )?;
+                serde_json::to_value(record).map_err(serialization_error)
+            }
+            "agent_run.set_checkpoint" => {
+                let params: AgentRunCheckpointParams = parse_params(request)?;
+                let record = self.session.set_agent_run_checkpoint(
+                    &params.session_id,
+                    &params.run_id,
+                    params.checkpoint,
+                )?;
+                serde_json::to_value(record).map_err(serialization_error)
+            }
+            "agent_run.get_checkpoint" => {
+                let params: AgentRunIdParams = parse_params(request)?;
+                serde_json::to_value(
+                    self.session
+                        .get_agent_run_checkpoint(&params.session_id, &params.run_id)?,
+                )
+                .map_err(serialization_error)
+            }
+            "agent_run.clear_checkpoint" => {
+                let params: AgentRunIdParams = parse_params(request)?;
+                serde_json::to_value(
+                    self.session
+                        .clear_agent_run_checkpoint(&params.session_id, &params.run_id)?,
+                )
+                .map_err(serialization_error)
+            }
+            "agent_run.mark_completed" => {
+                let params: AgentRunMarkCompletedParams = parse_params(request)?;
+                let record = self.session.mark_agent_run_completed(
+                    &params.session_id,
+                    &params.run_id,
+                    &params.stop_reason,
+                    params.final_content,
+                )?;
+                if let Some(token_usage_info) = record.token_usage_info.clone() {
+                    let info_value =
+                        serde_json::to_value(token_usage_info).map_err(serialization_error)?;
+                    let info = serde_json::from_value::<crate::worker_thread_log::TokenUsageInfo>(
+                        info_value,
+                    )
+                    .map_err(serialization_error)?;
+                    self.thread_log
+                        .append_token_count(&record.session_id, info)?;
+                }
+                serde_json::to_value(record).map_err(serialization_error)
+            }
+            "agent_run.mark_failed" => {
+                let params: AgentRunMarkFailedParams = parse_params(request)?;
+                let record = self.session.mark_agent_run_failed(
+                    &params.session_id,
+                    &params.run_id,
+                    &params.stop_reason,
+                    params.error,
+                )?;
+                serde_json::to_value(record).map_err(serialization_error)
+            }
+            "agent_run.mark_cancelled" => {
+                let params: AgentRunIdParams = parse_params(request)?;
+                let record = self
+                    .session
+                    .mark_agent_run_cancelled(&params.session_id, &params.run_id)?;
+                serde_json::to_value(record).map_err(serialization_error)
+            }
+            _ => Err(unknown_method_error(request)),
+        }
+    }
+}

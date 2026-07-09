@@ -1,0 +1,346 @@
+use crate::agent_loop_runtime_protocol::{
+    AgentRuntimeEventEnvelope, LegacyNativeAgentEventProjection,
+};
+use crate::worker_subagent_manager::{
+    SubagentInputSender, SubagentSendInputParams, SubagentTargetParams, SubagentThreadManager,
+};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::{fmt, sync::Arc};
+
+mod checkpoint;
+mod context;
+mod continuations;
+mod events;
+mod provider;
+mod provider_loop;
+mod result;
+mod state;
+mod stores;
+mod tool_dispatcher;
+mod tool_projection;
+mod tool_result;
+mod usage;
+
+use self::provider::{
+    agent_chat_completion_request, agent_provider_config, chat_completion_content,
+    RustNativeAgentProvider,
+};
+use self::result::event_value;
+use self::usage::{context_window_messages, enrich_usage_with_context_window};
+pub use provider_loop::run_native_agent_turn_with_config;
+pub use stores::{InMemoryNativeAgentCancellation, InMemoryNativeAgentCheckpointStore};
+pub use tool_dispatcher::{FakeNativeAgentToolDispatcher, SubagentNativeAgentToolDispatcher};
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum NativeAgentRuntimeMode {
+    Rust,
+}
+
+const TEST_COMPAT_FAKE_AWAITING_APPROVAL: &str = "fakeAwaitingApproval";
+const TEST_COMPAT_FAKE_AWAITING_FORM: &str = "fakeAwaitingForm";
+const TEST_COMPAT_FAKE_CHECKPOINT: &str = "fakeCheckpoint";
+
+#[derive(Clone)]
+pub struct NativeAgentCancellationContext {
+    run_id: String,
+    cancellations: Arc<dyn NativeAgentCancellation>,
+}
+
+impl NativeAgentCancellationContext {
+    fn new(run_id: String, cancellations: Arc<dyn NativeAgentCancellation>) -> Self {
+        Self {
+            run_id,
+            cancellations,
+        }
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancellations.is_cancelled(&self.run_id)
+    }
+}
+
+impl fmt::Debug for NativeAgentCancellationContext {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("NativeAgentCancellationContext")
+            .field("run_id", &self.run_id)
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct NativeAgentEvent {
+    #[serde(rename = "eventName")]
+    pub event_name: String,
+    pub payload: Value,
+}
+
+impl From<LegacyNativeAgentEventProjection> for NativeAgentEvent {
+    fn from(event: LegacyNativeAgentEventProjection) -> Self {
+        Self {
+            event_name: event.event_name,
+            payload: event.payload,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct NativeAgentRunContext {
+    pub run_id: String,
+    pub session_id: String,
+    pub thread_id: Option<String>,
+    pub spec: Value,
+    pub messages: Vec<Value>,
+    pub config_snapshot: Value,
+    pub metadata: Value,
+    pub model: String,
+    pub provider: Option<String>,
+    pub stream: bool,
+    pub max_iterations: i64,
+    pub cancellation: Option<NativeAgentCancellationContext>,
+}
+
+#[derive(Clone, Debug)]
+pub struct NativeAgentProviderResponse {
+    pub final_content: String,
+    pub reasoning_delta: Option<String>,
+    pub usage: Option<Value>,
+    pub tool_calls: Vec<NativeAgentToolCall>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum NativeAgentProviderStreamEvent {
+    ContentDelta(String),
+    ReasoningDelta(String),
+}
+
+#[derive(Clone, Debug)]
+pub struct NativeAgentToolCall {
+    pub id: String,
+    pub name: String,
+    pub arguments_json: String,
+    pub result: Value,
+}
+
+#[derive(Clone, Debug)]
+pub struct NativeAgentToolResult {
+    pub content: Value,
+    pub envelope: NativeToolResultEnvelope,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(transparent)]
+pub struct NativeToolResultEnvelope {
+    value: Value,
+}
+
+pub trait NativeAgentProvider: Send + Sync {
+    fn complete(
+        &self,
+        context: &NativeAgentRunContext,
+    ) -> Result<NativeAgentProviderResponse, String>;
+
+    fn complete_streaming(
+        &self,
+        context: &NativeAgentRunContext,
+        _observer: &mut dyn FnMut(NativeAgentProviderStreamEvent),
+    ) -> Result<NativeAgentProviderResponse, String> {
+        self.complete(context)
+    }
+}
+
+pub trait NativeAgentToolDispatcher: Send + Sync {
+    fn dispatch(
+        &self,
+        context: &NativeAgentRunContext,
+        tool_call: &NativeAgentToolCall,
+    ) -> Result<NativeAgentToolResult, String>;
+}
+
+pub trait NativeAgentCheckpointStore: Send + Sync {
+    fn save(&self, session_id: &str, checkpoint: Value);
+    fn save_for_run(&self, session_id: &str, run_id: &str, checkpoint: Value);
+    fn restore(&self, session_id: &str) -> Option<Value>;
+    fn restore_for_run(&self, session_id: &str, run_id: &str) -> Option<Value>;
+    fn clear(&self, session_id: &str);
+    fn clear_for_run(&self, session_id: &str, run_id: &str);
+}
+
+pub trait NativeAgentCancellation: Send + Sync {
+    fn cancel(&self, run_id: &str);
+    fn is_cancelled(&self, run_id: &str) -> bool;
+}
+
+pub trait NativeAgentTraceSink: Send + Sync {
+    fn append_trace_event(
+        &self,
+        session_id: &str,
+        run_id: &str,
+        event: &AgentRuntimeEventEnvelope,
+    ) -> Result<(), String>;
+}
+
+#[derive(Clone)]
+pub struct NativeAgentRuntimeServices {
+    provider: Arc<dyn NativeAgentProvider>,
+    tools: Arc<dyn NativeAgentToolDispatcher>,
+    checkpoints: Arc<dyn NativeAgentCheckpointStore>,
+    cancellations: Arc<dyn NativeAgentCancellation>,
+    subagents: SubagentThreadManager,
+    trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
+}
+
+impl NativeAgentRuntimeServices {
+    pub fn new(
+        provider: Arc<dyn NativeAgentProvider>,
+        tools: Arc<dyn NativeAgentToolDispatcher>,
+        checkpoints: Arc<dyn NativeAgentCheckpointStore>,
+        cancellations: Arc<dyn NativeAgentCancellation>,
+    ) -> Self {
+        Self {
+            provider,
+            tools,
+            checkpoints,
+            cancellations,
+            subagents: SubagentThreadManager::default(),
+            trace_sink: None,
+        }
+    }
+
+    pub fn with_subagent_manager(subagents: SubagentThreadManager) -> Self {
+        Self::new(
+            Arc::new(RustNativeAgentProvider),
+            Arc::new(SubagentNativeAgentToolDispatcher::new(subagents.clone())),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        )
+        .with_subagents(subagents)
+    }
+
+    fn with_subagents(mut self, subagents: SubagentThreadManager) -> Self {
+        self.subagents = subagents;
+        self
+    }
+
+    pub fn with_trace_sink(mut self, trace_sink: Arc<dyn NativeAgentTraceSink>) -> Self {
+        self.trace_sink = Some(trace_sink);
+        self
+    }
+
+    pub fn tool_dispatcher(&self) -> Arc<dyn NativeAgentToolDispatcher> {
+        self.tools.clone()
+    }
+
+    pub fn with_tool_dispatcher(mut self, tools: Arc<dyn NativeAgentToolDispatcher>) -> Self {
+        self.tools = tools;
+        self
+    }
+
+    pub fn subagent_manager(&self) -> SubagentThreadManager {
+        self.subagents.clone()
+    }
+
+    pub fn cancel(&self, run_id: &str) -> Value {
+        self.cancellations.cancel(run_id);
+        serde_json::json!({
+            "runtime": "rust",
+            "runId": run_id,
+            "cancelled": true,
+            "finalContent": "",
+            "stopReason": "cancelled",
+            "error": "cancelled",
+            "messages": [],
+            "toolsUsed": [],
+            "events": [event_value("agent.cancelled", serde_json::json!({
+                "runId": run_id,
+                "cancelled": true,
+                "stopReason": "cancelled",
+                "error": "cancelled",
+            }))],
+        })
+    }
+
+    pub fn restore_checkpoint(&self, session_id: &str) -> Value {
+        serde_json::json!({
+            "runtime": "rust",
+            "sessionId": session_id,
+            "checkpoint": self.checkpoints.restore(session_id),
+        })
+    }
+
+    pub fn restore_run_checkpoint(&self, session_id: &str, run_id: &str) -> Value {
+        serde_json::json!({
+            "runtime": "rust",
+            "sessionId": session_id,
+            "runId": run_id,
+            "checkpoint": self.checkpoints.restore_for_run(session_id, run_id),
+        })
+    }
+
+    pub fn save_checkpoint(&self, session_id: &str, checkpoint: Value) {
+        self.checkpoints.save(session_id, checkpoint);
+    }
+
+    pub fn save_run_checkpoint(&self, session_id: &str, run_id: &str, checkpoint: Value) {
+        self.checkpoints
+            .save_for_run(session_id, run_id, checkpoint);
+    }
+
+    pub fn clear_run_checkpoint(&self, session_id: &str, run_id: &str) {
+        self.checkpoints.clear_for_run(session_id, run_id);
+    }
+}
+
+impl Default for NativeAgentRuntimeServices {
+    fn default() -> Self {
+        let subagents = SubagentThreadManager::default();
+        Self::new(
+            Arc::new(RustNativeAgentProvider),
+            Arc::new(SubagentNativeAgentToolDispatcher::new(subagents.clone())),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        )
+        .with_subagents(subagents)
+    }
+}
+
+pub fn resolve_native_agent_runtime_mode(
+    spec: &Value,
+    config_snapshot: &Value,
+) -> NativeAgentRuntimeMode {
+    let _ = (spec, config_snapshot);
+    NativeAgentRuntimeMode::Rust
+}
+
+pub fn run_native_agent_turn(spec: Value) -> Result<Value, String> {
+    let services = NativeAgentRuntimeServices::default();
+    let config_snapshot = spec
+        .get("config")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    run_native_agent_turn_with_config(&services, spec, config_snapshot)
+}
+
+pub fn run_native_agent_turn_with_services(
+    services: &NativeAgentRuntimeServices,
+    spec: Value,
+) -> Result<Value, String> {
+    run_native_agent_turn_with_config(services, spec, serde_json::json!({}))
+}
+
+fn string_field(value: &Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn bool_field(value: &Value, key: &str) -> bool {
+    value.get(key).and_then(Value::as_bool).unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests;

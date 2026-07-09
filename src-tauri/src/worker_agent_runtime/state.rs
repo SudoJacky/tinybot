@@ -1,0 +1,287 @@
+use super::continuations::guidance_continuation_message;
+use super::events::{
+    legacy_result_events_from_runtime_events, runtime_event_item_id, runtime_event_source,
+    runtime_event_timestamp, runtime_event_visibility, runtime_status_label,
+};
+use super::usage::{
+    enrich_usage_with_context_window, latest_cumulative_usage_tokens, usage_context_used_tokens,
+};
+use super::{
+    string_field, NativeAgentEvent, NativeAgentRunContext, NativeAgentToolCall,
+    NativeAgentTraceSink,
+};
+use crate::agent_loop_runtime_protocol::{
+    AgentRunEmitter, AgentRuntimeEventAppendInput, AgentRuntimeEventEnvelope,
+    AgentRuntimeEventSource, AgentRuntimeEventVisibility, AgentRuntimePhase,
+};
+use serde_json::Value;
+use std::sync::Arc;
+
+#[derive(Clone)]
+pub(super) struct NativeAgentRunState {
+    pub(super) run_id: String,
+    pub(super) session_id: String,
+    pub(super) phase: AgentRuntimePhase,
+    pub(super) iteration: i64,
+    pub(super) max_iterations: i64,
+    pub(super) pending_tool_calls: Vec<Value>,
+    pub(super) completed_tool_results: Vec<Value>,
+    pub(super) messages: Vec<Value>,
+    emitter: AgentRunEmitter,
+    usage: Vec<Value>,
+    pub(super) tools_used: Vec<String>,
+    stop_reason: Option<String>,
+    pending_guidance_message: Option<Value>,
+    trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
+}
+
+impl NativeAgentRunState {
+    pub(super) fn new(
+        context: &NativeAgentRunContext,
+        trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
+    ) -> Self {
+        Self {
+            run_id: context.run_id.clone(),
+            session_id: context.session_id.clone(),
+            phase: AgentRuntimePhase::Queued,
+            iteration: 0,
+            max_iterations: context.max_iterations,
+            pending_tool_calls: Vec::new(),
+            completed_tool_results: Vec::new(),
+            messages: context.messages.clone(),
+            emitter: AgentRunEmitter::new_with_thread_id(
+                &context.session_id,
+                &context.run_id,
+                context.thread_id.clone(),
+            ),
+            usage: Vec::new(),
+            tools_used: Vec::new(),
+            stop_reason: None,
+            pending_guidance_message: guidance_continuation_message(&context.metadata),
+            trace_sink,
+        }
+    }
+
+    fn append_trace_event(&self, event: &AgentRuntimeEventEnvelope) {
+        if let Some(trace_sink) = self.trace_sink.as_ref() {
+            let _ = trace_sink.append_trace_event(&self.session_id, &self.run_id, event);
+        }
+    }
+
+    pub(super) fn transition_phase(
+        &mut self,
+        phase: AgentRuntimePhase,
+        iteration: i64,
+        trigger_event_name: &str,
+    ) {
+        let previous_phase = self.phase.clone();
+        self.iteration = iteration;
+        if previous_phase == phase {
+            self.phase = phase;
+            return;
+        }
+        self.phase = phase.clone();
+        let event = self.emitter.emit(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: None,
+            event_name: "agent.phase.changed".to_string(),
+            phase,
+            timestamp: runtime_event_timestamp(),
+            source: AgentRuntimeEventSource::RustBackend,
+            visibility: AgentRuntimeEventVisibility::Debug,
+            payload: serde_json::json!({
+                "runId": self.run_id,
+                "sessionId": self.session_id,
+                "iteration": iteration,
+                "previousPhase": previous_phase.as_str(),
+                "nextPhase": self.phase.as_str(),
+                "triggerEventName": trigger_event_name,
+            }),
+        });
+        self.append_trace_event(&event);
+        self.emit_status_for_phase(iteration, trigger_event_name);
+    }
+
+    fn emit_status_for_phase(&mut self, iteration: i64, trigger_event_name: &str) {
+        let Some(label) = runtime_status_label(&self.phase) else {
+            return;
+        };
+        let is_blocking = matches!(
+            self.phase,
+            AgentRuntimePhase::AwaitingApproval
+                | AgentRuntimePhase::AwaitingForm
+                | AgentRuntimePhase::AwaitingSubagent
+        );
+        let event = self.emitter.emit(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: None,
+            event_name: "agent.status".to_string(),
+            phase: self.phase.clone(),
+            timestamp: runtime_event_timestamp(),
+            source: AgentRuntimeEventSource::RustBackend,
+            visibility: AgentRuntimeEventVisibility::User,
+            payload: serde_json::json!({
+                "runId": self.run_id.clone(),
+                "sessionId": self.session_id.clone(),
+                "phase": self.phase.as_str(),
+                "label": label,
+                "detail": trigger_event_name,
+                "iteration": iteration,
+                "isBlocking": is_blocking,
+            }),
+        });
+        self.append_trace_event(&event);
+    }
+
+    pub(super) fn set_stop_reason(
+        &mut self,
+        stop_reason: &str,
+        iteration: i64,
+        trigger_event_name: &str,
+    ) {
+        self.stop_reason = Some(stop_reason.to_string());
+        let phase = match stop_reason {
+            "final_response" => AgentRuntimePhase::Completed,
+            "cancelled" => AgentRuntimePhase::Cancelled,
+            _ => AgentRuntimePhase::Failed,
+        };
+        self.transition_phase(phase, iteration, trigger_event_name);
+    }
+
+    pub(super) fn active_checkpoint_payload(&self, status: &str) -> Value {
+        serde_json::json!({
+            "status": status,
+            "iteration": self.iteration,
+            "maxIterations": self.max_iterations,
+            "pendingToolCalls": self.pending_tool_calls,
+            "completedToolResults": self.completed_tool_results,
+            "stopReason": self.stop_reason,
+        })
+    }
+
+    pub(super) fn set_pending_tool_call(&mut self, tool_call: &NativeAgentToolCall) {
+        self.phase = AgentRuntimePhase::ToolRunning;
+        self.pending_tool_calls = vec![serde_json::json!({
+            "toolCallId": tool_call.id,
+            "toolName": tool_call.name,
+            "argumentsJson": tool_call.arguments_json,
+        })];
+    }
+
+    pub(super) fn clear_pending_tool_calls(&mut self) {
+        self.pending_tool_calls.clear();
+    }
+
+    pub(super) fn emit_event(&mut self, event_name: &str, payload: Value) {
+        let event = self.emitter.emit(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: runtime_event_item_id(event_name, &payload),
+            event_name: event_name.to_string(),
+            phase: AgentRuntimePhase::for_legacy_event(event_name),
+            timestamp: runtime_event_timestamp(),
+            source: runtime_event_source(event_name),
+            visibility: runtime_event_visibility(event_name),
+            payload,
+        });
+        self.append_trace_event(&event);
+    }
+
+    pub(super) fn emit_native_event(&mut self, event: NativeAgentEvent) {
+        self.emit_event(&event.event_name, event.payload);
+    }
+
+    pub(super) fn emit_turn_started(&mut self, context: &NativeAgentRunContext) {
+        let current = current_user_message(&context.messages);
+        let message_id = current
+            .as_ref()
+            .and_then(|message| string_field(message, "messageId"))
+            .or_else(|| {
+                current
+                    .as_ref()
+                    .and_then(|message| string_field(message, "message_id"))
+            })
+            .or_else(|| {
+                current
+                    .as_ref()
+                    .and_then(|message| string_field(message, "id"))
+            })
+            .unwrap_or_else(|| format!("{}:user", context.run_id));
+        let content = current
+            .as_ref()
+            .and_then(|message| {
+                message
+                    .get("content")
+                    .or_else(|| message.get("text"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+            .unwrap_or_default();
+        let event =
+            self.emitter
+                .user_turn_started(runtime_event_timestamp(), Some(message_id), content);
+        self.append_trace_event(&event);
+    }
+
+    pub(super) fn runtime_events(&self) -> Vec<AgentRuntimeEventEnvelope> {
+        self.emitter.events().to_vec()
+    }
+
+    pub(super) fn legacy_events(&self) -> Vec<NativeAgentEvent> {
+        legacy_result_events_from_runtime_events(self.emitter.events())
+    }
+
+    pub(super) fn take_runtime_events(&mut self) -> Vec<AgentRuntimeEventEnvelope> {
+        self.emitter.take_events()
+    }
+
+    pub(super) fn drain_pending_guidance(&mut self) -> Option<Value> {
+        let message = self.pending_guidance_message.take()?;
+        self.messages.push(message.clone());
+        Some(message)
+    }
+
+    pub(super) fn record_usage(
+        &mut self,
+        context: &NativeAgentRunContext,
+        iteration: i64,
+        usage: Value,
+        estimated_context_tokens: i64,
+    ) {
+        let cumulative_before = latest_cumulative_usage_tokens(&self.usage).unwrap_or_else(|| {
+            self.usage
+                .iter()
+                .filter_map(usage_context_used_tokens)
+                .fold(0i64, i64::saturating_add)
+        });
+        let usage = enrich_usage_with_context_window(
+            context,
+            usage,
+            estimated_context_tokens,
+            cumulative_before,
+        );
+        self.usage.push(usage.clone());
+        self.emit_event(
+            "agent.usage",
+            serde_json::json!({
+                "runId": context.run_id,
+                "sessionId": context.session_id,
+                "iteration": iteration,
+                "usage": usage,
+            }),
+        );
+    }
+}
+
+fn current_user_message(messages: &[Value]) -> Option<Value> {
+    messages
+        .iter()
+        .rev()
+        .find(|message| {
+            message
+                .get("role")
+                .and_then(Value::as_str)
+                .map(|role| role == "user")
+                .unwrap_or(false)
+        })
+        .cloned()
+}

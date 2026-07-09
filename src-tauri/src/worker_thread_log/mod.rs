@@ -269,23 +269,23 @@ impl WorkerThreadLogRpc {
             ThreadRunState::Missing => {}
         }
 
-        self.recorder.append_item(
-            &thread_path,
-            timestamp.clone(),
-            value_event("turn_started", serde_json::json!({ "runId": run_id })),
-        )?;
-        for message in &saved_messages {
-            self.recorder.append_item(
-                &thread_path,
-                timestamp.clone(),
-                ThreadLogItem::ResponseItem(message.clone()),
-            )?;
-        }
-        self.recorder.append_item(
-            &thread_path,
-            timestamp.clone(),
-            value_event("turn_complete", serde_json::json!({ "runId": run_id })),
-        )?;
+        let mut turn_items = Vec::with_capacity(saved_messages.len() + 2);
+        turn_items.push(value_event(
+            "turn_started",
+            serde_json::json!({ "runId": run_id }),
+        ));
+        turn_items.extend(
+            saved_messages
+                .iter()
+                .cloned()
+                .map(ThreadLogItem::ResponseItem),
+        );
+        turn_items.push(value_event(
+            "turn_complete",
+            serde_json::json!({ "runId": run_id }),
+        ));
+        self.recorder
+            .append_items(&thread_path, timestamp.clone(), turn_items)?;
 
         let saved_message_count = saved_messages.len();
         let messages_after = messages_before + saved_message_count;
