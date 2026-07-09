@@ -3436,56 +3436,56 @@ fn worker_session_read_commands_use_rust_session_store() {
 }
 
 #[test]
-fn worker_agent_run_runtime_commands_use_rust_session_store() {
+fn worker_agent_run_runtime_commands_use_thread_log_agent_run_store() {
     let fixture = WorkspaceFixture::new();
-    fixture.write_session_store(serde_json::json!({
-        "version": 1,
-        "sessions": [{
-            "session_id": "websocket:chat-1",
-            "title": "Native session",
-            "workspace_dir": "D:/Code/py/tinybot",
-            "created_at": "2026-07-03T01:00:00Z",
-            "updated_at": "2026-07-03T01:00:02Z",
-            "extra": {
-                "agent_runs": [{
-                    "sessionId": "websocket:chat-1",
-                    "runId": "run-1",
-                    "status": "completed",
-                    "phase": "completed",
-                    "startedAt": "2026-07-03T01:00:00Z",
-                    "updatedAt": "2026-07-03T01:00:02Z",
-                    "completedAt": "2026-07-03T01:00:02Z",
-                    "stopReason": "stop",
-                    "model": "test-model",
-                    "provider": "test",
-                    "maxIterations": 4,
-                    "currentIteration": 1,
-                    "conversationMessageIds": [],
-                    "traceMessages": [],
-                    "traceEvents": [{
-                        "schemaVersion": "tinybot.agent_event.v1",
-                        "eventId": "run-1:agent-done:0000000000000001",
-                        "sequence": 1,
-                        "sessionId": "websocket:chat-1",
-                        "turnId": "run-1",
-                        "itemId": "run-1:assistant",
-                        "eventName": "agent.done",
-                        "phase": "completed",
-                        "timestamp": "2026-07-03T01:00:02Z",
-                        "source": "rust_backend",
-                        "visibility": "user",
-                        "payload": { "finalContent": "Done from runtime state" }
-                    }],
-                    "completedToolResults": [],
-                    "pendingToolCalls": [],
-                    "checkpoint": null,
-                    "artifacts": [],
-                    "usage": [],
-                    "error": null
-                }]
-            }
-        }]
-    }));
+    let record = serde_json::json!({
+        "sessionId": "websocket:chat-1",
+        "runId": "run-1",
+        "status": "completed",
+        "phase": "completed",
+        "startedAt": "2026-07-03T01:00:00Z",
+        "updatedAt": "2026-07-03T01:00:02Z",
+        "completedAt": "2026-07-03T01:00:02Z",
+        "stopReason": "stop",
+        "model": "test-model",
+        "provider": "test",
+        "maxIterations": 4,
+        "currentIteration": 1,
+        "conversationMessageIds": [],
+        "traceMessages": [],
+        "traceEvents": [{
+            "schemaVersion": "tinybot.agent_event.v1",
+            "eventId": "run-1:agent-done:0000000000000001",
+            "sequence": 1,
+            "sessionId": "websocket:chat-1",
+            "turnId": "run-1",
+            "itemId": "run-1:assistant",
+            "eventName": "agent.done",
+            "phase": "completed",
+            "timestamp": "2026-07-03T01:00:02Z",
+            "source": "rust_backend",
+            "visibility": "user",
+            "payload": { "finalContent": "Done from runtime state" }
+        }],
+        "completedToolResults": [],
+        "pendingToolCalls": [],
+        "checkpoint": null,
+        "artifacts": [],
+        "usage": [],
+        "error": null
+    });
+    call_rust_state_service(
+        fixture.root.clone(),
+        serde_json::json!({}),
+        WorkerRequest::new(
+            "req-seed-agent-run-thread-log",
+            "trace-seed-agent-run-thread-log",
+            "agent_run.upsert",
+            serde_json::json!({ "record": record }),
+        ),
+        "agent run thread log seed",
+    )
+    .expect("agent run should seed thread log store");
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
 
     let runs = worker_agent_runs_list_with_options(
@@ -3495,7 +3495,7 @@ fn worker_agent_run_runtime_commands_use_rust_session_store() {
         serde_json::json!({}),
         Duration::from_millis(10),
     )
-    .expect("agent run list should be served by Rust session state");
+    .expect("agent run list should be served by thread log store");
     let runtime_state = worker_agent_run_runtime_state_with_options(
         &shared,
         "websocket:chat-1".to_string(),
@@ -3504,7 +3504,7 @@ fn worker_agent_run_runtime_commands_use_rust_session_store() {
         serde_json::json!({}),
         Duration::from_millis(10),
     )
-    .expect("agent run runtime state should be served by Rust session state");
+    .expect("agent run runtime state should be served by thread log store");
 
     assert_eq!(runs["runs"][0]["runId"], "run-1");
     assert_eq!(runtime_state["sessionId"], "websocket:chat-1");

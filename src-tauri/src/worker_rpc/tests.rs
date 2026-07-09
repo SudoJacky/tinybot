@@ -6,6 +6,8 @@ use serde_json::{json, Value};
 use std::{
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
+    thread,
+    time::Duration,
 };
 
 static WORKSPACE_FIXTURE_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -1382,18 +1384,32 @@ fn dispatches_session_checkpoint_requests() {
 #[test]
 fn dispatches_session_get_checkpoint_request() {
     let fixture = WorkspaceFixture::new();
-    let mut session = session_fixture();
-    session.extra = json!({
-        "runtime_checkpoint": {
-            "runId": "run-1",
-            "phase": "awaiting_tools",
-            "iteration": 1
-        }
-    });
+    let mut seed_router = WorkerRpcRouter::new(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        20,
+        CapabilityPolicy::new([WorkerCapability::SessionWrite]),
+    );
+    let seed = seed_router.dispatch(&WorkerRequest::new(
+        "req-seed-checkpoint",
+        "trace-seed-checkpoint",
+        "session.set_checkpoint",
+        json!({
+            "session_id": "session-1",
+            "checkpoint": {
+                "runId": "run-1",
+                "phase": "awaiting_tools",
+                "iteration": 1
+            }
+        }),
+    ));
+    assert_eq!(seed.error, None);
+
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![session],
+        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::SessionMetadataRead]),
     );
@@ -1412,6 +1428,44 @@ fn dispatches_session_get_checkpoint_request() {
             "runId": "run-1",
             "phase": "awaiting_tools",
             "iteration": 1
+        }))
+    );
+    assert!(response.error.is_none());
+}
+
+#[test]
+fn dispatches_session_get_checkpoint_falls_back_to_legacy_runtime_checkpoint() {
+    let fixture = WorkspaceFixture::new();
+    let mut session = session_fixture();
+    session.extra = json!({
+        "runtime_checkpoint": {
+            "runId": "run-legacy-checkpoint",
+            "phase": "awaiting_tools",
+            "iteration": 2
+        }
+    });
+    let mut router = WorkerRpcRouter::new(
+        fixture.root.clone(),
+        json!({}),
+        vec![session],
+        20,
+        CapabilityPolicy::new([WorkerCapability::SessionMetadataRead]),
+    );
+    let request = WorkerRequest::new(
+        "req-legacy-checkpoint",
+        "trace-legacy-checkpoint",
+        "session.get_checkpoint",
+        json!({ "session_id": "session-1" }),
+    );
+
+    let response = router.dispatch(&request);
+
+    assert_eq!(
+        response.result,
+        Some(json!({
+            "runId": "run-legacy-checkpoint",
+            "phase": "awaiting_tools",
+            "iteration": 2
         }))
     );
     assert!(response.error.is_none());
@@ -1746,6 +1800,190 @@ fn session_persist_turn_does_not_write_legacy_session_or_thread_stores() {
         .join("threads")
         .join("threads.sqlite")
         .exists());
+}
+
+#[test]
+fn agent_run_persistence_does_not_write_legacy_session_store() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    )
+    .unwrap();
+    let record = json!({
+        "sessionId": "session-agent-log-only",
+        "runId": "run-agent-log-only",
+        "status": "running",
+        "phase": "active_turn",
+        "startedAt": "2026-07-08T10:00:00Z",
+        "updatedAt": "2026-07-08T10:00:00Z",
+        "completedAt": null,
+        "stopReason": null,
+        "model": "fixture-model",
+        "provider": "fixture",
+        "maxIterations": 4,
+        "currentIteration": 0,
+        "conversationMessageIds": [],
+        "traceMessages": [],
+        "traceEvents": [],
+        "completedToolResults": [],
+        "pendingToolCalls": [],
+        "checkpoint": null,
+        "artifacts": [],
+        "usage": [],
+        "error": null
+    });
+
+    let upsert = router.dispatch(&WorkerRequest::new(
+        "req-agent-log-only-upsert",
+        "trace-agent-log-only",
+        "agent_run.upsert",
+        json!({ "record": record }),
+    ));
+    let append_trace = router.dispatch(&WorkerRequest::new(
+        "req-agent-log-only-trace",
+        "trace-agent-log-only",
+        "agent_run.append_trace",
+        json!({
+            "session_id": "session-agent-log-only",
+            "run_id": "run-agent-log-only",
+            "event": {
+                "eventId": "trace-delta",
+                "eventName": "agent.delta",
+                "payload": { "delta": "hello" }
+            }
+        }),
+    ));
+    let completed = router.dispatch(&WorkerRequest::new(
+        "req-agent-log-only-complete",
+        "trace-agent-log-only",
+        "agent_run.mark_completed",
+        json!({
+            "session_id": "session-agent-log-only",
+            "run_id": "run-agent-log-only",
+            "stop_reason": "final_response",
+            "final_content": "hello"
+        }),
+    ));
+    let get = router.dispatch(&WorkerRequest::new(
+        "req-agent-log-only-get",
+        "trace-agent-log-only",
+        "agent_run.get",
+        json!({
+            "session_id": "session-agent-log-only",
+            "run_id": "run-agent-log-only"
+        }),
+    ));
+
+    assert_eq!(upsert.error, None);
+    assert_eq!(append_trace.error, None);
+    assert_eq!(completed.error, None);
+    assert_eq!(get.error, None);
+    assert_eq!(get.result.as_ref().unwrap()["status"], "completed");
+    assert_eq!(
+        get.result.as_ref().unwrap()["traceEvents"][0]["eventName"],
+        "agent.delta"
+    );
+    assert!(!fixture
+        .root
+        .join("sessions")
+        .join("sessions.sqlite")
+        .exists());
+    assert!(fixture
+        .root
+        .join(".tinybot")
+        .join("state")
+        .join("state.sqlite")
+        .exists());
+    assert!(!fixture
+        .root
+        .join(".tinybot")
+        .join("threads")
+        .join("threads.sqlite")
+        .exists());
+}
+
+#[test]
+fn agent_run_trace_append_does_not_update_thread_state_index() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    )
+    .unwrap();
+    let record = json!({
+        "sessionId": "session-trace-state-index",
+        "runId": "run-trace-state-index",
+        "status": "running",
+        "phase": "active_turn",
+        "startedAt": "2026-07-08T10:00:00Z",
+        "updatedAt": "2026-07-08T10:00:00Z",
+        "completedAt": null,
+        "stopReason": null,
+        "model": "fixture-model",
+        "provider": "fixture",
+        "maxIterations": 4,
+        "currentIteration": 0,
+        "conversationMessageIds": [],
+        "traceMessages": [],
+        "traceEvents": [],
+        "completedToolResults": [],
+        "pendingToolCalls": [],
+        "checkpoint": null,
+        "artifacts": [],
+        "usage": [],
+        "error": null
+    });
+
+    let upsert = router.dispatch(&WorkerRequest::new(
+        "req-trace-state-index-upsert",
+        "trace-state-index",
+        "agent_run.upsert",
+        json!({ "record": record }),
+    ));
+    assert_eq!(upsert.error, None);
+    let state_path = fixture
+        .root
+        .join(".tinybot")
+        .join("state")
+        .join("state.sqlite");
+    let before_updated_at = thread_state_updated_at(&state_path, "session-trace-state-index");
+    thread::sleep(Duration::from_millis(5));
+
+    let append_trace = router.dispatch(&WorkerRequest::new(
+        "req-trace-state-index-append",
+        "trace-state-index",
+        "agent_run.append_trace",
+        json!({
+            "session_id": "session-trace-state-index",
+            "run_id": "run-trace-state-index",
+            "event": {
+                "eventId": "trace-state-index-delta",
+                "eventName": "agent.delta",
+                "payload": { "delta": "streamed" }
+            }
+        }),
+    ));
+    assert_eq!(append_trace.error, None);
+
+    let after_updated_at = thread_state_updated_at(&state_path, "session-trace-state-index");
+    assert_eq!(after_updated_at, before_updated_at);
+    assert_eq!(
+        append_trace.result.as_ref().unwrap()["traceEvents"][0]["eventName"],
+        "agent.delta"
+    );
 }
 
 #[test]
@@ -6989,25 +7227,27 @@ fn dispatches_agent_run_store_round_trip_requests() {
 
     assert!(!fixture
         .root
+        .join("sessions")
+        .join("sessions.sqlite")
+        .exists());
+    assert!(!fixture
+        .root
         .join(".tinybot")
         .join("threads")
         .join("threads.sqlite")
         .exists());
 
-    let thread_list = router.dispatch(&WorkerRequest::new(
-        "req-thread-list-after-agent-run",
+    let metadata = router.dispatch(&WorkerRequest::new(
+        "req-session-metadata-after-agent-run",
         "trace-agent-run",
-        "thread.list",
-        json!({ "includeArchived": true }),
+        "session.get_metadata",
+        json!({ "session_id": "session-1" }),
     ));
-    assert_eq!(thread_list.error, None);
+    assert_eq!(metadata.error, None);
+    assert_eq!(metadata.result.as_ref().unwrap()["session_id"], "session-1");
     assert_eq!(
-        thread_list.result.as_ref().unwrap()["threads"][0]["sessionKey"],
-        "session-1"
-    );
-    assert_eq!(
-        thread_list.result.as_ref().unwrap()["threads"][0]["source"],
-        "legacy_session_projection"
+        metadata.result.as_ref().unwrap()["extra"]["threadSource"],
+        "thread_log"
     );
 }
 
@@ -7168,7 +7408,7 @@ fn dispatches_agent_run_trace_and_runtime_state_from_thread_items() {
 }
 
 #[test]
-fn dispatches_agent_run_list_merges_legacy_and_thread_backed_runs() {
+fn dispatches_agent_run_list_merges_thread_log_and_thread_backed_runs() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -7180,9 +7420,9 @@ fn dispatches_agent_run_list_merges_legacy_and_thread_backed_runs() {
             WorkerCapability::SessionWrite,
         ]),
     );
-    let legacy_record = json!({
+    let thread_log_record = json!({
         "sessionId": "session-1",
-        "runId": "run-legacy",
+        "runId": "run-thread-log",
         "status": "running",
         "phase": "active_turn",
         "startedAt": "2026-07-05T00:00:00Z",
@@ -7208,7 +7448,7 @@ fn dispatches_agent_run_list_merges_legacy_and_thread_backed_runs() {
         "req-mixed-agent-run-upsert",
         "trace-mixed-agent-runs",
         "agent_run.upsert",
-        json!({ "record": legacy_record }),
+        json!({ "record": thread_log_record }),
     ));
     assert_eq!(upsert.error, None);
 
@@ -7232,11 +7472,11 @@ fn dispatches_agent_run_list_merges_legacy_and_thread_backed_runs() {
         "trace-mixed-agent-runs",
         "thread.create",
         json!({
-            "threadId": "thread-run-legacy",
-            "title": "Duplicate legacy run",
+            "threadId": "thread-run-log-duplicate",
+            "title": "Duplicate thread log run",
             "sessionKey": "session-1",
-            "rootRunId": "run-legacy",
-            "activeRunId": "run-legacy",
+            "rootRunId": "run-thread-log",
+            "activeRunId": "run-thread-log",
             "source": "agent_run"
         }),
     ));
@@ -7254,8 +7494,95 @@ fn dispatches_agent_run_list_merges_legacy_and_thread_backed_runs() {
         .as_array()
         .expect("agent_run.list should return runs");
     assert_eq!(runs.len(), 2);
-    assert!(runs.iter().any(|run| run["runId"] == "run-legacy"));
+    assert!(runs.iter().any(|run| run["runId"] == "run-thread-log"));
     assert!(runs.iter().any(|run| run["runId"] == "run-thread-only"));
+}
+
+#[test]
+fn dispatches_agent_run_reads_legacy_session_backed_runs() {
+    let fixture = WorkspaceFixture::new();
+    let mut session = session_fixture();
+    session.extra = json!({
+        "agent_runs": [{
+            "sessionId": "session-1",
+            "runId": "run-legacy-session",
+            "status": "completed",
+            "phase": "completed",
+            "startedAt": "2026-07-05T00:00:00Z",
+            "updatedAt": "2026-07-05T00:00:02Z",
+            "completedAt": "2026-07-05T00:00:02Z",
+            "stopReason": "final_response",
+            "model": "fixture-model",
+            "provider": "fixture",
+            "maxIterations": 4,
+            "currentIteration": 1,
+            "conversationMessageIds": [],
+            "traceMessages": [],
+            "traceEvents": [{
+                "schemaVersion": "tinybot.agent_event.v1",
+                "eventId": "run-legacy-session:agent-done:0000000000000001",
+                "sequence": 1,
+                "sessionId": "session-1",
+                "turnId": "run-legacy-session",
+                "itemId": "run-legacy-session:assistant",
+                "eventName": "agent.done",
+                "phase": "completed",
+                "timestamp": "2026-07-05T00:00:02Z",
+                "source": "rust_backend",
+                "visibility": "user",
+                "payload": { "finalContent": "Legacy final response" }
+            }],
+            "completedToolResults": [],
+            "pendingToolCalls": [],
+            "checkpoint": null,
+            "artifacts": [],
+            "usage": [],
+            "error": null
+        }]
+    });
+    let mut router = WorkerRpcRouter::new(
+        fixture.root.clone(),
+        json!({}),
+        vec![session],
+        20,
+        CapabilityPolicy::new([WorkerCapability::SessionMetadataRead]),
+    );
+
+    let run_list = router.dispatch(&WorkerRequest::new(
+        "req-legacy-agent-run-list",
+        "trace-legacy-agent-run",
+        "agent_run.list",
+        json!({ "sessionId": "session-1" }),
+    ));
+    let get = router.dispatch(&WorkerRequest::new(
+        "req-legacy-agent-run-get",
+        "trace-legacy-agent-run",
+        "agent_run.get",
+        json!({ "session_id": "session-1", "run_id": "run-legacy-session" }),
+    ));
+    let runtime_state = router.dispatch(&WorkerRequest::new(
+        "req-legacy-agent-run-runtime",
+        "trace-legacy-agent-run",
+        "agent_run.runtime_state",
+        json!({ "session_id": "session-1", "run_id": "run-legacy-session" }),
+    ));
+
+    assert_eq!(run_list.error, None);
+    assert_eq!(
+        run_list.result.as_ref().unwrap()["runs"][0]["runId"],
+        "run-legacy-session"
+    );
+    assert_eq!(get.error, None);
+    assert_eq!(get.result.as_ref().unwrap()["status"], "completed");
+    assert_eq!(runtime_state.error, None);
+    assert_eq!(
+        runtime_state.result.as_ref().unwrap()["turnItems"][0]["kind"],
+        "assistant_message"
+    );
+    assert_eq!(
+        runtime_state.result.as_ref().unwrap()["turnItems"][0]["payload"]["content"],
+        "Legacy final response"
+    );
 }
 
 #[test]
@@ -12489,6 +12816,17 @@ fn first_thread_log_file(root: &Path) -> PathBuf {
         None
     }
     visit(&root.join(".tinybot").join("threads")).expect("thread log file should exist")
+}
+
+fn thread_state_updated_at(state_path: &Path, session_id: &str) -> String {
+    let connection = rusqlite::Connection::open(state_path).expect("state db should open");
+    connection
+        .query_row(
+            "SELECT updated_at FROM threads WHERE session_id = ?1",
+            [session_id],
+            |row| row.get(0),
+        )
+        .expect("thread state row should exist")
 }
 
 struct WorkspaceFixture {

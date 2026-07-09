@@ -66,20 +66,73 @@ impl WorkerRpcRouter {
             }
             "session.get_checkpoint" => {
                 let params: SessionIdParams = parse_params(request)?;
-                serde_json::to_value(self.session.get_checkpoint(&params.session_id)?)
-                    .map_err(serialization_error)
+                let checkpoint = self
+                    .thread_log
+                    .latest_agent_run_checkpoint(&params.session_id)?
+                    .map(|checkpoint| checkpoint.checkpoint);
+                let checkpoint = match checkpoint {
+                    Some(checkpoint) => Some(checkpoint),
+                    None => self.session.get_checkpoint(&params.session_id)?,
+                };
+                serde_json::to_value(checkpoint).map_err(serialization_error)
             }
             "session.set_checkpoint" => {
                 let params: SessionCheckpointParams = parse_params(request)?;
+                let run_id = params
+                    .checkpoint
+                    .get("runId")
+                    .or_else(|| params.checkpoint.get("run_id"))
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| {
+                        WorkerProtocolError::new(
+                            WorkerProtocolErrorCode::InvalidProtocol,
+                            "session checkpoint must include runId",
+                            serde_json::json!({ "session_id": params.session_id }),
+                            false,
+                            WorkerProtocolErrorSource::RustCore,
+                        )
+                    })?
+                    .to_string();
+                let record = self.thread_log.set_agent_run_checkpoint(
+                    &params.session_id,
+                    &run_id,
+                    params.checkpoint,
+                )?;
                 let session = self
-                    .session
-                    .set_checkpoint(&params.session_id, params.checkpoint)?;
-                serde_json::to_value(session).map_err(serialization_error)
+                    .thread_log
+                    .get_session_metadata_for_write_response(&params.session_id)?
+                    .ok_or_else(|| {
+                        WorkerProtocolError::new(
+                            WorkerProtocolErrorCode::WorkerError,
+                            "session metadata missing after checkpoint persistence",
+                            serde_json::json!({ "session_id": params.session_id }),
+                            false,
+                            WorkerProtocolErrorSource::RustCore,
+                        )
+                    })?;
+                let mut value = serde_json::to_value(session).map_err(serialization_error)?;
+                value["extra"]["runtime_checkpoint"] =
+                    record.checkpoint.unwrap_or(serde_json::Value::Null);
+                return Ok(value);
             }
             "session.clear_checkpoint" => {
                 let params: SessionIdParams = parse_params(request)?;
-                serde_json::to_value(self.session.clear_checkpoint(&params.session_id)?)
-                    .map_err(serialization_error)
+                let _ = self
+                    .thread_log
+                    .clear_latest_agent_run_checkpoint(&params.session_id)?;
+                let session = self
+                    .thread_log
+                    .get_session_metadata_for_write_response(&params.session_id)?
+                    .ok_or_else(|| {
+                        WorkerProtocolError::new(
+                            WorkerProtocolErrorCode::InvalidProtocol,
+                            "session metadata not found",
+                            serde_json::json!({ "session_id": params.session_id }),
+                            false,
+                            WorkerProtocolErrorSource::RustCore,
+                        )
+                    })?;
+                serde_json::to_value(session).map_err(serialization_error)
             }
             "session.clear" => {
                 let params: SessionIdParams = parse_params(request)?;
@@ -184,16 +237,21 @@ impl WorkerRpcRouter {
         match request.method.as_str() {
             "agent_run.upsert" => {
                 let params: AgentRunUpsertParams = parse_params(request)?;
-                let record = self.session.upsert_agent_run(params.record)?;
+                let record = self.thread_log.upsert_agent_run(params.record)?;
                 serde_json::to_value(record).map_err(serialization_error)
             }
             "agent_run.list" => {
                 let params: AgentRunListParams = parse_params(request)?;
-                let mut records = self.session.list_agent_runs(&params.session_id)?;
+                let mut records = self.thread_log.list_agent_runs(&params.session_id)?;
                 let mut seen_run_ids = records
                     .iter()
                     .map(|record| record.run_id.clone())
                     .collect::<std::collections::HashSet<_>>();
+                for record in self.session.list_agent_runs(&params.session_id)? {
+                    if seen_run_ids.insert(record.run_id.clone()) {
+                        records.push(record);
+                    }
+                }
                 if self.thread.has_thread_store() {
                     for record in self
                         .thread
@@ -222,37 +280,73 @@ impl WorkerRpcRouter {
             "agent_run.get" => {
                 let params: AgentRunIdParams = parse_params(request)?;
                 let record = match self
-                    .session
-                    .get_agent_run(&params.session_id, &params.run_id)
+                    .thread_log
+                    .get_agent_run(&params.session_id, &params.run_id)?
                 {
-                    Ok(record) => record,
-                    Err(session_error) => match self
-                        .thread
-                        .get_agent_run_from_threads(&params.session_id, &params.run_id)?
+                    Some(record) => record,
+                    None => match self
+                        .session
+                        .get_agent_run(&params.session_id, &params.run_id)
                     {
-                        Some(record) => record,
-                        None => return Err(session_error),
+                        Ok(record) => record,
+                        Err(session_error) => match self
+                            .thread
+                            .get_agent_run_from_threads(&params.session_id, &params.run_id)?
+                        {
+                            Some(record) => record,
+                            None => {
+                                if matches!(
+                                    session_error.code,
+                                    WorkerProtocolErrorCode::InvalidProtocol
+                                ) {
+                                    return Err(agent_run_not_found_error(
+                                        &params.session_id,
+                                        &params.run_id,
+                                    ));
+                                }
+                                return Err(session_error);
+                            }
+                        },
                     },
                 };
                 serde_json::to_value(record).map_err(serialization_error)
             }
             "agent_run.list_trace" => {
                 let params: AgentRunListTraceParams = parse_params(request)?;
-                let trace_page = match self.session.list_agent_run_trace_events(
+                let trace_page = match self.thread_log.list_agent_run_trace_events(
                     &params.session_id,
                     &params.run_id,
                     params.cursor.as_deref(),
                     params.limit,
-                ) {
-                    Ok(trace_page) => trace_page,
-                    Err(session_error) => match self.thread.list_agent_run_trace_events(
+                )? {
+                    Some(trace_page) => trace_page,
+                    None => match self.session.list_agent_run_trace_events(
                         &params.session_id,
                         &params.run_id,
                         params.cursor.as_deref(),
                         params.limit,
-                    )? {
-                        Some(trace_page) => trace_page,
-                        None => return Err(session_error),
+                    ) {
+                        Ok(trace_page) => trace_page,
+                        Err(session_error) => match self.thread.list_agent_run_trace_events(
+                            &params.session_id,
+                            &params.run_id,
+                            params.cursor.as_deref(),
+                            params.limit,
+                        )? {
+                            Some(trace_page) => trace_page,
+                            None => {
+                                if matches!(
+                                    session_error.code,
+                                    WorkerProtocolErrorCode::InvalidProtocol
+                                ) {
+                                    return Err(agent_run_not_found_error(
+                                        &params.session_id,
+                                        &params.run_id,
+                                    ));
+                                }
+                                return Err(session_error);
+                            }
+                        },
                     },
                 };
                 serde_json::to_value(trace_page).map_err(serialization_error)
@@ -260,23 +354,40 @@ impl WorkerRpcRouter {
             "agent_run.runtime_state" => {
                 let params: AgentRunIdParams = parse_params(request)?;
                 let runtime_state = match self
-                    .session
-                    .get_agent_run_runtime_state(&params.session_id, &params.run_id)
+                    .thread_log
+                    .get_agent_run_runtime_state(&params.session_id, &params.run_id)?
                 {
-                    Ok(runtime_state) => runtime_state,
-                    Err(session_error) => match self
-                        .thread
-                        .get_agent_run_runtime_state(&params.session_id, &params.run_id)?
+                    Some(runtime_state) => runtime_state,
+                    None => match self
+                        .session
+                        .get_agent_run_runtime_state(&params.session_id, &params.run_id)
                     {
-                        Some(runtime_state) => runtime_state,
-                        None => return Err(session_error),
+                        Ok(runtime_state) => runtime_state,
+                        Err(session_error) => match self
+                            .thread
+                            .get_agent_run_runtime_state(&params.session_id, &params.run_id)?
+                        {
+                            Some(runtime_state) => runtime_state,
+                            None => {
+                                if matches!(
+                                    session_error.code,
+                                    WorkerProtocolErrorCode::InvalidProtocol
+                                ) {
+                                    return Err(agent_run_not_found_error(
+                                        &params.session_id,
+                                        &params.run_id,
+                                    ));
+                                }
+                                return Err(session_error);
+                            }
+                        },
                     },
                 };
                 serde_json::to_value(runtime_state).map_err(serialization_error)
             }
             "agent_run.append_trace" => {
                 let params: AgentRunAppendTraceParams = parse_params(request)?;
-                let record = self.session.append_agent_run_trace_event(
+                let record = self.thread_log.append_agent_run_trace_event(
                     &params.session_id,
                     &params.run_id,
                     params.event,
@@ -285,7 +396,7 @@ impl WorkerRpcRouter {
             }
             "agent_run.set_checkpoint" => {
                 let params: AgentRunCheckpointParams = parse_params(request)?;
-                let record = self.session.set_agent_run_checkpoint(
+                let record = self.thread_log.set_agent_run_checkpoint(
                     &params.session_id,
                     &params.run_id,
                     params.checkpoint,
@@ -294,43 +405,38 @@ impl WorkerRpcRouter {
             }
             "agent_run.get_checkpoint" => {
                 let params: AgentRunIdParams = parse_params(request)?;
-                serde_json::to_value(
-                    self.session
+                let checkpoint = match self
+                    .thread_log
+                    .get_agent_run_checkpoint(&params.session_id, &params.run_id)?
+                {
+                    Some(checkpoint) => Some(checkpoint),
+                    None => self
+                        .session
                         .get_agent_run_checkpoint(&params.session_id, &params.run_id)?,
-                )
-                .map_err(serialization_error)
+                };
+                serde_json::to_value(checkpoint).map_err(serialization_error)
             }
             "agent_run.clear_checkpoint" => {
                 let params: AgentRunIdParams = parse_params(request)?;
                 serde_json::to_value(
-                    self.session
+                    self.thread_log
                         .clear_agent_run_checkpoint(&params.session_id, &params.run_id)?,
                 )
                 .map_err(serialization_error)
             }
             "agent_run.mark_completed" => {
                 let params: AgentRunMarkCompletedParams = parse_params(request)?;
-                let record = self.session.mark_agent_run_completed(
+                let record = self.thread_log.mark_agent_run_completed(
                     &params.session_id,
                     &params.run_id,
                     &params.stop_reason,
                     params.final_content,
                 )?;
-                if let Some(token_usage_info) = record.token_usage_info.clone() {
-                    let info_value =
-                        serde_json::to_value(token_usage_info).map_err(serialization_error)?;
-                    let info = serde_json::from_value::<crate::worker_thread_log::TokenUsageInfo>(
-                        info_value,
-                    )
-                    .map_err(serialization_error)?;
-                    self.thread_log
-                        .append_token_count(&record.session_id, info)?;
-                }
                 serde_json::to_value(record).map_err(serialization_error)
             }
             "agent_run.mark_failed" => {
                 let params: AgentRunMarkFailedParams = parse_params(request)?;
-                let record = self.session.mark_agent_run_failed(
+                let record = self.thread_log.mark_agent_run_failed(
                     &params.session_id,
                     &params.run_id,
                     &params.stop_reason,
@@ -341,11 +447,24 @@ impl WorkerRpcRouter {
             "agent_run.mark_cancelled" => {
                 let params: AgentRunIdParams = parse_params(request)?;
                 let record = self
-                    .session
+                    .thread_log
                     .mark_agent_run_cancelled(&params.session_id, &params.run_id)?;
                 serde_json::to_value(record).map_err(serialization_error)
             }
             _ => Err(unknown_method_error(request)),
         }
     }
+}
+
+fn agent_run_not_found_error(session_id: &str, run_id: &str) -> WorkerProtocolError {
+    WorkerProtocolError::new(
+        WorkerProtocolErrorCode::InvalidProtocol,
+        "agent run not found",
+        serde_json::json!({
+            "session_id": session_id,
+            "run_id": run_id,
+        }),
+        false,
+        WorkerProtocolErrorSource::RustCore,
+    )
 }
