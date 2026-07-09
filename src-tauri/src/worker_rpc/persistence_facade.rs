@@ -190,11 +190,26 @@ impl WorkerRpcRouter {
             "agent_run.list" => {
                 let params: AgentRunListParams = parse_params(request)?;
                 let mut records = self.session.list_agent_runs(&params.session_id)?;
-                if records.is_empty() {
-                    records = self
+                let mut seen_run_ids = records
+                    .iter()
+                    .map(|record| record.run_id.clone())
+                    .collect::<std::collections::HashSet<_>>();
+                if self.thread.has_thread_store() {
+                    for record in self
                         .thread
-                        .list_agent_runs_from_threads(&params.session_id)?;
+                        .list_agent_runs_from_threads(&params.session_id)?
+                    {
+                        if seen_run_ids.insert(record.run_id.clone()) {
+                            records.push(record);
+                        }
+                    }
                 }
+                records.sort_by(|left, right| {
+                    right
+                        .updated_at
+                        .cmp(&left.updated_at)
+                        .then_with(|| left.run_id.cmp(&right.run_id))
+                });
                 let runs = records
                     .iter()
                     .map(AgentRunSummary::from_record)

@@ -133,6 +133,10 @@ impl LocalThreadStore {
         self.root.join("threads.sqlite")
     }
 
+    pub fn exists(&self) -> bool {
+        self.sqlite_path().exists()
+    }
+
     pub fn append_items_with_client_event_id(
         &self,
         thread_id: &str,

@@ -337,6 +337,10 @@ impl WorkerThreadRpc {
         self.store.list_agent_runs_from_threads(session_id)
     }
 
+    pub fn has_thread_store(&self) -> bool {
+        self.store.exists()
+    }
+
     pub fn get_agent_run_from_threads(
         &self,
         session_id: &str,

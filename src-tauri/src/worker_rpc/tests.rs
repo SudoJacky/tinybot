@@ -7168,6 +7168,97 @@ fn dispatches_agent_run_trace_and_runtime_state_from_thread_items() {
 }
 
 #[test]
+fn dispatches_agent_run_list_merges_legacy_and_thread_backed_runs() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        20,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionMetadataRead,
+            WorkerCapability::SessionWrite,
+        ]),
+    );
+    let legacy_record = json!({
+        "sessionId": "session-1",
+        "runId": "run-legacy",
+        "status": "running",
+        "phase": "active_turn",
+        "startedAt": "2026-07-05T00:00:00Z",
+        "updatedAt": "2026-07-05T00:00:00Z",
+        "completedAt": null,
+        "stopReason": null,
+        "model": "fixture-model",
+        "provider": "fixture",
+        "maxIterations": 4,
+        "currentIteration": 0,
+        "conversationMessageIds": [],
+        "traceMessages": [],
+        "traceEvents": [],
+        "completedToolResults": [],
+        "pendingToolCalls": [],
+        "checkpoint": null,
+        "artifacts": [],
+        "usage": [],
+        "error": null
+    });
+
+    let upsert = router.dispatch(&WorkerRequest::new(
+        "req-mixed-agent-run-upsert",
+        "trace-mixed-agent-runs",
+        "agent_run.upsert",
+        json!({ "record": legacy_record }),
+    ));
+    assert_eq!(upsert.error, None);
+
+    let thread_only = router.dispatch(&WorkerRequest::new(
+        "req-mixed-agent-run-thread-only",
+        "trace-mixed-agent-runs",
+        "thread.create",
+        json!({
+            "threadId": "thread-run-only",
+            "title": "Thread-backed run",
+            "sessionKey": "session-1",
+            "rootRunId": "run-thread-only",
+            "activeRunId": "run-thread-only",
+            "source": "agent_run"
+        }),
+    ));
+    assert_eq!(thread_only.error, None);
+
+    let duplicate = router.dispatch(&WorkerRequest::new(
+        "req-mixed-agent-run-duplicate",
+        "trace-mixed-agent-runs",
+        "thread.create",
+        json!({
+            "threadId": "thread-run-legacy",
+            "title": "Duplicate legacy run",
+            "sessionKey": "session-1",
+            "rootRunId": "run-legacy",
+            "activeRunId": "run-legacy",
+            "source": "agent_run"
+        }),
+    ));
+    assert_eq!(duplicate.error, None);
+
+    let run_list = router.dispatch(&WorkerRequest::new(
+        "req-mixed-agent-run-list",
+        "trace-mixed-agent-runs",
+        "agent_run.list",
+        json!({ "sessionId": "session-1" }),
+    ));
+
+    assert_eq!(run_list.error, None);
+    let runs = run_list.result.as_ref().unwrap()["runs"]
+        .as_array()
+        .expect("agent_run.list should return runs");
+    assert_eq!(runs.len(), 2);
+    assert!(runs.iter().any(|run| run["runId"] == "run-legacy"));
+    assert!(runs.iter().any(|run| run["runId"] == "run-thread-only"));
+}
+
+#[test]
 fn dispatches_thread_status_includes_active_child_activity() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
