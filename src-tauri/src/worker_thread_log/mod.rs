@@ -1,3 +1,4 @@
+mod agent_run;
 mod reader;
 mod recorder;
 mod replay;
@@ -60,6 +61,18 @@ impl WorkerThreadLogRpc {
         session_id: &str,
     ) -> Result<Option<SessionMetadata>, WorkerProtocolError> {
         self.require(WorkerCapability::SessionMetadataRead)?;
+        self.ensure_state_index()?;
+        let Some(record) = self.find_live_record(session_id)? else {
+            return Ok(None);
+        };
+        Ok(Some(metadata_from_state(record)))
+    }
+
+    pub fn get_session_metadata_for_write_response(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<SessionMetadata>, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
         self.ensure_state_index()?;
         let Some(record) = self.find_live_record(session_id)? else {
             return Ok(None);
@@ -607,11 +620,14 @@ fn thread_run_state(path: &Path, run_id: &str) -> Result<ThreadRunState, WorkerP
                     .get("payload")
                     .and_then(|payload| payload.get("runId").or_else(|| payload.get("run_id")))
                     .and_then(Value::as_str);
-                if event_run_id == Some(run_id) {
-                    saw_run = true;
-                    if event_type == Some("turn_complete") {
+                match (event_type, event_run_id) {
+                    (Some("turn_complete"), Some(value)) if value == run_id => {
                         return Ok(ThreadRunState::Complete);
                     }
+                    (Some("turn_started"), Some(value)) if value == run_id => {
+                        saw_run = true;
+                    }
+                    _ => {}
                 }
             }
             ThreadLogItem::ResponseItem(item) => {
