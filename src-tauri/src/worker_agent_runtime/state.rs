@@ -168,6 +168,31 @@ impl NativeAgentRunState {
         })];
     }
 
+    pub(super) fn set_queued_tool_calls(&mut self, tool_calls: &[(NativeAgentToolCall, &str)]) {
+        self.phase = AgentRuntimePhase::ToolRunning;
+        self.pending_tool_calls = tool_calls
+            .iter()
+            .map(|(tool_call, parallel_mode)| {
+                serde_json::json!({
+                    "toolCallId": tool_call.id,
+                    "toolName": tool_call.name,
+                    "argumentsJson": tool_call.arguments_json,
+                    "parallelMode": parallel_mode,
+                    "status": "queued",
+                })
+            })
+            .collect();
+    }
+
+    pub(super) fn mark_pending_tool_running(&mut self, tool_call_id: &str) {
+        for pending_tool_call in &mut self.pending_tool_calls {
+            if pending_tool_call.get("toolCallId").and_then(Value::as_str) == Some(tool_call_id) {
+                pending_tool_call["status"] = Value::String("running".to_string());
+                break;
+            }
+        }
+    }
+
     pub(super) fn clear_pending_tool_calls(&mut self) {
         self.pending_tool_calls.clear();
     }

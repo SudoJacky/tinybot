@@ -52,11 +52,22 @@ pub struct ToolRegistryEntry {
     pub description: &'static str,
     pub exposure: ToolExposure,
     pub dynamic: bool,
+    pub supports_parallel_tool_calls: bool,
+    #[serde(skip_serializing)]
+    pub runtime_policy: ToolRuntimePolicy,
     pub required_capabilities: Vec<WorkerCapability>,
     pub available: bool,
     pub approval: ToolApprovalMetadata,
     pub input_schema: Value,
     pub output_schema: Value,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ToolRuntimePolicy {
+    pub supports_parallel_tool_calls: bool,
+    pub waits_for_runtime_cancellation: bool,
+    pub mutates_workspace: bool,
+    pub mutates_session: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -180,6 +191,7 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
             "Read a file under the current workspace.",
             ToolExposure::Model,
             false,
+            runtime_policy(true, false, false, false),
             vec![WorkerCapability::FsWorkspaceRead],
             approval(false, None, None),
             json!({
@@ -200,6 +212,7 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
             "Write a file under the current workspace.",
             ToolExposure::Deferred,
             false,
+            runtime_policy(false, false, true, false),
             vec![
                 WorkerCapability::FsWorkspaceWrite,
                 WorkerCapability::ApprovalRequest,
@@ -222,6 +235,7 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
             "Delete a file or directory under the current workspace.",
             ToolExposure::Deferred,
             false,
+            runtime_policy(false, false, true, false),
             vec![
                 WorkerCapability::FsWorkspaceWrite,
                 WorkerCapability::ApprovalRequest,
@@ -243,6 +257,7 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
             "Search the local knowledge index.",
             ToolExposure::Model,
             false,
+            runtime_policy(true, false, false, false),
             vec![WorkerCapability::KnowledgeRead],
             approval(false, None, None),
             json!({
@@ -263,6 +278,7 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
             "Search saved memory notes.",
             ToolExposure::Model,
             false,
+            runtime_policy(true, false, false, false),
             vec![WorkerCapability::MemoryRead],
             approval(false, None, None),
             json!({
@@ -281,6 +297,7 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
             "Recall memory context for the current turn.",
             ToolExposure::Model,
             false,
+            runtime_policy(true, false, false, false),
             vec![WorkerCapability::MemoryRead],
             approval(false, None, None),
             json!({
@@ -298,6 +315,7 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
             "Call a tool exposed by a configured MCP server.",
             ToolExposure::Deferred,
             true,
+            runtime_policy(false, true, true, true),
             vec![WorkerCapability::McpCall],
             approval(true, Some("mcp_tool"), Some("per_request")),
             json!({
@@ -317,6 +335,7 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
             "Run a shell command in the workspace.",
             ToolExposure::Deferred,
             false,
+            runtime_policy(false, true, true, false),
             vec![WorkerCapability::ShellExecute],
             approval(true, Some("command"), Some("per_request")),
             json!({
@@ -336,6 +355,7 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
             "Create a child agent thread for delegated work.",
             ToolExposure::Model,
             false,
+            runtime_policy(false, true, false, true),
             vec![
                 WorkerCapability::BackgroundWrite,
                 WorkerCapability::SessionWrite,
@@ -359,6 +379,7 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
             "Send input to an active child agent thread.",
             ToolExposure::Model,
             false,
+            runtime_policy(false, true, false, true),
             vec![
                 WorkerCapability::BackgroundWrite,
                 WorkerCapability::SessionWrite,
@@ -385,6 +406,7 @@ fn tool(
     description: &'static str,
     exposure: ToolExposure,
     dynamic: bool,
+    runtime_policy: ToolRuntimePolicy,
     required_capabilities: Vec<WorkerCapability>,
     approval: ToolApprovalMetadata,
     input_schema: Value,
@@ -397,11 +419,27 @@ fn tool(
         description,
         exposure,
         dynamic,
+        supports_parallel_tool_calls: runtime_policy.supports_parallel_tool_calls,
+        runtime_policy,
         required_capabilities,
         available: false,
         approval,
         input_schema,
         output_schema: json!({ "type": "object" }),
+    }
+}
+
+fn runtime_policy(
+    supports_parallel_tool_calls: bool,
+    waits_for_runtime_cancellation: bool,
+    mutates_workspace: bool,
+    mutates_session: bool,
+) -> ToolRuntimePolicy {
+    ToolRuntimePolicy {
+        supports_parallel_tool_calls,
+        waits_for_runtime_cancellation,
+        mutates_workspace,
+        mutates_session,
     }
 }
 

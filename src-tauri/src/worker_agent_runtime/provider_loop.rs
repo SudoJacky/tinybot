@@ -5,12 +5,7 @@ use super::continuations::{
 };
 use super::result::{cancelled_result, cancelled_run_result, error_result};
 use super::state::NativeAgentRunState;
-use super::tool_dispatcher::native_tool_is_permitted;
-use super::tool_projection::{
-    assistant_tool_calls_message, completed_tool_result_entry, normalize_tool_result_for_context,
-    subagent_activity_events_from_tool_result, subagent_link_event_from_tool_result,
-    tool_observation_content, tool_observation_message,
-};
+use super::tool_runtime::{execute_tool_calls_for_iteration, NativeAgentToolExecutionOutcome};
 use super::usage::{
     context_window_action_payload, context_window_projection, context_with_projected_messages,
     estimate_context_tokens_for_request,
@@ -229,220 +224,16 @@ pub fn run_native_agent_turn_with_config(
         }
 
         if !provider_response.tool_calls.is_empty() {
-            let tool_calls = provider_response.tool_calls;
-            state.transition_phase(
-                AgentRuntimePhase::ToolCalling,
+            match execute_tool_calls_for_iteration(
+                services,
+                &context,
+                &mut state,
                 iteration,
-                "agent.tool_call.delta",
-            );
-            state.messages.push(assistant_tool_calls_message(
-                &provider_response.final_content,
-                &tool_calls,
-            ));
-            for tool_call in tool_calls {
-                state.emit_event(
-                    "agent.tool_call.delta",
-                    serde_json::json!({
-                        "runId": context.run_id,
-                        "sessionId": context.session_id,
-                        "iteration": iteration,
-                        "toolCallId": tool_call.id,
-                        "toolName": tool_call.name,
-                        "name": tool_call.name,
-                        "argumentsDelta": tool_call.arguments_json,
-                    }),
-                );
-                if !native_tool_is_permitted(&tool_call.name) {
-                    state.set_stop_reason("policy_denied", iteration, "agent.error");
-                    state.emit_event(
-                        "agent.error",
-                        serde_json::json!({
-                            "runId": context.run_id,
-                            "sessionId": context.session_id,
-                            "iteration": iteration,
-                            "stopReason": "policy_denied",
-                            "error": format!("native tool `{}` is not permitted by Rust capability policy", tool_call.name),
-                            "toolCallId": tool_call.id,
-                            "toolName": tool_call.name,
-                            "name": tool_call.name,
-                        }),
-                    );
-                    services
-                        .checkpoints
-                        .clear_for_run(&context.session_id, &context.run_id);
-                    let runtime_events = state.runtime_events();
-                    let events = state.legacy_events();
-                    return Ok(serde_json::json!({
-                        "runtime": "rust",
-                        "runId": context.run_id,
-                        "sessionId": context.session_id,
-                        "finalContent": "",
-                        "stopReason": "policy_denied",
-                        "messages": [],
-                        "toolsUsed": state.tools_used,
-                        "completedToolResults": state.completed_tool_results,
-                        "error": format!("native tool `{}` is not permitted by Rust capability policy", tool_call.name),
-                        "events": events,
-                        "runtimeEvents": runtime_events,
-                    }));
-                }
-                if services.cancellations.is_cancelled(&context.run_id) {
-                    state.transition_phase(
-                        AgentRuntimePhase::Cancelled,
-                        iteration,
-                        "agent.cancelled",
-                    );
-                    return Ok(cancelled_run_result(
-                        services,
-                        &context,
-                        state.take_runtime_events(),
-                        std::mem::take(&mut state.tools_used),
-                        std::mem::take(&mut state.completed_tool_results),
-                        iteration,
-                    ));
-                }
-                state.tools_used.push(tool_call.name.clone());
-                state.transition_phase(
-                    AgentRuntimePhase::ToolRunning,
-                    iteration,
-                    "agent.tool.start",
-                );
-                state.emit_event(
-                    "agent.tool.start",
-                    serde_json::json!({
-                        "runId": context.run_id,
-                        "sessionId": context.session_id,
-                        "iteration": iteration,
-                        "toolCallId": tool_call.id,
-                        "toolName": tool_call.name,
-                        "name": tool_call.name,
-                        "detailId": format!("tool:{}", tool_call.id),
-                        "status": "running",
-                    }),
-                );
-                state.set_pending_tool_call(&tool_call);
-                save_phase_checkpoint(
-                    services,
-                    &context,
-                    state.phase.as_str(),
-                    serde_json::json!({
-                        "iteration": iteration,
-                        "toolCallId": tool_call.id,
-                        "toolName": tool_call.name,
-                        "argumentsJson": tool_call.arguments_json,
-                        "pendingToolCalls": state.pending_tool_calls.clone(),
-                        "completedToolResults": state.completed_tool_results.clone(),
-                    }),
-                );
-                let result = match services.tools.dispatch(&context, &tool_call) {
-                    Ok(result) => result,
-                    Err(error) => {
-                        state.set_stop_reason("tool_error", iteration, "agent.error");
-                        state.emit_event(
-                            "agent.error",
-                            serde_json::json!({
-                                "runId": context.run_id,
-                                "sessionId": context.session_id,
-                                "iteration": iteration,
-                                "stopReason": "tool_error",
-                                "error": error,
-                                "toolCallId": tool_call.id,
-                                "toolName": tool_call.name,
-                                "name": tool_call.name,
-                            }),
-                        );
-                        services
-                            .checkpoints
-                            .clear_for_run(&context.session_id, &context.run_id);
-                        let runtime_events = state.runtime_events();
-                        let events = state.legacy_events();
-                        return Ok(serde_json::json!({
-                            "runtime": "rust",
-                            "runId": context.run_id,
-                            "sessionId": context.session_id,
-                            "finalContent": "",
-                            "stopReason": "tool_error",
-                            "messages": [],
-                            "toolsUsed": state.tools_used,
-                            "completedToolResults": state.completed_tool_results,
-                            "error": error,
-                            "events": events,
-                            "runtimeEvents": runtime_events,
-                        }));
-                    }
-                };
-                let result = normalize_tool_result_for_context(result, &context);
-                let observation_content = tool_observation_content(&result);
-                let completed_result = completed_tool_result_entry(&tool_call, &result);
-                state
-                    .messages
-                    .push(tool_observation_message(&tool_call, &observation_content));
-                state.emit_event(
-                    "agent.tool.result",
-                    serde_json::json!({
-                        "runId": context.run_id,
-                        "sessionId": context.session_id,
-                        "iteration": iteration,
-                        "toolCallId": tool_call.id,
-                        "toolName": tool_call.name,
-                        "name": tool_call.name,
-                        "detailId": format!("tool:{}", tool_call.id),
-                        "status": "completed",
-                        "resultStatus": result.envelope.get("status").cloned().unwrap_or_else(|| serde_json::json!("ok")),
-                        "summary": result.envelope.get("summary").cloned().unwrap_or_else(|| Value::String(observation_content.clone())),
-                        "timing": {
-                            "durationMs": result
-                                .envelope
-                                .get("metrics")
-                                .and_then(|metrics| metrics.get("durationMs"))
-                                .cloned()
-                                .unwrap_or(Value::Null),
-                        },
-                        "content": observation_content,
-                        "envelope": result.envelope.clone(),
-                    }),
-                );
-                if let Some(link_event) =
-                    subagent_link_event_from_tool_result(&context, &tool_call, &result)
-                {
-                    state.emit_native_event(link_event);
-                }
-                for event in
-                    subagent_activity_events_from_tool_result(&context, &tool_call, &result)
-                {
-                    if event.event_name == "agent.delegate.wait" {
-                        state.transition_phase(
-                            AgentRuntimePhase::AwaitingSubagent,
-                            iteration,
-                            "agent.delegate.wait",
-                        );
-                    }
-                    state.emit_native_event(event);
-                }
-                state.completed_tool_results.push(completed_result);
-                state.clear_pending_tool_calls();
-                state.transition_phase(AgentRuntimePhase::Planning, iteration, "agent.tool.result");
-                save_phase_checkpoint(
-                    services,
-                    &context,
-                    state.phase.as_str(),
-                    state.active_checkpoint_payload("tool_completed"),
-                );
-                if services.cancellations.is_cancelled(&context.run_id) {
-                    state.transition_phase(
-                        AgentRuntimePhase::Cancelled,
-                        iteration,
-                        "agent.cancelled",
-                    );
-                    return Ok(cancelled_run_result(
-                        services,
-                        &context,
-                        state.take_runtime_events(),
-                        std::mem::take(&mut state.tools_used),
-                        std::mem::take(&mut state.completed_tool_results),
-                        iteration,
-                    ));
-                }
+                provider_response.final_content.clone(),
+                provider_response.tool_calls,
+            ) {
+                NativeAgentToolExecutionOutcome::Continue => {}
+                NativeAgentToolExecutionOutcome::Finished(result) => return Ok(result),
             }
 
             if let Some(message) = state.drain_pending_guidance() {

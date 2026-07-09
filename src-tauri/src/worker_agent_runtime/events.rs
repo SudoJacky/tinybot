@@ -55,7 +55,7 @@ pub(super) fn runtime_event_timestamp() -> String {
 
 pub(super) fn runtime_event_item_id(event_name: &str, payload: &Value) -> Option<String> {
     match event_name {
-        "agent.tool_call.delta" | "agent.tool.start" | "agent.tool.result" => {
+        "agent.tool_call.delta" | "agent.tool.start" | "agent.tool.result" | "agent.tool.debug" => {
             string_field(payload, "toolCallId")
                 .or_else(|| string_field(payload, "tool_call_id"))
                 .or_else(|| string_field(payload, "id"))
@@ -78,7 +78,7 @@ pub(super) fn runtime_event_source(event_name: &str) -> AgentRuntimeEventSource 
         "agent.delta" | "agent.reasoning_delta" | "agent.usage" => {
             AgentRuntimeEventSource::Provider
         }
-        "agent.tool_call.delta" | "agent.tool.start" | "agent.tool.result" => {
+        "agent.tool_call.delta" | "agent.tool.start" | "agent.tool.result" | "agent.tool.debug" => {
             AgentRuntimeEventSource::Tool
         }
         "agent.guidance" | "agent.approval.decision" | "agent.form.resolution" => {
@@ -91,9 +91,11 @@ pub(super) fn runtime_event_source(event_name: &str) -> AgentRuntimeEventSource 
 
 pub(super) fn runtime_event_visibility(event_name: &str) -> AgentRuntimeEventVisibility {
     match event_name {
-        "agent.checkpoint" | "agent.usage" | "agent.done" | "agent.phase.changed" => {
-            AgentRuntimeEventVisibility::Debug
-        }
+        "agent.checkpoint"
+        | "agent.usage"
+        | "agent.done"
+        | "agent.phase.changed"
+        | "agent.tool.debug" => AgentRuntimeEventVisibility::Debug,
         _ => AgentRuntimeEventVisibility::User,
     }
 }

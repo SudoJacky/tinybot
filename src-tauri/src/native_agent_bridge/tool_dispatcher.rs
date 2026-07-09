@@ -3,7 +3,7 @@ use crate::worker_agent_runtime::{
     NativeAgentRunContext, NativeAgentRuntimeServices, NativeAgentToolCall,
     NativeAgentToolDispatcher, NativeAgentToolResult,
 };
-use crate::worker_protocol::WorkerRequest;
+use crate::worker_protocol::{WorkerRequest, WorkerRequestCancellation};
 use crate::worker_request_id::next_worker_request_correlation;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -32,6 +32,10 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
                 )
             })?;
         let request_id = next_worker_request_correlation();
+        let cancellation = context
+            .cancellation
+            .clone()
+            .map(|cancellation| Arc::new(cancellation) as Arc<dyn WorkerRequestCancellation>);
         let executor_result = call_rust_state_service(
             self.workspace_root.clone(),
             self.config_snapshot.clone(),
@@ -43,7 +47,8 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
                     "toolId": tool_call.name,
                     "arguments": arguments,
                 }),
-            ),
+            )
+            .with_cancellation(cancellation),
             "native tool executor",
         );
         match executor_result {

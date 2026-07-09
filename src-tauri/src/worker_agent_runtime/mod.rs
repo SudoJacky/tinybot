@@ -4,6 +4,7 @@ use crate::agent_loop_runtime_protocol::{
 use crate::worker_subagent_manager::{
     SubagentInputSender, SubagentSendInputParams, SubagentTargetParams, SubagentThreadManager,
 };
+use crate::worker_tool_registry::ToolRegistryEntry;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{fmt, sync::Arc};
@@ -20,6 +21,7 @@ mod stores;
 mod tool_dispatcher;
 mod tool_projection;
 mod tool_result;
+mod tool_runtime;
 mod usage;
 
 use self::provider::{
@@ -69,6 +71,12 @@ impl fmt::Debug for NativeAgentCancellationContext {
     }
 }
 
+impl crate::worker_protocol::WorkerRequestCancellation for NativeAgentCancellationContext {
+    fn is_cancelled(&self) -> bool {
+        self.is_cancelled()
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct NativeAgentEvent {
     #[serde(rename = "eventName")]
@@ -99,6 +107,7 @@ pub struct NativeAgentRunContext {
     pub stream: bool,
     pub max_iterations: i64,
     pub cancellation: Option<NativeAgentCancellationContext>,
+    pub tool_registry_entries: Vec<ToolRegistryEntry>,
 }
 
 #[derive(Clone, Debug)]
@@ -156,6 +165,16 @@ pub trait NativeAgentToolDispatcher: Send + Sync {
         context: &NativeAgentRunContext,
         tool_call: &NativeAgentToolCall,
     ) -> Result<NativeAgentToolResult, String>;
+
+    fn dispatch_async(
+        &self,
+        context: NativeAgentRunContext,
+        tool_call: NativeAgentToolCall,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send + '_>,
+    > {
+        Box::pin(async move { self.dispatch(&context, &tool_call) })
+    }
 }
 
 pub trait NativeAgentCheckpointStore: Send + Sync {
