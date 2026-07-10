@@ -3,6 +3,7 @@ use crate::agent_loop_runtime_protocol::{
 };
 use crate::runtime::agent_task::{AgentCancelReason, AgentTaskRuntime};
 use crate::runtime::mcp::McpRuntime;
+use crate::worker_shell::WorkerShellRuntime;
 use crate::worker_subagent_manager::{
     SubagentInputSender, SubagentSendInputParams, SubagentTargetParams, SubagentThreadManager,
 };
@@ -346,6 +347,7 @@ pub struct NativeAgentRuntimeServices {
     subagents: SubagentThreadManager,
     trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
     mcp_runtime: McpRuntime,
+    shell_runtime: WorkerShellRuntime,
     task_runtime: AgentTaskRuntime,
     #[cfg(test)]
     test_activated_tool_ids: Vec<String>,
@@ -368,6 +370,7 @@ impl NativeAgentRuntimeServices {
             subagents: SubagentThreadManager::default(),
             trace_sink: None,
             mcp_runtime: McpRuntime::new(),
+            shell_runtime: WorkerShellRuntime::default(),
             task_runtime: AgentTaskRuntime::new(),
             #[cfg(test)]
             test_activated_tool_ids: Vec::new(),
@@ -412,6 +415,10 @@ impl NativeAgentRuntimeServices {
 
     pub(crate) fn mcp_runtime(&self) -> McpRuntime {
         self.mcp_runtime.clone()
+    }
+
+    pub(crate) fn shell_runtime(&self) -> WorkerShellRuntime {
+        self.shell_runtime.clone()
     }
 
     pub(crate) fn task_runtime(&self) -> AgentTaskRuntime {

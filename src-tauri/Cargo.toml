@@ -21,6 +21,7 @@ tauri-build = { version = "2", features = [] }
 async-openai = { version = "0.41.1", default-features = false, features = ["native-tls", "chat-completion", "model", "responses", "byot"] }
 futures-util = "0.3"
 http = "1"
+portable-pty = "0.9.0"
 rmcp = { version = "1.8.0", default-features = false, features = ["client", "reqwest-native-tls", "transport-child-process", "transport-streamable-http-client-reqwest", "which-command"] }
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"

@@ -6,6 +6,7 @@ use crate::worker_agent_runtime::{
 };
 use crate::worker_protocol::{WorkerRequest, WorkerRequestCancellation};
 use crate::worker_request_id::next_worker_request_correlation;
+use crate::worker_shell::WorkerShellRuntime;
 use crate::worker_tool_registry::ToolExecutionTarget;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -16,6 +17,7 @@ struct NativeAgentToolExecutorDispatcher {
     config_snapshot: serde_json::Value,
     fallback: Arc<dyn NativeAgentToolDispatcher>,
     mcp_runtime: McpRuntime,
+    shell_runtime: WorkerShellRuntime,
 }
 
 impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
@@ -64,6 +66,9 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
                 serde_json::json!({
                     "toolId": tool_call.name,
                     "arguments": arguments,
+                    "sessionId": context.session_id,
+                    "runId": context.run_id,
+                    "toolCallId": tool_call.id,
                 }),
                 "native tool executor",
             ),
@@ -72,6 +77,7 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
             self.workspace_root.clone(),
             self.config_snapshot.clone(),
             self.mcp_runtime.clone(),
+            self.shell_runtime.clone(),
             WorkerRequest::new(
                 request_id.id("native-tool-executor"),
                 request_id.trace_id("native-tool-executor"),
@@ -225,11 +231,13 @@ pub(crate) fn native_agent_services_with_tool_executor(
 ) -> NativeAgentRuntimeServices {
     let fallback = services.tool_dispatcher();
     let mcp_runtime = services.mcp_runtime();
+    let shell_runtime = services.shell_runtime();
     services.with_tool_dispatcher(Arc::new(NativeAgentToolExecutorDispatcher {
         workspace_root,
         config_snapshot,
         fallback,
         mcp_runtime,
+        shell_runtime,
     }))
 }
 

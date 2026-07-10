@@ -1,6 +1,7 @@
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_protocol::{WorkerRequest, WorkerRequestCancellation};
 use crate::worker_rpc::WorkerRpcRouter;
+use crate::worker_shell::WorkerShellRuntime;
 use crate::worker_subagent_manager::{SubagentSpawnParams, SubagentThreadManager};
 use serde_json::{json, Value};
 use std::{
@@ -4403,15 +4404,16 @@ fn dispatches_tool_registry_search_with_filters() {
     ));
     assert_eq!(shell.error, None);
     assert_eq!(shell.result.as_ref().unwrap()["query"], "command");
-    assert_eq!(shell.result.as_ref().unwrap()["total"], 1);
-    assert_eq!(
-        shell.result.as_ref().unwrap()["tools"][0]["method"],
-        "shell.execute"
-    );
-    assert_eq!(
-        shell.result.as_ref().unwrap()["tools"][0]["available"],
-        true
-    );
+    let shell_tools = shell.result.as_ref().unwrap()["tools"]
+        .as_array()
+        .expect("command search should return shell tools");
+    assert_eq!(shell.result.as_ref().unwrap()["total"], 2);
+    assert!(shell_tools
+        .iter()
+        .any(|tool| tool["method"] == "shell.execute" && tool["available"] == true));
+    assert!(shell_tools
+        .iter()
+        .any(|tool| tool["method"] == "exec_command" && tool["available"] == true));
 
     let memory = router.dispatch(&WorkerRequest::new(
         "req-tool-registry-search-memory",
@@ -13115,6 +13117,234 @@ fn dispatches_shell_execute_request() {
     assert_eq!(result["blocked"], false);
     assert!(result["content"].as_str().unwrap().contains("tinybot"));
     assert!(response.error.is_none());
+}
+
+#[test]
+fn dispatches_owned_shell_process_lifecycle() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        20,
+        CapabilityPolicy::new([
+            WorkerCapability::ApprovalRequest,
+            WorkerCapability::ApprovalResolve,
+            WorkerCapability::ShellExecute,
+        ]),
+    );
+    let command = blocking_shell_command_with_marker();
+    let fingerprint = format!("start:{}", command.to_ascii_lowercase());
+    approve_once(
+        &mut router,
+        "run-shell-process",
+        "session-shell-process",
+        json!({
+            "toolName": "exec_command",
+            "arguments": { "command": command.clone() }
+        }),
+        "shell",
+        "high",
+        "Shell execution can modify files, run programs, or access the network.",
+        &fingerprint,
+        &fingerprint,
+    );
+
+    let started = router.dispatch(&WorkerRequest::new(
+        "req-shell-start",
+        "trace-shell-process",
+        "shell.start",
+        json!({
+            "command": command,
+            "workingDir": ".",
+            "yieldTimeMs": 0,
+            "tty": false,
+            "sessionId": "session-shell-process",
+            "runId": "run-shell-process",
+            "toolCallId": "tool-shell-process"
+        }),
+    ));
+    let started = started.result.expect("shell.start should return a process");
+    assert_eq!(started["running"], true, "{started:?}");
+    assert_eq!(started["runId"], "run-shell-process");
+    assert_eq!(started["toolCallId"], "tool-shell-process");
+    let process_id = started["processId"]
+        .as_str()
+        .expect("shell process id should be present")
+        .to_string();
+
+    let wrong_owner = router.dispatch(&WorkerRequest::new(
+        "req-shell-poll-wrong-owner",
+        "trace-shell-process",
+        "shell.poll",
+        json!({ "processId": process_id, "cursor": 0, "yieldTimeMs": 0 }),
+    ));
+    let error = wrong_owner
+        .error
+        .expect("ownerless poll must not access an owned process");
+    assert!(error.message.contains("owner does not match"));
+
+    let listed = router.dispatch(&WorkerRequest::new(
+        "req-shell-list",
+        "trace-shell-process",
+        "shell.list",
+        json!({ "runId": "run-shell-process" }),
+    ));
+    let listed = listed
+        .result
+        .expect("shell.list should return owned processes");
+    assert_eq!(listed.as_array().map(Vec::len), Some(1), "{listed:?}");
+    assert_eq!(listed[0]["processId"], process_id);
+
+    let terminated = router.dispatch(&WorkerRequest::new(
+        "req-shell-terminate",
+        "trace-shell-process",
+        "shell.terminate",
+        json!({
+            "processId": process_id,
+            "runId": "run-shell-process"
+        }),
+    ));
+    let terminated = terminated
+        .result
+        .expect("shell.terminate should return the final process snapshot");
+    assert_eq!(terminated["status"], "terminated", "{terminated:?}");
+    assert_eq!(terminated["running"], false);
+}
+
+#[test]
+fn tool_executor_injects_run_ownership_into_exec_command() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        20,
+        CapabilityPolicy::new([
+            WorkerCapability::ApprovalRequest,
+            WorkerCapability::ApprovalResolve,
+            WorkerCapability::ShellExecute,
+        ]),
+    );
+    let command = blocking_shell_command_with_marker();
+    let fingerprint = format!("start:{}", command.to_ascii_lowercase());
+    approve_once(
+        &mut router,
+        "run-exec-command",
+        "session-exec-command",
+        json!({
+            "toolName": "exec_command",
+            "arguments": { "command": command.clone() }
+        }),
+        "shell",
+        "high",
+        "Shell execution can modify files, run programs, or access the network.",
+        &fingerprint,
+        &fingerprint,
+    );
+
+    let response = router.dispatch(&WorkerRequest::new(
+        "req-tool-exec-command",
+        "trace-tool-exec-command",
+        "tool_executor.execute",
+        json!({
+            "toolId": "exec_command",
+            "arguments": {
+                "command": command,
+                "workingDir": ".",
+                "yieldTimeMs": 0,
+                "tty": false,
+                "sessionId": "spoofed-session",
+                "runId": "spoofed-run",
+                "toolCallId": "spoofed-tool-call"
+            },
+            "sessionId": "session-exec-command",
+            "runId": "run-exec-command",
+            "toolCallId": "tool-exec-command"
+        }),
+    ));
+    let result = response
+        .result
+        .expect("exec_command should dispatch through tool executor");
+    let process = &result["result"];
+    assert_eq!(process["runId"], "run-exec-command", "{result:?}");
+    assert_eq!(process["toolCallId"], "tool-exec-command", "{result:?}");
+    let process_id = process["processId"]
+        .as_str()
+        .expect("retained process id should be present")
+        .to_string();
+
+    let terminated = router.dispatch(&WorkerRequest::new(
+        "req-tool-exec-command-terminate",
+        "trace-tool-exec-command",
+        "shell.terminate",
+        json!({
+            "processId": process_id,
+            "runId": "run-exec-command"
+        }),
+    ));
+    assert_eq!(terminated.result.as_ref().unwrap()["status"], "terminated");
+    assert!(terminated.error.is_none());
+}
+
+#[test]
+fn shared_shell_runtime_survives_router_reconstruction() {
+    let fixture = WorkspaceFixture::new();
+    let shell_runtime = WorkerShellRuntime::default();
+    let policy = CapabilityPolicy::new([WorkerCapability::ShellExecute]);
+    let mut first_router =
+        WorkerRpcRouter::new(fixture.root.clone(), json!({}), vec![], 20, policy.clone())
+            .with_shell_runtime(shell_runtime.clone());
+    let command = blocking_shell_command_with_marker();
+    let started = first_router.dispatch(
+        &WorkerRequest::new(
+            "req-shared-shell-start",
+            "trace-shared-shell",
+            "shell.start",
+            json!({
+                "command": command,
+                "workingDir": ".",
+                "yieldTimeMs": 0,
+                "sessionId": "session-shared-shell",
+                "runId": "run-shared-shell",
+                "toolCallId": "tool-shared-shell"
+            }),
+        )
+        .with_trusted_internal(),
+    );
+    let process_id = started.result.as_ref().unwrap()["processId"]
+        .as_str()
+        .expect("shared process id should be present")
+        .to_string();
+    drop(first_router);
+
+    let mut second_router =
+        WorkerRpcRouter::new(fixture.root.clone(), json!({}), vec![], 20, policy)
+            .with_shell_runtime(shell_runtime);
+    let polled = second_router.dispatch(&WorkerRequest::new(
+        "req-shared-shell-poll",
+        "trace-shared-shell",
+        "shell.poll",
+        json!({
+            "processId": process_id,
+            "runId": "run-shared-shell",
+            "cursor": 0,
+            "yieldTimeMs": 0
+        }),
+    ));
+    assert_eq!(polled.result.as_ref().unwrap()["running"], true);
+
+    let terminated = second_router.dispatch(&WorkerRequest::new(
+        "req-shared-shell-terminate",
+        "trace-shared-shell",
+        "shell.terminate",
+        json!({
+            "processId": process_id,
+            "runId": "run-shared-shell"
+        }),
+    ));
+    assert_eq!(terminated.result.as_ref().unwrap()["status"], "terminated");
+    assert!(terminated.error.is_none());
 }
 
 #[test]

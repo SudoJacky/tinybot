@@ -336,19 +336,26 @@ fn registry_entry_to_provider_spec(entry: &ToolRegistryEntry, provider_name: &st
 }
 
 fn entry_match_score(entry: &ToolRegistryEntry, query: &str) -> usize {
-    let searchable = format!(
-        "{} {} {} {} {}",
-        entry.tool_id, entry.method, entry.namespace, entry.title, entry.description
-    )
-    .to_lowercase();
+    let tool_id = entry.tool_id.to_lowercase();
+    let method = entry.method.to_lowercase();
+    let namespace = entry.namespace.to_lowercase();
+    let title = entry.title.to_lowercase();
+    let description = entry.description.to_lowercase();
+    let searchable = format!("{tool_id} {method} {namespace} {title} {description}");
     if searchable.contains(query) {
         return 1_000;
     }
     query
         .split(|character: char| !character.is_alphanumeric())
         .filter(|word| word.len() >= 3 && !is_search_stop_word(word))
-        .filter(|word| searchable.contains(*word))
-        .count()
+        .map(|word| {
+            usize::from(tool_id.contains(word)) * 16
+                + usize::from(method.contains(word)) * 16
+                + usize::from(title.contains(word)) * 8
+                + usize::from(description.contains(word)) * 4
+                + usize::from(namespace.contains(word)) * 2
+        })
+        .sum()
 }
 
 fn is_search_stop_word(word: &str) -> bool {

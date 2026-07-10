@@ -279,11 +279,13 @@ pub(crate) fn call_rust_state_service_with_mcp_runtime(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     mcp_runtime: McpRuntime,
+    shell_runtime: crate::worker_shell::WorkerShellRuntime,
     request: WorkerRequest,
     label: &str,
 ) -> Result<serde_json::Value, String> {
-    let mut router =
-        experimental_worker_router(workspace_root, config_snapshot).with_mcp_runtime(mcp_runtime);
+    let mut router = experimental_worker_router(workspace_root, config_snapshot)
+        .with_mcp_runtime(mcp_runtime)
+        .with_shell_runtime(shell_runtime);
     let response = router.dispatch(&request);
     if let Some(error) = response.error {
         return Err(format!("{label} failed: {}", error.message));

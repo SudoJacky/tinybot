@@ -330,11 +330,11 @@ fn approval_summary(tool: &ToolRegistryEntry, arguments: &Value) -> String {
         return format!("mcp.call_tool {server}.{tool_name}");
     }
     match tool.method.as_str() {
-        "shell.execute" => arguments
+        "shell.execute" | "exec_command" => arguments
             .get("command")
             .and_then(Value::as_str)
-            .map(|command| format!("shell.execute command=\"{}\"", normalize_summary(command)))
-            .unwrap_or_else(|| "shell.execute".to_string()),
+            .map(|command| format!("{} command=\"{}\"", tool.method, normalize_summary(command)))
+            .unwrap_or_else(|| tool.method.to_string()),
         "workspace.write_file" | "workspace.delete_file" => arguments
             .get("path")
             .and_then(Value::as_str)
@@ -373,6 +373,11 @@ fn approval_fingerprint(tool: &ToolRegistryEntry, arguments: &Value) -> String {
             .and_then(Value::as_str)
             .map(|command| format!("exec:{}", normalize_summary(command).to_ascii_lowercase()))
             .unwrap_or_else(|| "exec:".to_string()),
+        "exec_command" => arguments
+            .get("command")
+            .and_then(Value::as_str)
+            .map(|command| format!("start:{}", normalize_summary(command).to_ascii_lowercase()))
+            .unwrap_or_else(|| "start:".to_string()),
         "workspace.write_file" => arguments
             .get("path")
             .and_then(Value::as_str)

@@ -466,9 +466,9 @@ credentials:
 {
   "tools": [
     {
-      "toolId": "shell.execute",
-      "title": "Execute shell command",
-      "description": "Run a shell command in the workspace.",
+      "toolId": "exec_command",
+      "title": "Start shell command",
+      "description": "Start a workspace shell command and retain it when it remains active.",
       "requiresApproval": true
     }
   ]
@@ -798,10 +798,98 @@ Result shape:
 }
 ```
 
-`workspace.apply_patch`, `workspace.write_file`, `workspace.delete_file`, `shell.execute`, and MCP
-tool calls enforce their final approval boundary at the concrete Worker RPC method. A caller cannot
-claim an internal operation in serialized params: the trusted marker exists only on an in-process
-request after the native runtime has passed its approval gate.
+`workspace.apply_patch`, `workspace.write_file`, `workspace.delete_file`, `shell.execute`,
+`shell.start`, and MCP tool calls enforce their final approval boundary at the concrete Worker RPC
+method. A caller cannot claim an internal operation in serialized params: the trusted marker exists
+only on an in-process request after the native runtime has passed its approval gate.
+
+## Owned Shell Processes
+
+The Rust worker owns live shell processes behind `WorkerShellRpc`. `shell.execute` remains the
+one-shot compatibility method, but it now starts and waits through the same process manager used by
+interactive sessions. Its returned stdout/stderr is bounded by the manager's retained transcript.
+The manager is held by `NativeAgentRuntimeServices`, so separate per-tool Worker RPC router instances
+share the same live process store.
+
+Model-visible deferred tools map to the richer RPC surface:
+
+| Tool | Worker RPC target | Approval | Cancellation policy |
+| --- | --- | --- | --- |
+| `exec_command` | `shell.start` | per command | `terminate_process` |
+| `write_stdin` | `shell.write_stdin` | none after launch | `detach_forbidden` |
+
+The worker overwrites tool-supplied identity fields with the active `sessionId`, `runId`, and
+`toolCallId` when these tools dispatch. An owned process cannot be polled, written, resized,
+interrupted, or terminated without the matching `runId`.
+
+### Shell RPC methods
+
+| Method | Purpose |
+| --- | --- |
+| `shell.start` | Start a pipe or PTY process and wait for a bounded initial yield. |
+| `shell.poll` | Return output after a sequence cursor, waiting up to `yieldTimeMs`. |
+| `shell.write_stdin` | Write `input` (or alias `chars`) and return newly available output. |
+| `shell.resize` | Resize an active PTY in rows and columns. |
+| `shell.interrupt` | Send SIGINT on Unix or Ctrl-C to a Windows PTY. |
+| `shell.terminate` | Terminate one owned process tree and verify its exit. |
+| `shell.terminate_run` | Terminate all live processes owned by one run. |
+| `shell.list` | List retained process snapshots, optionally filtered by `runId`. |
+| `shell.shutdown` | Terminate live processes, join terminal lifecycle threads, and release records. |
+
+`shell.start` accepts:
+
+```json
+{
+  "command": "python -i",
+  "workingDir": ".",
+  "tty": true,
+  "yieldTimeMs": 1000,
+  "rows": 24,
+  "cols": 80,
+  "sessionId": "websocket:chat-1",
+  "runId": "run-1",
+  "toolCallId": "call-1"
+}
+```
+
+`runId` and `toolCallId` are required for retained processes. The one-shot `shell.execute` adapter
+uses an internal transient owner and releases its record before returning.
+
+Process snapshots use camel-case fields and include:
+
+```json
+{
+  "processId": "process-1",
+  "systemProcessId": 1234,
+  "runId": "run-1",
+  "toolCallId": "call-1",
+  "command": "python -i",
+  "workingDir": ".",
+  "tty": true,
+  "status": "running",
+  "running": true,
+  "exitCode": null,
+  "stdout": "",
+  "stderr": "",
+  "output": "",
+  "chunks": [],
+  "cursor": 0,
+  "truncated": false,
+  "droppedBytes": 0,
+  "startedAtMs": 0,
+  "lastActivityMs": 0,
+  "sandboxMode": "workspace_guard_only",
+  "approvalDecision": "validated",
+  "failure": null
+}
+```
+
+Pipe processes preserve stdout/stderr chunk identity. PTY output uses the `terminal` stream and is
+projected into stdout for compatibility. The retained transcript keeps a 256 KiB head and 768 KiB
+tail; `truncated` and `droppedBytes` make any omission explicit. Unknown process IDs and writes after
+exit are errors, not empty successful polls. On Windows, the manager normalizes terminal input,
+answers ConPTY cursor-position probes internally, and removes verbatim path prefixes only at the PTY
+spawn boundary after workspace validation.
 
 ## Knowledge Commands
 

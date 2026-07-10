@@ -377,6 +377,29 @@ pub(super) fn shell_execute_approval(
     }
 }
 
+pub(super) fn shell_start_approval(
+    command: &str,
+    session_id: Option<String>,
+    run_id: Option<String>,
+) -> SensitiveOperationApproval {
+    let normalized_command = normalize_approval_command(command).to_ascii_lowercase();
+    SensitiveOperationApproval {
+        method: "shell.start",
+        run_id: run_id.unwrap_or_else(|| "shell.start".to_string()),
+        session_id,
+        operation: serde_json::json!({
+            "toolName": "exec_command",
+            "arguments": { "command": command }
+        }),
+        category: "shell",
+        risk: "high",
+        reason: "Shell execution is an approval-sensitive security operation.",
+        summary: format!("start command=\"{}\"", normalize_approval_command(command)),
+        fingerprint: format!("start:{normalized_command}"),
+        session_fingerprint: format!("start:{normalized_command}"),
+    }
+}
+
 #[derive(Deserialize)]
 struct ApprovalRequestParams {
     run_id: String,

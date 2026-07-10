@@ -653,6 +653,52 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
                 }
             }),
         ),
+        worker_rpc_tool(
+            "exec_command",
+            "shell.start",
+            "shell",
+            "Start shell command",
+            "Start a workspace shell command and retain it when it remains active.",
+            ToolExposure::Deferred,
+            false,
+            runtime_policy(false, ToolCancellationMode::TerminateProcess, true, false),
+            vec![WorkerCapability::ShellExecute],
+            approval(true, Some("command"), Some("per_request")),
+            json!({
+                "type": "object",
+                "required": ["command"],
+                "properties": {
+                    "command": { "type": "string" },
+                    "workingDir": { "type": "string" },
+                    "yieldTimeMs": { "type": "integer", "minimum": 0, "maximum": 30000 },
+                    "tty": { "type": "boolean" },
+                    "rows": { "type": "integer", "minimum": 1 },
+                    "cols": { "type": "integer", "minimum": 1 }
+                }
+            }),
+        ),
+        worker_rpc_tool(
+            "write_stdin",
+            "shell.write_stdin",
+            "shell",
+            "Write shell input",
+            "Write input to a retained shell process and return newly available output.",
+            ToolExposure::Deferred,
+            false,
+            runtime_policy(false, ToolCancellationMode::DetachForbidden, true, false),
+            vec![WorkerCapability::ShellExecute],
+            approval(false, None, None),
+            json!({
+                "type": "object",
+                "required": ["processId"],
+                "properties": {
+                    "processId": { "type": "string" },
+                    "input": { "type": "string" },
+                    "cursor": { "type": "integer", "minimum": 0 },
+                    "yieldTimeMs": { "type": "integer", "minimum": 0, "maximum": 30000 }
+                }
+            }),
+        ),
         tool(
             "subagent.spawn",
             "subagent",
@@ -735,6 +781,38 @@ fn tool(
             method: method.to_string(),
         },
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn worker_rpc_tool(
+    method: &'static str,
+    target_method: &'static str,
+    namespace: &'static str,
+    title: &'static str,
+    description: &'static str,
+    exposure: ToolExposure,
+    dynamic: bool,
+    runtime_policy: ToolRuntimePolicy,
+    required_capabilities: Vec<WorkerCapability>,
+    approval: ToolApprovalMetadata,
+    input_schema: Value,
+) -> ToolRegistryEntry {
+    let mut entry = tool(
+        method,
+        namespace,
+        title,
+        description,
+        exposure,
+        dynamic,
+        runtime_policy,
+        required_capabilities,
+        approval,
+        input_schema,
+    );
+    entry.execution_target = ToolExecutionTarget::WorkerRpc {
+        method: target_method.to_string(),
+    };
+    entry
 }
 
 fn runtime_control_tool(
@@ -856,6 +934,47 @@ mod tests {
             tool.execution_target,
             ToolExecutionTarget::WorkerRpc {
                 method: "workspace.apply_patch".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn retained_shell_tools_use_owned_process_rpc_targets() {
+        let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
+            WorkerCapability::ShellExecute,
+            WorkerCapability::ApprovalRequest,
+        ]));
+        let start = registry
+            .get_tool("exec_command")
+            .expect("exec_command should be registered");
+        let input = registry
+            .get_tool("write_stdin")
+            .expect("write_stdin should be registered");
+
+        assert_eq!(start.exposure, ToolExposure::Deferred);
+        assert!(start.available);
+        assert!(start.approval.required);
+        assert_eq!(
+            start.runtime_policy.cancellation_mode,
+            ToolCancellationMode::TerminateProcess
+        );
+        assert_eq!(
+            start.execution_target,
+            ToolExecutionTarget::WorkerRpc {
+                method: "shell.start".to_string()
+            }
+        );
+        assert_eq!(input.exposure, ToolExposure::Deferred);
+        assert!(input.available);
+        assert!(!input.approval.required);
+        assert_eq!(
+            input.runtime_policy.cancellation_mode,
+            ToolCancellationMode::DetachForbidden
+        );
+        assert_eq!(
+            input.execution_target,
+            ToolExecutionTarget::WorkerRpc {
+                method: "shell.write_stdin".to_string()
             }
         );
     }

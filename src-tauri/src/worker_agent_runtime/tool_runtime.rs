@@ -519,7 +519,10 @@ fn awaiting_tool_approval_result(
     };
     let approval_id = format!("approval:{}:{}", context.run_id, tool_call.id);
     let summary = format!("Approval required: {}", tool_call.name);
-    let risk = if matches!(tool_call.name.as_str(), "shell.execute" | "mcp.call_tool") {
+    let risk = if matches!(
+        tool_call.name.as_str(),
+        "shell.execute" | "exec_command" | "mcp.call_tool"
+    ) {
         "high"
     } else {
         "medium"

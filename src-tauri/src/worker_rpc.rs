@@ -29,7 +29,11 @@ use crate::worker_protocol::{
 };
 use crate::worker_secret::{ProviderResolveSecretParams, WorkerSecretRpc};
 use crate::worker_session::{AgentRunRecord, AgentRunSummary, SessionMetadata, WorkerSessionRpc};
-use crate::worker_shell::{ShellExecuteParams, WorkerShellRpc};
+use crate::worker_shell::{
+    ShellExecuteParams, ShellProcessIdParams, ShellProcessInputParams, ShellProcessListParams,
+    ShellProcessPollParams, ShellProcessResizeParams, ShellStartParams, WorkerShellRpc,
+    WorkerShellRuntime,
+};
 use crate::worker_subagent_manager::{
     SubagentInputSender, SubagentSendInputParams, SubagentSpawnParams, SubagentTargetParams,
     SubagentThreadManager, SubagentWaitParams,
@@ -77,8 +81,9 @@ mod tool_dispatch;
 mod workspace_dispatch;
 
 use self::approval::{
-    mcp_tool_approval, shell_execute_approval, workspace_apply_patch_approval,
-    workspace_delete_approval, workspace_write_approval, WorkerApprovalRpc,
+    mcp_tool_approval, shell_execute_approval, shell_start_approval,
+    workspace_apply_patch_approval, workspace_delete_approval, workspace_write_approval,
+    WorkerApprovalRpc,
 };
 use self::channel::WorkerChannelConnectorRpc;
 use self::errors::unknown_method_error;
@@ -238,6 +243,11 @@ impl WorkerRpcRouter {
         self
     }
 
+    pub fn with_shell_runtime(mut self, runtime: WorkerShellRuntime) -> Self {
+        self.shell = self.shell.use_runtime(runtime);
+        self
+    }
+
     pub fn dispatch(&mut self, request: &WorkerRequest) -> WorkerResponse {
         if let Err(error) = protocol::validate_request(request) {
             return WorkerResponse::failure(request, error);
@@ -269,7 +279,7 @@ impl WorkerRpcRouter {
             method
                 if method == "diagnostics.append"
                     || method.starts_with("channel.connector.")
-                    || method == "shell.execute"
+                    || method.starts_with("shell.")
                     || method.starts_with("approval.")
                     || method == "form.request" =>
             {
@@ -675,26 +685,35 @@ impl WorkerRpcRouter {
 fn tool_executor_arguments_with_context(params: &ToolExecutorExecuteRequest) -> Value {
     let mut arguments = params.arguments.clone();
     if let Value::Object(object) = &mut arguments {
-        if !object.contains_key("sessionId") && !object.contains_key("session_id") {
-            if let Some(session_id) = params
-                .session_id
-                .as_deref()
-                .filter(|value| !value.trim().is_empty())
-            {
-                object.insert(
-                    "sessionId".to_string(),
-                    Value::String(session_id.to_string()),
-                );
-            }
+        if let Some(session_id) = params
+            .session_id
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            object.remove("session_id");
+            object.insert(
+                "sessionId".to_string(),
+                Value::String(session_id.to_string()),
+            );
         }
-        if !object.contains_key("runId") && !object.contains_key("run_id") {
-            if let Some(run_id) = params
-                .run_id
-                .as_deref()
-                .filter(|value| !value.trim().is_empty())
-            {
-                object.insert("runId".to_string(), Value::String(run_id.to_string()));
-            }
+        if let Some(run_id) = params
+            .run_id
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            object.remove("run_id");
+            object.insert("runId".to_string(), Value::String(run_id.to_string()));
+        }
+        if let Some(tool_call_id) = params
+            .tool_call_id
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            object.remove("tool_call_id");
+            object.insert(
+                "toolCallId".to_string(),
+                Value::String(tool_call_id.to_string()),
+            );
         }
     }
     arguments
@@ -712,6 +731,7 @@ fn registered_tool_has_final_approval_boundary(
                     | "workspace.apply_patch"
                     | "workspace.delete_file"
                     | "shell.execute"
+                    | "shell.start"
             )
     )
 }
@@ -841,6 +861,55 @@ struct ShellExecuteRequestParams {
     session_id: Option<String>,
     #[serde(default, alias = "runId")]
     run_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ShellStartRequestParams {
+    command: String,
+    #[serde(default, alias = "workingDir")]
+    working_dir: Option<String>,
+    #[serde(default, alias = "restrictToWorkspace")]
+    restrict_to_workspace: Option<bool>,
+    #[serde(default)]
+    tty: Option<bool>,
+    #[serde(default, alias = "yieldTimeMs")]
+    yield_time_ms: Option<u64>,
+    #[serde(default)]
+    rows: Option<u16>,
+    #[serde(default)]
+    cols: Option<u16>,
+    #[serde(default, alias = "sessionId")]
+    session_id: Option<String>,
+    #[serde(default, alias = "runId")]
+    run_id: Option<String>,
+    #[serde(default, alias = "toolCallId")]
+    tool_call_id: Option<String>,
+}
+
+impl ShellStartRequestParams {
+    fn into_shell_params(
+        self,
+        cancellation: Option<std::sync::Arc<dyn crate::worker_protocol::WorkerRequestCancellation>>,
+    ) -> ShellStartParams {
+        ShellStartParams {
+            command: self.command,
+            working_dir: self.working_dir,
+            restrict_to_workspace: self.restrict_to_workspace,
+            tty: self.tty,
+            yield_time_ms: self.yield_time_ms,
+            rows: self.rows,
+            cols: self.cols,
+            run_id: self.run_id,
+            tool_call_id: self.tool_call_id,
+            cancellation,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct ShellRunParams {
+    #[serde(alias = "runId")]
+    run_id: String,
 }
 
 impl ShellExecuteRequestParams {

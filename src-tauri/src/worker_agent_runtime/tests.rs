@@ -1200,7 +1200,7 @@ fn deferred_tool_activation_round_trips_through_checkpoint_validation() {
         json!({ "iteration": 1 }),
     );
 
-    assert_eq!(checkpoint["activatedToolIds"], json!(["shell.execute"]));
+    assert_eq!(checkpoint["activatedToolIds"], json!(["exec_command"]));
     let cancelled_checkpoint = super::checkpoint::checkpoint_value(
         &context,
         "cancelled",
@@ -1228,7 +1228,7 @@ fn deferred_tool_activation_round_trips_through_checkpoint_validation() {
         .iter()
         .map(|tool| tool["function"]["name"].as_str().unwrap_or_default())
         .collect::<Vec<_>>();
-    assert!(names.contains(&"shell_execute"));
+    assert!(names.contains(&"exec_command"));
 
     let stale_checkpoint = json!({ "activatedToolIds": ["missing.tool"] });
     let error = NativeAgentRunContext::from_spec(

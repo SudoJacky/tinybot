@@ -6,13 +6,17 @@ use crate::worker_protocol::{
 use serde::{Deserialize, Serialize};
 use std::{
     fmt,
-    io::Read,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::Arc,
-    thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
+
+mod process_manager;
+#[cfg(test)]
+mod process_manager_tests;
+
+use self::process_manager::{ShellProcessManager, ValidatedShellStart};
 
 const MAX_TIMEOUT_SECONDS: u64 = 600;
 const MAX_OUTPUT_CHARS: usize = 10_000;
@@ -21,14 +25,160 @@ const MAX_OUTPUT_CHARS: usize = 10_000;
 pub struct WorkerShellRpc {
     workspace_root: PathBuf,
     policy: CapabilityPolicy,
+    processes: ShellProcessManager,
+}
+
+#[derive(Clone, Debug)]
+pub struct WorkerShellRuntime {
+    processes: ShellProcessManager,
+}
+
+impl Default for WorkerShellRuntime {
+    fn default() -> Self {
+        Self {
+            processes: ShellProcessManager::new(),
+        }
+    }
 }
 
 impl WorkerShellRpc {
     pub fn new(workspace_root: PathBuf, policy: CapabilityPolicy) -> Self {
+        Self::with_runtime(workspace_root, policy, WorkerShellRuntime::default())
+    }
+
+    pub fn with_runtime(
+        workspace_root: PathBuf,
+        policy: CapabilityPolicy,
+        runtime: WorkerShellRuntime,
+    ) -> Self {
         Self {
             workspace_root,
             policy,
+            processes: runtime.processes,
         }
+    }
+
+    pub fn use_runtime(mut self, runtime: WorkerShellRuntime) -> Self {
+        self.processes = runtime.processes;
+        self
+    }
+
+    pub fn start(
+        &self,
+        params: ShellStartParams,
+    ) -> Result<ShellProcessOutput, WorkerProtocolError> {
+        self.require(WorkerCapability::ShellExecute)?;
+        let run_id = required_process_owner(params.run_id, "runId")?;
+        let tool_call_id = required_process_owner(params.tool_call_id, "toolCallId")?;
+        let requested_working_dir = params.working_dir.as_deref().unwrap_or(".");
+        let working_dir = self.resolve_working_dir(
+            requested_working_dir,
+            params.restrict_to_workspace.unwrap_or(true),
+        )?;
+        if let Some(reason) = guard_command(&params.command, &working_dir, &self.workspace_root) {
+            return Err(shell_error(
+                "shell command blocked by safety guard",
+                serde_json::json!({
+                    "blocked": true,
+                    "reason": reason,
+                }),
+            ));
+        }
+        if is_cancelled(&params.cancellation) {
+            return Err(shell_error(
+                "shell process start was cancelled",
+                serde_json::json!({ "cancelled": true }),
+            ));
+        }
+        self.processes.start(ValidatedShellStart {
+            command: params.command,
+            working_dir,
+            working_dir_display: normalize_working_dir_display(requested_working_dir),
+            tty: params.tty.unwrap_or(false),
+            yield_time_ms: params.yield_time_ms.unwrap_or(10_000),
+            rows: params.rows.unwrap_or(24).max(1),
+            cols: params.cols.unwrap_or(80).max(1),
+            run_id: Some(run_id),
+            tool_call_id: Some(tool_call_id),
+            cancellation: params.cancellation,
+            sandbox_mode: "workspace_guard_only".to_string(),
+            approval_decision: "validated".to_string(),
+        })
+    }
+
+    pub fn poll(
+        &self,
+        params: ShellProcessPollParams,
+    ) -> Result<ShellProcessOutput, WorkerProtocolError> {
+        self.require(WorkerCapability::ShellExecute)?;
+        self.processes.poll(
+            &params.process_id,
+            params.run_id.as_deref(),
+            params.cursor.unwrap_or(0),
+            params.yield_time_ms.unwrap_or(1_000),
+        )
+    }
+
+    pub fn write_stdin(
+        &self,
+        params: ShellProcessInputParams,
+    ) -> Result<ShellProcessOutput, WorkerProtocolError> {
+        self.require(WorkerCapability::ShellExecute)?;
+        self.processes.write_stdin(
+            &params.process_id,
+            params.run_id.as_deref(),
+            params.input.as_bytes(),
+            params.cursor.unwrap_or(0),
+            params.yield_time_ms.unwrap_or(1_000),
+        )
+    }
+
+    pub fn resize(&self, params: ShellProcessResizeParams) -> Result<(), WorkerProtocolError> {
+        self.require(WorkerCapability::ShellExecute)?;
+        self.processes.resize(
+            &params.process_id,
+            params.run_id.as_deref(),
+            params.rows,
+            params.cols,
+        )
+    }
+
+    pub fn interrupt(
+        &self,
+        params: ShellProcessIdParams,
+    ) -> Result<ShellProcessOutput, WorkerProtocolError> {
+        self.require(WorkerCapability::ShellExecute)?;
+        self.processes
+            .interrupt(&params.process_id, params.run_id.as_deref())
+    }
+
+    pub fn terminate(
+        &self,
+        params: ShellProcessIdParams,
+    ) -> Result<ShellProcessOutput, WorkerProtocolError> {
+        self.require(WorkerCapability::ShellExecute)?;
+        self.processes
+            .terminate(&params.process_id, params.run_id.as_deref())
+    }
+
+    pub fn terminate_run(&self, run_id: &str) -> ShellProcessCleanupReport {
+        self.processes.terminate_run(run_id)
+    }
+
+    pub fn shutdown(&self) -> ShellProcessCleanupReport {
+        self.processes.shutdown()
+    }
+
+    pub fn active_process_count(&self) -> usize {
+        self.processes.active_count()
+    }
+
+    pub fn list(
+        &self,
+        params: ShellProcessListParams,
+    ) -> Result<Vec<ShellProcessOutput>, WorkerProtocolError> {
+        self.require(WorkerCapability::ShellExecute)?;
+        Ok(self.processes.list(params.run_id.as_deref()))
     }
 
     pub fn execute(
@@ -37,8 +187,9 @@ impl WorkerShellRpc {
     ) -> Result<ShellExecuteResult, WorkerProtocolError> {
         self.require(WorkerCapability::ShellExecute)?;
         let timeout = params.timeout.unwrap_or(60).clamp(1, MAX_TIMEOUT_SECONDS);
+        let requested_working_dir = params.working_dir.as_deref().unwrap_or(".");
         let working_dir = self.resolve_working_dir(
-            params.working_dir.as_deref().unwrap_or("."),
+            requested_working_dir,
             params.restrict_to_workspace.unwrap_or(true),
         )?;
         if let Some(reason) = guard_command(&params.command, &working_dir, &self.workspace_root) {
@@ -56,93 +207,84 @@ impl WorkerShellRpc {
         if is_cancelled(&params.cancellation) {
             return Ok(cancelled_shell_result(String::new(), String::new()));
         }
-
-        let mut command = shell_command(&params.command);
-        command
-            .current_dir(&working_dir)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt;
-            command.creation_flags(0x08000000);
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            command.process_group(0);
-        }
-
-        let mut child = command.spawn().map_err(|error| {
-            shell_error(
-                "failed to start shell command",
-                serde_json::json!({ "error": error.to_string() }),
-            )
-        })?;
-        let stdout_reader = child.stdout.take().map(read_pipe_to_string);
-        let stderr_reader = child.stderr.take().map(read_pipe_to_string);
         let started = Instant::now();
         let timeout_duration = Duration::from_secs(timeout);
-        let mut timed_out = false;
-        let mut cancelled = false;
-        loop {
-            if let Some(_status) = child.try_wait().map_err(|error| {
-                shell_error(
-                    "failed to poll shell command",
-                    serde_json::json!({ "error": error.to_string() }),
-                )
-            })? {
-                break;
-            }
-            if is_cancelled(&params.cancellation) {
-                cancelled = true;
-                terminate_child_process(&mut child).map_err(|error| {
-                    shell_error(
-                        "failed to terminate shell process tree",
-                        serde_json::json!({ "error": error.to_string() }),
-                    )
-                })?;
-                break;
-            }
-            if started.elapsed() >= timeout_duration {
-                timed_out = true;
-                terminate_child_process(&mut child).map_err(|error| {
-                    shell_error(
-                        "failed to terminate shell process tree",
-                        serde_json::json!({ "error": error.to_string() }),
-                    )
-                })?;
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        }
-
-        let status = child.wait().map_err(|error| {
-            shell_error(
-                "failed to wait for shell command",
-                serde_json::json!({ "error": error.to_string() }),
-            )
+        let mut output = self.processes.start(ValidatedShellStart {
+            command: params.command,
+            working_dir,
+            working_dir_display: normalize_working_dir_display(requested_working_dir),
+            tty: false,
+            yield_time_ms: 20,
+            rows: 24,
+            cols: 80,
+            run_id: None,
+            tool_call_id: None,
+            cancellation: params.cancellation,
+            sandbox_mode: "workspace_guard_only".to_string(),
+            approval_decision: "validated".to_string(),
         })?;
-        let stdout = join_pipe_reader(stdout_reader);
-        let stderr = join_pipe_reader(stderr_reader);
+        let process_id = output.process_id.clone();
+        while output.running {
+            if started.elapsed() >= timeout_duration {
+                self.processes.timeout(&process_id, None)?;
+                break;
+            }
+            let remaining = timeout_duration.saturating_sub(started.elapsed());
+            let yield_time_ms = remaining.as_millis().clamp(1, 50) as u64;
+            output = self
+                .processes
+                .poll(&process_id, None, output.cursor, yield_time_ms)?;
+        }
+        let output = self.processes.poll(&process_id, None, 0, 0)?;
+        self.processes.release(&process_id)?;
+        if let Some(failure) = output.failure.clone() {
+            return Err(shell_error(
+                "shell process failed",
+                serde_json::json!({
+                    "processId": process_id,
+                    "status": output.status,
+                    "failure": failure,
+                }),
+            ));
+        }
+        if output.status == "terminated" {
+            return Err(shell_error(
+                "shell process was terminated before completion",
+                serde_json::json!({ "processId": process_id }),
+            ));
+        }
+        let timed_out = output.status == "timed_out";
+        let cancelled = output.status == "cancelled";
         let exit_code = if timed_out || cancelled {
             -1
         } else {
-            status.code().unwrap_or(-1)
+            output.exit_code.unwrap_or(-1)
         };
-        let mut content = format_shell_content(&stdout, &stderr, exit_code, timed_out, cancelled);
-        let truncated = content.chars().count() > MAX_OUTPUT_CHARS;
-        if truncated {
+        let mut content = format_shell_content(
+            &output.stdout,
+            &output.stderr,
+            exit_code,
+            timed_out,
+            cancelled,
+        );
+        if output.truncated {
+            content.push_str(&format!(
+                "\n\nOutput truncated: {} bytes discarded",
+                output.dropped_bytes
+            ));
+        }
+        let content_truncated = content.chars().count() > MAX_OUTPUT_CHARS;
+        if content_truncated {
             content = truncate_head_tail(&content, MAX_OUTPUT_CHARS);
         }
         Ok(ShellExecuteResult {
-            stdout,
-            stderr,
+            stdout: output.stdout,
+            stderr: output.stderr,
             exit_code,
             timed_out,
             cancelled,
             blocked: false,
-            truncated,
+            truncated: output.truncated || content_truncated,
             content,
         })
     }
@@ -209,30 +351,19 @@ impl WorkerShellRpc {
     }
 }
 
-fn read_pipe_to_string<R>(mut reader: R) -> JoinHandle<String>
-where
-    R: Read + Send + 'static,
-{
-    thread::spawn(move || {
-        let mut output = String::new();
-        let _ = reader.read_to_string(&mut output);
-        output
-    })
-}
-
-fn join_pipe_reader(reader: Option<JoinHandle<String>>) -> String {
-    reader
-        .and_then(|handle| handle.join().ok())
-        .unwrap_or_default()
-}
-
 fn terminate_child_process(child: &mut Child) -> std::io::Result<()> {
+    if child.try_wait()?.is_some() {
+        return Ok(());
+    }
     #[cfg(unix)]
     {
         let process_group = child.id() as libc::pid_t;
         // SAFETY: the process group is created from the child PID before exec.
         if unsafe { libc::kill(-process_group, libc::SIGKILL) } == -1 {
-            return Err(std::io::Error::last_os_error());
+            let error = std::io::Error::last_os_error();
+            if error.raw_os_error() != Some(libc::ESRCH) || child.try_wait()?.is_none() {
+                return Err(error);
+            }
         }
     }
     #[cfg(target_os = "windows")]
@@ -244,8 +375,22 @@ fn terminate_child_process(child: &mut Child) -> std::io::Result<()> {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .creation_flags(0x08000000);
-        let _ = taskkill.status();
-        let _ = child.kill();
+        let tree_result = taskkill.status();
+        let child_result = child.kill();
+        let tree_succeeded = tree_result
+            .as_ref()
+            .is_ok_and(std::process::ExitStatus::success);
+        if !tree_succeeded && child_result.is_err() && child.try_wait()?.is_none() {
+            let tree_failure = tree_result
+                .map(|status| format!("taskkill exited with status {status}"))
+                .unwrap_or_else(|error| format!("taskkill failed: {error}"));
+            let child_failure = child_result
+                .expect_err("failed child result should contain an error")
+                .to_string();
+            return Err(std::io::Error::other(format!(
+                "{tree_failure}; direct child termination failed: {child_failure}"
+            )));
+        }
     }
     #[cfg(not(any(unix, target_os = "windows")))]
     {
@@ -265,6 +410,140 @@ pub struct ShellExecuteParams {
     pub restrict_to_workspace: Option<bool>,
     #[serde(skip)]
     pub cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
+}
+
+#[derive(Clone, Deserialize)]
+pub struct ShellStartParams {
+    pub command: String,
+    #[serde(default)]
+    pub working_dir: Option<String>,
+    #[serde(default)]
+    pub restrict_to_workspace: Option<bool>,
+    #[serde(default)]
+    pub tty: Option<bool>,
+    #[serde(default)]
+    pub yield_time_ms: Option<u64>,
+    #[serde(default)]
+    pub rows: Option<u16>,
+    #[serde(default)]
+    pub cols: Option<u16>,
+    #[serde(default, alias = "runId")]
+    pub run_id: Option<String>,
+    #[serde(default, alias = "toolCallId")]
+    pub tool_call_id: Option<String>,
+    #[serde(skip)]
+    pub cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
+}
+
+impl fmt::Debug for ShellStartParams {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ShellStartParams")
+            .field("command", &self.command)
+            .field("working_dir", &self.working_dir)
+            .field("restrict_to_workspace", &self.restrict_to_workspace)
+            .field("tty", &self.tty)
+            .field("yield_time_ms", &self.yield_time_ms)
+            .field("rows", &self.rows)
+            .field("cols", &self.cols)
+            .field("run_id", &self.run_id)
+            .field("tool_call_id", &self.tool_call_id)
+            .field("has_cancellation", &self.cancellation.is_some())
+            .finish()
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct ShellProcessPollParams {
+    #[serde(alias = "processId", alias = "sessionId")]
+    pub process_id: String,
+    #[serde(default, alias = "runId")]
+    pub run_id: Option<String>,
+    #[serde(default)]
+    pub cursor: Option<u64>,
+    #[serde(default, alias = "yieldTimeMs")]
+    pub yield_time_ms: Option<u64>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct ShellProcessInputParams {
+    #[serde(alias = "processId", alias = "sessionId")]
+    pub process_id: String,
+    #[serde(default, alias = "runId")]
+    pub run_id: Option<String>,
+    #[serde(default, alias = "chars")]
+    pub input: String,
+    #[serde(default)]
+    pub cursor: Option<u64>,
+    #[serde(default, alias = "yieldTimeMs")]
+    pub yield_time_ms: Option<u64>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct ShellProcessResizeParams {
+    #[serde(alias = "processId", alias = "sessionId")]
+    pub process_id: String,
+    #[serde(default, alias = "runId")]
+    pub run_id: Option<String>,
+    pub rows: u16,
+    pub cols: u16,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct ShellProcessIdParams {
+    #[serde(alias = "processId", alias = "sessionId")]
+    pub process_id: String,
+    #[serde(default, alias = "runId")]
+    pub run_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct ShellProcessListParams {
+    #[serde(default, alias = "runId")]
+    pub run_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShellOutputChunk {
+    pub sequence: u64,
+    pub stream: String,
+    pub content: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShellProcessOutput {
+    pub process_id: String,
+    pub system_process_id: Option<u32>,
+    pub run_id: Option<String>,
+    pub tool_call_id: Option<String>,
+    pub command: String,
+    pub working_dir: String,
+    pub tty: bool,
+    pub status: String,
+    pub running: bool,
+    pub exit_code: Option<i32>,
+    pub stdout: String,
+    pub stderr: String,
+    pub output: String,
+    pub chunks: Vec<ShellOutputChunk>,
+    pub cursor: u64,
+    pub truncated: bool,
+    pub dropped_bytes: u64,
+    pub started_at_ms: u64,
+    pub last_activity_ms: u64,
+    pub sandbox_mode: String,
+    pub approval_decision: String,
+    pub failure: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShellProcessCleanupReport {
+    pub requested_process_ids: Vec<String>,
+    pub terminated_process_ids: Vec<String>,
+    pub failures: Vec<String>,
 }
 
 impl fmt::Debug for ShellExecuteParams {
@@ -290,6 +569,23 @@ pub struct ShellExecuteResult {
     pub blocked: bool,
     pub truncated: bool,
     pub content: String,
+}
+
+fn normalize_working_dir_display(requested: &str) -> String {
+    if requested == "." {
+        ".".to_string()
+    } else {
+        requested.replace('\\', "/")
+    }
+}
+
+fn required_process_owner(
+    value: Option<String>,
+    field: &str,
+) -> Result<String, WorkerProtocolError> {
+    value
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| invalid_shell_request(format!("{field} is required for shell.start")))
 }
 
 fn shell_command(command: &str) -> Command {
@@ -535,6 +831,31 @@ mod tests {
             "cancelled shell execute should return promptly"
         );
         assert!(result.content.contains("aborted by user"));
+    }
+
+    #[test]
+    fn execute_times_out_through_the_owned_process_manager() {
+        let fixture = ShellFixture::new();
+        let rpc = WorkerShellRpc::new(
+            fixture.root.clone(),
+            CapabilityPolicy::new([WorkerCapability::ShellExecute]),
+        );
+
+        let result = rpc
+            .execute(ShellExecuteParams {
+                command: blocking_command_with_marker(),
+                working_dir: Some(".".to_string()),
+                timeout: Some(1),
+                restrict_to_workspace: Some(true),
+                cancellation: None,
+            })
+            .expect("timed out shell execute should return a structured result");
+
+        assert!(result.timed_out, "{result:?}");
+        assert!(!result.cancelled);
+        assert_eq!(result.exit_code, -1);
+        assert!(result.content.contains("timed out"));
+        assert_eq!(rpc.active_process_count(), 0);
     }
 
     #[cfg(unix)]

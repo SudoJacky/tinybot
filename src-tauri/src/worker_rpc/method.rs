@@ -15,6 +15,7 @@ pub enum WorkerRpcNamespace {
     Provider,
     Runtime,
     Session,
+    Shell,
     Skills,
     Task,
     Thread,
@@ -42,6 +43,7 @@ impl WorkerRpcNamespace {
             WorkerRpcNamespace::Provider => "provider",
             WorkerRpcNamespace::Runtime => "runtime",
             WorkerRpcNamespace::Session => "session",
+            WorkerRpcNamespace::Shell => "shell",
             WorkerRpcNamespace::Skills => "skills",
             WorkerRpcNamespace::Task => "task",
             WorkerRpcNamespace::Thread => "thread",
@@ -70,6 +72,7 @@ pub fn classify_method(method: &str) -> WorkerRpcNamespace {
         Some("provider") => WorkerRpcNamespace::Provider,
         Some("runtime") => WorkerRpcNamespace::Runtime,
         Some("session") => WorkerRpcNamespace::Session,
+        Some("shell") => WorkerRpcNamespace::Shell,
         Some("skills") => WorkerRpcNamespace::Skills,
         Some("task") => WorkerRpcNamespace::Task,
         Some("thread") => WorkerRpcNamespace::Thread,
@@ -104,6 +107,7 @@ mod tests {
             WorkerRpcNamespace::AgentRun
         );
         assert_eq!(classify_method("thread.list"), WorkerRpcNamespace::Thread);
+        assert_eq!(classify_method("shell.start"), WorkerRpcNamespace::Shell);
         assert_eq!(
             classify_method("tool_executor.execute"),
             WorkerRpcNamespace::ToolExecutor
