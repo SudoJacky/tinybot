@@ -8,6 +8,12 @@ impl WorkerRpcRouter {
         match request.method.as_str() {
             "mcp.call_tool" => self.mcp.call_tool_from_request(request),
             "mcp.list_tools" => self.mcp.list_tools(),
+            "mcp.server_status" => self.mcp.server_status_from_request(request),
+            "mcp.diagnostics" => self.mcp.diagnostics(),
+            "mcp.shutdown" => {
+                self.mcp.shutdown()?;
+                Ok(serde_json::json!({ "stopped": true }))
+            }
             "permission_profile.current" => serde_json::to_value(
                 self.permission_profile
                     .current_profile(self.tool_registry.list_tools().tools),

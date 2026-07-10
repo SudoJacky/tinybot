@@ -3,7 +3,9 @@ use crate::native_agent_bridge::{
     native_agent_services_with_tool_executor, persist_native_agent_checkpoint_if_present,
     persist_native_agent_run_record, persist_native_agent_turn_if_final,
 };
-use crate::worker_agent_runtime::{run_native_agent_turn_with_config, NativeAgentRuntimeServices};
+use crate::worker_agent_runtime::{
+    run_native_agent_turn_with_workspace, NativeAgentRuntimeServices,
+};
 use crate::worker_protocol::WorkerRequest;
 use crate::worker_request_id::next_worker_request_correlation;
 use std::path::PathBuf;
@@ -27,6 +29,11 @@ pub(crate) fn pending_approvals_from_checkpoint(
     let approval_id = payload
         .and_then(|payload| payload.get("approval_id"))
         .and_then(serde_json::Value::as_str)
+        .or_else(|| {
+            payload
+                .and_then(|payload| payload.get("approvalId"))
+                .and_then(serde_json::Value::as_str)
+        })
         .or_else(|| {
             operation
                 .get("approvalId")
@@ -61,6 +68,38 @@ pub(crate) fn pending_approvals_from_checkpoint(
         "sessionFingerprint": operation.get("sessionFingerprint").and_then(serde_json::Value::as_str).unwrap_or(approval_id),
         "tool_name": tool_name,
     })]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pending_approvals_from_checkpoint;
+
+    #[test]
+    fn pending_approvals_preserve_runtime_tool_approval_id() {
+        let checkpoint = serde_json::json!({
+            "phase": "awaiting_approval",
+            "runId": "run-deferred-write",
+            "sessionId": "session-deferred-write",
+            "payload": {
+                "kind": "tool_approval",
+                "approvalId": "approval:run-deferred-write:call-write",
+                "operation": {
+                    "toolCallId": "call-write",
+                    "toolName": "workspace.write_file",
+                    "arguments": {
+                        "path": "notes.txt",
+                        "contents": "hello"
+                    }
+                }
+            }
+        });
+
+        let approvals = pending_approvals_from_checkpoint(Some(&checkpoint));
+
+        assert_eq!(approvals.len(), 1);
+        assert_eq!(approvals[0]["id"], "approval:run-deferred-write:call-write");
+        assert_eq!(approvals[0]["tool_name"], "workspace.write_file");
+    }
 }
 
 pub(crate) fn native_approval_continuation_spec(
@@ -241,10 +280,11 @@ pub(crate) fn resolve_approval_continuation_with_services(
         workspace_root.clone(),
         config_snapshot.clone(),
     );
-    let mut continuation = run_native_agent_turn_with_config(
+    let mut continuation = run_native_agent_turn_with_workspace(
         &services,
         continuation_spec.clone(),
         config_snapshot.clone(),
+        &workspace_root,
     )?;
     persist_native_agent_run_record(
         continuation_spec.clone(),
@@ -514,10 +554,11 @@ pub(crate) fn resolve_agent_ui_form_with_services(
         workspace_root.clone(),
         config_snapshot.clone(),
     );
-    let mut continuation = run_native_agent_turn_with_config(
+    let mut continuation = run_native_agent_turn_with_workspace(
         &services,
         continuation_spec.clone(),
         config_snapshot.clone(),
+        &workspace_root,
     )?;
     persist_native_agent_run_record(
         continuation_spec.clone(),

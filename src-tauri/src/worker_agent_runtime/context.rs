@@ -1,8 +1,10 @@
 use super::continuations::queued_user_continuation_message;
+use super::tool_router::NativeToolRouter;
 use super::{
     string_field, NativeAgentCancellation, NativeAgentCancellationContext, NativeAgentRunContext,
 };
 use crate::worker_capability::default_desktop_capability_policy;
+use crate::worker_tool_registry::ToolExecutionTarget;
 use crate::worker_tool_registry::WorkerToolRegistryRpc;
 use serde_json::Value;
 use std::sync::Arc;
@@ -51,9 +53,11 @@ impl NativeAgentRunContext {
         if let Some(message) = queued_user_continuation_message(&metadata) {
             messages.push(message);
         }
-        let tool_registry_entries = WorkerToolRegistryRpc::new(default_desktop_capability_policy())
-            .list_tools()
-            .tools;
+        let tool_router = NativeToolRouter::new(
+            WorkerToolRegistryRpc::new(default_desktop_capability_policy())
+                .list_tools()
+                .tools,
+        );
         Self {
             run_id,
             session_id,
@@ -64,10 +68,11 @@ impl NativeAgentRunContext {
             metadata,
             model,
             provider,
+            system_prompt: None,
             stream,
             max_iterations,
             cancellation: None,
-            tool_registry_entries,
+            tool_router,
         }
     }
 
@@ -76,6 +81,10 @@ impl NativeAgentRunContext {
             self.run_id.clone(),
             cancellations,
         ));
+    }
+
+    pub(crate) fn tool_execution_target(&self, method: &str) -> Option<ToolExecutionTarget> {
+        self.tool_router.execution_target(method)
     }
 }
 

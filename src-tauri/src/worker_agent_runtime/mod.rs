@@ -1,10 +1,10 @@
 use crate::agent_loop_runtime_protocol::{
     AgentRuntimeEventEnvelope, LegacyNativeAgentEventProjection,
 };
+use crate::runtime::mcp::McpRuntime;
 use crate::worker_subagent_manager::{
     SubagentInputSender, SubagentSendInputParams, SubagentTargetParams, SubagentThreadManager,
 };
-use crate::worker_tool_registry::ToolRegistryEntry;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{fmt, sync::Arc};
@@ -21,6 +21,7 @@ mod stores;
 mod tool_dispatcher;
 mod tool_projection;
 mod tool_result;
+mod tool_router;
 mod tool_runtime;
 mod usage;
 
@@ -29,8 +30,9 @@ use self::provider::{
     RustNativeAgentProvider,
 };
 use self::result::event_value;
+use self::tool_router::NativeToolRouter;
 use self::usage::{context_window_messages, enrich_usage_with_context_window};
-pub use provider_loop::run_native_agent_turn_with_config;
+pub use provider_loop::{run_native_agent_turn_with_config, run_native_agent_turn_with_workspace};
 pub use stores::{InMemoryNativeAgentCancellation, InMemoryNativeAgentCheckpointStore};
 pub use tool_dispatcher::{FakeNativeAgentToolDispatcher, SubagentNativeAgentToolDispatcher};
 
@@ -104,10 +106,11 @@ pub struct NativeAgentRunContext {
     pub metadata: Value,
     pub model: String,
     pub provider: Option<String>,
+    pub system_prompt: Option<String>,
     pub stream: bool,
     pub max_iterations: i64,
     pub cancellation: Option<NativeAgentCancellationContext>,
-    pub tool_registry_entries: Vec<ToolRegistryEntry>,
+    tool_router: NativeToolRouter,
 }
 
 #[derive(Clone, Debug)]
@@ -208,6 +211,11 @@ pub struct NativeAgentRuntimeServices {
     cancellations: Arc<dyn NativeAgentCancellation>,
     subagents: SubagentThreadManager,
     trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
+    mcp_runtime: McpRuntime,
+    #[cfg(test)]
+    test_activated_tool_ids: Vec<String>,
+    #[cfg(test)]
+    test_tool_registry_entries: Option<Vec<crate::worker_tool_registry::ToolRegistryEntry>>,
 }
 
 impl NativeAgentRuntimeServices {
@@ -224,6 +232,11 @@ impl NativeAgentRuntimeServices {
             cancellations,
             subagents: SubagentThreadManager::default(),
             trace_sink: None,
+            mcp_runtime: McpRuntime::new(),
+            #[cfg(test)]
+            test_activated_tool_ids: Vec::new(),
+            #[cfg(test)]
+            test_tool_registry_entries: None,
         }
     }
 
@@ -253,6 +266,33 @@ impl NativeAgentRuntimeServices {
 
     pub fn with_tool_dispatcher(mut self, tools: Arc<dyn NativeAgentToolDispatcher>) -> Self {
         self.tools = tools;
+        self
+    }
+
+    pub(crate) fn with_mcp_runtime(mut self, runtime: McpRuntime) -> Self {
+        self.mcp_runtime = runtime;
+        self
+    }
+
+    pub(crate) fn mcp_runtime(&self) -> McpRuntime {
+        self.mcp_runtime.clone()
+    }
+
+    #[cfg(test)]
+    fn with_test_activated_tools(mut self, tool_ids: &[&str]) -> Self {
+        self.test_activated_tool_ids = tool_ids
+            .iter()
+            .map(|tool_id| (*tool_id).to_string())
+            .collect();
+        self
+    }
+
+    #[cfg(test)]
+    fn with_test_tool_registry_entries(
+        mut self,
+        entries: Vec<crate::worker_tool_registry::ToolRegistryEntry>,
+    ) -> Self {
+        self.test_tool_registry_entries = Some(entries);
         self
     }
 

@@ -2,7 +2,8 @@ use super::checkpoint::{checkpoint_value, test_compat_runtime_metadata};
 use super::events::{event, legacy_result_events_from_runtime_events};
 use super::result::{append_runtime_events_to_sink, waiting_runtime_events};
 use super::tool_projection::{
-    assistant_tool_calls_message, completed_tool_result_entry, tool_observation_message,
+    assistant_tool_calls_message, completed_tool_result_entry, normalize_tool_result_for_context,
+    tool_observation_content, tool_observation_message,
 };
 use super::usage::{enrich_usage_with_context_window, estimate_context_tokens_for_request};
 use super::{
@@ -22,6 +23,47 @@ fn typed_continuation_from_metadata(metadata: &Value) -> Option<AgentContinuatio
         .or_else(|| metadata.get("continuation"))
         .cloned()
         .and_then(|value| serde_json::from_value(value).ok())
+}
+
+pub(super) fn restore_activated_tools_for_continuation(
+    services: &NativeAgentRuntimeServices,
+    context: &mut NativeAgentRunContext,
+) -> Result<(), String> {
+    let Some(continuation) = typed_continuation_from_metadata(&context.metadata) else {
+        return Ok(());
+    };
+    if !matches!(
+        &continuation,
+        AgentContinuationInput::Approval { .. } | AgentContinuationInput::Form { .. }
+    ) {
+        return Ok(());
+    }
+    let Some(checkpoint) = services
+        .checkpoints
+        .restore_for_run(&context.session_id, &context.run_id)
+    else {
+        return Ok(());
+    };
+    if checkpoint.pointer("/payload/kind").and_then(Value::as_str) == Some("tool_approval") {
+        let expected_approval_id = checkpoint
+            .pointer("/payload/approvalId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "invalid tool approval checkpoint: approvalId is missing".to_string())?;
+        let AgentContinuationInput::Approval { approval_id, .. } = &continuation else {
+            return Err(
+                "tool approval checkpoint cannot be resumed by a form continuation".to_string(),
+            );
+        };
+        if approval_id != expected_approval_id {
+            return Err(format!(
+                "approval continuation ID `{approval_id}` does not match checkpoint `{expected_approval_id}`"
+            ));
+        }
+    }
+    context
+        .tool_router
+        .restore_from_checkpoint(&checkpoint)
+        .map_err(|error| format!("failed to restore activated tools from checkpoint: {error}"))
 }
 
 pub(super) fn queued_user_continuation_message(metadata: &Value) -> Option<Value> {
@@ -145,22 +187,36 @@ pub(super) fn maybe_awaiting_approval_result(
 pub(super) fn maybe_approval_resume_result(
     services: &NativeAgentRuntimeServices,
     context: &NativeAgentRunContext,
-) -> Option<Value> {
-    let (approval, continuation) = approval_resume_metadata(context)?;
+) -> Result<Option<Value>, String> {
+    let Some((approval, continuation)) = approval_resume_metadata(context) else {
+        return Ok(None);
+    };
     let approved = matches!(continuation.decision, AgentApprovalDecision::Approved);
     let checkpoint = services
         .checkpoints
         .restore_for_run(&context.session_id, &context.run_id);
+    if approved
+        && checkpoint
+            .as_ref()
+            .and_then(|checkpoint| checkpoint.pointer("/payload/kind"))
+            .and_then(Value::as_str)
+            == Some("tool_approval")
+    {
+        let checkpoint = checkpoint
+            .ok_or_else(|| "tool approval continuation checkpoint disappeared".to_string())?;
+        return approved_tool_continuation_result(services, context, &continuation, checkpoint)
+            .map(Some);
+    }
     if !approved {
         if let Some(guidance) = continuation.guidance.clone() {
-            return Some(approval_denied_guidance_result(
+            return Ok(Some(approval_denied_guidance_result(
                 services,
                 context,
                 &approval,
                 &continuation,
                 guidance,
                 checkpoint,
-            ));
+            )));
         }
         services
             .checkpoints
@@ -184,7 +240,7 @@ pub(super) fn maybe_approval_resume_result(
                 }),
             ),
         ];
-        return Some(serde_json::json!({
+        return Ok(Some(serde_json::json!({
             "runtime": "rust",
             "runId": context.run_id,
             "sessionId": context.session_id,
@@ -194,7 +250,7 @@ pub(super) fn maybe_approval_resume_result(
             "toolsUsed": [],
             "error": message,
             "events": events,
-        }));
+        })));
     }
     services
         .checkpoints
@@ -231,7 +287,7 @@ pub(super) fn maybe_approval_resume_result(
             }),
         ),
     ];
-    Some(serde_json::json!({
+    Ok(Some(serde_json::json!({
         "runtime": "rust",
         "runId": context.run_id,
         "sessionId": context.session_id,
@@ -251,7 +307,172 @@ pub(super) fn maybe_approval_resume_result(
             "guidance": continuation.guidance,
         },
         "events": events,
+    })))
+}
+
+fn approved_tool_continuation_result(
+    services: &NativeAgentRuntimeServices,
+    context: &NativeAgentRunContext,
+    continuation: &ApprovalContinuationData,
+    checkpoint: Value,
+) -> Result<Value, String> {
+    let tool_call = approved_pending_tool_call(&checkpoint)?;
+    if !context.tool_router.is_permitted(&tool_call.name) {
+        return Err(format!(
+            "approved deferred tool `{}` is no longer permitted by the restored router",
+            tool_call.name
+        ));
+    }
+    let mut messages = checkpoint
+        .get("messages")
+        .and_then(Value::as_array)
+        .cloned()
+        .ok_or_else(|| "invalid tool approval checkpoint: messages must be an array".to_string())?;
+    if !messages.iter().any(|message| {
+        message
+            .get("tool_calls")
+            .and_then(Value::as_array)
+            .is_some_and(|tool_calls| {
+                tool_calls.iter().any(|call| {
+                    call.get("id").and_then(Value::as_str) == Some(tool_call.id.as_str())
+                })
+            })
+    }) {
+        return Err(format!(
+            "invalid tool approval checkpoint: assistant tool call `{}` is missing from messages",
+            tool_call.id
+        ));
+    }
+
+    let mut resumed_context = context.clone();
+    resumed_context.messages = messages.clone();
+    resumed_context.spec["messages"] = Value::Array(messages.clone());
+    let dispatch_result = tauri::async_runtime::block_on(
+        services
+            .tools
+            .dispatch_async(resumed_context.clone(), tool_call.clone()),
+    );
+    services
+        .checkpoints
+        .clear_for_run(&context.session_id, &context.run_id);
+    let result = normalize_tool_result_for_context(
+        dispatch_result.map_err(|error| {
+            format!(
+                "approved native tool `{}` dispatch failed: {error}",
+                tool_call.name
+            )
+        })?,
+        context,
+    );
+    let observation_content = tool_observation_content(&result);
+    let completed_result = completed_tool_result_entry(&tool_call, &result);
+    messages.push(tool_observation_message(&tool_call, &observation_content));
+    resumed_context.messages = messages.clone();
+    resumed_context.spec["messages"] = Value::Array(messages);
+
+    let mut events = vec![
+        approval_decision_event(context, continuation),
+        event(
+            "agent.tool.result",
+            serde_json::json!({
+                "runId": context.run_id,
+                "sessionId": context.session_id,
+                "toolCallId": tool_call.id,
+                "toolName": tool_call.name,
+                "name": tool_call.name,
+                "detailId": format!("tool:{}", tool_call.id),
+                "status": "completed",
+                "resultStatus": result.envelope.get("status").cloned().unwrap_or(Value::Null),
+                "summary": result.envelope.get("summary").cloned().unwrap_or_else(|| Value::String(observation_content.clone())),
+                "content": observation_content,
+                "envelope": result.envelope.clone(),
+            }),
+        ),
+    ];
+    let provider_response = services
+        .provider
+        .complete(&resumed_context)
+        .map_err(|error| {
+            format!(
+                "provider call after approved tool `{}` failed: {error}",
+                tool_call.name
+            )
+        })?;
+    if !provider_response.tool_calls.is_empty() {
+        return Err(format!(
+            "provider returned additional tool calls after approved tool `{}` dispatch",
+            tool_call.name
+        ));
+    }
+    if let Some(usage) = provider_response.usage {
+        let estimated_context_tokens = estimate_context_tokens_for_request(&resumed_context);
+        let usage =
+            enrich_usage_with_context_window(&resumed_context, usage, estimated_context_tokens, 0);
+        events.push(event(
+            "agent.usage",
+            serde_json::json!({
+                "runId": context.run_id,
+                "sessionId": context.session_id,
+                "usage": usage,
+            }),
+        ));
+    }
+    let final_content = provider_response.final_content;
+    events.push(event(
+        "agent.done",
+        serde_json::json!({
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "stopReason": "final_response",
+        }),
+    ));
+    Ok(serde_json::json!({
+        "runtime": "rust",
+        "runId": context.run_id,
+        "sessionId": context.session_id,
+        "finalContent": final_content,
+        "stopReason": "final_response",
+        "messages": [{ "role": "assistant", "content": final_content }],
+        "toolsUsed": [tool_call.name],
+        "completedToolResults": [completed_result],
+        "restoredCheckpoint": checkpoint,
+        "continuation": {
+            "kind": "approval",
+            "approvalId": continuation.approval_id,
+            "decision": "approved",
+            "scope": approval_scope_str(&continuation.scope),
+            "guidance": continuation.guidance,
+        },
+        "events": events,
     }))
+}
+
+fn approved_pending_tool_call(checkpoint: &Value) -> Result<NativeAgentToolCall, String> {
+    let pending = checkpoint
+        .get("pendingToolCalls")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            "invalid tool approval checkpoint: pendingToolCalls must be an array".to_string()
+        })?;
+    if pending.len() != 1 {
+        return Err(format!(
+            "invalid tool approval checkpoint: expected one pending tool call, found {}",
+            pending.len()
+        ));
+    }
+    let pending = &pending[0];
+    Ok(NativeAgentToolCall {
+        id: string_field(pending, "toolCallId").ok_or_else(|| {
+            "invalid tool approval checkpoint: pending toolCallId is missing".to_string()
+        })?,
+        name: string_field(pending, "toolName").ok_or_else(|| {
+            "invalid tool approval checkpoint: pending toolName is missing".to_string()
+        })?,
+        arguments_json: string_field(pending, "argumentsJson").ok_or_else(|| {
+            "invalid tool approval checkpoint: pending argumentsJson is missing".to_string()
+        })?,
+        result: Value::Null,
+    })
 }
 
 fn approval_denied_guidance_result(

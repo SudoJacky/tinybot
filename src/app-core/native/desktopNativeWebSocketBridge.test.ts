@@ -140,6 +140,7 @@ describe("desktop native WebSocket bridge", () => {
 
     const runId = (dispatched[0] as { runId?: string } | undefined)?.runId;
     expect(runId).toMatch(/^websocket-chat-native-/);
+    expect((dispatched[0] as { editablePaths?: string[] }).editablePaths).toContain("SYSTEM.md");
 
     handlers.get(toDesktopNativeTauriEventName("agent.delta"))?.({ runId, delta: "live", messageId: "message-live" });
     await flushMicrotasks();

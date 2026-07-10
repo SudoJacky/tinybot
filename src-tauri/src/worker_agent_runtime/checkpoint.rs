@@ -46,6 +46,14 @@ pub(super) fn checkpoint_value(
     phase: &str,
     payload: Value,
 ) -> Value {
+    let activated_tool_ids = if matches!(
+        phase,
+        "cancelled" | "completed" | "failed" | "final_response" | "max_iterations"
+    ) {
+        Vec::new()
+    } else {
+        context.tool_router.activated_tool_ids()
+    };
     serde_json::json!({
         "schemaVersion": 1,
         "runtime": "rust",
@@ -55,6 +63,7 @@ pub(super) fn checkpoint_value(
         "iteration": payload.get("iteration").cloned().unwrap_or(Value::Null),
         "maxIterations": context.max_iterations,
         "pendingToolCalls": checkpoint_pending_tool_calls(&payload),
+        "activatedToolIds": activated_tool_ids,
         "completedToolResults": payload
             .get("completedToolResults")
             .cloned()
@@ -62,7 +71,11 @@ pub(super) fn checkpoint_value(
         "resumeToken": payload.get("resumeToken").cloned().unwrap_or(Value::Null),
         "stopReason": payload.get("stopReason").cloned().unwrap_or(Value::Null),
         "payload": payload,
-        "messages": context.spec.get("messages").cloned().unwrap_or_else(|| serde_json::json!([])),
+        "messages": payload
+            .get("messages")
+            .cloned()
+            .or_else(|| context.spec.get("messages").cloned())
+            .unwrap_or_else(|| serde_json::json!([])),
     })
 }
 

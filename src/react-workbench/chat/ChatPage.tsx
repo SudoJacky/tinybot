@@ -1397,7 +1397,9 @@ function MessageBubble({
       data-testid={`message-${message.id}`}
     >
       <div className="react-message__body">
-        {message.reasoningText ? <MessageReasoning text={message.reasoningText} /> : null}
+        {message.reasoningText ? (
+          <MessageReasoning streaming={message.status === "streaming"} text={message.reasoningText} />
+        ) : null}
         {message.role === "assistant" ? (
           <AssistantMarkdown streaming={message.status === "streaming"} text={message.text} />
         ) : (
@@ -1425,11 +1427,33 @@ function MessageBubble({
   );
 }
 
-function MessageReasoning({ text }: { text: string }) {
+function MessageReasoning({ streaming, text }: { streaming: boolean; text: string }) {
+  const [expanded, setExpanded] = useState(streaming);
+  const wasStreaming = useRef(streaming);
+
+  useEffect(() => {
+    if (wasStreaming.current !== streaming) {
+      setExpanded(streaming);
+      wasStreaming.current = streaming;
+    }
+  }, [streaming]);
+
   return (
     <section className="react-message-reasoning" aria-label="Thinking">
-      <h3>Thinking</h3>
-      <PlainMessageText text={text} />
+      <button
+        aria-expanded={expanded}
+        className="react-message-reasoning__trigger"
+        type="button"
+        onClick={() => setExpanded((open) => !open)}
+      >
+        <span>Thinking</span>
+        {expanded ? <ChevronDown aria-hidden="true" size={14} /> : <ChevronRight aria-hidden="true" size={14} />}
+      </button>
+      {expanded ? (
+        <div className="react-message-reasoning__content">
+          <PlainMessageText text={text} />
+        </div>
+      ) : null}
     </section>
   );
 }

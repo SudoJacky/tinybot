@@ -533,6 +533,7 @@ describe("ChatPage", () => {
   });
 
   it("hides copy and branch actions for reasoning-only assistant messages", async () => {
+    const user = userEvent.setup();
     const stores = createStores();
     const reasoningOnlyMessages: ReactChatMessage[] = [
       {
@@ -549,10 +550,59 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     const message = await screen.findByTestId("message-a-thinking");
-    expect(within(message).getByLabelText("Thinking").textContent).toContain("Checking the current workspace before answering.");
+    const reasoning = within(message).getByLabelText("Thinking");
+    const reasoningToggle = within(reasoning).getByRole("button", { name: "Thinking" });
+    expect(reasoningToggle.getAttribute("aria-expanded")).toBe("false");
+    expect(within(reasoning).queryByText("Checking the current workspace before answering.")).toBeNull();
+
+    await user.click(reasoningToggle);
+
+    expect(reasoningToggle.getAttribute("aria-expanded")).toBe("true");
+    expect(within(reasoning).getByText("Checking the current workspace before answering.")).toBeTruthy();
+
+    await user.click(reasoningToggle);
+
+    expect(reasoningToggle.getAttribute("aria-expanded")).toBe("false");
+    expect(within(reasoning).queryByText("Checking the current workspace before answering.")).toBeNull();
     expect(within(message).queryByRole("button", { name: "Copy message" })).toBeNull();
     expect(within(message).queryByRole("button", { name: "Branch from here" })).toBeNull();
     expect(message.querySelector(".react-message__actions")).toBeNull();
+  });
+
+  it("expands live thinking and collapses it when the message completes", async () => {
+    let subscribed: ((event: ChatEvent) => void) | undefined;
+    const stores = createStores();
+    const liveMessage: ReactChatMessage = {
+      id: "a-live-thinking",
+      role: "assistant",
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+      text: "",
+      reasoningText: "Inspecting the workspace.",
+      status: "streaming",
+    };
+    stores.chatStore.load = vi.fn(async () => [liveMessage]);
+    stores.chatStore.subscribe = vi.fn((_sessionId, listener) => {
+      subscribed = listener;
+      return () => undefined;
+    });
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const message = await screen.findByTestId("message-a-live-thinking");
+    const reasoning = within(message).getByLabelText("Thinking");
+    const reasoningToggle = within(reasoning).getByRole("button", { name: "Thinking" });
+    expect(reasoningToggle.getAttribute("aria-expanded")).toBe("true");
+    expect(within(reasoning).getByText("Inspecting the workspace.")).toBeTruthy();
+
+    act(() => {
+      subscribed?.({
+        type: "agent.event",
+        message: { ...liveMessage, status: "complete" },
+      });
+    });
+
+    await waitFor(() => expect(reasoningToggle.getAttribute("aria-expanded")).toBe("false"));
+    expect(within(reasoning).queryByText("Inspecting the workspace.")).toBeNull();
   });
 
   it("hides assistant copy and branch actions until the turn completes", async () => {
@@ -895,6 +945,7 @@ describe("ChatPage", () => {
   });
 
   it("limits rich Markdown rendering to assistant answer text", async () => {
+    const user = userEvent.setup();
     const stores = createStores();
     stores.chatStore.load = vi.fn(async () => [
       {
@@ -920,6 +971,7 @@ describe("ChatPage", () => {
     const assistantMessage = await screen.findByTestId("message-a-markdown");
     expect(userMessage.querySelector("strong")).toBeNull();
     expect(within(userMessage).getByText("**keep user syntax literal**")).toBeTruthy();
+    await user.click(within(assistantMessage).getByRole("button", { name: "Thinking" }));
     expect(assistantMessage.querySelector(".react-message-reasoning strong")).toBeNull();
     expect(within(assistantMessage).getByText("**keep reasoning syntax literal**")).toBeTruthy();
     expect(assistantMessage.querySelector(".react-message-markdown strong")?.textContent).toBe("format the answer");
@@ -1439,7 +1491,9 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     const message = await screen.findByTestId("message-assistant-live");
-    expect(within(message).getByLabelText("Thinking").textContent).toContain("I am checking the available context.");
+    const reasoning = within(message).getByLabelText("Thinking");
+    expect(within(reasoning).getByRole("button", { name: "Thinking" }).getAttribute("aria-expanded")).toBe("true");
+    expect(reasoning.textContent).toContain("I am checking the available context.");
     expect(within(message).getByLabelText("Context").textContent).toContain("Project note");
     expect(within(message).getByLabelText("Context").textContent).toContain("Use current backend contracts.");
     expect(within(message).getByLabelText("Agent is responding")).toBeTruthy();

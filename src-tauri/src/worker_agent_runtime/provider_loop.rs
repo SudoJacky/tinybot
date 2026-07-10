@@ -1,7 +1,7 @@
 use super::checkpoint::{maybe_emit_checkpoint, save_phase_checkpoint};
 use super::continuations::{
     maybe_approval_resume_result, maybe_awaiting_approval_result, maybe_awaiting_form_result,
-    maybe_form_submit_result,
+    maybe_form_submit_result, restore_activated_tools_for_continuation,
 };
 use super::result::{cancelled_result, cancelled_run_result, error_result};
 use super::state::NativeAgentRunState;
@@ -14,14 +14,79 @@ use super::{
     bool_field, NativeAgentProviderStreamEvent, NativeAgentRunContext, NativeAgentRuntimeServices,
 };
 use crate::agent_loop_runtime_protocol::AgentRuntimePhase;
+use crate::worker_capability::default_desktop_capability_policy;
+use crate::worker_tool_registry::{mcp_tool_registry_entries, WorkerToolRegistryRpc};
 use serde_json::Value;
+use std::path::Path;
 
 pub fn run_native_agent_turn_with_config(
     services: &NativeAgentRuntimeServices,
     spec: Value,
     config_snapshot: Value,
 ) -> Result<Value, String> {
-    let mut context = NativeAgentRunContext::from_spec(spec, config_snapshot);
+    run_native_agent_turn_with_system_prompt(services, spec, config_snapshot, None, None)
+}
+
+pub fn run_native_agent_turn_with_workspace(
+    services: &NativeAgentRuntimeServices,
+    spec: Value,
+    config_snapshot: Value,
+    workspace_root: &Path,
+) -> Result<Value, String> {
+    let system_prompt = crate::system_prompt::load_or_create_system_prompt(workspace_root)?;
+    run_native_agent_turn_with_system_prompt(
+        services,
+        spec,
+        config_snapshot,
+        Some(system_prompt),
+        Some(workspace_root),
+    )
+}
+
+fn run_native_agent_turn_with_system_prompt(
+    services: &NativeAgentRuntimeServices,
+    spec: Value,
+    config_snapshot: Value,
+    system_prompt: Option<String>,
+    workspace_root: Option<&Path>,
+) -> Result<Value, String> {
+    let mut context = NativeAgentRunContext::from_spec(spec, config_snapshot.clone());
+    if let Some(workspace_root) = workspace_root {
+        let discovered = tauri::async_runtime::block_on(
+            services
+                .mcp_runtime
+                .discover_configured_tools(workspace_root, &config_snapshot),
+        )
+        .map_err(|error| {
+            format!(
+                "MCP discovery failed for server `{}` over {}: {}",
+                error.server, error.transport, error.message
+            )
+        })?;
+        let mut dynamic_tools = Vec::new();
+        for server in discovered {
+            dynamic_tools.extend(mcp_tool_registry_entries(
+                &server.server_id,
+                &server.server_config,
+                &server.tools,
+            )?);
+        }
+        context.tool_router = super::tool_router::NativeToolRouter::new(
+            WorkerToolRegistryRpc::new(default_desktop_capability_policy())
+                .with_dynamic_tools(dynamic_tools)?
+                .list_tools()
+                .tools,
+        );
+    }
+    #[cfg(test)]
+    if let Some(entries) = services.test_tool_registry_entries.clone() {
+        context.tool_router = super::tool_router::NativeToolRouter::new(entries);
+    }
+    #[cfg(test)]
+    context
+        .tool_router
+        .activate_for_turn(&services.test_activated_tool_ids)?;
+    context.system_prompt = system_prompt;
     context.attach_cancellation(services.cancellations.clone());
     if context.max_iterations <= 0 {
         return Ok(error_result(
@@ -46,10 +111,11 @@ pub fn run_native_agent_turn_with_config(
             checkpoint,
         ));
     }
+    restore_activated_tools_for_continuation(services, &mut context)?;
     if let Some(result) = maybe_awaiting_approval_result(services, &context) {
         return Ok(result);
     }
-    if let Some(result) = maybe_approval_resume_result(services, &context) {
+    if let Some(result) = maybe_approval_resume_result(services, &context)? {
         return Ok(result);
     }
     if let Some(result) = maybe_awaiting_form_result(services, &context) {
@@ -167,6 +233,9 @@ pub fn run_native_agent_turn_with_config(
                         "error": error,
                     }),
                 );
+                services
+                    .checkpoints
+                    .clear_for_run(&context.session_id, &context.run_id);
                 let runtime_events = state.runtime_events();
                 let events = state.legacy_events();
                 return Ok(serde_json::json!({
@@ -226,7 +295,7 @@ pub fn run_native_agent_turn_with_config(
         if !provider_response.tool_calls.is_empty() {
             match execute_tool_calls_for_iteration(
                 services,
-                &context,
+                &mut context,
                 &mut state,
                 iteration,
                 provider_response.final_content.clone(),
@@ -327,6 +396,9 @@ pub fn run_native_agent_turn_with_config(
             "error": error,
         }),
     );
+    services
+        .checkpoints
+        .clear_for_run(&context.session_id, &context.run_id);
     let runtime_events = state.runtime_events();
     let events = state.legacy_events();
     Ok(serde_json::json!({

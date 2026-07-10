@@ -225,40 +225,26 @@ pub(super) fn native_tool_mutates_session(context: &NativeAgentRunContext, name:
 }
 
 fn registry_tool_available(context: &NativeAgentRunContext, name: &str) -> bool {
-    context
-        .tool_registry_entries
-        .iter()
-        .any(|entry| entry.available && entry.method == name)
+    context.tool_router.is_permitted(name)
 }
 
 fn registry_tool_supports_parallel(context: &NativeAgentRunContext, name: &str) -> bool {
-    context
-        .tool_registry_entries
-        .iter()
-        .any(|entry| entry.available && entry.method == name && entry.supports_parallel_tool_calls)
+    context.tool_router.supports_parallel(name)
 }
 
 fn registry_tool_waits_for_runtime_cancellation(
     context: &NativeAgentRunContext,
     name: &str,
 ) -> bool {
-    context.tool_registry_entries.iter().any(|entry| {
-        entry.available
-            && entry.method == name
-            && entry.runtime_policy.waits_for_runtime_cancellation
-    })
+    context.tool_router.waits_for_runtime_cancellation(name)
 }
 
 fn registry_tool_mutates_workspace(context: &NativeAgentRunContext, name: &str) -> bool {
-    context.tool_registry_entries.iter().any(|entry| {
-        entry.available && entry.method == name && entry.runtime_policy.mutates_workspace
-    })
+    context.tool_router.mutates_workspace(name)
 }
 
 fn registry_tool_mutates_session(context: &NativeAgentRunContext, name: &str) -> bool {
-    context.tool_registry_entries.iter().any(|entry| {
-        entry.available && entry.method == name && entry.runtime_policy.mutates_session
-    })
+    context.tool_router.mutates_session(name)
 }
 
 fn legacy_native_tool_alias_is_permitted(context: &NativeAgentRunContext, name: &str) -> bool {

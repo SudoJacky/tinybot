@@ -373,16 +373,21 @@ fn http_response_body(response: &str) -> &str {
 }
 
 pub(crate) fn stop_owned_gateway(shared: &SharedGateway, explicit: bool) -> Result<(), String> {
-    let experimental_worker = {
+    let (experimental_worker, mcp_runtime) = {
         let runtime = lock_runtime(shared);
         if !explicit && runtime.keep_background {
             drop(runtime);
             push_log(shared, "leaving native backend running in background");
             return Ok(());
         }
-        runtime.experimental_worker.clone()
+        (
+            runtime.experimental_worker.clone(),
+            runtime.mcp_runtime.clone(),
+        )
     };
 
+    tauri::async_runtime::block_on(mcp_runtime.shutdown())
+        .map_err(|error| format!("failed to stop MCP runtime: {}", error.message))?;
     let was_running = experimental_worker.status().state == WorkerManagerState::Running;
     experimental_worker
         .stop()

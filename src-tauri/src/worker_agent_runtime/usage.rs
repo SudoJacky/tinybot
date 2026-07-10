@@ -44,13 +44,18 @@ pub(super) fn context_window_projection(
     context: &NativeAgentRunContext,
 ) -> ContextWindowProjection {
     let context_window_tokens = effective_context_window_tokens(context);
-    let full_estimate = estimate_messages_tokens(&context.messages);
+    let system_prompt_tokens = estimate_system_prompt_tokens(context);
+    let message_budget = context_window_tokens
+        .saturating_sub(system_prompt_tokens)
+        .max(1);
+    let full_estimate =
+        estimate_messages_tokens(&context.messages).saturating_add(system_prompt_tokens);
     if context_window_strategy(context) == "compact"
         && compact_threshold_reached(context, full_estimate, context_window_tokens)
     {
-        if let Some(compacted) = compact_messages_to_context_window(context, context_window_tokens)
-        {
-            let estimated_tokens_after = estimate_messages_tokens(&compacted.messages);
+        if let Some(compacted) = compact_messages_to_context_window(context, message_budget) {
+            let estimated_tokens_after =
+                estimate_messages_tokens(&compacted.messages).saturating_add(system_prompt_tokens);
             let replacement_message_count = compacted.messages.len();
             return ContextWindowProjection {
                 messages: compacted.messages,
@@ -75,10 +80,11 @@ pub(super) fn context_window_projection(
         };
     }
 
-    let messages = trim_messages_to_context_window(&context.messages, context_window_tokens);
+    let messages = trim_messages_to_context_window(&context.messages, message_budget);
     let dropped_message_count = context.messages.len().saturating_sub(messages.len());
     let retained_message_count = messages.len();
-    let estimated_tokens_after = estimate_messages_tokens(&messages);
+    let estimated_tokens_after =
+        estimate_messages_tokens(&messages).saturating_add(system_prompt_tokens);
     ContextWindowProjection {
         messages,
         action: (dropped_message_count > 0).then_some(ContextWindowAction {
@@ -129,6 +135,7 @@ pub(super) fn estimate_context_tokens_for_request(context: &NativeAgentRunContex
         .iter()
         .map(estimate_message_tokens)
         .fold(0i64, i64::saturating_add)
+        .saturating_add(estimate_system_prompt_tokens(context))
 }
 
 pub(super) fn enrich_usage_with_context_window(
@@ -377,6 +384,19 @@ fn estimate_messages_tokens(messages: &[Value]) -> i64 {
         .iter()
         .map(estimate_message_tokens)
         .fold(0i64, i64::saturating_add)
+}
+
+fn estimate_system_prompt_tokens(context: &NativeAgentRunContext) -> i64 {
+    context
+        .system_prompt
+        .as_deref()
+        .map(|content| {
+            estimate_message_tokens(&serde_json::json!({
+                "role": "system",
+                "content": content,
+            }))
+        })
+        .unwrap_or(0)
 }
 
 fn estimate_message_tokens(message: &Value) -> i64 {

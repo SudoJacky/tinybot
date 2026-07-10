@@ -141,10 +141,17 @@ Known worker error sources:
 
 - `AGENTS.md`
 - `SOUL.md`
+- `SYSTEM.md`
 - `USER.md`
 - `TOOLS.md`
 - `HEARTBEAT.md`
 - `memory/MEMORY.md`
+
+`SYSTEM.md` is the editable native-agent system-prompt template. The backend creates it once when
+missing and reloads it for each workspace-backed turn. Supported placeholders are `{{identity}}`,
+`{{working_directory}}`, and `{{operating_system}}`. Empty templates, unknown placeholders, and
+malformed delimiters fail explicitly; the backend does not replace an invalid user file with a
+hidden fallback prompt.
 
 ## Config Commands
 
@@ -239,6 +246,13 @@ Provider selection is profile-based. New config should use `agents.defaults.acti
 `providers.profiles.<profileId>.provider`; `agents.defaults.provider: "auto"` is a legacy value only.
 The built-in provider catalog currently exposes only `deepseek`, `dashscope`, and `openai`.
 
+The `mcp-servers` group projects live MCP runtime state. Each configured server has readonly
+`status` and `tool_count` fields populated from the Gateway-owned runtime rather than static
+placeholders. Status values are `disabled`, `starting`, `ready`, `failed`, `stopping`, or `stopped`.
+Streamable HTTP servers also expose endpoint, bearer-token environment-variable, static header,
+environment-backed header, and timeout settings. Sensitive static headers such as
+`Authorization` are returned as secret fields with `value: null`.
+
 Provider model discovery:
 
 - `deepseek` uses the OpenAI-compatible `GET {apiBase}/models` API. The default `apiBase` is
@@ -327,6 +341,68 @@ UI should prefer `SettingsSnapshot` once the frontend is migrated to the Rust-ow
   "metadata": {}
 }
 ```
+
+### Deferred tool discovery and checkpoints
+
+The native agent provider initially receives the capability-allowed model tools plus the runtime
+control tool `tool_search`. Deferred tools are not included until the model searches for them in the
+current run.
+
+`tool_search` input:
+
+```json
+{
+  "query": "shell or file editing capability",
+  "limit": 5
+}
+```
+
+The result contains a minimal activation projection and does not expose capability grants or
+credentials:
+
+```json
+{
+  "tools": [
+    {
+      "toolId": "shell.execute",
+      "title": "Execute shell command",
+      "description": "Run a shell command in the workspace.",
+      "requiresApproval": true
+    }
+  ]
+}
+```
+
+Returned deferred tools become provider-visible only for the current run. A fresh or terminal run
+does not inherit them. Calls to deferred tools that were not activated fail with
+`stopReason: "policy_denied"` before dispatch.
+
+Resumable checkpoints include the validated activation set:
+
+```json
+{
+  "schemaVersion": 1,
+  "phase": "awaiting_approval",
+  "activatedToolIds": ["workspace.write_file"],
+  "pendingToolCalls": [
+    {
+      "toolCallId": "call-write-1",
+      "toolName": "workspace.write_file",
+      "argumentsJson": "{\"path\":\"notes.txt\",\"contents\":\"hello\"}"
+    }
+  ]
+}
+```
+
+Approval-required tools return `stopReason: "awaiting_approval"` and persist the pending call before
+normal dispatch. Approval and form continuations revalidate every `activatedToolIds` entry against
+the current registry and capability policy; stale IDs, malformed arrays, provider-name collisions,
+and approval IDs that do not match the checkpoint return explicit errors. Cancelled and other
+terminal checkpoints expose an empty activation set.
+
+An approved continuation dispatches the persisted call through the same registry execution target,
+records the real tool result, and resumes the provider loop. It does not synthesize a successful
+approval result. Denial records the denied result without invoking the tool.
 
 ## Session Commands
 
@@ -740,7 +816,7 @@ External callers should usually prefer the Tauri commands above.
 | `diagnostics` | `append` |
 | `form` | `request` |
 | `knowledge` | `add_document`, `context`, `delete_document`, `document_tree`, `get_document`, `get_job`, `graph`, `list_documents`, `query`, `rebuild_index`, `save_entity_graph_extraction`, `session_clear`, `session_list`, `session_upload`, `start_index_job`, `stats` |
-| `mcp` | `call_tool`, `list_tools` |
+| `mcp` | `call_tool`, `diagnostics`, `list_tools`, `server_status`, `shutdown` |
 | `memory` | `capture_evidence`, `dream_apply`, `dream_log`, `dream_pending`, `dream_restore`, `dream_run`, `list_evidence`, `migrate_legacy_notes`, `rebuild_index`, `recall`, `refresh_views`, `reject`, `save`, `search`, `supersede`, `trace` |
 | `permission_profile` | `current`, `evaluate_tool`, `request_tool_approval`, `resolve_tool_approval` |
 | `provider` | `resolve_secret` |
@@ -754,6 +830,99 @@ External callers should usually prefer the Tauri commands above.
 | `tool_executor` | `execute` |
 | `tool_registry` | `list`, `search` |
 | `workspace` | `create_dir`, `delete_file`, `list_dir`, `list_files`, `read_bootstrap_files`, `read_file`, `resolve_path`, `write_file` |
+
+### MCP Runtime RPC
+
+The Gateway owns one long-lived MCP runtime shared by Worker RPC adapters and native agent turns.
+Short-lived adapters do not own child processes or HTTP sessions. A configuration update with the
+`mcpConfigChanged` side effect reconciles changed, disabled, and removed servers; Gateway shutdown
+closes HTTP sessions and terminates stdio children before stopping the worker.
+
+Accepted transport values:
+
+- `stdio`: starts the configured command directly without a shell;
+- `http`, `streamable_http`, and `streamable-http`: use MCP Streamable HTTP;
+- `sse`: rejected as an unsupported legacy transport; there is no fallback.
+
+Streamable HTTP configuration example:
+
+```json
+{
+  "tools": {
+    "mcpServers": {
+      "docs": {
+        "enabled": true,
+        "transport": "http",
+        "url": "https://example.com/mcp",
+        "bearerTokenEnvVar": "DOCS_MCP_TOKEN",
+        "httpHeaders": { "X-Tenant": "tinybot" },
+        "envHttpHeaders": { "X-Trace-Token": "DOCS_TRACE_TOKEN" },
+        "startupTimeoutSeconds": 10,
+        "timeoutSeconds": 30,
+        "enabledTools": ["search"]
+      }
+    }
+  }
+}
+```
+
+`bearerTokenEnvVar` and `envHttpHeaders` contain environment-variable names, not secret values.
+Missing, empty, or non-Unicode values fail startup explicitly. Inline `bearerToken` / `bearer_token`
+is rejected; use the environment-backed field. URL credentials and fragments are also rejected.
+Snake-case aliases are accepted for these fields.
+
+`mcp.list_tools` takes no params and returns enabled servers, normalized real tool schemas, and live
+status:
+
+```json
+{
+  "servers": [
+    {
+      "name": "docs",
+      "status": {
+        "state": "ready",
+        "transport": "http",
+        "toolCount": 4,
+        "elapsedMs": 18,
+        "lastError": null
+      },
+      "tools": [{ "name": "search", "inputSchema": { "type": "object" } }]
+    }
+  ]
+}
+```
+
+`mcp.call_tool` params and response:
+
+```json
+{
+  "server": "docs",
+  "tool": "search",
+  "arguments": { "query": "runtime ownership" }
+}
+```
+
+```json
+{
+  "server": "docs",
+  "tool": "search",
+  "content": [],
+  "structuredContent": {},
+  "isError": false,
+  "result": {}
+}
+```
+
+The server and tool must be enabled and allowlisted. Calls support startup/call timeouts and request
+cancellation. Cancellation during an active call closes that transport and marks the server failed;
+the next call starts a clean client.
+
+Additional methods:
+
+- `mcp.server_status` params: `{ "serverId": "docs" }`;
+- `mcp.diagnostics`: returns a bounded transition list containing `serverId`, `transport`, `state`,
+  `phase`, `elapsedMs`, `errorCode`, and a sanitized `message`;
+- `mcp.shutdown`: closes every managed server and returns `{ "stopped": true }`.
 
 ## Tauri Event Names
 

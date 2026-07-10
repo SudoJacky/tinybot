@@ -9,6 +9,7 @@ use std::{
 };
 use tauri::{Emitter, Manager, Runtime, State, WindowEvent};
 
+mod adapters;
 pub mod agent_loop_runtime_protocol;
 pub mod config_store;
 pub mod desktop_commands;
@@ -21,7 +22,9 @@ pub mod desktop_menu;
 pub mod native_agent_bridge;
 pub mod native_backend_contract;
 pub mod native_provider_runtime;
+mod runtime;
 pub mod settings_registry;
+mod system_prompt;
 pub mod worker_agent_runtime;
 pub mod worker_background;
 pub mod worker_capability;
@@ -171,6 +174,8 @@ use crate::desktop_menu::{
 };
 use crate::native_agent_bridge::{native_agent_run_record, persist_native_agent_run_start};
 use crate::native_backend_contract::NativeCompatibilityFallbackDiagnostic;
+use crate::runtime::mcp::McpRuntime;
+use crate::system_prompt::{load_or_create_system_prompt, SYSTEM_PROMPT_FILE_NAME};
 use crate::worker_agent_runtime::NativeAgentRuntimeServices;
 #[cfg(test)]
 use crate::worker_agent_runtime::NativeAgentTraceSink;
@@ -218,6 +223,7 @@ const NATIVE_BACKEND_LOG_TAIL_LINES: usize = 100;
 pub(crate) struct GatewayRuntime {
     experimental_worker: WorkerManager,
     native_agent_runtime: NativeAgentRuntimeServices,
+    mcp_runtime: McpRuntime,
     subagent_manager: SubagentThreadManager,
     logs: VecDeque<String>,
     compatibility_fallbacks: VecDeque<NativeCompatibilityFallbackDiagnostic>,
@@ -232,11 +238,14 @@ pub(crate) struct GatewayRuntime {
 impl Default for GatewayRuntime {
     fn default() -> Self {
         let subagent_manager = SubagentThreadManager::default();
+        let mcp_runtime = McpRuntime::new();
         Self {
             experimental_worker: WorkerManager::new(200),
             native_agent_runtime: NativeAgentRuntimeServices::with_subagent_manager(
                 subagent_manager.clone(),
-            ),
+            )
+            .with_mcp_runtime(mcp_runtime.clone()),
+            mcp_runtime,
             subagent_manager,
             logs: VecDeque::with_capacity(200),
             compatibility_fallbacks: VecDeque::with_capacity(50),
@@ -257,6 +266,24 @@ pub(crate) fn call_rust_state_service(
     label: &str,
 ) -> Result<serde_json::Value, String> {
     let mut router = experimental_worker_router(workspace_root, config_snapshot);
+    let response = router.dispatch(&request);
+    if let Some(error) = response.error {
+        return Err(format!("{label} failed: {}", error.message));
+    }
+    response
+        .result
+        .ok_or_else(|| format!("{label} failed: missing response result"))
+}
+
+pub(crate) fn call_rust_state_service_with_mcp_runtime(
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    mcp_runtime: McpRuntime,
+    request: WorkerRequest,
+    label: &str,
+) -> Result<serde_json::Value, String> {
+    let mut router =
+        experimental_worker_router(workspace_root, config_snapshot).with_mcp_runtime(mcp_runtime);
     let response = router.dispatch(&request);
     if let Some(error) = response.error {
         return Err(format!("{label} failed: {}", error.message));
@@ -464,6 +491,23 @@ pub fn run() {
                         &format!("failed to initialize default config: {error}"),
                     );
                 }
+            }
+            let workspace_root = native_backend_workspace_root();
+            let system_prompt_path = workspace_root.join(SYSTEM_PROMPT_FILE_NAME);
+            let system_prompt_existed = system_prompt_path.exists();
+            match load_or_create_system_prompt(&workspace_root) {
+                Ok(_) if !system_prompt_existed => push_log(
+                    &setup_state,
+                    &format!(
+                        "default system prompt created at {}",
+                        system_prompt_path.display()
+                    ),
+                ),
+                Ok(_) => {}
+                Err(error) => push_log(
+                    &setup_state,
+                    &format!("failed to initialize system prompt: {error}"),
+                ),
             }
             let app_handle = app.handle().clone();
             let log_state = setup_state.clone();

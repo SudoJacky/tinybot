@@ -1,4 +1,5 @@
 use crate::config_store::{ConfigPatchBridgeResult, ConfigStore};
+use crate::runtime::mcp::McpRuntime;
 use crate::worker_background::{
     BackgroundRunCompleteParams, BackgroundRunUpsertParams, BackgroundSubagentEnqueueInputParams,
     BackgroundTraceAppendParams, BackgroundTraceGetArtifactParams,
@@ -47,7 +48,9 @@ use crate::worker_tool_executor::{
     tool_not_found_error, tool_unavailable_error, ToolExecutorExecuteRequest,
     ToolExecutorExecuteResult,
 };
-use crate::worker_tool_registry::{ToolRegistrySearchRequest, WorkerToolRegistryRpc};
+use crate::worker_tool_registry::{
+    ToolExecutionTarget, ToolRegistrySearchRequest, WorkerToolRegistryRpc,
+};
 use crate::worker_workspace::{WorkerWorkspaceRpc, WorkspaceReadFormat, WorkspaceReadOptions};
 use serde::Deserialize;
 use serde_json::Value;
@@ -134,7 +137,12 @@ impl WorkerRpcRouter {
             cron: WorkerCronRpc::new(workspace_root.clone(), policy.clone()),
             background: WorkerBackgroundRpc::new(workspace_root.clone(), policy.clone()),
             channel_connector: WorkerChannelConnectorRpc::new(policy.clone()),
-            mcp: WorkerMcpRpc::new(config_snapshot, policy.clone()),
+            mcp: WorkerMcpRpc::new(
+                workspace_root.clone(),
+                config_snapshot,
+                policy.clone(),
+                McpRuntime::new(),
+            ),
             runtime: WorkerRuntimeRpc::new(),
             thread: WorkerThreadRpc::new(workspace_root.clone(), policy.clone()),
             thread_log: WorkerThreadLogRpc::new(workspace_root, policy.clone()),
@@ -171,7 +179,12 @@ impl WorkerRpcRouter {
             cron: WorkerCronRpc::new(workspace_root.clone(), policy.clone()),
             background: WorkerBackgroundRpc::new(workspace_root.clone(), policy.clone()),
             channel_connector: WorkerChannelConnectorRpc::new(policy.clone()),
-            mcp: WorkerMcpRpc::new(config_snapshot, policy.clone()),
+            mcp: WorkerMcpRpc::new(
+                workspace_root.clone(),
+                config_snapshot,
+                policy.clone(),
+                McpRuntime::new(),
+            ),
             runtime: WorkerRuntimeRpc::new(),
             thread: WorkerThreadRpc::new(workspace_root.clone(), policy.clone()),
             thread_log: WorkerThreadLogRpc::new(workspace_root, policy.clone()),
@@ -206,6 +219,11 @@ impl WorkerRpcRouter {
         handler: impl Fn(RuntimeRestartRequest) + Send + Sync + 'static,
     ) -> Self {
         self.runtime = WorkerRuntimeRpc::with_restart_handler(handler);
+        self
+    }
+
+    pub(crate) fn with_mcp_runtime(mut self, runtime: McpRuntime) -> Self {
+        self.mcp.replace_runtime(runtime);
         self
     }
 
@@ -534,11 +552,34 @@ impl WorkerRpcRouter {
             )?);
         }
 
-        let tool_arguments = tool_executor_arguments_with_context(&params);
+        let (target_method, tool_arguments) = match &tool.execution_target {
+            ToolExecutionTarget::WorkerRpc { method } => (
+                method.clone(),
+                tool_executor_arguments_with_context(&params),
+            ),
+            ToolExecutionTarget::Mcp { server, tool } => (
+                "mcp.call_tool".to_string(),
+                serde_json::json!({
+                    "server": server,
+                    "tool": tool,
+                    "arguments": params.arguments.clone(),
+                    "session_id": params.session_id,
+                }),
+            ),
+            ToolExecutionTarget::RuntimeControl(_) => {
+                return Err(WorkerProtocolError::new(
+                    WorkerProtocolErrorCode::InvalidProtocol,
+                    "runtime control tools cannot be dispatched through tool_executor.execute",
+                    serde_json::json!({ "toolId": tool.tool_id }),
+                    false,
+                    WorkerProtocolErrorSource::RustCore,
+                ));
+            }
+        };
         let tool_request = WorkerRequest::new(
             request.id.clone(),
             request.trace_id.clone(),
-            tool.method,
+            target_method,
             tool_arguments,
         )
         .with_cancellation(request.cancellation());

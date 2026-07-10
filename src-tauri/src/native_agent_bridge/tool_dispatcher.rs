@@ -1,10 +1,13 @@
-use crate::call_rust_state_service;
+use crate::call_rust_state_service_with_mcp_runtime;
+use crate::runtime::mcp::mcp_tool_is_enabled;
+use crate::runtime::mcp::McpRuntime;
 use crate::worker_agent_runtime::{
     NativeAgentRunContext, NativeAgentRuntimeServices, NativeAgentToolCall,
     NativeAgentToolDispatcher, NativeAgentToolResult,
 };
 use crate::worker_protocol::{WorkerRequest, WorkerRequestCancellation};
 use crate::worker_request_id::next_worker_request_correlation;
+use crate::worker_tool_registry::{ToolExecutionTarget, ToolRuntimeControl};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -13,6 +16,7 @@ struct NativeAgentToolExecutorDispatcher {
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     fallback: Arc<dyn NativeAgentToolDispatcher>,
+    mcp_runtime: McpRuntime,
 }
 
 impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
@@ -31,25 +35,51 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
                     tool_call.name
                 )
             })?;
+        let execution_target = context.tool_execution_target(&tool_call.name);
+        if matches!(
+            &execution_target,
+            Some(ToolExecutionTarget::RuntimeControl(
+                ToolRuntimeControl::ToolSearch
+            ))
+        ) {
+            return Err("tool_search must be handled by the native tool router".to_string());
+        }
         let request_id = next_worker_request_correlation();
         let cancellation = context
             .cancellation
             .clone()
             .map(|cancellation| Arc::new(cancellation) as Arc<dyn WorkerRequestCancellation>);
-        let executor_result = call_rust_state_service(
-            self.workspace_root.clone(),
-            self.config_snapshot.clone(),
-            WorkerRequest::new(
-                request_id.id("native-tool-executor"),
-                request_id.trace_id("native-tool-executor"),
+        let (method, params, label) = match execution_target {
+            Some(ToolExecutionTarget::Mcp { server, tool }) => (
+                "mcp.call_tool",
+                serde_json::json!({
+                    "server": server,
+                    "tool": tool,
+                    "arguments": arguments,
+                }),
+                "native MCP tool",
+            ),
+            _ => (
                 "tool_executor.execute",
                 serde_json::json!({
                     "toolId": tool_call.name,
                     "arguments": arguments,
                 }),
+                "native tool executor",
+            ),
+        };
+        let executor_result = call_rust_state_service_with_mcp_runtime(
+            self.workspace_root.clone(),
+            self.config_snapshot.clone(),
+            self.mcp_runtime.clone(),
+            WorkerRequest::new(
+                request_id.id("native-tool-executor"),
+                request_id.trace_id("native-tool-executor"),
+                method,
+                params,
             )
             .with_cancellation(cancellation),
-            "native tool executor",
+            label,
         );
         match executor_result {
             Ok(executor_result) => {
@@ -73,6 +103,119 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
             Err(error) => Err(error),
         }
     }
+
+    fn dispatch_async(
+        &self,
+        context: NativeAgentRunContext,
+        tool_call: NativeAgentToolCall,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send + '_>,
+    > {
+        Box::pin(async move {
+            if let Some(result) = self.dispatch_mcp_if_needed(&context, &tool_call).await {
+                return result;
+            }
+            self.dispatch(&context, &tool_call)
+        })
+    }
+}
+
+impl NativeAgentToolExecutorDispatcher {
+    async fn dispatch_mcp_if_needed(
+        &self,
+        context: &NativeAgentRunContext,
+        tool_call: &NativeAgentToolCall,
+    ) -> Option<Result<NativeAgentToolResult, String>> {
+        let arguments = match serde_json::from_str::<serde_json::Value>(&tool_call.arguments_json) {
+            Ok(arguments) => arguments,
+            Err(error) => {
+                return Some(Err(format!(
+                    "native tool `{}` arguments are invalid JSON: {error}",
+                    tool_call.name
+                )));
+            }
+        };
+        let target = context.tool_execution_target(&tool_call.name);
+        let (server_name, tool_name, tool_arguments) = match target {
+            Some(ToolExecutionTarget::Mcp { server, tool }) => (server, tool, arguments),
+            _ if tool_call.name == "mcp.call_tool" => {
+                let server = arguments
+                    .get("server")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string);
+                let tool = arguments
+                    .get("tool")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string);
+                let (Some(server), Some(tool)) = (server, tool) else {
+                    return Some(Err(
+                        "mcp.call_tool requires non-empty server and tool fields".to_string(),
+                    ));
+                };
+                let tool_arguments = arguments
+                    .get("arguments")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({}));
+                (server, tool, tool_arguments)
+            }
+            _ => return None,
+        };
+        if !tool_arguments.is_object() {
+            return Some(Err("MCP tool arguments must be a JSON object".to_string()));
+        }
+        let Some(server_config) = context
+            .config_snapshot
+            .get("tools")
+            .and_then(|tools| tools.get("mcp_servers").or_else(|| tools.get("mcpServers")))
+            .and_then(|servers| servers.get(&server_name))
+        else {
+            return Some(Err(format!("MCP server is not configured: {server_name}")));
+        };
+        if server_config
+            .get("enabled")
+            .and_then(serde_json::Value::as_bool)
+            == Some(false)
+        {
+            return Some(Err(format!("MCP server is disabled: {server_name}")));
+        }
+        if !mcp_tool_is_enabled(&server_name, &tool_name, server_config) {
+            return Some(Err(format!(
+                "MCP tool is not allowlisted: {server_name}.{tool_name}"
+            )));
+        }
+        let cancellation = context
+            .cancellation
+            .clone()
+            .map(|cancellation| Arc::new(cancellation) as Arc<dyn WorkerRequestCancellation>);
+        let result = self
+            .mcp_runtime
+            .call_tool(
+                &self.workspace_root,
+                &server_name,
+                server_config,
+                &tool_name,
+                Some(tool_arguments),
+                cancellation,
+            )
+            .await
+            .map_err(|error| error.message);
+        Some(result.map(|result| {
+            let model_content = native_tool_executor_model_content(&result);
+            NativeAgentToolResult::generic_success(
+                tool_call,
+                serde_json::json!({
+                    "content": model_content,
+                    "result": result,
+                    "server": server_name,
+                    "tool": tool_name,
+                }),
+            )
+        }))
+    }
 }
 
 pub(crate) fn native_agent_services_with_tool_executor(
@@ -81,10 +224,12 @@ pub(crate) fn native_agent_services_with_tool_executor(
     config_snapshot: serde_json::Value,
 ) -> NativeAgentRuntimeServices {
     let fallback = services.tool_dispatcher();
+    let mcp_runtime = services.mcp_runtime();
     services.with_tool_dispatcher(Arc::new(NativeAgentToolExecutorDispatcher {
         workspace_root,
         config_snapshot,
         fallback,
+        mcp_runtime,
     }))
 }
 

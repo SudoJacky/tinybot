@@ -1,15 +1,59 @@
 use super::*;
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
-use crate::worker_tool_registry::WorkerToolRegistryRpc;
+use crate::worker_tool_registry::{
+    ToolApprovalMetadata, ToolExecutionTarget, ToolExposure, ToolRegistryEntry, ToolRuntimePolicy,
+    WorkerToolRegistryRpc,
+};
 use serde_json::json;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+fn test_registry_without_approval(methods: &[&str]) -> Vec<ToolRegistryEntry> {
+    let mut entries =
+        WorkerToolRegistryRpc::new(crate::worker_capability::default_desktop_capability_policy())
+            .list_tools()
+            .tools;
+    for entry in &mut entries {
+        if methods.contains(&entry.method.as_str()) {
+            entry.approval.required = false;
+            entry.approval.scope = None;
+            entry.approval.lifetime = None;
+        }
+    }
+    entries
+}
+
 #[derive(Default)]
 struct RecordingTraceSink {
     events: Arc<Mutex<Vec<AgentRuntimeEventEnvelope>>>,
+}
+
+struct SystemPromptWorkspace {
+    root: PathBuf,
+}
+
+impl SystemPromptWorkspace {
+    fn new() -> Self {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time should be monotonic")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "tinybot-agent-system-prompt-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).expect("system prompt workspace should create");
+        Self { root }
+    }
+}
+
+impl Drop for SystemPromptWorkspace {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.root);
+    }
 }
 
 impl NativeAgentTraceSink for RecordingTraceSink {
@@ -128,6 +172,107 @@ fn normalizes_desktop_run_spec_inputs_for_rust_turns() {
 }
 
 #[test]
+fn workspace_system_prompt_is_sent_first_and_reloads_user_edits() {
+    struct CapturingProvider {
+        requests: Arc<Mutex<Vec<Vec<Value>>>>,
+    }
+
+    impl NativeAgentProvider for CapturingProvider {
+        fn complete(
+            &self,
+            context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            let request = agent_chat_completion_request(context)?;
+            self.requests
+                .lock()
+                .expect("captured requests lock should not be poisoned")
+                .push(
+                    request["messages"]
+                        .as_array()
+                        .expect("request messages should be an array")
+                        .clone(),
+                );
+            Ok(NativeAgentProviderResponse {
+                final_content: "done".to_string(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: Vec::new(),
+            })
+        }
+    }
+
+    let workspace = SystemPromptWorkspace::new();
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let services = NativeAgentRuntimeServices::new(
+        Arc::new(CapturingProvider {
+            requests: requests.clone(),
+        }),
+        Arc::new(FakeNativeAgentToolDispatcher),
+        Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(InMemoryNativeAgentCancellation::default()),
+    );
+
+    run_native_agent_turn_with_workspace(
+        &services,
+        json!({
+            "runId": "run-system-prompt-default",
+            "sessionId": "session-system-prompt-default",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }),
+        json!({}),
+        &workspace.root,
+    )
+    .expect("default workspace system prompt run should succeed");
+
+    let custom_template =
+        "# Custom system prompt\n\nYou are Inspector.\n\nWorkspace: `{{working_directory}}`\n";
+    std::fs::write(
+        workspace
+            .root
+            .join(crate::system_prompt::SYSTEM_PROMPT_FILE_NAME),
+        custom_template,
+    )
+    .expect("custom system prompt should write");
+
+    run_native_agent_turn_with_workspace(
+        &services,
+        json!({
+            "runId": "run-system-prompt-custom",
+            "sessionId": "session-system-prompt-custom",
+            "messages": [{ "role": "user", "content": "hello again" }]
+        }),
+        json!({}),
+        &workspace.root,
+    )
+    .expect("custom workspace system prompt run should succeed");
+
+    let requests = requests
+        .lock()
+        .expect("captured requests lock should not be poisoned");
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0][0]["role"], "system");
+    assert!(requests[0][0]["content"]
+        .as_str()
+        .expect("default system prompt should be text")
+        .contains("You are Tinybot"));
+    assert_eq!(requests[0][1]["content"], "hello");
+    assert_eq!(requests[1][0]["role"], "system");
+    assert!(requests[1][0]["content"]
+        .as_str()
+        .expect("custom system prompt should be text")
+        .contains("You are Inspector."));
+    assert!(requests[1][0]["content"]
+        .as_str()
+        .expect("custom system prompt should be text")
+        .contains(&workspace.root.display().to_string()));
+    assert!(!requests[1][0]["content"]
+        .as_str()
+        .expect("custom system prompt should be text")
+        .contains("You are Tinybot"));
+    assert_eq!(requests[1][1]["content"], "hello again");
+}
+
+#[test]
 fn chat_completion_request_injects_available_model_tools() {
     let mut context = NativeAgentRunContext::from_spec(
         json!({
@@ -139,15 +284,17 @@ fn chat_completion_request_injects_available_model_tools() {
         }),
         json!({}),
     );
-    context.tool_registry_entries = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
-        WorkerCapability::FsWorkspaceRead,
-        WorkerCapability::MemoryRead,
-        WorkerCapability::KnowledgeRead,
-        WorkerCapability::BackgroundWrite,
-        WorkerCapability::SessionWrite,
-    ]))
-    .list_tools()
-    .tools;
+    context.tool_router = NativeToolRouter::new(
+        WorkerToolRegistryRpc::new(CapabilityPolicy::new([
+            WorkerCapability::FsWorkspaceRead,
+            WorkerCapability::MemoryRead,
+            WorkerCapability::KnowledgeRead,
+            WorkerCapability::BackgroundWrite,
+            WorkerCapability::SessionWrite,
+        ]))
+        .list_tools()
+        .tools,
+    );
 
     let request = agent_chat_completion_request(&context)
         .expect("available model tools should produce a chat completion request");
@@ -167,6 +314,7 @@ fn chat_completion_request_injects_available_model_tools() {
     assert!(names.contains(&"knowledge_query"));
     assert!(names.contains(&"subagent_spawn"));
     assert!(names.contains(&"subagent_send_input"));
+    assert!(names.contains(&"tool_search"));
     assert!(!names.contains(&"workspace_write_file"));
     assert!(!names.contains(&"workspace_delete_file"));
     assert!(!names.contains(&"mcp_call_tool"));
@@ -194,6 +342,899 @@ fn chat_completion_request_injects_available_model_tools() {
 }
 
 #[test]
+fn tool_search_activates_dispatches_and_expires_a_deferred_tool() {
+    struct SearchThenFinishProvider {
+        requests: Arc<Mutex<Vec<Vec<String>>>>,
+        calls: AtomicUsize,
+    }
+
+    impl NativeAgentProvider for SearchThenFinishProvider {
+        fn complete(
+            &self,
+            context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            let request = agent_chat_completion_request(context)?;
+            let tool_names = request["tools"]
+                .as_array()
+                .expect("provider request tools should be an array")
+                .iter()
+                .map(|tool| {
+                    tool["function"]["name"]
+                        .as_str()
+                        .expect("provider tool name should be text")
+                        .to_string()
+                })
+                .collect::<Vec<_>>();
+            self.requests
+                .lock()
+                .expect("captured tool requests lock should not be poisoned")
+                .push(tool_names);
+
+            match self.calls.fetch_add(1, Ordering::SeqCst) {
+                0 => Ok(NativeAgentProviderResponse {
+                    final_content: String::new(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![NativeAgentToolCall {
+                        id: "tool-search-1".to_string(),
+                        name: "tool_search".to_string(),
+                        arguments_json: r#"{"query":"deferred echo","limit":1}"#.to_string(),
+                        result: Value::Null,
+                    }],
+                }),
+                1 => Ok(NativeAgentProviderResponse {
+                    final_content: String::new(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![NativeAgentToolCall {
+                        id: "deferred-echo-1".to_string(),
+                        name: "test.deferred_echo".to_string(),
+                        arguments_json: r#"{"text":"hello"}"#.to_string(),
+                        result: Value::Null,
+                    }],
+                }),
+                _ => Ok(NativeAgentProviderResponse {
+                    final_content: "search complete".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: Vec::new(),
+                }),
+            }
+        }
+    }
+
+    struct RecordingDeferredDispatcher {
+        dispatched: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl NativeAgentToolDispatcher for RecordingDeferredDispatcher {
+        fn dispatch(
+            &self,
+            _context: &NativeAgentRunContext,
+            tool_call: &NativeAgentToolCall,
+        ) -> Result<NativeAgentToolResult, String> {
+            if tool_call.name == "tool_search" {
+                return Err("tool_search must not reach the normal dispatcher".to_string());
+            }
+            self.dispatched
+                .lock()
+                .expect("dispatched tools lock should not be poisoned")
+                .push(tool_call.name.clone());
+            Ok(NativeAgentToolResult::generic_success(
+                tool_call,
+                json!({ "echo": "hello" }),
+            ))
+        }
+    }
+
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let dispatched = Arc::new(Mutex::new(Vec::new()));
+    let mut registry_entries =
+        WorkerToolRegistryRpc::new(crate::worker_capability::default_desktop_capability_policy())
+            .list_tools()
+            .tools;
+    registry_entries.push(ToolRegistryEntry {
+        tool_id: "test.deferred_echo".to_string(),
+        method: "test.deferred_echo".to_string(),
+        namespace: "test".to_string(),
+        title: "Deferred echo".to_string(),
+        description: "Echo text through a deferred read-only test tool.".to_string(),
+        exposure: ToolExposure::Deferred,
+        dynamic: false,
+        supports_parallel_tool_calls: true,
+        runtime_policy: ToolRuntimePolicy {
+            supports_parallel_tool_calls: true,
+            waits_for_runtime_cancellation: false,
+            mutates_workspace: false,
+            mutates_session: false,
+        },
+        required_capabilities: Vec::new(),
+        available: true,
+        approval: ToolApprovalMetadata {
+            required: false,
+            scope: None,
+            lifetime: None,
+        },
+        input_schema: json!({
+            "type": "object",
+            "required": ["text"],
+            "properties": { "text": { "type": "string" } }
+        }),
+        output_schema: json!({ "type": "object" }),
+        execution_target: ToolExecutionTarget::WorkerRpc {
+            method: "test.deferred_echo".to_string(),
+        },
+    });
+    let services = NativeAgentRuntimeServices::new(
+        Arc::new(SearchThenFinishProvider {
+            requests: requests.clone(),
+            calls: AtomicUsize::new(0),
+        }),
+        Arc::new(RecordingDeferredDispatcher {
+            dispatched: dispatched.clone(),
+        }),
+        Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(InMemoryNativeAgentCancellation::default()),
+    )
+    .with_test_tool_registry_entries(registry_entries);
+
+    let result = run_native_agent_turn_with_config(
+        &services,
+        json!({
+            "runId": "run-tool-search-activation",
+            "sessionId": "session-tool-search-activation",
+            "maxIterations": 3,
+            "messages": [{ "role": "user", "content": "find a deferred echo tool" }]
+        }),
+        json!({}),
+    )
+    .expect("tool search run should complete");
+
+    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(result["finalContent"], "search complete");
+    assert_eq!(
+        result["toolsUsed"],
+        json!(["tool_search", "test.deferred_echo"])
+    );
+    assert_eq!(
+        result["completedToolResults"][0]["envelope"]["raw"]["tools"][0],
+        json!({
+            "toolId": "test.deferred_echo",
+            "title": "Deferred echo",
+            "description": "Echo text through a deferred read-only test tool.",
+            "requiresApproval": false
+        })
+    );
+    assert_eq!(
+        *dispatched
+            .lock()
+            .expect("dispatched tools lock should not be poisoned"),
+        vec!["test.deferred_echo".to_string()]
+    );
+
+    let second_run = run_native_agent_turn_with_config(
+        &services,
+        json!({
+            "runId": "run-tool-search-expired",
+            "sessionId": "session-tool-search-expired",
+            "maxIterations": 1,
+            "messages": [{ "role": "user", "content": "start a fresh run" }]
+        }),
+        json!({}),
+    )
+    .expect("fresh run should complete without inherited activation");
+    assert_eq!(second_run["stopReason"], "final_response");
+
+    let requests = requests
+        .lock()
+        .expect("captured tool requests lock should not be poisoned");
+    assert_eq!(requests.len(), 4);
+    assert!(requests[0].contains(&"tool_search".to_string()));
+    assert!(!requests[0].contains(&"test_deferred_echo".to_string()));
+    assert!(requests[1].contains(&"test_deferred_echo".to_string()));
+    assert!(!requests[3].contains(&"test_deferred_echo".to_string()));
+}
+
+#[test]
+fn discovered_mcp_tool_searches_activates_approves_and_calls_real_server() {
+    struct McpDiscoveryProvider {
+        calls: AtomicUsize,
+    }
+
+    impl NativeAgentProvider for McpDiscoveryProvider {
+        fn complete(
+            &self,
+            context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            match self.calls.fetch_add(1, Ordering::SeqCst) {
+                0 => Ok(NativeAgentProviderResponse {
+                    final_content: String::new(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![NativeAgentToolCall {
+                        id: "search-real-mcp".to_string(),
+                        name: "tool_search".to_string(),
+                        arguments_json: r#"{"query":"echo from documentation server","limit":1}"#
+                            .to_string(),
+                        result: Value::Null,
+                    }],
+                }),
+                1 => Ok(NativeAgentProviderResponse {
+                    final_content: String::new(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![NativeAgentToolCall {
+                        id: "call-real-mcp".to_string(),
+                        name: "mcp.4:docs.4:echo".to_string(),
+                        arguments_json: r#"{"text":"hello through router"}"#.to_string(),
+                        result: Value::Null,
+                    }],
+                }),
+                _ => {
+                    assert!(context.messages.iter().any(|message| {
+                        message["role"] == "tool"
+                            && message["tool_call_id"] == "call-real-mcp"
+                            && message["content"]
+                                .to_string()
+                                .contains("hello through router")
+                    }));
+                    Ok(NativeAgentProviderResponse {
+                        final_content: "real MCP complete".to_string(),
+                        reasoning_delta: None,
+                        usage: None,
+                        tool_calls: Vec::new(),
+                    })
+                }
+            }
+        }
+    }
+
+    let workspace = SystemPromptWorkspace::new();
+    let script = workspace.root.join("agent-mcp-server.js");
+    std::fs::write(
+        &script,
+        r#"
+const readline = require("readline");
+const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+function send(value) { process.stdout.write(`${JSON.stringify(value)}\n`); }
+lines.on("line", (line) => {
+  const message = JSON.parse(line);
+  if (message.method === "initialize") {
+    send({ jsonrpc: "2.0", id: message.id, result: {
+      protocolVersion: "2025-06-18",
+      capabilities: { tools: { listChanged: false } },
+      serverInfo: { name: "tinybot-agent-mcp", version: "1.0.0" }
+    }});
+    return;
+  }
+  if (message.method === "tools/list") {
+    send({ jsonrpc: "2.0", id: message.id, result: { tools: [{
+      name: "echo",
+      description: "Echo text from the documentation server.",
+      inputSchema: {
+        type: "object",
+        properties: { text: { type: "string" } },
+        required: ["text"],
+        additionalProperties: false
+      },
+      annotations: { readOnlyHint: true }
+    }] }});
+    return;
+  }
+  if (message.method === "tools/call") {
+    const text = message.params.arguments.text;
+    send({ jsonrpc: "2.0", id: message.id, result: {
+      content: [{ type: "text", text }],
+      structuredContent: { echoed: text },
+      isError: false
+    }});
+  }
+});
+"#,
+    )
+    .expect("agent MCP fixture should write");
+    let config = json!({
+        "tools": { "mcp_servers": { "docs": {
+            "enabled": true,
+            "transport": "stdio",
+            "command": "node",
+            "args": [script.to_string_lossy()],
+            "cwd": workspace.root.to_string_lossy(),
+            "timeout_seconds": 5,
+            "enabled_tools": ["echo"]
+        }}}
+    });
+    let services = crate::native_agent_bridge::native_agent_services_with_tool_executor(
+        NativeAgentRuntimeServices::new(
+            Arc::new(McpDiscoveryProvider {
+                calls: AtomicUsize::new(0),
+            }),
+            Arc::new(FakeNativeAgentToolDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        ),
+        workspace.root.clone(),
+        config.clone(),
+    );
+
+    let waiting = run_native_agent_turn_with_workspace(
+        &services,
+        json!({
+            "runId": "run-real-mcp-router",
+            "sessionId": "session-real-mcp-router",
+            "maxIterations": 2,
+            "messages": [{ "role": "user", "content": "echo through docs" }]
+        }),
+        config.clone(),
+        &workspace.root,
+    )
+    .expect("real MCP tool should reach approval boundary");
+
+    assert_eq!(waiting["stopReason"], "awaiting_approval");
+    assert_eq!(
+        waiting["checkpoint"]["activatedToolIds"],
+        json!(["mcp.4:docs.4:echo"])
+    );
+    assert_eq!(
+        waiting["checkpoint"]["pendingToolCalls"][0]["toolName"],
+        "mcp.4:docs.4:echo"
+    );
+    let approval_id = waiting["approval"]["approvalId"]
+        .as_str()
+        .expect("MCP approval ID should be present");
+
+    let completed = run_native_agent_turn_with_workspace(
+        &services,
+        json!({
+            "runId": "run-real-mcp-router",
+            "sessionId": "session-real-mcp-router",
+            "metadata": {
+                "agentContinuation": {
+                    "kind": "approval",
+                    "approvalId": approval_id,
+                    "decision": "approved",
+                    "scope": "once"
+                }
+            }
+        }),
+        config,
+        &workspace.root,
+    )
+    .expect("approved dynamic MCP tool should execute through real transport");
+
+    assert_eq!(completed["stopReason"], "final_response");
+    assert_eq!(completed["finalContent"], "real MCP complete");
+    assert_eq!(completed["toolsUsed"], json!(["mcp.4:docs.4:echo"]));
+    tauri::async_runtime::block_on(services.mcp_runtime().shutdown())
+        .expect("agent MCP fixture should shut down");
+}
+
+#[test]
+fn max_iterations_clears_deferred_tool_activation_checkpoint() {
+    struct SearchOnlyProvider;
+
+    impl NativeAgentProvider for SearchOnlyProvider {
+        fn complete(
+            &self,
+            _context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            Ok(NativeAgentProviderResponse {
+                final_content: String::new(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: vec![NativeAgentToolCall {
+                    id: "search-before-max-iterations".to_string(),
+                    name: "tool_search".to_string(),
+                    arguments_json: r#"{"query":"shell","limit":1}"#.to_string(),
+                    result: Value::Null,
+                }],
+            })
+        }
+    }
+
+    let services = NativeAgentRuntimeServices::new(
+        Arc::new(SearchOnlyProvider),
+        Arc::new(FakeNativeAgentToolDispatcher),
+        Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(InMemoryNativeAgentCancellation::default()),
+    );
+    let result = run_native_agent_turn_with_config(
+        &services,
+        json!({
+            "runId": "run-search-max-iterations",
+            "sessionId": "session-search-max-iterations",
+            "maxIterations": 1,
+            "messages": [{ "role": "user", "content": "find shell" }]
+        }),
+        json!({}),
+    )
+    .expect("max-iteration run should return a structured result");
+
+    assert_eq!(result["stopReason"], "max_iterations");
+    assert!(services
+        .restore_run_checkpoint("session-search-max-iterations", "run-search-max-iterations")
+        ["checkpoint"]
+        .is_null());
+}
+
+#[test]
+fn provider_error_clears_deferred_tool_activation_checkpoint() {
+    struct SearchThenErrorProvider {
+        calls: AtomicUsize,
+    }
+
+    impl NativeAgentProvider for SearchThenErrorProvider {
+        fn complete(
+            &self,
+            _context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                return Ok(NativeAgentProviderResponse {
+                    final_content: String::new(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![NativeAgentToolCall {
+                        id: "search-before-provider-error".to_string(),
+                        name: "tool_search".to_string(),
+                        arguments_json: r#"{"query":"shell","limit":1}"#.to_string(),
+                        result: Value::Null,
+                    }],
+                });
+            }
+            Err("provider failed after activation".to_string())
+        }
+    }
+
+    let services = NativeAgentRuntimeServices::new(
+        Arc::new(SearchThenErrorProvider {
+            calls: AtomicUsize::new(0),
+        }),
+        Arc::new(FakeNativeAgentToolDispatcher),
+        Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(InMemoryNativeAgentCancellation::default()),
+    );
+    let result = run_native_agent_turn_with_config(
+        &services,
+        json!({
+            "runId": "run-search-provider-error",
+            "sessionId": "session-search-provider-error",
+            "maxIterations": 2,
+            "messages": [{ "role": "user", "content": "find shell" }]
+        }),
+        json!({}),
+    )
+    .expect("provider-error run should return a structured result");
+
+    assert_eq!(result["stopReason"], "provider_error");
+    assert!(services
+        .restore_run_checkpoint("session-search-provider-error", "run-search-provider-error")
+        ["checkpoint"]
+        .is_null());
+}
+
+#[test]
+fn tool_search_excludes_deferred_tools_denied_by_capability_policy() {
+    let mut context = NativeAgentRunContext::from_spec(
+        json!({
+            "runId": "run-tool-search-capabilities",
+            "sessionId": "session-tool-search-capabilities",
+            "messages": [{ "role": "user", "content": "find file tools" }]
+        }),
+        json!({}),
+    );
+    context.tool_router = NativeToolRouter::new(
+        WorkerToolRegistryRpc::new(CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]))
+            .list_tools()
+            .tools,
+    );
+
+    let result = context
+        .tool_router
+        .search_and_activate(r#"{"query":"file","limit":5}"#)
+        .expect("search should succeed even when no deferred tool is available");
+
+    assert_eq!(result, json!({ "tools": [] }));
+    assert!(context.tool_router.activated_tool_ids().is_empty());
+}
+
+#[test]
+fn tool_search_matches_meaningful_words_in_descriptive_queries() {
+    let mut context = NativeAgentRunContext::from_spec(
+        json!({
+            "runId": "run-tool-search-words",
+            "sessionId": "session-tool-search-words",
+            "messages": [{ "role": "user", "content": "find editing tools" }]
+        }),
+        json!({}),
+    );
+
+    let result = context
+        .tool_router
+        .search_and_activate(r#"{"query":"shell or file editing capability","limit":5}"#)
+        .expect("descriptive deferred tool search should succeed");
+    let tool_ids = result["tools"]
+        .as_array()
+        .expect("search result tools should be an array")
+        .iter()
+        .filter_map(|tool| tool["toolId"].as_str())
+        .collect::<Vec<_>>();
+
+    assert!(tool_ids.contains(&"shell.execute"));
+    assert!(tool_ids.contains(&"workspace.write_file"));
+}
+
+#[test]
+fn deferred_tool_activation_round_trips_through_checkpoint_validation() {
+    let mut context = NativeAgentRunContext::from_spec(
+        json!({
+            "runId": "run-tool-search-checkpoint",
+            "sessionId": "session-tool-search-checkpoint",
+            "messages": [{ "role": "user", "content": "find shell" }]
+        }),
+        json!({}),
+    );
+    context
+        .tool_router
+        .search_and_activate(r#"{"query":"shell","limit":1}"#)
+        .expect("shell should activate for the current run");
+    let checkpoint = super::checkpoint::checkpoint_value(
+        &context,
+        "awaiting_approval",
+        json!({ "iteration": 1 }),
+    );
+
+    assert_eq!(checkpoint["activatedToolIds"], json!(["shell.execute"]));
+    let cancelled_checkpoint = super::checkpoint::checkpoint_value(
+        &context,
+        "cancelled",
+        json!({ "iteration": 1, "stopReason": "cancelled" }),
+    );
+    assert_eq!(cancelled_checkpoint["activatedToolIds"], json!([]));
+
+    let mut restored = NativeAgentRunContext::from_spec(
+        json!({
+            "runId": "run-tool-search-checkpoint",
+            "sessionId": "session-tool-search-checkpoint",
+            "messages": [{ "role": "user", "content": "continue" }]
+        }),
+        json!({}),
+    );
+    restored
+        .tool_router
+        .restore_from_checkpoint(&checkpoint)
+        .expect("checkpoint activation should restore after registry validation");
+    let request = agent_chat_completion_request(&restored)
+        .expect("restored provider request should include activated tools");
+    let names = request["tools"]
+        .as_array()
+        .expect("provider tools should be present")
+        .iter()
+        .map(|tool| tool["function"]["name"].as_str().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert!(names.contains(&"shell_execute"));
+
+    let stale_checkpoint = json!({ "activatedToolIds": ["missing.tool"] });
+    let error = NativeAgentRunContext::from_spec(
+        json!({
+            "messages": [{ "role": "user", "content": "continue" }]
+        }),
+        json!({}),
+    )
+    .tool_router
+    .restore_from_checkpoint(&stale_checkpoint)
+    .expect_err("stale checkpoint activation must fail explicitly");
+    assert!(error.contains("unknown deferred tool ID"));
+}
+
+#[test]
+fn provider_tool_name_collisions_fail_before_request_dispatch() {
+    let registry =
+        WorkerToolRegistryRpc::new(CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]));
+    for (method, expected_error) in [
+        ("tool.search", "provider tool name collision"),
+        ("tool_search", "duplicate tool method"),
+    ] {
+        let mut read_file = registry
+            .get_tool("workspace.read_file")
+            .expect("read tool should be registered");
+        read_file.tool_id = method.to_string();
+        read_file.method = method.to_string();
+        read_file.execution_target = ToolExecutionTarget::WorkerRpc {
+            method: method.to_string(),
+        };
+        let mut context = NativeAgentRunContext::from_spec(
+            json!({
+                "messages": [{ "role": "user", "content": "test collision" }]
+            }),
+            json!({}),
+        );
+        let mut entries = registry.list_tools().tools;
+        entries.retain(|entry| entry.method != "workspace.read_file");
+        entries.push(read_file);
+        context.tool_router = NativeToolRouter::new(entries);
+
+        let error = agent_chat_completion_request(&context)
+            .expect_err("provider name collision should fail before dispatch");
+
+        assert!(error.contains(expected_error));
+        assert!(error.contains("tool_search"));
+    }
+}
+
+#[test]
+fn direct_calls_to_unactivated_deferred_tools_are_rejected() {
+    struct DeferredToolProvider;
+
+    impl NativeAgentProvider for DeferredToolProvider {
+        fn complete(
+            &self,
+            _context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            Ok(NativeAgentProviderResponse {
+                final_content: String::new(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: vec![NativeAgentToolCall {
+                    id: "unactivated-shell".to_string(),
+                    name: "shell.execute".to_string(),
+                    arguments_json: r#"{"command":"echo should-not-run"}"#.to_string(),
+                    result: Value::Null,
+                }],
+            })
+        }
+    }
+
+    struct PanickingDeferredDispatcher;
+
+    impl NativeAgentToolDispatcher for PanickingDeferredDispatcher {
+        fn dispatch(
+            &self,
+            _context: &NativeAgentRunContext,
+            _tool_call: &NativeAgentToolCall,
+        ) -> Result<NativeAgentToolResult, String> {
+            panic!("unactivated deferred tool must not reach dispatcher");
+        }
+    }
+
+    let result = run_native_agent_turn_with_config(
+        &NativeAgentRuntimeServices::new(
+            Arc::new(DeferredToolProvider),
+            Arc::new(PanickingDeferredDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        ),
+        json!({
+            "runId": "run-unactivated-deferred",
+            "sessionId": "session-unactivated-deferred",
+            "maxIterations": 1,
+            "messages": [{ "role": "user", "content": "guess a shell tool" }]
+        }),
+        json!({}),
+    )
+    .expect("policy rejection should be a structured result");
+
+    assert_eq!(result["stopReason"], "policy_denied");
+    assert_eq!(result["events"][1]["payload"]["toolName"], "shell.execute");
+}
+
+#[test]
+fn activated_mutating_tool_stops_at_approval_checkpoint_before_dispatch() {
+    struct SearchThenWriteProvider {
+        calls: AtomicUsize,
+    }
+
+    impl NativeAgentProvider for SearchThenWriteProvider {
+        fn complete(
+            &self,
+            context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            match self.calls.fetch_add(1, Ordering::SeqCst) {
+                0 => Ok(NativeAgentProviderResponse {
+                    final_content: String::new(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![NativeAgentToolCall {
+                        id: "search-write".to_string(),
+                        name: "tool_search".to_string(),
+                        arguments_json: r#"{"query":"Write workspace file","limit":1}"#.to_string(),
+                        result: Value::Null,
+                    }],
+                }),
+                1 => Ok(NativeAgentProviderResponse {
+                    final_content: String::new(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![NativeAgentToolCall {
+                        id: "write-after-search".to_string(),
+                        name: "workspace.write_file".to_string(),
+                        arguments_json: r#"{"path":"notes.txt","contents":"hello"}"#.to_string(),
+                        result: Value::Null,
+                    }],
+                }),
+                _ => {
+                    assert!(context.messages.iter().any(|message| {
+                        message["role"] == "tool"
+                            && message["tool_call_id"] == "write-after-search"
+                            && message["content"]
+                                .as_str()
+                                .is_some_and(|content| content.contains("write dispatched"))
+                    }));
+                    Ok(NativeAgentProviderResponse {
+                        final_content: "approved write complete".to_string(),
+                        reasoning_delta: None,
+                        usage: None,
+                        tool_calls: Vec::new(),
+                    })
+                }
+            }
+        }
+    }
+
+    struct RecordingMutatingDispatcher {
+        dispatched: Arc<Mutex<Vec<NativeAgentToolCall>>>,
+    }
+
+    impl NativeAgentToolDispatcher for RecordingMutatingDispatcher {
+        fn dispatch(
+            &self,
+            _context: &NativeAgentRunContext,
+            tool_call: &NativeAgentToolCall,
+        ) -> Result<NativeAgentToolResult, String> {
+            self.dispatched
+                .lock()
+                .expect("dispatched calls lock should not be poisoned")
+                .push(tool_call.clone());
+            Ok(NativeAgentToolResult::generic_success(
+                tool_call,
+                json!({ "content": "write dispatched" }),
+            ))
+        }
+    }
+
+    let dispatched = Arc::new(Mutex::new(Vec::new()));
+    let services = NativeAgentRuntimeServices::new(
+        Arc::new(SearchThenWriteProvider {
+            calls: AtomicUsize::new(0),
+        }),
+        Arc::new(RecordingMutatingDispatcher {
+            dispatched: dispatched.clone(),
+        }),
+        Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(InMemoryNativeAgentCancellation::default()),
+    );
+    let result = run_native_agent_turn_with_config(
+        &services,
+        json!({
+            "runId": "run-deferred-write-approval",
+            "sessionId": "session-deferred-write-approval",
+            "maxIterations": 2,
+            "messages": [{ "role": "user", "content": "write a note" }]
+        }),
+        json!({}),
+    )
+    .expect("approval boundary should return a structured waiting result");
+
+    assert_eq!(result["stopReason"], "awaiting_approval");
+    assert_eq!(
+        result["checkpoint"]["activatedToolIds"],
+        json!(["workspace.write_file"])
+    );
+    assert_eq!(
+        result["checkpoint"]["pendingToolCalls"][0]["toolName"],
+        "workspace.write_file"
+    );
+    assert_eq!(
+        result["events"]
+            .as_array()
+            .expect("approval events should be returned")
+            .last()
+            .expect("approval events should not be empty")["payload"]["stopReason"],
+        "awaiting_approval"
+    );
+    assert!(!result["runtimeEvents"]
+        .as_array()
+        .expect("approval runtime events should be returned")
+        .iter()
+        .any(|event| {
+            event["eventName"] == "agent.phase.changed" && event["payload"]["nextPhase"] == "failed"
+        }));
+    assert!(dispatched
+        .lock()
+        .expect("dispatched calls lock should not be poisoned")
+        .is_empty());
+
+    let approval_id = result["approval"]["approvalId"]
+        .as_str()
+        .expect("approval ID should be returned")
+        .to_string();
+    let mismatch = run_native_agent_turn_with_config(
+        &services,
+        json!({
+            "runId": "run-deferred-write-approval",
+            "sessionId": "session-deferred-write-approval",
+            "metadata": {
+                "agentContinuation": {
+                    "kind": "approval",
+                    "approvalId": "approval:wrong",
+                    "decision": "approved",
+                    "scope": "once"
+                }
+            }
+        }),
+        json!({}),
+    )
+    .expect_err("mismatched approval continuation must not consume the checkpoint");
+    assert!(mismatch.contains("does not match checkpoint"));
+    assert!(dispatched
+        .lock()
+        .expect("dispatched calls lock should not be poisoned")
+        .is_empty());
+
+    let denied = run_native_agent_turn_with_config(
+        &services,
+        json!({
+            "runId": "run-deferred-write-approval",
+            "sessionId": "session-deferred-write-approval",
+            "metadata": {
+                "agentContinuation": {
+                    "kind": "approval",
+                    "approvalId": approval_id,
+                    "decision": "denied",
+                    "scope": "once"
+                }
+            }
+        }),
+        json!({}),
+    )
+    .expect("denied approval continuation should return a structured result");
+    assert_eq!(denied["stopReason"], "approval_denied");
+    assert!(dispatched
+        .lock()
+        .expect("dispatched calls lock should not be poisoned")
+        .is_empty());
+    services.save_run_checkpoint(
+        "session-deferred-write-approval",
+        "run-deferred-write-approval",
+        result["checkpoint"].clone(),
+    );
+
+    let resumed = run_native_agent_turn_with_config(
+        &services,
+        json!({
+            "runId": "run-deferred-write-approval",
+            "sessionId": "session-deferred-write-approval",
+            "metadata": {
+                "agentContinuation": {
+                    "kind": "approval",
+                    "approvalId": approval_id,
+                    "decision": "approved",
+                    "scope": "once"
+                }
+            }
+        }),
+        json!({}),
+    )
+    .expect("approval continuation should restore its activation checkpoint");
+    assert_eq!(
+        resumed["restoredCheckpoint"]["activatedToolIds"],
+        json!(["workspace.write_file"])
+    );
+    assert_eq!(resumed["stopReason"], "final_response");
+    assert_eq!(resumed["finalContent"], "approved write complete");
+    assert_eq!(resumed["toolsUsed"], json!(["workspace.write_file"]));
+    let dispatched = dispatched
+        .lock()
+        .expect("dispatched calls lock should not be poisoned");
+    assert_eq!(dispatched.len(), 1);
+    assert_eq!(dispatched[0].id, "write-after-search");
+    assert_eq!(dispatched[0].name, "workspace.write_file");
+    assert_eq!(
+        dispatched[0].arguments_json,
+        r#"{"path":"notes.txt","contents":"hello"}"#
+    );
+}
+
+#[test]
 fn chat_completion_request_enables_parallel_tool_calls_only_when_explicitly_requested() {
     let mut context = NativeAgentRunContext::from_spec(
         json!({
@@ -206,12 +1247,14 @@ fn chat_completion_request_enables_parallel_tool_calls_only_when_explicitly_requ
         }),
         json!({}),
     );
-    context.tool_registry_entries = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
-        WorkerCapability::FsWorkspaceRead,
-        WorkerCapability::MemoryRead,
-    ]))
-    .list_tools()
-    .tools;
+    context.tool_router = NativeToolRouter::new(
+        WorkerToolRegistryRpc::new(CapabilityPolicy::new([
+            WorkerCapability::FsWorkspaceRead,
+            WorkerCapability::MemoryRead,
+        ]))
+        .list_tools()
+        .tools,
+    );
 
     let enabled_request = agent_chat_completion_request(&context)
         .expect("explicit parallel tool request should build");
@@ -224,7 +1267,7 @@ fn chat_completion_request_enables_parallel_tool_calls_only_when_explicitly_requ
 }
 
 #[test]
-fn chat_completion_request_omits_tools_when_no_model_tools_are_available() {
+fn chat_completion_request_only_exposes_tool_search_when_no_registry_tools_are_available() {
     let mut context = NativeAgentRunContext::from_spec(
         json!({
             "runtime": "rust",
@@ -235,15 +1278,18 @@ fn chat_completion_request_omits_tools_when_no_model_tools_are_available() {
         }),
         json!({}),
     );
-    context.tool_registry_entries = WorkerToolRegistryRpc::new(CapabilityPolicy::default())
-        .list_tools()
-        .tools;
+    context.tool_router = NativeToolRouter::new(
+        WorkerToolRegistryRpc::new(CapabilityPolicy::default())
+            .list_tools()
+            .tools,
+    );
 
     let request = agent_chat_completion_request(&context)
         .expect("request without available model tools should still be built");
 
-    assert!(request.get("tools").is_none());
-    assert!(request.get("tool_choice").is_none());
+    assert_eq!(request["tools"].as_array().map(Vec::len), Some(1));
+    assert_eq!(request["tools"][0]["function"]["name"], "tool_search");
+    assert_eq!(request["tool_choice"], "auto");
 }
 
 #[test]
@@ -278,10 +1324,11 @@ fn chat_completion_request_encodes_tool_continuation_names_for_provider() {
         }),
         json!({}),
     );
-    context.tool_registry_entries =
+    context.tool_router = NativeToolRouter::new(
         WorkerToolRegistryRpc::new(CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]))
             .list_tools()
-            .tools;
+            .tools,
+    );
 
     let request =
         agent_chat_completion_request(&context).expect("tool continuation request should be built");
@@ -312,10 +1359,11 @@ fn provider_tool_call_names_restore_internal_registry_methods() {
         }),
         json!({}),
     );
-    context.tool_registry_entries =
+    context.tool_router = NativeToolRouter::new(
         WorkerToolRegistryRpc::new(CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]))
             .list_tools()
-            .tools;
+            .tools,
+    );
     let completion = json!({
         "choices": [{
             "message": {
@@ -331,7 +1379,8 @@ fn provider_tool_call_names_restore_internal_registry_methods() {
         }]
     });
 
-    let tool_calls = super::provider::chat_completion_tool_calls(&completion, &context);
+    let tool_calls = super::provider::chat_completion_tool_calls(&completion, &context)
+        .expect("provider tool names should resolve");
 
     assert_eq!(tool_calls.len(), 1);
     assert_eq!(tool_calls[0].name, "workspace.read_file");
@@ -451,6 +1500,43 @@ fn agent_chat_request_trims_old_messages_to_context_window() {
 
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0]["content"], "current question");
+}
+
+#[test]
+fn system_prompt_survives_context_window_trimming() {
+    let mut context = NativeAgentRunContext::from_spec(
+        json!({
+            "runId": "run-system-prompt-context-window",
+            "sessionId": "session-system-prompt-context-window",
+            "messages": [
+                { "role": "user", "content": "old message ".repeat(200) },
+                { "role": "assistant", "content": "old answer ".repeat(200) },
+                { "role": "user", "content": "current question" }
+            ]
+        }),
+        json!({
+            "agents": {
+                "defaults": {
+                    "contextWindowTokens": 32
+                }
+            }
+        }),
+    );
+    context.system_prompt =
+        Some("You are Tinybot. Keep the active workspace in scope.".to_string());
+
+    let request = agent_chat_completion_request(&context).expect("request should build");
+    let messages = request["messages"]
+        .as_array()
+        .expect("messages should be an array");
+
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0]["role"], "system");
+    assert_eq!(
+        messages[0]["content"],
+        "You are Tinybot. Keep the active workspace in scope."
+    );
+    assert_eq!(messages[1]["content"], "current question");
 }
 
 #[test]
@@ -1135,7 +2221,7 @@ fn registry_marks_only_read_only_model_tools_as_parallel_safe() {
     let parallel_methods = tools
         .iter()
         .filter(|tool| tool.supports_parallel_tool_calls)
-        .map(|tool| tool.method)
+        .map(|tool| tool.method.clone())
         .collect::<Vec<_>>();
 
     assert_eq!(
@@ -1425,7 +2511,9 @@ fn read_only_mcp_tool_calls_use_read_lock_scheduling() {
             dispatcher.clone(),
             Arc::new(InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(InMemoryNativeAgentCancellation::default()),
-        ),
+        )
+        .with_test_tool_registry_entries(test_registry_without_approval(&["mcp.call_tool"]))
+        .with_test_activated_tools(&["mcp.call_tool"]),
         json!({
             "runtime": "rust",
             "runId": "run-read-only-mcp-tools",
@@ -1548,7 +2636,9 @@ fn shell_read_only_allowlist_uses_read_lock_only_when_explicitly_enabled() {
             dispatcher.clone(),
             Arc::new(InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(InMemoryNativeAgentCancellation::default()),
-        ),
+        )
+        .with_test_tool_registry_entries(test_registry_without_approval(&["shell.execute"]))
+        .with_test_activated_tools(&["shell.execute"]),
         json!({
             "runtime": "rust",
             "runId": "run-shell-read-allowlist",
@@ -1827,7 +2917,9 @@ fn mixed_parallel_and_non_parallel_tool_batch_uses_read_write_lock_scheduling() 
             dispatcher.clone(),
             checkpoints.clone(),
             Arc::new(InMemoryNativeAgentCancellation::default()),
-        ),
+        )
+        .with_test_tool_registry_entries(test_registry_without_approval(&["shell.execute"]))
+        .with_test_activated_tools(&["shell.execute"]),
         json!({
             "runtime": "rust",
             "runId": "run-mixed-tool-batch",
@@ -2009,7 +3101,9 @@ fn cancellation_before_queued_write_lock_dispatch_skips_waiting_tool() {
             dispatcher.clone(),
             Arc::new(InMemoryNativeAgentCheckpointStore::default()),
             cancellations,
-        ),
+        )
+        .with_test_tool_registry_entries(test_registry_without_approval(&["shell.execute"]))
+        .with_test_activated_tools(&["shell.execute"]),
         json!({
             "runtime": "rust",
             "runId": "run-cancel-queued-write",
@@ -2093,7 +3187,9 @@ fn terminal_failure_before_queued_write_dispatch_skips_waiting_tool() {
             dispatcher.clone(),
             Arc::new(InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(InMemoryNativeAgentCancellation::default()),
-        ),
+        )
+        .with_test_tool_registry_entries(test_registry_without_approval(&["shell.execute"]))
+        .with_test_activated_tools(&["shell.execute"]),
         json!({
             "runtime": "rust",
             "runId": "run-failed-queued-write",

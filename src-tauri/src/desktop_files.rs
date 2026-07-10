@@ -45,6 +45,7 @@ pub(crate) struct SavedExportFile {
 const ALLOWED_WORKSPACE_FILES: &[&str] = &[
     "AGENTS.md",
     "SOUL.md",
+    "SYSTEM.md",
     "USER.md",
     "TOOLS.md",
     "HEARTBEAT.md",

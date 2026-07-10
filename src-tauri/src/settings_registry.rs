@@ -1,6 +1,7 @@
 use crate::config_store::ConfigDiagnostic;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -704,6 +705,30 @@ pub fn build_settings_snapshot(input: SettingsSnapshotInput) -> SettingsSnapshot
     }
 }
 
+pub(crate) fn apply_mcp_runtime_statuses(
+    snapshot: &mut SettingsSnapshot,
+    statuses: &BTreeMap<String, Value>,
+) {
+    for (server_id, status) in statuses {
+        let status_path = format!("tools.mcpServers.{server_id}.status");
+        let tool_count_path = format!("tools.mcpServers.{server_id}.tool_count");
+        for field in snapshot
+            .groups
+            .iter_mut()
+            .flat_map(|group| group.fields.iter_mut())
+        {
+            if field.path == status_path {
+                field.value = status
+                    .get("state")
+                    .cloned()
+                    .unwrap_or_else(|| Value::String("unknown".to_string()));
+            } else if field.path == tool_count_path {
+                field.value = status.get("toolCount").cloned().unwrap_or(Value::from(0));
+            }
+        }
+    }
+}
+
 fn provider_models_group(config: &Value) -> SettingsGroup {
     let mut fields = vec![
         config_field(
@@ -865,6 +890,30 @@ fn mcp_servers_group(config: &Value) -> SettingsGroup {
                 server.get("transport").cloned(),
             ));
             fields.push(config_field(
+                &format!("mcp-{server_id}-url"),
+                "HTTP endpoint",
+                &format!("{prefix}.url"),
+                SettingScope::Workspace,
+                SettingValueType::String,
+                true,
+                server
+                    .get("url")
+                    .or_else(|| server.get("endpoint"))
+                    .cloned(),
+            ));
+            fields.push(config_field(
+                &format!("mcp-{server_id}-bearer-token-env-var"),
+                "Bearer token environment variable",
+                &format!("{prefix}.bearer_token_env_var"),
+                SettingScope::Workspace,
+                SettingValueType::String,
+                true,
+                server
+                    .get("bearer_token_env_var")
+                    .or_else(|| server.get("bearerTokenEnvVar"))
+                    .cloned(),
+            ));
+            fields.push(config_field(
                 &format!("mcp-{server_id}-command"),
                 "Command",
                 &format!("{prefix}.command"),
@@ -899,6 +948,18 @@ fn mcp_servers_group(config: &Value) -> SettingsGroup {
                 SettingValueType::Number,
                 true,
                 server.get("timeout_seconds").cloned(),
+            ));
+            fields.push(config_field(
+                &format!("mcp-{server_id}-startup-timeout"),
+                "Startup timeout seconds",
+                &format!("{prefix}.startup_timeout_seconds"),
+                SettingScope::Workspace,
+                SettingValueType::Number,
+                true,
+                server
+                    .get("startup_timeout_seconds")
+                    .or_else(|| server.get("startupTimeoutSeconds"))
+                    .cloned(),
             ));
             fields.push(
                 config_field(
@@ -936,6 +997,47 @@ fn mcp_servers_group(config: &Value) -> SettingsGroup {
                     }
                 }
             }
+            if let Some(headers) = server
+                .get("http_headers")
+                .or_else(|| server.get("httpHeaders"))
+                .or_else(|| server.get("headers"))
+                .and_then(Value::as_object)
+            {
+                for (header_name, header_value) in headers {
+                    let header_path = format!("{prefix}.http_headers.{header_name}");
+                    if is_sensitive_key(header_name) {
+                        fields.push(secret_field(
+                            &format!("mcp-{server_id}-http-header-{header_name}"),
+                            header_name,
+                            &header_path,
+                            SettingScope::Workspace,
+                            sensitive_value_configured(Some(header_value)),
+                        ));
+                    } else {
+                        fields.push(config_field(
+                            &format!("mcp-{server_id}-http-header-{header_name}"),
+                            header_name,
+                            &header_path,
+                            SettingScope::Workspace,
+                            SettingValueType::String,
+                            true,
+                            Some(header_value.clone()),
+                        ));
+                    }
+                }
+            }
+            fields.push(config_field(
+                &format!("mcp-{server_id}-env-http-headers"),
+                "Environment-backed HTTP headers",
+                &format!("{prefix}.env_http_headers"),
+                SettingScope::Workspace,
+                SettingValueType::Json,
+                true,
+                server
+                    .get("env_http_headers")
+                    .or_else(|| server.get("envHttpHeaders"))
+                    .cloned(),
+            ));
             fields.push(readonly_field(
                 &format!("mcp-{server_id}-status"),
                 "Connection status",
@@ -1233,6 +1335,96 @@ mod tests {
         assert!(port.editable);
         assert_eq!(port.source, SettingSource::Config);
         assert_eq!(port.value, json!(18791));
+    }
+
+    #[test]
+    fn mcp_runtime_statuses_replace_static_settings_placeholders() {
+        let mut snapshot = build_settings_snapshot(SettingsSnapshotInput {
+            config: config_fixture(),
+            config_path: PathBuf::from("C:/Users/example/.tinybot/config.json"),
+            revision: "rev-1".to_string(),
+            diagnostics: Vec::new(),
+        });
+        apply_mcp_runtime_statuses(
+            &mut snapshot,
+            &BTreeMap::from([(
+                "github".to_string(),
+                json!({
+                    "state": "ready",
+                    "transport": "stdio",
+                    "toolCount": 3,
+                    "lastError": null
+                }),
+            )]),
+        );
+
+        assert_eq!(
+            snapshot
+                .field("tools.mcpServers.github.status")
+                .expect("MCP status field should exist")
+                .value,
+            json!("ready")
+        );
+        assert_eq!(
+            snapshot
+                .field("tools.mcpServers.github.tool_count")
+                .expect("MCP tool-count field should exist")
+                .value,
+            json!(3)
+        );
+    }
+
+    #[test]
+    fn mcp_http_settings_expose_endpoint_and_environment_references_without_secret_values() {
+        let snapshot = build_settings_snapshot(SettingsSnapshotInput {
+            config: json!({
+                "tools": { "mcp_servers": { "docs": {
+                    "enabled": true,
+                    "transport": "http",
+                    "url": "https://example.com/mcp",
+                    "bearer_token_env_var": "DOCS_TOKEN",
+                    "http_headers": {
+                        "Authorization": "Bearer secret",
+                        "X-Tenant": "tinybot"
+                    },
+                    "env_http_headers": { "X-Trace": "TRACE_HEADER" }
+                }}}
+            }),
+            config_path: PathBuf::from("C:/Users/example/.tinybot/config.json"),
+            revision: "rev-1".to_string(),
+            diagnostics: Vec::new(),
+        });
+
+        assert_eq!(
+            snapshot
+                .field("tools.mcpServers.docs.url")
+                .expect("HTTP endpoint field should exist")
+                .value,
+            json!("https://example.com/mcp")
+        );
+        assert_eq!(
+            snapshot
+                .field("tools.mcpServers.docs.bearer_token_env_var")
+                .expect("bearer environment field should exist")
+                .value,
+            json!("DOCS_TOKEN")
+        );
+        let authorization = snapshot
+            .field("tools.mcpServers.docs.http_headers.Authorization")
+            .expect("authorization header should exist as a secret field");
+        assert_eq!(authorization.value, Value::Null);
+        assert_eq!(authorization.source, SettingSource::Secret);
+        assert!(authorization
+            .secret
+            .as_ref()
+            .is_some_and(|secret| secret.configured));
+        assert_eq!(
+            snapshot
+                .field("tools.mcpServers.docs.env_http_headers")
+                .expect("environment-backed headers field should exist")
+                .value,
+            json!({ "X-Trace": "TRACE_HEADER" })
+        );
     }
 
     #[test]

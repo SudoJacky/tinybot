@@ -8,7 +8,7 @@ use std::{
     time::UNIX_EPOCH,
 };
 
-const BOOTSTRAP_FILES: &[&str] = &["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md"];
+const BOOTSTRAP_FILES: &[&str] = &["AGENTS.md", "SOUL.md", "SYSTEM.md", "USER.md", "TOOLS.md"];
 const DEFAULT_READ_LIMIT: usize = 2000;
 const IGNORED_DIRS: &[&str] = &[
     ".git",

@@ -5,7 +5,7 @@ use crate::native_agent_bridge::{
     persist_native_agent_turn_if_final, reject_native_agent_terminal_run_reentry,
 };
 use crate::worker_agent_runtime::{
-    run_native_agent_turn_with_config, NativeAgentRuntimeServices, NativeAgentTraceSink,
+    run_native_agent_turn_with_workspace, NativeAgentRuntimeServices, NativeAgentTraceSink,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -46,8 +46,12 @@ pub(crate) fn run_agent_with_services(
         config_snapshot.clone(),
         live_trace_sink,
     ));
-    let mut result =
-        run_native_agent_turn_with_config(&services, runtime_spec, config_snapshot.clone())?;
+    let mut result = run_native_agent_turn_with_workspace(
+        &services,
+        runtime_spec,
+        config_snapshot.clone(),
+        &workspace_root,
+    )?;
     if let Err(error) = persist_native_agent_run_record(
         persistence_spec.clone(),
         &mut result,

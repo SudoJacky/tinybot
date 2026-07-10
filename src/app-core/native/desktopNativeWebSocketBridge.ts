@@ -114,7 +114,15 @@ class DesktopNativeWebSocket extends EventTarget {
     this.url = String(options.url);
     this.nativeTransport = options.nativeTransport;
     this.clientId = options.clientId ?? createClientId();
-    this.editablePaths = options.editablePaths ?? ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md", "HEARTBEAT.md", "memory/MEMORY.md"];
+    this.editablePaths = options.editablePaths ?? [
+      "AGENTS.md",
+      "SOUL.md",
+      "SYSTEM.md",
+      "USER.md",
+      "TOOLS.md",
+      "HEARTBEAT.md",
+      "memory/MEMORY.md",
+    ];
     this.resolveSessionExists = options.resolveSessionExists;
     this.listenToAgentEvent = options.listenToAgentEvent;
     void this.openWhenAgentEventListenersReady();

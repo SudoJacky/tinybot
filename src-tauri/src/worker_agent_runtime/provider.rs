@@ -1,10 +1,9 @@
+use super::tool_router::provider_tool_name;
 use super::{
     context_window_messages, string_field, NativeAgentProvider, NativeAgentProviderResponse,
     NativeAgentProviderStreamEvent, NativeAgentRunContext, NativeAgentToolCall,
 };
-use crate::worker_tool_registry::{ToolExposure, ToolRegistryEntry};
 use serde_json::Value;
-use std::collections::HashMap;
 
 pub(super) struct RustNativeAgentProvider;
 
@@ -49,7 +48,7 @@ impl NativeAgentProvider for RustNativeAgentProvider {
             reasoning_delta: chat_completion_reasoning_delta(&completion),
             usage: completion.get("usage").cloned(),
             tool_calls: {
-                let chat_tool_calls = chat_completion_tool_calls(&completion, context);
+                let chat_tool_calls = chat_completion_tool_calls(&completion, context)?;
                 if chat_tool_calls.is_empty() {
                     fixture_response
                         .as_ref()
@@ -96,35 +95,12 @@ pub(super) fn agent_chat_completion_request(
 }
 
 fn chat_completion_tool_specs(context: &NativeAgentRunContext) -> Result<Vec<Value>, String> {
-    let mut internal_method_by_provider_name = HashMap::new();
-    let mut tools = Vec::new();
-    for entry in context
-        .tool_registry_entries
-        .iter()
-        .filter(|entry| entry.available && entry.exposure == ToolExposure::Model)
-    {
-        let provider_name = provider_tool_name(entry.method);
-        if let Some(existing_method) = internal_method_by_provider_name
-            .insert(provider_name.clone(), entry.method)
-            .filter(|existing_method| *existing_method != entry.method)
-        {
-            return Err(format!(
-                "provider tool name collision: {existing_method} and {} both map to {provider_name}",
-                entry.method
-            ));
-        }
-        tools.push(registry_entry_to_chat_tool(entry, &provider_name));
-    }
-    Ok(tools)
+    context.tool_router.provider_specs()
 }
 
 fn should_enable_parallel_tool_calls(context: &NativeAgentRunContext) -> bool {
     explicit_parallel_tool_calls_enabled(context)
-        && context.tool_registry_entries.iter().any(|entry| {
-            entry.available
-                && entry.exposure == ToolExposure::Model
-                && entry.supports_parallel_tool_calls
-        })
+        && context.tool_router.has_parallel_provider_tool()
 }
 
 fn explicit_parallel_tool_calls_enabled(context: &NativeAgentRunContext) -> bool {
@@ -146,17 +122,6 @@ fn bool_config_field(value: &Value) -> Option<bool> {
         .get("parallelToolCalls")
         .or_else(|| value.get("parallel_tool_calls"))
         .and_then(Value::as_bool)
-}
-
-fn registry_entry_to_chat_tool(entry: &ToolRegistryEntry, provider_name: &str) -> Value {
-    serde_json::json!({
-        "type": "function",
-        "function": {
-            "name": provider_name,
-            "description": entry.description,
-            "parameters": entry.input_schema.clone(),
-        },
-    })
 }
 
 pub(super) fn agent_provider_config(context: &NativeAgentRunContext) -> Value {
@@ -199,6 +164,15 @@ fn set_agent_default(config: &mut Value, key: &str, value: Value) {
 fn agent_chat_messages(context: &NativeAgentRunContext) -> Result<Value, String> {
     if !context.messages.is_empty() {
         let mut messages = context_window_messages(context);
+        if let Some(system_prompt) = context.system_prompt.as_deref() {
+            messages.insert(
+                0,
+                serde_json::json!({
+                    "role": "system",
+                    "content": system_prompt,
+                }),
+            );
+        }
         for message in &mut messages {
             encode_message_tool_names_for_provider(message);
         }
@@ -228,19 +202,6 @@ fn encode_message_tool_names_for_provider(message: &mut Value) {
     }
 }
 
-fn provider_tool_name(method: &str) -> String {
-    method
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() || matches!(character, '_' | '-') {
-                character
-            } else {
-                '_'
-            }
-        })
-        .collect()
-}
-
 pub(super) fn chat_completion_content(completion: &Value) -> String {
     completion
         .pointer("/choices/0/message/content")
@@ -260,38 +221,33 @@ fn chat_completion_reasoning_delta(completion: &Value) -> Option<String> {
 pub(super) fn chat_completion_tool_calls(
     completion: &Value,
     context: &NativeAgentRunContext,
-) -> Vec<NativeAgentToolCall> {
-    completion
+) -> Result<Vec<NativeAgentToolCall>, String> {
+    let tool_calls = completion
         .pointer("/choices/0/message/tool_calls")
         .and_then(Value::as_array)
-        .map(|tools| {
-            tools
-                .iter()
-                .enumerate()
-                .filter_map(|(index, tool)| {
-                    let function = tool.get("function")?;
-                    let provider_name = string_field(function, "name")?;
-                    let name = context
-                        .tool_registry_entries
-                        .iter()
-                        .find(|entry| {
-                            entry.method == provider_name
-                                || provider_tool_name(entry.method) == provider_name
-                        })
-                        .map(|entry| entry.method.to_string())
-                        .unwrap_or(provider_name);
-                    Some(NativeAgentToolCall {
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    tool_calls
+        .iter()
+        .enumerate()
+        .filter_map(|(index, tool)| {
+            let function = tool.get("function")?;
+            let provider_name = string_field(function, "name")?;
+            Some(
+                context
+                    .tool_router
+                    .resolve_provider_name(&provider_name)
+                    .map(|name| NativeAgentToolCall {
                         id: string_field(tool, "id")
                             .unwrap_or_else(|| format!("tool-call-{}", index + 1)),
                         name,
                         arguments_json: string_field(function, "arguments")
                             .unwrap_or_else(|| "{}".to_string()),
                         result: serde_json::json!({ "ok": true }),
-                    })
-                })
-                .collect()
+                    }),
+            )
         })
-        .unwrap_or_default()
+        .collect()
 }
 
 fn fixture_agent_response(config_snapshot: &Value, messages: &[Value]) -> Option<Value> {

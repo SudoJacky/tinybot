@@ -15,9 +15,11 @@ use super::{
     NativeAgentToolDispatcher,
 };
 use crate::agent_loop_runtime_protocol::AgentRuntimePhase;
+use crate::worker_tool_registry::ToolApprovalMetadata;
+use crate::worker_tool_registry::TOOL_SEARCH_METHOD;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Condvar, Mutex};
 use std::time::Duration;
 
@@ -64,32 +66,35 @@ enum ToolDispatchEvent {
     },
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ToolBatchTerminalOutcome {
     Failed,
     Cancelled,
 }
 
 struct ToolBatchTerminal {
-    outcome: AtomicU8,
+    state: AtomicUsize,
 }
 
 impl ToolBatchTerminal {
-    const NONE: u8 = 0;
-    const FAILED: u8 = 1;
-    const CANCELLED: u8 = 2;
+    const NONE: usize = 0;
+    const CANCELLED: usize = 1;
+    const FAILED_INDEX_OFFSET: usize = 2;
 
     fn new() -> Self {
         Self {
-            outcome: AtomicU8::new(Self::NONE),
+            state: AtomicUsize::new(Self::NONE),
         }
     }
 
-    fn try_claim_failure(&self) -> bool {
-        self.outcome
+    fn try_claim_failure(&self, index: usize) -> bool {
+        let failed_state = index
+            .checked_add(Self::FAILED_INDEX_OFFSET)
+            .expect("tool batch index should fit terminal state encoding");
+        self.state
             .compare_exchange(
                 Self::NONE,
-                Self::FAILED,
+                failed_state,
                 Ordering::AcqRel,
                 Ordering::Acquire,
             )
@@ -97,7 +102,7 @@ impl ToolBatchTerminal {
     }
 
     fn try_claim_cancelled(&self) -> bool {
-        self.outcome
+        self.state
             .compare_exchange(
                 Self::NONE,
                 Self::CANCELLED,
@@ -108,9 +113,20 @@ impl ToolBatchTerminal {
     }
 
     fn outcome(&self) -> Option<ToolBatchTerminalOutcome> {
-        match self.outcome.load(Ordering::Acquire) {
-            Self::FAILED => Some(ToolBatchTerminalOutcome::Failed),
+        match self.state.load(Ordering::Acquire) {
             Self::CANCELLED => Some(ToolBatchTerminalOutcome::Cancelled),
+            state if state >= Self::FAILED_INDEX_OFFSET => Some(ToolBatchTerminalOutcome::Failed),
+            _ => None,
+        }
+    }
+
+    fn skip_outcome_for(&self, index: usize) -> Option<ToolBatchTerminalOutcome> {
+        match self.state.load(Ordering::Acquire) {
+            Self::CANCELLED => Some(ToolBatchTerminalOutcome::Cancelled),
+            state if state >= Self::FAILED_INDEX_OFFSET => {
+                let failed_index = state - Self::FAILED_INDEX_OFFSET;
+                (index > failed_index).then_some(ToolBatchTerminalOutcome::Failed)
+            }
             _ => None,
         }
     }
@@ -122,6 +138,26 @@ impl ToolBatchTerminalOutcome {
             ToolBatchTerminalOutcome::Failed => "failed",
             ToolBatchTerminalOutcome::Cancelled => "cancelled",
         }
+    }
+}
+
+#[cfg(test)]
+mod terminal_tests {
+    use super::*;
+
+    #[test]
+    fn later_failure_does_not_skip_earlier_model_order_calls() {
+        let terminal = ToolBatchTerminal::new();
+
+        assert!(terminal.try_claim_failure(2));
+        assert_eq!(terminal.skip_outcome_for(0), None);
+        assert_eq!(terminal.skip_outcome_for(1), None);
+        assert_eq!(terminal.skip_outcome_for(2), None);
+        assert_eq!(
+            terminal.skip_outcome_for(3),
+            Some(ToolBatchTerminalOutcome::Failed)
+        );
+        assert_eq!(terminal.outcome(), Some(ToolBatchTerminalOutcome::Failed));
     }
 }
 
@@ -231,7 +267,7 @@ impl Drop for ToolReadWriteGuard {
 
 pub(super) fn execute_tool_calls_for_iteration(
     services: &NativeAgentRuntimeServices,
-    context: &NativeAgentRunContext,
+    context: &mut NativeAgentRunContext,
     state: &mut NativeAgentRunState,
     iteration: i64,
     final_content: String,
@@ -268,11 +304,224 @@ pub(super) fn execute_tool_calls_for_iteration(
         return cancelled_result(services, context, state, iteration);
     }
 
+    if tool_calls
+        .iter()
+        .any(|tool_call| tool_call.name == TOOL_SEARCH_METHOD)
+    {
+        if tool_calls.len() != 1 {
+            let tool_call = tool_calls
+                .iter()
+                .find(|tool_call| tool_call.name == TOOL_SEARCH_METHOD)
+                .expect("tool_search presence was checked");
+            return tool_error_result(
+                services,
+                context,
+                state,
+                iteration,
+                tool_call,
+                "tool_search must be the only tool call in its provider response".to_string(),
+            );
+        }
+        return execute_tool_search(
+            services,
+            context,
+            state,
+            iteration,
+            tool_calls
+                .into_iter()
+                .next()
+                .expect("single tool_search call should exist"),
+        );
+    }
+
+    if let Some((tool_call, approval)) = tool_calls.iter().find_map(|tool_call| {
+        context
+            .tool_router
+            .approval_metadata(&tool_call.name)
+            .filter(|approval| approval.required)
+            .map(|approval| (tool_call, approval))
+    }) {
+        if tool_calls.len() != 1 {
+            return tool_error_result(
+                services,
+                context,
+                state,
+                iteration,
+                tool_call,
+                "approval-required tools must be requested one at a time".to_string(),
+            );
+        }
+        return awaiting_tool_approval_result(
+            services,
+            context,
+            state,
+            iteration,
+            tool_call.clone(),
+            approval,
+        );
+    }
+
     if tool_calls.len() == 1 {
         execute_sequential_tool_batch(services, context, state, iteration, tool_calls)
     } else {
         execute_locked_tool_batch(services, context, state, iteration, tool_calls)
     }
+}
+
+fn awaiting_tool_approval_result(
+    services: &NativeAgentRuntimeServices,
+    context: &NativeAgentRunContext,
+    state: &mut NativeAgentRunState,
+    iteration: i64,
+    tool_call: NativeAgentToolCall,
+    approval: ToolApprovalMetadata,
+) -> NativeAgentToolExecutionOutcome {
+    let arguments = match serde_json::from_str::<Value>(&tool_call.arguments_json) {
+        Ok(arguments) => arguments,
+        Err(error) => {
+            return tool_error_result(
+                services,
+                context,
+                state,
+                iteration,
+                &tool_call,
+                format!(
+                    "native tool `{}` arguments are invalid JSON: {error}",
+                    tool_call.name
+                ),
+            );
+        }
+    };
+    let approval_id = format!("approval:{}:{}", context.run_id, tool_call.id);
+    let summary = format!("Approval required: {}", tool_call.name);
+    let risk = if matches!(tool_call.name.as_str(), "shell.execute" | "mcp.call_tool") {
+        "high"
+    } else {
+        "medium"
+    };
+    state.set_pending_tool_call(&tool_call);
+    state.transition_phase(
+        AgentRuntimePhase::AwaitingApproval,
+        iteration,
+        "agent.awaiting_approval",
+    );
+    let operation = serde_json::json!({
+        "toolCallId": tool_call.id,
+        "toolName": tool_call.name,
+        "arguments": arguments,
+    });
+    let checkpoint = save_phase_checkpoint(
+        services,
+        context,
+        state.phase.as_str(),
+        serde_json::json!({
+            "kind": "tool_approval",
+            "iteration": iteration,
+            "approvalId": approval_id,
+            "operation": operation,
+            "pendingToolCalls": state.pending_tool_calls.clone(),
+            "completedToolResults": state.completed_tool_results.clone(),
+            "messages": state.messages.clone(),
+            "resumeToken": format!("approval:{approval_id}"),
+        }),
+    );
+    state.emit_event(
+        "agent.checkpoint",
+        serde_json::json!({
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "phase": "awaiting_approval",
+            "checkpoint": checkpoint.clone(),
+        }),
+    );
+    state.emit_event(
+        "agent.awaiting_approval",
+        serde_json::json!({
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "iteration": iteration,
+            "approvalId": approval_id,
+            "toolCallId": tool_call.id,
+            "toolName": tool_call.name,
+            "detailId": format!("approval:{approval_id}"),
+            "status": "waiting",
+            "summary": summary,
+            "content": summary,
+            "risk": risk,
+            "scope": approval.scope,
+            "lifetime": approval.lifetime,
+            "operation": operation,
+        }),
+    );
+    state.set_stop_reason("awaiting_approval", iteration, "agent.done");
+    state.emit_event(
+        "agent.done",
+        serde_json::json!({
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "iteration": iteration,
+            "stopReason": "awaiting_approval",
+        }),
+    );
+    let runtime_events = state.runtime_events();
+    let events = state.legacy_events();
+    NativeAgentToolExecutionOutcome::Finished(serde_json::json!({
+        "runtime": "rust",
+        "runId": context.run_id,
+        "sessionId": context.session_id,
+        "finalContent": "",
+        "stopReason": "awaiting_approval",
+        "messages": [],
+        "toolsUsed": state.tools_used,
+        "completedToolResults": state.completed_tool_results,
+        "checkpoint": checkpoint,
+        "approval": {
+            "approvalId": approval_id,
+            "toolCallId": tool_call.id,
+            "toolName": tool_call.name,
+            "risk": risk,
+            "scope": approval.scope,
+            "lifetime": approval.lifetime,
+            "operation": operation,
+        },
+        "events": events,
+        "runtimeEvents": runtime_events,
+    }))
+}
+
+fn execute_tool_search(
+    services: &NativeAgentRuntimeServices,
+    context: &mut NativeAgentRunContext,
+    state: &mut NativeAgentRunState,
+    iteration: i64,
+    tool_call: NativeAgentToolCall,
+) -> NativeAgentToolExecutionOutcome {
+    start_tool_call(services, context, state, iteration, &tool_call);
+    let raw_result = match context
+        .tool_router
+        .search_and_activate(&tool_call.arguments_json)
+    {
+        Ok(result) => result,
+        Err(error) => {
+            return tool_error_result(services, &*context, state, iteration, &tool_call, error);
+        }
+    };
+    let result = super::NativeAgentToolResult::generic_success(&tool_call, raw_result);
+    record_tool_success(&*context, state, iteration, tool_call, result);
+    state.clear_pending_tool_calls();
+    state.transition_phase(AgentRuntimePhase::Planning, iteration, "agent.tool.result");
+    save_phase_checkpoint(
+        services,
+        &*context,
+        state.phase.as_str(),
+        serde_json::json!({
+            "iteration": iteration,
+            "pendingToolCalls": state.pending_tool_calls.clone(),
+            "completedToolResults": state.completed_tool_results.clone(),
+            "activatedToolIds": context.tool_router.activated_tool_ids(),
+        }),
+    );
+    NativeAgentToolExecutionOutcome::Continue
 }
 
 fn execute_sequential_tool_batch(
@@ -413,7 +662,7 @@ fn execute_locked_tool_batch(
                                 },
                             );
                         }
-                        if let Some(terminal_outcome) = terminal.outcome() {
+                        if let Some(terminal_outcome) = terminal.skip_outcome_for(index) {
                             return send_tool_dispatch_finished(
                                 sender,
                                 finish_sequence,
@@ -437,7 +686,7 @@ fn execute_locked_tool_batch(
                             Err(error) => ToolDispatchOutcome::Failure {
                                 tool_call,
                                 error,
-                                terminal: terminal.try_claim_failure(),
+                                terminal: terminal.try_claim_failure(index),
                             },
                         }
                     }
@@ -446,7 +695,7 @@ fn execute_locked_tool_batch(
                         error: format!(
                             "native tool scheduler read lock acquisition failed: {error}"
                         ),
-                        terminal: terminal.try_claim_failure(),
+                        terminal: terminal.try_claim_failure(index),
                     },
                 }
             } else {
@@ -463,7 +712,7 @@ fn execute_locked_tool_batch(
                                 },
                             );
                         }
-                        if let Some(terminal_outcome) = terminal.outcome() {
+                        if let Some(terminal_outcome) = terminal.skip_outcome_for(index) {
                             return send_tool_dispatch_finished(
                                 sender,
                                 finish_sequence,
@@ -487,7 +736,7 @@ fn execute_locked_tool_batch(
                             Err(error) => ToolDispatchOutcome::Failure {
                                 tool_call,
                                 error,
-                                terminal: terminal.try_claim_failure(),
+                                terminal: terminal.try_claim_failure(index),
                             },
                         }
                     }
@@ -496,7 +745,7 @@ fn execute_locked_tool_batch(
                         error: format!(
                             "native tool scheduler write lock acquisition failed: {error}"
                         ),
-                        terminal: terminal.try_claim_failure(),
+                        terminal: terminal.try_claim_failure(index),
                     },
                 }
             };

@@ -43,6 +43,77 @@ fn close_shutdown_stops_background_worker_child() {
 }
 
 #[test]
+fn close_shutdown_stops_mcp_stdio_child() {
+    let fixture = WorkspaceFixture::new();
+    let script = fixture.root.join("mcp-shutdown-server.js");
+    let closed_marker = fixture.root.join("mcp-closed.txt");
+    std::fs::write(
+        &script,
+        r#"
+const fs = require("fs");
+const readline = require("readline");
+const closedMarker = process.argv[2];
+const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+function send(value) { process.stdout.write(`${JSON.stringify(value)}\n`); }
+lines.on("line", (line) => {
+  const message = JSON.parse(line);
+  if (message.method === "initialize") {
+    send({ jsonrpc: "2.0", id: message.id, result: {
+      protocolVersion: "2025-06-18",
+      capabilities: { tools: { listChanged: false } },
+      serverInfo: { name: "tinybot-shutdown-mcp", version: "1.0.0" }
+    }});
+    return;
+  }
+  if (message.method === "tools/list") {
+    send({ jsonrpc: "2.0", id: message.id, result: { tools: [] } });
+  }
+});
+lines.on("close", () => {
+  fs.writeFileSync(closedMarker, "closed");
+  process.exit(0);
+});
+"#,
+    )
+    .expect("MCP shutdown fixture should write");
+    let server = serde_json::json!({
+        "transport": "stdio",
+        "command": "node",
+        "args": [script.to_string_lossy(), closed_marker.to_string_lossy()],
+        "cwd": fixture.root.to_string_lossy(),
+        "timeout_seconds": 5
+    });
+    let mcp_runtime = McpRuntime::new();
+    tauri::async_runtime::block_on(mcp_runtime.list_tools(&fixture.root, "shutdown", &server))
+        .expect("MCP shutdown fixture should start");
+    let mut gateway = GatewayRuntime::default();
+    gateway.mcp_runtime = mcp_runtime.clone();
+    gateway.native_agent_runtime = gateway
+        .native_agent_runtime
+        .clone()
+        .with_mcp_runtime(mcp_runtime.clone());
+    let shared = Arc::new(Mutex::new(gateway));
+
+    stop_owned_gateway(&shared, false).expect("app shutdown should stop MCP runtime");
+
+    assert_eq!(
+        tauri::async_runtime::block_on(mcp_runtime.server_status(&fixture.root, "shutdown"))
+            ["state"],
+        "stopped"
+    );
+    for _ in 0..20 {
+        if closed_marker.exists() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    assert!(
+        closed_marker.exists(),
+        "MCP child should observe stdin close"
+    );
+}
+
+#[test]
 fn start_gateway_defaults_to_rust_backend() {
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
 
@@ -381,16 +452,48 @@ fn experimental_worker_router_allows_registered_native_agent_tools() {
             })
         ),
     );
+    fixture.write(
+        "mcp-server.js",
+        r#"
+const readline = require("readline");
+const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+function send(value) { process.stdout.write(`${JSON.stringify(value)}\n`); }
+lines.on("line", (line) => {
+  const message = JSON.parse(line);
+  if (message.method === "initialize") {
+    send({ jsonrpc: "2.0", id: message.id, result: {
+      protocolVersion: "2025-06-18",
+      capabilities: { tools: { listChanged: false } },
+      serverInfo: { name: "tinybot-router-test", version: "1.0.0" }
+    }});
+    return;
+  }
+  if (message.method === "tools/list") {
+    send({ jsonrpc: "2.0", id: message.id, result: { tools: [{
+      name: "search", description: "Search docs.", inputSchema: { type: "object" }
+    }] }});
+    return;
+  }
+  if (message.method === "tools/call") {
+    send({ jsonrpc: "2.0", id: message.id, result: {
+      content: [{ type: "text", text: "docs result" }], isError: false
+    }});
+  }
+});
+"#,
+    );
     let mut router = experimental_worker_router(
         fixture.root.clone(),
         serde_json::json!({
             "tools": {
                 "mcp_servers": {
                     "docs": {
+                        "transport": "stdio",
+                        "command": "node",
+                        "args": [fixture.root.join("mcp-server.js").to_string_lossy()],
+                        "cwd": fixture.root.to_string_lossy(),
                         "enabled_tools": ["search"],
-                        "fixture_tools": {
-                            "search": { "content": "docs result" }
-                        }
+                        "timeout_seconds": 5
                     }
                 }
             }
@@ -420,6 +523,17 @@ fn experimental_worker_router_allows_registered_native_agent_tools() {
         memory_response.error
     );
     assert!(mcp_response.error.is_none(), "{:?}", mcp_response.error);
+    assert_eq!(
+        mcp_response.result.as_ref().unwrap()["content"][0]["text"],
+        "docs result"
+    );
+    let shutdown = router.dispatch(&crate::worker_protocol::WorkerRequest::new(
+        "mcp-shutdown-1",
+        "trace-mcp-shutdown",
+        "mcp.shutdown",
+        serde_json::json!({}),
+    ));
+    assert!(shutdown.error.is_none(), "{:?}", shutdown.error);
 }
 
 #[test]
@@ -5399,6 +5513,10 @@ fn workspace_reveal_path_accepts_only_allowed_workspace_files() {
     assert_eq!(
         allowed_workspace_file_path(root, "AGENTS.md").expect("allowed workspace file"),
         root.join("AGENTS.md")
+    );
+    assert_eq!(
+        allowed_workspace_file_path(root, "SYSTEM.md").expect("system prompt should be editable"),
+        root.join("SYSTEM.md")
     );
     assert_eq!(
         allowed_workspace_file_path(root, "memory/MEMORY.md")

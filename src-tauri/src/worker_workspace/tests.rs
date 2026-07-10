@@ -53,23 +53,28 @@ mod tests {
         let fixture = WorkspaceFixture::new();
         fixture.write("USER.md", "user rules");
         fixture.write("AGENTS.md", "agent rules");
+        fixture.write("SYSTEM.md", "system prompt");
         let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy());
 
         let result = rpc
             .read_bootstrap_files(&[
                 "AGENTS.md".to_string(),
+                "SYSTEM.md".to_string(),
                 "TOOLS.md".to_string(),
                 "USER.md".to_string(),
             ])
             .expect("bootstrap files should read");
 
-        assert_eq!(result.files.len(), 2);
+        assert_eq!(result.files.len(), 3);
         assert_eq!(result.files[0].path, "AGENTS.md");
         assert_eq!(result.files[0].contents, "agent rules");
         assert!(result.files[0].updated_at.is_some());
-        assert_eq!(result.files[1].path, "USER.md");
-        assert_eq!(result.files[1].contents, "user rules");
+        assert_eq!(result.files[1].path, "SYSTEM.md");
+        assert_eq!(result.files[1].contents, "system prompt");
         assert!(result.files[1].updated_at.is_some());
+        assert_eq!(result.files[2].path, "USER.md");
+        assert_eq!(result.files[2].contents, "user rules");
+        assert!(result.files[2].updated_at.is_some());
         assert_eq!(result.missing, vec!["TOOLS.md"]);
     }
 

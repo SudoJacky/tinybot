@@ -2,7 +2,9 @@ use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource,
 };
-use crate::worker_tool_registry::{ToolApprovalMetadata, ToolExposure, ToolRegistryEntry};
+use crate::worker_tool_registry::{
+    ToolApprovalMetadata, ToolExecutionTarget, ToolExposure, ToolRegistryEntry,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -107,9 +109,9 @@ pub struct PermissionToolEvaluation {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PermissionToolDecision {
-    pub tool_id: &'static str,
-    pub method: &'static str,
-    pub namespace: &'static str,
+    pub tool_id: String,
+    pub method: String,
+    pub namespace: String,
     pub exposure: ToolExposure,
     pub decision: PermissionDecision,
     pub requires_approval: bool,
@@ -120,9 +122,9 @@ pub struct PermissionToolDecision {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PermissionToolSummary {
-    pub tool_id: &'static str,
-    pub method: &'static str,
-    pub namespace: &'static str,
+    pub tool_id: String,
+    pub method: String,
+    pub namespace: String,
     pub exposure: ToolExposure,
 }
 
@@ -137,8 +139,8 @@ pub enum PermissionDecision {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PermissionApprovalRequest {
-    pub method: &'static str,
-    pub tool_id: &'static str,
+    pub method: String,
+    pub tool_id: String,
     pub category: &'static str,
     pub risk: &'static str,
     pub reason: String,
@@ -210,9 +212,9 @@ impl WorkerPermissionProfileRpc {
     fn tool_decision(&self, tool: &ToolRegistryEntry) -> PermissionToolDecision {
         let missing_capabilities = self.missing_capabilities(tool);
         PermissionToolDecision {
-            tool_id: tool.tool_id,
-            method: tool.method,
-            namespace: tool.namespace,
+            tool_id: tool.tool_id.clone(),
+            method: tool.method.clone(),
+            namespace: tool.namespace.clone(),
             exposure: tool.exposure,
             decision: decision_for_tool(tool, &missing_capabilities),
             requires_approval: tool.approval.required,
@@ -257,9 +259,9 @@ fn decision_for_tool(
 
 fn tool_summary(tool: &ToolRegistryEntry) -> PermissionToolSummary {
     PermissionToolSummary {
-        tool_id: tool.tool_id,
-        method: tool.method,
-        namespace: tool.namespace,
+        tool_id: tool.tool_id.clone(),
+        method: tool.method.clone(),
+        namespace: tool.namespace.clone(),
         exposure: tool.exposure,
     }
 }
@@ -274,8 +276,8 @@ fn approval_request_for_tool(
     let risk = approval_risk(tool);
     let summary = approval_summary(tool, &arguments);
     PermissionApprovalRequest {
-        method: tool.method,
-        tool_id: tool.tool_id,
+        method: tool.method.clone(),
+        tool_id: tool.tool_id.clone(),
         category,
         risk,
         reason: approval_reason(tool, category),
@@ -294,7 +296,7 @@ fn approval_request_for_tool(
 }
 
 fn approval_category(tool: &ToolRegistryEntry) -> &'static str {
-    match tool.namespace {
+    match tool.namespace.as_str() {
         "workspace" => "filesystem_write",
         "shell" => "shell",
         "mcp" => "mcp_tool",
@@ -303,7 +305,7 @@ fn approval_category(tool: &ToolRegistryEntry) -> &'static str {
 }
 
 fn approval_risk(tool: &ToolRegistryEntry) -> &'static str {
-    match tool.namespace {
+    match tool.namespace.as_str() {
         "shell" => "high",
         "workspace" | "mcp" => "medium",
         _ => "low",
@@ -320,7 +322,14 @@ fn approval_reason(tool: &ToolRegistryEntry, category: &str) -> String {
 }
 
 fn approval_summary(tool: &ToolRegistryEntry, arguments: &Value) -> String {
-    match tool.method {
+    if let ToolExecutionTarget::Mcp {
+        server,
+        tool: tool_name,
+    } = &tool.execution_target
+    {
+        return format!("mcp.call_tool {server}.{tool_name}");
+    }
+    match tool.method.as_str() {
         "shell.execute" => arguments
             .get("command")
             .and_then(Value::as_str)
@@ -351,7 +360,14 @@ fn normalize_summary(value: &str) -> String {
 }
 
 fn approval_fingerprint(tool: &ToolRegistryEntry, arguments: &Value) -> String {
-    match tool.method {
+    if let ToolExecutionTarget::Mcp {
+        server,
+        tool: tool_name,
+    } = &tool.execution_target
+    {
+        return format!("mcp:{server}:{tool_name}");
+    }
+    match tool.method.as_str() {
         "shell.execute" => arguments
             .get("command")
             .and_then(Value::as_str)
