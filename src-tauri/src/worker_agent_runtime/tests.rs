@@ -291,6 +291,7 @@ fn chat_completion_request_injects_available_model_tools() {
             WorkerCapability::KnowledgeRead,
             WorkerCapability::BackgroundWrite,
             WorkerCapability::SessionWrite,
+            WorkerCapability::FormRequest,
         ]))
         .list_tools()
         .tools,
@@ -315,6 +316,7 @@ fn chat_completion_request_injects_available_model_tools() {
     assert!(names.contains(&"subagent_spawn"));
     assert!(names.contains(&"subagent_send_input"));
     assert!(names.contains(&"tool_search"));
+    assert!(names.contains(&"request_user_input"));
     assert!(!names.contains(&"workspace_write_file"));
     assert!(!names.contains(&"workspace_delete_file"));
     assert!(!names.contains(&"mcp_call_tool"));
@@ -536,6 +538,320 @@ fn tool_search_activates_dispatches_and_expires_a_deferred_tool() {
 }
 
 #[test]
+fn strict_patch_search_approval_and_real_dispatch_work_end_to_end() {
+    struct PatchProvider {
+        calls: AtomicUsize,
+    }
+
+    impl NativeAgentProvider for PatchProvider {
+        fn complete(
+            &self,
+            _context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            match self.calls.fetch_add(1, Ordering::SeqCst) {
+                0 => Ok(NativeAgentProviderResponse {
+                    final_content: String::new(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![NativeAgentToolCall {
+                        id: "search-patch".to_string(),
+                        name: "tool_search".to_string(),
+                        arguments_json: r#"{"query":"strict workspace patch","limit":1}"#
+                            .to_string(),
+                        result: Value::Null,
+                    }],
+                }),
+                1 => Ok(NativeAgentProviderResponse {
+                    final_content: String::new(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![NativeAgentToolCall {
+                        id: "apply-patch".to_string(),
+                        name: "workspace.apply_patch".to_string(),
+                        arguments_json: serde_json::to_string(&json!({
+                            "patch": "*** Begin Patch\n*** Add File: notes/created.md\n+created by strict patch\n*** End Patch\n"
+                        }))
+                        .expect("patch arguments should serialize"),
+                        result: Value::Null,
+                    }],
+                }),
+                _ => Ok(NativeAgentProviderResponse {
+                    final_content: "patch applied".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: Vec::new(),
+                }),
+            }
+        }
+    }
+
+    let workspace = SystemPromptWorkspace::new();
+    let services = NativeAgentRuntimeServices::new(
+        Arc::new(PatchProvider {
+            calls: AtomicUsize::new(0),
+        }),
+        Arc::new(FakeNativeAgentToolDispatcher),
+        Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(InMemoryNativeAgentCancellation::default()),
+    );
+    let services = crate::native_agent_bridge::native_agent_services_with_tool_executor(
+        services,
+        workspace.root.clone(),
+        json!({}),
+    );
+
+    let waiting = run_native_agent_turn_with_workspace(
+        &services,
+        json!({
+            "runId": "run-real-patch",
+            "sessionId": "session-real-patch",
+            "maxIterations": 4,
+            "messages": [{ "role": "user", "content": "create the note" }]
+        }),
+        json!({}),
+        &workspace.root,
+    )
+    .expect("patch tool should reach approval boundary");
+
+    assert_eq!(waiting["stopReason"], "awaiting_approval");
+    assert_eq!(waiting["approval"]["toolName"], "workspace.apply_patch");
+    assert!(!workspace.root.join("notes/created.md").exists());
+
+    let resumed = run_native_agent_turn_with_workspace(
+        &services,
+        json!({
+            "runId": "run-real-patch",
+            "sessionId": "session-real-patch",
+            "maxIterations": 4,
+            "metadata": {
+                "agentContinuation": {
+                    "kind": "approval",
+                    "approvalId": waiting["approval"]["approvalId"],
+                    "decision": "approved",
+                    "scope": "once"
+                }
+            }
+        }),
+        json!({}),
+        &workspace.root,
+    )
+    .expect("approved patch should dispatch through the real workspace backend");
+
+    assert_eq!(resumed["stopReason"], "final_response");
+    assert_eq!(resumed["finalContent"], "patch applied");
+    assert_eq!(resumed["toolsUsed"], json!(["workspace.apply_patch"]));
+    assert_eq!(
+        std::fs::read_to_string(workspace.root.join("notes/created.md"))
+            .expect("approved patch should create the file"),
+        "created by strict patch\n"
+    );
+}
+
+#[test]
+fn request_user_input_waits_then_resumes_the_same_tool_chain() {
+    struct RequestInputThenReadProvider {
+        calls: AtomicUsize,
+        resumed_messages: Arc<Mutex<Vec<Value>>>,
+    }
+
+    impl NativeAgentProvider for RequestInputThenReadProvider {
+        fn complete(
+            &self,
+            context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            match self.calls.fetch_add(1, Ordering::SeqCst) {
+                0 => Ok(NativeAgentProviderResponse {
+                    final_content: String::new(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![NativeAgentToolCall {
+                        id: "clarify-1".to_string(),
+                        name: "request_user_input".to_string(),
+                        arguments_json: serde_json::to_string(&json!({
+                            "title": "Choose a target",
+                            "description": "Select the file to inspect.",
+                            "fields": [{
+                                "name": "target",
+                                "type": "select",
+                                "label": "Target file",
+                                "required": true,
+                                "options": [
+                                    { "label": "README", "value": "README.md" },
+                                    { "label": "Manifest", "value": "Cargo.toml" }
+                                ]
+                            }]
+                        }))
+                        .expect("request arguments should serialize"),
+                        result: Value::Null,
+                    }],
+                }),
+                1 => {
+                    *self
+                        .resumed_messages
+                        .lock()
+                        .expect("resumed messages lock should not be poisoned") =
+                        context.messages.clone();
+                    Ok(NativeAgentProviderResponse {
+                        final_content: String::new(),
+                        reasoning_delta: None,
+                        usage: None,
+                        tool_calls: vec![NativeAgentToolCall {
+                            id: "read-after-input".to_string(),
+                            name: "workspace.read_file".to_string(),
+                            arguments_json: r#"{"path":"README.md"}"#.to_string(),
+                            result: json!({ "content": "workspace read" }),
+                        }],
+                    })
+                }
+                _ => Ok(NativeAgentProviderResponse {
+                    final_content: "input accepted and file inspected".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: Vec::new(),
+                }),
+            }
+        }
+    }
+
+    let resumed_messages = Arc::new(Mutex::new(Vec::new()));
+    let services = NativeAgentRuntimeServices::new(
+        Arc::new(RequestInputThenReadProvider {
+            calls: AtomicUsize::new(0),
+            resumed_messages: resumed_messages.clone(),
+        }),
+        Arc::new(FakeNativeAgentToolDispatcher),
+        Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(InMemoryNativeAgentCancellation::default()),
+    );
+
+    let waiting = run_native_agent_turn_with_config(
+        &services,
+        json!({
+            "runId": "run-user-input",
+            "sessionId": "session-user-input",
+            "maxIterations": 4,
+            "messages": [{ "role": "user", "content": "inspect the right file" }]
+        }),
+        json!({}),
+    )
+    .expect("user input request should create a waiting checkpoint");
+
+    assert_eq!(waiting["stopReason"], "awaiting_form");
+    assert_eq!(waiting["form"]["form_id"], "user-input:clarify-1");
+    assert_eq!(waiting["form"]["title"], "Choose a target");
+    assert_eq!(waiting["checkpoint"]["payload"]["kind"], "user_input");
+    assert_eq!(
+        waiting["checkpoint"]["pendingToolCalls"][0]["toolName"],
+        "request_user_input"
+    );
+    assert!(waiting["checkpoint"]["messages"]
+        .as_array()
+        .expect("checkpoint messages should be an array")
+        .iter()
+        .any(|message| message["tool_calls"][0]["id"] == "clarify-1"));
+
+    let resumed = run_native_agent_turn_with_config(
+        &services,
+        json!({
+            "runId": "run-user-input",
+            "sessionId": "session-user-input",
+            "maxIterations": 4,
+            "metadata": {
+                "agentContinuation": {
+                    "kind": "form",
+                    "formId": "user-input:clarify-1",
+                    "action": "submit",
+                    "values": { "target": "README.md" }
+                }
+            }
+        }),
+        json!({}),
+    )
+    .expect("submitted user input should resume the provider loop");
+
+    assert_eq!(resumed["stopReason"], "final_response");
+    assert_eq!(resumed["finalContent"], "input accepted and file inspected");
+    assert_eq!(
+        resumed["toolsUsed"],
+        json!(["request_user_input", "workspace.read_file"])
+    );
+    assert!(resumed["runtimeEvents"]
+        .as_array()
+        .expect("runtime events should be an array")
+        .iter()
+        .any(|event| event["eventName"] == "agent.form.resolution"));
+    let messages = resumed_messages
+        .lock()
+        .expect("resumed messages lock should not be poisoned");
+    let observation = messages
+        .iter()
+        .find(|message| message["role"] == "tool" && message["tool_call_id"] == "clarify-1")
+        .expect("submitted values should become the request_user_input tool result");
+    let content: Value = serde_json::from_str(
+        observation["content"]
+            .as_str()
+            .expect("tool observation content should be JSON text"),
+    )
+    .expect("tool observation content should parse");
+    assert_eq!(content["values"]["target"], "README.md");
+    assert!(
+        services.restore_run_checkpoint("session-user-input", "run-user-input")["checkpoint"]
+            .is_null()
+    );
+}
+
+#[test]
+fn request_user_input_rejects_invalid_forms_without_waiting() {
+    struct InvalidInputProvider;
+
+    impl NativeAgentProvider for InvalidInputProvider {
+        fn complete(
+            &self,
+            _context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            Ok(NativeAgentProviderResponse {
+                final_content: String::new(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: vec![NativeAgentToolCall {
+                    id: "invalid-form".to_string(),
+                    name: "request_user_input".to_string(),
+                    arguments_json: r#"{"title":"Missing fields","fields":[]}"#.to_string(),
+                    result: Value::Null,
+                }],
+            })
+        }
+    }
+
+    let services = NativeAgentRuntimeServices::new(
+        Arc::new(InvalidInputProvider),
+        Arc::new(FakeNativeAgentToolDispatcher),
+        Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(InMemoryNativeAgentCancellation::default()),
+    );
+    let result = run_native_agent_turn_with_config(
+        &services,
+        json!({
+            "runId": "run-invalid-user-input",
+            "sessionId": "session-invalid-user-input",
+            "messages": [{ "role": "user", "content": "ask me" }]
+        }),
+        json!({}),
+    )
+    .expect("invalid model tool arguments should produce an explicit tool error result");
+
+    assert_eq!(result["stopReason"], "tool_error");
+    assert!(result["error"]
+        .as_str()
+        .expect("tool error should include a message")
+        .contains("fields must contain between 1 and 50 entries"));
+    assert!(services
+        .restore_run_checkpoint("session-invalid-user-input", "run-invalid-user-input")
+        ["checkpoint"]
+        .is_null());
+}
+
+#[test]
 fn discovered_mcp_tool_searches_activates_approves_and_calls_real_server() {
     struct McpDiscoveryProvider {
         calls: AtomicUsize,
@@ -634,7 +950,7 @@ lines.on("line", (line) => {
     )
     .expect("agent MCP fixture should write");
     let config = json!({
-        "tools": { "mcp_servers": { "docs": {
+        "mcp": { "servers": { "docs": {
             "enabled": true,
             "transport": "stdio",
             "command": "node",
@@ -2671,7 +2987,7 @@ fn shell_read_only_allowlist_uses_read_lock_only_when_explicitly_enabled() {
 }
 
 #[test]
-fn parallel_tool_failures_have_single_terminal_error_and_debug_late_failures() {
+fn parallel_tool_failures_use_model_order_for_the_single_terminal_error() {
     struct TwoFailingToolsProvider;
 
     impl NativeAgentProvider for TwoFailingToolsProvider {
@@ -2748,7 +3064,7 @@ fn parallel_tool_failures_have_single_terminal_error_and_debug_late_failures() {
     assert_eq!(terminal_errors.len(), 1);
     assert_eq!(
         terminal_errors[0]["payload"]["toolCallId"],
-        "call-second-fails"
+        "call-first-fails"
     );
     assert_eq!(debug_events.len(), 1);
     assert_eq!(
@@ -2756,7 +3072,10 @@ fn parallel_tool_failures_have_single_terminal_error_and_debug_late_failures() {
         "terminal_outcome_already_claimed"
     );
     assert_eq!(debug_events[0]["payload"]["terminalOutcome"], "failed");
-    assert_eq!(debug_events[0]["payload"]["toolCallId"], "call-first-fails");
+    assert_eq!(
+        debug_events[0]["payload"]["toolCallId"],
+        "call-second-fails"
+    );
     assert_eq!(result["completedToolResults"].as_array().unwrap().len(), 0);
 }
 
@@ -4899,6 +5218,21 @@ fn saves_and_restores_approval_checkpoint_before_resume() {
 #[test]
 fn handles_approval_denial_form_submit_and_cancel_events() {
     let services = NativeAgentRuntimeServices::default();
+    run_native_agent_turn_with_services(
+        &services,
+        json!({
+            "runtime": "rust",
+            "runId": "run-denied",
+            "sessionId": "websocket:chat-denied",
+            "metadata": {
+                "fakeAwaitingApproval": {
+                    "approvalId": "approval-1",
+                    "toolName": "workspace.write_file"
+                }
+            }
+        }),
+    )
+    .expect("approval denial fixture should create a checkpoint");
     let denied = run_native_agent_turn_with_services(
         &services,
         json!({
@@ -4949,6 +5283,21 @@ fn handles_approval_denial_form_submit_and_cancel_events() {
         }),
     )
     .expect("form submit should complete");
+    run_native_agent_turn_with_services(
+        &services,
+        json!({
+            "runtime": "rust",
+            "runId": "run-form-cancelled",
+            "sessionId": "websocket:chat-form-cancelled",
+            "metadata": {
+                "fakeAwaitingForm": {
+                    "formId": "form-cancelled",
+                    "title": "Cancel this form"
+                }
+            }
+        }),
+    )
+    .expect("form cancellation fixture should create a checkpoint");
     let form_cancelled = run_native_agent_turn_with_services(
         &services,
         json!({
@@ -5147,6 +5496,46 @@ fn accepts_typed_approval_and_form_continuations_without_legacy_metadata() {
         "Tokyo"
     );
     assert!(services.restore_checkpoint("websocket:chat-typed-form")["checkpoint"].is_null());
+}
+
+#[test]
+fn approval_and_form_continuations_fail_without_matching_checkpoints() {
+    let services = NativeAgentRuntimeServices::default();
+    let approval_error = run_native_agent_turn_with_services(
+        &services,
+        json!({
+            "runId": "run-missing-approval-checkpoint",
+            "sessionId": "session-missing-approval-checkpoint",
+            "metadata": {
+                "agentContinuation": {
+                    "kind": "approval",
+                    "approvalId": "approval-missing",
+                    "decision": "approved",
+                    "scope": "once"
+                }
+            }
+        }),
+    )
+    .expect_err("approval continuation must not synthesize success without a checkpoint");
+    let form_error = run_native_agent_turn_with_services(
+        &services,
+        json!({
+            "runId": "run-missing-form-checkpoint",
+            "sessionId": "session-missing-form-checkpoint",
+            "metadata": {
+                "agentContinuation": {
+                    "kind": "form",
+                    "formId": "form-missing",
+                    "action": "submit",
+                    "values": {}
+                }
+            }
+        }),
+    )
+    .expect_err("form continuation must not synthesize success without a checkpoint");
+
+    assert!(approval_error.contains("matching run checkpoint"));
+    assert!(form_error.contains("matching run checkpoint"));
 }
 
 #[test]

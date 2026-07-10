@@ -10,6 +10,7 @@ use super::usage::{
     context_window_action_payload, context_window_projection, context_with_projected_messages,
     estimate_context_tokens_for_request,
 };
+use super::user_input::{prepare_user_input_continuation, UserInputContinuationOutcome};
 use super::{
     bool_field, NativeAgentProviderStreamEvent, NativeAgentRunContext, NativeAgentRuntimeServices,
 };
@@ -18,6 +19,7 @@ use crate::worker_capability::default_desktop_capability_policy;
 use crate::worker_tool_registry::{mcp_tool_registry_entries, WorkerToolRegistryRpc};
 use serde_json::Value;
 use std::path::Path;
+use std::sync::Arc;
 
 pub fn run_native_agent_turn_with_config(
     services: &NativeAgentRuntimeServices,
@@ -51,41 +53,6 @@ fn run_native_agent_turn_with_system_prompt(
     workspace_root: Option<&Path>,
 ) -> Result<Value, String> {
     let mut context = NativeAgentRunContext::from_spec(spec, config_snapshot.clone());
-    if let Some(workspace_root) = workspace_root {
-        let discovered = tauri::async_runtime::block_on(
-            services
-                .mcp_runtime
-                .discover_configured_tools(workspace_root, &config_snapshot),
-        )
-        .map_err(|error| {
-            format!(
-                "MCP discovery failed for server `{}` over {}: {}",
-                error.server, error.transport, error.message
-            )
-        })?;
-        let mut dynamic_tools = Vec::new();
-        for server in discovered {
-            dynamic_tools.extend(mcp_tool_registry_entries(
-                &server.server_id,
-                &server.server_config,
-                &server.tools,
-            )?);
-        }
-        context.tool_router = super::tool_router::NativeToolRouter::new(
-            WorkerToolRegistryRpc::new(default_desktop_capability_policy())
-                .with_dynamic_tools(dynamic_tools)?
-                .list_tools()
-                .tools,
-        );
-    }
-    #[cfg(test)]
-    if let Some(entries) = services.test_tool_registry_entries.clone() {
-        context.tool_router = super::tool_router::NativeToolRouter::new(entries);
-    }
-    #[cfg(test)]
-    context
-        .tool_router
-        .activate_for_turn(&services.test_activated_tool_ids)?;
     context.system_prompt = system_prompt;
     context.attach_cancellation(services.cancellations.clone());
     if context.max_iterations <= 0 {
@@ -111,6 +78,65 @@ fn run_native_agent_turn_with_system_prompt(
             checkpoint,
         ));
     }
+    if let Some(workspace_root) = workspace_root {
+        let cancellation = context.cancellation.clone().map(|cancellation| {
+            Arc::new(cancellation) as Arc<dyn crate::worker_protocol::WorkerRequestCancellation>
+        });
+        let discovered =
+            match tauri::async_runtime::block_on(services.mcp_runtime.discover_configured_tools(
+                workspace_root,
+                &config_snapshot,
+                cancellation,
+            )) {
+                Ok(discovered) => discovered,
+                Err(error) if error.cancelled => {
+                    let checkpoint = save_phase_checkpoint(
+                        services,
+                        &context,
+                        "cancelled",
+                        serde_json::json!({
+                            "cancelled": true,
+                            "phase": "mcp_discovery",
+                            "server": error.server,
+                            "transport": error.transport,
+                        }),
+                    );
+                    return Ok(cancelled_result(
+                        &context.run_id,
+                        &context.session_id,
+                        checkpoint,
+                    ));
+                }
+                Err(error) => {
+                    return Err(format!(
+                        "MCP discovery failed for server `{}` over {}: {}",
+                        error.server, error.transport, error.message
+                    ));
+                }
+            };
+        let mut dynamic_tools = Vec::new();
+        for server in discovered {
+            dynamic_tools.extend(mcp_tool_registry_entries(
+                &server.server_id,
+                &server.server_config,
+                &server.tools,
+            )?);
+        }
+        context.tool_router = super::tool_router::NativeToolRouter::new(
+            WorkerToolRegistryRpc::new(default_desktop_capability_policy())
+                .with_dynamic_tools(dynamic_tools)?
+                .list_tools()
+                .tools,
+        );
+    }
+    #[cfg(test)]
+    if let Some(entries) = services.test_tool_registry_entries.clone() {
+        context.tool_router = super::tool_router::NativeToolRouter::new(entries);
+    }
+    #[cfg(test)]
+    context
+        .tool_router
+        .activate_for_turn(&services.test_activated_tool_ids)?;
     restore_activated_tools_for_continuation(services, &mut context)?;
     if let Some(result) = maybe_awaiting_approval_result(services, &context) {
         return Ok(result);
@@ -121,9 +147,16 @@ fn run_native_agent_turn_with_system_prompt(
     if let Some(result) = maybe_awaiting_form_result(services, &context) {
         return Ok(result);
     }
-    if let Some(result) = maybe_form_submit_result(services, &context) {
-        return Ok(result);
-    }
+    let user_input_resume = match prepare_user_input_continuation(services, &mut context)? {
+        Some(UserInputContinuationOutcome::Finished(result)) => return Ok(result),
+        Some(UserInputContinuationOutcome::Resume(resume)) => Some(resume),
+        None => {
+            if let Some(result) = maybe_form_submit_result(services, &context)? {
+                return Ok(result);
+            }
+            None
+        }
+    };
     if context.messages.is_empty() {
         return Ok(error_result(
             &context.run_id,
@@ -140,8 +173,13 @@ fn run_native_agent_turn_with_system_prompt(
         "agent.history.hydrated",
     );
     state.transition_phase(AgentRuntimePhase::Planning, 0, "agent.turn.started");
-    state.emit_turn_started(&context);
-    for iteration in 0..context.max_iterations {
+    let start_iteration = if let Some(resume) = user_input_resume {
+        resume.apply(&context, &mut state)
+    } else {
+        state.emit_turn_started(&context);
+        0
+    };
+    for iteration in start_iteration..context.max_iterations {
         state.transition_phase(AgentRuntimePhase::CallingModel, iteration, "provider_call");
         if services.cancellations.is_cancelled(&context.run_id) {
             state.transition_phase(AgentRuntimePhase::Cancelled, iteration, "agent.cancelled");

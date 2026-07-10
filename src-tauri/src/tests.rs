@@ -84,8 +84,13 @@ lines.on("close", () => {
         "timeout_seconds": 5
     });
     let mcp_runtime = McpRuntime::new();
-    tauri::async_runtime::block_on(mcp_runtime.list_tools(&fixture.root, "shutdown", &server))
-        .expect("MCP shutdown fixture should start");
+    tauri::async_runtime::block_on(mcp_runtime.list_tools(
+        &fixture.root,
+        "shutdown",
+        &server,
+        None,
+    ))
+    .expect("MCP shutdown fixture should start");
     let mut gateway = GatewayRuntime::default();
     gateway.mcp_runtime = mcp_runtime.clone();
     gateway.native_agent_runtime = gateway
@@ -506,16 +511,19 @@ lines.on("line", (line) => {
         "memory.search",
         serde_json::json!({ "query": "uv", "limit": 3 }),
     ));
-    let mcp_response = router.dispatch(&crate::worker_protocol::WorkerRequest::new(
-        "mcp-call-1",
-        "trace-mcp-call",
-        "mcp.call_tool",
-        serde_json::json!({
-            "server": "docs",
-            "tool": "search",
-            "arguments": { "query": "agent loop" }
-        }),
-    ));
+    let mcp_response = router.dispatch(
+        &crate::worker_protocol::WorkerRequest::new(
+            "mcp-call-1",
+            "trace-mcp-call",
+            "mcp.call_tool",
+            serde_json::json!({
+                "server": "docs",
+                "tool": "search",
+                "arguments": { "query": "agent loop" }
+            }),
+        )
+        .with_trusted_internal(),
+    );
 
     assert!(
         memory_response.error.is_none(),

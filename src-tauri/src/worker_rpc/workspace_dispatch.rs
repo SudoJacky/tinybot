@@ -30,7 +30,7 @@ impl WorkerRpcRouter {
             }
             "workspace.write_file" => {
                 let params: WriteFileParams = parse_params(request)?;
-                if !params.internal_operation.unwrap_or(false) {
+                if !request.is_trusted_internal() {
                     self.approval
                         .require_sensitive_operation(workspace_write_approval(
                             &params.path,
@@ -46,6 +46,22 @@ impl WorkerRpcRouter {
                     params.expected_updated_at.as_deref(),
                 )?)
                 .map_err(serialization_error)
+            }
+            "workspace.apply_patch" => {
+                let params: ApplyPatchParams = parse_params(request)?;
+                if !request.is_trusted_internal() {
+                    let targets = self.workspace.inspect_patch_targets(&params.patch)?;
+                    self.approval
+                        .require_sensitive_operation(workspace_apply_patch_approval(
+                            &targets,
+                            params.session_id.clone(),
+                            params.run_id.clone(),
+                            params.approval_fingerprint.clone(),
+                            params.approval_session_fingerprint.clone(),
+                        ))?;
+                }
+                serde_json::to_value(self.workspace.apply_patch(&params.patch)?)
+                    .map_err(serialization_error)
             }
             "workspace.create_dir" => {
                 let params: PathParams = parse_params(request)?;
@@ -63,7 +79,7 @@ impl WorkerRpcRouter {
             }
             "workspace.delete_file" => {
                 let params: DeleteFileParams = parse_params(request)?;
-                if !params.internal_operation.unwrap_or(false) {
+                if !request.is_trusted_internal() {
                     self.approval
                         .require_sensitive_operation(workspace_delete_approval(
                             &params.path,

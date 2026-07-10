@@ -6,7 +6,21 @@ impl WorkerRpcRouter {
         request: &WorkerRequest,
     ) -> Result<Value, WorkerProtocolError> {
         match request.method.as_str() {
-            "mcp.call_tool" => self.mcp.call_tool_from_request(request),
+            "mcp.call_tool" => {
+                if !request.is_trusted_internal() {
+                    let params: McpCallApprovalParams = parse_params(request)?;
+                    self.approval
+                        .require_sensitive_operation(mcp_tool_approval(
+                            &params.server,
+                            &params.tool,
+                            params.session_id,
+                            params.run_id,
+                            params.approval_fingerprint,
+                            params.approval_session_fingerprint,
+                        ))?;
+                }
+                self.mcp.call_tool_from_request(request)
+            }
             "mcp.list_tools" => self.mcp.list_tools(),
             "mcp.server_status" => self.mcp.server_status_from_request(request),
             "mcp.diagnostics" => self.mcp.diagnostics(),

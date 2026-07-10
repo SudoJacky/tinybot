@@ -144,6 +144,7 @@ impl NativeAgentRunState {
             "final_response" => AgentRuntimePhase::Completed,
             "cancelled" => AgentRuntimePhase::Cancelled,
             "awaiting_approval" => AgentRuntimePhase::AwaitingApproval,
+            "awaiting_form" => AgentRuntimePhase::AwaitingForm,
             _ => AgentRuntimePhase::Failed,
         };
         self.transition_phase(phase, iteration, trigger_event_name);

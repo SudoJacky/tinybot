@@ -77,7 +77,8 @@ mod tool_dispatch;
 mod workspace_dispatch;
 
 use self::approval::{
-    shell_execute_approval, workspace_delete_approval, workspace_write_approval, WorkerApprovalRpc,
+    mcp_tool_approval, shell_execute_approval, workspace_apply_patch_approval,
+    workspace_delete_approval, workspace_write_approval, WorkerApprovalRpc,
 };
 use self::channel::WorkerChannelConnectorRpc;
 use self::errors::unknown_method_error;
@@ -530,6 +531,23 @@ impl WorkerRpcRouter {
                 run_id: params.run_id.clone(),
             },
         );
+        if permission.requires_approval
+            && !request.is_trusted_internal()
+            && !registered_tool_has_final_approval_boundary(&tool)
+        {
+            return Err(WorkerProtocolError::new(
+                WorkerProtocolErrorCode::CapabilityDenied,
+                "approval-required tools must be dispatched through a trusted approved runtime path",
+                serde_json::json!({
+                    "boundary": "security",
+                    "method": "tool_executor.execute",
+                    "toolId": tool.tool_id,
+                    "approval": permission.approval_request.clone(),
+                }),
+                false,
+                WorkerProtocolErrorSource::RustCore,
+            ));
+        }
 
         let tool_call_id = params.thread_id.as_ref().map(|_| {
             params
@@ -576,13 +594,16 @@ impl WorkerRpcRouter {
                 ));
             }
         };
-        let tool_request = WorkerRequest::new(
+        let mut tool_request = WorkerRequest::new(
             request.id.clone(),
             request.trace_id.clone(),
             target_method,
             tool_arguments,
         )
         .with_cancellation(request.cancellation());
+        if request.is_trusted_internal() {
+            tool_request = tool_request.with_trusted_internal();
+        }
         match self.dispatch_result(&tool_request) {
             Ok(result) => {
                 if let (Some(thread_id), Some(tool_call_id)) = (&params.thread_id, &tool_call_id) {
@@ -679,6 +700,22 @@ fn tool_executor_arguments_with_context(params: &ToolExecutorExecuteRequest) -> 
     arguments
 }
 
+fn registered_tool_has_final_approval_boundary(
+    tool: &crate::worker_tool_registry::ToolRegistryEntry,
+) -> bool {
+    matches!(
+        &tool.execution_target,
+        ToolExecutionTarget::WorkerRpc { method }
+            if matches!(
+                method.as_str(),
+                "workspace.write_file"
+                    | "workspace.apply_patch"
+                    | "workspace.delete_file"
+                    | "shell.execute"
+            )
+    )
+}
+
 #[derive(Deserialize)]
 struct PathParams {
     path: String,
@@ -709,8 +746,6 @@ struct DeleteFileParams {
     path: String,
     #[serde(default)]
     recursive: Option<bool>,
-    #[serde(default, alias = "internalOperation")]
-    internal_operation: Option<bool>,
     #[serde(default, alias = "sessionId")]
     session_id: Option<String>,
     #[serde(default, alias = "runId")]
@@ -728,8 +763,41 @@ struct WriteFileParams {
     contents: String,
     #[serde(default, alias = "expectedUpdatedAt")]
     expected_updated_at: Option<String>,
-    #[serde(default, alias = "internalOperation")]
-    internal_operation: Option<bool>,
+    #[serde(default, alias = "sessionId")]
+    session_id: Option<String>,
+    #[serde(default, alias = "runId")]
+    run_id: Option<String>,
+    #[serde(default, alias = "approvalFingerprint")]
+    approval_fingerprint: Option<String>,
+    #[serde(
+        default,
+        alias = "approvalSessionFingerprint",
+        alias = "sessionFingerprint"
+    )]
+    approval_session_fingerprint: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ApplyPatchParams {
+    patch: String,
+    #[serde(default, alias = "sessionId")]
+    session_id: Option<String>,
+    #[serde(default, alias = "runId")]
+    run_id: Option<String>,
+    #[serde(default, alias = "approvalFingerprint")]
+    approval_fingerprint: Option<String>,
+    #[serde(
+        default,
+        alias = "approvalSessionFingerprint",
+        alias = "sessionFingerprint"
+    )]
+    approval_session_fingerprint: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct McpCallApprovalParams {
+    server: String,
+    tool: String,
     #[serde(default, alias = "sessionId")]
     session_id: Option<String>,
     #[serde(default, alias = "runId")]

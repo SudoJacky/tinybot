@@ -1,13 +1,12 @@
 use crate::call_rust_state_service_with_mcp_runtime;
-use crate::runtime::mcp::mcp_tool_is_enabled;
-use crate::runtime::mcp::McpRuntime;
+use crate::runtime::mcp::{configured_mcp_servers, mcp_tool_is_enabled, McpRuntime};
 use crate::worker_agent_runtime::{
     NativeAgentRunContext, NativeAgentRuntimeServices, NativeAgentToolCall,
     NativeAgentToolDispatcher, NativeAgentToolResult,
 };
 use crate::worker_protocol::{WorkerRequest, WorkerRequestCancellation};
 use crate::worker_request_id::next_worker_request_correlation;
-use crate::worker_tool_registry::{ToolExecutionTarget, ToolRuntimeControl};
+use crate::worker_tool_registry::ToolExecutionTarget;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -38,11 +37,12 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
         let execution_target = context.tool_execution_target(&tool_call.name);
         if matches!(
             &execution_target,
-            Some(ToolExecutionTarget::RuntimeControl(
-                ToolRuntimeControl::ToolSearch
-            ))
+            Some(ToolExecutionTarget::RuntimeControl(_))
         ) {
-            return Err("tool_search must be handled by the native tool router".to_string());
+            return Err(format!(
+                "runtime control tool `{}` must be handled by the native agent runtime",
+                tool_call.name
+            ));
         }
         let request_id = next_worker_request_correlation();
         let cancellation = context
@@ -78,6 +78,7 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
                 method,
                 params,
             )
+            .with_trusted_internal()
             .with_cancellation(cancellation),
             label,
         );
@@ -167,10 +168,7 @@ impl NativeAgentToolExecutorDispatcher {
         if !tool_arguments.is_object() {
             return Some(Err("MCP tool arguments must be a JSON object".to_string()));
         }
-        let Some(server_config) = context
-            .config_snapshot
-            .get("tools")
-            .and_then(|tools| tools.get("mcp_servers").or_else(|| tools.get("mcpServers")))
+        let Some(server_config) = configured_mcp_servers(&context.config_snapshot)
             .and_then(|servers| servers.get(&server_name))
         else {
             return Some(Err(format!("MCP server is not configured: {server_name}")));

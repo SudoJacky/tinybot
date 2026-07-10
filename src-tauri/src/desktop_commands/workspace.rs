@@ -133,9 +133,9 @@ pub(crate) fn worker_workspace_put_file_with_options(
                 "path": path,
                 "contents": contents,
                 "expected_updated_at": expected_updated_at,
-                "internal_operation": true,
             }),
-        ),
+        )
+        .with_trusted_internal(),
         "worker workspace put file",
     )
 }

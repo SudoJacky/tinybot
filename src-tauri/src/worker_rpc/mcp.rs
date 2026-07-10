@@ -1,4 +1,6 @@
-use crate::runtime::mcp::{mcp_tool_is_enabled, McpRuntime, McpRuntimeError};
+use crate::runtime::mcp::{
+    configured_mcp_servers, mcp_tool_is_enabled, McpRuntime, McpRuntimeError,
+};
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource, WorkerRequest,
@@ -50,11 +52,7 @@ impl WorkerMcpRpc {
 
     pub(super) fn list_tools(&self) -> Result<Value, WorkerProtocolError> {
         self.require(WorkerCapability::McpCall)?;
-        let configured_servers = self
-            .config_snapshot
-            .get("tools")
-            .and_then(|tools| tools.get("mcp_servers").or_else(|| tools.get("mcpServers")))
-            .and_then(Value::as_object);
+        let configured_servers = configured_mcp_servers(&self.config_snapshot);
         let Some(configured_servers) = configured_servers else {
             return Ok(serde_json::json!({ "servers": [] }));
         };
@@ -68,6 +66,7 @@ impl WorkerMcpRpc {
                 &self.workspace_root,
                 server_name,
                 server,
+                None,
             ))
             .map_err(|error| mcp_runtime_error("mcp.list_tools", error))?
             .into_iter()
@@ -188,10 +187,7 @@ impl WorkerMcpRpc {
     }
 
     fn server_config(&self, server_name: &str) -> Option<&Value> {
-        self.config_snapshot
-            .get("tools")
-            .and_then(|tools| tools.get("mcp_servers").or_else(|| tools.get("mcpServers")))
-            .and_then(|servers| servers.get(server_name))
+        configured_mcp_servers(&self.config_snapshot).and_then(|servers| servers.get(server_name))
     }
 
     fn require(&self, capability: WorkerCapability) -> Result<(), WorkerProtocolError> {
@@ -543,8 +539,8 @@ lines.on("line", (line) => {
     #[test]
     fn mcp_fixture_fields_never_create_a_fake_runtime() {
         let rpc = mcp_rpc(json!({
-            "tools": {
-                "mcp_servers": {
+            "mcp": {
+                "servers": {
                     "docs": {
                         "enabled_tools": ["search"],
                         "fixture_tools": {
@@ -611,8 +607,8 @@ lines.on("line", (line) => {
     fn mcp_stdio_runtime_initializes_lists_and_calls_real_server() {
         let fixture = StdioMcpFixture::new();
         let rpc = mcp_rpc(json!({
-            "tools": {
-                "mcp_servers": {
+            "mcp": {
+                "servers": {
                     "docs": {
                         "enabled": true,
                         "transport": "stdio",
@@ -908,6 +904,72 @@ lines.on("line", (line) => {
         assert!(status["lastError"]
             .as_str()
             .is_some_and(|error| error.contains("cancelled")));
+    }
+
+    #[test]
+    fn mcp_cancellation_during_startup_stops_discovery_promptly() {
+        let fixture = StdioMcpFixture::from_source(
+            r#"
+const readline = require("readline");
+const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+function send(value) { process.stdout.write(`${JSON.stringify(value)}\n`); }
+lines.on("line", (line) => {
+  const message = JSON.parse(line);
+  if (message.method === "initialize") {
+    setTimeout(() => send({ jsonrpc: "2.0", id: message.id, result: {
+      protocolVersion: "2025-06-18",
+      capabilities: { tools: { listChanged: false } },
+      serverInfo: { name: "tinybot-slow-start-mcp", version: "1.0.0" }
+    }}), 10000);
+  }
+});
+"#,
+        );
+        let config = json!({
+            "mcp": { "servers": { "slow-start": {
+                "transport": "stdio",
+                "command": "node",
+                "args": [fixture.script.to_string_lossy()],
+                "cwd": fixture.root.to_string_lossy(),
+                "startup_timeout_seconds": 30,
+                "timeout_seconds": 30,
+                "enabled_tools": ["echo"]
+            }}}
+        });
+        let rpc = mcp_rpc(config.clone());
+        let server = configured_mcp_servers(&config)
+            .and_then(|servers| servers.get("slow-start"))
+            .expect("slow startup server should be configured");
+        let cancellation = Arc::new(TestCancellation::new(false));
+        let cancel_from_thread = cancellation.clone();
+        let cancel_thread = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(75));
+            cancel_from_thread.cancelled.store(true, Ordering::SeqCst);
+        });
+        let started = std::time::Instant::now();
+
+        let error = tauri::async_runtime::block_on(rpc.runtime.list_tools(
+            &rpc.workspace_root,
+            "slow-start",
+            server,
+            Some(cancellation),
+        ))
+        .expect_err("startup cancellation should stop MCP discovery");
+        cancel_thread
+            .join()
+            .expect("startup cancellation thread should finish");
+
+        assert!(error.cancelled);
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+        let status = rpc
+            .server_status("slow-start")
+            .expect("cancelled startup status should be available");
+        assert_eq!(status["state"], "failed");
+        assert!(status["lastError"]
+            .as_str()
+            .is_some_and(|error| error.contains("cancelled")));
+        rpc.shutdown()
+            .expect("cancelled startup should leave no live MCP process");
     }
 
     #[test]

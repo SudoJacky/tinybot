@@ -112,7 +112,15 @@ impl McpRuntime {
         workspace_root: &Path,
         server_name: &str,
         server_config: &Value,
+        cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
     ) -> Result<Vec<Value>, McpRuntimeError> {
+        if cancellation
+            .as_ref()
+            .is_some_and(|cancellation| cancellation.is_cancelled())
+        {
+            let transport = configured_transport(server_config);
+            return Err(self.cancelled_error(server_name, &transport));
+        }
         let key = McpServerKey::new(workspace_root, server_name);
         let config = match self.config(workspace_root, server_name, server_config) {
             Ok(config) => config,
@@ -121,16 +129,31 @@ impl McpRuntime {
                 return Err(error);
             }
         };
-        let service = self.ensure_client(&key, &config).await?;
+        let service = self
+            .ensure_client(&key, &config, cancellation.clone())
+            .await?;
         let mut tools = Vec::new();
         let mut cursor = None;
         loop {
             let params = cursor
                 .clone()
                 .map(|cursor| PaginatedRequestParams::default().with_cursor(Some(cursor)));
-            let response_result = {
+            let request = async {
                 let service = service.lock().await;
-                tokio::time::timeout(config.call_timeout(), service.list_tools(params)).await
+                service.list_tools(params).await
+            };
+            let response_result = if let Some(cancellation) = cancellation.clone() {
+                tokio::select! {
+                    result = tokio::time::timeout(config.call_timeout(), request) => Some(result),
+                    _ = wait_for_cancellation(cancellation) => None,
+                }
+            } else {
+                Some(tokio::time::timeout(config.call_timeout(), request).await)
+            };
+            let Some(response_result) = response_result else {
+                let error = self.cancelled_error(server_name, config.transport());
+                self.fail_server(&key, &error.message).await?;
+                return Err(error);
             };
             let response = match response_result {
                 Err(_) => {
@@ -206,7 +229,9 @@ impl McpRuntime {
                 return Err(error);
             }
         };
-        let service = self.ensure_client(&key, &config).await?;
+        let service = self
+            .ensure_client(&key, &config, cancellation.clone())
+            .await?;
         let arguments = match arguments {
             Some(Value::Object(arguments)) => Some(arguments),
             Some(_) => {
@@ -294,16 +319,7 @@ impl McpRuntime {
         workspace_root: &Path,
         config_snapshot: &Value,
     ) -> BTreeMap<String, Value> {
-        let Some(servers) = config_snapshot
-            .get("tools")
-            .and_then(|tools| tools.get("mcp_servers").or_else(|| tools.get("mcpServers")))
-            .or_else(|| {
-                config_snapshot
-                    .get("mcp")
-                    .and_then(|mcp| mcp.get("servers"))
-            })
-            .and_then(Value::as_object)
-        else {
+        let Some(servers) = configured_mcp_servers(config_snapshot) else {
             return BTreeMap::new();
         };
         let managed = self.servers.lock().await;
@@ -368,16 +384,19 @@ impl McpRuntime {
         &self,
         workspace_root: &Path,
         config_snapshot: &Value,
+        cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
     ) -> Result<Vec<McpServerTools>, McpRuntimeError> {
-        let Some(servers) = config_snapshot
-            .get("tools")
-            .and_then(|tools| tools.get("mcp_servers").or_else(|| tools.get("mcpServers")))
-            .and_then(Value::as_object)
-        else {
+        let Some(servers) = configured_mcp_servers(config_snapshot) else {
             return Ok(Vec::new());
         };
         let mut discovered = Vec::new();
         for (server_id, server_config) in servers {
+            if cancellation
+                .as_ref()
+                .is_some_and(|cancellation| cancellation.is_cancelled())
+            {
+                return Err(self.cancelled_error(server_id, &configured_transport(server_config)));
+            }
             if server_config.get("enabled").and_then(Value::as_bool) == Some(false) {
                 continue;
             }
@@ -390,7 +409,12 @@ impl McpRuntime {
                 continue;
             }
             let mut tools = self
-                .list_tools(workspace_root, server_id, server_config)
+                .list_tools(
+                    workspace_root,
+                    server_id,
+                    server_config,
+                    cancellation.clone(),
+                )
                 .await?
                 .into_iter()
                 .filter(|tool| {
@@ -426,10 +450,7 @@ impl McpRuntime {
         workspace_root: &Path,
         config_snapshot: &Value,
     ) -> Result<(), McpRuntimeError> {
-        let configured_servers = config_snapshot
-            .get("tools")
-            .and_then(|tools| tools.get("mcp_servers").or_else(|| tools.get("mcpServers")))
-            .and_then(Value::as_object);
+        let configured_servers = configured_mcp_servers(config_snapshot);
         let existing = self
             .servers
             .lock()
@@ -542,8 +563,15 @@ impl McpRuntime {
         &self,
         key: &McpServerKey,
         config: &McpServerConfig,
+        cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
     ) -> Result<SharedClientService, McpRuntimeError> {
         let server_name = key.server_name.as_str();
+        if cancellation
+            .as_ref()
+            .is_some_and(|cancellation| cancellation.is_cancelled())
+        {
+            return Err(self.cancelled_error(server_name, config.transport()));
+        }
         let previous = {
             let mut servers = self.servers.lock().await;
             if let Some(server) = servers.get(key) {
@@ -592,8 +620,29 @@ impl McpRuntime {
                 .map_err(|message| self.shutdown_error(server_name, config.transport(), message))?;
         }
 
+        if cancellation
+            .as_ref()
+            .is_some_and(|cancellation| cancellation.is_cancelled())
+        {
+            let error = self.cancelled_error(server_name, config.transport());
+            self.finish_server(key, McpServerState::Failed, Some(error.message.clone()))
+                .await?;
+            return Err(error);
+        }
+
         let started = Instant::now();
-        let service = match self.start_client(server_name, config).await {
+        let startup = self.start_client(server_name, config);
+        let startup_result = if let Some(cancellation) = cancellation {
+            tokio::select! {
+                result = startup => result,
+                _ = wait_for_cancellation(cancellation) => {
+                    Err(self.cancelled_error(server_name, config.transport()))
+                }
+            }
+        } else {
+            startup.await
+        };
+        let service = match startup_result {
             Ok(service) => service,
             Err(error) => {
                 let mut servers = self.servers.lock().await;
@@ -613,7 +662,11 @@ impl McpRuntime {
                     config.transport(),
                     "startup",
                     started.elapsed().as_millis(),
-                    Some("startup_failed"),
+                    Some(if error.cancelled {
+                        "cancelled"
+                    } else {
+                        "startup_failed"
+                    }),
                     Some(&error.message),
                 )
                 .await;
@@ -1017,6 +1070,20 @@ fn sanitize_error(message: &str) -> String {
         .chars()
         .take(500)
         .collect()
+}
+
+pub(crate) fn configured_mcp_servers(
+    config_snapshot: &Value,
+) -> Option<&serde_json::Map<String, Value>> {
+    config_snapshot
+        .get("tools")
+        .and_then(|tools| tools.get("mcp_servers").or_else(|| tools.get("mcpServers")))
+        .or_else(|| {
+            config_snapshot
+                .get("mcp")
+                .and_then(|mcp| mcp.get("servers"))
+        })
+        .and_then(Value::as_object)
 }
 
 pub(crate) fn mcp_tool_is_enabled(server_name: &str, tool_name: &str, server: &Value) -> bool {

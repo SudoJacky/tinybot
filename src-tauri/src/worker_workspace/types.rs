@@ -86,6 +86,27 @@ pub struct WorkspaceWriteResult {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct WorkspacePatchApplyResult {
+    pub changed_files: Vec<WorkspacePatchFileChange>,
+    pub files_changed: usize,
+    pub hunks_applied: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct WorkspacePatchFileChange {
+    pub path: String,
+    pub operation: String,
+    pub hunks: Vec<WorkspacePatchHunkSummary>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct WorkspacePatchHunkSummary {
+    pub index: usize,
+    pub removed_lines: usize,
+    pub added_lines: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct WorkspaceCreateDirResult {
     pub path: String,
     pub kind: String,

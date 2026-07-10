@@ -24,6 +24,7 @@ mod tool_result;
 mod tool_router;
 mod tool_runtime;
 mod usage;
+mod user_input;
 
 use self::provider::{
     agent_chat_completion_request, agent_provider_config, chat_completion_content,

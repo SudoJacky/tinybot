@@ -404,6 +404,44 @@ An approved continuation dispatches the persisted call through the same registry
 records the real tool result, and resumes the provider loop. It does not synthesize a successful
 approval result. Denial records the denied result without invoking the tool.
 
+### Model-requested user input
+
+The capability-allowed provider tool list includes the runtime control tool `request_user_input`.
+It requires `form.request` and accepts a strict structured form:
+
+```json
+{
+  "title": "Choose a target",
+  "description": "Select the environment to update.",
+  "submit_label": "Continue",
+  "cancel_label": "Stop",
+  "fields": [
+    {
+      "name": "environment",
+      "type": "select",
+      "label": "Environment",
+      "required": true,
+      "options": [
+        { "label": "Development", "value": "dev" },
+        { "label": "Production", "value": "prod" }
+      ]
+    }
+  ]
+}
+```
+
+Supported field types are `text`, `textarea`, `number`, `select`, `multiselect`, `radio`, and
+`checkbox`. Choice fields require an explicit option list. Unknown properties, unsafe or duplicate
+field names, unsupported option values, missing required values, and values with the wrong JSON
+type fail explicitly.
+
+The tool persists an `awaiting_form` checkpoint with `kind: "user_input"`, the pending tool call,
+the assistant message that owns it, and the current model context. It then emits
+`agent.awaiting_form` and returns `stopReason: "awaiting_form"`. `worker_submit_agent_form` must use
+the matching `sessionId` and `formId`. A valid submit becomes the real tool observation and resumes
+the same provider chain; it is not converted into a synthetic final answer. Cancel clears the
+checkpoint and returns `stopReason: "form_cancelled"` with an observable resolution/error event.
+
 ## Session Commands
 
 | Command | Args | Response |
@@ -598,6 +636,7 @@ Lower-level workspace RPC also supports:
 - `workspace.read_file`
 - `workspace.read_bootstrap_files`
 - `workspace.write_file`
+- `workspace.apply_patch`
 - `workspace.create_dir`
 - `workspace.list_dir`
 - `workspace.delete_file`
@@ -618,6 +657,49 @@ Lower-level workspace RPC also supports:
   "truncated": false
 }
 ```
+
+`workspace.apply_patch` accepts:
+
+```json
+{
+  "patch": "*** Begin Patch\n*** Update File: README.md\n@@\n-old\n+new\n*** End Patch",
+  "sessionId": "websocket:chat-1",
+  "runId": "run-1",
+  "approvalFingerprint": "optional-once-grant",
+  "approvalSessionFingerprint": "optional-session-grant"
+}
+```
+
+The patch grammar is strict and supports `*** Add File: path`, `*** Update File: path`, and
+`*** Delete File: path` operations between `*** Begin Patch` and `*** End Patch`. Update hunks begin
+with `@@`; each following line starts with a space, `+`, or `-`. Context must have one exact match.
+The backend does not perform fuzzy matching.
+
+All targets are validated before writing. Paths must stay inside the workspace, symlink escapes and
+non-regular update/delete targets are rejected, add cannot overwrite, and a file may appear only
+once per patch. Limits are 4 MiB, 256 file operations, and 256 hunks per updated file. Each changed
+file is written atomically, and updated files preserve their existing LF or CRLF line ending.
+
+Result shape:
+
+```json
+{
+  "changed_files": [
+    {
+      "path": "README.md",
+      "operation": "update",
+      "hunks": [{ "index": 1, "removed_lines": 1, "added_lines": 1 }]
+    }
+  ],
+  "files_changed": 1,
+  "hunks_applied": 1
+}
+```
+
+`workspace.apply_patch`, `workspace.write_file`, `workspace.delete_file`, `shell.execute`, and MCP
+tool calls enforce their final approval boundary at the concrete Worker RPC method. A caller cannot
+claim an internal operation in serialized params: the trusted marker exists only on an in-process
+request after the native runtime has passed its approval gate.
 
 ## Knowledge Commands
 
@@ -829,7 +911,7 @@ External callers should usually prefer the Tauri commands above.
 | `thread` | `activity`, `agent_registry`, `append_items`, `apply_op`, `archive`, `continue_turn`, `create`, `delete`, `events`, `fork`, `interrupt`, `list`, `read`, `restore_checkpoint`, `resume`, `search`, `start_turn`, `status`, `unarchive`, `update_metadata` |
 | `tool_executor` | `execute` |
 | `tool_registry` | `list`, `search` |
-| `workspace` | `create_dir`, `delete_file`, `list_dir`, `list_files`, `read_bootstrap_files`, `read_file`, `resolve_path`, `write_file` |
+| `workspace` | `apply_patch`, `create_dir`, `delete_file`, `list_dir`, `list_files`, `read_bootstrap_files`, `read_file`, `resolve_path`, `write_file` |
 
 ### MCP Runtime RPC
 
@@ -843,6 +925,10 @@ Accepted transport values:
 - `stdio`: starts the configured command directly without a shell;
 - `http`, `streamable_http`, and `streamable-http`: use MCP Streamable HTTP;
 - `sse`: rejected as an unsupported legacy transport; there is no fallback.
+
+Configured server maps are normalized from `tools.mcp_servers`, `tools.mcpServers`, or
+`mcp.servers`. All MCP status, discovery, reconciliation, Worker RPC, and native-agent dispatch
+paths use the same normalized map.
 
 Streamable HTTP configuration example:
 
@@ -913,9 +999,11 @@ status:
 }
 ```
 
-The server and tool must be enabled and allowlisted. Calls support startup/call timeouts and request
-cancellation. Cancellation during an active call closes that transport and marks the server failed;
-the next call starts a clean client.
+The server and tool must be enabled and allowlisted. Discovery and calls support startup/call
+timeouts and request cancellation. Cancellation before or during client startup, initialization,
+or `tools/list` closes the partial transport, marks the server failed with a cancelled diagnostic,
+and stops discovery promptly. Cancellation during an active call uses the same cleanup path. The
+next discovery or call starts a clean client.
 
 Additional methods:
 
@@ -933,10 +1021,12 @@ The Rust backend can emit live events through Tauri. Dotted worker event names a
 - `agent.tool_call.delta`
 - `agent.tool.start`
 - `agent.tool.result`
+- `agent.tool.debug`
 - `agent.usage`
 - `agent.checkpoint`
 - `agent.status`
 - `agent.awaiting_form`
+- `agent.form.resolution`
 - `agent.awaiting_approval`
 - `agent.memory_reference`
 - `agent.task_progress`

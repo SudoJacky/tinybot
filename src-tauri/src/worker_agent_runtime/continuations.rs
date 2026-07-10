@@ -17,7 +17,7 @@ use crate::agent_loop_runtime_protocol::{
 };
 use serde_json::Value;
 
-fn typed_continuation_from_metadata(metadata: &Value) -> Option<AgentContinuationInput> {
+pub(super) fn typed_continuation_from_metadata(metadata: &Value) -> Option<AgentContinuationInput> {
     metadata
         .get("agentContinuation")
         .or_else(|| metadata.get("continuation"))
@@ -38,13 +38,21 @@ pub(super) fn restore_activated_tools_for_continuation(
     ) {
         return Ok(());
     }
-    let Some(checkpoint) = services
+    let checkpoint = services
         .checkpoints
         .restore_for_run(&context.session_id, &context.run_id)
-    else {
-        return Ok(());
-    };
-    if checkpoint.pointer("/payload/kind").and_then(Value::as_str) == Some("tool_approval") {
+        .ok_or_else(|| {
+            "approval and form continuations require a matching run checkpoint".to_string()
+        })?;
+    let checkpoint_kind = checkpoint.pointer("/payload/kind").and_then(Value::as_str);
+    let is_approval_checkpoint = checkpoint_kind == Some("tool_approval")
+        || (cfg!(test) && checkpoint_kind == Some("test_approval"));
+    let is_form_checkpoint = checkpoint_kind == Some("user_input")
+        || (cfg!(test) && checkpoint_kind == Some("test_form"));
+    if is_approval_checkpoint {
+        if checkpoint.get("phase").and_then(Value::as_str) != Some("awaiting_approval") {
+            return Err("invalid approval checkpoint: phase must be awaiting_approval".to_string());
+        }
         let expected_approval_id = checkpoint
             .pointer("/payload/approvalId")
             .and_then(Value::as_str)
@@ -59,6 +67,29 @@ pub(super) fn restore_activated_tools_for_continuation(
                 "approval continuation ID `{approval_id}` does not match checkpoint `{expected_approval_id}`"
             ));
         }
+    } else if is_form_checkpoint {
+        if checkpoint.get("phase").and_then(Value::as_str) != Some("awaiting_form") {
+            return Err("invalid form checkpoint: phase must be awaiting_form".to_string());
+        }
+        let expected_form_id = checkpoint
+            .pointer("/payload/formId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "invalid user input checkpoint: formId is missing".to_string())?;
+        let AgentContinuationInput::Form { form_id, .. } = &continuation else {
+            return Err(
+                "user input checkpoint cannot be resumed by an approval continuation".to_string(),
+            );
+        };
+        if form_id != expected_form_id {
+            return Err(format!(
+                "form continuation ID `{form_id}` does not match checkpoint `{expected_form_id}`"
+            ));
+        }
+    } else {
+        return Err(format!(
+            "unsupported continuation checkpoint kind: {}",
+            checkpoint_kind.unwrap_or("missing")
+        ));
     }
     context
         .tool_router
@@ -109,7 +140,9 @@ pub(super) fn maybe_awaiting_approval_result(
         context,
         "awaiting_approval",
         serde_json::json!({
+            "kind": "test_approval",
             "iteration": 0,
+            "approvalId": approval_id,
             "approval_id": approval_id,
             "operation": approval,
             "pendingToolCalls": [{
@@ -195,6 +228,9 @@ pub(super) fn maybe_approval_resume_result(
     let checkpoint = services
         .checkpoints
         .restore_for_run(&context.session_id, &context.run_id);
+    if checkpoint.is_none() {
+        return Err("approval continuation checkpoint is missing".to_string());
+    }
     if approved
         && checkpoint
             .as_ref()
@@ -206,6 +242,16 @@ pub(super) fn maybe_approval_resume_result(
             .ok_or_else(|| "tool approval continuation checkpoint disappeared".to_string())?;
         return approved_tool_continuation_result(services, context, &continuation, checkpoint)
             .map(Some);
+    }
+    if approved
+        && !(cfg!(test)
+            && checkpoint
+                .as_ref()
+                .and_then(|checkpoint| checkpoint.pointer("/payload/kind"))
+                .and_then(Value::as_str)
+                == Some("test_approval"))
+    {
+        return Err("approved continuation requires an exact tool_approval checkpoint".to_string());
     }
     if !approved {
         if let Some(guidance) = continuation.guidance.clone() {
@@ -741,7 +787,9 @@ pub(super) fn maybe_awaiting_form_result(
         context,
         "awaiting_form",
         serde_json::json!({
+            "kind": "test_form",
             "iteration": 0,
+            "formId": form_id,
             "form_id": form_id,
             "form": form,
             "pendingToolCalls": [],
@@ -813,8 +861,19 @@ pub(super) fn maybe_awaiting_form_result(
 pub(super) fn maybe_form_submit_result(
     services: &NativeAgentRuntimeServices,
     context: &NativeAgentRunContext,
-) -> Option<Value> {
-    let (form, continuation) = form_submit_metadata(context)?;
+) -> Result<Option<Value>, String> {
+    let Some((form, continuation)) = form_submit_metadata(context) else {
+        return Ok(None);
+    };
+    let checkpoint = services
+        .checkpoints
+        .restore_for_run(&context.session_id, &context.run_id)
+        .ok_or_else(|| "form continuation checkpoint is missing".to_string())?;
+    if !(cfg!(test)
+        && checkpoint.pointer("/payload/kind").and_then(Value::as_str) == Some("test_form"))
+    {
+        return Err("legacy form continuation requires a test_form checkpoint".to_string());
+    }
     if matches!(continuation.action, AgentFormAction::Cancel) {
         services
             .checkpoints
@@ -833,7 +892,7 @@ pub(super) fn maybe_form_submit_result(
                 }),
             ),
         ];
-        return Some(serde_json::json!({
+        return Ok(Some(serde_json::json!({
             "runtime": "rust",
             "runId": context.run_id,
             "sessionId": context.session_id,
@@ -843,11 +902,9 @@ pub(super) fn maybe_form_submit_result(
             "toolsUsed": [],
             "error": message,
             "events": events,
-        }));
+            "restoredCheckpoint": checkpoint,
+        })));
     }
-    let checkpoint = services
-        .checkpoints
-        .restore_for_run(&context.session_id, &context.run_id);
     services
         .checkpoints
         .clear_for_run(&context.session_id, &context.run_id);
@@ -873,7 +930,7 @@ pub(super) fn maybe_form_submit_result(
             }),
         ),
     ];
-    Some(serde_json::json!({
+    Ok(Some(serde_json::json!({
         "runtime": "rust",
         "runId": context.run_id,
         "sessionId": context.session_id,
@@ -892,7 +949,7 @@ pub(super) fn maybe_form_submit_result(
             "values": continuation.values,
         },
         "events": events,
-    }))
+    })))
 }
 
 fn form_resolution_event(

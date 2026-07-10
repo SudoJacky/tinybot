@@ -3,7 +3,12 @@ mod tests {
     use super::*;
     use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
     use crate::worker_protocol::{WorkerProtocolErrorCode, WorkerProtocolErrorSource};
-    use std::path::PathBuf;
+    use std::{
+        path::PathBuf,
+        sync::atomic::{AtomicU64, Ordering},
+    };
+
+    static WORKSPACE_FIXTURE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     #[test]
     fn default_policy_denies_workspace_read() {
@@ -448,6 +453,212 @@ mod tests {
     }
 
     #[test]
+    fn apply_patch_adds_a_new_file_from_strict_patch_grammar() {
+        let fixture = WorkspaceFixture::new();
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), write_policy());
+
+        let result = rpc
+            .apply_patch("*** Begin Patch\n*** Add File: notes/today.md\n+hello\n*** End Patch\n");
+
+        assert!(result.is_ok());
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("notes/today.md"))
+                .expect("added file should read"),
+            "hello\n"
+        );
+    }
+
+    #[test]
+    fn apply_patch_updates_an_exact_hunk() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("notes/today.md", "one\ntwo\nthree\n");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), write_policy());
+
+        let result = rpc.apply_patch(
+            "*** Begin Patch\n*** Update File: notes/today.md\n@@\n one\n-two\n+second\n three\n*** End Patch\n",
+        );
+
+        assert!(result.is_ok());
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("notes/today.md"))
+                .expect("updated file should read"),
+            "one\nsecond\nthree\n"
+        );
+    }
+
+    #[test]
+    fn apply_patch_preserves_crlf_line_endings() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("notes/today.md", "one\r\ntwo\r\nthree\r\n");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), write_policy());
+
+        rpc.apply_patch(
+            "*** Begin Patch\n*** Update File: notes/today.md\n@@\n one\n-two\n+second\n three\n*** End Patch\n",
+        )
+        .expect("exact patch should support CRLF files");
+
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("notes/today.md"))
+                .expect("updated file should read"),
+            "one\r\nsecond\r\nthree\r\n"
+        );
+    }
+
+    #[test]
+    fn apply_patch_rejects_duplicate_and_traversal_targets() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("notes/today.md", "before\n");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), write_policy());
+
+        let duplicate = rpc
+            .apply_patch(
+                "*** Begin Patch\n*** Update File: notes/today.md\n@@\n-before\n+after\n*** Delete File: notes/today.md\n*** End Patch\n",
+            )
+            .expect_err("same target may not appear twice");
+        let traversal = rpc
+            .apply_patch(
+                "*** Begin Patch\n*** Add File: ../outside/escaped.md\n+escaped\n*** End Patch\n",
+            )
+            .expect_err("patch target may not escape the workspace");
+
+        assert_eq!(
+            duplicate.message,
+            "patch may not modify the same file more than once"
+        );
+        assert_eq!(traversal.code, WorkerProtocolErrorCode::InvalidProtocol);
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("notes/today.md"))
+                .expect("original file should read"),
+            "before\n"
+        );
+        assert!(!fixture.outside.join("escaped.md").exists());
+    }
+
+    #[test]
+    fn apply_patch_deletes_an_existing_file() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("notes/today.md", "hello\n");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), write_policy());
+
+        let result =
+            rpc.apply_patch("*** Begin Patch\n*** Delete File: notes/today.md\n*** End Patch\n");
+
+        assert!(result.is_ok());
+        assert!(!fixture.root.join("notes/today.md").exists());
+    }
+
+    #[test]
+    fn apply_patch_rejects_unmatched_hunks_without_mutating_any_target() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("notes/today.md", "current\n");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), write_policy());
+
+        let error = rpc
+            .apply_patch(
+                "*** Begin Patch\n*** Add File: notes/new.md\n+new\n*** Update File: notes/today.md\n@@\n-stale\n+updated\n*** End Patch\n",
+            )
+            .expect_err("unmatched hunk should reject the entire patch");
+
+        assert_eq!(error.code, WorkerProtocolErrorCode::InvalidProtocol);
+        assert_eq!(
+            error.message,
+            "update patch hunk does not match file contents"
+        );
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("notes/today.md"))
+                .expect("original file should read"),
+            "current\n"
+        );
+        assert!(!fixture.root.join("notes/new.md").exists());
+    }
+
+    #[test]
+    fn apply_patch_rejects_existing_add_and_missing_update_or_delete_targets() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("notes/today.md", "current\n");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), write_policy());
+
+        let add_error = rpc
+            .apply_patch(
+                "*** Begin Patch\n*** Add File: notes/today.md\n+replacement\n*** End Patch\n",
+            )
+            .expect_err("add must not overwrite an existing file");
+        let update_error = rpc
+            .apply_patch(
+                "*** Begin Patch\n*** Update File: notes/missing.md\n@@\n-before\n+after\n*** End Patch\n",
+            )
+            .expect_err("update target must exist");
+        let delete_error = rpc
+            .apply_patch("*** Begin Patch\n*** Delete File: notes/missing.md\n*** End Patch\n")
+            .expect_err("delete target must exist");
+
+        assert_eq!(add_error.message, "add patch target already exists");
+        assert_eq!(update_error.message, "update patch target does not exist");
+        assert_eq!(delete_error.message, "delete patch target does not exist");
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("notes/today.md"))
+                .expect("original file should remain unchanged"),
+            "current\n"
+        );
+    }
+
+    #[test]
+    fn apply_patch_rejects_ambiguous_exact_hunks() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("notes/today.md", "repeat\nrepeat\n");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), write_policy());
+
+        let error = rpc
+            .apply_patch(
+                "*** Begin Patch\n*** Update File: notes/today.md\n@@\n-repeat\n+updated\n*** End Patch\n",
+            )
+            .expect_err("ambiguous hunk should not select a target silently");
+
+        assert_eq!(
+            error.message,
+            "update patch hunk matches file contents more than once"
+        );
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("notes/today.md"))
+                .expect("original file should read"),
+            "repeat\nrepeat\n"
+        );
+    }
+
+    #[test]
+    fn apply_patch_rejects_symlink_targets_outside_the_workspace() {
+        let fixture = WorkspaceFixture::new();
+        let outside = fixture.outside.join("secret.txt");
+        std::fs::write(&outside, "secret\n").expect("outside file should write");
+        let link = fixture.root.join("linked-secret.txt");
+
+        #[cfg(target_os = "windows")]
+        if let Err(error) = std::os::windows::fs::symlink_file(&outside, &link) {
+            eprintln!("skipping symlink test because symlink creation failed: {error}");
+            return;
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        if let Err(error) = std::os::unix::fs::symlink(&outside, &link) {
+            eprintln!("skipping symlink test because symlink creation failed: {error}");
+            return;
+        }
+
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), write_policy());
+        let error = rpc
+            .apply_patch(
+                "*** Begin Patch\n*** Update File: linked-secret.txt\n@@\n-secret\n+changed\n*** End Patch\n",
+            )
+            .expect_err("symlink target outside the workspace should be rejected");
+
+        assert_eq!(error.code, WorkerProtocolErrorCode::InvalidProtocol);
+        assert_eq!(
+            std::fs::read_to_string(outside).expect("outside file should remain unchanged"),
+            "secret\n"
+        );
+    }
+
+    #[test]
     fn webui_skill_lifecycle_runs_in_rust_workspace_service() {
         let fixture = WorkspaceFixture::new();
         let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_write_policy());
@@ -548,13 +759,15 @@ mod tests {
 
     impl WorkspaceFixture {
         fn new() -> Self {
+            let counter = WORKSPACE_FIXTURE_COUNTER.fetch_add(1, Ordering::Relaxed);
             let base = std::env::temp_dir().join(format!(
-                "tinybot-worker-workspace-{}-{}",
+                "tinybot-worker-workspace-{}-{}-{}",
                 std::process::id(),
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .expect("clock should be after unix epoch")
-                    .as_nanos()
+                    .as_nanos(),
+                counter,
             ));
             let root = base.join("workspace");
             let outside = base.join("outside");

@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 pub const TOOL_SEARCH_METHOD: &str = "tool_search";
+pub const REQUEST_USER_INPUT_METHOD: &str = "request_user_input";
 pub const DEFAULT_TOOL_SEARCH_LIMIT: usize = 5;
 pub const MAX_TOOL_SEARCH_LIMIT: usize = 20;
 
@@ -79,6 +80,7 @@ pub enum ToolExecutionTarget {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ToolRuntimeControl {
     ToolSearch,
+    RequestUserInput,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -347,6 +349,8 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
             "Search deferred tools",
             "Search available deferred tools and activate matching tools for this turn.",
             ToolRuntimeControl::ToolSearch,
+            runtime_policy(false, false, false, false),
+            Vec::new(),
             json!({
                 "type": "object",
                 "required": ["query"],
@@ -357,6 +361,74 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
                         "minimum": 1,
                         "maximum": MAX_TOOL_SEARCH_LIMIT,
                         "default": DEFAULT_TOOL_SEARCH_LIMIT
+                    }
+                },
+                "additionalProperties": false
+            }),
+        ),
+        runtime_control_tool(
+            REQUEST_USER_INPUT_METHOD,
+            "interaction",
+            "Request user input",
+            "Pause the current run and ask the user to complete a structured form when required information cannot be inferred safely.",
+            ToolRuntimeControl::RequestUserInput,
+            runtime_policy(false, false, false, true),
+            vec![WorkerCapability::FormRequest],
+            json!({
+                "type": "object",
+                "required": ["title", "fields"],
+                "properties": {
+                    "title": { "type": "string", "minLength": 1, "maxLength": 256 },
+                    "description": { "type": "string", "maxLength": 1024 },
+                    "submit_label": { "type": "string", "maxLength": 128 },
+                    "cancel_label": { "type": "string", "maxLength": 128 },
+                    "fields": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 50,
+                        "items": {
+                            "type": "object",
+                            "required": ["name", "type", "label"],
+                            "properties": {
+                                "name": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64,
+                                    "pattern": "^[A-Za-z_][A-Za-z0-9_.-]*$"
+                                },
+                                "type": {
+                                    "type": "string",
+                                    "enum": [
+                                        "text",
+                                        "textarea",
+                                        "number",
+                                        "select",
+                                        "multiselect",
+                                        "radio",
+                                        "checkbox"
+                                    ]
+                                },
+                                "label": { "type": "string", "minLength": 1, "maxLength": 256 },
+                                "required": { "type": "boolean", "default": false },
+                                "placeholder": { "type": "string", "maxLength": 512 },
+                                "help": { "type": "string", "maxLength": 512 },
+                                "options": {
+                                    "type": "array",
+                                    "minItems": 1,
+                                    "maxItems": 100,
+                                    "items": {
+                                        "type": "object",
+                                        "required": ["label", "value"],
+                                        "properties": {
+                                            "label": { "type": "string", "minLength": 1, "maxLength": 256 },
+                                            "value": { "type": "string", "maxLength": 2000 }
+                                        },
+                                        "additionalProperties": false
+                                    }
+                                }
+                            },
+                            "additionalProperties": false
+                        }
                     }
                 },
                 "additionalProperties": false
@@ -404,6 +476,31 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
                     "contents": { "type": "string" },
                     "expectedUpdatedAt": { "type": "string" }
                 }
+            }),
+        ),
+        tool(
+            "workspace.apply_patch",
+            "workspace",
+            "Apply workspace patch",
+            "Apply a strict multi-file patch under the current workspace. Patch context must match exactly.",
+            ToolExposure::Deferred,
+            false,
+            runtime_policy(false, false, true, false),
+            vec![
+                WorkerCapability::FsWorkspaceWrite,
+                WorkerCapability::ApprovalRequest,
+            ],
+            approval(true, Some("file"), Some("per_request")),
+            json!({
+                "type": "object",
+                "required": ["patch"],
+                "properties": {
+                    "patch": {
+                        "type": "string",
+                        "description": "Strict patch text delimited by *** Begin Patch and *** End Patch."
+                    }
+                },
+                "additionalProperties": false
             }),
         ),
         tool(
@@ -616,6 +713,8 @@ fn runtime_control_tool(
     title: &'static str,
     description: &'static str,
     control: ToolRuntimeControl,
+    runtime_policy: ToolRuntimePolicy,
+    required_capabilities: Vec<WorkerCapability>,
     input_schema: Value,
 ) -> ToolRegistryEntry {
     ToolRegistryEntry {
@@ -626,9 +725,9 @@ fn runtime_control_tool(
         description: description.to_string(),
         exposure: ToolExposure::Model,
         dynamic: false,
-        supports_parallel_tool_calls: false,
-        runtime_policy: runtime_policy(false, false, false, false),
-        required_capabilities: Vec::new(),
+        supports_parallel_tool_calls: runtime_policy.supports_parallel_tool_calls,
+        runtime_policy,
+        required_capabilities,
         available: false,
         approval: approval(false, None, None),
         input_schema,
@@ -681,6 +780,50 @@ mod tests {
             ToolExecutionTarget::RuntimeControl(ToolRuntimeControl::ToolSearch)
         );
         assert_eq!(tool.input_schema["properties"]["limit"]["maximum"], 20);
+    }
+
+    #[test]
+    fn request_user_input_requires_form_capability() {
+        let denied = WorkerToolRegistryRpc::new(CapabilityPolicy::default())
+            .get_tool(REQUEST_USER_INPUT_METHOD)
+            .expect("request_user_input should be registered");
+        let available =
+            WorkerToolRegistryRpc::new(CapabilityPolicy::new([WorkerCapability::FormRequest]))
+                .get_tool(REQUEST_USER_INPUT_METHOD)
+                .expect("request_user_input should be registered");
+
+        assert!(!denied.available);
+        assert!(available.available);
+        assert_eq!(
+            available.execution_target,
+            ToolExecutionTarget::RuntimeControl(ToolRuntimeControl::RequestUserInput)
+        );
+        assert!(available.runtime_policy.mutates_session);
+        assert_eq!(
+            available.input_schema["properties"]["fields"]["minItems"],
+            1
+        );
+    }
+
+    #[test]
+    fn apply_patch_is_deferred_and_approval_required() {
+        let tool = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
+            WorkerCapability::FsWorkspaceWrite,
+            WorkerCapability::ApprovalRequest,
+        ]))
+        .get_tool("workspace.apply_patch")
+        .expect("workspace.apply_patch should be registered");
+
+        assert_eq!(tool.exposure, ToolExposure::Deferred);
+        assert!(tool.available);
+        assert!(tool.approval.required);
+        assert!(tool.runtime_policy.mutates_workspace);
+        assert_eq!(
+            tool.execution_target,
+            ToolExecutionTarget::WorkerRpc {
+                method: "workspace.apply_patch".to_string()
+            }
+        );
     }
 
     #[test]

@@ -16,7 +16,7 @@ use super::{
 };
 use crate::agent_loop_runtime_protocol::AgentRuntimePhase;
 use crate::worker_tool_registry::ToolApprovalMetadata;
-use crate::worker_tool_registry::TOOL_SEARCH_METHOD;
+use crate::worker_tool_registry::{REQUEST_USER_INPUT_METHOD, TOOL_SEARCH_METHOD};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -38,7 +38,6 @@ enum ToolDispatchOutcome {
     Failure {
         tool_call: NativeAgentToolCall,
         error: String,
-        terminal: bool,
     },
     Cancelled {
         tool_call: NativeAgentToolCall,
@@ -91,14 +90,23 @@ impl ToolBatchTerminal {
         let failed_state = index
             .checked_add(Self::FAILED_INDEX_OFFSET)
             .expect("tool batch index should fit terminal state encoding");
-        self.state
-            .compare_exchange(
-                Self::NONE,
+        let mut current = self.state.load(Ordering::Acquire);
+        loop {
+            if current == Self::CANCELLED
+                || (current >= Self::FAILED_INDEX_OFFSET && current <= failed_state)
+            {
+                return false;
+            }
+            match self.state.compare_exchange(
+                current,
                 failed_state,
                 Ordering::AcqRel,
                 Ordering::Acquire,
-            )
-            .is_ok()
+            ) {
+                Ok(_) => return true,
+                Err(updated) => current = updated,
+            }
+        }
     }
 
     fn try_claim_cancelled(&self) -> bool {
@@ -146,15 +154,19 @@ mod terminal_tests {
     use super::*;
 
     #[test]
-    fn later_failure_does_not_skip_earlier_model_order_calls() {
+    fn lower_model_order_failure_replaces_a_faster_later_failure() {
         let terminal = ToolBatchTerminal::new();
 
         assert!(terminal.try_claim_failure(2));
+        assert!(terminal.try_claim_failure(0));
+        assert!(!terminal.try_claim_failure(1));
         assert_eq!(terminal.skip_outcome_for(0), None);
-        assert_eq!(terminal.skip_outcome_for(1), None);
-        assert_eq!(terminal.skip_outcome_for(2), None);
         assert_eq!(
-            terminal.skip_outcome_for(3),
+            terminal.skip_outcome_for(1),
+            Some(ToolBatchTerminalOutcome::Failed)
+        );
+        assert_eq!(
+            terminal.skip_outcome_for(2),
             Some(ToolBatchTerminalOutcome::Failed)
         );
         assert_eq!(terminal.outcome(), Some(ToolBatchTerminalOutcome::Failed));
@@ -332,6 +344,41 @@ pub(super) fn execute_tool_calls_for_iteration(
                 .next()
                 .expect("single tool_search call should exist"),
         );
+    }
+
+    if tool_calls
+        .iter()
+        .any(|tool_call| tool_call.name == REQUEST_USER_INPUT_METHOD)
+    {
+        if tool_calls.len() != 1 {
+            let tool_call = tool_calls
+                .iter()
+                .find(|tool_call| tool_call.name == REQUEST_USER_INPUT_METHOD)
+                .expect("request_user_input presence was checked");
+            return tool_error_result(
+                services,
+                context,
+                state,
+                iteration,
+                tool_call,
+                "request_user_input must be the only tool call in its provider response"
+                    .to_string(),
+            );
+        }
+        let tool_call = tool_calls
+            .into_iter()
+            .next()
+            .expect("single request_user_input call should exist");
+        return match super::user_input::awaiting_user_input_result(
+            services,
+            context,
+            state,
+            iteration,
+            tool_call.clone(),
+        ) {
+            Ok(result) => NativeAgentToolExecutionOutcome::Finished(result),
+            Err(error) => tool_error_result(services, context, state, iteration, &tool_call, error),
+        };
     }
 
     if let Some((tool_call, approval)) = tool_calls.iter().find_map(|tool_call| {
@@ -683,20 +730,21 @@ fn execute_locked_tool_batch(
                                 tool_call,
                                 result,
                             }),
-                            Err(error) => ToolDispatchOutcome::Failure {
-                                tool_call,
-                                error,
-                                terminal: terminal.try_claim_failure(index),
-                            },
+                            Err(error) => {
+                                terminal.try_claim_failure(index);
+                                ToolDispatchOutcome::Failure { tool_call, error }
+                            }
                         }
                     }
-                    Err(error) => ToolDispatchOutcome::Failure {
-                        tool_call,
-                        error: format!(
-                            "native tool scheduler read lock acquisition failed: {error}"
-                        ),
-                        terminal: terminal.try_claim_failure(index),
-                    },
+                    Err(error) => {
+                        terminal.try_claim_failure(index);
+                        ToolDispatchOutcome::Failure {
+                            tool_call,
+                            error: format!(
+                                "native tool scheduler read lock acquisition failed: {error}"
+                            ),
+                        }
+                    }
                 }
             } else {
                 match lock.write(index) {
@@ -733,20 +781,21 @@ fn execute_locked_tool_batch(
                                 tool_call,
                                 result,
                             }),
-                            Err(error) => ToolDispatchOutcome::Failure {
-                                tool_call,
-                                error,
-                                terminal: terminal.try_claim_failure(index),
-                            },
+                            Err(error) => {
+                                terminal.try_claim_failure(index);
+                                ToolDispatchOutcome::Failure { tool_call, error }
+                            }
                         }
                     }
-                    Err(error) => ToolDispatchOutcome::Failure {
-                        tool_call,
-                        error: format!(
-                            "native tool scheduler write lock acquisition failed: {error}"
-                        ),
-                        terminal: terminal.try_claim_failure(index),
-                    },
+                    Err(error) => {
+                        terminal.try_claim_failure(index);
+                        ToolDispatchOutcome::Failure {
+                            tool_call,
+                            error: format!(
+                                "native tool scheduler write lock acquisition failed: {error}"
+                            ),
+                        }
+                    }
                 }
             };
             send_tool_dispatch_finished(sender, finish_sequence, index, result);
@@ -861,34 +910,42 @@ fn execute_locked_tool_batch(
         .into_iter()
         .map(|result| result.expect("tool dispatch should return one result per index"))
         .collect::<Vec<_>>();
-    let terminal_result = indexed_results
-        .iter()
-        .enumerate()
-        .filter_map(|(index, result)| match &result.outcome {
-            ToolDispatchOutcome::Failure {
-                tool_call,
-                error,
-                terminal: true,
-            } => Some((
-                index,
-                result.sequence,
-                ToolBatchTerminalOutcome::Failed,
-                tool_call,
-                Some(error.as_str()),
-            )),
-            ToolDispatchOutcome::Cancelled {
-                tool_call,
-                terminal: true,
-            } => Some((
-                index,
-                result.sequence,
-                ToolBatchTerminalOutcome::Cancelled,
-                tool_call,
-                None,
-            )),
-            _ => None,
-        })
-        .min_by_key(|(_, sequence, _, _, _)| *sequence);
+    let terminal_result = match terminal.outcome() {
+        Some(ToolBatchTerminalOutcome::Failed) => indexed_results
+            .iter()
+            .enumerate()
+            .filter_map(|(index, result)| match &result.outcome {
+                ToolDispatchOutcome::Failure {
+                    tool_call, error, ..
+                } => Some((
+                    index,
+                    result.sequence,
+                    ToolBatchTerminalOutcome::Failed,
+                    tool_call,
+                    Some(error.as_str()),
+                )),
+                _ => None,
+            })
+            .min_by_key(|(index, _, _, _, _)| *index),
+        Some(ToolBatchTerminalOutcome::Cancelled) => indexed_results
+            .iter()
+            .enumerate()
+            .filter_map(|(index, result)| match &result.outcome {
+                ToolDispatchOutcome::Cancelled {
+                    tool_call,
+                    terminal: true,
+                } => Some((
+                    index,
+                    result.sequence,
+                    ToolBatchTerminalOutcome::Cancelled,
+                    tool_call,
+                    None,
+                )),
+                _ => None,
+            })
+            .min_by_key(|(_, sequence, _, _, _)| *sequence),
+        None => None,
+    };
 
     if let Some((
         terminal_index,
@@ -901,7 +958,12 @@ fn execute_locked_tool_batch(
         for (index, indexed_result) in indexed_results.iter().enumerate() {
             match &indexed_result.outcome {
                 ToolDispatchOutcome::Success(success)
-                    if indexed_result.sequence < terminal_sequence || index < terminal_index =>
+                    if match terminal_outcome {
+                        ToolBatchTerminalOutcome::Failed => index < terminal_index,
+                        ToolBatchTerminalOutcome::Cancelled => {
+                            indexed_result.sequence < terminal_sequence || index < terminal_index
+                        }
+                    } =>
                 {
                     record_tool_success(
                         context,
@@ -912,10 +974,8 @@ fn execute_locked_tool_batch(
                     );
                 }
                 ToolDispatchOutcome::Failure {
-                    tool_call,
-                    error,
-                    terminal: false,
-                } => emit_late_terminal_debug(
+                    tool_call, error, ..
+                } if index != terminal_index => emit_late_terminal_debug(
                     context,
                     state,
                     iteration,

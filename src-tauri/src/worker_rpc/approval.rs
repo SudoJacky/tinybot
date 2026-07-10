@@ -274,6 +274,63 @@ pub(super) fn workspace_write_approval(
     }
 }
 
+pub(super) fn workspace_apply_patch_approval(
+    paths: &[String],
+    session_id: Option<String>,
+    run_id: Option<String>,
+    fingerprint: Option<String>,
+    session_fingerprint: Option<String>,
+) -> SensitiveOperationApproval {
+    let normalized_paths = paths
+        .iter()
+        .map(|path| normalize_approval_path(path))
+        .collect::<Vec<_>>();
+    let default_fingerprint = format!("apply_patch:{}", normalized_paths.join("|"));
+    SensitiveOperationApproval {
+        method: "workspace.apply_patch",
+        run_id: run_id.unwrap_or_else(|| "workspace.apply_patch".to_string()),
+        session_id,
+        operation: serde_json::json!({
+            "toolName": "apply_patch",
+            "arguments": { "paths": paths }
+        }),
+        category: "filesystem_write",
+        risk: "medium",
+        reason: "Workspace patches are approval-sensitive security operations.",
+        summary: format!("apply_patch paths=[{}]", paths.join(", ")),
+        fingerprint: fingerprint.unwrap_or_else(|| default_fingerprint.clone()),
+        session_fingerprint: session_fingerprint.unwrap_or(default_fingerprint),
+    }
+}
+
+pub(super) fn mcp_tool_approval(
+    server: &str,
+    tool: &str,
+    session_id: Option<String>,
+    run_id: Option<String>,
+    fingerprint: Option<String>,
+    session_fingerprint: Option<String>,
+) -> SensitiveOperationApproval {
+    let server = server.trim();
+    let tool = tool.trim();
+    let default_fingerprint = format!("mcp:{server}:{tool}");
+    SensitiveOperationApproval {
+        method: "mcp.call_tool",
+        run_id: run_id.unwrap_or_else(|| "mcp.call_tool".to_string()),
+        session_id,
+        operation: serde_json::json!({
+            "toolName": "mcp.call_tool",
+            "arguments": { "server": server, "tool": tool }
+        }),
+        category: "mcp_tool",
+        risk: "medium",
+        reason: "MCP tool calls require user approval.",
+        summary: format!("mcp.call_tool {server}.{tool}"),
+        fingerprint: fingerprint.unwrap_or_else(|| default_fingerprint.clone()),
+        session_fingerprint: session_fingerprint.unwrap_or(default_fingerprint),
+    }
+}
+
 pub(super) fn workspace_delete_approval(
     path: &str,
     session_id: Option<String>,

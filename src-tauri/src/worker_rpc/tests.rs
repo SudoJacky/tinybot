@@ -109,6 +109,140 @@ fn dispatches_workspace_write_file_version_conflict() {
 }
 
 #[test]
+fn dispatches_workspace_apply_patch_request_with_structured_change_summary() {
+    let fixture = WorkspaceFixture::new();
+    fixture.write("notes/today.md", "before\n");
+    let mut router = WorkerRpcRouter::new(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        20,
+        CapabilityPolicy::new([WorkerCapability::FsWorkspaceWrite]),
+    );
+
+    let response = router.dispatch(
+        &WorkerRequest::new(
+            "req-apply-patch",
+            "trace-1",
+            "workspace.apply_patch",
+            json!({
+                "patch": "*** Begin Patch\n*** Update File: notes/today.md\n@@\n-before\n+after\n*** Add File: notes/new.md\n+new file\n*** End Patch\n"
+            }),
+        )
+        .with_trusted_internal(),
+    );
+
+    assert!(response.error.is_none());
+    assert_eq!(fixture.read("notes/today.md"), "after\n");
+    assert_eq!(fixture.read("notes/new.md"), "new file\n");
+    let result = response.result.expect("patch result should be present");
+    assert_eq!(result["files_changed"], 2);
+    assert_eq!(result["hunks_applied"], 2);
+    assert_eq!(result["changed_files"][0]["path"], "notes/today.md");
+    assert_eq!(result["changed_files"][0]["operation"], "update");
+    assert_eq!(result["changed_files"][1]["path"], "notes/new.md");
+    assert_eq!(result["changed_files"][1]["operation"], "add");
+}
+
+#[test]
+fn workspace_apply_patch_requires_a_matching_approval_grant() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        20,
+        CapabilityPolicy::new([
+            WorkerCapability::ApprovalRequest,
+            WorkerCapability::ApprovalResolve,
+            WorkerCapability::FsWorkspaceWrite,
+        ]),
+    );
+    let patch = "*** Begin Patch\n*** Add File: notes/today.md\n+approved\n*** End Patch\n";
+
+    let denied = router.dispatch(&WorkerRequest::new(
+        "req-apply-patch-denied",
+        "trace-1",
+        "workspace.apply_patch",
+        json!({
+            "patch": patch,
+            "session_id": "session-1",
+            "approval_fingerprint": "apply_patch:notes/today.md",
+            "approval_session_fingerprint": "apply_patch:notes/today.md"
+        }),
+    ));
+    assert_eq!(
+        denied
+            .error
+            .expect("patch without approval should fail")
+            .code,
+        crate::worker_protocol::WorkerProtocolErrorCode::CapabilityDenied
+    );
+    assert!(!fixture.root.join("notes/today.md").exists());
+
+    approve_once(
+        &mut router,
+        "run-apply-patch",
+        "session-1",
+        json!({
+            "toolName": "apply_patch",
+            "arguments": { "patch": patch }
+        }),
+        "filesystem_write",
+        "medium",
+        "Workspace file changes require user approval.",
+        "apply_patch:notes/today.md",
+        "apply_patch:notes/today.md",
+    );
+
+    let allowed = router.dispatch(&WorkerRequest::new(
+        "req-apply-patch-allowed",
+        "trace-2",
+        "workspace.apply_patch",
+        json!({
+            "patch": patch,
+            "session_id": "session-1",
+            "approval_fingerprint": "apply_patch:notes/today.md",
+            "approval_session_fingerprint": "apply_patch:notes/today.md"
+        }),
+    ));
+
+    assert!(allowed.error.is_none());
+    assert_eq!(fixture.read("notes/today.md"), "approved\n");
+}
+
+#[test]
+fn workspace_apply_patch_rejects_caller_claimed_internal_operation() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        20,
+        CapabilityPolicy::new([WorkerCapability::FsWorkspaceWrite]),
+    );
+
+    let response = router.dispatch(&WorkerRequest::new(
+        "req-apply-patch-spoofed",
+        "trace-1",
+        "workspace.apply_patch",
+        json!({
+            "patch": "*** Begin Patch\n*** Add File: notes/today.md\n+unsafe\n*** End Patch\n",
+            "internal_operation": true
+        }),
+    ));
+
+    assert_eq!(
+        response
+            .error
+            .expect("serialized internal flag must not bypass approval")
+            .code,
+        crate::worker_protocol::WorkerProtocolErrorCode::CapabilityDenied
+    );
+    assert!(!fixture.root.join("notes/today.md").exists());
+}
+
+#[test]
 fn dispatches_workspace_create_dir_request() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
@@ -5563,6 +5697,66 @@ fn dispatches_tool_executor_preserves_sensitive_tool_approval_boundary() {
     assert_eq!(error.details["method"], "shell.execute");
     assert_eq!(error.details["boundary"], "security");
     assert_eq!(error.details["category"], "shell");
+}
+
+#[test]
+fn mcp_tool_calls_cannot_bypass_approval_through_low_level_rpc() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new(
+        fixture.root.clone(),
+        json!({
+            "tools": {
+                "mcp_servers": {
+                    "docs": { "enabled_tools": ["search"] }
+                }
+            }
+        }),
+        vec![],
+        20,
+        CapabilityPolicy::new([WorkerCapability::McpCall]),
+    );
+    let arguments = json!({
+        "server": "docs",
+        "tool": "search",
+        "arguments": {},
+        "internal_operation": true
+    });
+
+    let direct = router.dispatch(&WorkerRequest::new(
+        "req-direct-mcp",
+        "trace-direct-mcp",
+        "mcp.call_tool",
+        arguments.clone(),
+    ));
+    let direct_error = direct
+        .error
+        .expect("direct MCP RPC should require a matching approval");
+    assert_eq!(
+        direct_error.code,
+        crate::worker_protocol::WorkerProtocolErrorCode::CapabilityDenied
+    );
+    assert_eq!(direct_error.details["boundary"], "security");
+    assert_eq!(direct_error.details["method"], "mcp.call_tool");
+    assert_eq!(direct_error.details["category"], "mcp_tool");
+
+    let executor = router.dispatch(&WorkerRequest::new(
+        "req-executor-mcp",
+        "trace-executor-mcp",
+        "tool_executor.execute",
+        json!({
+            "toolId": "mcp.call_tool",
+            "arguments": arguments
+        }),
+    ));
+    let executor_error = executor
+        .error
+        .expect("tool executor MCP RPC should require the trusted approved path");
+    assert_eq!(
+        executor_error.message,
+        "approval-required tools must be dispatched through a trusted approved runtime path"
+    );
+    assert_eq!(executor_error.details["boundary"], "security");
+    assert_eq!(executor_error.details["toolId"], "mcp.call_tool");
 }
 
 #[test]
@@ -12747,16 +12941,36 @@ fn workspace_write_allows_trusted_internal_operations_without_approval() {
     );
     assert!(!fixture.root.join("notes").join("today.md").exists());
 
-    let allowed = router.dispatch(&WorkerRequest::new(
-        "req-write-internal",
+    let spoofed = router.dispatch(&WorkerRequest::new(
+        "req-write-spoofed",
         "trace-2",
         "workspace.write_file",
         json!({
             "path": "notes/today.md",
-            "contents": "webui write",
+            "contents": "spoofed write",
             "internal_operation": true
         }),
     ));
+    assert_eq!(
+        spoofed
+            .error
+            .expect("serialized internal flag must not bypass approval")
+            .code,
+        crate::worker_protocol::WorkerProtocolErrorCode::CapabilityDenied
+    );
+
+    let allowed = router.dispatch(
+        &WorkerRequest::new(
+            "req-write-internal",
+            "trace-3",
+            "workspace.write_file",
+            json!({
+                "path": "notes/today.md",
+                "contents": "webui write"
+            }),
+        )
+        .with_trusted_internal(),
+    );
     assert!(allowed.error.is_none());
     assert_eq!(fixture.read("notes/today.md"), "webui write");
 }

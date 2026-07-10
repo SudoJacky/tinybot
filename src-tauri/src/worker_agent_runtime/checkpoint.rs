@@ -38,7 +38,15 @@ pub(super) fn test_compat_runtime_metadata<'a>(
 ) -> Option<&'a Value> {
     // Compatibility fixture hooks only. Normal runtime control should use typed
     // continuations, checkpoints, provider responses, or tool/subagent results.
-    metadata.get(key)
+    #[cfg(test)]
+    {
+        metadata.get(key)
+    }
+    #[cfg(not(test))]
+    {
+        let _ = (metadata, key);
+        None
+    }
 }
 
 pub(super) fn checkpoint_value(
