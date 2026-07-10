@@ -406,7 +406,7 @@ describe("desktop chat session controller", () => {
       {
         key: sessionKeyForChat("chat-live"),
         chatId: "chat-live",
-        title: "live question",
+        title: "New session",
       },
     ]);
     expect(controller.state.messages.get(sessionKeyForChat("chat-live"))).toMatchObject([

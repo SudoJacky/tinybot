@@ -852,6 +852,26 @@ describe("ChatPage", () => {
     );
   });
 
+  it("uses sans-serif assistant prose and modern monospace code", () => {
+    const css = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
+
+    expect(css).toMatch(
+      /\.react-message-markdown\s*{[^}]*font-family:\s*Inter, "Noto Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", Arial, sans-serif;/s,
+    );
+    expect(css).toMatch(
+      /--font-code:\s*"JetBrains Mono", "Cascadia Code", "Cascadia Mono", Consolas, "Liberation Mono", monospace;/,
+    );
+    expect(css).toMatch(
+      /\.react-message-markdown \[data-streamdown="inline-code"\]\s*{[^}]*font-family:\s*var\(--font-code\);/s,
+    );
+    expect(css).toMatch(
+      /\.react-message-markdown \[data-streamdown="code-block-header"\]\s*{[^}]*font-family:\s*var\(--font-code\);/s,
+    );
+    expect(css).toMatch(
+      /\.react-message-markdown \[data-streamdown="code-block-body"\] pre,\s*\.react-message-markdown \[data-streamdown="code-block-body"\] code\s*{[^}]*font-family:\s*var\(--font-code\);/s,
+    );
+  });
+
   it("renders assistant Markdown tables instead of raw pipe text", async () => {
     const stores = createStores();
     const markdownMessages: ReactChatMessage[] = [
@@ -872,6 +892,37 @@ describe("ChatPage", () => {
     expect(within(table).getByRole("columnheader", { name: "Status" })).toBeTruthy();
     expect(within(table).getByText("spawn_agent").tagName.toLowerCase()).toBe("strong");
     expect(screen.queryByText(/\| Step \| Status \|/)).toBeNull();
+  });
+
+  it("limits rich Markdown rendering to assistant answer text", async () => {
+    const stores = createStores();
+    stores.chatStore.load = vi.fn(async () => [
+      {
+        id: "u-markdown",
+        role: "user",
+        createdAtMs: Date.UTC(2026, 6, 4, 11, 58, 0),
+        text: "**keep user syntax literal**",
+        status: "complete",
+      },
+      {
+        id: "a-markdown",
+        role: "assistant",
+        createdAtMs: Date.UTC(2026, 6, 4, 11, 59, 0),
+        text: "**format the answer**",
+        reasoningText: "**keep reasoning syntax literal**",
+        status: "complete",
+      },
+    ] satisfies ReactChatMessage[]);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const userMessage = await screen.findByTestId("message-u-markdown");
+    const assistantMessage = await screen.findByTestId("message-a-markdown");
+    expect(userMessage.querySelector("strong")).toBeNull();
+    expect(within(userMessage).getByText("**keep user syntax literal**")).toBeTruthy();
+    expect(assistantMessage.querySelector(".react-message-reasoning strong")).toBeNull();
+    expect(within(assistantMessage).getByText("**keep reasoning syntax literal**")).toBeTruthy();
+    expect(assistantMessage.querySelector(".react-message-markdown strong")?.textContent).toBe("format the answer");
   });
 
   it("copies individual message text from message actions", async () => {
@@ -1392,7 +1443,7 @@ describe("ChatPage", () => {
     expect(within(message).getByLabelText("Context").textContent).toContain("Project note");
     expect(within(message).getByLabelText("Context").textContent).toContain("Use current backend contracts.");
     expect(within(message).getByLabelText("Agent is responding")).toBeTruthy();
-    expect(within(message).getByText("Here is the answer.")).toBeTruthy();
+    expect(message.querySelector(".react-message-markdown")?.textContent).toContain("Here is the answer.");
   });
 
   it("keeps a pending new session visible until chat creation returns a real session", async () => {

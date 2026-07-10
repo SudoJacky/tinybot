@@ -538,6 +538,15 @@ describe("native chat state", () => {
     expect(state.error).toBe("chat is not attached");
   });
 
+  test("keeps the session title unchanged until backend metadata is reloaded", () => {
+    const state = createNativeChatState();
+    applyChatEvent(state, { kind: "attached", chatId: "chat-1", raw: {} });
+
+    appendUserMessage(state, "Backend owns this title", "2026-05-29T08:00:00Z");
+
+    expect(state.sessions.find((session) => session.chatId === "chat-1")?.title).toBe("New session");
+  });
+
   test("normalizes standalone tool result messages into native tool activities", () => {
     expect(
       normalizeMessagesPayload({

@@ -13,6 +13,7 @@
   --color-success: #5db872;
   --color-warning: #d4a017;
   --color-error: #c64545;
+  --font-code: "JetBrains Mono", "Cascadia Code", "Cascadia Mono", Consolas, "Liberation Mono", monospace;
   --motion-duration-fast: 160ms;
   --motion-duration-medium: 220ms;
   --motion-duration-text: 720ms;
@@ -1015,7 +1016,7 @@ button:disabled {
   padding: 12px 14px;
 }
 
-.react-message__body p {
+.react-message-plain-text p {
   margin: 0;
   white-space: pre-wrap;
 }
@@ -1023,6 +1024,82 @@ button:disabled {
 .react-message-markdown {
   display: grid;
   gap: 10px;
+  min-width: 0;
+  color: var(--color-body);
+  font-family: Inter, "Noto Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", Arial, sans-serif;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.react-message-markdown p,
+.react-message-markdown [data-streamdown^="heading-"],
+.react-message-markdown ul,
+.react-message-markdown ol,
+.react-message-markdown blockquote,
+.react-message-markdown pre {
+  margin: 0;
+}
+
+.react-message-markdown [data-streamdown^="heading-"] {
+  color: var(--color-ink);
+  line-height: 1.35;
+}
+
+.react-message-markdown [data-streamdown="heading-1"] {
+  font-size: 20px;
+}
+
+.react-message-markdown [data-streamdown="heading-2"] {
+  font-size: 17px;
+}
+
+.react-message-markdown [data-streamdown="heading-3"] {
+  font-size: 15px;
+}
+
+.react-message-markdown [data-streamdown="heading-4"],
+.react-message-markdown [data-streamdown="heading-5"],
+.react-message-markdown [data-streamdown="heading-6"] {
+  font-size: 13px;
+}
+
+.react-message-markdown ul,
+.react-message-markdown ol {
+  display: grid;
+  gap: 4px;
+  padding-left: 22px;
+}
+
+.react-message-markdown [data-streamdown="link"] {
+  color: var(--color-primary-active);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 3px;
+}
+
+.react-message-markdown [data-streamdown="link"]:hover,
+.react-message-markdown [data-streamdown="link"]:focus-visible {
+  text-decoration-color: currentColor;
+}
+
+.react-message-markdown [data-streamdown="link"]:focus-visible {
+  border-radius: 3px;
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 35%, transparent);
+  outline-offset: 2px;
+}
+
+.react-message-markdown [data-streamdown="blockquote"] {
+  border-left: 3px solid var(--color-cream-strong);
+  background: var(--color-surface-soft);
+  padding: 7px 10px;
+  color: var(--color-muted);
+}
+
+.react-message-markdown [data-streamdown="horizontal-rule"] {
+  width: 100%;
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--color-hairline);
 }
 
 .react-message-context {
@@ -1087,39 +1164,99 @@ button:disabled {
   }
 }
 
-.react-message-table-wrap {
+.react-message-markdown [data-streamdown="table-wrapper"] {
   max-width: 100%;
   overflow-x: auto;
 }
 
-.react-message-table {
+.react-message-markdown [data-streamdown="table"] {
   width: 100%;
   min-width: min(520px, 100%);
   border-collapse: collapse;
   font-size: 13px;
 }
 
-.react-message-table th,
-.react-message-table td {
+.react-message-markdown [data-streamdown="table-header-cell"],
+.react-message-markdown [data-streamdown="table-cell"] {
   border: 1px solid var(--color-hairline);
   padding: 7px 9px;
   text-align: left;
   vertical-align: top;
 }
 
-.react-message-table th {
+.react-message-markdown [data-streamdown="table-header-cell"] {
   background: var(--color-surface-soft);
   color: var(--color-ink);
   font-weight: 650;
 }
 
-.react-message-markdown code {
+.react-message-markdown [data-streamdown="inline-code"] {
   border: 1px solid var(--color-hairline);
   border-radius: 5px;
   background: var(--color-surface-soft);
   padding: 1px 4px;
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-family: var(--font-code);
   font-size: 0.92em;
+}
+
+.react-message-markdown [data-streamdown="code-block"] {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-surface-soft);
+  padding: 8px;
+}
+
+.react-message-markdown [data-streamdown="code-block-header"] {
+  min-height: 24px;
+  padding: 3px 38px 3px 4px;
+  color: var(--color-muted);
+  font-family: var(--font-code);
+  font-size: 11px;
+}
+
+.react-message-markdown [data-streamdown="code-block-actions"] {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  z-index: 1;
+}
+
+.react-message-markdown [data-streamdown="code-block-copy-button"] {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 1px solid var(--color-hairline);
+  border-radius: 6px;
+  background: var(--color-surface-card);
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.react-message-markdown [data-streamdown="code-block-copy-button"]:hover,
+.react-message-markdown [data-streamdown="code-block-copy-button"]:focus-visible {
+  border-color: var(--color-primary);
+  color: var(--color-ink);
+}
+
+.react-message-markdown [data-streamdown="code-block-body"] {
+  max-width: 100%;
+  overflow-x: auto;
+  border-radius: 6px;
+  background: var(--color-surface-card);
+  padding: 12px;
+  font-family: var(--font-code);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.react-message-markdown [data-streamdown="code-block-body"] pre,
+.react-message-markdown [data-streamdown="code-block-body"] code {
+  font-family: var(--font-code);
 }
 
 .react-message__actions {
@@ -3247,6 +3384,8 @@ button:disabled {
   .react-session-list__rows[data-motion="animated-list"] .react-session-row,
   .react-session-row[data-dissolving="true"],
   .react-agent-step-item[aria-current="step"] .react-agent-step-item__marker,
+  .react-message-markdown [data-sd-animate],
+  .react-message__streaming,
   .react-right-drawer[data-motion="fade-content"] {
     opacity: 1;
     transform: none;
