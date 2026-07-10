@@ -6,7 +6,7 @@ use crate::worker_tool_registry::{
 };
 use serde_json::json;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -2134,7 +2134,7 @@ fn agent_usage_event_falls_back_to_estimated_context_when_provider_omits_usage()
         fn complete_streaming(
             &self,
             _context: &NativeAgentRunContext,
-            observer: &mut dyn FnMut(NativeAgentProviderStreamEvent),
+            observer: &mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
         ) -> Result<NativeAgentProviderResponse, String> {
             observer(NativeAgentProviderStreamEvent::ContentDelta(
                 "no usage answer".to_string(),
@@ -5944,7 +5944,7 @@ fn provider_stream_observer_emits_live_deltas_without_duplicate_final_delta() {
         fn complete_streaming(
             &self,
             _context: &NativeAgentRunContext,
-            observer: &mut dyn FnMut(NativeAgentProviderStreamEvent),
+            observer: &mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
         ) -> Result<NativeAgentProviderResponse, String> {
             observer(NativeAgentProviderStreamEvent::ReasoningDelta(
                 "thinking".to_string(),
@@ -6001,6 +6001,247 @@ fn provider_stream_observer_emits_live_deltas_without_duplicate_final_delta() {
     assert_eq!(deltas, vec!["Hel", "lo"]);
     assert_eq!(reasoning_deltas, vec!["thinking"]);
     assert_eq!(result["finalContent"], "Hello");
+}
+
+#[test]
+fn async_provider_is_not_called_when_run_was_cancelled_before_request() {
+    struct CountingProvider(Arc<AtomicUsize>);
+
+    impl NativeAgentProvider for CountingProvider {
+        fn complete(
+            &self,
+            _context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(NativeAgentProviderResponse {
+                final_content: "must not run".to_string(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: Vec::new(),
+            })
+        }
+    }
+
+    tauri::async_runtime::block_on(async {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let services = NativeAgentRuntimeServices::new(
+            Arc::new(CountingProvider(calls.clone())),
+            Arc::new(FakeNativeAgentToolDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        );
+        services.cancel("run-async-cancel-before-request");
+
+        let result = run_native_agent_turn_with_config_async(
+            &services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-async-cancel-before-request",
+                "sessionId": "websocket:chat-async-cancel-before-request",
+                "messages": [{ "role": "user", "content": "hello" }]
+            }),
+            json!({}),
+        )
+        .await
+        .expect("pre-request cancellation should return a structured result");
+
+        assert_eq!(result["stopReason"], "cancelled");
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    });
+}
+
+#[test]
+fn async_provider_cancellation_after_partial_output_drops_stream_without_late_events() {
+    struct DropSignal(Arc<AtomicBool>);
+
+    impl Drop for DropSignal {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    struct PendingStreamingProvider {
+        started: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+        dropped: Arc<AtomicBool>,
+    }
+
+    impl NativeAgentProvider for PendingStreamingProvider {
+        fn complete(
+            &self,
+            _context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            panic!("async provider path should not call the blocking completion method");
+        }
+
+        fn complete_streaming_async<'a>(
+            &'a self,
+            _context: &'a NativeAgentRunContext,
+            observer: &'a mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = Result<NativeAgentProviderResponse, NativeAgentProviderFailure>,
+                    > + Send
+                    + 'a,
+            >,
+        > {
+            let started = self
+                .started
+                .lock()
+                .expect("provider start signal lock should not be poisoned")
+                .take();
+            let dropped = self.dropped.clone();
+            Box::pin(async move {
+                let _drop_signal = DropSignal(dropped);
+                observer(NativeAgentProviderStreamEvent::ContentDelta(
+                    "first".to_string(),
+                ));
+                if let Some(started) = started {
+                    started.send(()).expect("provider start signal should send");
+                }
+                std::future::pending::<
+                    Result<NativeAgentProviderResponse, NativeAgentProviderFailure>,
+                >()
+                .await
+            })
+        }
+    }
+
+    tauri::async_runtime::block_on(async {
+        let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
+        let dropped = Arc::new(AtomicBool::new(false));
+        let trace_sink = Arc::new(RecordingTraceSink::default());
+        let trace_events = trace_sink.events.clone();
+        let services = NativeAgentRuntimeServices::new(
+            Arc::new(PendingStreamingProvider {
+                started: Mutex::new(Some(started_sender)),
+                dropped: dropped.clone(),
+            }),
+            Arc::new(FakeNativeAgentToolDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        )
+        .with_trace_sink(trace_sink);
+        let run_services = services.clone();
+        let run_task = tauri::async_runtime::spawn(async move {
+            run_native_agent_turn_with_config_async(
+                &run_services,
+                json!({
+                    "runtime": "rust",
+                    "runId": "run-async-stream-cancel",
+                    "sessionId": "websocket:chat-async-stream-cancel",
+                    "stream": true,
+                    "messages": [{ "role": "user", "content": "hello" }]
+                }),
+                json!({}),
+            )
+            .await
+        });
+        started_receiver
+            .await
+            .expect("provider should emit the first stream delta");
+
+        let cancellation = services.cancel("run-async-stream-cancel");
+        let result = run_task
+            .await
+            .expect("owned async run task should join")
+            .expect("cancelled async run should return a structured result");
+        for _ in 0..100 {
+            if services.task_runtime().draining_count() == 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+
+        let events = trace_events
+            .lock()
+            .expect("trace event lock should not be poisoned")
+            .clone();
+        let content_deltas = events
+            .iter()
+            .filter(|event| event.event_name == "agent.delta")
+            .map(|event| event.payload["delta"].as_str().unwrap_or_default())
+            .collect::<Vec<_>>();
+        assert_eq!(cancellation["stopReason"], "cancelled");
+        assert_eq!(result["stopReason"], "cancelled");
+        assert!(dropped.load(Ordering::SeqCst));
+        assert_eq!(services.task_runtime().active_count(), 0);
+        assert_eq!(services.task_runtime().draining_count(), 0);
+        assert_eq!(content_deltas, vec!["first"]);
+        assert!(!events.iter().any(|event| event.event_name == "agent.done"));
+    });
+}
+
+#[test]
+fn async_provider_failures_keep_distinct_stop_reasons() {
+    struct FailingProvider(NativeAgentProviderFailureKind);
+
+    impl NativeAgentProvider for FailingProvider {
+        fn complete(
+            &self,
+            _context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            panic!("async provider path should not call the blocking completion method");
+        }
+
+        fn complete_streaming_async<'a>(
+            &'a self,
+            _context: &'a NativeAgentRunContext,
+            _observer: &'a mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = Result<NativeAgentProviderResponse, NativeAgentProviderFailure>,
+                    > + Send
+                    + 'a,
+            >,
+        > {
+            let kind = self.0;
+            Box::pin(async move { Err(NativeAgentProviderFailure::new(kind, "provider failed")) })
+        }
+    }
+
+    tauri::async_runtime::block_on(async {
+        let cases = [
+            (NativeAgentProviderFailureKind::Cancelled, "cancelled"),
+            (
+                NativeAgentProviderFailureKind::RequestTimeout,
+                "provider_request_timeout",
+            ),
+            (
+                NativeAgentProviderFailureKind::StreamIdleTimeout,
+                "provider_stream_idle_timeout",
+            ),
+            (
+                NativeAgentProviderFailureKind::Transport,
+                "provider_transport_error",
+            ),
+            (NativeAgentProviderFailureKind::Provider, "provider_error"),
+        ];
+        for (index, (kind, expected_stop_reason)) in cases.into_iter().enumerate() {
+            let run_id = format!("run-async-provider-failure-{index}");
+            let services = NativeAgentRuntimeServices::new(
+                Arc::new(FailingProvider(kind)),
+                Arc::new(FakeNativeAgentToolDispatcher),
+                Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+                Arc::new(InMemoryNativeAgentCancellation::default()),
+            );
+            let result = run_native_agent_turn_with_config_async(
+                &services,
+                json!({
+                    "runtime": "rust",
+                    "runId": run_id,
+                    "sessionId": format!("websocket:chat-provider-failure-{index}"),
+                    "messages": [{ "role": "user", "content": "hello" }]
+                }),
+                json!({}),
+            )
+            .await
+            .expect("typed provider failure should return a structured result");
+
+            assert_eq!(result["stopReason"], expected_stop_reason);
+        }
+    });
 }
 
 fn event_names(result: &Value) -> Vec<&str> {

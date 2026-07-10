@@ -8,7 +8,7 @@ use crate::worker_subagent_manager::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{fmt, sync::Arc};
+use std::{fmt, future::Future, pin::Pin, sync::Arc};
 
 mod checkpoint;
 mod context;
@@ -34,7 +34,10 @@ use self::provider::{
 use self::result::event_value;
 use self::tool_router::NativeToolRouter;
 use self::usage::{context_window_messages, enrich_usage_with_context_window};
-pub use provider_loop::{run_native_agent_turn_with_config, run_native_agent_turn_with_workspace};
+pub use provider_loop::{
+    run_native_agent_turn_with_config, run_native_agent_turn_with_config_async,
+    run_native_agent_turn_with_workspace, run_native_agent_turn_with_workspace_async,
+};
 pub use stores::{InMemoryNativeAgentCancellation, InMemoryNativeAgentCheckpointStore};
 pub use tool_dispatcher::{FakeNativeAgentToolDispatcher, SubagentNativeAgentToolDispatcher};
 
@@ -136,6 +139,66 @@ pub enum NativeAgentProviderStreamEvent {
     ReasoningDelta(String),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NativeAgentProviderFailureKind {
+    Cancelled,
+    RequestTimeout,
+    StreamIdleTimeout,
+    Transport,
+    Provider,
+}
+
+impl NativeAgentProviderFailureKind {
+    fn stop_reason(self) -> &'static str {
+        match self {
+            Self::Cancelled => "cancelled",
+            Self::RequestTimeout => "provider_request_timeout",
+            Self::StreamIdleTimeout => "provider_stream_idle_timeout",
+            Self::Transport => "provider_transport_error",
+            Self::Provider => "provider_error",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NativeAgentProviderFailure {
+    kind: NativeAgentProviderFailureKind,
+    message: String,
+}
+
+impl NativeAgentProviderFailure {
+    pub fn new(kind: NativeAgentProviderFailureKind, message: impl Into<String>) -> Self {
+        Self {
+            kind,
+            message: message.into(),
+        }
+    }
+
+    pub fn provider(message: impl Into<String>) -> Self {
+        Self::new(NativeAgentProviderFailureKind::Provider, message)
+    }
+
+    pub fn kind(&self) -> NativeAgentProviderFailureKind {
+        self.kind
+    }
+
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    pub fn stop_reason(&self) -> &'static str {
+        self.kind.stop_reason()
+    }
+}
+
+impl fmt::Display for NativeAgentProviderFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for NativeAgentProviderFailure {}
+
 #[derive(Clone, Debug)]
 pub struct NativeAgentToolCall {
     pub id: String,
@@ -165,9 +228,26 @@ pub trait NativeAgentProvider: Send + Sync {
     fn complete_streaming(
         &self,
         context: &NativeAgentRunContext,
-        _observer: &mut dyn FnMut(NativeAgentProviderStreamEvent),
+        _observer: &mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
     ) -> Result<NativeAgentProviderResponse, String> {
         self.complete(context)
+    }
+
+    fn complete_streaming_async<'a>(
+        &'a self,
+        context: &'a NativeAgentRunContext,
+        observer: &'a mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<NativeAgentProviderResponse, NativeAgentProviderFailure>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            self.complete_streaming(context, observer)
+                .map_err(NativeAgentProviderFailure::provider)
+        })
     }
 }
 

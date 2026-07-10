@@ -88,18 +88,20 @@ pub(crate) fn worker_cowork_route(
 }
 
 #[tauri::command]
-pub(crate) fn worker_webui_route(
+pub(crate) async fn worker_webui_route(
     input: WorkerWebuiRouteInput,
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
     let timeout = worker_webui_route_timeout(&input);
-    worker_webui_route_with_options(
-        state.inner(),
+    let shared = state.inner().clone();
+    worker_webui_route_with_options_async(
+        &shared,
         input,
         native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         timeout,
     )
+    .await
 }
 
 pub(crate) fn worker_cowork_route_with_options(
@@ -265,7 +267,24 @@ fn worker_cowork_rust_dynamic_route(
     None
 }
 
+#[cfg(test)]
 pub(crate) fn worker_webui_route_with_options(
+    shared: &SharedGateway,
+    input: WorkerWebuiRouteInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::block_on(worker_webui_route_with_options_async(
+        shared,
+        input,
+        workspace_root,
+        config_snapshot,
+        timeout,
+    ))
+}
+
+pub(crate) async fn worker_webui_route_with_options_async(
     shared: &SharedGateway,
     input: WorkerWebuiRouteInput,
     workspace_root: PathBuf,
@@ -280,7 +299,9 @@ pub(crate) fn worker_webui_route_with_options(
         workspace_root.clone(),
         config_snapshot.clone(),
         timeout,
-    )? {
+    )
+    .await?
+    {
         return Ok(response);
     }
 
@@ -291,7 +312,7 @@ pub(crate) fn worker_webui_route_with_options(
     ))
 }
 
-fn worker_webui_rust_route_with_options(
+async fn worker_webui_rust_route_with_options(
     shared: &SharedGateway,
     input: &WorkerWebuiRouteInput,
     workspace_root: PathBuf,
@@ -304,19 +325,24 @@ fn worker_webui_rust_route_with_options(
 
     if method == "POST" && path == "/v1/chat/completions" {
         return Ok(Some(
-            crate::native_provider_runtime::openai_chat_completions_route(&config_snapshot, &body),
+            crate::native_provider_runtime::openai_chat_completions_route_async(
+                &config_snapshot,
+                &body,
+            )
+            .await,
         ));
     }
     if method == "POST" {
         if let Some((form_id, cancelled)) = webui_agent_ui_form_route(&path) {
-            let (status, body) = native_webui_agent_ui_form_resolution_body(
+            let (status, body) = native_webui_agent_ui_form_resolution_body_async(
                 shared,
                 form_id,
                 &body,
                 cancelled,
                 workspace_root,
                 config_snapshot,
-            )?;
+            )
+            .await?;
             return Ok(Some(webui_route_response(
                 status,
                 body,
@@ -450,15 +476,18 @@ fn worker_webui_rust_route_with_options(
             config_snapshot.clone(),
             timeout,
         )),
-        _ => worker_webui_rust_dynamic_route(
-            shared,
-            &method,
-            &path,
-            &body,
-            workspace_root.clone(),
-            config_snapshot.clone(),
-            timeout,
-        ),
+        _ => {
+            worker_webui_rust_dynamic_route(
+                shared,
+                &method,
+                &path,
+                &body,
+                workspace_root.clone(),
+                config_snapshot.clone(),
+                timeout,
+            )
+            .await
+        }
     };
 
     match result {
@@ -503,7 +532,7 @@ fn worker_webui_rust_route_with_options(
     }
 }
 
-fn worker_webui_rust_dynamic_route(
+async fn worker_webui_rust_dynamic_route(
     shared: &SharedGateway,
     method: &str,
     path: &str,
@@ -641,26 +670,32 @@ fn worker_webui_rust_dynamic_route(
     }
     if let Some(approval_id) = webui_approval_route_id(path, "/approve") {
         if method == "POST" {
-            return Some(native_webui_approval_resolution_body(
-                shared,
-                approval_id,
-                body,
-                true,
-                workspace_root,
-                config_snapshot,
-            ));
+            return Some(
+                native_webui_approval_resolution_body_async(
+                    shared,
+                    approval_id,
+                    body,
+                    true,
+                    workspace_root,
+                    config_snapshot,
+                )
+                .await,
+            );
         }
     }
     if let Some(approval_id) = webui_approval_route_id(path, "/deny") {
         if method == "POST" {
-            return Some(native_webui_approval_resolution_body(
-                shared,
-                approval_id,
-                body,
-                false,
-                workspace_root,
-                config_snapshot,
-            ));
+            return Some(
+                native_webui_approval_resolution_body_async(
+                    shared,
+                    approval_id,
+                    body,
+                    false,
+                    workspace_root,
+                    config_snapshot,
+                )
+                .await,
+            );
         }
     }
     if let Some(doc_id) = webui_path_param(path, "/v1/knowledge/documents/") {
@@ -775,7 +810,7 @@ fn native_webui_approvals_body(
     }))
 }
 
-pub(crate) fn native_webui_approval_resolution_body(
+pub(crate) async fn native_webui_approval_resolution_body_async(
     shared: &SharedGateway,
     approval_id: String,
     body: &serde_json::Value,
@@ -795,9 +830,10 @@ pub(crate) fn native_webui_approval_resolution_body(
         workspace_root,
         config_snapshot,
     )
+    .await
 }
 
-pub(crate) fn native_webui_agent_ui_form_resolution_body(
+pub(crate) async fn native_webui_agent_ui_form_resolution_body_async(
     shared: &SharedGateway,
     form_id: String,
     body: &serde_json::Value,
@@ -817,6 +853,7 @@ pub(crate) fn native_webui_agent_ui_form_resolution_body(
         workspace_root,
         config_snapshot,
     )
+    .await
 }
 
 fn webui_route_response(

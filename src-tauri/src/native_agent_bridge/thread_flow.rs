@@ -35,7 +35,7 @@ pub(crate) struct SubmitThreadFormInput {
     pub(crate) action: Option<String>,
 }
 
-pub(crate) fn submit_thread_turn_with_services(
+pub(crate) async fn submit_thread_turn_with_services(
     base_services: NativeAgentRuntimeServices,
     input: SubmitThreadTurnInput,
     workspace_root: PathBuf,
@@ -113,7 +113,8 @@ pub(crate) fn submit_thread_turn_with_services(
         workspace_root.clone(),
         config_snapshot.clone(),
         None,
-    )?;
+    )
+    .await?;
     if let Some(thread_persistence) = apply_native_agent_thread_result(
         &thread_id,
         &agent_result,
@@ -139,7 +140,7 @@ pub(crate) fn submit_thread_turn_with_services(
     }))
 }
 
-pub(crate) fn resolve_thread_approval_with_services(
+pub(crate) async fn resolve_thread_approval_with_services(
     base_services: NativeAgentRuntimeServices,
     input: ResolveThreadApprovalInput,
     workspace_root: PathBuf,
@@ -169,7 +170,8 @@ pub(crate) fn resolve_thread_approval_with_services(
         input.approved,
         workspace_root.clone(),
         config_snapshot.clone(),
-    )?;
+    )
+    .await?;
     if let Some(run_id) = native_agent_run_id(&result) {
         let decision = apply_native_agent_thread_op(
             &thread_id,
@@ -216,7 +218,7 @@ pub(crate) fn resolve_thread_approval_with_services(
     }))
 }
 
-pub(crate) fn submit_thread_form_with_services(
+pub(crate) async fn submit_thread_form_with_services(
     base_services: NativeAgentRuntimeServices,
     input: SubmitThreadFormInput,
     workspace_root: PathBuf,
@@ -243,7 +245,8 @@ pub(crate) fn submit_thread_form_with_services(
         cancelled,
         workspace_root.clone(),
         config_snapshot.clone(),
-    )?;
+    )
+    .await?;
     result["statusCode"] = serde_json::Value::Number(status_code.into());
     if let Some(thread_persistence) = apply_native_agent_thread_result(
         &thread_id,

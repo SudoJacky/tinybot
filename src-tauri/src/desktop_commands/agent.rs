@@ -2,7 +2,7 @@ use crate::desktop_commands::config::{
     experimental_worker_config_snapshot, native_backend_workspace_root,
 };
 use crate::desktop_commands::webui::{
-    native_webui_agent_ui_form_resolution_body, native_webui_approval_resolution_body,
+    native_webui_agent_ui_form_resolution_body_async, native_webui_approval_resolution_body_async,
 };
 use crate::native_agent_bridge::{
     cancel_agent_with_services, resolve_thread_approval_with_services,
@@ -198,45 +198,51 @@ pub(crate) fn worker_echo_agent(
 }
 
 #[tauri::command]
-pub(crate) fn worker_run_agent(
+pub(crate) async fn worker_run_agent(
     input: WorkerRunAgentInput,
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
-    worker_run_agent_with_options(
-        state.inner(),
+    let shared = state.inner().clone();
+    worker_run_agent_with_options_async(
+        &shared,
         input.spec,
         native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(120),
     )
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn worker_run_agent_input(
+pub(crate) async fn worker_run_agent_input(
     input: WorkerRunAgentWithInputInput,
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
-    worker_run_agent_input_with_options(
-        state.inner(),
+    let shared = state.inner().clone();
+    worker_run_agent_input_with_options_async(
+        &shared,
         input.input,
         native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(120),
     )
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn worker_submit_thread_turn(
+pub(crate) async fn worker_submit_thread_turn(
     input: WorkerSubmitThreadTurnInput,
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
-    worker_submit_thread_turn_with_options(
-        state.inner(),
+    let shared = state.inner().clone();
+    worker_submit_thread_turn_with_options_async(
+        &shared,
         input,
         native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(120),
     )
+    .await
 }
 
 #[tauri::command]
@@ -267,12 +273,13 @@ pub(crate) fn worker_restore_agent_checkpoint(
 }
 
 #[tauri::command]
-pub(crate) fn worker_submit_agent_form(
+pub(crate) async fn worker_submit_agent_form(
     input: WorkerSubmitAgentFormInput,
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
-    worker_submit_agent_form_with_options(
-        state.inner(),
+    let shared = state.inner().clone();
+    worker_submit_agent_form_with_options_async(
+        &shared,
         input.session_id,
         input.form_id,
         input.values,
@@ -281,15 +288,17 @@ pub(crate) fn worker_submit_agent_form(
         experimental_worker_config_snapshot(),
         Duration::from_secs(120),
     )
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn worker_resume_agent_approval(
+pub(crate) async fn worker_resume_agent_approval(
     input: WorkerResumeAgentApprovalInput,
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
-    worker_resume_agent_approval_with_options(
-        state.inner(),
+    let shared = state.inner().clone();
+    worker_resume_agent_approval_with_options_async(
+        &shared,
         input.session_id,
         input.approval_id,
         input.approved,
@@ -299,34 +308,39 @@ pub(crate) fn worker_resume_agent_approval(
         experimental_worker_config_snapshot(),
         Duration::from_secs(120),
     )
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn worker_resolve_thread_approval(
+pub(crate) async fn worker_resolve_thread_approval(
     input: WorkerResolveThreadApprovalInput,
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
-    worker_resolve_thread_approval_with_options(
-        state.inner(),
+    let shared = state.inner().clone();
+    worker_resolve_thread_approval_with_options_async(
+        &shared,
         input,
         native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(120),
     )
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn worker_submit_thread_form(
+pub(crate) async fn worker_submit_thread_form(
     input: WorkerSubmitThreadFormInput,
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
-    worker_submit_thread_form_with_options(
-        state.inner(),
+    let shared = state.inner().clone();
+    worker_submit_thread_form_with_options_async(
+        &shared,
         input,
         native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(120),
     )
+    .await
 }
 
 #[tauri::command]
@@ -592,6 +606,7 @@ pub(crate) fn worker_echo_agent_with_options(
         .map_err(|error| format!("worker echo response shape is invalid: {error}"))
 }
 
+#[cfg(test)]
 pub(crate) fn worker_run_agent_with_options(
     shared: &SharedGateway,
     spec: serde_json::Value,
@@ -599,7 +614,23 @@ pub(crate) fn worker_run_agent_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    worker_run_agent_with_live_trace_sink(
+    tauri::async_runtime::block_on(worker_run_agent_with_options_async(
+        shared,
+        spec,
+        workspace_root,
+        config_snapshot,
+        timeout,
+    ))
+}
+
+pub(crate) async fn worker_run_agent_with_options_async(
+    shared: &SharedGateway,
+    spec: serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    worker_run_agent_with_live_trace_sink_async(
         shared,
         spec,
         workspace_root,
@@ -607,9 +638,10 @@ pub(crate) fn worker_run_agent_with_options(
         timeout,
         None,
     )
+    .await
 }
 
-pub(crate) fn worker_run_agent_with_live_trace_sink(
+pub(crate) async fn worker_run_agent_with_live_trace_sink_async(
     shared: &SharedGateway,
     spec: serde_json::Value,
     workspace_root: PathBuf,
@@ -629,19 +661,38 @@ pub(crate) fn worker_run_agent_with_live_trace_sink(
         config_snapshot,
         live_trace_sink,
     )
+    .await
 }
 
-pub(crate) fn worker_run_agent_input_with_options(
+pub(crate) async fn worker_run_agent_input_with_options_async(
     shared: &SharedGateway,
     input: serde_json::Value,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    worker_run_agent_with_options(shared, input, workspace_root, config_snapshot, timeout)
+    worker_run_agent_with_options_async(shared, input, workspace_root, config_snapshot, timeout)
+        .await
 }
 
+#[cfg(test)]
 pub(crate) fn worker_submit_thread_turn_with_options(
+    shared: &SharedGateway,
+    input: WorkerSubmitThreadTurnInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::block_on(worker_submit_thread_turn_with_options_async(
+        shared,
+        input,
+        workspace_root,
+        config_snapshot,
+        timeout,
+    ))
+}
+
+pub(crate) async fn worker_submit_thread_turn_with_options_async(
     shared: &SharedGateway,
     input: WorkerSubmitThreadTurnInput,
     workspace_root: PathBuf,
@@ -663,6 +714,7 @@ pub(crate) fn worker_submit_thread_turn_with_options(
         workspace_root,
         config_snapshot,
     )
+    .await
 }
 
 pub(crate) fn worker_background_trace_list_with_options(
@@ -896,7 +948,7 @@ pub(crate) fn worker_restore_agent_checkpoint_with_options(
     restore_agent_checkpoint_with_services(services, session_id, workspace_root, config_snapshot)
 }
 
-pub(crate) fn worker_submit_agent_form_with_options(
+pub(crate) async fn worker_submit_agent_form_with_options_async(
     shared: &SharedGateway,
     session_id: String,
     form_id: String,
@@ -907,7 +959,7 @@ pub(crate) fn worker_submit_agent_form_with_options(
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
     let cancelled = thread_form_action_is_cancel(action.as_deref());
-    let (status_code, mut body) = native_webui_agent_ui_form_resolution_body(
+    let (status_code, mut body) = native_webui_agent_ui_form_resolution_body_async(
         shared,
         form_id,
         &serde_json::json!({
@@ -918,12 +970,13 @@ pub(crate) fn worker_submit_agent_form_with_options(
         cancelled,
         workspace_root,
         config_snapshot,
-    )?;
+    )
+    .await?;
     body["statusCode"] = serde_json::Value::Number(status_code.into());
     Ok(body)
 }
 
-pub(crate) fn worker_resume_agent_approval_with_options(
+pub(crate) async fn worker_resume_agent_approval_with_options_async(
     shared: &SharedGateway,
     session_id: String,
     approval_id: String,
@@ -934,7 +987,7 @@ pub(crate) fn worker_resume_agent_approval_with_options(
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    native_webui_approval_resolution_body(
+    native_webui_approval_resolution_body_async(
         shared,
         approval_id,
         &serde_json::json!({
@@ -946,9 +999,27 @@ pub(crate) fn worker_resume_agent_approval_with_options(
         workspace_root,
         config_snapshot,
     )
+    .await
 }
 
+#[cfg(test)]
 pub(crate) fn worker_resolve_thread_approval_with_options(
+    shared: &SharedGateway,
+    input: WorkerResolveThreadApprovalInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::block_on(worker_resolve_thread_approval_with_options_async(
+        shared,
+        input,
+        workspace_root,
+        config_snapshot,
+        timeout,
+    ))
+}
+
+pub(crate) async fn worker_resolve_thread_approval_with_options_async(
     shared: &SharedGateway,
     input: WorkerResolveThreadApprovalInput,
     workspace_root: PathBuf,
@@ -972,9 +1043,27 @@ pub(crate) fn worker_resolve_thread_approval_with_options(
         workspace_root,
         config_snapshot,
     )
+    .await
 }
 
+#[cfg(test)]
 pub(crate) fn worker_submit_thread_form_with_options(
+    shared: &SharedGateway,
+    input: WorkerSubmitThreadFormInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::block_on(worker_submit_thread_form_with_options_async(
+        shared,
+        input,
+        workspace_root,
+        config_snapshot,
+        timeout,
+    ))
+}
+
+pub(crate) async fn worker_submit_thread_form_with_options_async(
     shared: &SharedGateway,
     input: WorkerSubmitThreadFormInput,
     workspace_root: PathBuf,
@@ -997,6 +1086,7 @@ pub(crate) fn worker_submit_thread_form_with_options(
         workspace_root,
         config_snapshot,
     )
+    .await
 }
 
 fn thread_form_action_is_cancel(action: Option<&str>) -> bool {

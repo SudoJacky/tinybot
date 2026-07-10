@@ -1,9 +1,11 @@
 use super::tool_router::provider_tool_name;
 use super::{
-    context_window_messages, string_field, NativeAgentProvider, NativeAgentProviderResponse,
-    NativeAgentProviderStreamEvent, NativeAgentRunContext, NativeAgentToolCall,
+    context_window_messages, string_field, NativeAgentProvider, NativeAgentProviderFailure,
+    NativeAgentProviderFailureKind, NativeAgentProviderResponse, NativeAgentProviderStreamEvent,
+    NativeAgentRunContext, NativeAgentToolCall,
 };
 use serde_json::Value;
+use std::sync::Arc;
 
 pub(super) struct RustNativeAgentProvider;
 
@@ -19,7 +21,7 @@ impl NativeAgentProvider for RustNativeAgentProvider {
     fn complete_streaming(
         &self,
         context: &NativeAgentRunContext,
-        observer: &mut dyn FnMut(NativeAgentProviderStreamEvent),
+        observer: &mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
     ) -> Result<NativeAgentProviderResponse, String> {
         let request = agent_chat_completion_request(context)?;
         let provider_config = agent_provider_config(context);
@@ -39,26 +41,102 @@ impl NativeAgentProvider for RustNativeAgentProvider {
             &request,
             &mut provider_observer,
         )?;
-        let fixture_response = fixture_agent_response(&context.config_snapshot, &context.messages);
-        Ok(NativeAgentProviderResponse {
-            final_content: fixture_response
-                .as_ref()
-                .and_then(|response| string_field(response, "content"))
-                .unwrap_or_else(|| chat_completion_content(&completion)),
-            reasoning_delta: chat_completion_reasoning_delta(&completion),
-            usage: completion.get("usage").cloned(),
-            tool_calls: {
-                let chat_tool_calls = chat_completion_tool_calls(&completion, context)?;
-                if chat_tool_calls.is_empty() {
-                    fixture_response
-                        .as_ref()
-                        .map(fixture_agent_tool_calls)
-                        .unwrap_or_default()
-                } else {
-                    chat_tool_calls
-                }
-            },
+        provider_response_from_completion(context, completion)
+    }
+
+    fn complete_streaming_async<'a>(
+        &'a self,
+        context: &'a NativeAgentRunContext,
+        observer: &'a mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<NativeAgentProviderResponse, NativeAgentProviderFailure>,
+                > + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            let request = agent_chat_completion_request(context)
+                .map_err(NativeAgentProviderFailure::provider)?;
+            let provider_config = agent_provider_config(context);
+            let cancellation = context.cancellation.clone().map(|cancellation| {
+                Arc::new(cancellation) as Arc<dyn crate::worker_protocol::WorkerRequestCancellation>
+            });
+            let mut provider_observer =
+                |event: crate::native_provider_runtime::NativeProviderStreamEvent| match event {
+                    crate::native_provider_runtime::NativeProviderStreamEvent::ContentDelta(
+                        delta,
+                    ) => observer(NativeAgentProviderStreamEvent::ContentDelta(delta)),
+                    crate::native_provider_runtime::NativeProviderStreamEvent::ReasoningDelta(
+                        delta,
+                    ) => observer(NativeAgentProviderStreamEvent::ReasoningDelta(delta)),
+                };
+            let completion =
+                crate::native_provider_runtime::complete_chat_for_agent_with_observer_async(
+                    &provider_config,
+                    &request,
+                    &mut provider_observer,
+                    cancellation,
+                )
+                .await
+                .map_err(|error| {
+                    NativeAgentProviderFailure::new(
+                        map_provider_failure_kind(error.kind()),
+                        error.message(),
+                    )
+                })?;
+            provider_response_from_completion(context, completion)
+                .map_err(NativeAgentProviderFailure::provider)
         })
+    }
+}
+
+fn provider_response_from_completion(
+    context: &NativeAgentRunContext,
+    completion: Value,
+) -> Result<NativeAgentProviderResponse, String> {
+    let fixture_response = fixture_agent_response(&context.config_snapshot, &context.messages);
+    Ok(NativeAgentProviderResponse {
+        final_content: fixture_response
+            .as_ref()
+            .and_then(|response| string_field(response, "content"))
+            .unwrap_or_else(|| chat_completion_content(&completion)),
+        reasoning_delta: chat_completion_reasoning_delta(&completion),
+        usage: completion.get("usage").cloned(),
+        tool_calls: {
+            let chat_tool_calls = chat_completion_tool_calls(&completion, context)?;
+            if chat_tool_calls.is_empty() {
+                fixture_response
+                    .as_ref()
+                    .map(fixture_agent_tool_calls)
+                    .unwrap_or_default()
+            } else {
+                chat_tool_calls
+            }
+        },
+    })
+}
+
+fn map_provider_failure_kind(
+    kind: crate::native_provider_runtime::NativeProviderFailureKind,
+) -> NativeAgentProviderFailureKind {
+    match kind {
+        crate::native_provider_runtime::NativeProviderFailureKind::Cancelled => {
+            NativeAgentProviderFailureKind::Cancelled
+        }
+        crate::native_provider_runtime::NativeProviderFailureKind::RequestTimeout => {
+            NativeAgentProviderFailureKind::RequestTimeout
+        }
+        crate::native_provider_runtime::NativeProviderFailureKind::StreamIdleTimeout => {
+            NativeAgentProviderFailureKind::StreamIdleTimeout
+        }
+        crate::native_provider_runtime::NativeProviderFailureKind::Transport => {
+            NativeAgentProviderFailureKind::Transport
+        }
+        crate::native_provider_runtime::NativeProviderFailureKind::Provider => {
+            NativeAgentProviderFailureKind::Provider
+        }
     }
 }
 
@@ -163,7 +241,7 @@ fn set_agent_default(config: &mut Value, key: &str, value: Value) {
 
 fn agent_chat_messages(context: &NativeAgentRunContext) -> Result<Value, String> {
     if !context.messages.is_empty() {
-        let mut messages = context_window_messages(context);
+        let mut messages = context_window_messages(context)?;
         if let Some(system_prompt) = context.system_prompt.as_deref() {
             messages.insert(
                 0,

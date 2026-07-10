@@ -1,11 +1,19 @@
+use futures_util::FutureExt;
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt;
-use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::{mpsc, Arc, Condvar, Mutex};
+use std::future::Future;
+#[cfg(test)]
+use std::panic::catch_unwind;
+use std::panic::AssertUnwindSafe;
+#[cfg(test)]
+use std::sync::mpsc;
+use std::sync::{Arc, Condvar, Mutex};
+#[cfg(test)]
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -120,21 +128,64 @@ struct OwnedRunTask {
     generation: u64,
     cancellation: CancellationToken,
     completion: Arc<AgentTaskCompletion>,
-    thread: Arc<Mutex<Option<JoinHandle<()>>>>,
+    execution: OwnedExecutionHandle,
     prior_waiting_phase: Option<String>,
     prior_checkpoint_ref: Option<String>,
 }
 
+#[derive(Clone)]
+enum OwnedExecutionHandle {
+    #[cfg(test)]
+    Blocking(Arc<Mutex<Option<JoinHandle<()>>>>),
+    Async(Arc<Mutex<Option<tauri::async_runtime::JoinHandle<()>>>>),
+}
+
+impl OwnedExecutionHandle {
+    #[cfg(test)]
+    fn blocking() -> Self {
+        Self::Blocking(Arc::new(Mutex::new(None)))
+    }
+
+    fn asynchronous() -> Self {
+        Self::Async(Arc::new(Mutex::new(None)))
+    }
+
+    #[cfg(test)]
+    fn store_blocking(&self, handle: JoinHandle<()>) {
+        let Self::Blocking(slot) = self else {
+            unreachable!("blocking agent task must own a thread handle");
+        };
+        *slot
+            .lock()
+            .expect("agent task thread handle lock should not be poisoned") = Some(handle);
+    }
+
+    fn store_async(&self, handle: tauri::async_runtime::JoinHandle<()>) {
+        let slot = match self {
+            Self::Async(slot) => slot,
+            #[cfg(test)]
+            Self::Blocking(_) => unreachable!("async agent task must own an async handle"),
+        };
+        *slot
+            .lock()
+            .expect("agent task async handle lock should not be poisoned") = Some(handle);
+    }
+}
+
 struct AgentTaskCompletion {
     result: Mutex<Option<Result<Value, String>>>,
+    #[cfg(test)]
     ready: Condvar,
+    async_ready: Notify,
 }
 
 impl AgentTaskCompletion {
     fn new() -> Self {
         Self {
             result: Mutex::new(None),
+            #[cfg(test)]
             ready: Condvar::new(),
+            async_ready: Notify::new(),
         }
     }
 
@@ -147,10 +198,13 @@ impl AgentTaskCompletion {
             return false;
         }
         *completion = Some(result);
+        #[cfg(test)]
         self.ready.notify_all();
+        self.async_ready.notify_one();
         true
     }
 
+    #[cfg(test)]
     fn wait(&self) -> Result<Value, String> {
         let mut completion = self
             .result
@@ -166,6 +220,21 @@ impl AgentTaskCompletion {
             .as_ref()
             .expect("agent task completion was checked")
             .clone()
+    }
+
+    async fn wait_async(&self) -> Result<Value, String> {
+        loop {
+            let notified = self.async_ready.notified();
+            if let Some(result) = self
+                .result
+                .lock()
+                .expect("agent task completion lock should not be poisoned")
+                .clone()
+            {
+                return result;
+            }
+            notified.await;
+        }
     }
 }
 
@@ -191,6 +260,7 @@ impl AgentTaskRuntime {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn start_blocking<F>(
         &self,
         request: StartAgentRun,
@@ -199,81 +269,14 @@ impl AgentTaskRuntime {
     where
         F: FnOnce() -> Result<Value, String> + Send + 'static,
     {
-        let request = validate_start_request(request)?;
         let mut state = self
             .inner
             .state
             .lock()
             .expect("agent task runtime state lock should not be poisoned");
-        if !state.accepting {
-            return Err(AgentTaskError::new(
-                "agent task runtime is not accepting new runs",
-            ));
-        }
-        if state.active.contains_key(&request.run_id) {
-            return Err(AgentTaskError::new(format!(
-                "agent run `{}` is already active",
-                request.run_id
-            )));
-        }
-        if state
-            .statuses
-            .get(&request.run_id)
-            .and_then(|status| status.terminal_outcome.as_ref())
-            .is_some()
-        {
-            return Err(AgentTaskError::new(format!(
-                "agent run `{}` is already terminal",
-                request.run_id
-            )));
-        }
-
-        let generation = state
-            .statuses
-            .get(&request.run_id)
-            .map(|status| status.generation.saturating_add(1))
-            .unwrap_or(1);
-        let prior_late_results = state
-            .statuses
-            .get(&request.run_id)
-            .map(|status| status.late_results_ignored)
-            .unwrap_or(0);
-        let prior_waiting_phase = state.statuses.get(&request.run_id).and_then(|status| {
-            matches!(
-                status.phase.as_str(),
-                "awaiting_approval" | "awaiting_form" | "awaiting_tool" | "awaiting_subagent"
-            )
-            .then(|| status.phase.clone())
-        });
-        let prior_checkpoint_ref = state
-            .statuses
-            .get(&request.run_id)
-            .and_then(|status| status.checkpoint_ref.clone());
-        let task = OwnedRunTask {
-            request: request.clone(),
-            generation,
-            cancellation: CancellationToken::new(),
-            completion: Arc::new(AgentTaskCompletion::new()),
-            thread: Arc::new(Mutex::new(None)),
-            prior_waiting_phase,
-            prior_checkpoint_ref,
-        };
-        state.statuses.insert(
-            request.run_id.clone(),
-            AgentTaskStatus {
-                run_id: request.run_id.clone(),
-                session_id: request.session_id.clone(),
-                generation,
-                phase: "running".to_string(),
-                active: true,
-                cancellation_requested: false,
-                cancellation_reason: None,
-                checkpoint_ref: None,
-                terminal_outcome: None,
-                late_results_ignored: prior_late_results,
-            },
-        );
-        state.active.insert(request.run_id.clone(), task.clone());
+        let task = register_owned_task(&mut state, request, OwnedExecutionHandle::blocking())?;
+        let request = task.request.clone();
+        let generation = task.generation;
 
         let inner = self.inner.clone();
         let thread_task = task.clone();
@@ -304,10 +307,7 @@ impl AgentTaskRuntime {
                 )));
             }
         };
-        *task
-            .thread
-            .lock()
-            .expect("agent task thread handle lock should not be poisoned") = Some(join_handle);
+        task.execution.store_blocking(join_handle);
         start_sender.send(()).map_err(|_| {
             state.active.remove(&request.run_id);
             state.statuses.remove(&request.run_id);
@@ -316,6 +316,55 @@ impl AgentTaskRuntime {
                 request.run_id
             ))
         })?;
+        drop(state);
+
+        Ok(AgentRunHandle {
+            runtime: self.clone(),
+            request,
+            generation,
+            completion: task.completion,
+        })
+    }
+
+    pub(crate) fn start_async<Fut>(
+        &self,
+        request: StartAgentRun,
+        operation: Fut,
+    ) -> Result<AgentRunHandle, AgentTaskError>
+    where
+        Fut: Future<Output = Result<Value, String>> + Send + 'static,
+    {
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .expect("agent task runtime state lock should not be poisoned");
+        let task = register_owned_task(&mut state, request, OwnedExecutionHandle::asynchronous())?;
+        let request = task.request.clone();
+        let generation = task.generation;
+        let cancellation = task.cancellation.clone();
+        let inner = self.inner.clone();
+        let async_task = task.clone();
+        let join_handle = tauri::async_runtime::spawn(async move {
+            let result = {
+                let operation = AssertUnwindSafe(operation).catch_unwind();
+                tokio::pin!(operation);
+                tokio::select! {
+                    biased;
+                    _ = cancellation.cancelled() => None,
+                    result = &mut operation => Some(match result {
+                        Ok(result) => result,
+                        Err(_) => Err("agent task panicked during async execution".to_string()),
+                    }),
+                }
+            };
+            if let Some(result) = result {
+                finish_owned_task(&inner, &async_task, result);
+            } else {
+                finish_cancelled_async_task(&inner, &async_task);
+            }
+        });
+        task.execution.store_async(join_handle);
         drop(state);
 
         Ok(AgentRunHandle {
@@ -551,8 +600,13 @@ impl fmt::Debug for AgentRunHandle {
 }
 
 impl AgentRunHandle {
+    #[cfg(test)]
     pub(crate) fn wait(self) -> Result<Value, String> {
         self.completion.wait()
+    }
+
+    pub(crate) async fn wait_async(self) -> Result<Value, String> {
+        self.completion.wait_async().await
     }
 
     pub(crate) fn run_id(&self) -> &str {
@@ -580,6 +634,85 @@ fn validate_start_request(request: StartAgentRun) -> Result<StartAgentRun, Agent
     Ok(StartAgentRun::new(run_id, session_id))
 }
 
+fn register_owned_task(
+    state: &mut AgentTaskRuntimeState,
+    request: StartAgentRun,
+    execution: OwnedExecutionHandle,
+) -> Result<OwnedRunTask, AgentTaskError> {
+    let request = validate_start_request(request)?;
+    if !state.accepting {
+        return Err(AgentTaskError::new(
+            "agent task runtime is not accepting new runs",
+        ));
+    }
+    if state.active.contains_key(&request.run_id) {
+        return Err(AgentTaskError::new(format!(
+            "agent run `{}` is already active",
+            request.run_id
+        )));
+    }
+    if state
+        .statuses
+        .get(&request.run_id)
+        .and_then(|status| status.terminal_outcome.as_ref())
+        .is_some()
+    {
+        return Err(AgentTaskError::new(format!(
+            "agent run `{}` is already terminal",
+            request.run_id
+        )));
+    }
+
+    let generation = state
+        .statuses
+        .get(&request.run_id)
+        .map(|status| status.generation.saturating_add(1))
+        .unwrap_or(1);
+    let prior_late_results = state
+        .statuses
+        .get(&request.run_id)
+        .map(|status| status.late_results_ignored)
+        .unwrap_or(0);
+    let prior_waiting_phase = state.statuses.get(&request.run_id).and_then(|status| {
+        matches!(
+            status.phase.as_str(),
+            "awaiting_approval" | "awaiting_form" | "awaiting_tool" | "awaiting_subagent"
+        )
+        .then(|| status.phase.clone())
+    });
+    let prior_checkpoint_ref = state
+        .statuses
+        .get(&request.run_id)
+        .and_then(|status| status.checkpoint_ref.clone());
+    let task = OwnedRunTask {
+        request: request.clone(),
+        generation,
+        cancellation: CancellationToken::new(),
+        completion: Arc::new(AgentTaskCompletion::new()),
+        execution,
+        prior_waiting_phase,
+        prior_checkpoint_ref,
+    };
+    state.statuses.insert(
+        request.run_id.clone(),
+        AgentTaskStatus {
+            run_id: request.run_id.clone(),
+            session_id: request.session_id.clone(),
+            generation,
+            phase: "running".to_string(),
+            active: true,
+            cancellation_requested: false,
+            cancellation_reason: None,
+            checkpoint_ref: None,
+            terminal_outcome: None,
+            late_results_ignored: prior_late_results,
+        },
+    );
+    state.active.insert(request.run_id.clone(), task.clone());
+    Ok(task)
+}
+
+#[cfg(test)]
 fn agent_task_thread_name(run_id: &str) -> String {
     let suffix = run_id
         .chars()
@@ -667,6 +800,26 @@ fn finish_owned_task(
         }
         task.completion.complete(result);
     }
+    inner.task_finished.notify_all();
+}
+
+fn finish_cancelled_async_task(inner: &AgentTaskRuntimeInner, task: &OwnedRunTask) {
+    let key = AgentTaskKey {
+        run_id: task.request.run_id.clone(),
+        generation: task.generation,
+    };
+    let mut state = inner
+        .state
+        .lock()
+        .expect("agent task runtime state lock should not be poisoned");
+    if state
+        .active
+        .get(&task.request.run_id)
+        .is_some_and(|active| active.generation == task.generation)
+    {
+        state.active.remove(&task.request.run_id);
+    }
+    state.draining.remove(&key);
     inner.task_finished.notify_all();
 }
 
@@ -889,5 +1042,54 @@ mod tests {
             .expect("runtime should accept after resume")
             .wait()
             .expect("restarted run should finish");
+    }
+
+    #[test]
+    fn async_cancellation_drops_operation_without_a_late_completion() {
+        tauri::async_runtime::block_on(async {
+            struct DropSignal(Arc<std::sync::atomic::AtomicBool>);
+
+            impl Drop for DropSignal {
+                fn drop(&mut self) {
+                    self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
+            }
+
+            let runtime = AgentTaskRuntime::new();
+            let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let operation_dropped = dropped.clone();
+            let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
+            let handle = runtime
+                .start_async(request("run-async-cancel"), async move {
+                    let _drop_signal = DropSignal(operation_dropped);
+                    started_sender.send(()).expect("async start should send");
+                    std::future::pending::<Result<Value, String>>().await
+                })
+                .expect("async run should start");
+            started_receiver
+                .await
+                .expect("async run should enter future");
+
+            let outcome = runtime.cancel("run-async-cancel", AgentCancelReason::UserRequested);
+            let result = handle
+                .wait_async()
+                .await
+                .expect("async cancellation should complete");
+
+            assert_eq!(outcome.state, "cancel_requested");
+            assert_eq!(result["stopReason"], "cancelled");
+            for _ in 0..100 {
+                if runtime.draining_count() == 0 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            let status = runtime
+                .status("run-async-cancel")
+                .expect("async cancelled status should remain");
+            assert!(dropped.load(std::sync::atomic::Ordering::SeqCst));
+            assert_eq!(runtime.draining_count(), 0);
+            assert_eq!(status.late_results_ignored, 0);
+        });
     }
 }

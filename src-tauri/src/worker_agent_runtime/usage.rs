@@ -1,7 +1,9 @@
 use super::{
-    agent_provider_config, bool_field, chat_completion_content, string_field, NativeAgentRunContext,
+    agent_provider_config, bool_field, chat_completion_content, string_field,
+    NativeAgentProviderFailure, NativeAgentRunContext,
 };
 use serde_json::Value;
+use std::sync::Arc;
 
 const DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS: i64 = 128_000;
 const DEFAULT_COMPACT_TRIGGER_PERCENT: i64 = 90;
@@ -33,16 +35,25 @@ struct CompactedContextMessages {
     recent_count: usize,
 }
 
-pub(super) fn context_window_messages(context: &NativeAgentRunContext) -> Vec<Value> {
+pub(super) fn context_window_messages(
+    context: &NativeAgentRunContext,
+) -> Result<Vec<Value>, String> {
     if bool_field(&context.spec, "_contextWindowProjected") {
-        return context.messages.clone();
+        return Ok(context.messages.clone());
     }
-    context_window_projection(context).messages
+    context_window_projection(context).map(|projection| projection.messages)
 }
 
 pub(super) fn context_window_projection(
     context: &NativeAgentRunContext,
-) -> ContextWindowProjection {
+) -> Result<ContextWindowProjection, String> {
+    tauri::async_runtime::block_on(context_window_projection_async(context))
+        .map_err(|error| error.to_string())
+}
+
+pub(super) async fn context_window_projection_async(
+    context: &NativeAgentRunContext,
+) -> Result<ContextWindowProjection, NativeAgentProviderFailure> {
     let context_window_tokens = effective_context_window_tokens(context);
     let system_prompt_tokens = estimate_system_prompt_tokens(context);
     let message_budget = context_window_tokens
@@ -53,11 +64,13 @@ pub(super) fn context_window_projection(
     if context_window_strategy(context) == "compact"
         && compact_threshold_reached(context, full_estimate, context_window_tokens)
     {
-        if let Some(compacted) = compact_messages_to_context_window(context, message_budget) {
+        if let Some(compacted) =
+            compact_messages_to_context_window_async(context, message_budget).await?
+        {
             let estimated_tokens_after =
                 estimate_messages_tokens(&compacted.messages).saturating_add(system_prompt_tokens);
             let replacement_message_count = compacted.messages.len();
-            return ContextWindowProjection {
+            return Ok(ContextWindowProjection {
                 messages: compacted.messages,
                 action: Some(ContextWindowAction {
                     event_name: "agent.context.compacted",
@@ -69,15 +82,15 @@ pub(super) fn context_window_projection(
                     estimated_tokens_before: full_estimate,
                     estimated_tokens_after,
                 }),
-            };
+            });
         }
     }
 
     if full_estimate <= context_window_tokens {
-        return ContextWindowProjection {
+        return Ok(ContextWindowProjection {
             messages: context.messages.clone(),
             action: None,
-        };
+        });
     }
 
     let messages = trim_messages_to_context_window(&context.messages, message_budget);
@@ -85,7 +98,7 @@ pub(super) fn context_window_projection(
     let retained_message_count = messages.len();
     let estimated_tokens_after =
         estimate_messages_tokens(&messages).saturating_add(system_prompt_tokens);
-    ContextWindowProjection {
+    Ok(ContextWindowProjection {
         messages,
         action: (dropped_message_count > 0).then_some(ContextWindowAction {
             event_name: "agent.context.trimmed",
@@ -97,7 +110,7 @@ pub(super) fn context_window_projection(
             estimated_tokens_before: full_estimate,
             estimated_tokens_after,
         }),
-    }
+    })
 }
 
 pub(super) fn context_window_action_payload(
@@ -131,7 +144,8 @@ pub(super) fn context_with_projected_messages(
 }
 
 pub(super) fn estimate_context_tokens_for_request(context: &NativeAgentRunContext) -> i64 {
-    context_window_messages(context)
+    context
+        .messages
         .iter()
         .map(estimate_message_tokens)
         .fold(0i64, i64::saturating_add)
@@ -322,21 +336,21 @@ fn trim_messages_to_context_window(messages: &[Value], context_window_tokens: i6
     selected
 }
 
-fn compact_messages_to_context_window(
+async fn compact_messages_to_context_window_async(
     context: &NativeAgentRunContext,
     context_window_tokens: i64,
-) -> Option<CompactedContextMessages> {
+) -> Result<Option<CompactedContextMessages>, NativeAgentProviderFailure> {
     let recent_budget = (context_window_tokens.saturating_mul(2) / 3).max(1);
     let recent_messages = trim_messages_to_context_window(&context.messages, recent_budget);
     let recent_count = recent_messages.len();
     let old_count = context.messages.len().saturating_sub(recent_messages.len());
     if old_count == 0 {
-        return None;
+        return Ok(None);
     }
     let old_messages = &context.messages[..old_count];
-    let summary = compact_old_messages(context, old_messages).ok()?;
+    let summary = compact_old_messages_async(context, old_messages).await?;
     if summary.trim().is_empty() {
-        return None;
+        return Ok(None);
     }
 
     let mut compacted = vec![serde_json::json!({
@@ -344,17 +358,17 @@ fn compact_messages_to_context_window(
         "content": format!("Conversation summary so far:\n{}", summary.trim()),
     })];
     compacted.extend(recent_messages);
-    Some(CompactedContextMessages {
+    Ok(Some(CompactedContextMessages {
         messages: trim_messages_to_context_window(&compacted, context_window_tokens),
         old_count,
         recent_count,
-    })
+    }))
 }
 
-fn compact_old_messages(
+async fn compact_old_messages_async(
     context: &NativeAgentRunContext,
     messages: &[Value],
-) -> Result<String, String> {
+) -> Result<String, NativeAgentProviderFailure> {
     let body = serde_json::json!({
         "model": context.model,
         "stream": false,
@@ -374,8 +388,39 @@ fn compact_old_messages(
         ]
     });
     let provider_config = agent_provider_config(context);
-    let completion =
-        crate::native_provider_runtime::complete_chat_for_agent(&provider_config, &body)?;
+    let cancellation = context.cancellation.clone().map(|cancellation| {
+        Arc::new(cancellation) as Arc<dyn crate::worker_protocol::WorkerRequestCancellation>
+    });
+    let mut observer = |_event: crate::native_provider_runtime::NativeProviderStreamEvent| {};
+    let completion = crate::native_provider_runtime::complete_chat_for_agent_with_observer_async(
+        &provider_config,
+        &body,
+        &mut observer,
+        cancellation,
+    )
+    .await
+    .map_err(|error| {
+        NativeAgentProviderFailure::new(
+            match error.kind() {
+                crate::native_provider_runtime::NativeProviderFailureKind::Cancelled => {
+                    super::NativeAgentProviderFailureKind::Cancelled
+                }
+                crate::native_provider_runtime::NativeProviderFailureKind::RequestTimeout => {
+                    super::NativeAgentProviderFailureKind::RequestTimeout
+                }
+                crate::native_provider_runtime::NativeProviderFailureKind::StreamIdleTimeout => {
+                    super::NativeAgentProviderFailureKind::StreamIdleTimeout
+                }
+                crate::native_provider_runtime::NativeProviderFailureKind::Transport => {
+                    super::NativeAgentProviderFailureKind::Transport
+                }
+                crate::native_provider_runtime::NativeProviderFailureKind::Provider => {
+                    super::NativeAgentProviderFailureKind::Provider
+                }
+            },
+            error.message(),
+        )
+    })?;
     Ok(chat_completion_content(&completion))
 }
 

@@ -251,6 +251,13 @@ Provider selection is profile-based. New config should use `agents.defaults.acti
 `providers.profiles.<profileId>.provider`; `agents.defaults.provider: "auto"` is a legacy value only.
 The built-in provider catalog currently exposes only `deepseek`, `dashscope`, and `openai`.
 
+OpenAI-compatible provider profiles accept separate network deadlines:
+
+- `requestTimeoutMs` / `request_timeout_ms` / `timeoutMs` / `timeout_ms`: deadline for creating a
+  non-stream response or opening a streaming response. The default is `120000` ms.
+- `streamIdleTimeoutMs` / `stream_idle_timeout_ms`: maximum time between streaming chunks. It
+  defaults to the resolved request timeout.
+
 The `mcp-servers` group projects live MCP runtime state. Each configured server has readonly
 `status` and `tool_count` fields populated from the Gateway-owned runtime rather than static
 placeholders. Status values are `disabled`, `starting`, `ready`, `failed`, `stopping`, or `stopped`.
@@ -342,9 +349,9 @@ late-result count. A duplicate active run ID is rejected. An approval/form conti
 generation only after the previous execution task has completed into a non-terminal waiting phase.
 
 Cancellation is idempotent and writes one owner terminal outcome. The task moves out of the active
-registry immediately and remains in a private draining registry until its underlying blocking work
-returns. A late result cannot replace the cancelled result. `worker_cancel_agent` includes the task
-transition:
+registry immediately. Async provider work is dropped directly; legacy blocking tool work remains in
+a private draining registry until its cleanup boundary returns. A late result cannot replace the
+cancelled result. `worker_cancel_agent` includes the task transition:
 
 ```json
 {
@@ -371,6 +378,30 @@ same run owner. Its existing thread result gains `taskCancellation`, containing 
 `worker_cancel_agent` payload. Gateway shutdown stops accepting starts, cancels active owners, waits
 up to five seconds for draining work, continues MCP/worker cleanup even if that wait fails, and
 returns an explicit combined error for remaining cleanup failures.
+
+### Async provider execution
+
+The desktop command, native bridge, context-compaction request, provider loop, and
+OpenAI-compatible HTTP/SSE implementation are async end to end. Normal execution does not nest
+`block_on`. Synchronous helpers remain only as test and compatibility adapters. Until owned tool
+teardown is implemented, the existing synchronous tool batch and continuation dispatcher run on a
+blocking worker rather than an async executor thread.
+
+Provider cancellation is checked before a request, while opening a response, between SSE chunks,
+and immediately before and after each stream observer callback. Cancelling the owning run drops the
+provider future. Once the task owner publishes cancellation, a late chunk or provider result cannot
+emit `agent.delta`, `agent.reasoning_delta`, `agent.done`, or replace the terminal result.
+
+Provider failures do not retry automatically and preserve distinct `stopReason` values:
+
+- `cancelled`
+- `provider_request_timeout`
+- `provider_stream_idle_timeout`
+- `provider_transport_error`
+- `provider_error`
+
+Timeout, transport, and provider failures emit `agent.error` with the same `stopReason`. A provider
+cancellation follows the normal `agent.cancelled` path.
 
 `NativeBackendRunSpec`:
 
@@ -1121,7 +1152,9 @@ Rust agent context-window controls are read from `agents.defaults` or the run sp
 
 `discard` keeps the newest messages that fit the window. `compact` sends older messages through an
 internal non-streaming `chat/completions` request, inserts the returned summary as a system message,
-and keeps recent messages. If compaction fails, the runtime falls back to `discard`.
+and keeps recent messages. The summary request uses the same async timeout, cancellation, and typed
+failure path as the main provider request; failure is explicit and does not silently fall back to
+`discard`.
 
 `NativeBackendEvent` shape:
 

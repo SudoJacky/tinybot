@@ -1,8 +1,11 @@
-use async_openai::{config::OpenAIConfig, Client};
+use crate::worker_protocol::WorkerRequestCancellation;
+use async_openai::{config::OpenAIConfig, error::OpenAIError, Client};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+use std::future::Future;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const DEFAULT_AGENT_MODEL: &str = "deepseek-v4-pro";
@@ -34,6 +37,7 @@ pub struct NativeProviderProfile {
     pub models: Vec<String>,
     pub supports_model_discovery: bool,
     pub request_timeout_ms: u64,
+    pub stream_idle_timeout_ms: u64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -41,6 +45,57 @@ pub enum NativeProviderStreamEvent {
     ContentDelta(String),
     ReasoningDelta(String),
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NativeProviderFailureKind {
+    Cancelled,
+    RequestTimeout,
+    StreamIdleTimeout,
+    Transport,
+    Provider,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NativeProviderFailure {
+    kind: NativeProviderFailureKind,
+    message: String,
+}
+
+impl NativeProviderFailure {
+    fn new(kind: NativeProviderFailureKind, message: impl Into<String>) -> Self {
+        Self {
+            kind,
+            message: message.into(),
+        }
+    }
+
+    fn from_route_error(error: NativeChatRouteError) -> Self {
+        let kind = match error.code {
+            "provider_cancelled" => NativeProviderFailureKind::Cancelled,
+            "provider_timeout" => NativeProviderFailureKind::RequestTimeout,
+            "provider_stream_idle_timeout" => NativeProviderFailureKind::StreamIdleTimeout,
+            "provider_transport_error" => NativeProviderFailureKind::Transport,
+            _ => NativeProviderFailureKind::Provider,
+        };
+        Self::new(kind, error.message)
+    }
+
+    pub fn kind(&self) -> NativeProviderFailureKind {
+        self.kind
+    }
+
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+impl std::fmt::Display for NativeProviderFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for NativeProviderFailure {}
 
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -243,7 +298,11 @@ pub fn provider_models_body(config: &Value, body: &Value) -> Value {
 }
 
 pub fn openai_chat_completions_route(config: &Value, body: &Value) -> Value {
-    match native_chat_completion(config, body) {
+    tauri::async_runtime::block_on(openai_chat_completions_route_async(config, body))
+}
+
+pub async fn openai_chat_completions_route_async(config: &Value, body: &Value) -> Value {
+    match native_chat_completion_with_observer_async(config, body, None, None).await {
         Ok(response) => chat_route_response(response.status, response.body, response.stream),
         Err(error) => chat_route_response(
             error.status,
@@ -267,28 +326,51 @@ pub fn complete_chat_for_agent(config: &Value, body: &Value) -> Result<Value, St
 pub fn complete_chat_for_agent_with_observer(
     config: &Value,
     body: &Value,
-    observer: &mut dyn FnMut(NativeProviderStreamEvent),
+    observer: &mut (dyn FnMut(NativeProviderStreamEvent) + Send),
 ) -> Result<Value, String> {
-    match native_chat_completion_with_observer(config, body, Some(observer)) {
+    tauri::async_runtime::block_on(complete_chat_for_agent_with_observer_async(
+        config, body, observer, None,
+    ))
+    .map_err(|error| error.to_string())
+}
+
+pub async fn complete_chat_for_agent_with_observer_async(
+    config: &Value,
+    body: &Value,
+    observer: &mut (dyn FnMut(NativeProviderStreamEvent) + Send),
+    cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
+) -> Result<Value, NativeProviderFailure> {
+    match native_chat_completion_with_observer_async(config, body, Some(observer), cancellation)
+        .await
+    {
         Ok(response) if (200..300).contains(&response.status) && !response.stream => {
             Ok(response.body)
         }
         Ok(response) if (200..300).contains(&response.status) && response.stream => {
-            let body = response
-                .body
-                .as_str()
-                .ok_or_else(|| "streaming chat completion returned non-text body".to_string())?;
+            let body = response.body.as_str().ok_or_else(|| {
+                NativeProviderFailure::new(
+                    NativeProviderFailureKind::Provider,
+                    "streaming chat completion returned non-text body",
+                )
+            })?;
             if response.observed_stream {
-                aggregate_chat_completion_sse(body)
+                aggregate_chat_completion_sse(body).map_err(|error| {
+                    NativeProviderFailure::new(NativeProviderFailureKind::Provider, error)
+                })
             } else {
-                aggregate_chat_completion_sse_with_observer(body, Some(observer))
+                aggregate_chat_completion_sse_with_observer(body, Some(observer)).map_err(|error| {
+                    NativeProviderFailure::new(NativeProviderFailureKind::Provider, error)
+                })
             }
         }
-        Ok(response) => Err(format!(
-            "chat completion returned unexpected status {}",
-            response.status
+        Ok(response) => Err(NativeProviderFailure::new(
+            NativeProviderFailureKind::Provider,
+            format!(
+                "chat completion returned unexpected status {}",
+                response.status
+            ),
         )),
-        Err(error) => Err(error.message),
+        Err(error) => Err(NativeProviderFailure::from_route_error(error)),
     }
 }
 
@@ -613,18 +695,15 @@ struct NativeChatRouteError {
     code: &'static str,
 }
 
-fn native_chat_completion(
+async fn native_chat_completion_with_observer_async(
     config: &Value,
     body: &Value,
+    mut observer: Option<&mut (dyn FnMut(NativeProviderStreamEvent) + Send)>,
+    cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
 ) -> Result<NativeChatRouteBody, NativeChatRouteError> {
-    native_chat_completion_with_observer(config, body, None)
-}
-
-fn native_chat_completion_with_observer(
-    config: &Value,
-    body: &Value,
-    mut observer: Option<&mut dyn FnMut(NativeProviderStreamEvent)>,
-) -> Result<NativeChatRouteBody, NativeChatRouteError> {
+    if cancellation_requested(&cancellation) {
+        return Err(provider_cancelled_error());
+    }
     let request = parse_chat_request(config, body)?;
     let profile = resolve_chat_provider_profile(config, &request.model).ok_or_else(|| {
         chat_error(
@@ -658,9 +737,10 @@ fn native_chat_completion_with_observer(
         let observed_stream = observer.is_some();
         let stream_result = match observer {
             Some(ref mut observer) => {
-                complete_openai_chat_stream(profile, request, Some(&mut **observer))
+                complete_openai_chat_stream(profile, request, Some(&mut **observer), cancellation)
+                    .await
             }
-            None => complete_openai_chat_stream(profile, request, None),
+            None => complete_openai_chat_stream(profile, request, None, cancellation).await,
         };
         stream_result.map(|body| NativeChatRouteBody {
             status: 200,
@@ -669,12 +749,14 @@ fn native_chat_completion_with_observer(
             observed_stream,
         })
     } else {
-        complete_openai_chat(profile, request).map(|body| NativeChatRouteBody {
-            status: 200,
-            body,
-            stream: false,
-            observed_stream: false,
-        })
+        complete_openai_chat(profile, request, cancellation)
+            .await
+            .map(|body| NativeChatRouteBody {
+                status: 200,
+                body,
+                stream: false,
+                observed_stream: false,
+            })
     }
 }
 
@@ -737,56 +819,123 @@ fn parse_chat_request(
     })
 }
 
-fn complete_openai_chat(
+async fn complete_openai_chat(
     profile: NativeProviderProfile,
     mut request: NativeChatRequest,
+    cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
 ) -> Result<Value, NativeChatRouteError> {
     request.body["stream"] = Value::Bool(false);
-    tauri::async_runtime::block_on(async move {
-        let timeout = Duration::from_millis(profile.request_timeout_ms.max(1));
-        let client = openai_client(profile)?;
-        let response: Value =
-            tokio::time::timeout(timeout, client.chat().create_byot(request.body))
-                .await
-                .map_err(|_| provider_timeout_error(timeout))?
-                .map_err(|error| provider_chat_error(error.to_string()))?;
-        Ok(response)
-    })
+    let timeout = Duration::from_millis(profile.request_timeout_ms.max(1));
+    let client = openai_client(profile)?;
+    await_provider_request(
+        client.chat().create_byot(request.body),
+        timeout,
+        cancellation,
+    )
+    .await
 }
 
-fn complete_openai_chat_stream(
+async fn complete_openai_chat_stream(
     profile: NativeProviderProfile,
     mut request: NativeChatRequest,
-    mut observer: Option<&mut dyn FnMut(NativeProviderStreamEvent)>,
+    mut observer: Option<&mut (dyn FnMut(NativeProviderStreamEvent) + Send)>,
+    cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
 ) -> Result<String, NativeChatRouteError> {
     request.body["stream"] = Value::Bool(true);
-    tauri::async_runtime::block_on(async move {
-        let timeout = Duration::from_millis(profile.request_timeout_ms.max(1));
-        let client = openai_client(profile)?;
-        let mut stream: async_openai::types::stream::StreamResponse<Value> =
-            tokio::time::timeout(timeout, client.chat().create_stream_byot(request.body))
-                .await
-                .map_err(|_| provider_timeout_error(timeout))?
-                .map_err(|error| provider_chat_error(error.to_string()))?;
-        let mut body = String::new();
-        while let Some(chunk) = stream.next().await {
-            match chunk {
-                Ok(chunk) => {
-                    if let Some(observer) = observer.as_deref_mut() {
-                        observe_stream_chunk(&chunk, observer);
-                    }
-                    push_sse_json(&mut body, &chunk);
+    let request_timeout = Duration::from_millis(profile.request_timeout_ms.max(1));
+    let stream_idle_timeout = Duration::from_millis(profile.stream_idle_timeout_ms.max(1));
+    let client = openai_client(profile)?;
+    let mut stream: async_openai::types::stream::StreamResponse<Value> = await_provider_request(
+        client.chat().create_stream_byot(request.body),
+        request_timeout,
+        cancellation.clone(),
+    )
+    .await?;
+    let mut body = String::new();
+    while let Some(chunk) =
+        next_provider_stream_chunk(&mut stream, stream_idle_timeout, cancellation.clone()).await?
+    {
+        match chunk {
+            Ok(chunk) => {
+                if cancellation_requested(&cancellation) {
+                    return Err(provider_cancelled_error());
                 }
-                Err(error) => {
-                    push_sse_error(&mut body, error.to_string());
-                    body.push_str("data: [DONE]\n\n");
-                    return Ok(body);
+                if let Some(observer) = observer.as_deref_mut() {
+                    observe_stream_chunk(&chunk, observer);
                 }
+                if cancellation_requested(&cancellation) {
+                    return Err(provider_cancelled_error());
+                }
+                push_sse_json(&mut body, &chunk);
             }
+            Err(error) => return Err(provider_openai_error(error)),
         }
-        body.push_str("data: [DONE]\n\n");
-        Ok(body)
-    })
+    }
+    body.push_str("data: [DONE]\n\n");
+    Ok(body)
+}
+
+async fn await_provider_request<T, F>(
+    request: F,
+    timeout: Duration,
+    cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
+) -> Result<T, NativeChatRouteError>
+where
+    F: Future<Output = Result<T, OpenAIError>>,
+{
+    if cancellation_requested(&cancellation) {
+        return Err(provider_cancelled_error());
+    }
+    let timed_request = tokio::time::timeout(timeout, request);
+    let result = if let Some(cancellation) = cancellation {
+        tokio::select! {
+            biased;
+            _ = wait_for_provider_cancellation(cancellation) => {
+                return Err(provider_cancelled_error());
+            }
+            result = timed_request => result,
+        }
+    } else {
+        timed_request.await
+    };
+    result
+        .map_err(|_| provider_timeout_error(timeout))?
+        .map_err(provider_openai_error)
+}
+
+async fn next_provider_stream_chunk(
+    stream: &mut async_openai::types::stream::StreamResponse<Value>,
+    idle_timeout: Duration,
+    cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
+) -> Result<Option<Result<Value, OpenAIError>>, NativeChatRouteError> {
+    if cancellation_requested(&cancellation) {
+        return Err(provider_cancelled_error());
+    }
+    let next_chunk = tokio::time::timeout(idle_timeout, stream.next());
+    let result = if let Some(cancellation) = cancellation {
+        tokio::select! {
+            biased;
+            _ = wait_for_provider_cancellation(cancellation) => {
+                return Err(provider_cancelled_error());
+            }
+            result = next_chunk => result,
+        }
+    } else {
+        next_chunk.await
+    };
+    result.map_err(|_| provider_stream_idle_timeout_error(idle_timeout))
+}
+
+fn cancellation_requested(cancellation: &Option<Arc<dyn WorkerRequestCancellation>>) -> bool {
+    cancellation
+        .as_ref()
+        .is_some_and(|cancellation| cancellation.is_cancelled())
+}
+
+async fn wait_for_provider_cancellation(cancellation: Arc<dyn WorkerRequestCancellation>) {
+    while !cancellation.is_cancelled() {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
 }
 
 fn openai_client(
@@ -948,19 +1097,6 @@ fn observe_stream_chunk(chunk: &Value, observer: &mut dyn FnMut(NativeProviderSt
     }
 }
 
-fn push_sse_error(body: &mut String, message: String) {
-    push_sse_json(
-        body,
-        &serde_json::json!({
-            "error": {
-                "message": message,
-                "type": "provider_error",
-                "code": "provider_stream_failed",
-            }
-        }),
-    );
-}
-
 fn chat_route_response(status: u16, body: Value, stream: bool) -> Value {
     let mut headers = serde_json::json!({
         "x-tinybot-route-owner": "rust",
@@ -991,8 +1127,26 @@ fn chat_error(
     }
 }
 
-fn provider_chat_error(message: String) -> NativeChatRouteError {
-    chat_error(503, message, "provider_error", "provider_request_failed")
+fn provider_openai_error(error: OpenAIError) -> NativeChatRouteError {
+    let is_transport = matches!(
+        &error,
+        OpenAIError::Reqwest(_) | OpenAIError::StreamError(_)
+    );
+    if is_transport {
+        chat_error(
+            503,
+            error.to_string(),
+            "provider_transport_error",
+            "provider_transport_error",
+        )
+    } else {
+        chat_error(
+            503,
+            error.to_string(),
+            "provider_error",
+            "provider_request_failed",
+        )
+    }
 }
 
 fn provider_timeout_error(timeout: Duration) -> NativeChatRouteError {
@@ -1004,6 +1158,24 @@ fn provider_timeout_error(timeout: Duration) -> NativeChatRouteError {
         ),
         "provider_timeout",
         "provider_timeout",
+    )
+}
+
+fn provider_stream_idle_timeout_error(timeout: Duration) -> NativeChatRouteError {
+    chat_error(
+        504,
+        format!("provider stream was idle for {} ms", timeout.as_millis()),
+        "provider_stream_idle_timeout",
+        "provider_stream_idle_timeout",
+    )
+}
+
+fn provider_cancelled_error() -> NativeChatRouteError {
+    chat_error(
+        499,
+        "provider request was cancelled",
+        "provider_cancelled",
+        "provider_cancelled",
     )
 }
 
@@ -1078,6 +1250,18 @@ pub fn resolve_provider_profile(
         .or_else(|| u64_field(provider_config.unwrap_or(&Value::Null), "requestTimeoutMs"))
         .unwrap_or(DEFAULT_PROVIDER_TIMEOUT_MS)
         .max(1);
+    let stream_idle_timeout_ms = u64_field(
+        provider_config.unwrap_or(&Value::Null),
+        "stream_idle_timeout_ms",
+    )
+    .or_else(|| {
+        u64_field(
+            provider_config.unwrap_or(&Value::Null),
+            "streamIdleTimeoutMs",
+        )
+    })
+    .unwrap_or(request_timeout_ms)
+    .max(1);
 
     Some(NativeProviderProfile {
         provider_id: provider_id.to_string(),
@@ -1110,6 +1294,7 @@ pub fn resolve_provider_profile(
                 .unwrap_or(true)
         }),
         request_timeout_ms,
+        stream_idle_timeout_ms,
     })
 }
 
@@ -1293,10 +1478,12 @@ fn join_models_url(api_base: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::worker_protocol::WorkerRequestCancellation;
     use serde_json::json;
     use std::io::{Read, Write};
     use std::net::TcpListener;
-    use std::sync::mpsc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{mpsc, Arc};
     use std::thread;
     use std::time::Duration;
 
@@ -1339,7 +1526,12 @@ mod tests {
         let profile = resolve_provider_profile(
             &json!({
                 "agents": { "defaults": { "provider": "openai", "model": "gpt-4.1" } },
-                "providers": { "openai": { "api_key": "sk-secret", "models": ["gpt-4.1-custom"] } }
+                "providers": { "openai": {
+                    "api_key": "sk-secret",
+                    "models": ["gpt-4.1-custom"],
+                    "request_timeout_ms": 900,
+                    "stream_idle_timeout_ms": 125
+                } }
             }),
             None,
             None,
@@ -1353,6 +1545,8 @@ mod tests {
         );
         assert!(profile.api_key_configured);
         assert_eq!(profile.models, vec!["gpt-4.1-custom"]);
+        assert_eq!(profile.request_timeout_ms, 900);
+        assert_eq!(profile.stream_idle_timeout_ms, 125);
     }
 
     #[test]
@@ -1781,5 +1975,185 @@ mod tests {
         assert_eq!(response["status"], 504);
         assert_eq!(response["body"]["error"]["type"], "provider_timeout");
         assert_eq!(response["body"]["error"]["code"], "provider_timeout");
+    }
+
+    #[test]
+    fn async_agent_chat_reports_request_timeout_separately() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("test listener should bind");
+        let api_base = format!("http://{}", listener.local_addr().unwrap());
+        let stalled_server = thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buffer = [0_u8; 512];
+                let _ = stream.read(&mut buffer);
+                thread::sleep(Duration::from_millis(250));
+            }
+        });
+        let mut observer = |_event: NativeProviderStreamEvent| {};
+
+        let error = tauri::async_runtime::block_on(complete_chat_for_agent_with_observer_async(
+            &json!({
+                "agents": { "defaults": { "provider": "openai", "model": "gpt-test" } },
+                "providers": { "openai": {
+                    "api_key": "sk-test",
+                    "api_base": api_base,
+                    "request_timeout_ms": 25
+                } }
+            }),
+            &json!({
+                "model": "gpt-test",
+                "messages": [{ "role": "user", "content": "hello" }]
+            }),
+            &mut observer,
+            None,
+        ))
+        .expect_err("stalled request should time out");
+
+        let _ = stalled_server.join();
+        assert_eq!(error.kind(), NativeProviderFailureKind::RequestTimeout);
+    }
+
+    #[test]
+    fn async_agent_stream_reports_idle_timeout_after_partial_output() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("test listener should bind");
+        let api_base = format!("http://{}", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buffer = [0_u8; 8192];
+                let _ = stream.read(&mut buffer);
+                let event = "data: {\"id\":\"chatcmpl-idle\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-test\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"first\"},\"finish_reason\":null}]}\n\n";
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n{:X}\r\n{}\r\n",
+                    event.len(),
+                    event
+                );
+                let _ = stream.flush();
+                thread::sleep(Duration::from_millis(250));
+            }
+        });
+        let mut observed = Vec::new();
+        let mut observer = |event: NativeProviderStreamEvent| observed.push(event);
+
+        let error = tauri::async_runtime::block_on(complete_chat_for_agent_with_observer_async(
+            &json!({
+                "agents": { "defaults": { "provider": "openai", "model": "gpt-test" } },
+                "providers": { "openai": {
+                    "api_key": "sk-test",
+                    "api_base": api_base,
+                    "request_timeout_ms": 500,
+                    "stream_idle_timeout_ms": 25
+                } }
+            }),
+            &json!({
+                "model": "gpt-test",
+                "messages": [{ "role": "user", "content": "hello" }],
+                "stream": true
+            }),
+            &mut observer,
+            None,
+        ))
+        .expect_err("stalled stream should hit its idle timeout");
+
+        let _ = server.join();
+        assert_eq!(error.kind(), NativeProviderFailureKind::StreamIdleTimeout);
+        assert_eq!(
+            observed,
+            vec![NativeProviderStreamEvent::ContentDelta("first".to_string())]
+        );
+    }
+
+    #[test]
+    fn async_agent_stream_stops_observing_after_partial_output_cancellation() {
+        struct TestCancellation(Arc<AtomicBool>);
+
+        impl WorkerRequestCancellation for TestCancellation {
+            fn is_cancelled(&self) -> bool {
+                self.0.load(Ordering::SeqCst)
+            }
+        }
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("test listener should bind");
+        let api_base = format!("http://{}", listener.local_addr().unwrap());
+        let server = thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buffer = [0_u8; 8192];
+                let _ = stream.read(&mut buffer);
+                let body = concat!(
+                    "data: {\"id\":\"chatcmpl-cancel\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-test\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"first\"},\"finish_reason\":null}]}\n\n",
+                    "data: {\"id\":\"chatcmpl-cancel\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-test\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"late\"},\"finish_reason\":null}]}\n\n",
+                    "data: [DONE]\n\n"
+                );
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.flush();
+            }
+        });
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let cancellation = Arc::new(TestCancellation(cancelled.clone()));
+        let observer_cancellation = cancelled.clone();
+        let mut observed = Vec::new();
+        let mut observer = |event: NativeProviderStreamEvent| {
+            observed.push(event);
+            observer_cancellation.store(true, Ordering::SeqCst);
+        };
+
+        let error = tauri::async_runtime::block_on(complete_chat_for_agent_with_observer_async(
+            &json!({
+                "agents": { "defaults": { "provider": "openai", "model": "gpt-test" } },
+                "providers": { "openai": {
+                    "api_key": "sk-test",
+                    "api_base": api_base,
+                    "request_timeout_ms": 500,
+                    "stream_idle_timeout_ms": 500
+                } }
+            }),
+            &json!({
+                "model": "gpt-test",
+                "messages": [{ "role": "user", "content": "hello" }],
+                "stream": true
+            }),
+            &mut observer,
+            Some(cancellation),
+        ))
+        .expect_err("stream cancellation should stop before a second delta");
+
+        let _ = server.join();
+        assert_eq!(error.kind(), NativeProviderFailureKind::Cancelled);
+        assert_eq!(
+            observed,
+            vec![NativeProviderStreamEvent::ContentDelta("first".to_string())]
+        );
+    }
+
+    #[test]
+    fn async_agent_chat_honors_cancellation_before_provider_request() {
+        struct TestCancellation(Arc<AtomicBool>);
+
+        impl WorkerRequestCancellation for TestCancellation {
+            fn is_cancelled(&self) -> bool {
+                self.0.load(Ordering::SeqCst)
+            }
+        }
+
+        let cancellation = Arc::new(TestCancellation(Arc::new(AtomicBool::new(true))));
+        let mut observer = |_event: NativeProviderStreamEvent| {};
+        let error = tauri::async_runtime::block_on(complete_chat_for_agent_with_observer_async(
+            &json!({
+                "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+                "providers": { "fixture": { "responses": [{ "content": "unused" }] } }
+            }),
+            &json!({
+                "model": "fixture-model",
+                "messages": [{ "role": "user", "content": "hello" }]
+            }),
+            &mut observer,
+            Some(cancellation),
+        ))
+        .expect_err("cancelled request should not reach the fixture provider");
+
+        assert_eq!(error.kind(), NativeProviderFailureKind::Cancelled);
     }
 }

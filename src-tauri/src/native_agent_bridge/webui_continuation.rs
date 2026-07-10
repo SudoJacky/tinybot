@@ -4,7 +4,7 @@ use crate::native_agent_bridge::{
     persist_native_agent_run_record, persist_native_agent_turn_if_final,
 };
 use crate::worker_agent_runtime::{
-    run_native_agent_turn_with_workspace, NativeAgentRuntimeServices,
+    run_native_agent_turn_with_workspace_async, NativeAgentRuntimeServices,
 };
 use crate::worker_protocol::WorkerRequest;
 use crate::worker_request_id::next_worker_request_correlation;
@@ -206,7 +206,7 @@ pub(crate) fn native_webui_approval_not_found_body(
     })
 }
 
-pub(crate) fn resolve_approval_body_with_services(
+pub(crate) async fn resolve_approval_body_with_services(
     base_services: NativeAgentRuntimeServices,
     approval_id: String,
     body: &serde_json::Value,
@@ -255,9 +255,10 @@ pub(crate) fn resolve_approval_body_with_services(
         workspace_root,
         config_snapshot,
     )
+    .await
 }
 
-pub(crate) fn resolve_approval_continuation_with_services(
+pub(crate) async fn resolve_approval_continuation_with_services(
     base_services: NativeAgentRuntimeServices,
     session_key: &str,
     checkpoint: serde_json::Value,
@@ -280,12 +281,13 @@ pub(crate) fn resolve_approval_continuation_with_services(
         workspace_root.clone(),
         config_snapshot.clone(),
     );
-    let mut continuation = run_native_agent_turn_with_workspace(
+    let mut continuation = run_native_agent_turn_with_workspace_async(
         &services,
         continuation_spec.clone(),
         config_snapshot.clone(),
         &workspace_root,
-    )?;
+    )
+    .await?;
     persist_native_agent_run_record(
         continuation_spec.clone(),
         &mut continuation,
@@ -361,7 +363,7 @@ pub(crate) fn native_webui_agent_ui_form_not_found_body(form_id: String) -> serd
     })
 }
 
-pub(crate) fn resolve_agent_ui_form_body_with_services(
+pub(crate) async fn resolve_agent_ui_form_body_with_services(
     base_services: NativeAgentRuntimeServices,
     form_id: String,
     body: &serde_json::Value,
@@ -418,7 +420,8 @@ pub(crate) fn resolve_agent_ui_form_body_with_services(
         cancelled,
         workspace_root,
         config_snapshot,
-    )?;
+    )
+    .await?;
     Ok((200, continuation))
 }
 
@@ -535,7 +538,7 @@ pub(crate) fn native_agent_ui_form_event(
     })
 }
 
-pub(crate) fn resolve_agent_ui_form_with_services(
+pub(crate) async fn resolve_agent_ui_form_with_services(
     base_services: NativeAgentRuntimeServices,
     session_key: &str,
     checkpoint: serde_json::Value,
@@ -554,12 +557,13 @@ pub(crate) fn resolve_agent_ui_form_with_services(
         workspace_root.clone(),
         config_snapshot.clone(),
     );
-    let mut continuation = run_native_agent_turn_with_workspace(
+    let mut continuation = run_native_agent_turn_with_workspace_async(
         &services,
         continuation_spec.clone(),
         config_snapshot.clone(),
         &workspace_root,
-    )?;
+    )
+    .await?;
     persist_native_agent_run_record(
         continuation_spec.clone(),
         &mut continuation,

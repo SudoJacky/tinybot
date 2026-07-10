@@ -1,4 +1,4 @@
-use crate::desktop_commands::agent::worker_run_agent_with_live_trace_sink;
+use crate::desktop_commands::agent::worker_run_agent_with_live_trace_sink_async;
 use crate::native_agent_bridge::desktop_agent_event_sink;
 use crate::worker_agent_runtime::NativeAgentTraceSink;
 use crate::worker_protocol::WorkerRequest;
@@ -117,18 +117,15 @@ pub(crate) async fn worker_transport_dispatch_websocket_message<R: Runtime + 'st
     let workspace_root = native_backend_workspace_root();
     let config_snapshot = experimental_worker_config_snapshot();
     let live_trace_sink = desktop_agent_event_sink(app);
-    tauri::async_runtime::spawn_blocking(move || {
-        worker_transport_dispatch_websocket_message_with_live_trace_sink(
-            &shared,
-            input,
-            workspace_root,
-            config_snapshot,
-            Duration::from_secs(60),
-            Some(live_trace_sink),
-        )
-    })
+    worker_transport_dispatch_websocket_message_with_live_trace_sink_async(
+        &shared,
+        input,
+        workspace_root,
+        config_snapshot,
+        Duration::from_secs(60),
+        Some(live_trace_sink),
+    )
     .await
-    .map_err(|error| format!("worker transport websocket dispatch task failed: {error}"))?
 }
 
 #[tauri::command]
@@ -216,7 +213,7 @@ pub(crate) fn worker_transport_websocket_message_with_options(
     unsupported_rust_only_command("worker_transport_websocket_message")
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn worker_transport_dispatch_websocket_message_with_options(
     shared: &SharedGateway,
     input: WorkerTransportWebSocketDispatchInput,
@@ -224,17 +221,19 @@ pub(crate) fn worker_transport_dispatch_websocket_message_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    worker_transport_dispatch_websocket_message_with_live_trace_sink(
-        shared,
-        input,
-        workspace_root,
-        config_snapshot,
-        timeout,
-        None,
+    tauri::async_runtime::block_on(
+        worker_transport_dispatch_websocket_message_with_live_trace_sink_async(
+            shared,
+            input,
+            workspace_root,
+            config_snapshot,
+            timeout,
+            None,
+        ),
     )
 }
 
-fn worker_transport_dispatch_websocket_message_with_live_trace_sink(
+async fn worker_transport_dispatch_websocket_message_with_live_trace_sink_async(
     shared: &SharedGateway,
     input: WorkerTransportWebSocketDispatchInput,
     workspace_root: PathBuf,
@@ -264,14 +263,15 @@ fn worker_transport_dispatch_websocket_message_with_live_trace_sink(
         .get("input")
         .cloned()
         .ok_or_else(|| "native websocket dispatch missing run input".to_string())?;
-    let agent_result = worker_run_agent_with_live_trace_sink(
+    let agent_result = worker_run_agent_with_live_trace_sink_async(
         shared,
         run_spec,
         workspace_root,
         config_snapshot,
         timeout,
         live_trace_sink,
-    )?;
+    )
+    .await?;
 
     Ok(serde_json::json!({
         "transport": transport_result,

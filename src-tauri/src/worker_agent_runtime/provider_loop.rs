@@ -7,12 +7,15 @@ use super::result::{cancelled_result, cancelled_run_result, error_result};
 use super::state::NativeAgentRunState;
 use super::tool_runtime::{execute_tool_calls_for_iteration, NativeAgentToolExecutionOutcome};
 use super::usage::{
-    context_window_action_payload, context_window_projection, context_with_projected_messages,
-    estimate_context_tokens_for_request,
+    context_window_action_payload, context_window_projection_async,
+    context_with_projected_messages, estimate_context_tokens_for_request,
 };
-use super::user_input::{prepare_user_input_continuation, UserInputContinuationOutcome};
+use super::user_input::{
+    prepare_user_input_continuation, UserInputContinuationOutcome, UserInputResume,
+};
 use super::{
-    bool_field, NativeAgentProviderStreamEvent, NativeAgentRunContext, NativeAgentRuntimeServices,
+    bool_field, NativeAgentProviderFailure, NativeAgentProviderFailureKind,
+    NativeAgentProviderStreamEvent, NativeAgentRunContext, NativeAgentRuntimeServices,
 };
 use crate::agent_loop_runtime_protocol::AgentRuntimePhase;
 use crate::runtime::agent_task::StartAgentRun;
@@ -27,7 +30,19 @@ pub fn run_native_agent_turn_with_config(
     spec: Value,
     config_snapshot: Value,
 ) -> Result<Value, String> {
-    run_owned_native_agent_turn(services, spec, config_snapshot, None)
+    tauri::async_runtime::block_on(run_native_agent_turn_with_config_async(
+        services,
+        spec,
+        config_snapshot,
+    ))
+}
+
+pub async fn run_native_agent_turn_with_config_async(
+    services: &NativeAgentRuntimeServices,
+    spec: Value,
+    config_snapshot: Value,
+) -> Result<Value, String> {
+    run_owned_native_agent_turn_async(services, spec, config_snapshot, None).await
 }
 
 pub fn run_native_agent_turn_with_workspace(
@@ -36,15 +51,30 @@ pub fn run_native_agent_turn_with_workspace(
     config_snapshot: Value,
     workspace_root: &Path,
 ) -> Result<Value, String> {
-    run_owned_native_agent_turn(
+    tauri::async_runtime::block_on(run_native_agent_turn_with_workspace_async(
+        services,
+        spec,
+        config_snapshot,
+        workspace_root,
+    ))
+}
+
+pub async fn run_native_agent_turn_with_workspace_async(
+    services: &NativeAgentRuntimeServices,
+    spec: Value,
+    config_snapshot: Value,
+    workspace_root: &Path,
+) -> Result<Value, String> {
+    run_owned_native_agent_turn_async(
         services,
         spec,
         config_snapshot,
         Some(workspace_root.to_path_buf()),
     )
+    .await
 }
 
-fn run_owned_native_agent_turn(
+async fn run_owned_native_agent_turn_async(
     services: &NativeAgentRuntimeServices,
     spec: Value,
     config_snapshot: Value,
@@ -72,18 +102,19 @@ fn run_owned_native_agent_turn(
     let owned_services = services.clone();
     let handle = services
         .task_runtime
-        .start_blocking(request, move || {
+        .start_async(request, async move {
             let system_prompt = workspace_root
                 .as_deref()
                 .map(crate::system_prompt::load_or_create_system_prompt)
                 .transpose()?;
-            run_native_agent_turn_with_system_prompt(
+            run_native_agent_turn_with_system_prompt_async(
                 &owned_services,
                 spec,
                 config_snapshot,
                 system_prompt,
                 workspace_root.as_deref(),
             )
+            .await
         })
         .map_err(|error| format!("failed to start owned agent task: {error}"))?;
     if handle.run_id() != identity.run_id || handle.session_id() != identity.session_id {
@@ -92,10 +123,10 @@ fn run_owned_native_agent_turn(
     if handle.status().is_none() {
         return Err("owned agent task did not publish a runtime status".to_string());
     }
-    handle.wait()
+    handle.wait_async().await
 }
 
-fn run_native_agent_turn_with_system_prompt(
+async fn run_native_agent_turn_with_system_prompt_async(
     services: &NativeAgentRuntimeServices,
     spec: Value,
     config_snapshot: Value,
@@ -133,38 +164,37 @@ fn run_native_agent_turn_with_system_prompt(
         let cancellation = context.cancellation.clone().map(|cancellation| {
             Arc::new(cancellation) as Arc<dyn crate::worker_protocol::WorkerRequestCancellation>
         });
-        let discovered =
-            match tauri::async_runtime::block_on(services.mcp_runtime.discover_configured_tools(
-                workspace_root,
-                &config_snapshot,
-                cancellation,
-            )) {
-                Ok(discovered) => discovered,
-                Err(error) if error.cancelled => {
-                    let checkpoint = save_phase_checkpoint(
-                        services,
-                        &context,
-                        "cancelled",
-                        serde_json::json!({
-                            "cancelled": true,
-                            "phase": "mcp_discovery",
-                            "server": error.server,
-                            "transport": error.transport,
-                        }),
-                    );
-                    return Ok(cancelled_result(
-                        &context.run_id,
-                        &context.session_id,
-                        checkpoint,
-                    ));
-                }
-                Err(error) => {
-                    return Err(format!(
-                        "MCP discovery failed for server `{}` over {}: {}",
-                        error.server, error.transport, error.message
-                    ));
-                }
-            };
+        let discovered = match services
+            .mcp_runtime
+            .discover_configured_tools(workspace_root, &config_snapshot, cancellation)
+            .await
+        {
+            Ok(discovered) => discovered,
+            Err(error) if error.cancelled => {
+                let checkpoint = save_phase_checkpoint(
+                    services,
+                    &context,
+                    "cancelled",
+                    serde_json::json!({
+                        "cancelled": true,
+                        "phase": "mcp_discovery",
+                        "server": error.server,
+                        "transport": error.transport,
+                    }),
+                );
+                return Ok(cancelled_result(
+                    &context.run_id,
+                    &context.session_id,
+                    checkpoint,
+                ));
+            }
+            Err(error) => {
+                return Err(format!(
+                    "MCP discovery failed for server `{}` over {}: {}",
+                    error.server, error.transport, error.message
+                ));
+            }
+        };
         let mut dynamic_tools = Vec::new();
         for server in discovered {
             dynamic_tools.extend(mcp_tool_registry_entries(
@@ -188,26 +218,15 @@ fn run_native_agent_turn_with_system_prompt(
     context
         .tool_router
         .activate_for_turn(&services.test_activated_tool_ids)?;
-    restore_activated_tools_for_continuation(services, &mut context)?;
-    if let Some(result) = maybe_awaiting_approval_result(services, &context) {
-        return Ok(result);
-    }
-    if let Some(result) = maybe_approval_resume_result(services, &context)? {
-        return Ok(result);
-    }
-    if let Some(result) = maybe_awaiting_form_result(services, &context) {
-        return Ok(result);
-    }
-    let user_input_resume = match prepare_user_input_continuation(services, &mut context)? {
-        Some(UserInputContinuationOutcome::Finished(result)) => return Ok(result),
-        Some(UserInputContinuationOutcome::Resume(resume)) => Some(resume),
-        None => {
-            if let Some(result) = maybe_form_submit_result(services, &context)? {
-                return Ok(result);
-            }
-            None
-        }
-    };
+    let (next_context, user_input_resume) =
+        match prepare_continuation_on_blocking_worker(services.clone(), context).await? {
+            PreparedContinuation::Finished(result) => return Ok(result),
+            PreparedContinuation::Continue {
+                context,
+                user_input_resume,
+            } => (context, user_input_resume),
+        };
+    context = next_context;
     if context.messages.is_empty() {
         return Ok(error_result(
             &context.run_id,
@@ -251,7 +270,25 @@ fn run_native_agent_turn_with_system_prompt(
         );
         context.messages = state.messages.clone();
         context.spec["messages"] = Value::Array(state.messages.clone());
-        let projection = context_window_projection(&context);
+        let projection = match context_window_projection_async(&context).await {
+            Ok(projection) => projection,
+            Err(error) if error.kind() == NativeAgentProviderFailureKind::Cancelled => {
+                state.transition_phase(AgentRuntimePhase::Cancelled, iteration, "agent.cancelled");
+                return Ok(cancelled_run_result(
+                    services,
+                    &context,
+                    state.take_runtime_events(),
+                    std::mem::take(&mut state.tools_used),
+                    std::mem::take(&mut state.completed_tool_results),
+                    iteration,
+                ));
+            }
+            Err(error) => {
+                return Ok(provider_failure_result(
+                    services, &context, &mut state, iteration, error,
+                ));
+            }
+        };
         if let Some(action) = projection.action.as_ref() {
             let payload = context_window_action_payload(&context, iteration, action);
             state.emit_event(action.event_name, payload);
@@ -260,88 +297,102 @@ fn run_native_agent_turn_with_system_prompt(
         let estimated_context_tokens = estimate_context_tokens_for_request(&provider_context);
         let mut provider_streamed_content = false;
         let mut provider_streamed_reasoning = false;
+        let mut provider_observer_cancelled = false;
         let provider_response = {
-            let mut stream_observer = |event: NativeAgentProviderStreamEvent| match event {
-                NativeAgentProviderStreamEvent::ContentDelta(delta) => {
-                    if delta.is_empty() {
-                        return;
-                    }
-                    provider_streamed_content = true;
-                    state.transition_phase(
-                        AgentRuntimePhase::StreamingModel,
-                        iteration,
-                        "agent.delta",
-                    );
-                    state.emit_event(
-                        "agent.delta",
-                        serde_json::json!({
-                            "runId": context.run_id,
-                            "sessionId": context.session_id,
-                            "iteration": iteration,
-                            "delta": delta,
-                        }),
-                    );
+            let mut stream_observer = |event: NativeAgentProviderStreamEvent| {
+                if run_context_is_cancelled(&context) {
+                    provider_observer_cancelled = true;
+                    return;
                 }
-                NativeAgentProviderStreamEvent::ReasoningDelta(delta) => {
-                    if delta.is_empty() {
-                        return;
+                match event {
+                    NativeAgentProviderStreamEvent::ContentDelta(delta) => {
+                        if delta.is_empty() {
+                            return;
+                        }
+                        provider_streamed_content = true;
+                        state.transition_phase(
+                            AgentRuntimePhase::StreamingModel,
+                            iteration,
+                            "agent.delta",
+                        );
+                        state.emit_event(
+                            "agent.delta",
+                            serde_json::json!({
+                                "runId": context.run_id,
+                                "sessionId": context.session_id,
+                                "iteration": iteration,
+                                "delta": delta,
+                            }),
+                        );
                     }
-                    provider_streamed_reasoning = true;
-                    state.transition_phase(
-                        AgentRuntimePhase::StreamingModel,
-                        iteration,
-                        "agent.reasoning_delta",
-                    );
-                    state.emit_event(
-                        "agent.reasoning_delta",
-                        serde_json::json!({
-                            "runId": context.run_id,
-                            "sessionId": context.session_id,
-                            "iteration": iteration,
-                            "delta": delta,
-                        }),
-                    );
+                    NativeAgentProviderStreamEvent::ReasoningDelta(delta) => {
+                        if delta.is_empty() {
+                            return;
+                        }
+                        provider_streamed_reasoning = true;
+                        state.transition_phase(
+                            AgentRuntimePhase::StreamingModel,
+                            iteration,
+                            "agent.reasoning_delta",
+                        );
+                        state.emit_event(
+                            "agent.reasoning_delta",
+                            serde_json::json!({
+                                "runId": context.run_id,
+                                "sessionId": context.session_id,
+                                "iteration": iteration,
+                                "delta": delta,
+                            }),
+                        );
+                    }
                 }
             };
             services
                 .provider
-                .complete_streaming(&provider_context, &mut stream_observer)
+                .complete_streaming_async(&provider_context, &mut stream_observer)
+                .await
         };
+        if provider_observer_cancelled {
+            state.transition_phase(AgentRuntimePhase::Cancelled, iteration, "agent.cancelled");
+            return Ok(cancelled_run_result(
+                services,
+                &context,
+                state.take_runtime_events(),
+                std::mem::take(&mut state.tools_used),
+                std::mem::take(&mut state.completed_tool_results),
+                iteration,
+            ));
+        }
         let provider_response = match provider_response {
             Ok(response) => response,
+            Err(error) if error.kind() == NativeAgentProviderFailureKind::Cancelled => {
+                state.transition_phase(AgentRuntimePhase::Cancelled, iteration, "agent.cancelled");
+                return Ok(cancelled_run_result(
+                    services,
+                    &context,
+                    state.take_runtime_events(),
+                    std::mem::take(&mut state.tools_used),
+                    std::mem::take(&mut state.completed_tool_results),
+                    iteration,
+                ));
+            }
             Err(error) => {
-                state.set_stop_reason("provider_error", iteration, "agent.error");
-                state.emit_event(
-                    "agent.error",
-                    serde_json::json!({
-                        "runId": context.run_id,
-                        "sessionId": context.session_id,
-                        "iteration": iteration,
-                        "stopReason": "provider_error",
-                        "message": error,
-                        "error": error,
-                    }),
-                );
-                services
-                    .checkpoints
-                    .clear_for_run(&context.session_id, &context.run_id);
-                let runtime_events = state.runtime_events();
-                let events = state.legacy_events();
-                return Ok(serde_json::json!({
-                    "runtime": "rust",
-                    "runId": context.run_id,
-                    "sessionId": context.session_id,
-                    "finalContent": "",
-                    "stopReason": "provider_error",
-                    "messages": [],
-                    "toolsUsed": state.tools_used,
-                    "completedToolResults": state.completed_tool_results,
-                    "error": error,
-                    "events": events,
-                    "runtimeEvents": runtime_events,
-                }));
+                return Ok(provider_failure_result(
+                    services, &context, &mut state, iteration, error,
+                ));
             }
         };
+        if run_context_is_cancelled(&context) && provider_response.tool_calls.is_empty() {
+            state.transition_phase(AgentRuntimePhase::Cancelled, iteration, "agent.cancelled");
+            return Ok(cancelled_run_result(
+                services,
+                &context,
+                state.take_runtime_events(),
+                std::mem::take(&mut state.tools_used),
+                std::mem::take(&mut state.completed_tool_results),
+                iteration,
+            ));
+        }
 
         let current_phase = state.phase.as_str().to_string();
         maybe_emit_checkpoint(services, &context, &mut state, &current_phase);
@@ -382,14 +433,18 @@ fn run_native_agent_turn_with_system_prompt(
         }
 
         if !provider_response.tool_calls.is_empty() {
-            match execute_tool_calls_for_iteration(
-                services,
-                &mut context,
-                &mut state,
+            let (next_context, next_state, outcome) = execute_tool_calls_on_blocking_worker(
+                services.clone(),
+                context,
+                state,
                 iteration,
                 provider_response.final_content.clone(),
                 provider_response.tool_calls,
-            ) {
+            )
+            .await?;
+            context = next_context;
+            state = next_state;
+            match outcome {
                 NativeAgentToolExecutionOutcome::Continue => {}
                 NativeAgentToolExecutionOutcome::Finished(result) => return Ok(result),
             }
@@ -510,4 +565,119 @@ fn run_context_is_cancelled(context: &NativeAgentRunContext) -> bool {
         .cancellation
         .as_ref()
         .is_some_and(|cancellation| cancellation.is_cancelled())
+}
+
+fn provider_failure_result(
+    services: &NativeAgentRuntimeServices,
+    context: &NativeAgentRunContext,
+    state: &mut NativeAgentRunState,
+    iteration: i64,
+    error: NativeAgentProviderFailure,
+) -> Value {
+    let stop_reason = error.stop_reason();
+    let message = error.message().to_string();
+    state.set_stop_reason(stop_reason, iteration, "agent.error");
+    state.emit_event(
+        "agent.error",
+        serde_json::json!({
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "iteration": iteration,
+            "stopReason": stop_reason,
+            "message": message,
+            "error": message,
+        }),
+    );
+    services
+        .checkpoints
+        .clear_for_run(&context.session_id, &context.run_id);
+    let runtime_events = state.runtime_events();
+    let events = state.legacy_events();
+    serde_json::json!({
+        "runtime": "rust",
+        "runId": context.run_id,
+        "sessionId": context.session_id,
+        "finalContent": "",
+        "stopReason": stop_reason,
+        "messages": [],
+        "toolsUsed": std::mem::take(&mut state.tools_used),
+        "completedToolResults": std::mem::take(&mut state.completed_tool_results),
+        "error": message,
+        "events": events,
+        "runtimeEvents": runtime_events,
+    })
+}
+
+async fn execute_tool_calls_on_blocking_worker(
+    services: NativeAgentRuntimeServices,
+    mut context: NativeAgentRunContext,
+    mut state: NativeAgentRunState,
+    iteration: i64,
+    assistant_content: String,
+    tool_calls: Vec<super::NativeAgentToolCall>,
+) -> Result<
+    (
+        NativeAgentRunContext,
+        NativeAgentRunState,
+        NativeAgentToolExecutionOutcome,
+    ),
+    String,
+> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let outcome = execute_tool_calls_for_iteration(
+            &services,
+            &mut context,
+            &mut state,
+            iteration,
+            assistant_content,
+            tool_calls,
+        );
+        (context, state, outcome)
+    })
+    .await
+    .map_err(|error| format!("native tool batch task failed: {error}"))
+}
+
+enum PreparedContinuation {
+    Finished(Value),
+    Continue {
+        context: NativeAgentRunContext,
+        user_input_resume: Option<UserInputResume>,
+    },
+}
+
+async fn prepare_continuation_on_blocking_worker(
+    services: NativeAgentRuntimeServices,
+    mut context: NativeAgentRunContext,
+) -> Result<PreparedContinuation, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        restore_activated_tools_for_continuation(&services, &mut context)?;
+        if let Some(result) = maybe_awaiting_approval_result(&services, &context) {
+            return Ok(PreparedContinuation::Finished(result));
+        }
+        if let Some(result) = maybe_approval_resume_result(&services, &context)? {
+            return Ok(PreparedContinuation::Finished(result));
+        }
+        if let Some(result) = maybe_awaiting_form_result(&services, &context) {
+            return Ok(PreparedContinuation::Finished(result));
+        }
+        let user_input_resume = match prepare_user_input_continuation(&services, &mut context)? {
+            Some(UserInputContinuationOutcome::Finished(result)) => {
+                return Ok(PreparedContinuation::Finished(result));
+            }
+            Some(UserInputContinuationOutcome::Resume(resume)) => Some(resume),
+            None => {
+                if let Some(result) = maybe_form_submit_result(&services, &context)? {
+                    return Ok(PreparedContinuation::Finished(result));
+                }
+                None
+            }
+        };
+        Ok(PreparedContinuation::Continue {
+            context,
+            user_input_resume,
+        })
+    })
+    .await
+    .map_err(|error| format!("native continuation task failed: {error}"))?
 }
