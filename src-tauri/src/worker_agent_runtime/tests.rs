@@ -1,8 +1,8 @@
 use super::*;
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_tool_registry::{
-    ToolApprovalMetadata, ToolExecutionTarget, ToolExposure, ToolRegistryEntry, ToolRuntimePolicy,
-    WorkerToolRegistryRpc,
+    ToolApprovalMetadata, ToolCancellationMode, ToolExecutionTarget, ToolExposure,
+    ToolRegistryEntry, ToolRuntimePolicy, WorkerToolRegistryRpc,
 };
 use serde_json::json;
 use std::path::PathBuf;
@@ -446,7 +446,8 @@ fn tool_search_activates_dispatches_and_expires_a_deferred_tool() {
         supports_parallel_tool_calls: true,
         runtime_policy: ToolRuntimePolicy {
             supports_parallel_tool_calls: true,
-            waits_for_runtime_cancellation: false,
+            cancellation_mode: ToolCancellationMode::Cooperative,
+            cleanup_timeout_ms: 100,
             mutates_workspace: false,
             mutates_session: false,
         },
@@ -2501,13 +2502,11 @@ fn tool_runtime_dispatches_through_async_dispatch_seam() {
         }
 
         fn dispatch_async(
-            &self,
+            self: Arc<Self>,
             _context: NativeAgentRunContext,
             tool_call: NativeAgentToolCall,
         ) -> std::pin::Pin<
-            Box<
-                dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send + '_,
-            >,
+            Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send>,
         > {
             self.async_dispatches.fetch_add(1, Ordering::SeqCst);
             Box::pin(async move {
@@ -2630,22 +2629,44 @@ fn registry_exposes_runtime_policy_for_cancellation_and_mutation_classification(
         .expect("subagent.spawn should be registered");
 
     assert!(read_file.runtime_policy.supports_parallel_tool_calls);
-    assert!(!read_file.runtime_policy.waits_for_runtime_cancellation);
+    assert!(!read_file.runtime_policy.waits_for_runtime_cancellation());
+    assert_eq!(
+        read_file.runtime_policy.cancellation_mode,
+        ToolCancellationMode::Cooperative
+    );
+    assert_eq!(read_file.runtime_policy.cleanup_timeout_ms, 100);
     assert!(!read_file.runtime_policy.mutates_workspace);
     assert!(!read_file.runtime_policy.mutates_session);
 
     assert!(!write_file.runtime_policy.supports_parallel_tool_calls);
-    assert!(!write_file.runtime_policy.waits_for_runtime_cancellation);
+    assert!(write_file.runtime_policy.waits_for_runtime_cancellation());
+    assert_eq!(
+        write_file.runtime_policy.cancellation_mode,
+        ToolCancellationMode::DetachForbidden
+    );
+    assert_eq!(write_file.runtime_policy.cleanup_timeout_ms, 2_000);
     assert!(write_file.runtime_policy.mutates_workspace);
     assert!(!write_file.runtime_policy.mutates_session);
 
     assert!(!shell.runtime_policy.supports_parallel_tool_calls);
-    assert!(shell.runtime_policy.waits_for_runtime_cancellation);
+    assert!(shell.runtime_policy.waits_for_runtime_cancellation());
+    assert_eq!(
+        shell.runtime_policy.cancellation_mode,
+        ToolCancellationMode::TerminateProcess
+    );
+    assert_eq!(shell.runtime_policy.cleanup_timeout_ms, 2_000);
     assert!(shell.runtime_policy.mutates_workspace);
     assert!(!shell.runtime_policy.mutates_session);
 
     assert!(!subagent_spawn.runtime_policy.supports_parallel_tool_calls);
-    assert!(subagent_spawn.runtime_policy.waits_for_runtime_cancellation);
+    assert!(subagent_spawn
+        .runtime_policy
+        .waits_for_runtime_cancellation());
+    assert_eq!(
+        subagent_spawn.runtime_policy.cancellation_mode,
+        ToolCancellationMode::DetachForbidden
+    );
+    assert_eq!(subagent_spawn.runtime_policy.cleanup_timeout_ms, 2_000);
     assert!(!subagent_spawn.runtime_policy.mutates_workspace);
     assert!(subagent_spawn.runtime_policy.mutates_session);
 }
@@ -4883,24 +4904,18 @@ fn owned_task_runtime_cancels_normal_turn_and_ignores_late_provider_result() {
     assert_eq!(cancellation["task"]["state"], "cancel_requested");
     assert_eq!(result["stopReason"], "cancelled");
     assert_eq!(services.task_runtime.active_count(), 0);
-    assert_eq!(services.task_runtime.draining_count(), 1);
+    assert_eq!(services.task_runtime.draining_count(), 0);
 
     release_sender
         .send(())
         .expect("provider release should send");
-    for _ in 0..100 {
-        if services.task_runtime.draining_count() == 0 {
-            break;
-        }
-        thread::sleep(Duration::from_millis(5));
-    }
     let cancelled = services
         .task_runtime
         .status("run-owned-cancel")
         .expect("cancelled run status should remain");
     assert_eq!(services.task_runtime.draining_count(), 0);
     assert_eq!(cancelled.terminal_outcome.as_deref(), Some("cancelled"));
-    assert_eq!(cancelled.late_results_ignored, 1);
+    assert_eq!(cancelled.late_results_ignored, 0);
 }
 
 #[test]
@@ -6074,7 +6089,7 @@ fn async_provider_cancellation_after_partial_output_drops_stream_without_late_ev
         }
 
         fn complete_streaming_async<'a>(
-            &'a self,
+            self: Arc<Self>,
             _context: &'a NativeAgentRunContext,
             observer: &'a mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
         ) -> std::pin::Pin<
@@ -6185,7 +6200,7 @@ fn async_provider_failures_keep_distinct_stop_reasons() {
         }
 
         fn complete_streaming_async<'a>(
-            &'a self,
+            self: Arc<Self>,
             _context: &'a NativeAgentRunContext,
             _observer: &'a mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
         ) -> std::pin::Pin<
@@ -6241,6 +6256,164 @@ fn async_provider_failures_keep_distinct_stop_reasons() {
 
             assert_eq!(result["stopReason"], expected_stop_reason);
         }
+    });
+}
+
+#[test]
+fn hanging_cleanup_tool_batch_times_out_without_hanging_the_owned_run() {
+    struct HangingToolProvider;
+
+    impl NativeAgentProvider for HangingToolProvider {
+        fn complete(
+            &self,
+            _context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            Ok(NativeAgentProviderResponse {
+                final_content: String::new(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: vec![
+                    NativeAgentToolCall {
+                        id: "call-hanging-cleanup".to_string(),
+                        name: "test.hanging_cleanup".to_string(),
+                        arguments_json: "{}".to_string(),
+                        result: Value::Null,
+                    },
+                    NativeAgentToolCall {
+                        id: "call-queued-after-hanging-cleanup".to_string(),
+                        name: "test.hanging_cleanup".to_string(),
+                        arguments_json: "{}".to_string(),
+                        result: Value::Null,
+                    },
+                ],
+            })
+        }
+    }
+
+    struct DropSignal(Arc<AtomicBool>);
+
+    impl Drop for DropSignal {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    struct HangingCleanupDispatcher {
+        started: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+        dropped: Arc<AtomicBool>,
+    }
+
+    impl NativeAgentToolDispatcher for HangingCleanupDispatcher {
+        fn dispatch(
+            &self,
+            _context: &NativeAgentRunContext,
+            _tool_call: &NativeAgentToolCall,
+        ) -> Result<NativeAgentToolResult, String> {
+            panic!("hanging cleanup test must use async dispatch");
+        }
+
+        fn dispatch_async(
+            self: Arc<Self>,
+            _context: NativeAgentRunContext,
+            _tool_call: NativeAgentToolCall,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send>,
+        > {
+            let started = self
+                .started
+                .lock()
+                .expect("hanging dispatcher start lock should not be poisoned")
+                .take();
+            let dropped = self.dropped.clone();
+            Box::pin(async move {
+                let _drop_signal = DropSignal(dropped);
+                if let Some(started) = started {
+                    started.send(()).expect("hanging tool start should send");
+                }
+                std::future::pending::<Result<NativeAgentToolResult, String>>().await
+            })
+        }
+    }
+
+    tauri::async_runtime::block_on(async {
+        let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
+        let dropped = Arc::new(AtomicBool::new(false));
+        let registry = vec![ToolRegistryEntry {
+            tool_id: "test.hanging_cleanup".to_string(),
+            method: "test.hanging_cleanup".to_string(),
+            namespace: "test".to_string(),
+            title: "Hanging cleanup".to_string(),
+            description: "Exercise bounded owned-tool cleanup.".to_string(),
+            exposure: ToolExposure::Model,
+            dynamic: false,
+            supports_parallel_tool_calls: false,
+            runtime_policy: ToolRuntimePolicy {
+                supports_parallel_tool_calls: false,
+                cancellation_mode: ToolCancellationMode::DetachForbidden,
+                cleanup_timeout_ms: 25,
+                mutates_workspace: false,
+                mutates_session: false,
+            },
+            required_capabilities: Vec::new(),
+            available: true,
+            approval: ToolApprovalMetadata {
+                required: false,
+                scope: None,
+                lifetime: None,
+            },
+            input_schema: json!({ "type": "object" }),
+            output_schema: json!({ "type": "object" }),
+            execution_target: ToolExecutionTarget::WorkerRpc {
+                method: "test.hanging_cleanup".to_string(),
+            },
+        }];
+        let services = NativeAgentRuntimeServices::new(
+            Arc::new(HangingToolProvider),
+            Arc::new(HangingCleanupDispatcher {
+                started: Mutex::new(Some(started_sender)),
+                dropped: dropped.clone(),
+            }),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        )
+        .with_test_tool_registry_entries(registry);
+        let run_services = services.clone();
+        let started_at = std::time::Instant::now();
+        let run_task = tauri::async_runtime::spawn(async move {
+            run_native_agent_turn_with_config_async(
+                &run_services,
+                json!({
+                    "runtime": "rust",
+                    "runId": "run-hanging-tool-cleanup",
+                    "sessionId": "session-hanging-tool-cleanup",
+                    "maxIterations": 2,
+                    "messages": [{ "role": "user", "content": "run hanging tool" }]
+                }),
+                json!({}),
+            )
+            .await
+        });
+        started_receiver
+            .await
+            .expect("hanging cleanup tool should start");
+
+        let cancellation = services.cancel("run-hanging-tool-cleanup");
+        let result = run_task
+            .await
+            .expect("owned hanging-tool run should join")
+            .expect("cleanup timeout should be a structured run result");
+
+        assert_eq!(cancellation["task"]["state"], "cancel_requested");
+        assert_eq!(result["stopReason"], "tool_cleanup_timeout");
+        assert!(started_at.elapsed() < Duration::from_secs(1));
+        assert!(dropped.load(Ordering::SeqCst));
+        assert_eq!(services.task_runtime().active_count(), 0);
+        assert_eq!(services.task_runtime().draining_count(), 0);
+        assert!(result["events"]
+            .as_array()
+            .expect("cleanup timeout events should be an array")
+            .iter()
+            .any(|event| event["eventName"] == "agent.tool.cleanup_timeout"));
     });
 }
 

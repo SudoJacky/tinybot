@@ -140,6 +140,15 @@ enum OwnedExecutionHandle {
     Async(Arc<Mutex<Option<tauri::async_runtime::JoinHandle<()>>>>),
 }
 
+#[derive(Clone, Copy)]
+enum AsyncTaskCancellation {
+    #[cfg(test)]
+    Immediate,
+    Cooperative {
+        grace: Duration,
+    },
+}
+
 impl OwnedExecutionHandle {
     #[cfg(test)]
     fn blocking() -> Self {
@@ -148,6 +157,14 @@ impl OwnedExecutionHandle {
 
     fn asynchronous() -> Self {
         Self::Async(Arc::new(Mutex::new(None)))
+    }
+
+    fn supports_cooperative_cancellation(&self) -> bool {
+        match self {
+            Self::Async(_) => true,
+            #[cfg(test)]
+            Self::Blocking(_) => false,
+        }
     }
 
     #[cfg(test)]
@@ -326,10 +343,41 @@ impl AgentTaskRuntime {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn start_async<Fut>(
         &self,
         request: StartAgentRun,
         operation: Fut,
+    ) -> Result<AgentRunHandle, AgentTaskError>
+    where
+        Fut: Future<Output = Result<Value, String>> + Send + 'static,
+    {
+        self.start_async_with_cancellation(request, operation, AsyncTaskCancellation::Immediate)
+    }
+
+    pub(crate) fn start_cooperative_async<Fut>(
+        &self,
+        request: StartAgentRun,
+        cancellation_grace: Duration,
+        operation: Fut,
+    ) -> Result<AgentRunHandle, AgentTaskError>
+    where
+        Fut: Future<Output = Result<Value, String>> + Send + 'static,
+    {
+        self.start_async_with_cancellation(
+            request,
+            operation,
+            AsyncTaskCancellation::Cooperative {
+                grace: cancellation_grace,
+            },
+        )
+    }
+
+    fn start_async_with_cancellation<Fut>(
+        &self,
+        request: StartAgentRun,
+        operation: Fut,
+        cancellation_mode: AsyncTaskCancellation,
     ) -> Result<AgentRunHandle, AgentTaskError>
     where
         Fut: Future<Output = Result<Value, String>> + Send + 'static,
@@ -349,13 +397,30 @@ impl AgentTaskRuntime {
             let result = {
                 let operation = AssertUnwindSafe(operation).catch_unwind();
                 tokio::pin!(operation);
-                tokio::select! {
-                    biased;
-                    _ = cancellation.cancelled() => None,
-                    result = &mut operation => Some(match result {
-                        Ok(result) => result,
-                        Err(_) => Err("agent task panicked during async execution".to_string()),
-                    }),
+                match cancellation_mode {
+                    #[cfg(test)]
+                    AsyncTaskCancellation::Immediate => {
+                        tokio::select! {
+                            biased;
+                            _ = cancellation.cancelled() => None,
+                            result = &mut operation => Some(async_operation_result(result)),
+                        }
+                    }
+                    AsyncTaskCancellation::Cooperative { grace } => {
+                        tokio::select! {
+                            biased;
+                            result = &mut operation => Some(async_operation_result(result)),
+                            _ = cancellation.cancelled() => {
+                                Some(match tokio::time::timeout(grace, &mut operation).await {
+                                    Ok(result) => async_operation_result(result),
+                                    Err(_) => Ok(cancellation_cleanup_timeout_result(
+                                        &async_task.request,
+                                        grace,
+                                    )),
+                                })
+                            }
+                        }
+                    }
                 }
             };
             if let Some(result) = result {
@@ -373,6 +438,45 @@ impl AgentTaskRuntime {
             generation,
             completion: task.completion,
         })
+    }
+
+    pub(crate) fn request_cancel(&self, run_id: &str, reason: AgentCancelReason) -> CancelOutcome {
+        let run_id = run_id.trim();
+        let reason_value = reason.as_str().to_string();
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .expect("agent task runtime state lock should not be poisoned");
+        if state
+            .active
+            .get(run_id)
+            .is_some_and(|task| !task.execution.supports_cooperative_cancellation())
+        {
+            drop(state);
+            return self.cancel(run_id, reason);
+        }
+        if let Some(task) = state.active.get(run_id) {
+            task.cancellation.cancel();
+            let status = state
+                .statuses
+                .get_mut(run_id)
+                .expect("active agent task must have a status");
+            status.phase = "cancelling".to_string();
+            status.cancellation_requested = true;
+            status.cancellation_reason = Some(reason_value.clone());
+            status.checkpoint_ref = None;
+            self.inner.task_finished.notify_all();
+            return CancelOutcome {
+                run_id: run_id.to_string(),
+                state: "cancel_requested".to_string(),
+                reason: reason_value,
+                active_task_removed: false,
+                cleanup_pending: true,
+            };
+        }
+        drop(state);
+        self.cancel(run_id, reason)
     }
 
     pub(crate) fn cancel(&self, run_id: &str, reason: AgentCancelReason) -> CancelOutcome {
@@ -492,6 +596,25 @@ impl AgentTaskRuntime {
                 .statuses
                 .get(run_id)
                 .is_some_and(|status| status.cancellation_requested)
+    }
+
+    pub(crate) fn cancellation_token(&self, run_id: &str) -> Option<CancellationToken> {
+        let state = self
+            .inner
+            .state
+            .lock()
+            .expect("agent task runtime state lock should not be poisoned");
+        state
+            .active
+            .get(run_id)
+            .or_else(|| {
+                state
+                    .draining
+                    .iter()
+                    .find(|(key, _)| key.run_id == run_id)
+                    .map(|(_, task)| task)
+            })
+            .map(|task| task.cancellation.clone())
     }
 
     pub(crate) fn is_accepting(&self) -> bool {
@@ -761,6 +884,40 @@ fn cancelled_task_result(request: &StartAgentRun, reason: &str) -> Value {
             }
         }]
     })
+}
+
+fn cancellation_cleanup_timeout_result(request: &StartAgentRun, grace: Duration) -> Value {
+    serde_json::json!({
+        "runtime": "rust",
+        "runId": request.run_id,
+        "sessionId": request.session_id,
+        "finalContent": "",
+        "stopReason": "cancellation_cleanup_timeout",
+        "error": format!(
+            "agent cancellation cleanup exceeded {} ms",
+            grace.as_millis()
+        ),
+        "messages": [],
+        "toolsUsed": [],
+        "events": [{
+            "eventName": "agent.cleanup_timeout",
+            "payload": {
+                "runId": request.run_id,
+                "sessionId": request.session_id,
+                "stopReason": "cancellation_cleanup_timeout",
+                "timeoutMs": grace.as_millis(),
+            }
+        }]
+    })
+}
+
+fn async_operation_result(
+    result: Result<Result<Value, String>, Box<dyn std::any::Any + Send>>,
+) -> Result<Value, String> {
+    match result {
+        Ok(result) => result,
+        Err(_) => Err("agent task panicked during async execution".to_string()),
+    }
 }
 
 fn finish_owned_task(
@@ -1090,6 +1247,59 @@ mod tests {
             assert!(dropped.load(std::sync::atomic::Ordering::SeqCst));
             assert_eq!(runtime.draining_count(), 0);
             assert_eq!(status.late_results_ignored, 0);
+        });
+    }
+
+    #[test]
+    fn cooperative_async_cancellation_reports_cleanup_timeout_and_releases_owner() {
+        tauri::async_runtime::block_on(async {
+            struct DropSignal(Arc<std::sync::atomic::AtomicBool>);
+
+            impl Drop for DropSignal {
+                fn drop(&mut self) {
+                    self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
+            }
+
+            let runtime = AgentTaskRuntime::new();
+            let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let operation_dropped = dropped.clone();
+            let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
+            let handle = runtime
+                .start_cooperative_async(
+                    request("run-cooperative-cleanup-timeout"),
+                    Duration::from_millis(20),
+                    async move {
+                        let _drop_signal = DropSignal(operation_dropped);
+                        started_sender.send(()).expect("async start should send");
+                        std::future::pending::<Result<Value, String>>().await
+                    },
+                )
+                .expect("cooperative async run should start");
+            started_receiver
+                .await
+                .expect("cooperative async run should enter future");
+
+            let outcome = runtime.request_cancel(
+                "run-cooperative-cleanup-timeout",
+                AgentCancelReason::UserRequested,
+            );
+            let result = handle
+                .wait_async()
+                .await
+                .expect("cleanup timeout should be a structured result");
+
+            assert_eq!(outcome.state, "cancel_requested");
+            assert!(!outcome.active_task_removed);
+            assert_eq!(result["stopReason"], "cancellation_cleanup_timeout");
+            assert!(result["events"]
+                .as_array()
+                .expect("cleanup timeout events should be an array")
+                .iter()
+                .any(|event| event["eventName"] == "agent.cleanup_timeout"));
+            assert!(dropped.load(std::sync::atomic::Ordering::SeqCst));
+            assert_eq!(runtime.active_count(), 0);
+            assert_eq!(runtime.draining_count(), 0);
         });
     }
 }

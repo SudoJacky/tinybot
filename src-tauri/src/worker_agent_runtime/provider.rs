@@ -1,8 +1,8 @@
 use super::tool_router::provider_tool_name;
 use super::{
-    context_window_messages, string_field, NativeAgentProvider, NativeAgentProviderFailure,
-    NativeAgentProviderFailureKind, NativeAgentProviderResponse, NativeAgentProviderStreamEvent,
-    NativeAgentRunContext, NativeAgentToolCall,
+    context_window_messages, context_window_messages_async, string_field, NativeAgentProvider,
+    NativeAgentProviderFailure, NativeAgentProviderFailureKind, NativeAgentProviderResponse,
+    NativeAgentProviderStreamEvent, NativeAgentRunContext, NativeAgentToolCall,
 };
 use serde_json::Value;
 use std::sync::Arc;
@@ -45,7 +45,7 @@ impl NativeAgentProvider for RustNativeAgentProvider {
     }
 
     fn complete_streaming_async<'a>(
-        &'a self,
+        self: Arc<Self>,
         context: &'a NativeAgentRunContext,
         observer: &'a mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
     ) -> std::pin::Pin<
@@ -57,8 +57,7 @@ impl NativeAgentProvider for RustNativeAgentProvider {
         >,
     > {
         Box::pin(async move {
-            let request = agent_chat_completion_request(context)
-                .map_err(NativeAgentProviderFailure::provider)?;
+            let request = agent_chat_completion_request_async(context).await?;
             let provider_config = agent_provider_config(context);
             let cancellation = context.cancellation.clone().map(|cancellation| {
                 Arc::new(cancellation) as Arc<dyn crate::worker_protocol::WorkerRequestCancellation>
@@ -144,6 +143,21 @@ pub(super) fn agent_chat_completion_request(
     context: &NativeAgentRunContext,
 ) -> Result<Value, String> {
     let messages = agent_chat_messages(context)?;
+    agent_chat_completion_request_with_messages(context, messages)
+}
+
+async fn agent_chat_completion_request_async(
+    context: &NativeAgentRunContext,
+) -> Result<Value, NativeAgentProviderFailure> {
+    let messages = agent_chat_messages_async(context).await?;
+    agent_chat_completion_request_with_messages(context, messages)
+        .map_err(NativeAgentProviderFailure::provider)
+}
+
+fn agent_chat_completion_request_with_messages(
+    context: &NativeAgentRunContext,
+    messages: Value,
+) -> Result<Value, String> {
     let mut request = serde_json::json!({
         "model": context.model.clone(),
         "messages": messages,
@@ -241,22 +255,45 @@ fn set_agent_default(config: &mut Value, key: &str, value: Value) {
 
 fn agent_chat_messages(context: &NativeAgentRunContext) -> Result<Value, String> {
     if !context.messages.is_empty() {
-        let mut messages = context_window_messages(context)?;
-        if let Some(system_prompt) = context.system_prompt.as_deref() {
-            messages.insert(
-                0,
-                serde_json::json!({
-                    "role": "system",
-                    "content": system_prompt,
-                }),
-            );
-        }
-        for message in &mut messages {
-            encode_message_tool_names_for_provider(message);
-        }
-        return Ok(Value::Array(messages));
+        return Ok(agent_chat_messages_from_window(
+            context,
+            context_window_messages(context)?,
+        ));
     }
     Err("agent run requires at least one chat message".to_string())
+}
+
+async fn agent_chat_messages_async(
+    context: &NativeAgentRunContext,
+) -> Result<Value, NativeAgentProviderFailure> {
+    if context.messages.is_empty() {
+        return Err(NativeAgentProviderFailure::provider(
+            "agent run requires at least one chat message",
+        ));
+    }
+    Ok(agent_chat_messages_from_window(
+        context,
+        context_window_messages_async(context).await?,
+    ))
+}
+
+fn agent_chat_messages_from_window(
+    context: &NativeAgentRunContext,
+    mut messages: Vec<Value>,
+) -> Value {
+    if let Some(system_prompt) = context.system_prompt.as_deref() {
+        messages.insert(
+            0,
+            serde_json::json!({
+                "role": "system",
+                "content": system_prompt,
+            }),
+        );
+    }
+    for message in &mut messages {
+        encode_message_tool_names_for_provider(message);
+    }
+    Value::Array(messages)
 }
 
 fn encode_message_tool_names_for_provider(message: &mut Value) {

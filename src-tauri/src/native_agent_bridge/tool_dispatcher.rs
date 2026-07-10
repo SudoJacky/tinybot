@@ -106,17 +106,19 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
     }
 
     fn dispatch_async(
-        &self,
+        self: Arc<Self>,
         context: NativeAgentRunContext,
         tool_call: NativeAgentToolCall,
     ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send + '_>,
+        Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send>,
     > {
         Box::pin(async move {
             if let Some(result) = self.dispatch_mcp_if_needed(&context, &tool_call).await {
                 return result;
             }
-            self.dispatch(&context, &tool_call)
+            tauri::async_runtime::spawn_blocking(move || self.dispatch(&context, &tool_call))
+                .await
+                .map_err(|error| format!("native tool execution task failed: {error}"))?
         })
     }
 }

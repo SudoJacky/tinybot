@@ -2,7 +2,8 @@ use super::checkpoint::save_phase_checkpoint;
 use super::result::cancelled_run_result;
 use super::state::NativeAgentRunState;
 use super::tool_dispatcher::{
-    native_tool_call_supports_parallel, native_tool_is_permitted, native_tool_mutates_session,
+    native_tool_call_supports_parallel, native_tool_cancellation_mode,
+    native_tool_cleanup_timeout_ms, native_tool_is_permitted, native_tool_mutates_session,
     native_tool_mutates_workspace, native_tool_waits_for_runtime_cancellation,
 };
 use super::tool_projection::{
@@ -15,17 +16,30 @@ use super::{
     NativeAgentToolDispatcher,
 };
 use crate::agent_loop_runtime_protocol::AgentRuntimePhase;
-use crate::worker_tool_registry::ToolApprovalMetadata;
+use crate::worker_tool_registry::{ToolApprovalMetadata, ToolCancellationMode};
 use crate::worker_tool_registry::{REQUEST_USER_INPUT_METHOD, TOOL_SEARCH_METHOD};
+use futures_util::FutureExt;
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
+use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{mpsc, Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tokio::sync::{mpsc, Notify};
+use tokio_util::sync::CancellationToken;
 
 pub(super) enum NativeAgentToolExecutionOutcome {
     Continue,
     Finished(Value),
+}
+
+pub(super) enum OwnedToolCallResult {
+    Completed(super::NativeAgentToolResult),
+    Cancelled,
+    CleanupTimedOut {
+        cancellation_mode: ToolCancellationMode,
+        timeout_ms: u64,
+    },
 }
 
 struct ToolDispatchSuccess {
@@ -43,6 +57,11 @@ enum ToolDispatchOutcome {
         tool_call: NativeAgentToolCall,
         terminal: bool,
     },
+    CleanupTimedOut {
+        tool_call: NativeAgentToolCall,
+        cancellation_mode: ToolCancellationMode,
+        timeout_ms: u64,
+    },
     Skipped {
         tool_call: NativeAgentToolCall,
         terminal_outcome: ToolBatchTerminalOutcome,
@@ -52,6 +71,46 @@ enum ToolDispatchOutcome {
 struct SequencedToolDispatchOutcome {
     sequence: usize,
     outcome: ToolDispatchOutcome,
+}
+
+struct OwnedToolTask {
+    cancellation: CancellationToken,
+    handle: tauri::async_runtime::JoinHandle<()>,
+}
+
+#[derive(Default)]
+struct OwnedToolBatch {
+    tasks: BTreeMap<usize, OwnedToolTask>,
+}
+
+impl OwnedToolBatch {
+    fn insert(&mut self, index: usize, task: OwnedToolTask) {
+        self.tasks.insert(index, task);
+    }
+
+    fn cancel_all(&self) {
+        for task in self.tasks.values() {
+            task.cancellation.cancel();
+        }
+    }
+
+    async fn finish(&mut self, index: usize) -> Result<(), String> {
+        let Some(task) = self.tasks.remove(&index) else {
+            return Err(format!("owned tool task {index} was not registered"));
+        };
+        task.handle
+            .await
+            .map_err(|error| format!("owned tool task {index} failed to join: {error}"))
+    }
+}
+
+impl Drop for OwnedToolBatch {
+    fn drop(&mut self) {
+        for task in self.tasks.values() {
+            task.cancellation.cancel();
+            task.handle.abort();
+        }
+    }
 }
 
 enum ToolDispatchEvent {
@@ -181,7 +240,7 @@ enum ToolLockMode {
 
 struct ToolReadWriteLock {
     state: Mutex<ToolReadWriteLockState>,
-    available: Condvar,
+    available: Notify,
 }
 
 struct ToolReadWriteLockState {
@@ -203,46 +262,65 @@ impl ToolReadWriteLock {
                 active_readers: 0,
                 active_writer: false,
             }),
-            available: Condvar::new(),
+            available: Notify::new(),
         }
     }
 
-    fn read(self: &Arc<Self>, index: usize) -> Result<ToolReadWriteGuard, String> {
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|error| format!("native tool scheduler lock poisoned: {error}"))?;
-        while state.active_writer || state.pending_write_before(index) {
-            state = self
-                .available
-                .wait(state)
-                .map_err(|error| format!("native tool scheduler lock poisoned: {error}"))?;
+    async fn read(self: &Arc<Self>, index: usize) -> Result<ToolReadWriteGuard, String> {
+        loop {
+            let notified = self.available.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            let acquired = {
+                let mut state = self
+                    .state
+                    .lock()
+                    .map_err(|error| format!("native tool scheduler lock poisoned: {error}"))?;
+                if !state.active_writer && !state.pending_write_before(index) {
+                    state.pending.remove(&index);
+                    state.active_readers += 1;
+                    true
+                } else {
+                    false
+                }
+            };
+            if acquired {
+                return Ok(ToolReadWriteGuard {
+                    lock: self.clone(),
+                    mode: ToolLockMode::Read,
+                });
+            }
+            notified.await;
         }
-        state.pending.remove(&index);
-        state.active_readers += 1;
-        Ok(ToolReadWriteGuard {
-            lock: self.clone(),
-            mode: ToolLockMode::Read,
-        })
     }
 
-    fn write(self: &Arc<Self>, index: usize) -> Result<ToolReadWriteGuard, String> {
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|error| format!("native tool scheduler lock poisoned: {error}"))?;
-        while state.active_writer || state.active_readers > 0 || state.pending_before(index) {
-            state = self
-                .available
-                .wait(state)
-                .map_err(|error| format!("native tool scheduler lock poisoned: {error}"))?;
+    async fn write(self: &Arc<Self>, index: usize) -> Result<ToolReadWriteGuard, String> {
+        loop {
+            let notified = self.available.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            let acquired = {
+                let mut state = self
+                    .state
+                    .lock()
+                    .map_err(|error| format!("native tool scheduler lock poisoned: {error}"))?;
+                if !state.active_writer && state.active_readers == 0 && !state.pending_before(index)
+                {
+                    state.pending.remove(&index);
+                    state.active_writer = true;
+                    true
+                } else {
+                    false
+                }
+            };
+            if acquired {
+                return Ok(ToolReadWriteGuard {
+                    lock: self.clone(),
+                    mode: ToolLockMode::Write,
+                });
+            }
+            notified.await;
         }
-        state.pending.remove(&index);
-        state.active_writer = true;
-        Ok(ToolReadWriteGuard {
-            lock: self.clone(),
-            mode: ToolLockMode::Write,
-        })
     }
 }
 
@@ -273,11 +351,11 @@ impl Drop for ToolReadWriteGuard {
                 state.active_writer = false;
             }
         }
-        self.lock.available.notify_all();
+        self.lock.available.notify_waiters();
     }
 }
 
-pub(super) fn execute_tool_calls_for_iteration(
+pub(super) async fn execute_tool_calls_for_iteration(
     services: &NativeAgentRuntimeServices,
     context: &mut NativeAgentRunContext,
     state: &mut NativeAgentRunState,
@@ -409,9 +487,9 @@ pub(super) fn execute_tool_calls_for_iteration(
     }
 
     if tool_calls.len() == 1 {
-        execute_sequential_tool_batch(services, context, state, iteration, tool_calls)
+        execute_sequential_tool_batch(services, context, state, iteration, tool_calls).await
     } else {
-        execute_locked_tool_batch(services, context, state, iteration, tool_calls)
+        execute_locked_tool_batch(services, context, state, iteration, tool_calls).await
     }
 }
 
@@ -571,7 +649,7 @@ fn execute_tool_search(
     NativeAgentToolExecutionOutcome::Continue
 }
 
-fn execute_sequential_tool_batch(
+async fn execute_sequential_tool_batch(
     services: &NativeAgentRuntimeServices,
     context: &NativeAgentRunContext,
     state: &mut NativeAgentRunState,
@@ -583,14 +661,44 @@ fn execute_sequential_tool_batch(
             return cancelled_result(services, context, state, iteration);
         }
         start_tool_call(services, context, state, iteration, &tool_call);
-        let result = match dispatch_tool_blocking(
+        let result = match dispatch_owned_sequential_tool(
             services.tools.clone(),
             context.clone(),
             tool_call.clone(),
-        ) {
-            Ok(result) => result,
-            Err(error) => {
+        )
+        .await
+        {
+            ToolDispatchOutcome::Success(success) => success.result,
+            ToolDispatchOutcome::Failure { error, .. } => {
                 return tool_error_result(services, context, state, iteration, &tool_call, error);
+            }
+            ToolDispatchOutcome::Cancelled { .. } => {
+                return cancelled_result(services, context, state, iteration);
+            }
+            ToolDispatchOutcome::CleanupTimedOut {
+                cancellation_mode,
+                timeout_ms,
+                ..
+            } => {
+                return tool_cleanup_timeout_result(
+                    services,
+                    context,
+                    state,
+                    iteration,
+                    &tool_call,
+                    cancellation_mode,
+                    timeout_ms,
+                );
+            }
+            ToolDispatchOutcome::Skipped { .. } => {
+                return tool_error_result(
+                    services,
+                    context,
+                    state,
+                    iteration,
+                    &tool_call,
+                    "sequential tool dispatch was skipped unexpectedly".to_string(),
+                );
             }
         };
         record_tool_success(context, state, iteration, tool_call, result);
@@ -609,7 +717,210 @@ fn execute_sequential_tool_batch(
     NativeAgentToolExecutionOutcome::Continue
 }
 
-fn execute_locked_tool_batch(
+async fn dispatch_owned_sequential_tool(
+    dispatcher: Arc<dyn NativeAgentToolDispatcher>,
+    context: NativeAgentRunContext,
+    tool_call: NativeAgentToolCall,
+) -> ToolDispatchOutcome {
+    let child_cancellation = CancellationToken::new();
+    let child_context = context.with_child_cancellation(child_cancellation.clone());
+    let panic_tool_call = tool_call.clone();
+    let task_tool_call = tool_call.clone();
+    let task = async move {
+        match dispatch_tool_with_cancellation_policy(dispatcher, child_context, task_tool_call)
+            .await
+        {
+            ToolDispatchOutcome::Cancelled { tool_call, .. } => ToolDispatchOutcome::Cancelled {
+                tool_call,
+                terminal: true,
+            },
+            outcome => outcome,
+        }
+    };
+    let mut handle = tauri::async_runtime::spawn(async move {
+        match AssertUnwindSafe(task).catch_unwind().await {
+            Ok(outcome) => outcome,
+            Err(_) => ToolDispatchOutcome::Failure {
+                tool_call: panic_tool_call,
+                error: "owned native tool task panicked".to_string(),
+            },
+        }
+    });
+    let joined = if let Some(parent_cancellation) = context.cancellation.clone() {
+        tokio::select! {
+            biased;
+            _ = parent_cancellation.cancelled() => {
+                child_cancellation.cancel();
+                (&mut handle).await
+            }
+            result = &mut handle => result,
+        }
+    } else {
+        handle.await
+    };
+    joined.unwrap_or_else(|error| ToolDispatchOutcome::Failure {
+        tool_call,
+        error: format!("owned native tool task failed to join: {error}"),
+    })
+}
+
+pub(super) async fn dispatch_owned_tool_call(
+    dispatcher: Arc<dyn NativeAgentToolDispatcher>,
+    context: NativeAgentRunContext,
+    tool_call: NativeAgentToolCall,
+) -> Result<OwnedToolCallResult, String> {
+    match dispatch_owned_sequential_tool(dispatcher, context, tool_call).await {
+        ToolDispatchOutcome::Success(success) => Ok(OwnedToolCallResult::Completed(success.result)),
+        ToolDispatchOutcome::Failure { error, .. } => Err(error),
+        ToolDispatchOutcome::Cancelled { .. } => Ok(OwnedToolCallResult::Cancelled),
+        ToolDispatchOutcome::CleanupTimedOut {
+            cancellation_mode,
+            timeout_ms,
+            ..
+        } => Ok(OwnedToolCallResult::CleanupTimedOut {
+            cancellation_mode,
+            timeout_ms,
+        }),
+        ToolDispatchOutcome::Skipped { .. } => {
+            Err("owned native tool dispatch was skipped unexpectedly".to_string())
+        }
+    }
+}
+
+async fn dispatch_tool_with_cancellation_policy(
+    dispatcher: Arc<dyn NativeAgentToolDispatcher>,
+    context: NativeAgentRunContext,
+    tool_call: NativeAgentToolCall,
+) -> ToolDispatchOutcome {
+    let cancellation_mode = native_tool_cancellation_mode(&context, &tool_call.name);
+    let cleanup_timeout_ms = native_tool_cleanup_timeout_ms(&context, &tool_call.name).max(1);
+    let dispatch_call = tool_call.clone();
+    let operation = dispatcher.dispatch_async(context.clone(), dispatch_call);
+    tokio::pin!(operation);
+    tokio::select! {
+        biased;
+        _ = wait_for_context_cancellation(&context) => {
+            let cleanup = tokio::time::timeout(
+                Duration::from_millis(cleanup_timeout_ms),
+                &mut operation,
+            )
+            .await;
+            if cleanup.is_err() && cancellation_mode != ToolCancellationMode::Cooperative {
+                ToolDispatchOutcome::CleanupTimedOut {
+                    tool_call,
+                    cancellation_mode,
+                    timeout_ms: cleanup_timeout_ms,
+                }
+            } else {
+                ToolDispatchOutcome::Cancelled {
+                    tool_call,
+                    terminal: false,
+                }
+            }
+        }
+        result = &mut operation => match result {
+            Ok(result) => ToolDispatchOutcome::Success(ToolDispatchSuccess {
+                tool_call,
+                result,
+            }),
+            Err(error) => ToolDispatchOutcome::Failure {
+                tool_call,
+                error,
+            },
+        },
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn execute_owned_locked_tool(
+    dispatcher: Arc<dyn NativeAgentToolDispatcher>,
+    context: NativeAgentRunContext,
+    tool_call: NativeAgentToolCall,
+    lock: Arc<ToolReadWriteLock>,
+    index: usize,
+    supports_parallel: bool,
+    parallel_mode: &'static str,
+    task_cancellation: CancellationToken,
+    sender: mpsc::UnboundedSender<ToolDispatchEvent>,
+    terminal: Arc<ToolBatchTerminal>,
+) -> ToolDispatchOutcome {
+    let context = context.with_child_cancellation(task_cancellation);
+    if context_is_cancelled(&context) {
+        return ToolDispatchOutcome::Cancelled {
+            tool_call,
+            terminal: terminal.try_claim_cancelled(),
+        };
+    }
+
+    let lock_result = if supports_parallel {
+        tokio::select! {
+            biased;
+            _ = wait_for_context_cancellation(&context) => {
+                return ToolDispatchOutcome::Cancelled {
+                    tool_call,
+                    terminal: terminal.try_claim_cancelled(),
+                };
+            }
+            result = lock.read(index) => result,
+        }
+    } else {
+        tokio::select! {
+            biased;
+            _ = wait_for_context_cancellation(&context) => {
+                return ToolDispatchOutcome::Cancelled {
+                    tool_call,
+                    terminal: terminal.try_claim_cancelled(),
+                };
+            }
+            result = lock.write(index) => result,
+        }
+    };
+    let _guard = match lock_result {
+        Ok(guard) => guard,
+        Err(error) => {
+            terminal.try_claim_failure(index);
+            return ToolDispatchOutcome::Failure {
+                tool_call,
+                error: format!("native tool scheduler lock acquisition failed: {error}"),
+            };
+        }
+    };
+
+    if context_is_cancelled(&context) {
+        return ToolDispatchOutcome::Cancelled {
+            tool_call,
+            terminal: terminal.try_claim_cancelled(),
+        };
+    }
+    if let Some(terminal_outcome) = terminal.skip_outcome_for(index) {
+        return ToolDispatchOutcome::Skipped {
+            tool_call,
+            terminal_outcome,
+        };
+    }
+    let _ = sender.send(ToolDispatchEvent::Running {
+        tool_call: tool_call.clone(),
+        parallel_mode,
+    });
+
+    match dispatch_tool_with_cancellation_policy(dispatcher, context, tool_call).await {
+        ToolDispatchOutcome::Failure { tool_call, error } => {
+            terminal.try_claim_failure(index);
+            ToolDispatchOutcome::Failure { tool_call, error }
+        }
+        ToolDispatchOutcome::Cancelled { tool_call, .. } => ToolDispatchOutcome::Cancelled {
+            tool_call,
+            terminal: terminal.try_claim_cancelled(),
+        },
+        outcome @ ToolDispatchOutcome::CleanupTimedOut { .. } => {
+            terminal.try_claim_cancelled();
+            outcome
+        }
+        outcome => outcome,
+    }
+}
+
+async fn execute_locked_tool_batch(
     services: &NativeAgentRuntimeServices,
     context: &NativeAgentRunContext,
     state: &mut NativeAgentRunState,
@@ -675,166 +986,87 @@ fn execute_locked_tool_batch(
                 (index, mode)
             }),
     ));
-    let (sender, receiver) = mpsc::channel();
+    let (sender, mut receiver) = mpsc::unbounded_channel();
     let terminal = Arc::new(ToolBatchTerminal::new());
     let finish_sequence = Arc::new(AtomicUsize::new(0));
     let task_count = tool_calls.len();
+    let mut owned_batch = OwnedToolBatch::default();
     for (index, tool_call) in tool_calls.into_iter().enumerate() {
         let dispatcher = services.tools.clone();
-        let context = context.clone();
+        let task_context = context.clone();
         let lock = scheduler_lock.clone();
         let sender = sender.clone();
         let terminal = terminal.clone();
+        let panic_terminal = terminal.clone();
         let finish_sequence = finish_sequence.clone();
-        let supports_parallel = native_tool_call_supports_parallel(&context, &tool_call);
+        let supports_parallel = native_tool_call_supports_parallel(&task_context, &tool_call);
         let parallel_mode = if supports_parallel { "read" } else { "write" };
-        tauri::async_runtime::spawn(async move {
-            let result = if context_is_cancelled(&context) {
-                let terminal = terminal.try_claim_cancelled();
-                ToolDispatchOutcome::Cancelled {
-                    tool_call,
-                    terminal,
-                }
-            } else if supports_parallel {
-                match lock.read(index) {
-                    Ok(_guard) => {
-                        if context_is_cancelled(&context) {
-                            return send_tool_dispatch_finished(
-                                sender,
-                                finish_sequence,
-                                index,
-                                ToolDispatchOutcome::Cancelled {
-                                    tool_call,
-                                    terminal: terminal.try_claim_cancelled(),
-                                },
-                            );
-                        }
-                        if let Some(terminal_outcome) = terminal.skip_outcome_for(index) {
-                            return send_tool_dispatch_finished(
-                                sender,
-                                finish_sequence,
-                                index,
-                                ToolDispatchOutcome::Skipped {
-                                    tool_call,
-                                    terminal_outcome,
-                                },
-                            );
-                        }
-                        let _ = sender.send(ToolDispatchEvent::Running {
-                            tool_call: tool_call.clone(),
-                            parallel_mode,
-                        });
-                        let dispatch_call = tool_call.clone();
-                        match dispatcher.dispatch_async(context, dispatch_call).await {
-                            Ok(result) => ToolDispatchOutcome::Success(ToolDispatchSuccess {
-                                tool_call,
-                                result,
-                            }),
-                            Err(error) => {
-                                terminal.try_claim_failure(index);
-                                ToolDispatchOutcome::Failure { tool_call, error }
-                            }
-                        }
-                    }
-                    Err(error) => {
-                        terminal.try_claim_failure(index);
-                        ToolDispatchOutcome::Failure {
-                            tool_call,
-                            error: format!(
-                                "native tool scheduler read lock acquisition failed: {error}"
-                            ),
-                        }
-                    }
-                }
-            } else {
-                match lock.write(index) {
-                    Ok(_guard) => {
-                        if context_is_cancelled(&context) {
-                            return send_tool_dispatch_finished(
-                                sender,
-                                finish_sequence,
-                                index,
-                                ToolDispatchOutcome::Cancelled {
-                                    tool_call,
-                                    terminal: terminal.try_claim_cancelled(),
-                                },
-                            );
-                        }
-                        if let Some(terminal_outcome) = terminal.skip_outcome_for(index) {
-                            return send_tool_dispatch_finished(
-                                sender,
-                                finish_sequence,
-                                index,
-                                ToolDispatchOutcome::Skipped {
-                                    tool_call,
-                                    terminal_outcome,
-                                },
-                            );
-                        }
-                        let _ = sender.send(ToolDispatchEvent::Running {
-                            tool_call: tool_call.clone(),
-                            parallel_mode,
-                        });
-                        let dispatch_call = tool_call.clone();
-                        match dispatcher.dispatch_async(context, dispatch_call).await {
-                            Ok(result) => ToolDispatchOutcome::Success(ToolDispatchSuccess {
-                                tool_call,
-                                result,
-                            }),
-                            Err(error) => {
-                                terminal.try_claim_failure(index);
-                                ToolDispatchOutcome::Failure { tool_call, error }
-                            }
-                        }
-                    }
-                    Err(error) => {
-                        terminal.try_claim_failure(index);
-                        ToolDispatchOutcome::Failure {
-                            tool_call,
-                            error: format!(
-                                "native tool scheduler write lock acquisition failed: {error}"
-                            ),
-                        }
+        let child_cancellation = CancellationToken::new();
+        let task_cancellation = child_cancellation.clone();
+        let panic_tool_call = tool_call.clone();
+        let handle = tauri::async_runtime::spawn(async move {
+            let operation = execute_owned_locked_tool(
+                dispatcher,
+                task_context,
+                tool_call,
+                lock,
+                index,
+                supports_parallel,
+                parallel_mode,
+                task_cancellation,
+                sender.clone(),
+                terminal,
+            );
+            let outcome = match AssertUnwindSafe(operation).catch_unwind().await {
+                Ok(outcome) => outcome,
+                Err(_) => {
+                    panic_terminal.try_claim_failure(index);
+                    ToolDispatchOutcome::Failure {
+                        tool_call: panic_tool_call,
+                        error: "owned native tool task panicked".to_string(),
                     }
                 }
             };
-            send_tool_dispatch_finished(sender, finish_sequence, index, result);
+            send_tool_dispatch_finished(&sender, &finish_sequence, index, outcome);
         });
+        owned_batch.insert(
+            index,
+            OwnedToolTask {
+                cancellation: child_cancellation,
+                handle,
+            },
+        );
     }
     drop(sender);
 
     let mut indexed_results = (0..task_count).map(|_| None).collect::<Vec<_>>();
     let mut finished_count = 0usize;
-    let mut running_cleanup_tools = BTreeSet::<String>::new();
     let mut cancellation_terminal_claimed = false;
     while finished_count < task_count {
-        if context_is_cancelled(context)
-            && (terminal.try_claim_cancelled()
-                || terminal.outcome() == Some(ToolBatchTerminalOutcome::Cancelled))
-        {
+        if context_is_cancelled(context) {
+            terminal.try_claim_cancelled();
             cancellation_terminal_claimed = true;
+            owned_batch.cancel_all();
         }
-        if cancellation_terminal_claimed && running_cleanup_tools.is_empty() {
-            state.clear_pending_tool_calls();
-            return cancelled_result(services, context, state, iteration);
-        }
-        match receiver.recv_timeout(Duration::from_millis(10)) {
-            Ok(ToolDispatchEvent::Running {
+        let event = tokio::select! {
+            biased;
+            _ = wait_for_context_cancellation(context), if !cancellation_terminal_claimed => {
+                terminal.try_claim_cancelled();
+                cancellation_terminal_claimed = true;
+                owned_batch.cancel_all();
+                continue;
+            }
+            event = receiver.recv() => event,
+        };
+        match event {
+            Some(ToolDispatchEvent::Running {
                 tool_call,
                 parallel_mode,
             }) => {
-                if native_tool_waits_for_runtime_cancellation(context, &tool_call.name) {
-                    running_cleanup_tools.insert(tool_call.id.clone());
-                }
-                if context_is_cancelled(context)
-                    && (terminal.try_claim_cancelled()
-                        || terminal.outcome() == Some(ToolBatchTerminalOutcome::Cancelled))
-                {
+                if context_is_cancelled(context) {
+                    terminal.try_claim_cancelled();
                     cancellation_terminal_claimed = true;
-                }
-                if cancellation_terminal_claimed && running_cleanup_tools.is_empty() {
-                    state.clear_pending_tool_calls();
-                    return cancelled_result(services, context, state, iteration);
+                    owned_batch.cancel_all();
                 }
                 state.mark_pending_tool_running(&tool_call.id);
                 let runtime_policy = tool_runtime_policy_payload(context, &tool_call.name);
@@ -864,30 +1096,27 @@ fn execute_locked_tool_batch(
                     }),
                 );
             }
-            Ok(ToolDispatchEvent::Finished { index, result }) => {
+            Some(ToolDispatchEvent::Finished { index, result }) => {
+                if let Err(error) = owned_batch.finish(index).await {
+                    state.clear_pending_tool_calls();
+                    return tool_error_result(
+                        services,
+                        context,
+                        state,
+                        iteration,
+                        tool_dispatch_outcome_tool_call(&result.outcome),
+                        error,
+                    );
+                }
                 finished_count += 1;
-                if let Some(tool_call_id) = tool_dispatch_outcome_tool_call_id(&result.outcome) {
-                    running_cleanup_tools.remove(tool_call_id);
-                }
                 indexed_results[index] = Some(result);
-                if cancellation_terminal_claimed && running_cleanup_tools.is_empty() {
-                    state.clear_pending_tool_calls();
-                    return cancelled_result(services, context, state, iteration);
-                }
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                if context_is_cancelled(context)
-                    && (terminal.try_claim_cancelled()
-                        || terminal.outcome() == Some(ToolBatchTerminalOutcome::Cancelled))
-                {
+                if context_is_cancelled(context) {
+                    terminal.try_claim_cancelled();
                     cancellation_terminal_claimed = true;
-                }
-                if cancellation_terminal_claimed && running_cleanup_tools.is_empty() {
-                    state.clear_pending_tool_calls();
-                    return cancelled_result(services, context, state, iteration);
+                    owned_batch.cancel_all();
                 }
             }
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
+            None => {
                 state.clear_pending_tool_calls();
                 return tool_error_result(
                     services,
@@ -910,6 +1139,74 @@ fn execute_locked_tool_batch(
         .into_iter()
         .map(|result| result.expect("tool dispatch should return one result per index"))
         .collect::<Vec<_>>();
+    if let Some((timeout_index, timeout_sequence, tool_call, cancellation_mode, timeout_ms)) =
+        indexed_results
+            .iter()
+            .enumerate()
+            .filter_map(|(index, result)| match &result.outcome {
+                ToolDispatchOutcome::CleanupTimedOut {
+                    tool_call,
+                    cancellation_mode,
+                    timeout_ms,
+                } => Some((
+                    index,
+                    result.sequence,
+                    tool_call,
+                    *cancellation_mode,
+                    *timeout_ms,
+                )),
+                _ => None,
+            })
+            .min_by_key(|(index, _, _, _, _)| *index)
+    {
+        for (index, indexed_result) in indexed_results.iter().enumerate() {
+            match &indexed_result.outcome {
+                ToolDispatchOutcome::Success(success)
+                    if indexed_result.sequence < timeout_sequence || index < timeout_index =>
+                {
+                    record_tool_success(
+                        context,
+                        state,
+                        iteration,
+                        success.tool_call.clone(),
+                        success.result.clone(),
+                    );
+                }
+                ToolDispatchOutcome::Failure {
+                    tool_call, error, ..
+                } => emit_late_terminal_debug(
+                    context,
+                    state,
+                    iteration,
+                    tool_call,
+                    ToolBatchTerminalOutcome::Cancelled,
+                    "cleanup_timeout_already_terminal",
+                    Some(error),
+                ),
+                ToolDispatchOutcome::Cancelled { tool_call, .. }
+                | ToolDispatchOutcome::Skipped { tool_call, .. } => emit_late_terminal_debug(
+                    context,
+                    state,
+                    iteration,
+                    tool_call,
+                    ToolBatchTerminalOutcome::Cancelled,
+                    "cleanup_timeout_already_terminal",
+                    None,
+                ),
+                _ => {}
+            }
+        }
+        state.clear_pending_tool_calls();
+        return tool_cleanup_timeout_result(
+            services,
+            context,
+            state,
+            iteration,
+            tool_call,
+            cancellation_mode,
+            timeout_ms,
+        );
+    }
     let terminal_result = match terminal.outcome() {
         Some(ToolBatchTerminalOutcome::Failed) => indexed_results
             .iter()
@@ -931,10 +1228,7 @@ fn execute_locked_tool_batch(
             .iter()
             .enumerate()
             .filter_map(|(index, result)| match &result.outcome {
-                ToolDispatchOutcome::Cancelled {
-                    tool_call,
-                    terminal: true,
-                } => Some((
+                ToolDispatchOutcome::Cancelled { tool_call, .. } => Some((
                     index,
                     result.sequence,
                     ToolBatchTerminalOutcome::Cancelled,
@@ -1058,8 +1352,11 @@ fn parallel_mode_for_tool_call(
 }
 
 fn tool_runtime_policy_payload(context: &NativeAgentRunContext, tool_name: &str) -> Value {
+    let cancellation_mode = native_tool_cancellation_mode(context, tool_name);
     serde_json::json!({
         "waitsForRuntimeCancellation": native_tool_waits_for_runtime_cancellation(context, tool_name),
+        "cancellationMode": cancellation_mode.as_str(),
+        "cleanupTimeoutMs": native_tool_cleanup_timeout_ms(context, tool_name),
         "mutatesWorkspace": native_tool_mutates_workspace(context, tool_name),
         "mutatesSession": native_tool_mutates_session(context, tool_name),
     })
@@ -1070,6 +1367,14 @@ fn context_is_cancelled(context: &NativeAgentRunContext) -> bool {
         .cancellation
         .as_ref()
         .is_some_and(|cancellation| cancellation.is_cancelled())
+}
+
+async fn wait_for_context_cancellation(context: &NativeAgentRunContext) {
+    if let Some(cancellation) = context.cancellation.as_ref() {
+        cancellation.cancelled().await;
+    } else {
+        std::future::pending::<()>().await;
+    }
 }
 
 fn emit_late_terminal_debug(
@@ -1098,18 +1403,19 @@ fn emit_late_terminal_debug(
     );
 }
 
-fn tool_dispatch_outcome_tool_call_id(outcome: &ToolDispatchOutcome) -> Option<&str> {
+fn tool_dispatch_outcome_tool_call(outcome: &ToolDispatchOutcome) -> &NativeAgentToolCall {
     match outcome {
-        ToolDispatchOutcome::Success(success) => Some(&success.tool_call.id),
+        ToolDispatchOutcome::Success(success) => &success.tool_call,
         ToolDispatchOutcome::Failure { tool_call, .. }
         | ToolDispatchOutcome::Cancelled { tool_call, .. }
-        | ToolDispatchOutcome::Skipped { tool_call, .. } => Some(&tool_call.id),
+        | ToolDispatchOutcome::CleanupTimedOut { tool_call, .. }
+        | ToolDispatchOutcome::Skipped { tool_call, .. } => tool_call,
     }
 }
 
 fn send_tool_dispatch_finished(
-    sender: mpsc::Sender<ToolDispatchEvent>,
-    finish_sequence: Arc<AtomicUsize>,
+    sender: &mpsc::UnboundedSender<ToolDispatchEvent>,
+    finish_sequence: &AtomicUsize,
     index: usize,
     result: ToolDispatchOutcome,
 ) {
@@ -1121,14 +1427,6 @@ fn send_tool_dispatch_finished(
             outcome: result,
         },
     });
-}
-
-fn dispatch_tool_blocking(
-    dispatcher: Arc<dyn NativeAgentToolDispatcher>,
-    context: NativeAgentRunContext,
-    tool_call: NativeAgentToolCall,
-) -> Result<super::NativeAgentToolResult, String> {
-    tauri::async_runtime::block_on(dispatcher.dispatch_async(context, tool_call))
 }
 
 fn start_tool_call(
@@ -1305,6 +1603,61 @@ fn tool_error_result(
         "sessionId": context.session_id,
         "finalContent": "",
         "stopReason": "tool_error",
+        "messages": [],
+        "toolsUsed": state.tools_used,
+        "completedToolResults": state.completed_tool_results,
+        "error": error,
+        "events": events,
+        "runtimeEvents": runtime_events,
+    }))
+}
+
+fn tool_cleanup_timeout_result(
+    services: &NativeAgentRuntimeServices,
+    context: &NativeAgentRunContext,
+    state: &mut NativeAgentRunState,
+    iteration: i64,
+    tool_call: &NativeAgentToolCall,
+    cancellation_mode: ToolCancellationMode,
+    timeout_ms: u64,
+) -> NativeAgentToolExecutionOutcome {
+    let error = format!(
+        "native tool `{}` cleanup exceeded {} ms for cancellation mode `{}`",
+        tool_call.name,
+        timeout_ms,
+        cancellation_mode.as_str()
+    );
+    state.set_stop_reason(
+        "tool_cleanup_timeout",
+        iteration,
+        "agent.tool.cleanup_timeout",
+    );
+    state.emit_event(
+        "agent.tool.cleanup_timeout",
+        serde_json::json!({
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "iteration": iteration,
+            "stopReason": "tool_cleanup_timeout",
+            "error": error,
+            "toolCallId": tool_call.id,
+            "toolName": tool_call.name,
+            "name": tool_call.name,
+            "cancellationMode": cancellation_mode.as_str(),
+            "timeoutMs": timeout_ms,
+        }),
+    );
+    services
+        .checkpoints
+        .clear_for_run(&context.session_id, &context.run_id);
+    let runtime_events = state.runtime_events();
+    let events = state.legacy_events();
+    NativeAgentToolExecutionOutcome::Finished(serde_json::json!({
+        "runtime": "rust",
+        "runId": context.run_id,
+        "sessionId": context.session_id,
+        "finalContent": "",
+        "stopReason": "tool_cleanup_timeout",
         "messages": [],
         "toolsUsed": state.tools_used,
         "completedToolResults": state.completed_tool_results,

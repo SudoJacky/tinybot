@@ -1,15 +1,16 @@
 use super::checkpoint::{checkpoint_value, test_compat_runtime_metadata};
 use super::events::{event, legacy_result_events_from_runtime_events};
-use super::result::{append_runtime_events_to_sink, waiting_runtime_events};
+use super::result::{append_runtime_events_to_sink, cancelled_result, waiting_runtime_events};
 use super::tool_projection::{
     assistant_tool_calls_message, completed_tool_result_entry, normalize_tool_result_for_context,
     tool_observation_content, tool_observation_message,
 };
+use super::tool_runtime::{dispatch_owned_tool_call, OwnedToolCallResult};
 use super::usage::{enrich_usage_with_context_window, estimate_context_tokens_for_request};
 use super::{
-    string_field, NativeAgentEvent, NativeAgentRunContext, NativeAgentRuntimeServices,
-    NativeAgentToolCall, NativeAgentToolResult, NativeToolResultEnvelope,
-    TEST_COMPAT_FAKE_AWAITING_APPROVAL, TEST_COMPAT_FAKE_AWAITING_FORM,
+    string_field, NativeAgentEvent, NativeAgentProviderFailureKind, NativeAgentProviderStreamEvent,
+    NativeAgentRunContext, NativeAgentRuntimeServices, NativeAgentToolCall, NativeAgentToolResult,
+    NativeToolResultEnvelope, TEST_COMPAT_FAKE_AWAITING_APPROVAL, TEST_COMPAT_FAKE_AWAITING_FORM,
 };
 use crate::agent_loop_runtime_protocol::{
     AgentApprovalDecision, AgentApprovalScope, AgentContinuationInput, AgentFormAction,
@@ -217,7 +218,7 @@ pub(super) fn maybe_awaiting_approval_result(
     }))
 }
 
-pub(super) fn maybe_approval_resume_result(
+pub(super) async fn maybe_approval_resume_result(
     services: &NativeAgentRuntimeServices,
     context: &NativeAgentRunContext,
 ) -> Result<Option<Value>, String> {
@@ -241,6 +242,7 @@ pub(super) fn maybe_approval_resume_result(
         let checkpoint = checkpoint
             .ok_or_else(|| "tool approval continuation checkpoint disappeared".to_string())?;
         return approved_tool_continuation_result(services, context, &continuation, checkpoint)
+            .await
             .map(Some);
     }
     if approved
@@ -255,14 +257,17 @@ pub(super) fn maybe_approval_resume_result(
     }
     if !approved {
         if let Some(guidance) = continuation.guidance.clone() {
-            return Ok(Some(approval_denied_guidance_result(
-                services,
-                context,
-                &approval,
-                &continuation,
-                guidance,
-                checkpoint,
-            )));
+            return Ok(Some(
+                approval_denied_guidance_result(
+                    services,
+                    context,
+                    &approval,
+                    &continuation,
+                    guidance,
+                    checkpoint,
+                )
+                .await,
+            ));
         }
         services
             .checkpoints
@@ -356,7 +361,7 @@ pub(super) fn maybe_approval_resume_result(
     })))
 }
 
-fn approved_tool_continuation_result(
+async fn approved_tool_continuation_result(
     services: &NativeAgentRuntimeServices,
     context: &NativeAgentRunContext,
     continuation: &ApprovalContinuationData,
@@ -393,23 +398,45 @@ fn approved_tool_continuation_result(
     let mut resumed_context = context.clone();
     resumed_context.messages = messages.clone();
     resumed_context.spec["messages"] = Value::Array(messages.clone());
-    let dispatch_result = tauri::async_runtime::block_on(
-        services
-            .tools
-            .dispatch_async(resumed_context.clone(), tool_call.clone()),
-    );
+    let dispatch_result = dispatch_owned_tool_call(
+        services.tools.clone(),
+        resumed_context.clone(),
+        tool_call.clone(),
+    )
+    .await;
     services
         .checkpoints
         .clear_for_run(&context.session_id, &context.run_id);
-    let result = normalize_tool_result_for_context(
-        dispatch_result.map_err(|error| {
-            format!(
-                "approved native tool `{}` dispatch failed: {error}",
-                tool_call.name
-            )
-        })?,
-        context,
-    );
+    let result = match dispatch_result.map_err(|error| {
+        format!(
+            "approved native tool `{}` dispatch failed: {error}",
+            tool_call.name
+        )
+    })? {
+        OwnedToolCallResult::Completed(result) => {
+            normalize_tool_result_for_context(result, context)
+        }
+        OwnedToolCallResult::Cancelled => {
+            return Ok(cancelled_result(
+                &context.run_id,
+                &context.session_id,
+                checkpoint,
+            ));
+        }
+        OwnedToolCallResult::CleanupTimedOut {
+            cancellation_mode,
+            timeout_ms,
+        } => {
+            return Ok(approved_tool_cleanup_timeout_result(
+                context,
+                continuation,
+                &tool_call,
+                checkpoint,
+                cancellation_mode,
+                timeout_ms,
+            ));
+        }
+    };
     let observation_content = tool_observation_content(&result);
     let completed_result = completed_tool_result_entry(&tool_call, &result);
     messages.push(tool_observation_message(&tool_call, &observation_content));
@@ -435,15 +462,43 @@ fn approved_tool_continuation_result(
             }),
         ),
     ];
-    let provider_response = services
+    let mut provider_observer = |_event: NativeAgentProviderStreamEvent| {};
+    let provider_call = services
         .provider
-        .complete(&resumed_context)
-        .map_err(|error| {
-            format!(
+        .clone()
+        .complete_streaming_async(&resumed_context, &mut provider_observer);
+    tokio::pin!(provider_call);
+    let provider_response = if let Some(cancellation) = resumed_context.cancellation.clone() {
+        tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => {
+                return Ok(cancelled_result(
+                    &context.run_id,
+                    &context.session_id,
+                    checkpoint,
+                ));
+            }
+            result = &mut provider_call => result,
+        }
+    } else {
+        provider_call.await
+    };
+    let provider_response = match provider_response {
+        Ok(response) => response,
+        Err(error) if error.kind() == NativeAgentProviderFailureKind::Cancelled => {
+            return Ok(cancelled_result(
+                &context.run_id,
+                &context.session_id,
+                checkpoint,
+            ));
+        }
+        Err(error) => {
+            return Err(format!(
                 "provider call after approved tool `{}` failed: {error}",
                 tool_call.name
-            )
-        })?;
+            ));
+        }
+    };
     if !provider_response.tool_calls.is_empty() {
         return Err(format!(
             "provider returned additional tool calls after approved tool `{}` dispatch",
@@ -493,6 +548,59 @@ fn approved_tool_continuation_result(
     }))
 }
 
+fn approved_tool_cleanup_timeout_result(
+    context: &NativeAgentRunContext,
+    continuation: &ApprovalContinuationData,
+    tool_call: &NativeAgentToolCall,
+    checkpoint: Value,
+    cancellation_mode: crate::worker_tool_registry::ToolCancellationMode,
+    timeout_ms: u64,
+) -> Value {
+    let error = format!(
+        "approved native tool `{}` cleanup exceeded {} ms for cancellation mode `{}`",
+        tool_call.name,
+        timeout_ms,
+        cancellation_mode.as_str()
+    );
+    let events = vec![
+        approval_decision_event(context, continuation),
+        event(
+            "agent.tool.cleanup_timeout",
+            serde_json::json!({
+                "runId": context.run_id,
+                "sessionId": context.session_id,
+                "stopReason": "tool_cleanup_timeout",
+                "error": error,
+                "toolCallId": tool_call.id,
+                "toolName": tool_call.name,
+                "name": tool_call.name,
+                "cancellationMode": cancellation_mode.as_str(),
+                "timeoutMs": timeout_ms,
+            }),
+        ),
+    ];
+    serde_json::json!({
+        "runtime": "rust",
+        "runId": context.run_id,
+        "sessionId": context.session_id,
+        "finalContent": "",
+        "stopReason": "tool_cleanup_timeout",
+        "messages": [],
+        "toolsUsed": [tool_call.name],
+        "completedToolResults": [],
+        "error": error,
+        "restoredCheckpoint": checkpoint,
+        "continuation": {
+            "kind": "approval",
+            "approvalId": continuation.approval_id,
+            "decision": "approved",
+            "scope": approval_scope_str(&continuation.scope),
+            "guidance": continuation.guidance,
+        },
+        "events": events,
+    })
+}
+
 fn approved_pending_tool_call(checkpoint: &Value) -> Result<NativeAgentToolCall, String> {
     let pending = checkpoint
         .get("pendingToolCalls")
@@ -521,7 +629,7 @@ fn approved_pending_tool_call(checkpoint: &Value) -> Result<NativeAgentToolCall,
     })
 }
 
-fn approval_denied_guidance_result(
+async fn approval_denied_guidance_result(
     services: &NativeAgentRuntimeServices,
     context: &NativeAgentRunContext,
     approval: &Value,
@@ -575,7 +683,28 @@ fn approval_denied_guidance_result(
         ),
     ];
 
-    match services.provider.complete(&resumed_context) {
+    let mut provider_observer = |_event: NativeAgentProviderStreamEvent| {};
+    let provider_call = services
+        .provider
+        .clone()
+        .complete_streaming_async(&resumed_context, &mut provider_observer);
+    tokio::pin!(provider_call);
+    let provider_response = if let Some(cancellation) = resumed_context.cancellation.clone() {
+        tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => {
+                return cancelled_result(
+                    &context.run_id,
+                    &context.session_id,
+                    checkpoint.unwrap_or(Value::Null),
+                );
+            }
+            result = &mut provider_call => result,
+        }
+    } else {
+        provider_call.await
+    };
+    match provider_response {
         Ok(provider_response) => {
             let final_content = provider_response.final_content;
             if let Some(usage) = provider_response.usage {
@@ -624,15 +753,24 @@ fn approval_denied_guidance_result(
                 "events": events,
             })
         }
+        Err(error) if error.kind() == NativeAgentProviderFailureKind::Cancelled => {
+            cancelled_result(
+                &context.run_id,
+                &context.session_id,
+                checkpoint.unwrap_or(Value::Null),
+            )
+        }
         Err(error) => {
+            let stop_reason = error.stop_reason();
+            let message = error.message().to_string();
             events.push(event(
                 "agent.error",
                 serde_json::json!({
                     "runId": context.run_id,
                     "sessionId": context.session_id,
-                    "stopReason": "provider_error",
-                    "message": error,
-                    "error": error,
+                    "stopReason": stop_reason,
+                    "message": message,
+                    "error": message,
                 }),
             ));
             serde_json::json!({
@@ -640,12 +778,12 @@ fn approval_denied_guidance_result(
                 "runId": context.run_id,
                 "sessionId": context.session_id,
                 "finalContent": "",
-                "stopReason": "provider_error",
+                "stopReason": stop_reason,
                 "messages": [],
                 "toolsUsed": [],
                 "completedToolResults": [completed_result],
                 "restoredCheckpoint": checkpoint,
-                "error": error,
+                "error": message,
                 "events": events,
             })
         }

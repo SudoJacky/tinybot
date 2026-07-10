@@ -1,6 +1,6 @@
 use crate::worker_tool_registry::{
-    ToolApprovalMetadata, ToolExecutionTarget, ToolExposure, ToolRegistryEntry,
-    DEFAULT_TOOL_SEARCH_LIMIT, MAX_TOOL_SEARCH_LIMIT,
+    ToolApprovalMetadata, ToolCancellationMode, ToolExecutionTarget, ToolExposure,
+    ToolRegistryEntry, ToolRuntimePolicy, DEFAULT_TOOL_SEARCH_LIMIT, MAX_TOOL_SEARCH_LIMIT,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -199,9 +199,21 @@ impl NativeToolRouter {
     }
 
     pub(super) fn waits_for_runtime_cancellation(&self, method: &str) -> bool {
-        self.visible_entry(method)
-            .map(|entry| entry.runtime_policy.waits_for_runtime_cancellation)
+        self.runtime_policy(method)
+            .map(ToolRuntimePolicy::waits_for_runtime_cancellation)
             .unwrap_or(false)
+    }
+
+    pub(super) fn cancellation_mode(&self, method: &str) -> ToolCancellationMode {
+        self.runtime_policy(method)
+            .map(|policy| policy.cancellation_mode)
+            .unwrap_or(ToolCancellationMode::Cooperative)
+    }
+
+    pub(super) fn cleanup_timeout_ms(&self, method: &str) -> u64 {
+        self.runtime_policy(method)
+            .map(|policy| policy.cleanup_timeout_ms)
+            .unwrap_or(100)
     }
 
     pub(super) fn mutates_workspace(&self, method: &str) -> bool {
@@ -219,6 +231,10 @@ impl NativeToolRouter {
     pub(super) fn approval_metadata(&self, method: &str) -> Option<ToolApprovalMetadata> {
         self.visible_entry(method)
             .map(|entry| entry.approval.clone())
+    }
+
+    fn runtime_policy(&self, method: &str) -> Option<ToolRuntimePolicy> {
+        self.visible_entry(method).map(|entry| entry.runtime_policy)
     }
 
     pub(super) fn execution_target(&self, method: &str) -> Option<ToolExecutionTarget> {

@@ -86,9 +86,34 @@ pub enum ToolRuntimeControl {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ToolRuntimePolicy {
     pub supports_parallel_tool_calls: bool,
-    pub waits_for_runtime_cancellation: bool,
+    pub cancellation_mode: ToolCancellationMode,
+    pub cleanup_timeout_ms: u64,
     pub mutates_workspace: bool,
     pub mutates_session: bool,
+}
+
+impl ToolRuntimePolicy {
+    pub fn waits_for_runtime_cancellation(self) -> bool {
+        self.cancellation_mode != ToolCancellationMode::Cooperative
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolCancellationMode {
+    Cooperative,
+    TerminateProcess,
+    DetachForbidden,
+}
+
+impl ToolCancellationMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Cooperative => "cooperative",
+            Self::TerminateProcess => "terminate_process",
+            Self::DetachForbidden => "detach_forbidden",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -308,7 +333,12 @@ pub fn mcp_tool_registry_entries(
             .filter(|description| !description.is_empty())
             .map(|description| format!("MCP server {server_name}: {description}"))
             .unwrap_or_else(|| format!("Call {tool_name} on MCP server {server_name}."));
-        let runtime_policy = runtime_policy(server_parallel || read_only, true, !read_only, false);
+        let runtime_policy = runtime_policy(
+            server_parallel || read_only,
+            ToolCancellationMode::DetachForbidden,
+            !read_only,
+            false,
+        );
         entries.push(ToolRegistryEntry {
             tool_id: tool_id.clone(),
             method: tool_id,
@@ -349,7 +379,7 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
             "Search deferred tools",
             "Search available deferred tools and activate matching tools for this turn.",
             ToolRuntimeControl::ToolSearch,
-            runtime_policy(false, false, false, false),
+            runtime_policy(false, ToolCancellationMode::Cooperative, false, false),
             Vec::new(),
             json!({
                 "type": "object",
@@ -372,7 +402,7 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
             "Request user input",
             "Pause the current run and ask the user to complete a structured form when required information cannot be inferred safely.",
             ToolRuntimeControl::RequestUserInput,
-            runtime_policy(false, false, false, true),
+            runtime_policy(false, ToolCancellationMode::Cooperative, false, true),
             vec![WorkerCapability::FormRequest],
             json!({
                 "type": "object",
@@ -441,7 +471,7 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
             "Read a file under the current workspace.",
             ToolExposure::Model,
             false,
-            runtime_policy(true, false, false, false),
+            runtime_policy(true, ToolCancellationMode::Cooperative, false, false),
             vec![WorkerCapability::FsWorkspaceRead],
             approval(false, None, None),
             json!({
@@ -462,7 +492,7 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
             "Write a file under the current workspace.",
             ToolExposure::Deferred,
             false,
-            runtime_policy(false, false, true, false),
+            runtime_policy(false, ToolCancellationMode::DetachForbidden, true, false),
             vec![
                 WorkerCapability::FsWorkspaceWrite,
                 WorkerCapability::ApprovalRequest,
@@ -485,7 +515,7 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
             "Apply a strict multi-file patch under the current workspace. Patch context must match exactly.",
             ToolExposure::Deferred,
             false,
-            runtime_policy(false, false, true, false),
+            runtime_policy(false, ToolCancellationMode::DetachForbidden, true, false),
             vec![
                 WorkerCapability::FsWorkspaceWrite,
                 WorkerCapability::ApprovalRequest,
@@ -510,7 +540,7 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
             "Delete a file or directory under the current workspace.",
             ToolExposure::Deferred,
             false,
-            runtime_policy(false, false, true, false),
+            runtime_policy(false, ToolCancellationMode::DetachForbidden, true, false),
             vec![
                 WorkerCapability::FsWorkspaceWrite,
                 WorkerCapability::ApprovalRequest,
@@ -532,7 +562,7 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
             "Search the local knowledge index.",
             ToolExposure::Model,
             false,
-            runtime_policy(true, false, false, false),
+            runtime_policy(true, ToolCancellationMode::Cooperative, false, false),
             vec![WorkerCapability::KnowledgeRead],
             approval(false, None, None),
             json!({
@@ -553,7 +583,7 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
             "Search saved memory notes.",
             ToolExposure::Model,
             false,
-            runtime_policy(true, false, false, false),
+            runtime_policy(true, ToolCancellationMode::Cooperative, false, false),
             vec![WorkerCapability::MemoryRead],
             approval(false, None, None),
             json!({
@@ -572,7 +602,7 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
             "Recall memory context for the current turn.",
             ToolExposure::Model,
             false,
-            runtime_policy(true, false, false, false),
+            runtime_policy(true, ToolCancellationMode::Cooperative, false, false),
             vec![WorkerCapability::MemoryRead],
             approval(false, None, None),
             json!({
@@ -590,7 +620,7 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
             "Call a tool exposed by a configured MCP server.",
             ToolExposure::Deferred,
             true,
-            runtime_policy(false, true, true, true),
+            runtime_policy(false, ToolCancellationMode::DetachForbidden, true, true),
             vec![WorkerCapability::McpCall],
             approval(true, Some("mcp_tool"), Some("per_request")),
             json!({
@@ -610,7 +640,7 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
             "Run a shell command in the workspace.",
             ToolExposure::Deferred,
             false,
-            runtime_policy(false, true, true, false),
+            runtime_policy(false, ToolCancellationMode::TerminateProcess, true, false),
             vec![WorkerCapability::ShellExecute],
             approval(true, Some("command"), Some("per_request")),
             json!({
@@ -630,7 +660,7 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
             "Create a child agent thread for delegated work.",
             ToolExposure::Model,
             false,
-            runtime_policy(false, true, false, true),
+            runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
             vec![
                 WorkerCapability::BackgroundWrite,
                 WorkerCapability::SessionWrite,
@@ -654,7 +684,7 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
             "Send input to an active child agent thread.",
             ToolExposure::Model,
             false,
-            runtime_policy(false, true, false, true),
+            runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
             vec![
                 WorkerCapability::BackgroundWrite,
                 WorkerCapability::SessionWrite,
@@ -738,13 +768,17 @@ fn runtime_control_tool(
 
 fn runtime_policy(
     supports_parallel_tool_calls: bool,
-    waits_for_runtime_cancellation: bool,
+    cancellation_mode: ToolCancellationMode,
     mutates_workspace: bool,
     mutates_session: bool,
 ) -> ToolRuntimePolicy {
     ToolRuntimePolicy {
         supports_parallel_tool_calls,
-        waits_for_runtime_cancellation,
+        cancellation_mode,
+        cleanup_timeout_ms: match cancellation_mode {
+            ToolCancellationMode::Cooperative => 100,
+            ToolCancellationMode::TerminateProcess | ToolCancellationMode::DetachForbidden => 2_000,
+        },
         mutates_workspace,
         mutates_session,
     }

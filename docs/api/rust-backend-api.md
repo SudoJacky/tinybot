@@ -348,10 +348,10 @@ phase, cancellation request/reason, waiting checkpoint reference, terminal outco
 late-result count. A duplicate active run ID is rejected. An approval/form continuation starts a new
 generation only after the previous execution task has completed into a non-terminal waiting phase.
 
-Cancellation is idempotent and writes one owner terminal outcome. The task moves out of the active
-registry immediately. Async provider work is dropped directly; legacy blocking tool work remains in
-a private draining registry until its cleanup boundary returns. A late result cannot replace the
-cancelled result. `worker_cancel_agent` includes the task transition:
+Cancellation is idempotent and writes one owner terminal outcome. Normal async runs remain active in
+the `cancelling` phase while owned child operations perform their bounded cleanup. The owner is
+removed only after the run returns a cancellation or cleanup-timeout result. A late result cannot
+replace that terminal result. `worker_cancel_agent` includes the cancellation request transition:
 
 ```json
 {
@@ -363,7 +363,7 @@ cancelled result. `worker_cancel_agent` includes the task transition:
     "runId": "run-1",
     "state": "cancel_requested",
     "reason": "user_requested",
-    "activeTaskRemoved": true,
+    "activeTaskRemoved": false,
     "cleanupPending": true
   }
 }
@@ -376,16 +376,15 @@ without starting another task.
 The desktop `thread.interrupt` path first persists the thread cancellation item and then cancels the
 same run owner. Its existing thread result gains `taskCancellation`, containing the same
 `worker_cancel_agent` payload. Gateway shutdown stops accepting starts, cancels active owners, waits
-up to five seconds for draining work, continues MCP/worker cleanup even if that wait fails, and
-returns an explicit combined error for remaining cleanup failures.
+up to five seconds for active and draining cleanup, continues MCP/worker cleanup even if that wait
+fails, and returns an explicit combined error for remaining cleanup failures.
 
 ### Async provider execution
 
 The desktop command, native bridge, context-compaction request, provider loop, and
 OpenAI-compatible HTTP/SSE implementation are async end to end. Normal execution does not nest
-`block_on`. Synchronous helpers remain only as test and compatibility adapters. Until owned tool
-teardown is implemented, the existing synchronous tool batch and continuation dispatcher run on a
-blocking worker rather than an async executor thread.
+`block_on`. Synchronous helpers remain only as test and compatibility adapters. Tool batches and
+approval continuations dispatch through the same async owned-tool path.
 
 Provider cancellation is checked before a request, while opening a response, between SSE chunks,
 and immediately before and after each stream observer callback. Cancelling the owning run drops the
@@ -402,6 +401,34 @@ Provider failures do not retry automatically and preserve distinct `stopReason` 
 
 Timeout, transport, and provider failures emit `agent.error` with the same `stopReason`. A provider
 cancellation follows the normal `agent.cancelled` path.
+
+### Owned tool execution and cleanup
+
+Every dispatched tool call runs under an owned task handle and a child cancellation token. Parallel
+read scheduling, exclusive write scheduling, model-order result projection, single terminal
+ownership, and late-result diagnostics remain unchanged. The parent run retains each handle until
+the task has joined; dropping an incomplete batch cancels and aborts every remaining wrapper task.
+The approval-resume path uses the same ownership boundary instead of a nested synchronous dispatch.
+
+Tool teardown is selected from the registry runtime policy:
+
+- `cooperative`: notify the tool and wait up to its cleanup timeout; cancellation remains a normal
+  `cancelled` result if the future does not finish in that interval.
+- `terminate_process`: require the implementation to terminate its owned process after receiving
+  cancellation.
+- `detach_forbidden`: require the operation to return from cleanup before the run is considered
+  cleanly cancelled.
+
+Built-in cooperative tools default to `100 ms`; process-owning and detach-forbidden tools default to
+`2000 ms`. Queued and running `agent.tool.start` payloads expose `runtimePolicy` with
+`cancellationMode`, `cleanupTimeoutMs`, `waitsForRuntimeCancellation`, `mutatesWorkspace`, and
+`mutatesSession`.
+
+If `terminate_process` or `detach_forbidden` cleanup exceeds its bound, the run returns
+`stopReason: "tool_cleanup_timeout"` and emits `agent.tool.cleanup_timeout` with the tool call ID,
+tool name, cancellation mode, and timeout. If the outer run itself cannot finish cooperative
+cleanup within five seconds, the task owner returns `stopReason: "cancellation_cleanup_timeout"`
+and emits `agent.cleanup_timeout`. Neither timeout is reported as successful cancellation.
 
 `NativeBackendRunSpec`:
 
@@ -1097,6 +1124,8 @@ The Rust backend can emit live events through Tauri. Dotted worker event names a
 - `agent.tool.start`
 - `agent.tool.result`
 - `agent.tool.debug`
+- `agent.tool.cleanup_timeout`
+- `agent.cleanup_timeout`
 - `agent.usage`
 - `agent.checkpoint`
 - `agent.status`

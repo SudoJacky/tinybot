@@ -9,6 +9,7 @@ use crate::worker_subagent_manager::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{fmt, future::Future, pin::Pin, sync::Arc};
+use tokio_util::sync::CancellationToken;
 
 mod checkpoint;
 mod context;
@@ -33,7 +34,9 @@ use self::provider::{
 };
 use self::result::event_value;
 use self::tool_router::NativeToolRouter;
-use self::usage::{context_window_messages, enrich_usage_with_context_window};
+use self::usage::{
+    context_window_messages, context_window_messages_async, enrich_usage_with_context_window,
+};
 pub use provider_loop::{
     run_native_agent_turn_with_config, run_native_agent_turn_with_config_async,
     run_native_agent_turn_with_workspace, run_native_agent_turn_with_workspace_async,
@@ -55,6 +58,8 @@ pub struct NativeAgentCancellationContext {
     run_id: String,
     cancellations: Arc<dyn NativeAgentCancellation>,
     task_runtime: AgentTaskRuntime,
+    root_token: Option<CancellationToken>,
+    child_token: Option<CancellationToken>,
 }
 
 impl NativeAgentCancellationContext {
@@ -63,16 +68,38 @@ impl NativeAgentCancellationContext {
         cancellations: Arc<dyn NativeAgentCancellation>,
         task_runtime: AgentTaskRuntime,
     ) -> Self {
+        let root_token = task_runtime.cancellation_token(&run_id);
         Self {
             run_id,
             cancellations,
             task_runtime,
+            root_token,
+            child_token: None,
         }
     }
 
     pub fn is_cancelled(&self) -> bool {
-        self.task_runtime.is_cancelled(&self.run_id)
+        self.child_token
+            .as_ref()
+            .is_some_and(CancellationToken::is_cancelled)
+            || self
+                .root_token
+                .as_ref()
+                .is_some_and(CancellationToken::is_cancelled)
+            || self.task_runtime.is_cancelled(&self.run_id)
             || self.cancellations.is_cancelled(&self.run_id)
+    }
+
+    fn with_child_token(&self, child_token: CancellationToken) -> Self {
+        let mut child = self.clone();
+        child.child_token = Some(child_token);
+        child
+    }
+
+    async fn cancelled(&self) {
+        while !self.is_cancelled() {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
     }
 }
 
@@ -219,7 +246,7 @@ pub struct NativeToolResultEnvelope {
     value: Value,
 }
 
-pub trait NativeAgentProvider: Send + Sync {
+pub trait NativeAgentProvider: Send + Sync + 'static {
     fn complete(
         &self,
         context: &NativeAgentRunContext,
@@ -234,7 +261,7 @@ pub trait NativeAgentProvider: Send + Sync {
     }
 
     fn complete_streaming_async<'a>(
-        &'a self,
+        self: Arc<Self>,
         context: &'a NativeAgentRunContext,
         observer: &'a mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
     ) -> Pin<
@@ -244,14 +271,28 @@ pub trait NativeAgentProvider: Send + Sync {
                 + 'a,
         >,
     > {
+        let context = context.clone();
         Box::pin(async move {
-            self.complete_streaming(context, observer)
-                .map_err(NativeAgentProviderFailure::provider)
+            let (result, events) = tauri::async_runtime::spawn_blocking(move || {
+                let mut events = Vec::new();
+                let result = self.complete_streaming(&context, &mut |event| events.push(event));
+                (result, events)
+            })
+            .await
+            .map_err(|error| {
+                NativeAgentProviderFailure::provider(format!(
+                    "blocking provider task failed: {error}"
+                ))
+            })?;
+            for event in events {
+                observer(event);
+            }
+            result.map_err(NativeAgentProviderFailure::provider)
         })
     }
 }
 
-pub trait NativeAgentToolDispatcher: Send + Sync {
+pub trait NativeAgentToolDispatcher: Send + Sync + 'static {
     fn dispatch(
         &self,
         context: &NativeAgentRunContext,
@@ -259,13 +300,17 @@ pub trait NativeAgentToolDispatcher: Send + Sync {
     ) -> Result<NativeAgentToolResult, String>;
 
     fn dispatch_async(
-        &self,
+        self: Arc<Self>,
         context: NativeAgentRunContext,
         tool_call: NativeAgentToolCall,
     ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send + '_>,
+        Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send>,
     > {
-        Box::pin(async move { self.dispatch(&context, &tool_call) })
+        Box::pin(async move {
+            tauri::async_runtime::spawn_blocking(move || self.dispatch(&context, &tool_call))
+                .await
+                .map_err(|error| format!("blocking native tool task failed: {error}"))?
+        })
     }
 }
 
@@ -399,7 +444,7 @@ impl NativeAgentRuntimeServices {
         self.cancellations.cancel(run_id);
         let task = self
             .task_runtime
-            .cancel(run_id, AgentCancelReason::UserRequested);
+            .request_cancel(run_id, AgentCancelReason::UserRequested);
         serde_json::json!({
             "runtime": "rust",
             "runId": run_id,

@@ -44,6 +44,17 @@ pub(super) fn context_window_messages(
     context_window_projection(context).map(|projection| projection.messages)
 }
 
+pub(super) async fn context_window_messages_async(
+    context: &NativeAgentRunContext,
+) -> Result<Vec<Value>, NativeAgentProviderFailure> {
+    if bool_field(&context.spec, "_contextWindowProjected") {
+        return Ok(context.messages.clone());
+    }
+    context_window_projection_async(context)
+        .await
+        .map(|projection| projection.messages)
+}
+
 pub(super) fn context_window_projection(
     context: &NativeAgentRunContext,
 ) -> Result<ContextWindowProjection, String> {

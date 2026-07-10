@@ -5,6 +5,7 @@ use crate::worker_subagent_manager::{
     SubagentInputSender, SubagentSendInputParams, SubagentSpawnParams, SubagentTargetParams,
     SubagentThreadManager, SubagentThreadStatus, SubagentWaitParams,
 };
+use crate::worker_tool_registry::ToolCancellationMode;
 use serde_json::Value;
 
 pub struct FakeNativeAgentToolDispatcher;
@@ -228,6 +229,27 @@ fn registry_tool_available(context: &NativeAgentRunContext, name: &str) -> bool 
     context.tool_router.is_permitted(name)
 }
 
+pub(super) fn native_tool_cancellation_mode(
+    context: &NativeAgentRunContext,
+    name: &str,
+) -> ToolCancellationMode {
+    if context.tool_router.is_permitted(name) {
+        return context.tool_router.cancellation_mode(name);
+    }
+    legacy_native_tool_alias_policy_method(name)
+        .map(|method| context.tool_router.cancellation_mode(method))
+        .unwrap_or(ToolCancellationMode::Cooperative)
+}
+
+pub(super) fn native_tool_cleanup_timeout_ms(context: &NativeAgentRunContext, name: &str) -> u64 {
+    if context.tool_router.is_permitted(name) {
+        return context.tool_router.cleanup_timeout_ms(name);
+    }
+    legacy_native_tool_alias_policy_method(name)
+        .map(|method| context.tool_router.cleanup_timeout_ms(method))
+        .unwrap_or(100)
+}
+
 fn registry_tool_supports_parallel(context: &NativeAgentRunContext, name: &str) -> bool {
     context.tool_router.supports_parallel(name)
 }
@@ -298,6 +320,18 @@ fn legacy_native_tool_alias_mutates_session(context: &NativeAgentRunContext, nam
                 || registry_tool_mutates_session(context, "subagent.send_input")
         }
         _ => false,
+    }
+}
+
+fn legacy_native_tool_alias_policy_method(name: &str) -> Option<&'static str> {
+    match name {
+        "workspace.list_files" => Some("workspace.read_file"),
+        "knowledge.search" => Some("knowledge.query"),
+        "spawn_agent" => Some("subagent.spawn"),
+        "send_input" => Some("subagent.send_input"),
+        "subagent.wait" | "subagent.query" | "subagent.cancel" | "subagent.close"
+        | "wait_agent" | "close_agent" => Some("subagent.spawn"),
+        _ => None,
     }
 }
 

@@ -24,6 +24,7 @@ use crate::worker_tool_registry::{mcp_tool_registry_entries, WorkerToolRegistryR
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 pub fn run_native_agent_turn_with_config(
     services: &NativeAgentRuntimeServices,
@@ -102,7 +103,7 @@ async fn run_owned_native_agent_turn_async(
     let owned_services = services.clone();
     let handle = services
         .task_runtime
-        .start_async(request, async move {
+        .start_cooperative_async(request, Duration::from_secs(5), async move {
             let system_prompt = workspace_root
                 .as_deref()
                 .map(crate::system_prompt::load_or_create_system_prompt)
@@ -219,7 +220,7 @@ async fn run_native_agent_turn_with_system_prompt_async(
         .tool_router
         .activate_for_turn(&services.test_activated_tool_ids)?;
     let (next_context, user_input_resume) =
-        match prepare_continuation_on_blocking_worker(services.clone(), context).await? {
+        match prepare_continuation(services.clone(), context).await? {
             PreparedContinuation::Finished(result) => return Ok(result),
             PreparedContinuation::Continue {
                 context,
@@ -347,10 +348,23 @@ async fn run_native_agent_turn_with_system_prompt_async(
                     }
                 }
             };
-            services
+            let provider_call = services
                 .provider
-                .complete_streaming_async(&provider_context, &mut stream_observer)
-                .await
+                .clone()
+                .complete_streaming_async(&provider_context, &mut stream_observer);
+            tokio::pin!(provider_call);
+            if let Some(cancellation) = provider_context.cancellation.clone() {
+                tokio::select! {
+                    biased;
+                    _ = cancellation.cancelled() => Err(NativeAgentProviderFailure::new(
+                        NativeAgentProviderFailureKind::Cancelled,
+                        "provider call was cancelled",
+                    )),
+                    result = &mut provider_call => result,
+                }
+            } else {
+                provider_call.await
+            }
         };
         if provider_observer_cancelled {
             state.transition_phase(AgentRuntimePhase::Cancelled, iteration, "agent.cancelled");
@@ -433,17 +447,15 @@ async fn run_native_agent_turn_with_system_prompt_async(
         }
 
         if !provider_response.tool_calls.is_empty() {
-            let (next_context, next_state, outcome) = execute_tool_calls_on_blocking_worker(
-                services.clone(),
-                context,
-                state,
+            let outcome = execute_tool_calls_for_iteration(
+                services,
+                &mut context,
+                &mut state,
                 iteration,
                 provider_response.final_content.clone(),
                 provider_response.tool_calls,
             )
-            .await?;
-            context = next_context;
-            state = next_state;
+            .await;
             match outcome {
                 NativeAgentToolExecutionOutcome::Continue => {}
                 NativeAgentToolExecutionOutcome::Finished(result) => return Ok(result),
@@ -608,36 +620,6 @@ fn provider_failure_result(
     })
 }
 
-async fn execute_tool_calls_on_blocking_worker(
-    services: NativeAgentRuntimeServices,
-    mut context: NativeAgentRunContext,
-    mut state: NativeAgentRunState,
-    iteration: i64,
-    assistant_content: String,
-    tool_calls: Vec<super::NativeAgentToolCall>,
-) -> Result<
-    (
-        NativeAgentRunContext,
-        NativeAgentRunState,
-        NativeAgentToolExecutionOutcome,
-    ),
-    String,
-> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let outcome = execute_tool_calls_for_iteration(
-            &services,
-            &mut context,
-            &mut state,
-            iteration,
-            assistant_content,
-            tool_calls,
-        );
-        (context, state, outcome)
-    })
-    .await
-    .map_err(|error| format!("native tool batch task failed: {error}"))
-}
-
 enum PreparedContinuation {
     Finished(Value),
     Continue {
@@ -646,38 +628,34 @@ enum PreparedContinuation {
     },
 }
 
-async fn prepare_continuation_on_blocking_worker(
+async fn prepare_continuation(
     services: NativeAgentRuntimeServices,
     mut context: NativeAgentRunContext,
 ) -> Result<PreparedContinuation, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        restore_activated_tools_for_continuation(&services, &mut context)?;
-        if let Some(result) = maybe_awaiting_approval_result(&services, &context) {
+    restore_activated_tools_for_continuation(&services, &mut context)?;
+    if let Some(result) = maybe_awaiting_approval_result(&services, &context) {
+        return Ok(PreparedContinuation::Finished(result));
+    }
+    if let Some(result) = maybe_approval_resume_result(&services, &context).await? {
+        return Ok(PreparedContinuation::Finished(result));
+    }
+    if let Some(result) = maybe_awaiting_form_result(&services, &context) {
+        return Ok(PreparedContinuation::Finished(result));
+    }
+    let user_input_resume = match prepare_user_input_continuation(&services, &mut context)? {
+        Some(UserInputContinuationOutcome::Finished(result)) => {
             return Ok(PreparedContinuation::Finished(result));
         }
-        if let Some(result) = maybe_approval_resume_result(&services, &context)? {
-            return Ok(PreparedContinuation::Finished(result));
-        }
-        if let Some(result) = maybe_awaiting_form_result(&services, &context) {
-            return Ok(PreparedContinuation::Finished(result));
-        }
-        let user_input_resume = match prepare_user_input_continuation(&services, &mut context)? {
-            Some(UserInputContinuationOutcome::Finished(result)) => {
+        Some(UserInputContinuationOutcome::Resume(resume)) => Some(resume),
+        None => {
+            if let Some(result) = maybe_form_submit_result(&services, &context)? {
                 return Ok(PreparedContinuation::Finished(result));
             }
-            Some(UserInputContinuationOutcome::Resume(resume)) => Some(resume),
-            None => {
-                if let Some(result) = maybe_form_submit_result(&services, &context)? {
-                    return Ok(PreparedContinuation::Finished(result));
-                }
-                None
-            }
-        };
-        Ok(PreparedContinuation::Continue {
-            context,
-            user_input_resume,
-        })
+            None
+        }
+    };
+    Ok(PreparedContinuation::Continue {
+        context,
+        user_input_resume,
     })
-    .await
-    .map_err(|error| format!("native continuation task failed: {error}"))?
 }

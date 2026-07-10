@@ -8,6 +8,7 @@ use crate::worker_tool_registry::ToolExecutionTarget;
 use crate::worker_tool_registry::WorkerToolRegistryRpc;
 use serde_json::Value;
 use std::sync::Arc;
+use tokio_util::sync::CancellationToken;
 
 impl NativeAgentRunContext {
     pub(super) fn from_spec(spec: Value, config_snapshot: Value) -> Self {
@@ -86,6 +87,15 @@ impl NativeAgentRunContext {
             cancellations,
             task_runtime,
         ));
+    }
+
+    pub(super) fn with_child_cancellation(&self, child_token: CancellationToken) -> Self {
+        let mut child = self.clone();
+        child.cancellation = child
+            .cancellation
+            .as_ref()
+            .map(|cancellation| cancellation.with_child_token(child_token));
+        child
     }
 
     pub(crate) fn tool_execution_target(&self, method: &str) -> Option<ToolExecutionTarget> {
