@@ -4250,6 +4250,7 @@ version = "0.1.0"
 dependencies = [
  "async-openai",
  "futures-util",
+ "libc",
  "rfd",
  "rusqlite",
  "serde",

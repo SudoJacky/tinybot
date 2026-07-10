@@ -25,6 +25,12 @@ impl WorkerMcpRpc {
         &self,
         request: &WorkerRequest,
     ) -> Result<Value, WorkerProtocolError> {
+        if request
+            .cancellation()
+            .is_some_and(|cancellation| cancellation.is_cancelled())
+        {
+            return Err(mcp_cancelled_error());
+        }
         self.call_tool(parse_params(request)?)
     }
 
@@ -116,6 +122,16 @@ fn invalid_mcp_request(message: impl Into<String>) -> WorkerProtocolError {
     WorkerProtocolError::new(
         WorkerProtocolErrorCode::InvalidProtocol,
         message,
+        serde_json::json!({ "method": "mcp.call_tool" }),
+        false,
+        WorkerProtocolErrorSource::RustCore,
+    )
+}
+
+fn mcp_cancelled_error() -> WorkerProtocolError {
+    WorkerProtocolError::new(
+        WorkerProtocolErrorCode::WorkerError,
+        "MCP tool call cancelled",
         serde_json::json!({ "method": "mcp.call_tool" }),
         false,
         WorkerProtocolErrorSource::RustCore,
@@ -229,7 +245,12 @@ fn mcp_fixture_tool_definitions(server_name: &str, server: &Value) -> Vec<Value>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::worker_protocol::WorkerRequestCancellation;
     use serde_json::json;
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
 
     fn mcp_rpc(config_snapshot: Value) -> WorkerMcpRpc {
         WorkerMcpRpc::new(
@@ -364,5 +385,60 @@ mod tests {
         assert_eq!(error.code, WorkerProtocolErrorCode::CapabilityDenied);
         assert_eq!(error.details["server"], "docs");
         assert_eq!(error.details["tool"], "delete_everything");
+    }
+
+    #[test]
+    fn mcp_call_tool_fails_fast_when_request_is_cancelled() {
+        let rpc = mcp_rpc(json!({
+            "tools": {
+                "mcp_servers": {
+                    "docs": {
+                        "enabled_tools": ["search"],
+                        "fixture_tools": {
+                            "search": { "content": "MCP search result" }
+                        }
+                    }
+                }
+            }
+        }));
+        let cancellation = Arc::new(TestCancellation::new(true));
+        let request = WorkerRequest::new(
+            "req-cancelled",
+            "trace-cancelled",
+            "mcp.call_tool",
+            json!({
+                "server": "docs",
+                "tool": "search",
+                "arguments": {}
+            }),
+        )
+        .with_cancellation(Some(cancellation));
+
+        let error = rpc
+            .call_tool_from_request(&request)
+            .expect_err("cancelled MCP request should fail before dispatch");
+
+        assert_eq!(error.code, WorkerProtocolErrorCode::WorkerError);
+        assert_eq!(error.message, "MCP tool call cancelled");
+        assert_eq!(error.details["method"], "mcp.call_tool");
+    }
+
+    #[derive(Debug)]
+    struct TestCancellation {
+        cancelled: AtomicBool,
+    }
+
+    impl TestCancellation {
+        fn new(cancelled: bool) -> Self {
+            Self {
+                cancelled: AtomicBool::new(cancelled),
+            }
+        }
+    }
+
+    impl WorkerRequestCancellation for TestCancellation {
+        fn is_cancelled(&self) -> bool {
+            self.cancelled.load(Ordering::SeqCst)
+        }
     }
 }

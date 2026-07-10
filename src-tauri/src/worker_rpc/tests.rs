@@ -1,11 +1,14 @@
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
-use crate::worker_protocol::WorkerRequest;
+use crate::worker_protocol::{WorkerRequest, WorkerRequestCancellation};
 use crate::worker_rpc::WorkerRpcRouter;
 use crate::worker_subagent_manager::{SubagentSpawnParams, SubagentThreadManager};
 use serde_json::{json, Value};
 use std::{
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc,
+    },
     thread,
     time::Duration,
 };
@@ -12784,6 +12787,115 @@ fn dispatches_shell_execute_request() {
     assert_eq!(result["blocked"], false);
     assert!(result["content"].as_str().unwrap().contains("tinybot"));
     assert!(response.error.is_none());
+}
+
+#[test]
+fn tool_executor_forwards_request_cancellation_to_shell_execute() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        20,
+        CapabilityPolicy::new([
+            WorkerCapability::ApprovalRequest,
+            WorkerCapability::ApprovalResolve,
+            WorkerCapability::ShellExecute,
+        ]),
+    );
+    let command = blocking_shell_command_with_marker();
+    let fingerprint = format!("exec:{}", command.to_ascii_lowercase());
+    approve_once(
+        &mut router,
+        "run-shell-cancel",
+        "session-1",
+        json!({
+            "toolName": "exec",
+            "arguments": { "command": command.clone() }
+        }),
+        "shell",
+        "high",
+        "Shell execution can modify files, run programs, or access the network.",
+        &fingerprint,
+        &fingerprint,
+    );
+
+    let cancellation = Arc::new(TestCancellation::default());
+    let request = WorkerRequest::new(
+        "req-tool-shell-cancel",
+        "trace-tool-shell-cancel",
+        "tool_executor.execute",
+        json!({
+            "toolId": "shell.execute",
+            "arguments": {
+                "command": command,
+                "working_dir": ".",
+                "timeout": 30,
+                "sessionId": "session-1",
+                "runId": "run-shell-cancel"
+            }
+        }),
+    )
+    .with_cancellation(Some(cancellation.clone()));
+
+    let started = std::time::Instant::now();
+    let marker = fixture.root.join("started.txt");
+    let handle = thread::spawn(move || router.dispatch(&request));
+    while !marker.exists() {
+        if handle.is_finished() {
+            let response = handle
+                .join()
+                .expect("tool executor dispatch should not panic");
+            panic!("tool executor shell command finished before marker: {response:?}");
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "tool executor shell command should create started marker"
+        );
+        thread::sleep(Duration::from_millis(20));
+    }
+    cancellation.cancel();
+
+    let response = handle
+        .join()
+        .expect("tool executor dispatch should not panic");
+    let result = response
+        .result
+        .expect("cancelled tool executor shell command should return result");
+    assert!(response.error.is_none());
+    assert_eq!(result["result"]["cancelled"], true);
+    assert_eq!(result["result"]["timed_out"], false);
+    assert!(result["result"]["content"]
+        .as_str()
+        .unwrap()
+        .contains("aborted by user"));
+}
+
+#[cfg(target_os = "windows")]
+fn blocking_shell_command_with_marker() -> String {
+    "echo started > started.txt & for /L %i in (0,0,1) do @rem".to_string()
+}
+
+#[cfg(not(target_os = "windows"))]
+fn blocking_shell_command_with_marker() -> String {
+    "printf started > started.txt; while true; do :; done".to_string()
+}
+
+#[derive(Default, Debug)]
+struct TestCancellation {
+    cancelled: AtomicBool,
+}
+
+impl TestCancellation {
+    fn cancel(&self) {
+        self.cancelled.store(true, Ordering::SeqCst);
+    }
+}
+
+impl WorkerRequestCancellation for TestCancellation {
+    fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
 }
 
 fn session_fixture() -> crate::worker_session::SessionMetadata {

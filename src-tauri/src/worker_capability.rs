@@ -84,6 +84,35 @@ impl CapabilityPolicy {
     }
 }
 
+pub fn default_desktop_capability_policy() -> CapabilityPolicy {
+    CapabilityPolicy::new([
+        WorkerCapability::ConfigRead,
+        WorkerCapability::ProviderSecretRead,
+        WorkerCapability::FsWorkspaceRead,
+        WorkerCapability::FsWorkspaceWrite,
+        WorkerCapability::ShellExecute,
+        WorkerCapability::DiagnosticsWrite,
+        WorkerCapability::ApprovalRequest,
+        WorkerCapability::ApprovalResolve,
+        WorkerCapability::FormRequest,
+        WorkerCapability::MemoryRead,
+        WorkerCapability::MemoryWrite,
+        WorkerCapability::KnowledgeRead,
+        WorkerCapability::KnowledgeWrite,
+        WorkerCapability::CronRead,
+        WorkerCapability::CronWrite,
+        WorkerCapability::CronRun,
+        WorkerCapability::BackgroundRead,
+        WorkerCapability::BackgroundWrite,
+        WorkerCapability::TaskRead,
+        WorkerCapability::TaskWrite,
+        WorkerCapability::McpCall,
+        WorkerCapability::ChannelConnector,
+        WorkerCapability::SessionMetadataRead,
+        WorkerCapability::SessionWrite,
+    ])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -32,8 +32,11 @@ impl WorkerRpcRouter {
                         params.session_id.clone(),
                         params.run_id.clone(),
                     ))?;
-                serde_json::to_value(self.shell.execute(params.into_shell_params())?)
-                    .map_err(serialization_error)
+                serde_json::to_value(
+                    self.shell
+                        .execute(params.into_shell_params(request.cancellation()))?,
+                )
+                .map_err(serialization_error)
             }
             "approval.request" => self.approval.request_from_request(request),
             "approval.resolve" => self.approval.resolve_from_request(request),

@@ -174,7 +174,7 @@ use crate::native_backend_contract::NativeCompatibilityFallbackDiagnostic;
 use crate::worker_agent_runtime::NativeAgentRuntimeServices;
 #[cfg(test)]
 use crate::worker_agent_runtime::NativeAgentTraceSink;
-use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
+use crate::worker_capability::default_desktop_capability_policy;
 use crate::worker_manager::{
     WorkerCommandSpec, WorkerManager, WorkerManagerEvent, WorkerManagerState,
 };
@@ -275,32 +275,7 @@ pub(crate) fn experimental_worker_router(
         config_snapshot,
         vec![],
         200,
-        CapabilityPolicy::new([
-            WorkerCapability::ConfigRead,
-            WorkerCapability::ProviderSecretRead,
-            WorkerCapability::FsWorkspaceRead,
-            WorkerCapability::FsWorkspaceWrite,
-            WorkerCapability::ShellExecute,
-            WorkerCapability::DiagnosticsWrite,
-            WorkerCapability::ApprovalRequest,
-            WorkerCapability::ApprovalResolve,
-            WorkerCapability::FormRequest,
-            WorkerCapability::MemoryRead,
-            WorkerCapability::MemoryWrite,
-            WorkerCapability::KnowledgeRead,
-            WorkerCapability::KnowledgeWrite,
-            WorkerCapability::CronRead,
-            WorkerCapability::CronWrite,
-            WorkerCapability::CronRun,
-            WorkerCapability::BackgroundRead,
-            WorkerCapability::BackgroundWrite,
-            WorkerCapability::TaskRead,
-            WorkerCapability::TaskWrite,
-            WorkerCapability::McpCall,
-            WorkerCapability::ChannelConnector,
-            WorkerCapability::SessionMetadataRead,
-            WorkerCapability::SessionWrite,
-        ]),
+        default_desktop_capability_policy(),
     )
     .expect("persistent session store should initialize")
     .with_builtin_skills_root(repo_root())

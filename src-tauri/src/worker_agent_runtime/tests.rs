@@ -1,6 +1,11 @@
 use super::*;
+use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
+use crate::worker_tool_registry::WorkerToolRegistryRpc;
 use serde_json::json;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 
 #[derive(Default)]
 struct RecordingTraceSink {
@@ -119,6 +124,171 @@ fn normalizes_desktop_run_spec_inputs_for_rust_turns() {
     assert_eq!(
         provider_config["agents"]["defaults"]["model"],
         "fixture-model"
+    );
+}
+
+#[test]
+fn chat_completion_request_injects_available_model_tools() {
+    let mut context = NativeAgentRunContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "runId": "run-tools",
+            "sessionId": "websocket:chat-tools",
+            "model": "fixture-model",
+            "messages": [{ "role": "user", "content": "read the workspace" }]
+        }),
+        json!({}),
+    );
+    context.tool_registry_entries = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
+        WorkerCapability::FsWorkspaceRead,
+        WorkerCapability::MemoryRead,
+        WorkerCapability::KnowledgeRead,
+        WorkerCapability::BackgroundWrite,
+        WorkerCapability::SessionWrite,
+    ]))
+    .list_tools()
+    .tools;
+
+    let request = agent_chat_completion_request(&context)
+        .expect("available model tools should produce a chat completion request");
+    let tools = request["tools"]
+        .as_array()
+        .expect("available model tools should be injected");
+    let names = tools
+        .iter()
+        .map(|tool| tool["function"]["name"].as_str().unwrap_or_default())
+        .collect::<Vec<_>>();
+
+    assert_eq!(request["tool_choice"], "auto");
+    assert!(request.get("parallel_tool_calls").is_none());
+    assert!(names.contains(&"workspace.read_file"));
+    assert!(names.contains(&"memory.search"));
+    assert!(names.contains(&"memory.recall"));
+    assert!(names.contains(&"knowledge.query"));
+    assert!(names.contains(&"subagent.spawn"));
+    assert!(names.contains(&"subagent.send_input"));
+    assert!(!names.contains(&"workspace.write_file"));
+    assert!(!names.contains(&"workspace.delete_file"));
+    assert!(!names.contains(&"mcp.call_tool"));
+    assert!(!names.contains(&"shell.execute"));
+    assert_eq!(tools[0]["type"], "function");
+    assert_eq!(
+        tools
+            .iter()
+            .find(|tool| tool["function"]["name"] == "workspace.read_file")
+            .expect("workspace.read_file spec should be present")["function"]["parameters"],
+        json!({
+            "type": "object",
+            "required": ["path"],
+            "properties": {
+                "path": { "type": "string" },
+                "offset": { "type": "integer" },
+                "limit": { "type": "integer" },
+                "format": { "type": "string" }
+            }
+        })
+    );
+}
+
+#[test]
+fn chat_completion_request_enables_parallel_tool_calls_only_when_explicitly_requested() {
+    let mut context = NativeAgentRunContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "runId": "run-parallel-request",
+            "sessionId": "websocket:chat-parallel-request",
+            "model": "fixture-model",
+            "parallelToolCalls": true,
+            "messages": [{ "role": "user", "content": "read and search" }]
+        }),
+        json!({}),
+    );
+    context.tool_registry_entries = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
+        WorkerCapability::FsWorkspaceRead,
+        WorkerCapability::MemoryRead,
+    ]))
+    .list_tools()
+    .tools;
+
+    let enabled_request = agent_chat_completion_request(&context)
+        .expect("explicit parallel tool request should build");
+    assert_eq!(enabled_request["parallel_tool_calls"], true);
+
+    context.spec["parallelToolCalls"] = json!(false);
+    let disabled_request = agent_chat_completion_request(&context)
+        .expect("disabled parallel tool request should build");
+    assert!(disabled_request.get("parallel_tool_calls").is_none());
+}
+
+#[test]
+fn chat_completion_request_omits_tools_when_no_model_tools_are_available() {
+    let mut context = NativeAgentRunContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "runId": "run-no-tools",
+            "sessionId": "websocket:chat-no-tools",
+            "model": "fixture-model",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }),
+        json!({}),
+    );
+    context.tool_registry_entries = WorkerToolRegistryRpc::new(CapabilityPolicy::default())
+        .list_tools()
+        .tools;
+
+    let request = agent_chat_completion_request(&context)
+        .expect("request without available model tools should still be built");
+
+    assert!(request.get("tools").is_none());
+    assert!(request.get("tool_choice").is_none());
+}
+
+#[test]
+fn chat_completion_request_keeps_tool_continuation_messages_unchanged() {
+    let mut context = NativeAgentRunContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "runId": "run-tool-continuation",
+            "sessionId": "websocket:chat-tool-continuation",
+            "model": "fixture-model",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "call-read",
+                        "type": "function",
+                        "function": {
+                            "name": "workspace.read_file",
+                            "arguments": "{\"path\":\"README.md\"}"
+                        }
+                    }]
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call-read",
+                    "name": "workspace.read_file",
+                    "content": "{\"content\":\"README body\"}"
+                },
+                { "role": "user", "content": "continue" }
+            ]
+        }),
+        json!({}),
+    );
+    context.tool_registry_entries =
+        WorkerToolRegistryRpc::new(CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]))
+            .list_tools()
+            .tools;
+
+    let request =
+        agent_chat_completion_request(&context).expect("tool continuation request should be built");
+
+    assert_eq!(request["messages"][0]["tool_calls"][0]["id"], "call-read");
+    assert_eq!(request["messages"][1]["role"], "tool");
+    assert_eq!(request["messages"][1]["tool_call_id"], "call-read");
+    assert_eq!(
+        request["messages"][1]["content"],
+        "{\"content\":\"README body\"}"
     );
 }
 
@@ -742,6 +912,1298 @@ fn feeds_tool_observation_back_into_second_provider_call() {
                 .as_str()
                 .expect("tool observation should be text")
                 .contains("README body")));
+}
+
+#[test]
+fn registry_model_tool_calls_are_permitted_by_runtime_dispatch() {
+    struct MemorySearchProvider {
+        calls: Mutex<usize>,
+    }
+
+    impl NativeAgentProvider for MemorySearchProvider {
+        fn complete(
+            &self,
+            _context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            let mut calls = self
+                .calls
+                .lock()
+                .expect("provider call count lock should not be poisoned");
+            *calls += 1;
+            if *calls == 1 {
+                return Ok(NativeAgentProviderResponse {
+                    final_content: String::new(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![NativeAgentToolCall {
+                        id: "call-memory-search".to_string(),
+                        name: "memory.search".to_string(),
+                        arguments_json: "{\"query\":\"tool runtime\"}".to_string(),
+                        result: json!({ "notes": [] }),
+                    }],
+                });
+            }
+            Ok(NativeAgentProviderResponse {
+                final_content: "memory search complete".to_string(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: Vec::new(),
+            })
+        }
+    }
+
+    let services = NativeAgentRuntimeServices::new(
+        Arc::new(MemorySearchProvider {
+            calls: Mutex::new(0),
+        }),
+        Arc::new(FakeNativeAgentToolDispatcher),
+        Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(InMemoryNativeAgentCancellation::default()),
+    );
+
+    let result = run_native_agent_turn_with_services(
+        &services,
+        json!({
+            "runtime": "rust",
+            "runId": "run-memory-search-tool",
+            "sessionId": "websocket:chat-memory-search-tool",
+            "maxIterations": 2,
+            "messages": [{ "role": "user", "content": "search memory" }]
+        }),
+    )
+    .expect("memory search tool run should return a structured result");
+
+    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(result["toolsUsed"], json!(["memory.search"]));
+    assert_eq!(result["finalContent"], "memory search complete");
+}
+
+#[test]
+fn tool_runtime_dispatches_through_async_dispatch_seam() {
+    struct OneToolThenFinalProvider {
+        calls: Mutex<usize>,
+    }
+
+    impl NativeAgentProvider for OneToolThenFinalProvider {
+        fn complete(
+            &self,
+            _context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            let mut calls = self.calls.lock().expect("provider calls lock");
+            *calls += 1;
+            if *calls == 1 {
+                return Ok(NativeAgentProviderResponse {
+                    final_content: String::new(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![NativeAgentToolCall {
+                        id: "call-async-dispatch".to_string(),
+                        name: "workspace.read_file".to_string(),
+                        arguments_json: "{\"path\":\"README.md\"}".to_string(),
+                        result: json!({ "content": "sync dispatch must not run" }),
+                    }],
+                });
+            }
+            Ok(NativeAgentProviderResponse {
+                final_content: "async dispatch complete".to_string(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: Vec::new(),
+            })
+        }
+    }
+
+    struct AsyncOnlyDispatcher {
+        async_dispatches: AtomicUsize,
+    }
+
+    impl NativeAgentToolDispatcher for AsyncOnlyDispatcher {
+        fn dispatch(
+            &self,
+            _context: &NativeAgentRunContext,
+            _tool_call: &NativeAgentToolCall,
+        ) -> Result<NativeAgentToolResult, String> {
+            panic!("tool runtime should use dispatch_async, not sync dispatch");
+        }
+
+        fn dispatch_async(
+            &self,
+            _context: NativeAgentRunContext,
+            tool_call: NativeAgentToolCall,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send + '_,
+            >,
+        > {
+            self.async_dispatches.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async move {
+                Ok(NativeAgentToolResult::generic_success(
+                    &tool_call,
+                    json!({ "content": "async dispatch ran" }),
+                ))
+            })
+        }
+    }
+
+    let dispatcher = Arc::new(AsyncOnlyDispatcher {
+        async_dispatches: AtomicUsize::new(0),
+    });
+    let result = run_native_agent_turn_with_services(
+        &NativeAgentRuntimeServices::new(
+            Arc::new(OneToolThenFinalProvider {
+                calls: Mutex::new(0),
+            }),
+            dispatcher.clone(),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        ),
+        json!({
+            "runtime": "rust",
+            "runId": "run-async-dispatch-seam",
+            "sessionId": "websocket:chat-async-dispatch-seam",
+            "maxIterations": 2,
+            "messages": [{ "role": "user", "content": "run async dispatcher" }]
+        }),
+    )
+    .expect("async dispatch seam should complete");
+
+    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(dispatcher.async_dispatches.load(Ordering::SeqCst), 1);
+    assert_eq!(result["finalContent"], "async dispatch complete");
+}
+
+#[test]
+fn registry_marks_only_read_only_model_tools_as_parallel_safe() {
+    let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
+        WorkerCapability::FsWorkspaceRead,
+        WorkerCapability::FsWorkspaceWrite,
+        WorkerCapability::ApprovalRequest,
+        WorkerCapability::MemoryRead,
+        WorkerCapability::KnowledgeRead,
+        WorkerCapability::McpCall,
+        WorkerCapability::ShellExecute,
+        WorkerCapability::BackgroundWrite,
+        WorkerCapability::SessionWrite,
+    ]));
+    let tools = registry.list_tools().tools;
+    let parallel_methods = tools
+        .iter()
+        .filter(|tool| tool.supports_parallel_tool_calls)
+        .map(|tool| tool.method)
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        parallel_methods,
+        vec![
+            "workspace.read_file",
+            "knowledge.query",
+            "memory.search",
+            "memory.recall"
+        ]
+    );
+    assert!(
+        !tools
+            .iter()
+            .find(|tool| tool.method == "workspace.write_file")
+            .expect("workspace.write_file should be registered")
+            .supports_parallel_tool_calls
+    );
+    assert!(
+        !tools
+            .iter()
+            .find(|tool| tool.method == "shell.execute")
+            .expect("shell.execute should be registered")
+            .supports_parallel_tool_calls
+    );
+    assert!(
+        !tools
+            .iter()
+            .find(|tool| tool.method == "subagent.spawn")
+            .expect("subagent.spawn should be registered")
+            .supports_parallel_tool_calls
+    );
+}
+
+#[test]
+fn registry_exposes_runtime_policy_for_cancellation_and_mutation_classification() {
+    let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
+        WorkerCapability::FsWorkspaceRead,
+        WorkerCapability::FsWorkspaceWrite,
+        WorkerCapability::ApprovalRequest,
+        WorkerCapability::MemoryRead,
+        WorkerCapability::KnowledgeRead,
+        WorkerCapability::McpCall,
+        WorkerCapability::ShellExecute,
+        WorkerCapability::BackgroundWrite,
+        WorkerCapability::SessionWrite,
+    ]));
+    let tools = registry.list_tools().tools;
+    let read_file = tools
+        .iter()
+        .find(|tool| tool.method == "workspace.read_file")
+        .expect("workspace.read_file should be registered");
+    let write_file = tools
+        .iter()
+        .find(|tool| tool.method == "workspace.write_file")
+        .expect("workspace.write_file should be registered");
+    let shell = tools
+        .iter()
+        .find(|tool| tool.method == "shell.execute")
+        .expect("shell.execute should be registered");
+    let subagent_spawn = tools
+        .iter()
+        .find(|tool| tool.method == "subagent.spawn")
+        .expect("subagent.spawn should be registered");
+
+    assert!(read_file.runtime_policy.supports_parallel_tool_calls);
+    assert!(!read_file.runtime_policy.waits_for_runtime_cancellation);
+    assert!(!read_file.runtime_policy.mutates_workspace);
+    assert!(!read_file.runtime_policy.mutates_session);
+
+    assert!(!write_file.runtime_policy.supports_parallel_tool_calls);
+    assert!(!write_file.runtime_policy.waits_for_runtime_cancellation);
+    assert!(write_file.runtime_policy.mutates_workspace);
+    assert!(!write_file.runtime_policy.mutates_session);
+
+    assert!(!shell.runtime_policy.supports_parallel_tool_calls);
+    assert!(shell.runtime_policy.waits_for_runtime_cancellation);
+    assert!(shell.runtime_policy.mutates_workspace);
+    assert!(!shell.runtime_policy.mutates_session);
+
+    assert!(!subagent_spawn.runtime_policy.supports_parallel_tool_calls);
+    assert!(subagent_spawn.runtime_policy.waits_for_runtime_cancellation);
+    assert!(!subagent_spawn.runtime_policy.mutates_workspace);
+    assert!(subagent_spawn.runtime_policy.mutates_session);
+}
+
+#[test]
+fn read_only_tool_batch_runs_concurrently_and_preserves_model_ordered_observations() {
+    struct TwoReadOnlyToolsThenFinalProvider {
+        seen_messages: Mutex<Vec<Vec<Value>>>,
+    }
+
+    impl NativeAgentProvider for TwoReadOnlyToolsThenFinalProvider {
+        fn complete(
+            &self,
+            context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            let call_count = {
+                let mut seen_messages = self
+                    .seen_messages
+                    .lock()
+                    .expect("seen messages lock should not be poisoned");
+                seen_messages.push(context.messages.clone());
+                seen_messages.len()
+            };
+            if call_count == 1 {
+                return Ok(NativeAgentProviderResponse {
+                    final_content: String::new(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![
+                        NativeAgentToolCall {
+                            id: "call-read-first".to_string(),
+                            name: "workspace.read_file".to_string(),
+                            arguments_json: "{\"path\":\"README.md\"}".to_string(),
+                            result: json!({ "content": "README first" }),
+                        },
+                        NativeAgentToolCall {
+                            id: "call-memory-second".to_string(),
+                            name: "memory.search".to_string(),
+                            arguments_json: "{\"query\":\"README\"}".to_string(),
+                            result: json!({ "content": "memory second" }),
+                        },
+                    ],
+                });
+            }
+            Ok(NativeAgentProviderResponse {
+                final_content: "parallel tools complete".to_string(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: Vec::new(),
+            })
+        }
+    }
+
+    struct OverlapRecordingDispatcher {
+        running: AtomicUsize,
+        max_running: AtomicUsize,
+    }
+
+    impl NativeAgentToolDispatcher for OverlapRecordingDispatcher {
+        fn dispatch(
+            &self,
+            _context: &NativeAgentRunContext,
+            tool_call: &NativeAgentToolCall,
+        ) -> Result<NativeAgentToolResult, String> {
+            let running = self.running.fetch_add(1, Ordering::SeqCst) + 1;
+            self.max_running.fetch_max(running, Ordering::SeqCst);
+            let delay_ms = if tool_call.id == "call-read-first" {
+                120
+            } else {
+                20
+            };
+            thread::sleep(Duration::from_millis(delay_ms));
+            self.running.fetch_sub(1, Ordering::SeqCst);
+            Ok(NativeAgentToolResult::generic_success(
+                tool_call,
+                tool_call.result.clone(),
+            ))
+        }
+    }
+
+    let provider = Arc::new(TwoReadOnlyToolsThenFinalProvider {
+        seen_messages: Mutex::new(Vec::new()),
+    });
+    let dispatcher = Arc::new(OverlapRecordingDispatcher {
+        running: AtomicUsize::new(0),
+        max_running: AtomicUsize::new(0),
+    });
+    let result = run_native_agent_turn_with_services(
+        &NativeAgentRuntimeServices::new(
+            provider.clone(),
+            dispatcher.clone(),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        ),
+        json!({
+            "runtime": "rust",
+            "runId": "run-read-only-parallel-tools",
+            "sessionId": "websocket:chat-read-only-parallel-tools",
+            "maxIterations": 2,
+            "messages": [{ "role": "user", "content": "run read-only tools" }]
+        }),
+    )
+    .expect("parallel read-only tool run should complete");
+    let seen_messages = provider
+        .seen_messages
+        .lock()
+        .expect("seen messages lock should not be poisoned");
+    let second_request_messages = &seen_messages[1];
+    let tool_messages = second_request_messages
+        .iter()
+        .filter(|message| message["role"] == "tool")
+        .collect::<Vec<_>>();
+
+    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(dispatcher.max_running.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        result["toolsUsed"],
+        json!(["workspace.read_file", "memory.search"])
+    );
+    assert_eq!(tool_messages.len(), 2);
+    assert_eq!(tool_messages[0]["tool_call_id"], "call-read-first");
+    assert_eq!(tool_messages[0]["content"], "README first");
+    assert_eq!(tool_messages[1]["tool_call_id"], "call-memory-second");
+    assert_eq!(tool_messages[1]["content"], "memory second");
+}
+
+#[test]
+fn read_only_mcp_tool_calls_use_read_lock_scheduling() {
+    struct TwoMcpToolsThenFinalProvider {
+        calls: Mutex<usize>,
+    }
+
+    impl NativeAgentProvider for TwoMcpToolsThenFinalProvider {
+        fn complete(
+            &self,
+            _context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            let mut calls = self.calls.lock().expect("provider calls lock");
+            *calls += 1;
+            if *calls == 1 {
+                return Ok(NativeAgentProviderResponse {
+                    final_content: String::new(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![
+                        NativeAgentToolCall {
+                            id: "call-mcp-read-one".to_string(),
+                            name: "mcp.call_tool".to_string(),
+                            arguments_json:
+                                "{\"server\":\"docs\",\"tool\":\"lookup\",\"arguments\":{}}"
+                                    .to_string(),
+                            result: json!({ "content": "lookup" }),
+                        },
+                        NativeAgentToolCall {
+                            id: "call-mcp-read-two".to_string(),
+                            name: "mcp.call_tool".to_string(),
+                            arguments_json:
+                                "{\"server\":\"docs\",\"tool\":\"search\",\"arguments\":{}}"
+                                    .to_string(),
+                            result: json!({ "content": "search" }),
+                        },
+                    ],
+                });
+            }
+            Ok(NativeAgentProviderResponse {
+                final_content: "mcp reads complete".to_string(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: Vec::new(),
+            })
+        }
+    }
+
+    struct McpOverlapDispatcher {
+        running: AtomicUsize,
+        max_running: AtomicUsize,
+    }
+
+    impl NativeAgentToolDispatcher for McpOverlapDispatcher {
+        fn dispatch(
+            &self,
+            _context: &NativeAgentRunContext,
+            tool_call: &NativeAgentToolCall,
+        ) -> Result<NativeAgentToolResult, String> {
+            let running = self.running.fetch_add(1, Ordering::SeqCst) + 1;
+            self.max_running.fetch_max(running, Ordering::SeqCst);
+            thread::sleep(Duration::from_millis(40));
+            self.running.fetch_sub(1, Ordering::SeqCst);
+            Ok(NativeAgentToolResult::generic_success(
+                tool_call,
+                tool_call.result.clone(),
+            ))
+        }
+    }
+
+    let dispatcher = Arc::new(McpOverlapDispatcher {
+        running: AtomicUsize::new(0),
+        max_running: AtomicUsize::new(0),
+    });
+    let result = run_native_agent_turn_with_config(
+        &NativeAgentRuntimeServices::new(
+            Arc::new(TwoMcpToolsThenFinalProvider {
+                calls: Mutex::new(0),
+            }),
+            dispatcher.clone(),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        ),
+        json!({
+            "runtime": "rust",
+            "runId": "run-read-only-mcp-tools",
+            "sessionId": "websocket:chat-read-only-mcp-tools",
+            "maxIterations": 2,
+            "messages": [{ "role": "user", "content": "run read-only mcp tools" }]
+        }),
+        json!({
+            "tools": {
+                "mcpServers": {
+                    "docs": {
+                        "enabledTools": ["lookup", "search"],
+                        "fixtureTools": {
+                            "lookup": {
+                                "content": "lookup",
+                                "annotations": { "readOnlyHint": true }
+                            },
+                            "search": {
+                                "content": "search",
+                                "annotations": { "readOnlyHint": true }
+                            }
+                        }
+                    }
+                }
+            }
+        }),
+    )
+    .expect("read-only MCP tool run should complete");
+    let mcp_start_modes = result["events"]
+        .as_array()
+        .expect("events should be returned")
+        .iter()
+        .filter(|event| {
+            event["eventName"] == "agent.tool.start"
+                && event["payload"]["toolName"] == "mcp.call_tool"
+                && event["payload"]["status"] == "queued"
+        })
+        .map(|event| event["payload"]["parallelMode"].clone())
+        .collect::<Vec<_>>();
+
+    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(dispatcher.max_running.load(Ordering::SeqCst), 2);
+    assert_eq!(mcp_start_modes, vec![json!("read"), json!("read")]);
+}
+
+#[test]
+fn shell_read_only_allowlist_uses_read_lock_only_when_explicitly_enabled() {
+    struct TwoShellReadsThenFinalProvider {
+        calls: Mutex<usize>,
+    }
+
+    impl NativeAgentProvider for TwoShellReadsThenFinalProvider {
+        fn complete(
+            &self,
+            _context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            let mut calls = self.calls.lock().expect("provider calls lock");
+            *calls += 1;
+            if *calls == 1 {
+                return Ok(NativeAgentProviderResponse {
+                    final_content: String::new(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![
+                        NativeAgentToolCall {
+                            id: "call-shell-status".to_string(),
+                            name: "shell.execute".to_string(),
+                            arguments_json: "{\"command\":\"git status\"}".to_string(),
+                            result: json!({ "content": "status" }),
+                        },
+                        NativeAgentToolCall {
+                            id: "call-shell-diff".to_string(),
+                            name: "shell.execute".to_string(),
+                            arguments_json: "{\"command\":\"git diff\"}".to_string(),
+                            result: json!({ "content": "diff" }),
+                        },
+                    ],
+                });
+            }
+            Ok(NativeAgentProviderResponse {
+                final_content: "shell reads complete".to_string(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: Vec::new(),
+            })
+        }
+    }
+
+    struct ShellOverlapDispatcher {
+        running: AtomicUsize,
+        max_running: AtomicUsize,
+    }
+
+    impl NativeAgentToolDispatcher for ShellOverlapDispatcher {
+        fn dispatch(
+            &self,
+            _context: &NativeAgentRunContext,
+            tool_call: &NativeAgentToolCall,
+        ) -> Result<NativeAgentToolResult, String> {
+            let running = self.running.fetch_add(1, Ordering::SeqCst) + 1;
+            self.max_running.fetch_max(running, Ordering::SeqCst);
+            thread::sleep(Duration::from_millis(40));
+            self.running.fetch_sub(1, Ordering::SeqCst);
+            Ok(NativeAgentToolResult::generic_success(
+                tool_call,
+                tool_call.result.clone(),
+            ))
+        }
+    }
+
+    let dispatcher = Arc::new(ShellOverlapDispatcher {
+        running: AtomicUsize::new(0),
+        max_running: AtomicUsize::new(0),
+    });
+    let result = run_native_agent_turn_with_config(
+        &NativeAgentRuntimeServices::new(
+            Arc::new(TwoShellReadsThenFinalProvider {
+                calls: Mutex::new(0),
+            }),
+            dispatcher.clone(),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        ),
+        json!({
+            "runtime": "rust",
+            "runId": "run-shell-read-allowlist",
+            "sessionId": "websocket:chat-shell-read-allowlist",
+            "maxIterations": 2,
+            "messages": [{ "role": "user", "content": "run read-only shell tools" }]
+        }),
+        json!({
+            "nativeAgent": {
+                "shellParallelPolicy": "readOnlyCommandAllowlist"
+            }
+        }),
+    )
+    .expect("read-only shell allowlist run should complete");
+    let shell_start_modes = result["events"]
+        .as_array()
+        .expect("events should be returned")
+        .iter()
+        .filter(|event| {
+            event["eventName"] == "agent.tool.start"
+                && event["payload"]["toolName"] == "shell.execute"
+                && event["payload"]["status"] == "queued"
+        })
+        .map(|event| event["payload"]["parallelMode"].clone())
+        .collect::<Vec<_>>();
+
+    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(dispatcher.max_running.load(Ordering::SeqCst), 2);
+    assert_eq!(shell_start_modes, vec![json!("read"), json!("read")]);
+}
+
+#[test]
+fn parallel_tool_failures_have_single_terminal_error_and_debug_late_failures() {
+    struct TwoFailingToolsProvider;
+
+    impl NativeAgentProvider for TwoFailingToolsProvider {
+        fn complete(
+            &self,
+            _context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            Ok(NativeAgentProviderResponse {
+                final_content: String::new(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: vec![
+                    NativeAgentToolCall {
+                        id: "call-first-fails".to_string(),
+                        name: "workspace.read_file".to_string(),
+                        arguments_json: "{\"path\":\"first.md\"}".to_string(),
+                        result: json!({ "content": "unused first" }),
+                    },
+                    NativeAgentToolCall {
+                        id: "call-second-fails".to_string(),
+                        name: "memory.search".to_string(),
+                        arguments_json: "{\"query\":\"second\"}".to_string(),
+                        result: json!({ "content": "unused second" }),
+                    },
+                ],
+            })
+        }
+    }
+
+    struct FailingParallelDispatcher;
+
+    impl NativeAgentToolDispatcher for FailingParallelDispatcher {
+        fn dispatch(
+            &self,
+            _context: &NativeAgentRunContext,
+            tool_call: &NativeAgentToolCall,
+        ) -> Result<NativeAgentToolResult, String> {
+            if tool_call.id == "call-first-fails" {
+                thread::sleep(Duration::from_millis(20));
+            }
+            Err(format!("{} failed", tool_call.id))
+        }
+    }
+
+    let result = run_native_agent_turn_with_services(
+        &NativeAgentRuntimeServices::new(
+            Arc::new(TwoFailingToolsProvider),
+            Arc::new(FailingParallelDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        ),
+        json!({
+            "runtime": "rust",
+            "runId": "run-two-parallel-failures",
+            "sessionId": "websocket:chat-two-parallel-failures",
+            "maxIterations": 2,
+            "messages": [{ "role": "user", "content": "run failing parallel tools" }]
+        }),
+    )
+    .expect("parallel tool failures should return structured failure");
+    let events = result["events"]
+        .as_array()
+        .expect("events should be returned");
+    let terminal_errors = events
+        .iter()
+        .filter(|event| event["eventName"] == "agent.error")
+        .collect::<Vec<_>>();
+    let debug_events = events
+        .iter()
+        .filter(|event| event["eventName"] == "agent.tool.debug")
+        .collect::<Vec<_>>();
+
+    assert_eq!(result["stopReason"], "tool_error");
+    assert_eq!(terminal_errors.len(), 1);
+    assert_eq!(
+        terminal_errors[0]["payload"]["toolCallId"],
+        "call-second-fails"
+    );
+    assert_eq!(debug_events.len(), 1);
+    assert_eq!(
+        debug_events[0]["payload"]["ignoredReason"],
+        "terminal_outcome_already_claimed"
+    );
+    assert_eq!(debug_events[0]["payload"]["terminalOutcome"], "failed");
+    assert_eq!(debug_events[0]["payload"]["toolCallId"], "call-first-fails");
+    assert_eq!(result["completedToolResults"].as_array().unwrap().len(), 0);
+}
+
+#[test]
+fn mixed_parallel_and_non_parallel_tool_batch_uses_read_write_lock_scheduling() {
+    struct MixedToolsThenFinalProvider {
+        seen_messages: Mutex<Vec<Vec<Value>>>,
+    }
+
+    impl NativeAgentProvider for MixedToolsThenFinalProvider {
+        fn complete(
+            &self,
+            context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            let call_count = {
+                let mut seen_messages = self
+                    .seen_messages
+                    .lock()
+                    .expect("seen messages lock should not be poisoned");
+                seen_messages.push(context.messages.clone());
+                seen_messages.len()
+            };
+            if call_count == 1 {
+                return Ok(NativeAgentProviderResponse {
+                    final_content: String::new(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![
+                        NativeAgentToolCall {
+                            id: "call-read-one".to_string(),
+                            name: "workspace.read_file".to_string(),
+                            arguments_json: "{\"path\":\"README.md\"}".to_string(),
+                            result: json!({ "content": "README" }),
+                        },
+                        NativeAgentToolCall {
+                            id: "call-read-two".to_string(),
+                            name: "memory.search".to_string(),
+                            arguments_json: "{\"query\":\"README\"}".to_string(),
+                            result: json!({ "content": "memory" }),
+                        },
+                        NativeAgentToolCall {
+                            id: "call-write-exclusive".to_string(),
+                            name: "shell.execute".to_string(),
+                            arguments_json: "{\"command\":\"echo hi\"}".to_string(),
+                            result: json!({ "content": "hi" }),
+                        },
+                        NativeAgentToolCall {
+                            id: "call-read-three".to_string(),
+                            name: "knowledge.query".to_string(),
+                            arguments_json: "{\"query\":\"README\"}".to_string(),
+                            result: json!({ "content": "knowledge" }),
+                        },
+                    ],
+                });
+            }
+            Ok(NativeAgentProviderResponse {
+                final_content: "mixed tools complete".to_string(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: Vec::new(),
+            })
+        }
+    }
+
+    struct ReadWriteLockRecordingDispatcher {
+        active_reads: AtomicUsize,
+        active_writes: AtomicUsize,
+        max_active_reads: AtomicUsize,
+        write_overlaps: AtomicUsize,
+    }
+
+    impl NativeAgentToolDispatcher for ReadWriteLockRecordingDispatcher {
+        fn dispatch(
+            &self,
+            _context: &NativeAgentRunContext,
+            tool_call: &NativeAgentToolCall,
+        ) -> Result<NativeAgentToolResult, String> {
+            let is_write = tool_call.name == "shell.execute";
+            if is_write {
+                if self.active_reads.load(Ordering::SeqCst) > 0 {
+                    self.write_overlaps.fetch_add(1, Ordering::SeqCst);
+                }
+                let writes = self.active_writes.fetch_add(1, Ordering::SeqCst) + 1;
+                if writes > 1 {
+                    self.write_overlaps.fetch_add(1, Ordering::SeqCst);
+                }
+                thread::sleep(Duration::from_millis(60));
+                self.active_writes.fetch_sub(1, Ordering::SeqCst);
+            } else {
+                if self.active_writes.load(Ordering::SeqCst) > 0 {
+                    self.write_overlaps.fetch_add(1, Ordering::SeqCst);
+                }
+                let reads = self.active_reads.fetch_add(1, Ordering::SeqCst) + 1;
+                self.max_active_reads.fetch_max(reads, Ordering::SeqCst);
+                thread::sleep(Duration::from_millis(60));
+                self.active_reads.fetch_sub(1, Ordering::SeqCst);
+            }
+            Ok(NativeAgentToolResult::generic_success(
+                tool_call,
+                tool_call.result.clone(),
+            ))
+        }
+    }
+
+    #[derive(Default)]
+    struct RecordingCheckpointStore {
+        inner: InMemoryNativeAgentCheckpointStore,
+        saved: Mutex<Vec<Value>>,
+    }
+
+    impl NativeAgentCheckpointStore for RecordingCheckpointStore {
+        fn save(&self, session_id: &str, checkpoint: Value) {
+            self.saved
+                .lock()
+                .expect("saved checkpoints lock should not be poisoned")
+                .push(checkpoint.clone());
+            self.inner.save(session_id, checkpoint);
+        }
+
+        fn save_for_run(&self, session_id: &str, run_id: &str, checkpoint: Value) {
+            self.saved
+                .lock()
+                .expect("saved checkpoints lock should not be poisoned")
+                .push(checkpoint.clone());
+            self.inner.save_for_run(session_id, run_id, checkpoint);
+        }
+
+        fn restore(&self, session_id: &str) -> Option<Value> {
+            self.inner.restore(session_id)
+        }
+
+        fn restore_for_run(&self, session_id: &str, run_id: &str) -> Option<Value> {
+            self.inner.restore_for_run(session_id, run_id)
+        }
+
+        fn clear(&self, session_id: &str) {
+            self.inner.clear(session_id);
+        }
+
+        fn clear_for_run(&self, session_id: &str, run_id: &str) {
+            self.inner.clear_for_run(session_id, run_id);
+        }
+    }
+
+    let provider = Arc::new(MixedToolsThenFinalProvider {
+        seen_messages: Mutex::new(Vec::new()),
+    });
+    let dispatcher = Arc::new(ReadWriteLockRecordingDispatcher {
+        active_reads: AtomicUsize::new(0),
+        active_writes: AtomicUsize::new(0),
+        max_active_reads: AtomicUsize::new(0),
+        write_overlaps: AtomicUsize::new(0),
+    });
+    let checkpoints = Arc::new(RecordingCheckpointStore::default());
+    let result = run_native_agent_turn_with_services(
+        &NativeAgentRuntimeServices::new(
+            provider.clone(),
+            dispatcher.clone(),
+            checkpoints.clone(),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        ),
+        json!({
+            "runtime": "rust",
+            "runId": "run-mixed-tool-batch",
+            "sessionId": "websocket:chat-mixed-tool-batch",
+            "maxIterations": 2,
+            "messages": [{ "role": "user", "content": "run mixed tools" }]
+        }),
+    )
+    .expect("mixed tool run should complete");
+    let seen_messages = provider
+        .seen_messages
+        .lock()
+        .expect("seen messages lock should not be poisoned");
+    let second_request_messages = &seen_messages[1];
+    let tool_messages = second_request_messages
+        .iter()
+        .filter(|message| message["role"] == "tool")
+        .collect::<Vec<_>>();
+    let tool_start_statuses = result["events"]
+        .as_array()
+        .expect("events should be an array")
+        .iter()
+        .filter(|event| event["eventName"] == "agent.tool.start")
+        .map(|event| {
+            (
+                event["payload"]["toolCallId"].as_str().unwrap_or_default(),
+                event["payload"]["status"].as_str().unwrap_or_default(),
+                event["payload"]["parallelMode"]
+                    .as_str()
+                    .unwrap_or_default(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let saved_checkpoints = checkpoints
+        .saved
+        .lock()
+        .expect("saved checkpoints lock should not be poisoned")
+        .clone();
+
+    assert_eq!(result["stopReason"], "final_response");
+    assert!(
+        dispatcher.max_active_reads.load(Ordering::SeqCst) >= 2,
+        "read guards should allow parallel-safe tools to overlap inside a mixed batch"
+    );
+    assert_eq!(
+        dispatcher.write_overlaps.load(Ordering::SeqCst),
+        0,
+        "write-locked tools must not overlap reads or other writes"
+    );
+    assert_eq!(
+        result["toolsUsed"],
+        json!([
+            "workspace.read_file",
+            "memory.search",
+            "shell.execute",
+            "knowledge.query"
+        ])
+    );
+    assert_eq!(
+        tool_start_statuses
+            .iter()
+            .filter(|(_, status, _)| *status == "queued")
+            .count(),
+        4
+    );
+    assert!(tool_start_statuses.contains(&("call-read-one", "queued", "read")));
+    assert!(tool_start_statuses.contains(&("call-write-exclusive", "queued", "write")));
+    assert!(tool_start_statuses.contains(&("call-write-exclusive", "running", "write")));
+    assert_eq!(tool_messages.len(), 4);
+    assert_eq!(tool_messages[0]["tool_call_id"], "call-read-one");
+    assert_eq!(tool_messages[1]["tool_call_id"], "call-read-two");
+    assert_eq!(tool_messages[2]["tool_call_id"], "call-write-exclusive");
+    assert_eq!(tool_messages[3]["tool_call_id"], "call-read-three");
+    assert!(saved_checkpoints.iter().any(|checkpoint| {
+        checkpoint["pendingToolCalls"]
+            .as_array()
+            .is_some_and(|pending| {
+                pending.len() == 4
+                    && pending.iter().all(|entry| entry["status"] == "queued")
+                    && pending.iter().any(|entry| {
+                        entry["toolCallId"] == "call-write-exclusive"
+                            && entry["parallelMode"] == "write"
+                    })
+            })
+    }));
+    assert!(saved_checkpoints.iter().any(|checkpoint| {
+        checkpoint["pendingToolCalls"]
+            .as_array()
+            .is_some_and(|pending| {
+                pending.iter().any(|entry| {
+                    entry["toolCallId"] == "call-write-exclusive"
+                        && entry["status"] == "running"
+                        && entry["parallelMode"] == "write"
+                })
+            })
+    }));
+}
+
+#[test]
+fn cancellation_before_queued_write_lock_dispatch_skips_waiting_tool() {
+    struct ReadThenWriteProvider {
+        calls: Mutex<usize>,
+    }
+
+    impl NativeAgentProvider for ReadThenWriteProvider {
+        fn complete(
+            &self,
+            _context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            let mut calls = self.calls.lock().expect("provider calls lock");
+            *calls += 1;
+            if *calls == 1 {
+                return Ok(NativeAgentProviderResponse {
+                    final_content: String::new(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![
+                        NativeAgentToolCall {
+                            id: "call-read-cancels".to_string(),
+                            name: "workspace.read_file".to_string(),
+                            arguments_json: "{\"path\":\"README.md\"}".to_string(),
+                            result: json!({ "content": "README" }),
+                        },
+                        NativeAgentToolCall {
+                            id: "call-write-waits".to_string(),
+                            name: "shell.execute".to_string(),
+                            arguments_json: "{\"command\":\"echo should-not-run\"}".to_string(),
+                            result: json!({ "content": "should not run" }),
+                        },
+                    ],
+                });
+            }
+            Ok(NativeAgentProviderResponse {
+                final_content: "unreachable after cancellation".to_string(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: Vec::new(),
+            })
+        }
+    }
+
+    struct CancellingReadDispatcher {
+        cancellations: Arc<InMemoryNativeAgentCancellation>,
+        write_dispatches: AtomicUsize,
+    }
+
+    impl NativeAgentToolDispatcher for CancellingReadDispatcher {
+        fn dispatch(
+            &self,
+            context: &NativeAgentRunContext,
+            tool_call: &NativeAgentToolCall,
+        ) -> Result<NativeAgentToolResult, String> {
+            if tool_call.name == "workspace.read_file" {
+                self.cancellations.cancel(&context.run_id);
+                thread::sleep(Duration::from_millis(80));
+                return Ok(NativeAgentToolResult::generic_success(
+                    tool_call,
+                    tool_call.result.clone(),
+                ));
+            }
+            self.write_dispatches.fetch_add(1, Ordering::SeqCst);
+            Ok(NativeAgentToolResult::generic_success(
+                tool_call,
+                tool_call.result.clone(),
+            ))
+        }
+    }
+
+    let cancellations = Arc::new(InMemoryNativeAgentCancellation::default());
+    let dispatcher = Arc::new(CancellingReadDispatcher {
+        cancellations: cancellations.clone(),
+        write_dispatches: AtomicUsize::new(0),
+    });
+    let result = run_native_agent_turn_with_services(
+        &NativeAgentRuntimeServices::new(
+            Arc::new(ReadThenWriteProvider {
+                calls: Mutex::new(0),
+            }),
+            dispatcher.clone(),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            cancellations,
+        ),
+        json!({
+            "runtime": "rust",
+            "runId": "run-cancel-queued-write",
+            "sessionId": "websocket:chat-cancel-queued-write",
+            "maxIterations": 2,
+            "messages": [{ "role": "user", "content": "read then cancel write" }]
+        }),
+    )
+    .expect("queued write cancellation should return a structured result");
+
+    assert_eq!(result["stopReason"], "cancelled");
+    assert_eq!(dispatcher.write_dispatches.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        event_names(&result)
+            .into_iter()
+            .filter(|event_name| *event_name == "agent.cancelled")
+            .count(),
+        1
+    );
+    assert_eq!(result["finalContent"], "");
+}
+
+#[test]
+fn terminal_failure_before_queued_write_dispatch_skips_waiting_tool() {
+    struct FailingWriteThenWriteProvider;
+
+    impl NativeAgentProvider for FailingWriteThenWriteProvider {
+        fn complete(
+            &self,
+            _context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            Ok(NativeAgentProviderResponse {
+                final_content: String::new(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: vec![
+                    NativeAgentToolCall {
+                        id: "call-first-write-fails".to_string(),
+                        name: "shell.execute".to_string(),
+                        arguments_json: "{\"command\":\"false\"}".to_string(),
+                        result: json!({ "content": "unused first" }),
+                    },
+                    NativeAgentToolCall {
+                        id: "call-second-write-waits".to_string(),
+                        name: "shell.execute".to_string(),
+                        arguments_json: "{\"command\":\"touch should-not-run\"}".to_string(),
+                        result: json!({ "content": "unused second" }),
+                    },
+                ],
+            })
+        }
+    }
+
+    struct FailingWriteDispatcher {
+        second_write_dispatches: AtomicUsize,
+    }
+
+    impl NativeAgentToolDispatcher for FailingWriteDispatcher {
+        fn dispatch(
+            &self,
+            _context: &NativeAgentRunContext,
+            tool_call: &NativeAgentToolCall,
+        ) -> Result<NativeAgentToolResult, String> {
+            if tool_call.id == "call-first-write-fails" {
+                return Err("first write failed".to_string());
+            }
+            self.second_write_dispatches.fetch_add(1, Ordering::SeqCst);
+            Ok(NativeAgentToolResult::generic_success(
+                tool_call,
+                tool_call.result.clone(),
+            ))
+        }
+    }
+
+    let dispatcher = Arc::new(FailingWriteDispatcher {
+        second_write_dispatches: AtomicUsize::new(0),
+    });
+    let result = run_native_agent_turn_with_services(
+        &NativeAgentRuntimeServices::new(
+            Arc::new(FailingWriteThenWriteProvider),
+            dispatcher.clone(),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        ),
+        json!({
+            "runtime": "rust",
+            "runId": "run-failed-queued-write",
+            "sessionId": "websocket:chat-failed-queued-write",
+            "maxIterations": 2,
+            "messages": [{ "role": "user", "content": "fail then skip write" }]
+        }),
+    )
+    .expect("queued write failure should return a structured result");
+
+    let events = result["events"]
+        .as_array()
+        .expect("events should be returned");
+    assert_eq!(result["stopReason"], "tool_error");
+    assert_eq!(dispatcher.second_write_dispatches.load(Ordering::SeqCst), 0);
+    assert!(!events.iter().any(|event| {
+        event["eventName"] == "agent.tool.start"
+            && event["payload"]["toolCallId"] == "call-second-write-waits"
+            && event["payload"]["status"] == "running"
+    }));
+    assert!(events.iter().any(|event| {
+        event["eventName"] == "agent.tool.debug"
+            && event["payload"]["toolCallId"] == "call-second-write-waits"
+            && event["payload"]["ignoredReason"] == "dispatch_skipped_after_terminal"
+            && event["payload"]["terminalOutcome"] == "failed"
+    }));
+}
+
+#[test]
+fn cancellation_during_non_cleanup_parallel_tool_returns_without_waiting_for_late_result() {
+    struct SlowReadProvider;
+
+    impl NativeAgentProvider for SlowReadProvider {
+        fn complete(
+            &self,
+            _context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            Ok(NativeAgentProviderResponse {
+                final_content: String::new(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: vec![
+                    NativeAgentToolCall {
+                        id: "call-slow-read-one".to_string(),
+                        name: "workspace.read_file".to_string(),
+                        arguments_json: "{\"path\":\"README.md\"}".to_string(),
+                        result: json!({ "content": "late read one" }),
+                    },
+                    NativeAgentToolCall {
+                        id: "call-slow-read-two".to_string(),
+                        name: "memory.search".to_string(),
+                        arguments_json: "{\"query\":\"README\"}".to_string(),
+                        result: json!({ "content": "late read two" }),
+                    },
+                ],
+            })
+        }
+    }
+
+    struct SlowCancellingReadDispatcher {
+        cancellations: Arc<InMemoryNativeAgentCancellation>,
+        cancelled_tx: std::sync::mpsc::Sender<()>,
+        release_rx: Arc<Mutex<std::sync::mpsc::Receiver<()>>>,
+    }
+
+    impl NativeAgentToolDispatcher for SlowCancellingReadDispatcher {
+        fn dispatch(
+            &self,
+            context: &NativeAgentRunContext,
+            tool_call: &NativeAgentToolCall,
+        ) -> Result<NativeAgentToolResult, String> {
+            self.cancellations.cancel(&context.run_id);
+            let _ = self.cancelled_tx.send(());
+            let _ = self
+                .release_rx
+                .lock()
+                .expect("release receiver lock should not be poisoned")
+                .recv_timeout(Duration::from_secs(30));
+            Ok(NativeAgentToolResult::generic_success(
+                tool_call,
+                tool_call.result.clone(),
+            ))
+        }
+    }
+
+    let cancellations = Arc::new(InMemoryNativeAgentCancellation::default());
+    let (cancelled_tx, cancelled_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let release_rx = Arc::new(Mutex::new(release_rx));
+    let (result_tx, result_rx) = std::sync::mpsc::channel();
+    let trace_sink = Arc::new(RecordingTraceSink::default());
+    let trace_events = trace_sink.events.clone();
+    let cancellation_probe = cancellations.clone();
+    thread::spawn(move || {
+        let result = run_native_agent_turn_with_services(
+            &NativeAgentRuntimeServices::new(
+                Arc::new(SlowReadProvider),
+                Arc::new(SlowCancellingReadDispatcher {
+                    cancellations: cancellations.clone(),
+                    cancelled_tx,
+                    release_rx,
+                }),
+                Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+                cancellations,
+            )
+            .with_trace_sink(trace_sink),
+            json!({
+                "runtime": "rust",
+                "runId": "run-cancel-slow-read",
+                "sessionId": "websocket:chat-cancel-slow-read",
+                "maxIterations": 2,
+                "messages": [{ "role": "user", "content": "cancel slow read" }]
+            }),
+        );
+        let _ = result_tx.send(result);
+    });
+
+    cancelled_rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("slow read dispatcher should trigger cancellation");
+    assert!(
+        cancellation_probe.is_cancelled("run-cancel-slow-read"),
+        "dispatcher cancellation signal must update the runtime cancellation store"
+    );
+    let result = match result_rx.recv_timeout(Duration::from_secs(10)) {
+        Ok(result) => result.expect("slow read cancellation should return a structured result"),
+        Err(error) => {
+            let _ = release_tx.send(());
+            let _ = release_tx.send(());
+            let result_after_release = result_rx
+                .recv_timeout(Duration::from_secs(5))
+                .map(|result| result.map(|value| value["stopReason"].clone()));
+            let tool_events = trace_events
+                .lock()
+                .expect("trace event lock should not be poisoned")
+                .iter()
+                .filter(|event| {
+                    event.event_name == "agent.tool.start" || event.event_name == "agent.cancelled"
+                })
+                .map(|event| {
+                    serde_json::json!({
+                        "event": event.event_name,
+                        "payload": event.payload,
+                    })
+                })
+                .collect::<Vec<_>>();
+            panic!(
+                "non-cleanup read tool cancellation should not wait for late result: {error}; result_after_release={result_after_release:?}; tool_events={tool_events:?}"
+            );
+        }
+    };
+    let _ = release_tx.send(());
+    let _ = release_tx.send(());
+
+    assert_eq!(result["stopReason"], "cancelled");
+    assert_eq!(result["completedToolResults"].as_array().unwrap().len(), 0);
 }
 
 #[test]

@@ -540,7 +540,8 @@ impl WorkerRpcRouter {
             request.trace_id.clone(),
             tool.method,
             tool_arguments,
-        );
+        )
+        .with_cancellation(request.cancellation());
         match self.dispatch_result(&tool_request) {
             Ok(result) => {
                 if let (Some(thread_id), Some(tool_call_id)) = (&params.thread_id, &tool_call_id) {
@@ -734,12 +735,16 @@ struct ShellExecuteRequestParams {
 }
 
 impl ShellExecuteRequestParams {
-    fn into_shell_params(self) -> ShellExecuteParams {
+    fn into_shell_params(
+        self,
+        cancellation: Option<std::sync::Arc<dyn crate::worker_protocol::WorkerRequestCancellation>>,
+    ) -> ShellExecuteParams {
         ShellExecuteParams {
             command: self.command,
             working_dir: self.working_dir,
             timeout: self.timeout,
             restrict_to_workspace: self.restrict_to_workspace,
+            cancellation,
         }
     }
 }

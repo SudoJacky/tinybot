@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::VecDeque;
+use std::fmt;
+use std::sync::Arc;
 
 pub const WORKER_PROTOCOL_VERSION: &str = "1";
 
@@ -11,7 +13,11 @@ pub enum WorkerTransportMode {
     LocalPipe,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub trait WorkerRequestCancellation: Send + Sync {
+    fn is_cancelled(&self) -> bool;
+}
+
+#[derive(Clone, Deserialize, Serialize)]
 pub struct WorkerRequest {
     pub protocol_version: String,
     pub id: String,
@@ -19,6 +25,8 @@ pub struct WorkerRequest {
     pub method: String,
     #[serde(default = "empty_json_object")]
     pub params: Value,
+    #[serde(skip)]
+    pub cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
 }
 
 impl WorkerRequest {
@@ -34,7 +42,44 @@ impl WorkerRequest {
             trace_id: trace_id.into(),
             method: method.into(),
             params,
+            cancellation: None,
         }
+    }
+
+    pub fn with_cancellation(
+        mut self,
+        cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
+    ) -> Self {
+        self.cancellation = cancellation;
+        self
+    }
+
+    pub fn cancellation(&self) -> Option<Arc<dyn WorkerRequestCancellation>> {
+        self.cancellation.clone()
+    }
+}
+
+impl fmt::Debug for WorkerRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("WorkerRequest")
+            .field("protocol_version", &self.protocol_version)
+            .field("id", &self.id)
+            .field("trace_id", &self.trace_id)
+            .field("method", &self.method)
+            .field("params", &self.params)
+            .field("has_cancellation", &self.cancellation.is_some())
+            .finish()
+    }
+}
+
+impl PartialEq for WorkerRequest {
+    fn eq(&self, other: &Self) -> bool {
+        self.protocol_version == other.protocol_version
+            && self.id == other.id
+            && self.trace_id == other.trace_id
+            && self.method == other.method
+            && self.params == other.params
     }
 }
 

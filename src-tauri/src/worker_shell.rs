@@ -1,12 +1,15 @@
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource,
+    WorkerRequestCancellation,
 };
 use serde::{Deserialize, Serialize};
 use std::{
+    fmt,
     io::Read,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::{Child, Command, Stdio},
+    sync::Arc,
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
@@ -44,10 +47,14 @@ impl WorkerShellRpc {
                 stderr: reason.clone(),
                 exit_code: 1,
                 timed_out: false,
+                cancelled: false,
                 blocked: true,
                 truncated: false,
                 content: reason,
             });
+        }
+        if is_cancelled(&params.cancellation) {
+            return Ok(cancelled_shell_result(String::new(), String::new()));
         }
 
         let mut command = shell_command(&params.command);
@@ -59,6 +66,11 @@ impl WorkerShellRpc {
         {
             use std::os::windows::process::CommandExt;
             command.creation_flags(0x08000000);
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
         }
 
         let mut child = command.spawn().map_err(|error| {
@@ -72,6 +84,7 @@ impl WorkerShellRpc {
         let started = Instant::now();
         let timeout_duration = Duration::from_secs(timeout);
         let mut timed_out = false;
+        let mut cancelled = false;
         loop {
             if let Some(_status) = child.try_wait().map_err(|error| {
                 shell_error(
@@ -81,9 +94,24 @@ impl WorkerShellRpc {
             })? {
                 break;
             }
+            if is_cancelled(&params.cancellation) {
+                cancelled = true;
+                terminate_child_process(&mut child).map_err(|error| {
+                    shell_error(
+                        "failed to terminate shell process tree",
+                        serde_json::json!({ "error": error.to_string() }),
+                    )
+                })?;
+                break;
+            }
             if started.elapsed() >= timeout_duration {
                 timed_out = true;
-                let _ = child.kill();
+                terminate_child_process(&mut child).map_err(|error| {
+                    shell_error(
+                        "failed to terminate shell process tree",
+                        serde_json::json!({ "error": error.to_string() }),
+                    )
+                })?;
                 break;
             }
             std::thread::sleep(Duration::from_millis(20));
@@ -97,12 +125,12 @@ impl WorkerShellRpc {
         })?;
         let stdout = join_pipe_reader(stdout_reader);
         let stderr = join_pipe_reader(stderr_reader);
-        let exit_code = if timed_out {
+        let exit_code = if timed_out || cancelled {
             -1
         } else {
             status.code().unwrap_or(-1)
         };
-        let mut content = format_shell_content(&stdout, &stderr, exit_code, timed_out);
+        let mut content = format_shell_content(&stdout, &stderr, exit_code, timed_out, cancelled);
         let truncated = content.chars().count() > MAX_OUTPUT_CHARS;
         if truncated {
             content = truncate_head_tail(&content, MAX_OUTPUT_CHARS);
@@ -112,6 +140,7 @@ impl WorkerShellRpc {
             stderr,
             exit_code,
             timed_out,
+            cancelled,
             blocked: false,
             truncated,
             content,
@@ -197,7 +226,35 @@ fn join_pipe_reader(reader: Option<JoinHandle<String>>) -> String {
         .unwrap_or_default()
 }
 
-#[derive(Clone, Debug, Deserialize)]
+fn terminate_child_process(child: &mut Child) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        let process_group = child.id() as libc::pid_t;
+        // SAFETY: the process group is created from the child PID before exec.
+        if unsafe { libc::kill(-process_group, libc::SIGKILL) } == -1 {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        let mut taskkill = Command::new("taskkill");
+        taskkill
+            .args(["/PID", &child.id().to_string(), "/T", "/F"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .creation_flags(0x08000000);
+        let _ = taskkill.status();
+        let _ = child.kill();
+    }
+    #[cfg(not(any(unix, target_os = "windows")))]
+    {
+        child.kill()?;
+    }
+    Ok(())
+}
+
+#[derive(Clone, Deserialize)]
 pub struct ShellExecuteParams {
     pub command: String,
     #[serde(default)]
@@ -206,6 +263,21 @@ pub struct ShellExecuteParams {
     pub timeout: Option<u64>,
     #[serde(default)]
     pub restrict_to_workspace: Option<bool>,
+    #[serde(skip)]
+    pub cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
+}
+
+impl fmt::Debug for ShellExecuteParams {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ShellExecuteParams")
+            .field("command", &self.command)
+            .field("working_dir", &self.working_dir)
+            .field("timeout", &self.timeout)
+            .field("restrict_to_workspace", &self.restrict_to_workspace)
+            .field("has_cancellation", &self.cancellation.is_some())
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -214,6 +286,7 @@ pub struct ShellExecuteResult {
     pub stderr: String,
     pub exit_code: i32,
     pub timed_out: bool,
+    pub cancelled: bool,
     pub blocked: bool,
     pub truncated: bool,
     pub content: String,
@@ -306,7 +379,35 @@ fn contains_absolute_path_outside_workspace(
     })
 }
 
-fn format_shell_content(stdout: &str, stderr: &str, exit_code: i32, timed_out: bool) -> String {
+fn is_cancelled(cancellation: &Option<Arc<dyn WorkerRequestCancellation>>) -> bool {
+    cancellation
+        .as_ref()
+        .is_some_and(|cancellation| cancellation.is_cancelled())
+}
+
+fn cancelled_shell_result(stdout: String, stderr: String) -> ShellExecuteResult {
+    ShellExecuteResult {
+        stdout,
+        stderr,
+        exit_code: -1,
+        timed_out: false,
+        cancelled: true,
+        blocked: false,
+        truncated: false,
+        content: "Error: Command aborted by user\n\nExit code: -1".to_string(),
+    }
+}
+
+fn format_shell_content(
+    stdout: &str,
+    stderr: &str,
+    exit_code: i32,
+    timed_out: bool,
+    cancelled: bool,
+) -> String {
+    if cancelled {
+        return "Error: Command aborted by user\n\nExit code: -1".to_string();
+    }
     if timed_out {
         return "Error: Command timed out\n\nExit code: -1".to_string();
     }
@@ -358,6 +459,12 @@ fn shell_error(message: impl Into<String>, details: serde_json::Value) -> Worker
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::worker_protocol::WorkerRequestCancellation;
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+    use std::time::Duration;
 
     #[test]
     fn execute_drains_large_output_while_command_is_running() {
@@ -373,13 +480,110 @@ mod tests {
                 working_dir: Some(".".to_string()),
                 timeout: Some(15),
                 restrict_to_workspace: Some(true),
+                cancellation: None,
             })
             .expect("large output command should complete");
 
         assert!(!result.timed_out);
+        assert!(!result.cancelled);
         assert_eq!(result.exit_code, 0);
         assert!(result.stdout.len() >= 200_000);
         assert!(result.truncated);
+    }
+
+    #[test]
+    fn execute_kills_running_command_when_cancelled() {
+        let fixture = ShellFixture::new();
+        let started_marker = fixture.root.join("started.txt");
+        let cancellation = Arc::new(TestCancellation::default());
+        let rpc = WorkerShellRpc::new(
+            fixture.root.clone(),
+            CapabilityPolicy::new([WorkerCapability::ShellExecute]),
+        );
+        let execute_cancellation = cancellation.clone();
+        let command = blocking_command_with_marker();
+
+        let started = std::time::Instant::now();
+        let handle = std::thread::spawn(move || {
+            rpc.execute(ShellExecuteParams {
+                command,
+                working_dir: Some(".".to_string()),
+                timeout: Some(30),
+                restrict_to_workspace: Some(true),
+                cancellation: Some(execute_cancellation),
+            })
+        });
+
+        while !started_marker.exists() {
+            assert!(
+                started.elapsed() < Duration::from_secs(5),
+                "blocking shell command should create the started marker"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        cancellation.cancel();
+
+        let result = handle
+            .join()
+            .expect("shell execute thread should not panic")
+            .expect("cancelled shell execute should return a structured result");
+        assert!(result.cancelled);
+        assert!(!result.timed_out);
+        assert_eq!(result.exit_code, -1);
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "cancelled shell execute should return promptly"
+        );
+        assert!(result.content.contains("aborted by user"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn execute_kills_shell_process_group_when_cancelled() {
+        let fixture = ShellFixture::new();
+        let started_marker = fixture.root.join("started.txt");
+        let survived_marker = fixture.root.join("child-survived.txt");
+        let cancellation = Arc::new(TestCancellation::default());
+        let rpc = WorkerShellRpc::new(
+            fixture.root.clone(),
+            CapabilityPolicy::new([WorkerCapability::ShellExecute]),
+        );
+        let execute_cancellation = cancellation.clone();
+
+        let started = std::time::Instant::now();
+        let handle = std::thread::spawn(move || {
+            rpc.execute(ShellExecuteParams {
+                command: child_process_command_with_marker(),
+                working_dir: Some(".".to_string()),
+                timeout: Some(30),
+                restrict_to_workspace: Some(true),
+                cancellation: Some(execute_cancellation),
+            })
+        });
+
+        while !started_marker.exists() {
+            assert!(
+                started.elapsed() < Duration::from_secs(5),
+                "shell command should create the started marker"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        cancellation.cancel();
+
+        let result = handle
+            .join()
+            .expect("shell execute thread should not panic")
+            .expect("cancelled shell execute should return a structured result");
+        assert!(result.cancelled);
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "cancelled shell process group should return promptly"
+        );
+        std::thread::sleep(Duration::from_millis(1200));
+        assert!(
+            !survived_marker.exists(),
+            "a cancelled shell child process must not continue after its parent exits"
+        );
     }
 
     #[cfg(target_os = "windows")]
@@ -390,6 +594,39 @@ mod tests {
     #[cfg(not(target_os = "windows"))]
     fn large_output_command() -> String {
         "yes x | head -c 200000".to_string()
+    }
+
+    #[cfg(target_os = "windows")]
+    fn blocking_command_with_marker() -> String {
+        "echo started > started.txt & for /L %i in (0,0,1) do @rem".to_string()
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn blocking_command_with_marker() -> String {
+        "printf started > started.txt; while true; do :; done".to_string()
+    }
+
+    #[cfg(unix)]
+    fn child_process_command_with_marker() -> String {
+        "printf started > started.txt; (sleep 1; printf survived > child-survived.txt) & wait"
+            .to_string()
+    }
+
+    #[derive(Default, Debug)]
+    struct TestCancellation {
+        cancelled: AtomicBool,
+    }
+
+    impl TestCancellation {
+        fn cancel(&self) {
+            self.cancelled.store(true, Ordering::SeqCst);
+        }
+    }
+
+    impl WorkerRequestCancellation for TestCancellation {
+        fn is_cancelled(&self) -> bool {
+            self.cancelled.load(Ordering::SeqCst)
+        }
     }
 
     struct ShellFixture {

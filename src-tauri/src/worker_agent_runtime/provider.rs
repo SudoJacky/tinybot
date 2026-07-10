@@ -2,6 +2,7 @@ use super::{
     context_window_messages, string_field, NativeAgentProvider, NativeAgentProviderResponse,
     NativeAgentProviderStreamEvent, NativeAgentRunContext, NativeAgentToolCall,
 };
+use crate::worker_tool_registry::{ToolExposure, ToolRegistryEntry};
 use serde_json::Value;
 
 pub(super) struct RustNativeAgentProvider;
@@ -82,7 +83,65 @@ pub(super) fn agent_chat_completion_request(
     {
         request["max_completion_tokens"] = max_tokens;
     }
+    let tools = chat_completion_tool_specs(context);
+    if !tools.is_empty() {
+        request["tools"] = Value::Array(tools);
+        request["tool_choice"] = Value::String("auto".to_string());
+        if should_enable_parallel_tool_calls(context) {
+            request["parallel_tool_calls"] = Value::Bool(true);
+        }
+    }
     Ok(request)
+}
+
+fn chat_completion_tool_specs(context: &NativeAgentRunContext) -> Vec<Value> {
+    context
+        .tool_registry_entries
+        .iter()
+        .filter(|entry| entry.available && entry.exposure == ToolExposure::Model)
+        .map(registry_entry_to_chat_tool)
+        .collect()
+}
+
+fn should_enable_parallel_tool_calls(context: &NativeAgentRunContext) -> bool {
+    explicit_parallel_tool_calls_enabled(context)
+        && context.tool_registry_entries.iter().any(|entry| {
+            entry.available
+                && entry.exposure == ToolExposure::Model
+                && entry.supports_parallel_tool_calls
+        })
+}
+
+fn explicit_parallel_tool_calls_enabled(context: &NativeAgentRunContext) -> bool {
+    bool_config_field(&context.spec)
+        .or_else(|| bool_config_field(&context.metadata))
+        .or_else(|| {
+            context
+                .config_snapshot
+                .get("agents")
+                .and_then(|agents| agents.get("defaults"))
+                .and_then(bool_config_field)
+        })
+        .or_else(|| bool_config_field(&context.config_snapshot))
+        .unwrap_or(false)
+}
+
+fn bool_config_field(value: &Value) -> Option<bool> {
+    value
+        .get("parallelToolCalls")
+        .or_else(|| value.get("parallel_tool_calls"))
+        .and_then(Value::as_bool)
+}
+
+fn registry_entry_to_chat_tool(entry: &ToolRegistryEntry) -> Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": entry.method,
+            "description": entry.description,
+            "parameters": entry.input_schema.clone(),
+        },
+    })
 }
 
 pub(super) fn agent_provider_config(context: &NativeAgentRunContext) -> Value {
