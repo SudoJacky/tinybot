@@ -67,6 +67,11 @@ impl WorkerShellRpc {
             use std::os::windows::process::CommandExt;
             command.creation_flags(0x08000000);
         }
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
 
         let mut child = command.spawn().map_err(|error| {
             shell_error(
@@ -91,12 +96,22 @@ impl WorkerShellRpc {
             }
             if is_cancelled(&params.cancellation) {
                 cancelled = true;
-                terminate_child_process(&mut child);
+                terminate_child_process(&mut child).map_err(|error| {
+                    shell_error(
+                        "failed to terminate shell process tree",
+                        serde_json::json!({ "error": error.to_string() }),
+                    )
+                })?;
                 break;
             }
             if started.elapsed() >= timeout_duration {
                 timed_out = true;
-                terminate_child_process(&mut child);
+                terminate_child_process(&mut child).map_err(|error| {
+                    shell_error(
+                        "failed to terminate shell process tree",
+                        serde_json::json!({ "error": error.to_string() }),
+                    )
+                })?;
                 break;
             }
             std::thread::sleep(Duration::from_millis(20));
@@ -211,7 +226,15 @@ fn join_pipe_reader(reader: Option<JoinHandle<String>>) -> String {
         .unwrap_or_default()
 }
 
-fn terminate_child_process(child: &mut Child) {
+fn terminate_child_process(child: &mut Child) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        let process_group = child.id() as libc::pid_t;
+        // SAFETY: the process group is created from the child PID before exec.
+        if unsafe { libc::kill(-process_group, libc::SIGKILL) } == -1 {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -222,8 +245,13 @@ fn terminate_child_process(child: &mut Child) {
             .stderr(Stdio::null())
             .creation_flags(0x08000000);
         let _ = taskkill.status();
+        let _ = child.kill();
     }
-    let _ = child.kill();
+    #[cfg(not(any(unix, target_os = "windows")))]
+    {
+        child.kill()?;
+    }
+    Ok(())
 }
 
 #[derive(Clone, Deserialize)]
@@ -509,6 +537,55 @@ mod tests {
         assert!(result.content.contains("aborted by user"));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn execute_kills_shell_process_group_when_cancelled() {
+        let fixture = ShellFixture::new();
+        let started_marker = fixture.root.join("started.txt");
+        let survived_marker = fixture.root.join("child-survived.txt");
+        let cancellation = Arc::new(TestCancellation::default());
+        let rpc = WorkerShellRpc::new(
+            fixture.root.clone(),
+            CapabilityPolicy::new([WorkerCapability::ShellExecute]),
+        );
+        let execute_cancellation = cancellation.clone();
+
+        let started = std::time::Instant::now();
+        let handle = std::thread::spawn(move || {
+            rpc.execute(ShellExecuteParams {
+                command: child_process_command_with_marker(),
+                working_dir: Some(".".to_string()),
+                timeout: Some(30),
+                restrict_to_workspace: Some(true),
+                cancellation: Some(execute_cancellation),
+            })
+        });
+
+        while !started_marker.exists() {
+            assert!(
+                started.elapsed() < Duration::from_secs(5),
+                "shell command should create the started marker"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        cancellation.cancel();
+
+        let result = handle
+            .join()
+            .expect("shell execute thread should not panic")
+            .expect("cancelled shell execute should return a structured result");
+        assert!(result.cancelled);
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "cancelled shell process group should return promptly"
+        );
+        std::thread::sleep(Duration::from_millis(1200));
+        assert!(
+            !survived_marker.exists(),
+            "a cancelled shell child process must not continue after its parent exits"
+        );
+    }
+
     #[cfg(target_os = "windows")]
     fn large_output_command() -> String {
         "for /L %i in (1,1,40000) do @echo xxxxx".to_string()
@@ -527,6 +604,12 @@ mod tests {
     #[cfg(not(target_os = "windows"))]
     fn blocking_command_with_marker() -> String {
         "printf started > started.txt; while true; do :; done".to_string()
+    }
+
+    #[cfg(unix)]
+    fn child_process_command_with_marker() -> String {
+        "printf started > started.txt; (sleep 1; printf survived > child-survived.txt) & wait"
+            .to_string()
     }
 
     #[derive(Default, Debug)]

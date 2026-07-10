@@ -42,6 +42,10 @@ enum ToolDispatchOutcome {
         tool_call: NativeAgentToolCall,
         terminal: bool,
     },
+    Skipped {
+        tool_call: NativeAgentToolCall,
+        terminal_outcome: ToolBatchTerminalOutcome,
+    },
 }
 
 struct SequencedToolDispatchOutcome {
@@ -409,6 +413,17 @@ fn execute_locked_tool_batch(
                                 },
                             );
                         }
+                        if let Some(terminal_outcome) = terminal.outcome() {
+                            return send_tool_dispatch_finished(
+                                sender,
+                                finish_sequence,
+                                index,
+                                ToolDispatchOutcome::Skipped {
+                                    tool_call,
+                                    terminal_outcome,
+                                },
+                            );
+                        }
                         let _ = sender.send(ToolDispatchEvent::Running {
                             tool_call: tool_call.clone(),
                             parallel_mode,
@@ -445,6 +460,17 @@ fn execute_locked_tool_batch(
                                 ToolDispatchOutcome::Cancelled {
                                     tool_call,
                                     terminal: terminal.try_claim_cancelled(),
+                                },
+                            );
+                        }
+                        if let Some(terminal_outcome) = terminal.outcome() {
+                            return send_tool_dispatch_finished(
+                                sender,
+                                finish_sequence,
+                                index,
+                                ToolDispatchOutcome::Skipped {
+                                    tool_call,
+                                    terminal_outcome,
                                 },
                             );
                         }
@@ -661,6 +687,18 @@ fn execute_locked_tool_batch(
                     "terminal_outcome_already_claimed",
                     None,
                 ),
+                ToolDispatchOutcome::Skipped {
+                    tool_call,
+                    terminal_outcome: skipped_terminal_outcome,
+                } => emit_late_terminal_debug(
+                    context,
+                    state,
+                    iteration,
+                    tool_call,
+                    *skipped_terminal_outcome,
+                    "dispatch_skipped_after_terminal",
+                    None,
+                ),
                 _ => {}
             }
         }
@@ -755,7 +793,8 @@ fn tool_dispatch_outcome_tool_call_id(outcome: &ToolDispatchOutcome) -> Option<&
     match outcome {
         ToolDispatchOutcome::Success(success) => Some(&success.tool_call.id),
         ToolDispatchOutcome::Failure { tool_call, .. }
-        | ToolDispatchOutcome::Cancelled { tool_call, .. } => Some(&tool_call.id),
+        | ToolDispatchOutcome::Cancelled { tool_call, .. }
+        | ToolDispatchOutcome::Skipped { tool_call, .. } => Some(&tool_call.id),
     }
 }
 

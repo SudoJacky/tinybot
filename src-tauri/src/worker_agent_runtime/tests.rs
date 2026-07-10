@@ -1987,6 +1987,96 @@ fn cancellation_before_queued_write_lock_dispatch_skips_waiting_tool() {
 }
 
 #[test]
+fn terminal_failure_before_queued_write_dispatch_skips_waiting_tool() {
+    struct FailingWriteThenWriteProvider;
+
+    impl NativeAgentProvider for FailingWriteThenWriteProvider {
+        fn complete(
+            &self,
+            _context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            Ok(NativeAgentProviderResponse {
+                final_content: String::new(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: vec![
+                    NativeAgentToolCall {
+                        id: "call-first-write-fails".to_string(),
+                        name: "shell.execute".to_string(),
+                        arguments_json: "{\"command\":\"false\"}".to_string(),
+                        result: json!({ "content": "unused first" }),
+                    },
+                    NativeAgentToolCall {
+                        id: "call-second-write-waits".to_string(),
+                        name: "shell.execute".to_string(),
+                        arguments_json: "{\"command\":\"touch should-not-run\"}".to_string(),
+                        result: json!({ "content": "unused second" }),
+                    },
+                ],
+            })
+        }
+    }
+
+    struct FailingWriteDispatcher {
+        second_write_dispatches: AtomicUsize,
+    }
+
+    impl NativeAgentToolDispatcher for FailingWriteDispatcher {
+        fn dispatch(
+            &self,
+            _context: &NativeAgentRunContext,
+            tool_call: &NativeAgentToolCall,
+        ) -> Result<NativeAgentToolResult, String> {
+            if tool_call.id == "call-first-write-fails" {
+                return Err("first write failed".to_string());
+            }
+            self.second_write_dispatches.fetch_add(1, Ordering::SeqCst);
+            Ok(NativeAgentToolResult::generic_success(
+                tool_call,
+                tool_call.result.clone(),
+            ))
+        }
+    }
+
+    let dispatcher = Arc::new(FailingWriteDispatcher {
+        second_write_dispatches: AtomicUsize::new(0),
+    });
+    let result = run_native_agent_turn_with_services(
+        &NativeAgentRuntimeServices::new(
+            Arc::new(FailingWriteThenWriteProvider),
+            dispatcher.clone(),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        ),
+        json!({
+            "runtime": "rust",
+            "runId": "run-failed-queued-write",
+            "sessionId": "websocket:chat-failed-queued-write",
+            "maxIterations": 2,
+            "messages": [{ "role": "user", "content": "fail then skip write" }]
+        }),
+    )
+    .expect("queued write failure should return a structured result");
+
+    let events = result["events"]
+        .as_array()
+        .expect("events should be returned");
+    assert_eq!(result["stopReason"], "tool_error");
+    assert_eq!(dispatcher.second_write_dispatches.load(Ordering::SeqCst), 0);
+    assert!(!events.iter().any(|event| {
+        event["eventName"] == "agent.tool.start"
+            && event["payload"]["toolCallId"] == "call-second-write-waits"
+            && event["payload"]["status"] == "running"
+    }));
+    assert!(events.iter().any(|event| {
+        event["eventName"] == "agent.tool.debug"
+            && event["payload"]["toolCallId"] == "call-second-write-waits"
+            && event["payload"]["ignoredReason"] == "dispatch_skipped_after_terminal"
+            && event["payload"]["terminalOutcome"] == "failed"
+    }));
+}
+
+#[test]
 fn cancellation_during_non_cleanup_parallel_tool_returns_without_waiting_for_late_result() {
     struct SlowReadProvider;
 

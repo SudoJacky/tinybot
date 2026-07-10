@@ -28,3 +28,6 @@ serde_json = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 tauri-plugin-notification = "2"
 tokio = { version = "1", features = ["time"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

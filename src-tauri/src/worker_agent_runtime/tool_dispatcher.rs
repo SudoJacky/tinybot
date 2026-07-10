@@ -454,12 +454,25 @@ fn shell_command_is_read_only_allowlisted(command: &str) -> bool {
 fn shell_command_contains_unsafe_syntax(command: &str) -> bool {
     command.contains('|')
         || command.contains(';')
+        || command.contains('&')
         || command.contains('>')
         || command.contains('<')
         || command.contains('`')
         || command.contains("&&")
         || command.contains("||")
         || command.contains("$(")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shell_read_only_allowlist_rejects_chained_commands() {
+        assert!(!shell_command_is_read_only_allowlisted(
+            "git status & touch workspace-marker"
+        ));
+    }
 }
 
 pub(super) fn is_subagent_tool(name: &str) -> bool {
