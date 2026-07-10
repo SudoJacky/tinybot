@@ -30,13 +30,13 @@ serde_json = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 tauri-plugin-notification = "2"
 tokio = { version = "1", features = ["io-util", "process", "rt-multi-thread", "sync", "time"] }
+tokio-util = "0.7"
 url = "2"
 
 [dev-dependencies]
 axum = "0.8"
 rmcp = { version = "1.8.0", default-features = false, features = ["client", "macros", "reqwest-native-tls", "server", "transport-child-process", "transport-streamable-http-client-reqwest", "transport-streamable-http-server", "which-command"] }
 tokio = { version = "1", features = ["net"] }
-tokio-util = "0.7"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

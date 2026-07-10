@@ -15,10 +15,11 @@ use super::{
     bool_field, NativeAgentProviderStreamEvent, NativeAgentRunContext, NativeAgentRuntimeServices,
 };
 use crate::agent_loop_runtime_protocol::AgentRuntimePhase;
+use crate::runtime::agent_task::StartAgentRun;
 use crate::worker_capability::default_desktop_capability_policy;
 use crate::worker_tool_registry::{mcp_tool_registry_entries, WorkerToolRegistryRpc};
 use serde_json::Value;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub fn run_native_agent_turn_with_config(
@@ -26,7 +27,7 @@ pub fn run_native_agent_turn_with_config(
     spec: Value,
     config_snapshot: Value,
 ) -> Result<Value, String> {
-    run_native_agent_turn_with_system_prompt(services, spec, config_snapshot, None, None)
+    run_owned_native_agent_turn(services, spec, config_snapshot, None)
 }
 
 pub fn run_native_agent_turn_with_workspace(
@@ -35,14 +36,63 @@ pub fn run_native_agent_turn_with_workspace(
     config_snapshot: Value,
     workspace_root: &Path,
 ) -> Result<Value, String> {
-    let system_prompt = crate::system_prompt::load_or_create_system_prompt(workspace_root)?;
-    run_native_agent_turn_with_system_prompt(
+    run_owned_native_agent_turn(
         services,
         spec,
         config_snapshot,
-        Some(system_prompt),
-        Some(workspace_root),
+        Some(workspace_root.to_path_buf()),
     )
+}
+
+fn run_owned_native_agent_turn(
+    services: &NativeAgentRuntimeServices,
+    spec: Value,
+    config_snapshot: Value,
+    workspace_root: Option<PathBuf>,
+) -> Result<Value, String> {
+    let identity = NativeAgentRunContext::from_spec(spec.clone(), config_snapshot.clone());
+    if services
+        .task_runtime
+        .status(&identity.run_id)
+        .and_then(|status| status.terminal_outcome)
+        .as_deref()
+        == Some("cancelled")
+    {
+        return services
+            .task_runtime
+            .terminal_result(&identity.run_id)
+            .ok_or_else(|| {
+                format!(
+                    "cancelled agent run `{}` is missing its owned terminal result",
+                    identity.run_id
+                )
+            })?;
+    }
+    let request = StartAgentRun::new(identity.run_id.clone(), identity.session_id.clone());
+    let owned_services = services.clone();
+    let handle = services
+        .task_runtime
+        .start_blocking(request, move || {
+            let system_prompt = workspace_root
+                .as_deref()
+                .map(crate::system_prompt::load_or_create_system_prompt)
+                .transpose()?;
+            run_native_agent_turn_with_system_prompt(
+                &owned_services,
+                spec,
+                config_snapshot,
+                system_prompt,
+                workspace_root.as_deref(),
+            )
+        })
+        .map_err(|error| format!("failed to start owned agent task: {error}"))?;
+    if handle.run_id() != identity.run_id || handle.session_id() != identity.session_id {
+        return Err("owned agent task identity does not match the normalized run".to_string());
+    }
+    if handle.status().is_none() {
+        return Err("owned agent task did not publish a runtime status".to_string());
+    }
+    handle.wait()
 }
 
 fn run_native_agent_turn_with_system_prompt(
@@ -54,7 +104,10 @@ fn run_native_agent_turn_with_system_prompt(
 ) -> Result<Value, String> {
     let mut context = NativeAgentRunContext::from_spec(spec, config_snapshot.clone());
     context.system_prompt = system_prompt;
-    context.attach_cancellation(services.cancellations.clone());
+    context.attach_cancellation(
+        services.cancellations.clone(),
+        services.task_runtime.clone(),
+    );
     if context.max_iterations <= 0 {
         return Ok(error_result(
             &context.run_id,
@@ -63,9 +116,7 @@ fn run_native_agent_turn_with_system_prompt(
             "Rust agent runtime reached max iterations before provider call.",
         ));
     }
-    if services.cancellations.is_cancelled(&context.run_id)
-        || bool_field(&context.metadata, "fakeCancel")
-    {
+    if run_context_is_cancelled(&context) || bool_field(&context.metadata, "fakeCancel") {
         let checkpoint = save_phase_checkpoint(
             services,
             &context,
@@ -181,7 +232,7 @@ fn run_native_agent_turn_with_system_prompt(
     };
     for iteration in start_iteration..context.max_iterations {
         state.transition_phase(AgentRuntimePhase::CallingModel, iteration, "provider_call");
-        if services.cancellations.is_cancelled(&context.run_id) {
+        if run_context_is_cancelled(&context) {
             state.transition_phase(AgentRuntimePhase::Cancelled, iteration, "agent.cancelled");
             return Ok(cancelled_run_result(
                 services,
@@ -452,4 +503,11 @@ fn run_native_agent_turn_with_system_prompt(
         "events": events,
         "runtimeEvents": runtime_events,
     }))
+}
+
+fn run_context_is_cancelled(context: &NativeAgentRunContext) -> bool {
+    context
+        .cancellation
+        .as_ref()
+        .is_some_and(|cancellation| cancellation.is_cancelled())
 }

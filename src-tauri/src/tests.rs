@@ -43,6 +43,86 @@ fn close_shutdown_stops_background_worker_child() {
 }
 
 #[test]
+fn close_shutdown_cancels_and_drains_owned_agent_task() {
+    struct ShutdownAwareProvider {
+        started: std::sync::mpsc::Sender<()>,
+    }
+
+    impl crate::worker_agent_runtime::NativeAgentProvider for ShutdownAwareProvider {
+        fn complete(
+            &self,
+            context: &crate::worker_agent_runtime::NativeAgentRunContext,
+        ) -> Result<crate::worker_agent_runtime::NativeAgentProviderResponse, String> {
+            self.started.send(()).expect("provider start should send");
+            while !context
+                .cancellation
+                .as_ref()
+                .is_some_and(|cancellation| cancellation.is_cancelled())
+            {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Ok(crate::worker_agent_runtime::NativeAgentProviderResponse {
+                final_content: "late shutdown response".to_string(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: Vec::new(),
+            })
+        }
+    }
+
+    let fixture = WorkspaceFixture::new();
+    let (started_sender, started_receiver) = std::sync::mpsc::channel();
+    let services = NativeAgentRuntimeServices::new(
+        Arc::new(ShutdownAwareProvider {
+            started: started_sender,
+        }),
+        Arc::new(crate::worker_agent_runtime::FakeNativeAgentToolDispatcher),
+        Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCancellation::default()),
+    );
+    let task_runtime = services.task_runtime();
+    let shared = Arc::new(Mutex::new(GatewayRuntime {
+        native_agent_runtime: services,
+        ..GatewayRuntime::default()
+    }));
+    let runner_shared = shared.clone();
+    let runner_root = fixture.root.clone();
+    let runner = std::thread::spawn(move || {
+        worker_run_agent_with_options(
+            &runner_shared,
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-shutdown-owned",
+                "sessionId": "session-shutdown-owned",
+                "messages": [{ "role": "user", "content": "wait for shutdown" }]
+            }),
+            runner_root,
+            serde_json::json!({}),
+            Duration::from_secs(10),
+        )
+    });
+    started_receiver
+        .recv_timeout(Duration::from_secs(1))
+        .expect("owned provider should start");
+
+    stop_owned_gateway(&shared, true).expect("owned agent task should drain during shutdown");
+    let result = runner
+        .join()
+        .expect("owned agent runner should not panic")
+        .expect("owned agent runner should return cancellation");
+
+    assert_eq!(result["stopReason"], "cancelled");
+    assert_eq!(task_runtime.active_count(), 0);
+    assert_eq!(task_runtime.draining_count(), 0);
+    assert_eq!(
+        task_runtime
+            .status("run-shutdown-owned")
+            .and_then(|status| status.terminal_outcome),
+        Some("cancelled".to_string())
+    );
+}
+
+#[test]
 fn close_shutdown_stops_mcp_stdio_child() {
     let fixture = WorkspaceFixture::new();
     let script = fixture.root.join("mcp-shutdown-server.js");
@@ -2003,6 +2083,31 @@ fn worker_thread_commands_expose_thread_service_surface() {
         .iter()
         .any(|item| item["kind"]["type"] == "tool_call_started"));
 
+    let task_runtime = {
+        let runtime = lock_runtime(&shared);
+        runtime.native_agent_runtime.task_runtime()
+    };
+    let (release_sender, release_receiver) = std::sync::mpsc::channel();
+    let owned_handle = task_runtime
+        .start_blocking(
+            crate::runtime::agent_task::StartAgentRun::new(
+                "run-command-surface",
+                "session-command-surface",
+            ),
+            move || {
+                release_receiver
+                    .recv()
+                    .expect("owned thread command task release should arrive");
+                Ok(serde_json::json!({
+                    "runtime": "rust",
+                    "runId": "run-command-surface",
+                    "sessionId": "session-command-surface",
+                    "stopReason": "final_response"
+                }))
+            },
+        )
+        .expect("thread command run should have an active owner");
+
     let interrupted = worker_thread_request_with_options(
         &shared,
         "test-thread-command-interrupt",
@@ -2022,6 +2127,26 @@ fn worker_thread_commands_expose_thread_service_surface() {
         .expect("interrupt appended items should be an array")
         .iter()
         .any(|item| item["kind"]["type"] == "cancelled"));
+    assert_eq!(
+        interrupted["taskCancellation"]["task"]["state"],
+        "cancel_requested"
+    );
+    assert_eq!(
+        owned_handle
+            .wait()
+            .expect("thread interrupt should complete the owned handle")["stopReason"],
+        "cancelled"
+    );
+    release_sender
+        .send(())
+        .expect("owned thread command task should release");
+    for _ in 0..100 {
+        if task_runtime.draining_count() == 0 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(task_runtime.draining_count(), 0);
 }
 
 #[test]
@@ -5412,6 +5537,11 @@ fn gateway_runtime_status_serializes_worker_runtime_status() {
         response_class: Some("tinybot-bootstrap".to_string()),
         recovery_hint: None,
         worker_runtime: crate::worker_runtime::WorkerRuntimeStatus::stopped(),
+        agent_tasks: crate::desktop_commands::gateway::AgentTaskRuntimeStatus {
+            accepting: true,
+            active_runs: 0,
+            draining_runs: 0,
+        },
         route_owner_summary: crate::native_backend_contract::native_route_owner_summary(),
         webui_route_inventory: crate::native_backend_contract::native_webui_route_inventory(),
         compatibility_fallback_diagnostics: vec![],
@@ -5420,6 +5550,8 @@ fn gateway_runtime_status_serializes_worker_runtime_status() {
     let value = serde_json::to_value(status).expect("status should serialize");
 
     assert_eq!(value["worker_runtime"]["state"], "stopped");
+    assert_eq!(value["agent_tasks"]["accepting"], true);
+    assert_eq!(value["agent_tasks"]["activeRuns"], 0);
     assert!(value["worker_runtime"]["transport_mode"].is_null());
     assert!(value["route_owner_summary"]["rustOwned"]
         .as_u64()

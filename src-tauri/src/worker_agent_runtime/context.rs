@@ -76,10 +76,15 @@ impl NativeAgentRunContext {
         }
     }
 
-    pub(super) fn attach_cancellation(&mut self, cancellations: Arc<dyn NativeAgentCancellation>) {
+    pub(super) fn attach_cancellation(
+        &mut self,
+        cancellations: Arc<dyn NativeAgentCancellation>,
+        task_runtime: crate::runtime::agent_task::AgentTaskRuntime,
+    ) {
         self.cancellation = Some(NativeAgentCancellationContext::new(
             self.run_id.clone(),
             cancellations,
+            task_runtime,
         ));
     }
 

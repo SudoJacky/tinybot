@@ -7,7 +7,7 @@ use crate::worker_tool_registry::{
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -1486,15 +1486,41 @@ fn activated_mutating_tool_stops_at_approval_checkpoint_before_dispatch() {
         .expect("dispatched calls lock should not be poisoned")
         .is_empty());
 
-    let denied = run_native_agent_turn_with_config(
-        &services,
+    let denied_dispatched = Arc::new(Mutex::new(Vec::new()));
+    let denied_services = NativeAgentRuntimeServices::new(
+        Arc::new(SearchThenWriteProvider {
+            calls: AtomicUsize::new(0),
+        }),
+        Arc::new(RecordingMutatingDispatcher {
+            dispatched: denied_dispatched.clone(),
+        }),
+        Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(InMemoryNativeAgentCancellation::default()),
+    );
+    let denied_waiting = run_native_agent_turn_with_config(
+        &denied_services,
         json!({
-            "runId": "run-deferred-write-approval",
+            "runId": "run-deferred-write-approval-denied",
+            "sessionId": "session-deferred-write-approval",
+            "maxIterations": 2,
+            "messages": [{ "role": "user", "content": "write a denied note" }]
+        }),
+        json!({}),
+    )
+    .expect("denial branch should reach its own approval checkpoint");
+    let denied_approval_id = denied_waiting["approval"]["approvalId"]
+        .as_str()
+        .expect("denial branch approval ID should be returned")
+        .to_string();
+    let denied = run_native_agent_turn_with_config(
+        &denied_services,
+        json!({
+            "runId": "run-deferred-write-approval-denied",
             "sessionId": "session-deferred-write-approval",
             "metadata": {
                 "agentContinuation": {
                     "kind": "approval",
-                    "approvalId": approval_id,
+                    "approvalId": denied_approval_id,
                     "decision": "denied",
                     "scope": "once"
                 }
@@ -1504,7 +1530,7 @@ fn activated_mutating_tool_stops_at_approval_checkpoint_before_dispatch() {
     )
     .expect("denied approval continuation should return a structured result");
     assert_eq!(denied["stopReason"], "approval_denied");
-    assert!(dispatched
+    assert!(denied_dispatched
         .lock()
         .expect("dispatched calls lock should not be poisoned")
         .is_empty());
@@ -4786,6 +4812,95 @@ fn cancellation_during_approval_wait_reaches_cancelled_without_resume() {
     assert_eq!(result["stopReason"], "cancelled");
     assert_eq!(result["checkpoint"]["phase"], "cancelled");
     assert_eq!(event_names(&result), vec!["agent.cancelled"]);
+}
+
+#[test]
+fn owned_task_runtime_cancels_normal_turn_and_ignores_late_provider_result() {
+    struct BlockingOwnedProvider {
+        started: mpsc::Sender<()>,
+        release: Mutex<mpsc::Receiver<()>>,
+    }
+
+    impl NativeAgentProvider for BlockingOwnedProvider {
+        fn complete(
+            &self,
+            _context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            self.started.send(()).expect("provider start should send");
+            self.release
+                .lock()
+                .expect("provider release lock should not be poisoned")
+                .recv()
+                .expect("provider release should arrive");
+            Ok(NativeAgentProviderResponse {
+                final_content: "late provider result".to_string(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: Vec::new(),
+            })
+        }
+    }
+
+    let (started_sender, started_receiver) = mpsc::channel();
+    let (release_sender, release_receiver) = mpsc::channel();
+    let services = NativeAgentRuntimeServices::new(
+        Arc::new(BlockingOwnedProvider {
+            started: started_sender,
+            release: Mutex::new(release_receiver),
+        }),
+        Arc::new(FakeNativeAgentToolDispatcher),
+        Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(InMemoryNativeAgentCancellation::default()),
+    );
+    let runner_services = services.clone();
+    let runner = thread::spawn(move || {
+        run_native_agent_turn_with_services(
+            &runner_services,
+            json!({
+                "runtime": "rust",
+                "runId": "run-owned-cancel",
+                "sessionId": "session-owned-cancel",
+                "messages": [{ "role": "user", "content": "wait" }]
+            }),
+        )
+    });
+    started_receiver
+        .recv_timeout(Duration::from_secs(1))
+        .expect("owned provider should start");
+
+    let active = services
+        .task_runtime
+        .status("run-owned-cancel")
+        .expect("owned run status should exist");
+    assert!(active.active);
+    assert_eq!(active.phase, "running");
+
+    let cancellation = services.cancel("run-owned-cancel");
+    let result = runner
+        .join()
+        .expect("owned runner should not panic")
+        .expect("owned cancellation should return a result");
+    assert_eq!(cancellation["task"]["state"], "cancel_requested");
+    assert_eq!(result["stopReason"], "cancelled");
+    assert_eq!(services.task_runtime.active_count(), 0);
+    assert_eq!(services.task_runtime.draining_count(), 1);
+
+    release_sender
+        .send(())
+        .expect("provider release should send");
+    for _ in 0..100 {
+        if services.task_runtime.draining_count() == 0 {
+            break;
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+    let cancelled = services
+        .task_runtime
+        .status("run-owned-cancel")
+        .expect("cancelled run status should remain");
+    assert_eq!(services.task_runtime.draining_count(), 0);
+    assert_eq!(cancelled.terminal_outcome.as_deref(), Some("cancelled"));
+    assert_eq!(cancelled.late_results_ignored, 1);
 }
 
 #[test]

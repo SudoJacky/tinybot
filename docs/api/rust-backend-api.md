@@ -123,6 +123,11 @@ Known worker error sources:
   "response_class": "tinybot-bootstrap",
   "recovery_hint": null,
   "worker_runtime": {},
+  "agent_tasks": {
+    "accepting": true,
+    "activeRuns": 0,
+    "drainingRuns": 0
+  },
   "route_owner_summary": { "rustOwned": 0, "unsupported": 0 },
   "webui_route_inventory": [],
   "compatibility_fallback_diagnostics": []
@@ -327,6 +332,45 @@ UI should prefer `SettingsSnapshot` once the frontend is migrated to the Rust-ow
 | `worker_restore_agent_checkpoint` | `{ input: { sessionId: string } }` | JSON result |
 | `worker_submit_agent_form` | `{ input: { sessionId, formId, values?, action? } }` | JSON result |
 | `worker_resume_agent_approval` | `{ input: { sessionId, approvalId, approved, scope?, guidance? } }` | JSON result |
+
+### Agent task ownership
+
+Every native run attempt is registered under one in-process task owner before system-prompt loading,
+provider execution, or tool dispatch. The owner tracks run/session identity, generation, current
+phase, cancellation request/reason, waiting checkpoint reference, terminal outcome, and ignored
+late-result count. A duplicate active run ID is rejected. An approval/form continuation starts a new
+generation only after the previous execution task has completed into a non-terminal waiting phase.
+
+Cancellation is idempotent and writes one owner terminal outcome. The task moves out of the active
+registry immediately and remains in a private draining registry until its underlying blocking work
+returns. A late result cannot replace the cancelled result. `worker_cancel_agent` includes the task
+transition:
+
+```json
+{
+  "runtime": "rust",
+  "runId": "run-1",
+  "cancelled": true,
+  "stopReason": "cancelled",
+  "task": {
+    "runId": "run-1",
+    "state": "cancel_requested",
+    "reason": "user_requested",
+    "activeTaskRemoved": true,
+    "cleanupPending": true
+  }
+}
+```
+
+Possible task states are `cancel_requested`, `cancelled_waiting`, `already_terminal`, and
+`not_found`. A repeated request for an already-cancelled run replays the owned cancellation result
+without starting another task.
+
+The desktop `thread.interrupt` path first persists the thread cancellation item and then cancels the
+same run owner. Its existing thread result gains `taskCancellation`, containing the same
+`worker_cancel_agent` payload. Gateway shutdown stops accepting starts, cancels active owners, waits
+up to five seconds for draining work, continues MCP/worker cleanup even if that wait fails, and
+returns an explicit combined error for remaining cleanup failures.
 
 `NativeBackendRunSpec`:
 

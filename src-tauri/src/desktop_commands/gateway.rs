@@ -40,6 +40,7 @@ pub(crate) struct GatewayRuntimeStatus {
     pub(crate) response_class: Option<String>,
     pub(crate) recovery_hint: Option<String>,
     pub(crate) worker_runtime: WorkerRuntimeStatus,
+    pub(crate) agent_tasks: AgentTaskRuntimeStatus,
     pub(crate) route_owner_summary: NativeRouteOwnerSummary,
     pub(crate) webui_route_inventory: Vec<NativeRouteInventoryEntry>,
     pub(crate) compatibility_fallback_diagnostics: Vec<NativeCompatibilityFallbackDiagnostic>,
@@ -129,11 +130,22 @@ pub(crate) fn start_gateway(
 pub(crate) fn start_gateway_with_options(
     shared: &SharedGateway,
 ) -> Result<GatewayRuntimeStatus, String> {
-    let mut runtime = lock_runtime(shared);
-    runtime.last_error = None;
-    append_log(&mut runtime, "Rust native backend active");
-    drop(runtime);
+    let agent_task_runtime = {
+        let mut runtime = lock_runtime(shared);
+        runtime.last_error = None;
+        append_log(&mut runtime, "Rust native backend active");
+        runtime.native_agent_runtime.task_runtime()
+    };
+    agent_task_runtime.resume_accepting();
     Ok(current_status(shared))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AgentTaskRuntimeStatus {
+    pub(crate) accepting: bool,
+    pub(crate) active_runs: usize,
+    pub(crate) draining_runs: usize,
 }
 
 #[tauri::command]
@@ -213,6 +225,7 @@ pub(crate) fn current_status(shared: &SharedGateway) -> GatewayRuntimeStatus {
     let http_ok = probe.is_ready();
     let runtime = lock_runtime(shared);
     let worker_status = runtime.experimental_worker.status();
+    let agent_task_runtime = runtime.native_agent_runtime.task_runtime();
 
     let owner = "shell";
     let state = if worker_status.state == WorkerManagerState::Failed || probe.is_conflict_or_error()
@@ -258,6 +271,11 @@ pub(crate) fn current_status(shared: &SharedGateway) -> GatewayRuntimeStatus {
         response_class: probe.response_class(),
         recovery_hint: probe.recovery_hint(),
         worker_runtime: gateway_worker_runtime_status(&worker_status),
+        agent_tasks: AgentTaskRuntimeStatus {
+            accepting: agent_task_runtime.is_accepting(),
+            active_runs: agent_task_runtime.active_count(),
+            draining_runs: agent_task_runtime.draining_count(),
+        },
         route_owner_summary: native_route_owner_summary(),
         webui_route_inventory: native_webui_route_inventory(),
         compatibility_fallback_diagnostics: runtime
@@ -373,7 +391,7 @@ fn http_response_body(response: &str) -> &str {
 }
 
 pub(crate) fn stop_owned_gateway(shared: &SharedGateway, explicit: bool) -> Result<(), String> {
-    let (experimental_worker, mcp_runtime) = {
+    let (experimental_worker, agent_task_runtime, mcp_runtime) = {
         let runtime = lock_runtime(shared);
         if !explicit && runtime.keep_background {
             drop(runtime);
@@ -382,19 +400,33 @@ pub(crate) fn stop_owned_gateway(shared: &SharedGateway, explicit: bool) -> Resu
         }
         (
             runtime.experimental_worker.clone(),
+            runtime.native_agent_runtime.task_runtime(),
             runtime.mcp_runtime.clone(),
         )
     };
 
-    tauri::async_runtime::block_on(mcp_runtime.shutdown())
-        .map_err(|error| format!("failed to stop MCP runtime: {}", error.message))?;
+    let mut failures = Vec::new();
+    let task_report = agent_task_runtime.shutdown(Duration::from_secs(5));
+    if task_report.timed_out {
+        failures.push(format!(
+            "agent task cleanup timed out for runs: {}",
+            task_report.cleanup_pending_runs.join(", ")
+        ));
+    }
+    if let Err(error) = tauri::async_runtime::block_on(mcp_runtime.shutdown()) {
+        failures.push(format!("failed to stop MCP runtime: {}", error.message));
+    }
     let was_running = experimental_worker.status().state == WorkerManagerState::Running;
-    experimental_worker
-        .stop()
-        .map_err(|error| format!("failed to stop background worker: {error:?}"))?;
+    if let Err(error) = experimental_worker.stop() {
+        failures.push(format!("failed to stop background worker: {error:?}"));
+    }
     if was_running {
         let mut runtime = lock_runtime(shared);
         append_log(&mut runtime, "stopped background worker");
     }
-    Ok(())
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join("; "))
+    }
 }

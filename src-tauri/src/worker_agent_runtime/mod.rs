@@ -1,6 +1,7 @@
 use crate::agent_loop_runtime_protocol::{
     AgentRuntimeEventEnvelope, LegacyNativeAgentEventProjection,
 };
+use crate::runtime::agent_task::{AgentCancelReason, AgentTaskRuntime};
 use crate::runtime::mcp::McpRuntime;
 use crate::worker_subagent_manager::{
     SubagentInputSender, SubagentSendInputParams, SubagentTargetParams, SubagentThreadManager,
@@ -50,18 +51,25 @@ const TEST_COMPAT_FAKE_CHECKPOINT: &str = "fakeCheckpoint";
 pub struct NativeAgentCancellationContext {
     run_id: String,
     cancellations: Arc<dyn NativeAgentCancellation>,
+    task_runtime: AgentTaskRuntime,
 }
 
 impl NativeAgentCancellationContext {
-    fn new(run_id: String, cancellations: Arc<dyn NativeAgentCancellation>) -> Self {
+    fn new(
+        run_id: String,
+        cancellations: Arc<dyn NativeAgentCancellation>,
+        task_runtime: AgentTaskRuntime,
+    ) -> Self {
         Self {
             run_id,
             cancellations,
+            task_runtime,
         }
     }
 
     pub fn is_cancelled(&self) -> bool {
-        self.cancellations.is_cancelled(&self.run_id)
+        self.task_runtime.is_cancelled(&self.run_id)
+            || self.cancellations.is_cancelled(&self.run_id)
     }
 }
 
@@ -213,6 +221,7 @@ pub struct NativeAgentRuntimeServices {
     subagents: SubagentThreadManager,
     trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
     mcp_runtime: McpRuntime,
+    task_runtime: AgentTaskRuntime,
     #[cfg(test)]
     test_activated_tool_ids: Vec<String>,
     #[cfg(test)]
@@ -234,6 +243,7 @@ impl NativeAgentRuntimeServices {
             subagents: SubagentThreadManager::default(),
             trace_sink: None,
             mcp_runtime: McpRuntime::new(),
+            task_runtime: AgentTaskRuntime::new(),
             #[cfg(test)]
             test_activated_tool_ids: Vec::new(),
             #[cfg(test)]
@@ -279,6 +289,10 @@ impl NativeAgentRuntimeServices {
         self.mcp_runtime.clone()
     }
 
+    pub(crate) fn task_runtime(&self) -> AgentTaskRuntime {
+        self.task_runtime.clone()
+    }
+
     #[cfg(test)]
     fn with_test_activated_tools(mut self, tool_ids: &[&str]) -> Self {
         self.test_activated_tool_ids = tool_ids
@@ -303,6 +317,9 @@ impl NativeAgentRuntimeServices {
 
     pub fn cancel(&self, run_id: &str) -> Value {
         self.cancellations.cancel(run_id);
+        let task = self
+            .task_runtime
+            .cancel(run_id, AgentCancelReason::UserRequested);
         serde_json::json!({
             "runtime": "rust",
             "runId": run_id,
@@ -312,6 +329,7 @@ impl NativeAgentRuntimeServices {
             "error": "cancelled",
             "messages": [],
             "toolsUsed": [],
+            "task": task,
             "events": [event_value("agent.cancelled", serde_json::json!({
                 "runId": run_id,
                 "cancelled": true,

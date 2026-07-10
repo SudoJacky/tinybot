@@ -312,7 +312,7 @@ pub(super) fn execute_tool_calls_for_iteration(
         }
     }
 
-    if services.cancellations.is_cancelled(&context.run_id) {
+    if context_is_cancelled(context) {
         return cancelled_result(services, context, state, iteration);
     }
 
@@ -579,7 +579,7 @@ fn execute_sequential_tool_batch(
     tool_calls: Vec<NativeAgentToolCall>,
 ) -> NativeAgentToolExecutionOutcome {
     for tool_call in tool_calls {
-        if services.cancellations.is_cancelled(&context.run_id) {
+        if context_is_cancelled(context) {
             return cancelled_result(services, context, state, iteration);
         }
         start_tool_call(services, context, state, iteration, &tool_call);
@@ -602,7 +602,7 @@ fn execute_sequential_tool_batch(
             state.phase.as_str(),
             state.active_checkpoint_payload("tool_completed"),
         );
-        if services.cancellations.is_cancelled(&context.run_id) {
+        if context_is_cancelled(context) {
             return cancelled_result(services, context, state, iteration);
         }
     }
@@ -808,7 +808,7 @@ fn execute_locked_tool_batch(
     let mut running_cleanup_tools = BTreeSet::<String>::new();
     let mut cancellation_terminal_claimed = false;
     while finished_count < task_count {
-        if services.cancellations.is_cancelled(&context.run_id)
+        if context_is_cancelled(context)
             && (terminal.try_claim_cancelled()
                 || terminal.outcome() == Some(ToolBatchTerminalOutcome::Cancelled))
         {
@@ -826,7 +826,7 @@ fn execute_locked_tool_batch(
                 if native_tool_waits_for_runtime_cancellation(context, &tool_call.name) {
                     running_cleanup_tools.insert(tool_call.id.clone());
                 }
-                if services.cancellations.is_cancelled(&context.run_id)
+                if context_is_cancelled(context)
                     && (terminal.try_claim_cancelled()
                         || terminal.outcome() == Some(ToolBatchTerminalOutcome::Cancelled))
                 {
@@ -876,7 +876,7 @@ fn execute_locked_tool_batch(
                 }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                if services.cancellations.is_cancelled(&context.run_id)
+                if context_is_cancelled(context)
                     && (terminal.try_claim_cancelled()
                         || terminal.outcome() == Some(ToolBatchTerminalOutcome::Cancelled))
                 {
@@ -1040,7 +1040,7 @@ fn execute_locked_tool_batch(
         state.phase.as_str(),
         state.active_checkpoint_payload("tool_completed"),
     );
-    if services.cancellations.is_cancelled(&context.run_id) {
+    if context_is_cancelled(context) {
         return cancelled_result(services, context, state, iteration);
     }
     NativeAgentToolExecutionOutcome::Continue
