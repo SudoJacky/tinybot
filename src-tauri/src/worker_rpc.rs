@@ -20,8 +20,9 @@ use crate::worker_knowledge::{
 };
 use crate::worker_memory::WorkerMemoryRpc;
 use crate::worker_permission_profile::{
-    PermissionDecision, PermissionEvaluateToolRequest, PermissionRequestToolApprovalRequest,
-    PermissionResolveToolApprovalRequest, WorkerPermissionProfileRpc,
+    PermissionDecision, PermissionEvaluateToolRequest, PermissionNetworkMode,
+    PermissionRequestToolApprovalRequest, PermissionResolveToolApprovalRequest, ShellSandboxMode,
+    WorkerPermissionProfileRpc,
 };
 use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource, WorkerRequest,
@@ -377,7 +378,17 @@ impl WorkerRpcRouter {
                 session_id: params.session_id.clone(),
                 run_id: params.run_id.clone(),
             },
-        );
+        )?;
+
+        if evaluation.decision == PermissionDecision::NeedsApproval {
+            if let Some(sandbox_mode) = evaluation.effects.sandbox_mode {
+                self.shell.validate_security_request(
+                    sandbox_mode,
+                    evaluation.effects.network.mode,
+                    evaluation.effects.process.interactive,
+                )?;
+            }
+        }
 
         if evaluation.decision == PermissionDecision::Allow {
             return Ok(serde_json::json!({
@@ -426,7 +437,10 @@ impl WorkerRpcRouter {
                 },
                 "fingerprint": approval_request.fingerprint,
                 "sessionFingerprint": approval_request.session_fingerprint,
-                "summary": approval_request.summary
+                "summary": approval_request.summary,
+                "scope": approval_request.scope,
+                "lifetime": approval_request.lifetime,
+                "effects": approval_request.effects
             }),
         ))?;
 
@@ -540,7 +554,7 @@ impl WorkerRpcRouter {
                 session_id: params.session_id.clone(),
                 run_id: params.run_id.clone(),
             },
-        );
+        )?;
         if permission.requires_approval
             && !request.is_trusted_internal()
             && !registered_tool_has_final_approval_boundary(&tool)
@@ -787,14 +801,6 @@ struct WriteFileParams {
     session_id: Option<String>,
     #[serde(default, alias = "runId")]
     run_id: Option<String>,
-    #[serde(default, alias = "approvalFingerprint")]
-    approval_fingerprint: Option<String>,
-    #[serde(
-        default,
-        alias = "approvalSessionFingerprint",
-        alias = "sessionFingerprint"
-    )]
-    approval_session_fingerprint: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -804,14 +810,6 @@ struct ApplyPatchParams {
     session_id: Option<String>,
     #[serde(default, alias = "runId")]
     run_id: Option<String>,
-    #[serde(default, alias = "approvalFingerprint")]
-    approval_fingerprint: Option<String>,
-    #[serde(
-        default,
-        alias = "approvalSessionFingerprint",
-        alias = "sessionFingerprint"
-    )]
-    approval_session_fingerprint: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -822,14 +820,6 @@ struct McpCallApprovalParams {
     session_id: Option<String>,
     #[serde(default, alias = "runId")]
     run_id: Option<String>,
-    #[serde(default, alias = "approvalFingerprint")]
-    approval_fingerprint: Option<String>,
-    #[serde(
-        default,
-        alias = "approvalSessionFingerprint",
-        alias = "sessionFingerprint"
-    )]
-    approval_session_fingerprint: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -857,6 +847,10 @@ struct ShellExecuteRequestParams {
     timeout: Option<u64>,
     #[serde(default)]
     restrict_to_workspace: Option<bool>,
+    #[serde(default, alias = "sandboxMode")]
+    sandbox_mode: Option<ShellSandboxMode>,
+    #[serde(default, alias = "networkMode")]
+    network_mode: Option<PermissionNetworkMode>,
     #[serde(default, alias = "sessionId")]
     session_id: Option<String>,
     #[serde(default, alias = "runId")]
@@ -878,6 +872,10 @@ struct ShellStartRequestParams {
     rows: Option<u16>,
     #[serde(default)]
     cols: Option<u16>,
+    #[serde(default, alias = "sandboxMode")]
+    sandbox_mode: Option<ShellSandboxMode>,
+    #[serde(default, alias = "networkMode")]
+    network_mode: Option<PermissionNetworkMode>,
     #[serde(default, alias = "sessionId")]
     session_id: Option<String>,
     #[serde(default, alias = "runId")]
@@ -899,6 +897,8 @@ impl ShellStartRequestParams {
             yield_time_ms: self.yield_time_ms,
             rows: self.rows,
             cols: self.cols,
+            sandbox_mode: self.sandbox_mode,
+            network_mode: self.network_mode,
             run_id: self.run_id,
             tool_call_id: self.tool_call_id,
             cancellation,
@@ -922,6 +922,8 @@ impl ShellExecuteRequestParams {
             working_dir: self.working_dir,
             timeout: self.timeout,
             restrict_to_workspace: self.restrict_to_workspace,
+            sandbox_mode: self.sandbox_mode,
+            network_mode: self.network_mode,
             cancellation,
         }
     }

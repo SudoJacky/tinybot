@@ -5,6 +5,148 @@ use std::sync::{Arc, Barrier};
 use std::time::Duration;
 
 #[test]
+fn unavailable_network_policy_stops_before_process_creation() {
+    let fixture = ProcessFixture::new();
+    let rpc = shell_rpc(&fixture);
+    let marker = fixture.root.join("network-policy-started.txt");
+
+    let error = rpc
+        .execute(ShellExecuteParams {
+            command: create_marker_command("network-policy-started.txt"),
+            working_dir: Some(".".to_string()),
+            timeout: Some(10),
+            restrict_to_workspace: Some(true),
+            sandbox_mode: Some(ShellSandboxMode::Unsandboxed),
+            network_mode: Some(PermissionNetworkMode::Denied),
+            cancellation: None,
+        })
+        .expect_err("unsupported network denial must fail closed");
+
+    assert!(error.message.contains("network"));
+    assert_eq!(error.details["processStarted"], false);
+    assert!(!marker.exists());
+    assert_eq!(rpc.active_process_count(), 0);
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn windows_read_only_process_reads_workspace_and_denies_writes() {
+    use std::os::windows::process::CommandExt;
+
+    let fixture = ProcessFixture::new();
+    std::fs::write(fixture.root.join("readable.txt"), "readable-content")
+        .expect("read-only fixture should be written before sandbox start");
+    let world_writable = fixture.root.join("world-writable");
+    std::fs::create_dir(&world_writable).expect("world-writable fixture directory should exist");
+    let acl_status = std::process::Command::new("icacls")
+        .arg(&world_writable)
+        .args(["/grant", "*S-1-1-0:(OI)(CI)F"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .creation_flags(0x08000000)
+        .status()
+        .expect("icacls should configure the test fixture");
+    assert!(acl_status.success(), "icacls failed with {acl_status}");
+    let rpc = shell_rpc(&fixture);
+
+    let result = rpc
+        .execute(ShellExecuteParams {
+            command: "type readable.txt & echo blocked>world-writable\\blocked.txt".to_string(),
+            working_dir: Some(".".to_string()),
+            timeout: Some(10),
+            restrict_to_workspace: Some(true),
+            sandbox_mode: Some(ShellSandboxMode::ReadOnly),
+            network_mode: Some(PermissionNetworkMode::Unrestricted),
+            cancellation: None,
+        })
+        .expect("read-only shell process should start and report command failure");
+
+    assert!(result.stdout.contains("readable-content"), "{result:?}");
+    assert_ne!(result.exit_code, 0, "{result:?}");
+    assert!(!world_writable.join("blocked.txt").exists(), "{result:?}");
+    assert_eq!(
+        result.sandbox_mode,
+        "windows_restricted_low_integrity_read_only"
+    );
+    assert_eq!(result.network_mode, "unrestricted");
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn windows_read_only_job_terminates_descendant_processes() {
+    use std::os::windows::process::CommandExt;
+
+    let fixture = ProcessFixture::new();
+    let low_integrity = fixture.root.join("low-integrity");
+    std::fs::create_dir(&low_integrity).expect("low-integrity fixture directory should exist");
+    for arguments in [
+        vec!["/grant", "*S-1-1-0:(OI)(CI)F"],
+        vec!["/setintegritylevel", "(OI)(CI)L"],
+    ] {
+        let status = std::process::Command::new("icacls")
+            .arg(&low_integrity)
+            .args(arguments)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .creation_flags(0x08000000)
+            .status()
+            .expect("icacls should configure the low-integrity fixture");
+        assert!(status.success(), "icacls failed with {status}");
+    }
+    let rpc = shell_rpc(&fixture);
+    let probe = rpc
+        .execute(ShellExecuteParams {
+            command: "echo writable>low-integrity\\probe.txt".to_string(),
+            working_dir: Some(".".to_string()),
+            timeout: Some(10),
+            restrict_to_workspace: Some(true),
+            sandbox_mode: Some(ShellSandboxMode::ReadOnly),
+            network_mode: Some(PermissionNetworkMode::Unrestricted),
+            cancellation: None,
+        })
+        .expect("low-integrity write probe should execute");
+    assert_eq!(probe.exit_code, 0, "{probe:?}");
+    assert!(low_integrity.join("probe.txt").exists(), "{probe:?}");
+
+    let started = rpc
+        .start(ShellStartParams {
+            command: concat!(
+                "start \"\" /B cmd /D /S /C ",
+                "\"choice /T 2 /D Y >nul & ",
+                "echo survived>low-integrity\\child-survived.txt\" & ",
+                "for /L %i in (0,0,1) do @rem"
+            )
+            .to_string(),
+            working_dir: Some(".".to_string()),
+            restrict_to_workspace: Some(true),
+            tty: Some(false),
+            yield_time_ms: Some(0),
+            rows: None,
+            cols: None,
+            sandbox_mode: Some(ShellSandboxMode::ReadOnly),
+            network_mode: Some(PermissionNetworkMode::Unrestricted),
+            run_id: Some("run-read-only-job".to_string()),
+            tool_call_id: Some("tool-read-only-job".to_string()),
+            cancellation: None,
+        })
+        .expect("read-only process tree should start");
+    assert!(started.running, "{started:?}");
+
+    let terminated = rpc
+        .terminate(ShellProcessIdParams {
+            process_id: started.process_id,
+            run_id: Some("run-read-only-job".to_string()),
+        })
+        .expect("read-only job should terminate");
+    assert_eq!(terminated.status, "terminated", "{terminated:?}");
+    std::thread::sleep(Duration::from_secs(3));
+    assert!(
+        !low_integrity.join("child-survived.txt").exists(),
+        "a descendant escaped the kill-on-close job"
+    );
+}
+
+#[test]
 fn interactive_process_accepts_input_resizes_and_exits_cleanly() {
     let fixture = ProcessFixture::new();
     let rpc = shell_rpc(&fixture);
@@ -17,6 +159,8 @@ fn interactive_process_accepts_input_resizes_and_exits_cleanly() {
             yield_time_ms: Some(50),
             rows: Some(24),
             cols: Some(80),
+            sandbox_mode: None,
+            network_mode: None,
             run_id: Some("run-interactive-process".to_string()),
             tool_call_id: Some("tool-interactive-process".to_string()),
             cancellation: None,
@@ -92,6 +236,8 @@ fn pipe_process_preserves_stdout_and_stderr_streams() {
             yield_time_ms: Some(2_000),
             rows: None,
             cols: None,
+            sandbox_mode: None,
+            network_mode: None,
             run_id: Some("run-pipe-process".to_string()),
             tool_call_id: Some("tool-pipe-process".to_string()),
             cancellation: None,
@@ -136,6 +282,8 @@ fn retained_process_start_requires_run_and_tool_owners() {
             yield_time_ms: Some(0),
             rows: None,
             cols: None,
+            sandbox_mode: None,
+            network_mode: None,
             run_id: None,
             tool_call_id: None,
             cancellation: None,
@@ -159,6 +307,8 @@ fn writing_after_a_polled_process_exits_fails_explicitly() {
             yield_time_ms: Some(0),
             rows: None,
             cols: None,
+            sandbox_mode: None,
+            network_mode: None,
             run_id: Some("run-exit-race".to_string()),
             tool_call_id: Some("tool-exit-race".to_string()),
             cancellation: None,
@@ -276,6 +426,8 @@ fn output_buffer_preserves_bounded_head_and_tail() {
             yield_time_ms: Some(10_000),
             rows: None,
             cols: None,
+            sandbox_mode: None,
+            network_mode: None,
             run_id: Some("run-bounded-output".to_string()),
             tool_call_id: Some("tool-bounded-output".to_string()),
             cancellation: None,
@@ -318,6 +470,8 @@ fn cancellation_terminates_the_owned_process() {
             yield_time_ms: Some(0),
             rows: None,
             cols: None,
+            sandbox_mode: None,
+            network_mode: None,
             run_id: Some("run-cancel-process".to_string()),
             tool_call_id: Some("tool-cancel-process".to_string()),
             cancellation: Some(cancellation.clone()),
@@ -360,6 +514,8 @@ fn shutdown_releases_terminal_process_records() {
             yield_time_ms: Some(2_000),
             rows: None,
             cols: None,
+            sandbox_mode: None,
+            network_mode: None,
             run_id: Some("run-shutdown".to_string()),
             tool_call_id: Some("tool-shutdown".to_string()),
             cancellation: None,
@@ -391,6 +547,8 @@ fn shutdown_releases_terminal_process_records() {
             yield_time_ms: Some(0),
             rows: None,
             cols: None,
+            sandbox_mode: None,
+            network_mode: None,
             run_id: Some("run-after-shutdown".to_string()),
             tool_call_id: Some("tool-after-shutdown".to_string()),
             cancellation: None,
@@ -412,6 +570,8 @@ fn start_blocking_process(
         yield_time_ms: Some(0),
         rows: None,
         cols: None,
+        sandbox_mode: None,
+        network_mode: None,
         run_id: Some(run_id.to_string()),
         tool_call_id: Some(tool_call_id.to_string()),
         cancellation: None,
@@ -424,6 +584,16 @@ fn shell_rpc(fixture: &ProcessFixture) -> WorkerShellRpc {
         fixture.root.clone(),
         CapabilityPolicy::new([WorkerCapability::ShellExecute]),
     )
+}
+
+#[cfg(target_os = "windows")]
+fn create_marker_command(path: &str) -> String {
+    format!("echo started>{path}")
+}
+
+#[cfg(not(target_os = "windows"))]
+fn create_marker_command(path: &str) -> String {
+    format!("printf started > {path}")
 }
 
 #[cfg(target_os = "windows")]

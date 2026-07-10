@@ -8,6 +8,17 @@ use crate::worker_tool_registry::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+mod effects;
+#[cfg(test)]
+mod effects_tests;
+
+pub use effects::{
+    mcp_permission_effects, normalize_permission_effects, normalize_permission_path,
+    normalize_tool_effects, permission_fingerprint, shell_permission_effects,
+    workspace_patch_permission_effects, workspace_write_permission_effects, PermissionEffects,
+    PermissionNetworkMode, ShellSandboxMode,
+};
+
 #[derive(Clone, Debug)]
 pub struct WorkerPermissionProfileRpc {
     policy: CapabilityPolicy,
@@ -102,6 +113,7 @@ pub struct PermissionToolEvaluation {
     pub requires_approval: bool,
     pub missing_capabilities: Vec<WorkerCapability>,
     pub approval: ToolApprovalMetadata,
+    pub effects: PermissionEffects,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub approval_request: Option<PermissionApprovalRequest>,
 }
@@ -153,6 +165,7 @@ pub struct PermissionApprovalRequest {
     pub run_id: Option<String>,
     pub fingerprint: String,
     pub session_fingerprint: String,
+    pub effects: PermissionEffects,
     pub operation: Value,
 }
 
@@ -180,20 +193,28 @@ impl WorkerPermissionProfileRpc {
         &self,
         tool: &ToolRegistryEntry,
         request: PermissionEvaluateToolRequest,
-    ) -> PermissionToolEvaluation {
+    ) -> Result<PermissionToolEvaluation, WorkerProtocolError> {
+        let effects = normalize_tool_effects(tool, &request.arguments)?;
         let missing_capabilities = self.missing_capabilities(tool);
         let decision = decision_for_tool(tool, &missing_capabilities);
         let approval_request = (decision == PermissionDecision::NeedsApproval).then(|| {
-            approval_request_for_tool(tool, request.arguments, request.session_id, request.run_id)
+            approval_request_for_tool(
+                tool,
+                request.arguments,
+                request.session_id,
+                request.run_id,
+                effects.clone(),
+            )
         });
-        PermissionToolEvaluation {
+        Ok(PermissionToolEvaluation {
             tool: tool_summary(tool),
             decision,
             requires_approval: tool.approval.required,
             missing_capabilities,
             approval: tool.approval.clone(),
+            effects,
             approval_request,
-        }
+        })
     }
 
     pub fn tool_not_found_error(&self, tool_id: &str) -> WorkerProtocolError {
@@ -271,6 +292,7 @@ fn approval_request_for_tool(
     arguments: Value,
     session_id: Option<String>,
     run_id: Option<String>,
+    effects: PermissionEffects,
 ) -> PermissionApprovalRequest {
     let category = approval_category(tool);
     let risk = approval_risk(tool);
@@ -286,11 +308,13 @@ fn approval_request_for_tool(
         lifetime: tool.approval.lifetime,
         session_id,
         run_id,
-        fingerprint: approval_fingerprint(tool, &arguments),
-        session_fingerprint: approval_session_fingerprint(tool, &arguments),
+        fingerprint: approval_fingerprint(tool, &arguments, &effects),
+        session_fingerprint: approval_session_fingerprint(tool, &arguments, &effects),
+        effects: effects.clone(),
         operation: serde_json::json!({
             "toolName": tool.tool_id,
             "arguments": arguments,
+            "effects": effects,
         }),
     }
 }
@@ -359,35 +383,44 @@ fn normalize_summary(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn approval_fingerprint(tool: &ToolRegistryEntry, arguments: &Value) -> String {
+fn approval_fingerprint(
+    tool: &ToolRegistryEntry,
+    arguments: &Value,
+    effects: &PermissionEffects,
+) -> String {
     if let ToolExecutionTarget::Mcp {
         server,
         tool: tool_name,
     } = &tool.execution_target
     {
-        return format!("mcp:{server}:{tool_name}");
+        return permission_fingerprint("mcp", &format!("{server}.{tool_name}"), effects);
     }
     match tool.method.as_str() {
         "shell.execute" => arguments
             .get("command")
             .and_then(Value::as_str)
-            .map(|command| format!("exec:{}", normalize_summary(command).to_ascii_lowercase()))
-            .unwrap_or_else(|| "exec:".to_string()),
+            .map(|command| permission_fingerprint("exec", command, effects))
+            .unwrap_or_else(|| permission_fingerprint("exec", "", effects)),
         "exec_command" => arguments
             .get("command")
             .and_then(Value::as_str)
-            .map(|command| format!("start:{}", normalize_summary(command).to_ascii_lowercase()))
-            .unwrap_or_else(|| "start:".to_string()),
+            .map(|command| permission_fingerprint("start", command, effects))
+            .unwrap_or_else(|| permission_fingerprint("start", "", effects)),
         "workspace.write_file" => arguments
             .get("path")
             .and_then(Value::as_str)
-            .map(|path| format!("write_file:{}", normalize_path(path)))
-            .unwrap_or_else(|| "write_file:".to_string()),
+            .map(|path| permission_fingerprint("write_file", &normalize_path(path), effects))
+            .unwrap_or_else(|| permission_fingerprint("write_file", "", effects)),
+        "workspace.apply_patch" => arguments
+            .get("patch")
+            .and_then(Value::as_str)
+            .map(|patch| permission_fingerprint("apply_patch", patch, effects))
+            .unwrap_or_else(|| permission_fingerprint("apply_patch", "", effects)),
         "workspace.delete_file" => arguments
             .get("path")
             .and_then(Value::as_str)
-            .map(|path| format!("delete_file:{}", normalize_path(path)))
-            .unwrap_or_else(|| "delete_file:".to_string()),
+            .map(|path| permission_fingerprint("delete_file", &normalize_path(path), effects))
+            .unwrap_or_else(|| permission_fingerprint("delete_file", "", effects)),
         "mcp.call_tool" => {
             let server = arguments
                 .get("server")
@@ -397,22 +430,26 @@ fn approval_fingerprint(tool: &ToolRegistryEntry, arguments: &Value) -> String {
                 .get("tool")
                 .and_then(Value::as_str)
                 .unwrap_or("unknown");
-            format!("mcp:{server}:{name}")
+            permission_fingerprint("mcp", &format!("{server}.{name}"), effects)
         }
-        _ => format!(
-            "tool:{}:{}",
-            tool.tool_id,
-            normalize_summary(&arguments.to_string())
+        _ => permission_fingerprint(
+            &format!("tool:{}", tool.tool_id),
+            &normalize_summary(&arguments.to_string()),
+            effects,
         ),
     }
 }
 
-fn approval_session_fingerprint(tool: &ToolRegistryEntry, arguments: &Value) -> String {
-    approval_fingerprint(tool, arguments)
+fn approval_session_fingerprint(
+    tool: &ToolRegistryEntry,
+    arguments: &Value,
+    effects: &PermissionEffects,
+) -> String {
+    approval_fingerprint(tool, arguments, effects)
 }
 
 fn normalize_path(path: &str) -> String {
-    path.replace('\\', "/").to_ascii_lowercase()
+    normalize_permission_path(path)
 }
 
 fn capability_scope(capability: &WorkerCapability) -> &'static str {

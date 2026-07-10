@@ -1,4 +1,9 @@
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
+use crate::worker_permission_profile::{
+    mcp_permission_effects, normalize_permission_effects, normalize_permission_path,
+    permission_fingerprint, shell_permission_effects, workspace_patch_permission_effects,
+    workspace_write_permission_effects, PermissionEffects, PermissionNetworkMode, ShellSandboxMode,
+};
 use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource, WorkerRequest,
 };
@@ -58,7 +63,7 @@ impl WorkerApprovalRpc {
 
     fn request(&mut self, params: ApprovalRequestParams) -> Result<Value, WorkerProtocolError> {
         self.require(WorkerCapability::ApprovalRequest)?;
-        let record = ApprovalRecord::from_params(params);
+        let record = ApprovalRecord::from_params(params)?;
         if self.consume_once_approval(&record) {
             self.approved_current_run
                 .push(ApprovalRunGrant::from_record(&record));
@@ -82,6 +87,13 @@ impl WorkerApprovalRpc {
             "fingerprint": record.fingerprint,
             "sessionFingerprint": record.session_fingerprint,
         });
+        insert_permission_details(
+            &mut result,
+            "scope",
+            record.scope.as_deref(),
+            record.lifetime.as_deref(),
+            record.effects.as_ref(),
+        );
         if let Some(session_id) = record.session_id.clone() {
             result["sessionId"] = Value::String(session_id);
         }
@@ -121,7 +133,7 @@ impl WorkerApprovalRpc {
                 "deniedAt": approval_timestamp(),
             }));
         }
-        Ok(serde_json::json!({
+        let mut result = serde_json::json!({
             "approvalId": record.id,
             "approved": params.approved,
             "scope": scope,
@@ -134,7 +146,15 @@ impl WorkerApprovalRpc {
             "summary": record.summary,
             "fingerprint": record.fingerprint,
             "sessionFingerprint": record.session_fingerprint,
-        }))
+        });
+        insert_permission_details(
+            &mut result,
+            "permissionScope",
+            record.scope.as_deref(),
+            record.lifetime.as_deref(),
+            record.effects.as_ref(),
+        );
+        Ok(result)
     }
 
     fn list_pending(&self, session_id: &str) -> Result<Value, WorkerProtocolError> {
@@ -222,6 +242,9 @@ pub(super) struct SensitiveOperationApproval {
     risk: &'static str,
     reason: &'static str,
     summary: String,
+    scope: &'static str,
+    lifetime: &'static str,
+    effects: PermissionEffects,
     fingerprint: String,
     session_fingerprint: String,
 }
@@ -242,6 +265,11 @@ impl SensitiveOperationApproval {
             risk: self.risk.to_string(),
             reason: self.reason.to_string(),
             summary: self.summary.clone(),
+            scope: Some(self.scope.to_string()),
+            lifetime: Some(self.lifetime.to_string()),
+            effects: Some(
+                serde_json::to_value(&self.effects).expect("permission effects serialize"),
+            ),
             fingerprint: self.fingerprint.clone(),
             session_fingerprint: self.session_fingerprint.clone(),
         }
@@ -252,54 +280,57 @@ pub(super) fn workspace_write_approval(
     path: &str,
     session_id: Option<String>,
     run_id: Option<String>,
-    fingerprint: Option<String>,
-    session_fingerprint: Option<String>,
 ) -> SensitiveOperationApproval {
     let normalized_path = normalize_approval_path(path);
-    let default_fingerprint = format!("write_file:{normalized_path}");
+    let effects = workspace_write_permission_effects(path);
+    let fingerprint = permission_fingerprint("write_file", &normalized_path, &effects);
     SensitiveOperationApproval {
         method: "workspace.write_file",
         run_id: run_id.unwrap_or_else(|| "workspace.write_file".to_string()),
         session_id,
         operation: serde_json::json!({
             "toolName": "write_file",
-            "arguments": { "path": path }
+            "arguments": { "path": path },
+            "effects": &effects,
         }),
         category: "filesystem_write",
         risk: "medium",
         reason: "Workspace file writes are approval-sensitive security operations.",
         summary: format!("write_file path=\"{path}\""),
-        fingerprint: fingerprint.unwrap_or_else(|| default_fingerprint.clone()),
-        session_fingerprint: session_fingerprint.unwrap_or(default_fingerprint),
+        scope: "file",
+        lifetime: "per_request",
+        effects,
+        fingerprint: fingerprint.clone(),
+        session_fingerprint: fingerprint,
     }
 }
 
 pub(super) fn workspace_apply_patch_approval(
+    patch: &str,
     paths: &[String],
     session_id: Option<String>,
     run_id: Option<String>,
-    fingerprint: Option<String>,
-    session_fingerprint: Option<String>,
 ) -> SensitiveOperationApproval {
-    let normalized_paths = paths
-        .iter()
-        .map(|path| normalize_approval_path(path))
-        .collect::<Vec<_>>();
-    let default_fingerprint = format!("apply_patch:{}", normalized_paths.join("|"));
+    let effects = workspace_patch_permission_effects();
+    let fingerprint = permission_fingerprint("apply_patch", patch, &effects);
     SensitiveOperationApproval {
         method: "workspace.apply_patch",
         run_id: run_id.unwrap_or_else(|| "workspace.apply_patch".to_string()),
         session_id,
         operation: serde_json::json!({
             "toolName": "apply_patch",
-            "arguments": { "paths": paths }
+            "arguments": { "paths": paths },
+            "effects": &effects,
         }),
         category: "filesystem_write",
         risk: "medium",
         reason: "Workspace patches are approval-sensitive security operations.",
         summary: format!("apply_patch paths=[{}]", paths.join(", ")),
-        fingerprint: fingerprint.unwrap_or_else(|| default_fingerprint.clone()),
-        session_fingerprint: session_fingerprint.unwrap_or(default_fingerprint),
+        scope: "file",
+        lifetime: "per_request",
+        effects,
+        fingerprint: fingerprint.clone(),
+        session_fingerprint: fingerprint,
     }
 }
 
@@ -308,26 +339,29 @@ pub(super) fn mcp_tool_approval(
     tool: &str,
     session_id: Option<String>,
     run_id: Option<String>,
-    fingerprint: Option<String>,
-    session_fingerprint: Option<String>,
 ) -> SensitiveOperationApproval {
     let server = server.trim();
     let tool = tool.trim();
-    let default_fingerprint = format!("mcp:{server}:{tool}");
+    let effects = mcp_permission_effects(server, tool);
+    let fingerprint = permission_fingerprint("mcp", &format!("{server}.{tool}"), &effects);
     SensitiveOperationApproval {
         method: "mcp.call_tool",
         run_id: run_id.unwrap_or_else(|| "mcp.call_tool".to_string()),
         session_id,
         operation: serde_json::json!({
             "toolName": "mcp.call_tool",
-            "arguments": { "server": server, "tool": tool }
+            "arguments": { "server": server, "tool": tool },
+            "effects": &effects,
         }),
         category: "mcp_tool",
         risk: "medium",
         reason: "MCP tool calls require user approval.",
         summary: format!("mcp.call_tool {server}.{tool}"),
-        fingerprint: fingerprint.unwrap_or_else(|| default_fingerprint.clone()),
-        session_fingerprint: session_fingerprint.unwrap_or(default_fingerprint),
+        scope: "mcp_tool",
+        lifetime: "per_request",
+        effects,
+        fingerprint: fingerprint.clone(),
+        session_fingerprint: fingerprint,
     }
 }
 
@@ -337,66 +371,96 @@ pub(super) fn workspace_delete_approval(
     run_id: Option<String>,
 ) -> SensitiveOperationApproval {
     let normalized_path = normalize_approval_path(path);
+    let effects = workspace_write_permission_effects(path);
+    let fingerprint = permission_fingerprint("delete_file", &normalized_path, &effects);
     SensitiveOperationApproval {
         method: "workspace.delete_file",
         run_id: run_id.unwrap_or_else(|| "workspace.delete_file".to_string()),
         session_id,
         operation: serde_json::json!({
             "toolName": "delete_file",
-            "arguments": { "path": path }
+            "arguments": { "path": path },
+            "effects": &effects,
         }),
         category: "filesystem_write",
         risk: "medium",
         reason: "Workspace file deletion is an approval-sensitive security operation.",
         summary: format!("delete_file path=\"{path}\""),
-        fingerprint: format!("delete_file:{normalized_path}"),
-        session_fingerprint: format!("delete_file:{normalized_path}"),
+        scope: "file",
+        lifetime: "per_request",
+        effects,
+        fingerprint: fingerprint.clone(),
+        session_fingerprint: fingerprint,
     }
 }
 
 pub(super) fn shell_execute_approval(
     command: &str,
+    sandbox_mode: ShellSandboxMode,
+    network_mode: PermissionNetworkMode,
     session_id: Option<String>,
     run_id: Option<String>,
 ) -> SensitiveOperationApproval {
-    let normalized_command = normalize_approval_command(command).to_ascii_lowercase();
+    let effects = shell_permission_effects(sandbox_mode, network_mode, false);
+    let fingerprint = permission_fingerprint("exec", command, &effects);
     SensitiveOperationApproval {
         method: "shell.execute",
         run_id: run_id.unwrap_or_else(|| "shell.execute".to_string()),
         session_id,
         operation: serde_json::json!({
             "toolName": "exec",
-            "arguments": { "command": command }
+            "arguments": {
+                "command": command,
+                "sandboxMode": sandbox_mode,
+                "networkMode": network_mode,
+            },
+            "effects": &effects,
         }),
         category: "shell",
         risk: "high",
         reason: "Shell execution is an approval-sensitive security operation.",
         summary: format!("exec command=\"{}\"", normalize_approval_command(command)),
-        fingerprint: format!("exec:{normalized_command}"),
-        session_fingerprint: format!("exec:{normalized_command}"),
+        scope: "command",
+        lifetime: "per_request",
+        effects,
+        fingerprint: fingerprint.clone(),
+        session_fingerprint: fingerprint,
     }
 }
 
 pub(super) fn shell_start_approval(
     command: &str,
+    sandbox_mode: ShellSandboxMode,
+    network_mode: PermissionNetworkMode,
+    tty: bool,
     session_id: Option<String>,
     run_id: Option<String>,
 ) -> SensitiveOperationApproval {
-    let normalized_command = normalize_approval_command(command).to_ascii_lowercase();
+    let effects = shell_permission_effects(sandbox_mode, network_mode, tty);
+    let fingerprint = permission_fingerprint("start", command, &effects);
     SensitiveOperationApproval {
         method: "shell.start",
         run_id: run_id.unwrap_or_else(|| "shell.start".to_string()),
         session_id,
         operation: serde_json::json!({
             "toolName": "exec_command",
-            "arguments": { "command": command }
+            "arguments": {
+                "command": command,
+                "sandboxMode": sandbox_mode,
+                "networkMode": network_mode,
+                "tty": tty,
+            },
+            "effects": &effects,
         }),
         category: "shell",
         risk: "high",
         reason: "Shell execution is an approval-sensitive security operation.",
         summary: format!("start command=\"{}\"", normalize_approval_command(command)),
-        fingerprint: format!("start:{normalized_command}"),
-        session_fingerprint: format!("start:{normalized_command}"),
+        scope: "command",
+        lifetime: "per_request",
+        effects,
+        fingerprint: fingerprint.clone(),
+        session_fingerprint: fingerprint,
     }
 }
 
@@ -416,6 +480,12 @@ struct ApprovalRequestParams {
     session_fingerprint_camel: Option<String>,
     #[serde(default)]
     summary: Option<String>,
+    #[serde(default)]
+    scope: Option<String>,
+    #[serde(default)]
+    lifetime: Option<String>,
+    #[serde(default)]
+    effects: Option<Value>,
 }
 
 #[derive(Deserialize)]
@@ -450,6 +520,9 @@ fn approval_required_error(requirement: &SensitiveOperationApproval) -> WorkerPr
             "risk": requirement.risk,
             "reason": requirement.reason,
             "summary": requirement.summary,
+            "scope": requirement.scope,
+            "lifetime": requirement.lifetime,
+            "effects": requirement.effects,
             "fingerprint": requirement.fingerprint,
             "sessionFingerprint": requirement.session_fingerprint,
             "sessionId": requirement.session_id,
@@ -470,7 +543,7 @@ fn invalid_approval_request(message: impl Into<String>) -> WorkerProtocolError {
 }
 
 fn normalize_approval_path(path: &str) -> String {
-    path.replace('\\', "/").to_ascii_lowercase()
+    normalize_permission_path(path)
 }
 
 fn normalize_approval_command(command: &str) -> String {
@@ -545,68 +618,139 @@ struct ApprovalRecord {
     risk: String,
     reason: String,
     summary: String,
+    scope: Option<String>,
+    lifetime: Option<String>,
+    effects: Option<Value>,
     fingerprint: String,
     session_fingerprint: String,
 }
 
 impl ApprovalRecord {
-    fn from_params(params: ApprovalRequestParams) -> Self {
-        let has_explicit_fingerprint = params.fingerprint.is_some();
-        let category = params
+    fn from_params(params: ApprovalRequestParams) -> Result<Self, WorkerProtocolError> {
+        let mut operation = params.operation;
+        let mut category = params
             .classification
             .as_ref()
             .map(|classification| classification.category.clone())
-            .or_else(|| json_string_field(&params.operation, "category"))
+            .or_else(|| json_string_field(&operation, "category"))
             .unwrap_or_else(|| "tool".to_string());
-        let risk = params
+        let mut risk = params
             .classification
             .as_ref()
             .map(|classification| classification.risk.clone())
-            .or_else(|| json_string_field(&params.operation, "risk"))
+            .or_else(|| json_string_field(&operation, "risk"))
             .unwrap_or_else(|| "medium".to_string());
-        let reason = params
+        let mut reason = params
             .classification
             .as_ref()
             .map(|classification| classification.reason.clone())
-            .or_else(|| json_string_field(&params.operation, "reason"))
+            .or_else(|| json_string_field(&operation, "reason"))
             .unwrap_or_else(|| "This tool requires user approval before execution.".to_string());
-        let summary = params
+        let mut summary = params
             .summary
-            .unwrap_or_else(|| approval_operation_summary(&params.operation));
-        let fingerprint = params.fingerprint.unwrap_or_else(|| {
-            let fingerprint_input = serde_json::json!({
-                "category": category,
-                "operation": params.operation,
-            });
-            format!("{}:{}", category, short_value_hash(&fingerprint_input))
-        });
-        let session_fingerprint = params
-            .session_fingerprint
-            .or(params.session_fingerprint_camel)
-            .unwrap_or_else(|| fingerprint.clone());
-        let id = if has_explicit_fingerprint {
-            approval_id_for(
-                params.session_id.as_deref(),
-                &params.run_id,
-                &fingerprint,
-                &params.operation,
+            .unwrap_or_else(|| approval_operation_summary(&operation));
+        let mut scope = params
+            .scope
+            .or_else(|| json_string_field(&operation, "scope"));
+        let mut lifetime = params
+            .lifetime
+            .or_else(|| json_string_field(&operation, "lifetime"));
+        let operation_effects = operation.get("effects").cloned();
+        if let (Some(request_effects), Some(operation_effects)) =
+            (params.effects.as_ref(), operation_effects.as_ref())
+        {
+            if request_effects != operation_effects {
+                return Err(invalid_approval_submission(
+                    "approval effects do not match the presented operation",
+                    serde_json::json!({
+                        "requestEffects": request_effects,
+                        "operationEffects": operation_effects,
+                    }),
+                ));
+            }
+        }
+        let effects_value = params.effects.or(operation_effects).ok_or_else(|| {
+            invalid_approval_submission(
+                "approval effects are required",
+                serde_json::json!({ "operation": operation }),
             )
-        } else {
-            format!("approval-{}", params.run_id)
-        };
+        })?;
+        let effects: PermissionEffects =
+            serde_json::from_value(effects_value).map_err(|error| {
+                invalid_approval_submission(
+                    "approval effects are invalid",
+                    serde_json::json!({ "error": error.to_string() }),
+                )
+            })?;
+        let effects = normalize_permission_effects(effects);
+        let effects_value = serde_json::to_value(&effects).map_err(|error| {
+            invalid_approval_submission(
+                "approval effects could not be normalized",
+                serde_json::json!({ "error": error.to_string() }),
+            )
+        })?;
+        let operation_object = operation.as_object_mut().ok_or_else(|| {
+            invalid_approval_submission(
+                "approval operation must be an object",
+                serde_json::json!({}),
+            )
+        })?;
+        operation_object.insert("effects".to_string(), effects_value.clone());
+        if let Some(presentation) = known_approval_presentation(&operation, &effects)? {
+            category = presentation.category.to_string();
+            risk = presentation.risk.to_string();
+            reason = presentation.reason.to_string();
+            summary = presentation.summary;
+            scope = Some(presentation.scope.to_string());
+            lifetime = Some(presentation.lifetime.to_string());
+        }
+        let expected_fingerprint =
+            fingerprint_for_approval_operation(&operation, &effects, &category)?;
+        if let Some(provided) = params.fingerprint.as_deref() {
+            if provided != expected_fingerprint {
+                return Err(fingerprint_mismatch_error(
+                    "fingerprint",
+                    provided,
+                    &expected_fingerprint,
+                ));
+            }
+        }
+        let provided_session_fingerprint = params
+            .session_fingerprint
+            .or(params.session_fingerprint_camel);
+        if let Some(provided) = provided_session_fingerprint.as_deref() {
+            if provided != expected_fingerprint {
+                return Err(fingerprint_mismatch_error(
+                    "sessionFingerprint",
+                    provided,
+                    &expected_fingerprint,
+                ));
+            }
+        }
+        let fingerprint = expected_fingerprint;
+        let session_fingerprint = fingerprint.clone();
+        let id = approval_id_for(
+            params.session_id.as_deref(),
+            &params.run_id,
+            &fingerprint,
+            &operation,
+        );
 
-        Self {
+        Ok(Self {
             id,
             run_id: params.run_id,
             session_id: params.session_id,
-            operation: params.operation,
+            operation,
             category,
             risk,
             reason,
             summary,
+            scope,
+            lifetime,
+            effects: Some(effects_value),
             fingerprint,
             session_fingerprint,
-        }
+        })
     }
 
     fn to_pending_json(&self) -> Value {
@@ -621,6 +765,13 @@ impl ApprovalRecord {
             "fingerprint": self.fingerprint,
             "sessionFingerprint": self.session_fingerprint,
         });
+        insert_permission_details(
+            &mut value,
+            "scope",
+            self.scope.as_deref(),
+            self.lifetime.as_deref(),
+            self.effects.as_ref(),
+        );
         if let Some(session_id) = self.session_id.clone() {
             value["sessionId"] = Value::String(session_id);
         }
@@ -642,6 +793,13 @@ fn approval_allowed_result(record: &ApprovalRecord, scope: &str) -> Value {
         "fingerprint": record.fingerprint,
         "sessionFingerprint": record.session_fingerprint,
     });
+    insert_permission_details(
+        &mut result,
+        "permissionScope",
+        record.scope.as_deref(),
+        record.lifetime.as_deref(),
+        record.effects.as_ref(),
+    );
     if let Some(session_id) = record.session_id.clone() {
         result["sessionId"] = Value::String(session_id);
     }
@@ -662,10 +820,204 @@ fn approval_id_for(
     format!("approval-{:016x}", hasher.finish())
 }
 
-fn short_value_hash(value: &Value) -> String {
-    let mut hasher = DefaultHasher::new();
-    value.to_string().hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+fn invalid_approval_submission(message: impl Into<String>, details: Value) -> WorkerProtocolError {
+    let mut details = details;
+    if let Some(object) = details.as_object_mut() {
+        object.insert(
+            "method".to_string(),
+            Value::String("approval.request".to_string()),
+        );
+    }
+    WorkerProtocolError::new(
+        WorkerProtocolErrorCode::InvalidProtocol,
+        message,
+        details,
+        false,
+        WorkerProtocolErrorSource::RustCore,
+    )
+}
+
+fn fingerprint_for_approval_operation(
+    operation: &Value,
+    effects: &PermissionEffects,
+    category: &str,
+) -> Result<String, WorkerProtocolError> {
+    let tool_name = json_string_field(operation, "toolName")
+        .or_else(|| json_string_field(operation, "tool_name"))
+        .ok_or_else(|| {
+            invalid_approval_submission(
+                "approval operation toolName is required",
+                serde_json::json!({}),
+            )
+        })?;
+    let arguments = operation.get("arguments").unwrap_or(&Value::Null);
+    let fingerprint = match tool_name.as_str() {
+        "shell.execute" | "exec" => permission_fingerprint(
+            "exec",
+            &required_approval_argument(arguments, "command")?,
+            effects,
+        ),
+        "shell.start" | "exec_command" => permission_fingerprint(
+            "start",
+            &required_approval_argument(arguments, "command")?,
+            effects,
+        ),
+        "workspace.write_file" | "write_file" => permission_fingerprint(
+            "write_file",
+            &normalize_approval_path(&required_approval_argument(arguments, "path")?),
+            effects,
+        ),
+        "workspace.apply_patch" | "apply_patch" => permission_fingerprint(
+            "apply_patch",
+            &required_approval_argument(arguments, "patch")?,
+            effects,
+        ),
+        "workspace.delete_file" | "delete_file" => permission_fingerprint(
+            "delete_file",
+            &normalize_approval_path(&required_approval_argument(arguments, "path")?),
+            effects,
+        ),
+        "mcp.call_tool" => {
+            let server = required_approval_argument(arguments, "server")?;
+            let tool = required_approval_argument(arguments, "tool")?;
+            permission_fingerprint("mcp", &format!("{server}.{tool}"), effects)
+        }
+        _ if category == "mcp_tool" && effects.mcp.len() == 1 => {
+            permission_fingerprint("mcp", &effects.mcp[0], effects)
+        }
+        _ => permission_fingerprint(
+            &format!("approval:{category}:{tool_name}"),
+            &operation.to_string(),
+            effects,
+        ),
+    };
+    Ok(fingerprint)
+}
+
+struct KnownApprovalPresentation {
+    category: &'static str,
+    risk: &'static str,
+    reason: &'static str,
+    summary: String,
+    scope: &'static str,
+    lifetime: &'static str,
+}
+
+fn known_approval_presentation(
+    operation: &Value,
+    effects: &PermissionEffects,
+) -> Result<Option<KnownApprovalPresentation>, WorkerProtocolError> {
+    let Some(tool_name) = json_string_field(operation, "toolName")
+        .or_else(|| json_string_field(operation, "tool_name"))
+    else {
+        return Ok(None);
+    };
+    let arguments = operation.get("arguments").unwrap_or(&Value::Null);
+    let presentation = match tool_name.as_str() {
+        "shell.execute" | "exec" => KnownApprovalPresentation {
+            category: "shell",
+            risk: "high",
+            reason: "Shell execution requires user approval.",
+            summary: format!(
+                "exec command=\"{}\"",
+                normalize_approval_command(&required_approval_argument(arguments, "command")?)
+            ),
+            scope: "command",
+            lifetime: "per_request",
+        },
+        "shell.start" | "exec_command" => KnownApprovalPresentation {
+            category: "shell",
+            risk: "high",
+            reason: "Shell execution requires user approval.",
+            summary: format!(
+                "start command=\"{}\"",
+                normalize_approval_command(&required_approval_argument(arguments, "command")?)
+            ),
+            scope: "command",
+            lifetime: "per_request",
+        },
+        "workspace.write_file" | "write_file" => KnownApprovalPresentation {
+            category: "filesystem_write",
+            risk: "medium",
+            reason: "Workspace file changes require user approval.",
+            summary: format!(
+                "write_file path=\"{}\"",
+                required_approval_argument(arguments, "path")?
+            ),
+            scope: "file",
+            lifetime: "per_request",
+        },
+        "workspace.apply_patch" | "apply_patch" => KnownApprovalPresentation {
+            category: "filesystem_write",
+            risk: "medium",
+            reason: "Workspace file changes require user approval.",
+            summary: "apply_patch workspace files".to_string(),
+            scope: "file",
+            lifetime: "per_request",
+        },
+        "workspace.delete_file" | "delete_file" => KnownApprovalPresentation {
+            category: "filesystem_write",
+            risk: "medium",
+            reason: "Workspace file changes require user approval.",
+            summary: format!(
+                "delete_file path=\"{}\"",
+                required_approval_argument(arguments, "path")?
+            ),
+            scope: "file",
+            lifetime: "per_request",
+        },
+        "mcp.call_tool" => KnownApprovalPresentation {
+            category: "mcp_tool",
+            risk: "medium",
+            reason: "MCP tool calls require user approval.",
+            summary: format!(
+                "mcp.call_tool {}.{}",
+                required_approval_argument(arguments, "server")?,
+                required_approval_argument(arguments, "tool")?
+            ),
+            scope: "mcp_tool",
+            lifetime: "per_request",
+        },
+        _ if effects.mcp.len() == 1 => KnownApprovalPresentation {
+            category: "mcp_tool",
+            risk: "medium",
+            reason: "MCP tool calls require user approval.",
+            summary: format!("mcp.call_tool {}", effects.mcp[0]),
+            scope: "mcp_tool",
+            lifetime: "per_request",
+        },
+        _ => return Ok(None),
+    };
+    Ok(Some(presentation))
+}
+
+fn required_approval_argument(
+    arguments: &Value,
+    field: &str,
+) -> Result<String, WorkerProtocolError> {
+    arguments
+        .get(field)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| {
+            invalid_approval_submission(
+                format!("approval operation argument {field} is required"),
+                serde_json::json!({ "field": field }),
+            )
+        })
+}
+
+fn fingerprint_mismatch_error(field: &str, provided: &str, expected: &str) -> WorkerProtocolError {
+    invalid_approval_submission(
+        format!("approval {field} does not match normalized operation effects"),
+        serde_json::json!({
+            "field": field,
+            "provided": provided,
+            "expected": expected,
+        }),
+    )
 }
 
 fn approval_operation_summary(operation: &Value) -> String {
@@ -678,7 +1030,7 @@ fn approval_operation_summary(operation: &Value) -> String {
     {
         return format!("{tool_name} path=\"{path}\"");
     }
-    format!("{tool_name}({})", operation.to_string())
+    format!("{tool_name}({operation})")
 }
 
 fn json_string_field(value: &Value, field: &str) -> Option<String> {
@@ -686,6 +1038,27 @@ fn json_string_field(value: &Value, field: &str) -> Option<String> {
         .get(field)
         .and_then(Value::as_str)
         .map(ToString::to_string)
+}
+
+fn insert_permission_details(
+    value: &mut Value,
+    scope_field: &str,
+    scope: Option<&str>,
+    lifetime: Option<&str>,
+    effects: Option<&Value>,
+) {
+    let Some(object) = value.as_object_mut() else {
+        return;
+    };
+    if let Some(scope) = scope {
+        object.insert(scope_field.to_string(), Value::String(scope.to_string()));
+    }
+    if let Some(lifetime) = lifetime {
+        object.insert("lifetime".to_string(), Value::String(lifetime.to_string()));
+    }
+    if let Some(effects) = effects {
+        object.insert("effects".to_string(), effects.clone());
+    }
 }
 
 fn approval_timestamp() -> String {
@@ -712,10 +1085,27 @@ mod tests {
         request_id: &'static str,
         run_id: &str,
         session_id: &str,
-        operation: Value,
-        fingerprint: &str,
-        session_fingerprint: &str,
+        mut operation: Value,
+        _legacy_fingerprint: &str,
+        _legacy_session_fingerprint: &str,
     ) -> WorkerRequest {
+        let path = operation["arguments"]["path"]
+            .as_str()
+            .expect("workspace approval fixture should include a path")
+            .to_string();
+        let effects = operation
+            .get("effects")
+            .cloned()
+            .map(serde_json::from_value::<PermissionEffects>)
+            .transpose()
+            .expect("fixture effects should deserialize")
+            .unwrap_or_else(|| workspace_write_permission_effects(&path));
+        operation.as_object_mut().unwrap().insert(
+            "effects".to_string(),
+            serde_json::to_value(&effects).unwrap(),
+        );
+        let fingerprint =
+            permission_fingerprint("write_file", &normalize_approval_path(&path), &effects);
         WorkerRequest::new(
             request_id,
             "trace-1",
@@ -729,8 +1119,9 @@ mod tests {
                     "risk": "medium",
                     "reason": "File write/edit/delete tools can modify workspace state."
                 },
+                "effects": effects,
                 "fingerprint": fingerprint,
-                "session_fingerprint": session_fingerprint,
+                "session_fingerprint": fingerprint,
                 "summary": "write_file path=\"notes/today.md\""
             }),
         )
@@ -764,18 +1155,23 @@ mod tests {
             .as_str()
             .unwrap()
             .starts_with("approval-"));
-        assert_eq!(result["operation"], operation);
+        assert_eq!(result["operation"]["toolName"], operation["toolName"]);
+        assert_eq!(result["operation"]["arguments"], operation["arguments"]);
+        assert_eq!(result["operation"]["effects"], result["effects"]);
         assert_eq!(result["runId"], "run-1");
         assert_eq!(result["sessionId"], "session-1");
         assert_eq!(result["category"], "filesystem_write");
         assert_eq!(result["risk"], "medium");
         assert_eq!(
             result["reason"],
-            "File write/edit/delete tools can modify workspace state."
+            "Workspace file changes require user approval."
         );
         assert_eq!(result["summary"], "write_file path=\"notes/today.md\"");
-        assert_eq!(result["fingerprint"], "write_file:notes/today.md");
-        assert_eq!(result["sessionFingerprint"], "write_file:notes/today.md");
+        assert!(result["fingerprint"]
+            .as_str()
+            .unwrap()
+            .starts_with("write_file:sha256:"));
+        assert_eq!(result["sessionFingerprint"], result["fingerprint"]);
     }
 
     #[test]
@@ -811,23 +1207,22 @@ mod tests {
             ))
             .unwrap();
 
+        assert_eq!(response["approvalId"], approval_id);
+        assert_eq!(response["approved"], true);
+        assert_eq!(response["scope"], "session");
+        assert_eq!(response["status"], "approved");
+        assert_eq!(response["sessionId"], "session-1");
+        assert_eq!(response["operation"]["toolName"], operation["toolName"]);
+        assert_eq!(response["operation"]["arguments"], operation["arguments"]);
+        assert_eq!(response["operation"]["effects"], response["effects"]);
+        assert_eq!(response["category"], "filesystem_write");
+        assert_eq!(response["risk"], "medium");
         assert_eq!(
-            response,
-            json!({
-                "approvalId": approval_id,
-                "approved": true,
-                "scope": "session",
-                "status": "approved",
-                "sessionId": "session-1",
-                "operation": operation,
-                "category": "filesystem_write",
-                "risk": "medium",
-                "reason": "File write/edit/delete tools can modify workspace state.",
-                "summary": "write_file path=\"notes/today.md\"",
-                "fingerprint": "write_file:notes/today.md",
-                "sessionFingerprint": "write_file:notes/today.md"
-            })
+            response["reason"],
+            "Workspace file changes require user approval."
         );
+        assert_eq!(response["summary"], "write_file path=\"notes/today.md\"");
+        assert_eq!(response["sessionFingerprint"], response["fingerprint"]);
     }
 
     #[test]
@@ -987,30 +1382,21 @@ mod tests {
             ))
             .unwrap();
 
+        assert_eq!(response["sessionId"], "session-1");
+        assert_eq!(response["approvals"].as_array().map(Vec::len), Some(1));
+        let pending = &response["approvals"][0];
+        assert_eq!(pending["id"], approval_id);
+        assert_eq!(pending["runId"], "run-1");
+        assert_eq!(pending["sessionId"], "session-1");
+        assert_eq!(pending["operation"]["toolName"], "write_file");
         assert_eq!(
-            response,
-            json!({
-                "sessionId": "session-1",
-                "approvals": [
-                    {
-                        "id": approval_id,
-                        "runId": "run-1",
-                        "sessionId": "session-1",
-                        "operation": {
-                            "toolName": "write_file",
-                            "arguments": { "path": "notes/today.md", "contents": "hello" },
-                            "toolCallId": "call-1"
-                        },
-                        "category": "filesystem_write",
-                        "risk": "medium",
-                        "reason": "File write/edit/delete tools can modify workspace state.",
-                        "summary": "write_file path=\"notes/today.md\"",
-                        "fingerprint": "write_file:notes/today.md",
-                        "sessionFingerprint": "write_file:notes/today.md"
-                    }
-                ]
-            })
+            pending["operation"]["arguments"],
+            json!({ "path": "notes/today.md", "contents": "hello" })
         );
+        assert_eq!(pending["operation"]["effects"], pending["effects"]);
+        assert_eq!(pending["category"], "filesystem_write");
+        assert_eq!(pending["risk"], "medium");
+        assert_eq!(pending["sessionFingerprint"], pending["fingerprint"]);
     }
 
     #[test]
@@ -1080,7 +1466,9 @@ mod tests {
             .unwrap();
         assert_eq!(allowed["decision"], "allow");
         assert_eq!(allowed["scope"], "once");
-        assert_eq!(allowed["operation"], operation);
+        assert_eq!(allowed["operation"]["toolName"], operation["toolName"]);
+        assert_eq!(allowed["operation"]["arguments"], operation["arguments"]);
+        assert_eq!(allowed["operation"]["effects"], allowed["effects"]);
 
         let pending_again = approval
             .request_from_request(&approval_request(
@@ -1146,7 +1534,15 @@ mod tests {
             .unwrap();
         assert_eq!(allowed["decision"], "allow");
         assert_eq!(allowed["scope"], "session");
-        assert_eq!(allowed["operation"], changed_operation);
+        assert_eq!(
+            allowed["operation"]["toolName"],
+            changed_operation["toolName"]
+        );
+        assert_eq!(
+            allowed["operation"]["arguments"],
+            changed_operation["arguments"]
+        );
+        assert_eq!(allowed["operation"]["effects"], allowed["effects"]);
 
         let other_session = approval
             .request_from_request(&approval_request(
@@ -1169,9 +1565,8 @@ mod tests {
             "notes/today.md",
             Some("session-1".to_string()),
             Some("run-write".to_string()),
-            None,
-            None,
         );
+        let record = requirement.to_record();
         let error = approval
             .require_sensitive_operation(requirement.clone())
             .expect_err("write without approval should fail");
@@ -1183,12 +1578,9 @@ mod tests {
                 "req-request",
                 "run-1",
                 "session-1",
-                json!({
-                    "toolName": "write_file",
-                    "arguments": { "path": "notes/today.md" }
-                }),
-                "write_file:notes/today.md",
-                "write_file:notes/today.md",
+                record.operation,
+                &record.fingerprint,
+                &record.session_fingerprint,
             ))
             .unwrap();
         let approval_id = request_response["approvalId"].as_str().unwrap().to_string();
@@ -1214,18 +1606,20 @@ mod tests {
     #[test]
     fn sensitive_operation_accepts_current_run_after_once_request_allows() {
         let mut approval = approval_rpc();
-        let operation = json!({
-            "toolName": "write_file",
-            "arguments": { "path": "notes/today.md" }
-        });
+        let requirement = workspace_write_approval(
+            "notes/today.md",
+            Some("session-1".to_string()),
+            Some("run-1".to_string()),
+        );
+        let record = requirement.to_record();
         let request_response = approval
             .request_from_request(&approval_request(
                 "req-request",
                 "run-1",
                 "session-1",
-                operation,
-                "write_file:notes/today.md",
-                "write_file:notes/today.md",
+                record.operation.clone(),
+                &record.fingerprint,
+                &record.session_fingerprint,
             ))
             .unwrap();
         let approval_id = request_response["approvalId"].as_str().unwrap().to_string();
@@ -1248,50 +1642,113 @@ mod tests {
                 "req-allowed",
                 "run-1",
                 "session-1",
-                json!({
-                    "toolName": "write_file",
-                    "arguments": { "path": "notes/today.md" }
-                }),
-                "write_file:notes/today.md",
-                "write_file:notes/today.md",
+                record.operation,
+                &record.fingerprint,
+                &record.session_fingerprint,
             ))
             .unwrap();
         assert_eq!(allowed["decision"], "allow");
         assert_eq!(allowed["scope"], "once");
 
         approval
-            .require_sensitive_operation(workspace_write_approval(
-                "notes/today.md",
-                Some("session-1".to_string()),
-                Some("run-1".to_string()),
-                None,
-                None,
-            ))
+            .require_sensitive_operation(requirement.clone())
             .expect("same-run native operation should use the consumed once approval");
 
         approval
-            .require_sensitive_operation(workspace_write_approval(
-                "notes/today.md",
-                Some("session-1".to_string()),
-                Some("run-1".to_string()),
-                None,
-                None,
-            ))
+            .require_sensitive_operation(requirement)
             .expect_err("same-run once bridge should be consumed");
     }
 
     #[test]
-    fn workspace_write_approval_accepts_original_tool_fingerprints() {
+    fn workspace_write_approval_derives_fingerprint_from_actual_effects() {
         let requirement = workspace_write_approval(
             "notes/today.md",
             Some("session-1".to_string()),
             Some("run-1".to_string()),
-            Some("edit_file:notes/today.md".to_string()),
-            Some("edit_file:notes/today.md".to_string()),
         );
         let record = requirement.to_record();
 
-        assert_eq!(record.fingerprint, "edit_file:notes/today.md");
-        assert_eq!(record.session_fingerprint, "edit_file:notes/today.md");
+        assert!(record.fingerprint.starts_with("write_file:sha256:"));
+        assert_eq!(record.session_fingerprint, record.fingerprint);
+        assert_eq!(
+            record.effects.unwrap()["filesystem"]["writeRoots"],
+            json!(["workspace://current/notes/today.md"])
+        );
+    }
+
+    #[test]
+    fn approval_request_rejects_a_fingerprint_not_bound_to_operation_effects() {
+        let effects = workspace_write_permission_effects("notes/today.md");
+        let mut approval = approval_rpc();
+        let error = approval
+            .request_from_request(&WorkerRequest::new(
+                "req-forged-fingerprint",
+                "trace-1",
+                "approval.request",
+                json!({
+                    "run_id": "run-1",
+                    "session_id": "session-1",
+                    "operation": {
+                        "toolName": "write_file",
+                        "arguments": { "path": "notes/today.md" },
+                        "effects": effects
+                    },
+                    "classification": {
+                        "category": "filesystem_write",
+                        "risk": "medium",
+                        "reason": "Workspace file changes require user approval."
+                    },
+                    "effects": effects,
+                    "fingerprint": "write_file:notes/other.md:effects:forged",
+                    "session_fingerprint": "write_file:notes/other.md:effects:forged"
+                }),
+            ))
+            .expect_err("forged approval fingerprints must fail before user presentation");
+
+        assert_eq!(error.code, WorkerProtocolErrorCode::InvalidProtocol);
+        assert!(error.message.contains("fingerprint"));
+    }
+
+    #[test]
+    fn approval_request_normalizes_known_tool_risk_scope_and_lifetime() {
+        let effects = shell_permission_effects(
+            ShellSandboxMode::Unsandboxed,
+            PermissionNetworkMode::Unrestricted,
+            false,
+        );
+        let fingerprint = permission_fingerprint("exec", "echo hi", &effects);
+        let mut approval = approval_rpc();
+        let result = approval
+            .request_from_request(&WorkerRequest::new(
+                "req-normalized-presentation",
+                "trace-1",
+                "approval.request",
+                json!({
+                    "run_id": "run-1",
+                    "session_id": "session-1",
+                    "operation": {
+                        "toolName": "exec",
+                        "arguments": { "command": "echo hi" },
+                        "effects": effects
+                    },
+                    "classification": {
+                        "category": "tool",
+                        "risk": "low",
+                        "reason": "Caller supplied presentation"
+                    },
+                    "effects": effects,
+                    "fingerprint": fingerprint,
+                    "session_fingerprint": fingerprint,
+                    "summary": "harmless"
+                }),
+            ))
+            .expect("valid effect-bound request should be presented");
+
+        assert_eq!(result["category"], "shell");
+        assert_eq!(result["risk"], "high");
+        assert_eq!(result["reason"], "Shell execution requires user approval.");
+        assert_eq!(result["summary"], "exec command=\"echo hi\"");
+        assert_eq!(result["scope"], "command");
+        assert_eq!(result["lifetime"], "per_request");
     }
 }

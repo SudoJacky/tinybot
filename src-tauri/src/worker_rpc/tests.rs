@@ -1,4 +1,5 @@
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
+use crate::worker_permission_profile::PermissionEvaluateToolRequest;
 use crate::worker_protocol::{WorkerRequest, WorkerRequestCancellation};
 use crate::worker_rpc::WorkerRpcRouter;
 use crate::worker_shell::WorkerShellRuntime;
@@ -76,8 +77,6 @@ fn dispatches_workspace_write_file_version_conflict() {
         "filesystem_write",
         "medium",
         "File write/edit/delete tools can modify workspace state.",
-        "write_file:notes/today.md",
-        "write_file:notes/today.md",
     );
     let request = WorkerRequest::new(
         "req-1",
@@ -192,8 +191,6 @@ fn workspace_apply_patch_requires_a_matching_approval_grant() {
         "filesystem_write",
         "medium",
         "Workspace file changes require user approval.",
-        "apply_patch:notes/today.md",
-        "apply_patch:notes/today.md",
     );
 
     let allowed = router.dispatch(&WorkerRequest::new(
@@ -4549,11 +4546,24 @@ fn dispatches_permission_profile_evaluate_tool_for_sensitive_request() {
     assert_eq!(result["approvalRequest"]["category"], "shell");
     assert_eq!(result["approvalRequest"]["risk"], "high");
     assert_eq!(
-        result["approvalRequest"]["operation"],
-        json!({
-            "toolName": "shell.execute",
-            "arguments": { "command": "cargo test --lib" }
-        })
+        result["approvalRequest"]["operation"]["toolName"],
+        "shell.execute"
+    );
+    assert_eq!(
+        result["approvalRequest"]["operation"]["arguments"],
+        json!({ "command": "cargo test --lib" })
+    );
+    assert_eq!(
+        result["approvalRequest"]["operation"]["effects"],
+        result["approvalRequest"]["effects"]
+    );
+    assert_eq!(
+        result["approvalRequest"]["effects"]["sandboxMode"],
+        "unsandboxed"
+    );
+    assert_eq!(
+        result["approvalRequest"]["effects"]["network"]["mode"],
+        "unrestricted"
     );
     assert_eq!(result["approvalRequest"]["sessionId"], "session-1");
     assert_eq!(result["approvalRequest"]["runId"], "run-1");
@@ -12748,34 +12758,6 @@ fn dispatches_knowledge_session_temporary_file_lifecycle() {
     );
 }
 
-fn approval_request(
-    request_id: &'static str,
-    run_id: &str,
-    session_id: &str,
-    operation: Value,
-    fingerprint: &str,
-    session_fingerprint: &str,
-) -> WorkerRequest {
-    WorkerRequest::new(
-        request_id,
-        "trace-1",
-        "approval.request",
-        json!({
-            "run_id": run_id,
-            "session_id": session_id,
-            "operation": operation,
-            "classification": {
-                "category": "filesystem_write",
-                "risk": "medium",
-                "reason": "File write/edit/delete tools can modify workspace state."
-            },
-            "fingerprint": fingerprint,
-            "session_fingerprint": session_fingerprint,
-            "summary": "write_file path=\"notes/today.md\""
-        }),
-    )
-}
-
 fn approve_once(
     router: &mut WorkerRpcRouter,
     run_id: &str,
@@ -12784,9 +12766,36 @@ fn approve_once(
     category: &str,
     risk: &str,
     reason: &str,
-    fingerprint: &str,
-    session_fingerprint: &str,
 ) {
+    let requested_tool_name = operation["toolName"]
+        .as_str()
+        .expect("approval helper operation should identify a tool");
+    let tool_id = match requested_tool_name {
+        "write_file" => "workspace.write_file",
+        "apply_patch" => "workspace.apply_patch",
+        "delete_file" => "workspace.delete_file",
+        "exec" => "shell.execute",
+        other => other,
+    };
+    let tool = router
+        .tool_registry
+        .get_tool(tool_id)
+        .unwrap_or_else(|| panic!("approval helper tool should be registered: {tool_id}"));
+    let evaluation = router
+        .permission_profile
+        .evaluate_tool(
+            &tool,
+            PermissionEvaluateToolRequest {
+                tool_id: tool_id.to_string(),
+                arguments: operation["arguments"].clone(),
+                session_id: Some(session_id.to_string()),
+                run_id: Some(run_id.to_string()),
+            },
+        )
+        .expect("approval helper effects should normalize");
+    let approval = evaluation
+        .approval_request
+        .expect("approval helper tool should require approval");
     let request_response = router.dispatch(&WorkerRequest::new(
         "req-approval-helper",
         "trace-approval",
@@ -12794,14 +12803,17 @@ fn approve_once(
         json!({
             "run_id": run_id,
             "session_id": session_id,
-            "operation": operation,
+            "operation": approval.operation,
             "classification": {
                 "category": category,
                 "risk": risk,
                 "reason": reason
             },
-            "fingerprint": fingerprint,
-            "session_fingerprint": session_fingerprint
+            "fingerprint": approval.fingerprint,
+            "session_fingerprint": approval.session_fingerprint,
+            "scope": approval.scope,
+            "lifetime": approval.lifetime,
+            "effects": approval.effects
         }),
     ));
     let approval_id = request_response.result.as_ref().unwrap()["approvalId"]
@@ -12855,33 +12867,18 @@ fn workspace_write_consumes_matching_once_approval_grant() {
     assert_eq!(error.details["boundary"], "security");
     assert!(!fixture.root.join("notes").join("today.md").exists());
 
-    let request_response = router.dispatch(&approval_request(
-        "req-approval",
+    approve_once(
+        &mut router,
         "run-1",
         "session-1",
         json!({
             "toolName": "write_file",
             "arguments": { "path": "notes/today.md" }
         }),
-        "write_file:notes/today.md",
-        "write_file:notes/today.md",
-    ));
-    let approval_id = request_response.result.as_ref().unwrap()["approvalId"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    let resolve_response = router.dispatch(&WorkerRequest::new(
-        "req-resolve",
-        "trace-2",
-        "approval.resolve",
-        json!({
-            "session_id": "session-1",
-            "approval_id": approval_id,
-            "approved": true,
-            "scope": "once"
-        }),
-    ));
-    assert!(resolve_response.error.is_none());
+        "filesystem_write",
+        "medium",
+        "File write/edit/delete tools can modify workspace state.",
+    );
 
     let allowed = router.dispatch(&WorkerRequest::new(
         "req-write-allowed",
@@ -13007,7 +13004,12 @@ fn shell_execute_requires_matching_approval_grant() {
     );
     assert_eq!(error.details["boundary"], "security");
     assert_eq!(error.details["category"], "shell");
-    assert_eq!(error.details["fingerprint"], "exec:echo tinybot");
+    assert!(error.details["fingerprint"]
+        .as_str()
+        .unwrap()
+        .starts_with("exec:sha256:"));
+    assert_eq!(error.details["effects"]["sandboxMode"], "unsandboxed");
+    assert_eq!(error.details["effects"]["network"]["mode"], "unrestricted");
 }
 
 #[test]
@@ -13044,8 +13046,6 @@ fn dispatches_workspace_list_dir_and_delete_file_requests() {
         "filesystem_write",
         "medium",
         "File write/edit/delete tools can modify workspace state.",
-        "delete_file:notes",
-        "delete_file:notes",
     );
     let delete_response = router.dispatch(&WorkerRequest::new(
         "req-delete",
@@ -13095,8 +13095,6 @@ fn dispatches_shell_execute_request() {
         "shell",
         "high",
         "Shell execution can modify files, run programs, or access the network.",
-        "exec:echo tinybot",
-        "exec:echo tinybot",
     );
 
     let response = router.dispatch(&WorkerRequest::new(
@@ -13115,8 +13113,92 @@ fn dispatches_shell_execute_request() {
     assert_eq!(result["exit_code"], 0);
     assert_eq!(result["timed_out"], false);
     assert_eq!(result["blocked"], false);
+    assert_eq!(result["sandbox_mode"], "unsandboxed_approved");
+    assert_eq!(result["network_mode"], "unrestricted");
+    assert_eq!(result["approval_decision"], "approved");
     assert!(result["content"].as_str().unwrap().contains("tinybot"));
     assert!(response.error.is_none());
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn read_only_shell_approval_cannot_authorize_unsandboxed_execution() {
+    let fixture = WorkspaceFixture::new();
+    fixture.write("readable.txt", "readable-content");
+    let mut router = WorkerRpcRouter::new(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        20,
+        CapabilityPolicy::new([
+            WorkerCapability::ApprovalRequest,
+            WorkerCapability::ApprovalResolve,
+            WorkerCapability::ShellExecute,
+        ]),
+    );
+    let command = "type readable.txt & echo blocked>blocked.txt";
+    approve_once(
+        &mut router,
+        "run-shell-read-only",
+        "session-1",
+        json!({
+            "toolName": "exec",
+            "arguments": {
+                "command": command,
+                "sandboxMode": "read_only",
+                "networkMode": "unrestricted"
+            }
+        }),
+        "shell",
+        "high",
+        "Shell execution can modify files, run programs, or access the network.",
+    );
+
+    let unsandboxed = router.dispatch(&WorkerRequest::new(
+        "req-shell-unsandboxed",
+        "trace-shell-read-only",
+        "shell.execute",
+        json!({
+            "command": command,
+            "sessionId": "session-1",
+            "runId": "run-shell-read-only"
+        }),
+    ));
+    let error = unsandboxed
+        .error
+        .expect("read-only approval must not authorize unsandboxed execution");
+    assert_eq!(
+        error.code,
+        crate::worker_protocol::WorkerProtocolErrorCode::CapabilityDenied
+    );
+    assert_eq!(error.details["effects"]["sandboxMode"], "unsandboxed");
+
+    let read_only = router.dispatch(&WorkerRequest::new(
+        "req-shell-read-only",
+        "trace-shell-read-only",
+        "shell.execute",
+        json!({
+            "command": command,
+            "sandboxMode": "read_only",
+            "networkMode": "unrestricted",
+            "sessionId": "session-1",
+            "runId": "run-shell-read-only"
+        }),
+    ));
+    assert!(read_only.error.is_none(), "{read_only:?}");
+    let result = read_only.result.unwrap();
+    assert!(result["stdout"]
+        .as_str()
+        .unwrap()
+        .contains("readable-content"));
+    assert_ne!(result["exit_code"], 0);
+    assert_eq!(
+        result["sandbox_mode"],
+        "windows_restricted_low_integrity_read_only"
+    );
+    assert_eq!(result["network_mode"], "unrestricted");
+    assert_eq!(result["approval_decision"], "approved");
+    assert!(!fixture.root.join("blocked.txt").exists());
 }
 
 #[test]
@@ -13134,7 +13216,6 @@ fn dispatches_owned_shell_process_lifecycle() {
         ]),
     );
     let command = blocking_shell_command_with_marker();
-    let fingerprint = format!("start:{}", command.to_ascii_lowercase());
     approve_once(
         &mut router,
         "run-shell-process",
@@ -13146,8 +13227,6 @@ fn dispatches_owned_shell_process_lifecycle() {
         "shell",
         "high",
         "Shell execution can modify files, run programs, or access the network.",
-        &fingerprint,
-        &fingerprint,
     );
 
     let started = router.dispatch(&WorkerRequest::new(
@@ -13168,6 +13247,9 @@ fn dispatches_owned_shell_process_lifecycle() {
     assert_eq!(started["running"], true, "{started:?}");
     assert_eq!(started["runId"], "run-shell-process");
     assert_eq!(started["toolCallId"], "tool-shell-process");
+    assert_eq!(started["sandboxMode"], "unsandboxed_approved");
+    assert_eq!(started["networkMode"], "unrestricted");
+    assert_eq!(started["approvalDecision"], "approved");
     let process_id = started["processId"]
         .as_str()
         .expect("shell process id should be present")
@@ -13227,7 +13309,6 @@ fn tool_executor_injects_run_ownership_into_exec_command() {
         ]),
     );
     let command = blocking_shell_command_with_marker();
-    let fingerprint = format!("start:{}", command.to_ascii_lowercase());
     approve_once(
         &mut router,
         "run-exec-command",
@@ -13239,8 +13320,6 @@ fn tool_executor_injects_run_ownership_into_exec_command() {
         "shell",
         "high",
         "Shell execution can modify files, run programs, or access the network.",
-        &fingerprint,
-        &fingerprint,
     );
 
     let response = router.dispatch(&WorkerRequest::new(
@@ -13362,7 +13441,6 @@ fn tool_executor_forwards_request_cancellation_to_shell_execute() {
         ]),
     );
     let command = blocking_shell_command_with_marker();
-    let fingerprint = format!("exec:{}", command.to_ascii_lowercase());
     approve_once(
         &mut router,
         "run-shell-cancel",
@@ -13374,8 +13452,6 @@ fn tool_executor_forwards_request_cancellation_to_shell_execute() {
         "shell",
         "high",
         "Shell execution can modify files, run programs, or access the network.",
-        &fingerprint,
-        &fingerprint,
     );
 
     let cancellation = Arc::new(TestCancellation::default());

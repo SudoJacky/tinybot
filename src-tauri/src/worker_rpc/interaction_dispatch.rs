@@ -26,34 +26,62 @@ impl WorkerRpcRouter {
                 .transcribe_audio_from_request(request),
             "shell.execute" => {
                 let params: ShellExecuteRequestParams = parse_params(request)?;
+                let sandbox_mode = params.sandbox_mode.unwrap_or_default();
+                let network_mode = params
+                    .network_mode
+                    .unwrap_or(PermissionNetworkMode::Unrestricted);
+                self.shell
+                    .validate_security_request(sandbox_mode, network_mode, false)?;
+                let approval_decision = if request.is_trusted_internal() {
+                    "trusted_internal"
+                } else {
+                    "approved"
+                };
                 if !request.is_trusted_internal() {
                     self.approval
                         .require_sensitive_operation(shell_execute_approval(
                             &params.command,
+                            sandbox_mode,
+                            network_mode,
                             params.session_id.clone(),
                             params.run_id.clone(),
                         ))?;
                 }
-                serde_json::to_value(
-                    self.shell
-                        .execute(params.into_shell_params(request.cancellation()))?,
-                )
+                serde_json::to_value(self.shell.execute_with_approval_decision(
+                    params.into_shell_params(request.cancellation()),
+                    approval_decision,
+                )?)
                 .map_err(serialization_error)
             }
             "shell.start" => {
                 let params: ShellStartRequestParams = parse_params(request)?;
+                let sandbox_mode = params.sandbox_mode.unwrap_or_default();
+                let network_mode = params
+                    .network_mode
+                    .unwrap_or(PermissionNetworkMode::Unrestricted);
+                let tty = params.tty.unwrap_or(false);
+                self.shell
+                    .validate_security_request(sandbox_mode, network_mode, tty)?;
+                let approval_decision = if request.is_trusted_internal() {
+                    "trusted_internal"
+                } else {
+                    "approved"
+                };
                 if !request.is_trusted_internal() {
                     self.approval
                         .require_sensitive_operation(shell_start_approval(
                             &params.command,
+                            sandbox_mode,
+                            network_mode,
+                            tty,
                             params.session_id.clone(),
                             params.run_id.clone(),
                         ))?;
                 }
-                serde_json::to_value(
-                    self.shell
-                        .start(params.into_shell_params(request.cancellation()))?,
-                )
+                serde_json::to_value(self.shell.start_with_approval_decision(
+                    params.into_shell_params(request.cancellation()),
+                    approval_decision,
+                )?)
                 .map_err(serialization_error)
             }
             "shell.poll" => {

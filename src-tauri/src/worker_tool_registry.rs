@@ -649,7 +649,15 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
                 "properties": {
                     "command": { "type": "string" },
                     "workingDir": { "type": "string" },
-                    "timeout": { "type": "integer" }
+                    "timeout": { "type": "integer" },
+                    "sandboxMode": {
+                        "type": "string",
+                        "enum": ["read_only", "unsandboxed"]
+                    },
+                    "networkMode": {
+                        "type": "string",
+                        "enum": ["denied", "configured", "unrestricted"]
+                    }
                 }
             }),
         ),
@@ -673,7 +681,15 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
                     "yieldTimeMs": { "type": "integer", "minimum": 0, "maximum": 30000 },
                     "tty": { "type": "boolean" },
                     "rows": { "type": "integer", "minimum": 1 },
-                    "cols": { "type": "integer", "minimum": 1 }
+                    "cols": { "type": "integer", "minimum": 1 },
+                    "sandboxMode": {
+                        "type": "string",
+                        "enum": ["read_only", "unsandboxed"]
+                    },
+                    "networkMode": {
+                        "type": "string",
+                        "enum": ["denied", "configured", "unrestricted"]
+                    }
                 }
             }),
         ),

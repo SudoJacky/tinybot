@@ -766,9 +766,7 @@ Lower-level workspace RPC also supports:
 {
   "patch": "*** Begin Patch\n*** Update File: README.md\n@@\n-old\n+new\n*** End Patch",
   "sessionId": "websocket:chat-1",
-  "runId": "run-1",
-  "approvalFingerprint": "optional-once-grant",
-  "approvalSessionFingerprint": "optional-session-grant"
+  "runId": "run-1"
 }
 ```
 
@@ -802,6 +800,43 @@ Result shape:
 `shell.start`, and MCP tool calls enforce their final approval boundary at the concrete Worker RPC
 method. A caller cannot claim an internal operation in serialized params: the trusted marker exists
 only on an in-process request after the native runtime has passed its approval gate.
+
+Approval fingerprints are derived by the worker from the normalized operation and permission
+effects. Concrete workspace, shell, and MCP boundaries recompute their fingerprint from the actual
+request; caller-supplied fingerprint fields are not trusted. Low-level `approval.request` rejects a
+fingerprint, session fingerprint, or effect set that does not match the normalized request. For
+known tools it replaces caller-authored category, risk, reason, summary, scope, and lifetime with
+the authoritative tool presentation before showing the request to the user.
+
+`permission_profile.evaluate_tool` and approval payloads include normalized `effects`:
+
+```json
+{
+  "filesystem": {
+    "readRoots": ["filesystem://unrestricted"],
+    "writeRoots": ["filesystem://unrestricted"]
+  },
+  "network": {
+    "mode": "unrestricted",
+    "destinations": ["network://unrestricted"]
+  },
+  "process": { "execute": true, "interactive": false },
+  "environment": {
+    "inherit": true,
+    "secretScopes": ["environment://ambient-process"]
+  },
+  "mcp": [],
+  "mutatesSession": false,
+  "mutatesBackground": false,
+  "sandboxMode": "unsandboxed"
+}
+```
+
+Workspace tools use exact workspace-relative write roots where possible; strict multi-file patches
+use the whole current workspace. MCP effects name both destination server and tool. Subagent tools
+mark session/background mutation. Effect lists are sorted and deduplicated before a SHA-256-bound
+approval fingerprint is created, so changing sandbox, network, filesystem, interactive-process, or
+secret scope invalidates an earlier grant.
 
 ## Owned Shell Processes
 
@@ -846,6 +881,8 @@ interrupted, or terminated without the matching `runId`.
   "yieldTimeMs": 1000,
   "rows": 24,
   "cols": 80,
+  "sandboxMode": "unsandboxed",
+  "networkMode": "unrestricted",
   "sessionId": "websocket:chat-1",
   "runId": "run-1",
   "toolCallId": "call-1"
@@ -854,6 +891,16 @@ interrupted, or terminated without the matching `runId`.
 
 `runId` and `toolCallId` are required for retained processes. The one-shot `shell.execute` adapter
 uses an internal transient owner and releases its record before returning.
+
+`sandboxMode` accepts `unsandboxed` (the default) or `read_only`. `networkMode` accepts
+`unrestricted` (the default), `configured`, or `denied`. Tinybot currently has no arbitrary-shell
+network isolation adapter, so `configured` and `denied` fail before process creation instead of
+claiming enforcement. Windows supports `read_only` for pipe processes through a restricted,
+low-integrity primary token plus a kill-on-close Job Object. This blocks writes to the normal
+medium-integrity workspace even when its discretionary ACL grants Everyone write access. Windows
+objects deliberately labeled low integrity remain writable and appear in normalized effects as
+`windows://low-integrity`. Read-only PTY requests and read-only requests on platforms without an
+adapter fail closed.
 
 Process snapshots use camel-case fields and include:
 
@@ -878,8 +925,9 @@ Process snapshots use camel-case fields and include:
   "droppedBytes": 0,
   "startedAtMs": 0,
   "lastActivityMs": 0,
-  "sandboxMode": "workspace_guard_only",
-  "approvalDecision": "validated",
+  "sandboxMode": "unsandboxed_approved",
+  "networkMode": "unrestricted",
+  "approvalDecision": "approved",
   "failure": null
 }
 ```
@@ -889,7 +937,10 @@ projected into stdout for compatibility. The retained transcript keeps a 256 KiB
 tail; `truncated` and `droppedBytes` make any omission explicit. Unknown process IDs and writes after
 exit are errors, not empty successful polls. On Windows, the manager normalizes terminal input,
 answers ConPTY cursor-position probes internally, and removes verbatim path prefixes only at the PTY
-spawn boundary after workspace validation.
+spawn boundary after workspace validation. Windows read-only pipe processes are created suspended,
+assigned to a kill-on-close Job Object before resume, and report
+`windows_restricted_low_integrity_read_only` as their actual sandbox label. `approvalDecision` is
+`approved`, `trusted_internal`, or `internal_direct` according to the launch boundary.
 
 ## Knowledge Commands
 
@@ -1095,7 +1146,7 @@ External callers should usually prefer the Tauri commands above.
 | `rag` | `query` |
 | `runtime` | `now`, `restart` |
 | `session` | `append_messages`, `clear`, `clear_checkpoint`, `delete`, `get_checkpoint`, `get_history`, `get_metadata`, `list_metadata`, `patch_metadata`, `patch_user_profile`, `persist_turn`, `set_checkpoint`, `trim` |
-| `shell` | `execute` |
+| `shell` | `execute`, `start`, `poll`, `write_stdin`, `resize`, `interrupt`, `terminate`, `terminate_run`, `list`, `shutdown` |
 | `skills` | `list`, `webui_create`, `webui_delete`, `webui_detail`, `webui_list`, `webui_update`, `webui_validate` |
 | `subagent` | `cancel`, `close`, `list`, `query`, `send_input`, `spawn`, `wait` |
 | `thread` | `activity`, `agent_registry`, `append_items`, `apply_op`, `archive`, `continue_turn`, `create`, `delete`, `events`, `fork`, `interrupt`, `list`, `read`, `restore_checkpoint`, `resume`, `search`, `start_turn`, `status`, `unarchive`, `update_metadata` |

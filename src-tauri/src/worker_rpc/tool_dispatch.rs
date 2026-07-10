@@ -15,8 +15,6 @@ impl WorkerRpcRouter {
                             &params.tool,
                             params.session_id,
                             params.run_id,
-                            params.approval_fingerprint,
-                            params.approval_session_fingerprint,
                         ))?;
                 }
                 self.mcp.call_tool_from_request(request)
@@ -42,7 +40,7 @@ impl WorkerRpcRouter {
                         self.permission_profile
                             .tool_not_found_error(&params.tool_id)
                     })?;
-                serde_json::to_value(self.permission_profile.evaluate_tool(&tool, params))
+                serde_json::to_value(self.permission_profile.evaluate_tool(&tool, params)?)
                     .map_err(serialization_error)
             }
             "permission_profile.request_tool_approval" => {
