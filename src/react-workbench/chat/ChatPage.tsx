@@ -42,6 +42,7 @@ import type { ApprovalAction, ChatEvent, ChatInput, ChatModelOption, ChatStore, 
 import { reduceSessionDeleteState } from "../sessions/sessionDeleteState";
 import { canBranchFromMessage, canCopyMessage, type ContextReferenceSummary, type ReactChatMessage, type ToolCallSummary } from "./messageActions";
 import type { AgentUiForm, AgentUiFormField } from "../../app-core/agent-ui/agentUiEvents";
+import { AssistantMarkdown } from "./AssistantMarkdown";
 
 export type ChatPageProps = {
   chatStore: ChatStore;
@@ -1397,7 +1398,11 @@ function MessageBubble({
     >
       <div className="react-message__body">
         {message.reasoningText ? <MessageReasoning text={message.reasoningText} /> : null}
-        <MessageText text={message.text} />
+        {message.role === "assistant" ? (
+          <AssistantMarkdown streaming={message.status === "streaming"} text={message.text} />
+        ) : (
+          <PlainMessageText text={message.text} />
+        )}
         {message.contextReferences?.length ? <MessageContext references={message.contextReferences} /> : null}
         {message.toolCalls?.length ? <AgentSteps toolCalls={message.toolCalls} onOpenTool={onOpenTool} /> : null}
         {message.status === "streaming" ? <span className="react-message__streaming" aria-label="Agent is responding" /> : null}
@@ -1424,7 +1429,7 @@ function MessageReasoning({ text }: { text: string }) {
   return (
     <section className="react-message-reasoning" aria-label="Thinking">
       <h3>Thinking</h3>
-      <MessageText text={text} />
+      <PlainMessageText text={text} />
     </section>
   );
 }
@@ -1595,146 +1600,15 @@ function formatAgentStepStatus(status: string): string {
   return status.replace(/[_-]+/g, " ");
 }
 
-type MessageMarkdownBlock =
-  | { kind: "paragraph"; lines: string[] }
-  | { kind: "table"; headers: string[]; rows: string[][] };
-
-function MessageText({ text }: { text: string }) {
-  const blocks = parseMessageMarkdown(text);
-  if (!blocks.length) {
+function PlainMessageText({ text }: { text: string }) {
+  if (!text.trim()) {
     return null;
   }
   return (
-    <div className="react-message-markdown">
-      {blocks.map((block, index) => renderMessageMarkdownBlock(block, index))}
+    <div className="react-message-plain-text">
+      <p>{text}</p>
     </div>
   );
-}
-
-function parseMessageMarkdown(text: string): MessageMarkdownBlock[] {
-  const lines = text.replace(/\r\n/g, "\n").split("\n");
-  const blocks: MessageMarkdownBlock[] = [];
-  let index = 0;
-
-  while (index < lines.length) {
-    if (!lines[index].trim()) {
-      index += 1;
-      continue;
-    }
-
-    if (isMarkdownTableStart(lines, index)) {
-      const headers = parseMarkdownTableRow(lines[index]);
-      index += 2;
-      const rows: string[][] = [];
-      while (index < lines.length && isMarkdownTableRow(lines[index])) {
-        rows.push(parseMarkdownTableRow(lines[index]));
-        index += 1;
-      }
-      blocks.push({ kind: "table", headers, rows });
-      continue;
-    }
-
-    const paragraph: string[] = [];
-    while (index < lines.length && lines[index].trim() && !isMarkdownTableStart(lines, index)) {
-      paragraph.push(lines[index]);
-      index += 1;
-    }
-    blocks.push({ kind: "paragraph", lines: paragraph });
-  }
-
-  return blocks;
-}
-
-function renderMessageMarkdownBlock(block: MessageMarkdownBlock, index: number): ReactNode {
-  if (block.kind === "table") {
-    return (
-      <div className="react-message-table-wrap" key={`table:${index}`}>
-        <table className="react-message-table">
-          <thead>
-            <tr>
-              {block.headers.map((header, headerIndex) => (
-                <th key={`${header}:${headerIndex}`} scope="col">
-                  {renderInlineMarkdown(header, `table:${index}:header:${headerIndex}`)}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {block.rows.map((row, rowIndex) => (
-              <tr key={`row:${rowIndex}`}>
-                {block.headers.map((_, cellIndex) => (
-                  <td key={`cell:${cellIndex}`}>
-                    {renderInlineMarkdown(row[cellIndex] ?? "", `table:${index}:row:${rowIndex}:cell:${cellIndex}`)}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    );
-  }
-
-  return (
-    <p key={`paragraph:${index}`}>
-      {block.lines.map((line, lineIndex) => (
-        <span key={`line:${lineIndex}`}>
-          {lineIndex > 0 ? <br /> : null}
-          {renderInlineMarkdown(line, `paragraph:${index}:line:${lineIndex}`)}
-        </span>
-      ))}
-    </p>
-  );
-}
-
-function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  const pattern = /(\*\*[^*]+\*\*|`[^`]+`)/g;
-  let cursor = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = pattern.exec(text)) !== null) {
-    if (match.index > cursor) {
-      nodes.push(text.slice(cursor, match.index));
-    }
-    const token = match[0];
-    if (token.startsWith("**")) {
-      nodes.push(<strong key={`${keyPrefix}:strong:${match.index}`}>{token.slice(2, -2)}</strong>);
-    } else {
-      nodes.push(<code key={`${keyPrefix}:code:${match.index}`}>{token.slice(1, -1)}</code>);
-    }
-    cursor = match.index + token.length;
-  }
-
-  if (cursor < text.length) {
-    nodes.push(text.slice(cursor));
-  }
-
-  return nodes;
-}
-
-function isMarkdownTableStart(lines: string[], index: number): boolean {
-  return isMarkdownTableRow(lines[index])
-    && index + 1 < lines.length
-    && isMarkdownTableSeparator(lines[index + 1]);
-}
-
-function isMarkdownTableRow(line: string): boolean {
-  return line.includes("|") && parseMarkdownTableRow(line).length >= 2;
-}
-
-function isMarkdownTableSeparator(line: string): boolean {
-  const cells = parseMarkdownTableRow(line);
-  return cells.length >= 2 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
-}
-
-function parseMarkdownTableRow(line: string): string[] {
-  return line
-    .trim()
-    .replace(/^\|/, "")
-    .replace(/\|$/, "")
-    .split("|")
-    .map((cell) => cell.trim());
 }
 
 function sessionTitleInitial(title: string): string {

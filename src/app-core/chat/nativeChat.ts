@@ -542,10 +542,6 @@ export function appendUserMessage(state: NativeChatState, content: string, times
     messageId: "",
   });
   state.respondingSessionKeys.add(state.activeSessionKey);
-  const session = state.sessions.find((item) => item.key === state.activeSessionKey);
-  if (session && (!session.title || session.title === "New session")) {
-    session.title = content.trim().slice(0, 80) || "New session";
-  }
 }
 
 export function applyChatEvent(state: NativeChatState, event: NormalizedGatewayEvent) {

@@ -4,6 +4,7 @@ use super::{
 };
 use crate::worker_tool_registry::{ToolExposure, ToolRegistryEntry};
 use serde_json::Value;
+use std::collections::HashMap;
 
 pub(super) struct RustNativeAgentProvider;
 
@@ -48,7 +49,7 @@ impl NativeAgentProvider for RustNativeAgentProvider {
             reasoning_delta: chat_completion_reasoning_delta(&completion),
             usage: completion.get("usage").cloned(),
             tool_calls: {
-                let chat_tool_calls = chat_completion_tool_calls(&completion);
+                let chat_tool_calls = chat_completion_tool_calls(&completion, context);
                 if chat_tool_calls.is_empty() {
                     fixture_response
                         .as_ref()
@@ -83,7 +84,7 @@ pub(super) fn agent_chat_completion_request(
     {
         request["max_completion_tokens"] = max_tokens;
     }
-    let tools = chat_completion_tool_specs(context);
+    let tools = chat_completion_tool_specs(context)?;
     if !tools.is_empty() {
         request["tools"] = Value::Array(tools);
         request["tool_choice"] = Value::String("auto".to_string());
@@ -94,13 +95,27 @@ pub(super) fn agent_chat_completion_request(
     Ok(request)
 }
 
-fn chat_completion_tool_specs(context: &NativeAgentRunContext) -> Vec<Value> {
-    context
+fn chat_completion_tool_specs(context: &NativeAgentRunContext) -> Result<Vec<Value>, String> {
+    let mut internal_method_by_provider_name = HashMap::new();
+    let mut tools = Vec::new();
+    for entry in context
         .tool_registry_entries
         .iter()
         .filter(|entry| entry.available && entry.exposure == ToolExposure::Model)
-        .map(registry_entry_to_chat_tool)
-        .collect()
+    {
+        let provider_name = provider_tool_name(entry.method);
+        if let Some(existing_method) = internal_method_by_provider_name
+            .insert(provider_name.clone(), entry.method)
+            .filter(|existing_method| *existing_method != entry.method)
+        {
+            return Err(format!(
+                "provider tool name collision: {existing_method} and {} both map to {provider_name}",
+                entry.method
+            ));
+        }
+        tools.push(registry_entry_to_chat_tool(entry, &provider_name));
+    }
+    Ok(tools)
 }
 
 fn should_enable_parallel_tool_calls(context: &NativeAgentRunContext) -> bool {
@@ -133,11 +148,11 @@ fn bool_config_field(value: &Value) -> Option<bool> {
         .and_then(Value::as_bool)
 }
 
-fn registry_entry_to_chat_tool(entry: &ToolRegistryEntry) -> Value {
+fn registry_entry_to_chat_tool(entry: &ToolRegistryEntry, provider_name: &str) -> Value {
     serde_json::json!({
         "type": "function",
         "function": {
-            "name": entry.method,
+            "name": provider_name,
             "description": entry.description,
             "parameters": entry.input_schema.clone(),
         },
@@ -183,9 +198,47 @@ fn set_agent_default(config: &mut Value, key: &str, value: Value) {
 
 fn agent_chat_messages(context: &NativeAgentRunContext) -> Result<Value, String> {
     if !context.messages.is_empty() {
-        return Ok(Value::Array(context_window_messages(context)));
+        let mut messages = context_window_messages(context);
+        for message in &mut messages {
+            encode_message_tool_names_for_provider(message);
+        }
+        return Ok(Value::Array(messages));
     }
     Err("agent run requires at least one chat message".to_string())
+}
+
+fn encode_message_tool_names_for_provider(message: &mut Value) {
+    if let Some(tool_calls) = message.get_mut("tool_calls").and_then(Value::as_array_mut) {
+        for tool_call in tool_calls {
+            let Some(function) = tool_call.get_mut("function").and_then(Value::as_object_mut)
+            else {
+                continue;
+            };
+            let Some(name) = function.get("name").and_then(Value::as_str) else {
+                continue;
+            };
+            function.insert("name".to_string(), Value::String(provider_tool_name(name)));
+        }
+    }
+    if message.get("role").and_then(Value::as_str) == Some("tool") {
+        let Some(name) = message.get("name").and_then(Value::as_str) else {
+            return;
+        };
+        message["name"] = Value::String(provider_tool_name(name));
+    }
+}
+
+fn provider_tool_name(method: &str) -> String {
+    method
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '_' | '-') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 pub(super) fn chat_completion_content(completion: &Value) -> String {
@@ -204,7 +257,10 @@ fn chat_completion_reasoning_delta(completion: &Value) -> Option<String> {
         .map(str::to_string)
 }
 
-fn chat_completion_tool_calls(completion: &Value) -> Vec<NativeAgentToolCall> {
+pub(super) fn chat_completion_tool_calls(
+    completion: &Value,
+    context: &NativeAgentRunContext,
+) -> Vec<NativeAgentToolCall> {
     completion
         .pointer("/choices/0/message/tool_calls")
         .and_then(Value::as_array)
@@ -214,7 +270,16 @@ fn chat_completion_tool_calls(completion: &Value) -> Vec<NativeAgentToolCall> {
                 .enumerate()
                 .filter_map(|(index, tool)| {
                     let function = tool.get("function")?;
-                    let name = string_field(function, "name")?;
+                    let provider_name = string_field(function, "name")?;
+                    let name = context
+                        .tool_registry_entries
+                        .iter()
+                        .find(|entry| {
+                            entry.method == provider_name
+                                || provider_tool_name(entry.method) == provider_name
+                        })
+                        .map(|entry| entry.method.to_string())
+                        .unwrap_or(provider_name);
                     Some(NativeAgentToolCall {
                         id: string_field(tool, "id")
                             .unwrap_or_else(|| format!("tool-call-{}", index + 1)),

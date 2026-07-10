@@ -431,7 +431,47 @@ describe("default desktop app services", () => {
     }));
   });
 
-  test("persists the first user message as the title for default sessions", async () => {
+  test("creates one real session and sends the first message from an empty session list", async () => {
+    mocks.gatewayApi.sessions.list.mockResolvedValue({ items: [] });
+    const services = createDesktopAppServices();
+    await expect(services.sessionStore.list()).resolves.toEqual([]);
+
+    const pending = await services.sessionStore.create();
+    await services.chatStore.send(pending.id, {
+      text: "inspect remote pull requests",
+      usePersistentRag: true,
+    });
+
+    expect(mocks.sendGatewaySocketJson.mock.calls.map((call) => (call as unknown[])[1])).toEqual([
+      { type: "new_chat" },
+    ]);
+
+    const socket = mocks.openGatewaySocket.mock.results[0]?.value;
+    socket.handlers.onEvent({
+      kind: "chat.created",
+      chatId: "chat-created-from-empty",
+      raw: {},
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mocks.sendGatewaySocketJson.mock.calls.map((call) => (call as unknown[])[1])).toEqual([
+      { type: "new_chat" },
+      {
+        type: "message",
+        chat_id: "chat-created-from-empty",
+        content: "inspect remote pull requests",
+        use_persistent_rag: true,
+      },
+    ]);
+    await expect(services.sessionStore.list()).resolves.toEqual([
+      expect.objectContaining({ id: "websocket:chat-created-from-empty" }),
+    ]);
+    await expect(services.chatStore.load("websocket:chat-created-from-empty")).resolves.toEqual([
+      expect.objectContaining({ role: "user", text: "inspect remote pull requests" }),
+    ]);
+  });
+
+  test("leaves automatic title persistence to the backend for existing sessions", async () => {
     mocks.gatewayApi.sessions.list.mockResolvedValue({
       items: [{ key: "websocket:chat-1", chat_id: "chat-1", title: "Desktop Session websocket:chat-1" }],
     });
@@ -440,12 +480,10 @@ describe("default desktop app services", () => {
 
     await services.chatStore.send("websocket:chat-1", { text: "你好\n第二行", usePersistentRag: true });
 
-    expect(mocks.gatewayApi.sessions.patch).toHaveBeenCalledWith("websocket:chat-1", {
-      title: "你好",
-    });
+    expect(mocks.gatewayApi.sessions.patch).not.toHaveBeenCalled();
   });
 
-  test("persists the first user message title after a pending session is created", async () => {
+  test("leaves automatic title persistence to the backend for pending sessions", async () => {
     const services = createDesktopAppServices();
     const pending = await services.sessionStore.create();
 
@@ -458,13 +496,10 @@ describe("default desktop app services", () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(mocks.gatewayApi.sessions.patch).toHaveBeenCalledWith("websocket:chat-new", {
-      title: "帮我总结一份文档",
-    });
+    expect(mocks.gatewayApi.sessions.patch).not.toHaveBeenCalled();
   });
 
-  test("keeps pending session cleanup best-effort when auto-title persistence fails", async () => {
-    mocks.gatewayApi.sessions.patch.mockRejectedValueOnce(new Error("unknown session"));
+  test("cleans up the pending session after the backend creates the chat", async () => {
     const services = createDesktopAppServices();
     const pending = await services.sessionStore.create();
 

@@ -103,14 +103,14 @@ impl WorkerThreadLogRpc {
                 if self.prune_missing_thread_logs()? {
                     self.rebuild_state_index_from_logs()?;
                 }
-                Ok(())
             }
-            Ok(_) => self.rebuild_state_index_from_logs(),
+            Ok(_) => self.rebuild_state_index_from_logs()?,
             Err(_) => {
                 self.state.reset()?;
-                self.rebuild_state_index_from_logs()
+                self.rebuild_state_index_from_logs()?;
             }
         }
+        self.backfill_default_titles_from_logs()
     }
 
     fn find_live_record(
@@ -157,6 +157,11 @@ impl WorkerThreadLogRpc {
             } else {
                 replay.updated_at
             };
+            let title = if is_default_session_title(&replay.title) {
+                title_from_messages(&replay.messages).unwrap_or(replay.title)
+            } else {
+                replay.title
+            };
             let mut record = ThreadStateRecord {
                 id: meta.thread_id,
                 session_id: meta.session_id,
@@ -164,7 +169,7 @@ impl WorkerThreadLogRpc {
                 created_at: meta.created_at,
                 updated_at,
                 source: meta.source,
-                title: replay.title,
+                title,
                 preview: preview_from_messages(&replay.messages),
                 cwd: meta.cwd,
                 model_provider: meta.model_provider,
@@ -178,6 +183,30 @@ impl WorkerThreadLogRpc {
                 archived_at: None,
             };
             apply_metadata_events_to_record(&mut record, &lines)?;
+            self.state.upsert_thread(&record)?;
+        }
+        Ok(())
+    }
+
+    fn backfill_default_titles_from_logs(&self) -> Result<(), WorkerProtocolError> {
+        for mut record in self.state.list_all_threads()? {
+            if !is_default_session_title(&record.title) {
+                continue;
+            }
+            let path = PathBuf::from(&record.thread_path);
+            self.recorder.validate_thread_path(&path)?;
+            let lines = read_thread_lines(&path)?;
+            let title = match title_from_metadata_events(&lines) {
+                Some(title) => Some(title),
+                None => {
+                    let replay = replay_thread(&lines)?;
+                    title_from_messages(&replay.messages)
+                }
+            };
+            let Some(title) = title else {
+                continue;
+            };
+            record.title = title;
             self.state.upsert_thread(&record)?;
         }
         Ok(())
@@ -282,7 +311,12 @@ impl WorkerThreadLogRpc {
             ThreadRunState::Missing => {}
         }
 
-        let mut turn_items = Vec::with_capacity(saved_messages.len() + 2);
+        let mut next_messages = replay.messages;
+        next_messages.extend(saved_messages.clone());
+        let derived_title = is_default_session_title(&record.title)
+            .then(|| title_from_messages(&next_messages))
+            .flatten();
+        let mut turn_items = Vec::with_capacity(saved_messages.len() + 3);
         turn_items.push(value_event(
             "turn_started",
             serde_json::json!({ "runId": run_id }),
@@ -293,6 +327,12 @@ impl WorkerThreadLogRpc {
                 .cloned()
                 .map(ThreadLogItem::ResponseItem),
         );
+        if let Some(title) = derived_title.as_ref() {
+            turn_items.push(value_event(
+                "metadata_updated",
+                serde_json::json!({ "metadata": { "title": title } }),
+            ));
+        }
         turn_items.push(value_event(
             "turn_complete",
             serde_json::json!({ "runId": run_id }),
@@ -302,9 +342,10 @@ impl WorkerThreadLogRpc {
 
         let saved_message_count = saved_messages.len();
         let messages_after = messages_before + saved_message_count;
-        let mut next_messages = replay.messages;
-        next_messages.extend(saved_messages.clone());
         record.updated_at = timestamp;
+        if let Some(title) = derived_title {
+            record.title = title;
+        }
         record.preview = preview_from_messages(&next_messages);
         self.state.upsert_thread(&record)?;
         Ok(PersistTurnResult {
@@ -494,6 +535,44 @@ fn thread_meta_from_lines(lines: &[ThreadLogLine]) -> Result<ThreadMeta, WorkerP
                 WorkerProtocolErrorSource::RustCore,
             )
         })
+}
+
+fn is_default_session_title(title: &str) -> bool {
+    let title = title.trim();
+    title.is_empty() || title == "New session" || title.starts_with("Desktop Session websocket:")
+}
+
+fn title_from_messages(messages: &[Value]) -> Option<String> {
+    messages.iter().find_map(|message| {
+        if message.get("role").and_then(Value::as_str) != Some("user") {
+            return None;
+        }
+        let content = message.get("content").and_then(Value::as_str)?.trim();
+        let first_line = content.lines().next()?.trim();
+        if first_line.is_empty() {
+            return None;
+        }
+        Some(first_line.chars().take(80).collect())
+    })
+}
+
+fn title_from_metadata_events(lines: &[ThreadLogLine]) -> Option<String> {
+    lines.iter().rev().find_map(|line| {
+        let ThreadLogItem::EventMsg(event) = &line.item else {
+            return None;
+        };
+        if event.get("type").and_then(Value::as_str) != Some("metadata_updated") {
+            return None;
+        }
+        event
+            .get("payload")
+            .and_then(|payload| payload.get("metadata"))
+            .and_then(|metadata| metadata.get("title"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+            .map(str::to_string)
+    })
 }
 
 fn preview_from_messages(messages: &[Value]) -> String {

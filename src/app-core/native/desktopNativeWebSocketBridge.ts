@@ -181,7 +181,14 @@ class DesktopNativeWebSocket extends EventTarget {
       if (run) {
         this.activeRuns.delete(run.runId);
       }
-      this.emitJson({ event: "error", message: error instanceof Error ? error.message : String(error) });
+      const message = error instanceof Error ? error.message : String(error);
+      logDesktopNativeDebug("nativeWebSocket.dispatchFrame.failed", {
+        chatId: run?.chatId || stringValue(frame.chat_id),
+        error: message,
+        runId: run?.runId || "",
+        type: stringValue(frame.type),
+      });
+      this.emitJson({ event: "error", message });
     }
   }
 
@@ -345,7 +352,13 @@ class DesktopNativeWebSocket extends EventTarget {
       eventName,
       hasRun: runId ? this.activeRuns.has(runId) : false,
       runId,
-      text: summarizeDebugText(stringValue(record.delta) || stringValue(record.text) || stringValue(record.content)),
+      text: summarizeDebugText(
+        stringValue(record.delta)
+        || stringValue(record.text)
+        || stringValue(record.content)
+        || stringValue(record.message)
+        || stringValue(record.error),
+      ),
     });
     if (!runId) {
       return;

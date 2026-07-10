@@ -2189,6 +2189,120 @@ fn thread_log_history_rebuilds_missing_state_index_from_jsonl() {
 }
 
 #[test]
+fn thread_log_title_is_derived_from_first_user_message_and_survives_state_rebuild() {
+    let fixture = WorkspaceFixture::new();
+    {
+        let mut router = WorkerRpcRouter::new_persistent_sessions(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            50,
+            CapabilityPolicy::new([
+                WorkerCapability::SessionWrite,
+                WorkerCapability::SessionMetadataRead,
+            ]),
+        )
+        .unwrap();
+        let persist = router.dispatch(&WorkerRequest::new(
+            "req-title-persist",
+            "trace-title-persist",
+            "session.persist_turn",
+            json!({
+                "session_id": "session-title-rebuild",
+                "run_id": "run-title-rebuild",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "  Design backend titles\nwith durable metadata  ",
+                        "messageId": "user-title-rebuild"
+                    },
+                    {
+                        "role": "assistant",
+                        "content": "done",
+                        "messageId": "assistant-title-rebuild"
+                    }
+                ],
+                "clear_checkpoint": false
+            }),
+        ));
+        assert_eq!(persist.error, None);
+    }
+
+    let thread_log_path = first_thread_log_file(&fixture.root);
+    let thread_log =
+        std::fs::read_to_string(&thread_log_path).expect("thread log should be readable");
+    assert!(thread_log.contains("\"type\":\"metadata_updated\""));
+    assert!(thread_log.contains("\"title\":\"Design backend titles\""));
+
+    let legacy_thread_log = thread_log
+        .lines()
+        .filter(|line| !line.contains("\"type\":\"metadata_updated\""))
+        .collect::<Vec<_>>()
+        .join("\n");
+    std::fs::write(&thread_log_path, format!("{legacy_thread_log}\n"))
+        .expect("legacy thread log fixture should be writable");
+
+    let state_path = fixture
+        .root
+        .join(".tinybot")
+        .join("state")
+        .join("state.sqlite");
+    let connection = rusqlite::Connection::open(&state_path).expect("state db should open");
+    connection
+        .execute(
+            "UPDATE threads SET title = 'New session' WHERE session_id = ?1",
+            ["session-title-rebuild"],
+        )
+        .expect("legacy title should be writable");
+    drop(connection);
+
+    {
+        let mut router = WorkerRpcRouter::new_persistent_sessions(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            50,
+            CapabilityPolicy::new([WorkerCapability::SessionMetadataRead]),
+        )
+        .unwrap();
+        let list = router.dispatch(&WorkerRequest::new(
+            "req-title-backfill-list",
+            "trace-title-backfill-list",
+            "session.list_metadata",
+            json!({}),
+        ));
+        assert_eq!(list.error, None);
+        assert_eq!(
+            list.result.as_ref().unwrap()[0]["title"],
+            "Design backend titles"
+        );
+    }
+
+    std::fs::remove_file(&state_path).expect("state index should be removable");
+
+    let mut router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        CapabilityPolicy::new([WorkerCapability::SessionMetadataRead]),
+    )
+    .unwrap();
+    let list = router.dispatch(&WorkerRequest::new(
+        "req-title-list",
+        "trace-title-list",
+        "session.list_metadata",
+        json!({}),
+    ));
+
+    assert_eq!(list.error, None);
+    assert_eq!(
+        list.result.as_ref().unwrap()[0]["title"],
+        "Design backend titles"
+    );
+}
+
+#[test]
 fn session_list_metadata_rebuild_ignores_legacy_thread_item_jsonl() {
     let fixture = WorkspaceFixture::new();
     {

@@ -161,22 +161,25 @@ fn chat_completion_request_injects_available_model_tools() {
 
     assert_eq!(request["tool_choice"], "auto");
     assert!(request.get("parallel_tool_calls").is_none());
-    assert!(names.contains(&"workspace.read_file"));
-    assert!(names.contains(&"memory.search"));
-    assert!(names.contains(&"memory.recall"));
-    assert!(names.contains(&"knowledge.query"));
-    assert!(names.contains(&"subagent.spawn"));
-    assert!(names.contains(&"subagent.send_input"));
-    assert!(!names.contains(&"workspace.write_file"));
-    assert!(!names.contains(&"workspace.delete_file"));
-    assert!(!names.contains(&"mcp.call_tool"));
-    assert!(!names.contains(&"shell.execute"));
+    assert!(names.contains(&"workspace_read_file"));
+    assert!(names.contains(&"memory_search"));
+    assert!(names.contains(&"memory_recall"));
+    assert!(names.contains(&"knowledge_query"));
+    assert!(names.contains(&"subagent_spawn"));
+    assert!(names.contains(&"subagent_send_input"));
+    assert!(!names.contains(&"workspace_write_file"));
+    assert!(!names.contains(&"workspace_delete_file"));
+    assert!(!names.contains(&"mcp_call_tool"));
+    assert!(!names.contains(&"shell_execute"));
+    assert!(names.iter().all(|name| name
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))));
     assert_eq!(tools[0]["type"], "function");
     assert_eq!(
         tools
             .iter()
-            .find(|tool| tool["function"]["name"] == "workspace.read_file")
-            .expect("workspace.read_file spec should be present")["function"]["parameters"],
+            .find(|tool| tool["function"]["name"] == "workspace_read_file")
+            .expect("workspace_read_file spec should be present")["function"]["parameters"],
         json!({
             "type": "object",
             "required": ["path"],
@@ -244,7 +247,7 @@ fn chat_completion_request_omits_tools_when_no_model_tools_are_available() {
 }
 
 #[test]
-fn chat_completion_request_keeps_tool_continuation_messages_unchanged() {
+fn chat_completion_request_encodes_tool_continuation_names_for_provider() {
     let mut context = NativeAgentRunContext::from_spec(
         json!({
             "runtime": "rust",
@@ -284,12 +287,55 @@ fn chat_completion_request_keeps_tool_continuation_messages_unchanged() {
         agent_chat_completion_request(&context).expect("tool continuation request should be built");
 
     assert_eq!(request["messages"][0]["tool_calls"][0]["id"], "call-read");
+    assert_eq!(
+        request["messages"][0]["tool_calls"][0]["function"]["name"],
+        "workspace_read_file"
+    );
     assert_eq!(request["messages"][1]["role"], "tool");
     assert_eq!(request["messages"][1]["tool_call_id"], "call-read");
+    assert_eq!(request["messages"][1]["name"], "workspace_read_file");
     assert_eq!(
         request["messages"][1]["content"],
         "{\"content\":\"README body\"}"
     );
+}
+
+#[test]
+fn provider_tool_call_names_restore_internal_registry_methods() {
+    let mut context = NativeAgentRunContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "runId": "run-provider-tool-name",
+            "sessionId": "websocket:chat-provider-tool-name",
+            "model": "fixture-model",
+            "messages": [{ "role": "user", "content": "read README" }]
+        }),
+        json!({}),
+    );
+    context.tool_registry_entries =
+        WorkerToolRegistryRpc::new(CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]))
+            .list_tools()
+            .tools;
+    let completion = json!({
+        "choices": [{
+            "message": {
+                "tool_calls": [{
+                    "id": "call-read",
+                    "type": "function",
+                    "function": {
+                        "name": "workspace_read_file",
+                        "arguments": "{\"path\":\"README.md\"}"
+                    }
+                }]
+            }
+        }]
+    });
+
+    let tool_calls = super::provider::chat_completion_tool_calls(&completion, &context);
+
+    assert_eq!(tool_calls.len(), 1);
+    assert_eq!(tool_calls[0].name, "workspace.read_file");
+    assert_eq!(tool_calls[0].arguments_json, "{\"path\":\"README.md\"}");
 }
 
 #[test]

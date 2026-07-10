@@ -11,6 +11,8 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@streamdown/cjk": "^1.0.3",
+    "@streamdown/code": "^1.1.1",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-notification": "^2.3.3",
     "@tauri-apps/plugin-opener": "^2",
@@ -25,6 +27,7 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "sigma": "^3.0.3",
+    "streamdown": "^2.5.0",
     "three": "^0.184.0"
   },
   "devDependencies": {
