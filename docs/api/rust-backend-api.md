@@ -589,6 +589,11 @@ read scheduling, exclusive write scheduling, model-order result projection, sing
 ownership, and late-result diagnostics remain unchanged. The parent run retains each handle until
 the task has joined; dropping an incomplete batch cancels and aborts every remaining wrapper task.
 The approval-resume path uses the same ownership boundary instead of a nested synchronous dispatch.
+Production providers and tool dispatchers must implement their async seam. The synchronous trait
+bridge exists only in unit-test builds; it fails explicitly in production instead of creating an
+unregistered blocking task. Tinybot's provider, MCP path, subagent dispatcher, and general tool
+executor all execute inside the registered provider/tool future, so cancellation cannot detach a
+lower-level `spawn_blocking` operation from the run owner.
 
 Tool teardown is selected from the registry runtime policy:
 

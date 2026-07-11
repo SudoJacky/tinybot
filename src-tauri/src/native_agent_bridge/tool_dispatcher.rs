@@ -130,9 +130,7 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
             if let Some(result) = self.dispatch_mcp_if_needed(&context, &tool_call).await {
                 return result;
             }
-            tauri::async_runtime::spawn_blocking(move || self.dispatch(&context, &tool_call))
-                .await
-                .map_err(|error| format!("native tool execution task failed: {error}"))?
+            self.dispatch(&context, &tool_call)
         })
     }
 }

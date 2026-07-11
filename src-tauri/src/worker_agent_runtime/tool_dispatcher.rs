@@ -226,6 +226,16 @@ impl NativeAgentToolDispatcher for SubagentNativeAgentToolDispatcher {
         .map_err(|error| format!("native subagent tool result serialization failed: {error}"))?;
         Ok(NativeAgentToolResult::generic_success(tool_call, raw))
     }
+
+    fn dispatch_async(
+        self: std::sync::Arc<Self>,
+        context: NativeAgentRunContext,
+        tool_call: NativeAgentToolCall,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send>,
+    > {
+        Box::pin(async move { self.dispatch(&context, &tool_call) })
+    }
 }
 
 pub(super) fn native_tool_is_permitted(context: &NativeAgentRunContext, name: &str) -> bool {

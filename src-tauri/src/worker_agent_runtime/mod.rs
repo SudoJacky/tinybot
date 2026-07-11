@@ -305,24 +305,36 @@ pub trait NativeAgentProvider: Send + Sync + 'static {
                 + 'a,
         >,
     > {
-        let context = context.clone();
-        Box::pin(async move {
-            let (result, events) = tauri::async_runtime::spawn_blocking(move || {
-                let mut events = Vec::new();
-                let result = self.complete_streaming(&context, &mut |event| events.push(event));
-                (result, events)
-            })
-            .await
-            .map_err(|error| {
-                NativeAgentProviderFailure::provider(format!(
-                    "blocking provider task failed: {error}"
+        #[cfg(test)]
+        {
+            let context = context.clone();
+            return Box::pin(async move {
+                let (result, events) = tauri::async_runtime::spawn_blocking(move || {
+                    let mut events = Vec::new();
+                    let result = self.complete_streaming(&context, &mut |event| events.push(event));
+                    (result, events)
+                })
+                .await
+                .map_err(|error| {
+                    NativeAgentProviderFailure::provider(format!(
+                        "blocking provider test task failed: {error}"
+                    ))
+                })?;
+                for event in events {
+                    observer(event);
+                }
+                result.map_err(NativeAgentProviderFailure::provider)
+            });
+        }
+        #[cfg(not(test))]
+        {
+            let _ = (self, context, observer);
+            Box::pin(async {
+                Err(NativeAgentProviderFailure::provider(
+                    "native agent provider must implement complete_streaming_async",
                 ))
-            })?;
-            for event in events {
-                observer(event);
-            }
-            result.map_err(NativeAgentProviderFailure::provider)
-        })
+            })
+        }
     }
 }
 
@@ -340,11 +352,21 @@ pub trait NativeAgentToolDispatcher: Send + Sync + 'static {
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send>,
     > {
-        Box::pin(async move {
-            tauri::async_runtime::spawn_blocking(move || self.dispatch(&context, &tool_call))
-                .await
-                .map_err(|error| format!("blocking native tool task failed: {error}"))?
-        })
+        #[cfg(test)]
+        {
+            return Box::pin(async move {
+                tauri::async_runtime::spawn_blocking(move || self.dispatch(&context, &tool_call))
+                    .await
+                    .map_err(|error| format!("blocking native tool test task failed: {error}"))?
+            });
+        }
+        #[cfg(not(test))]
+        {
+            let _ = (self, context, tool_call);
+            Box::pin(async {
+                Err("native agent tool dispatcher must implement dispatch_async".to_string())
+            })
+        }
     }
 }
 
