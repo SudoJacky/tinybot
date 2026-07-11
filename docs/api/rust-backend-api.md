@@ -635,6 +635,12 @@ The catalog is the deterministic projection of registered tool contributors. Wor
 generic MCP dispatch, and per-server MCP discovery all enter through this registry; feature-specific
 tool arrays are not appended directly by the provider loop.
 
+Scheduling, cancellation, mutation classification, and approval metadata are read from the same
+visible registry entry used for provider exposure and dispatch. The generic `mcp.call_tool` entry is
+serialized because it can mutate both workspace and session state. Server configuration and fixture
+annotations cannot override that policy during dispatch. Per-server discovered MCP tools may be
+parallel-safe only when their registry entry was built with a read-only or server-parallel policy.
+
 `tool_search` input:
 
 ```json

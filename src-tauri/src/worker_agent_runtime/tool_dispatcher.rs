@@ -241,9 +241,6 @@ pub(super) fn native_tool_call_supports_parallel(
     context: &NativeAgentRunContext,
     tool_call: &NativeAgentToolCall,
 ) -> bool {
-    if tool_call.name == "mcp.call_tool" {
-        return mcp_call_supports_parallel(context, tool_call);
-    }
     if tool_call.name == "shell.execute" {
         return shell_call_supports_parallel(context, tool_call);
     }
@@ -383,84 +380,6 @@ fn legacy_native_tool_alias_policy_method(name: &str) -> Option<&'static str> {
         "subagent.query" | "subagent.cancel" => Some("subagent.spawn"),
         _ => None,
     }
-}
-
-fn mcp_call_supports_parallel(
-    context: &NativeAgentRunContext,
-    tool_call: &NativeAgentToolCall,
-) -> bool {
-    let Ok(arguments) = serde_json::from_str::<Value>(&tool_call.arguments_json) else {
-        return false;
-    };
-    let Some(server_name) = arguments
-        .get("server")
-        .and_then(Value::as_str)
-        .map(str::trim)
-    else {
-        return false;
-    };
-    let Some(tool_name) = arguments.get("tool").and_then(Value::as_str).map(str::trim) else {
-        return false;
-    };
-    if server_name.is_empty() || tool_name.is_empty() {
-        return false;
-    }
-    let Some(server) = context
-        .config_snapshot
-        .get("tools")
-        .and_then(|tools| tools.get("mcp_servers").or_else(|| tools.get("mcpServers")))
-        .and_then(|servers| servers.get(server_name))
-    else {
-        return false;
-    };
-    if !mcp_tool_is_enabled(server_name, tool_name, server) {
-        return false;
-    }
-    server
-        .get("supportsParallelToolCalls")
-        .or_else(|| server.get("supports_parallel_tool_calls"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-        || mcp_tool_read_only_hint(server, tool_name)
-}
-
-fn mcp_tool_is_enabled(server_name: &str, tool_name: &str, server: &Value) -> bool {
-    let Some(enabled_tools) = server
-        .get("enabled_tools")
-        .or_else(|| server.get("enabledTools"))
-        .and_then(Value::as_array)
-    else {
-        return false;
-    };
-    let wrapped_name = format!("mcp_{server_name}_{tool_name}");
-    enabled_tools.iter().any(|value| {
-        value.as_str().is_some_and(|enabled| {
-            enabled == "*" || enabled == tool_name || enabled == wrapped_name
-        })
-    })
-}
-
-fn mcp_tool_read_only_hint(server: &Value, tool_name: &str) -> bool {
-    let Some(tool) = server
-        .get("fixture_tools")
-        .or_else(|| server.get("fixtureTools"))
-        .and_then(|tools| tools.get(tool_name))
-    else {
-        return false;
-    };
-    tool.get("annotations")
-        .and_then(|annotations| {
-            annotations
-                .get("readOnlyHint")
-                .or_else(|| annotations.get("read_only_hint"))
-        })
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-        || tool
-            .get("readOnlyHint")
-            .or_else(|| tool.get("read_only_hint"))
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
 }
 
 fn shell_call_supports_parallel(

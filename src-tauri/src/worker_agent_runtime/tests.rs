@@ -1492,6 +1492,26 @@ fn deferred_tool_activation_round_trips_through_checkpoint_validation() {
 }
 
 #[test]
+fn duplicate_deferred_tool_activation_fails_without_partial_state() {
+    let mut context = NativeAgentRunContext::from_spec(
+        json!({
+            "runId": "run-duplicate-activation",
+            "sessionId": "session-duplicate-activation",
+            "messages": [{ "role": "user", "content": "find shell" }]
+        }),
+        json!({}),
+    );
+
+    let error = context
+        .tool_router
+        .activate_for_turn(&["exec_command".to_string(), "exec_command".to_string()])
+        .expect_err("duplicate activation IDs must fail explicitly");
+
+    assert!(error.contains("duplicate ID"));
+    assert!(context.tool_router.activated_tool_ids().is_empty());
+}
+
+#[test]
 fn provider_tool_name_collisions_fail_before_request_dispatch() {
     let registry =
         WorkerToolRegistryRpc::new(CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]));
@@ -3172,7 +3192,7 @@ fn read_only_tool_batch_runs_concurrently_and_preserves_model_ordered_observatio
 }
 
 #[test]
-fn read_only_mcp_tool_calls_use_read_lock_scheduling() {
+fn mcp_call_scheduling_uses_registry_runtime_policy() {
     struct TwoMcpToolsThenFinalProvider {
         calls: Mutex<usize>,
     }
@@ -3296,8 +3316,8 @@ fn read_only_mcp_tool_calls_use_read_lock_scheduling() {
         .collect::<Vec<_>>();
 
     assert_eq!(result["stopReason"], "final_response");
-    assert_eq!(dispatcher.max_running.load(Ordering::SeqCst), 2);
-    assert_eq!(mcp_start_modes, vec![json!("read"), json!("read")]);
+    assert_eq!(dispatcher.max_running.load(Ordering::SeqCst), 1);
+    assert_eq!(mcp_start_modes, vec![json!("write"), json!("write")]);
 }
 
 #[test]
