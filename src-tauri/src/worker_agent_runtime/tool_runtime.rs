@@ -993,17 +993,22 @@ async fn dispatch_tool_with_cancellation_policy(
                 &mut operation,
             )
             .await;
-            if cleanup.is_err() && cancellation_mode != ToolCancellationMode::Cooperative {
-                ToolDispatchOutcome::CleanupTimedOut {
+            match cleanup {
+                Ok(Ok(result)) => ToolDispatchOutcome::Success(ToolDispatchSuccess {
                     tool_call,
-                    cancellation_mode,
-                    timeout_ms: cleanup_timeout_ms,
+                    result,
+                }),
+                Err(_) if cancellation_mode != ToolCancellationMode::Cooperative => {
+                    ToolDispatchOutcome::CleanupTimedOut {
+                        tool_call,
+                        cancellation_mode,
+                        timeout_ms: cleanup_timeout_ms,
+                    }
                 }
-            } else {
-                ToolDispatchOutcome::Cancelled {
+                Ok(Err(_)) | Err(_) => ToolDispatchOutcome::Cancelled {
                     tool_call,
                     terminal: false,
-                }
+                },
             }
         }
         result = &mut operation => match result {

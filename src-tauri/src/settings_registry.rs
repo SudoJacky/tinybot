@@ -997,6 +997,18 @@ fn mcp_servers_group(config: &Value) -> SettingsGroup {
                     }
                 }
             }
+            fields.push(config_field(
+                &format!("mcp-{server_id}-env-var-refs"),
+                "Environment variable references",
+                &format!("{prefix}.env_var_refs"),
+                SettingScope::Workspace,
+                SettingValueType::Json,
+                true,
+                server
+                    .get("env_var_refs")
+                    .or_else(|| server.get("envVarRefs"))
+                    .cloned(),
+            ));
             if let Some(headers) = server
                 .get("http_headers")
                 .or_else(|| server.get("httpHeaders"))
@@ -1424,6 +1436,31 @@ mod tests {
                 .expect("environment-backed headers field should exist")
                 .value,
             json!({ "X-Trace": "TRACE_HEADER" })
+        );
+    }
+
+    #[test]
+    fn mcp_stdio_settings_expose_environment_reference_names() {
+        let snapshot = build_settings_snapshot(SettingsSnapshotInput {
+            config: json!({
+                "tools": { "mcp_servers": { "local": {
+                    "enabled": true,
+                    "transport": "stdio",
+                    "command": "node",
+                    "env_var_refs": { "PRIVATE_TOKEN": "TINYBOT_PRIVATE_TOKEN" }
+                }}}
+            }),
+            config_path: PathBuf::from("C:/Users/example/.tinybot/config.json"),
+            revision: "rev-1".to_string(),
+            diagnostics: Vec::new(),
+        });
+
+        assert_eq!(
+            snapshot
+                .field("tools.mcpServers.local.env_var_refs")
+                .expect("stdio environment references field should exist")
+                .value,
+            json!({ "PRIVATE_TOKEN": "TINYBOT_PRIVATE_TOKEN" })
         );
     }
 

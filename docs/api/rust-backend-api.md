@@ -607,6 +607,11 @@ tool name, cancellation mode, and timeout. If the outer run itself cannot finish
 cleanup within five seconds, the task owner returns `stopReason: "cancellation_cleanup_timeout"`
 and emits `agent.cleanup_timeout`. Neither timeout is reported as successful cancellation.
 
+When a tool operation completes successfully during bounded cancellation cleanup, its result and
+domain events are recorded before the run becomes cancelled. This preserves already-completed side
+effects without allowing another provider request. Results that arrive after the owned terminal gate
+remain ignored.
+
 `NativeBackendRunSpec`:
 
 ```json
@@ -1418,6 +1423,31 @@ Accepted transport values:
 Configured server maps are normalized from `tools.mcp_servers`, `tools.mcpServers`, or
 `mcp.servers`. All MCP status, discovery, reconciliation, Worker RPC, and native-agent dispatch
 paths use the same normalized map.
+
+Stdio configuration example:
+
+```json
+{
+  "tools": {
+    "mcpServers": {
+      "local-search": {
+        "enabled": true,
+        "transport": "stdio",
+        "command": "node",
+        "args": ["server.js"],
+        "env": { "LOG_LEVEL": "info" },
+        "envVarRefs": { "SEARCH_API_TOKEN": "TINYBOT_SEARCH_API_TOKEN" }
+      }
+    }
+  }
+}
+```
+
+`env` may contain non-sensitive process settings. Keys ending in token, secret, password,
+authorization, credentials, or API key are rejected when supplied inline. `envVarRefs` maps child
+environment names to host environment-variable names and resolves them only at server startup.
+Missing, empty, or non-Unicode referenced values fail explicitly without echoing the value.
+Snake-case `env_var_refs` is also accepted.
 
 Streamable HTTP configuration example:
 

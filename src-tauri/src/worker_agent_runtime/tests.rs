@@ -5379,6 +5379,26 @@ fn cancellation_during_subagent_wait_prevents_followup_model_call() {
             }
             Ok(result)
         }
+
+        fn dispatch_async(
+            self: Arc<Self>,
+            context: NativeAgentRunContext,
+            tool_call: NativeAgentToolCall,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send>,
+        > {
+            let result = self.fallback.dispatch(&context, &tool_call);
+            if !matches!(tool_call.name.as_str(), "subagent.wait" | "wait_agent") {
+                return Box::pin(async move { result });
+            }
+            let cancellations = self.cancellations.clone();
+            let run_id = context.run_id.clone();
+            Box::pin(async move {
+                cancellations.cancel(&run_id);
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                result
+            })
+        }
     }
 
     let manager = SubagentThreadManager::default();
