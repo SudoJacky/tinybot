@@ -175,7 +175,7 @@ fn normalizes_desktop_run_spec_inputs_for_rust_turns() {
 }
 
 #[test]
-fn workspace_system_prompt_is_sent_first_and_reloads_user_edits() {
+fn composed_workspace_instructions_reach_provider_and_reload_user_edits() {
     struct CapturingProvider {
         requests: Arc<Mutex<Vec<Vec<Value>>>>,
     }
@@ -298,7 +298,7 @@ fn workspace_system_prompt_is_sent_first_and_reloads_user_edits() {
         .as_str()
         .expect("custom system prompt should be text")
         .contains(&working_directory.display().to_string()));
-    assert!(!requests[1][0]["content"]
+    assert!(requests[1][0]["content"]
         .as_str()
         .expect("custom system prompt should be text")
         .contains("You are Tinybot"));
@@ -312,9 +312,11 @@ fn workspace_system_prompt_is_sent_first_and_reloads_user_edits() {
         let sources = result["instructionProvenance"]["sources"]
             .as_array()
             .expect("instruction provenance sources should be visible");
-        assert_eq!(sources[0]["kind"], "workspace_system");
-        assert_eq!(sources[1]["kind"], "project_agents");
-        assert_eq!(sources[2]["kind"], "project_override");
+        assert_eq!(sources[0]["kind"], "built_in_identity");
+        assert_eq!(sources[1]["kind"], "workspace_system");
+        assert_eq!(sources[2]["kind"], "project_agents");
+        assert_eq!(sources[3]["kind"], "project_override");
+        assert_eq!(sources[4]["kind"], "runtime_environment");
         assert!(sources.iter().all(|source| source["contentHash"]
             .as_str()
             .is_some_and(|hash| hash.len() == 64)));

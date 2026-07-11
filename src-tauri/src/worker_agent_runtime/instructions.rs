@@ -6,19 +6,38 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+const BUILTIN_IDENTITY_PRECEDENCE: u32 = 100;
 const WORKSPACE_SYSTEM_PRECEDENCE: u32 = 300;
+const TURN_DEVELOPER_PRECEDENCE: u32 = 200;
+const WORKSPACE_SOUL_PRECEDENCE: u32 = 400;
+const WORKSPACE_USER_PRECEDENCE: u32 = 410;
+const WORKSPACE_TOOLS_PRECEDENCE: u32 = 420;
 const PROJECT_INSTRUCTION_PRECEDENCE: u32 = 500;
+const SELECTED_SKILL_PRECEDENCE: u32 = 700;
+const COLLABORATION_PRECEDENCE: u32 = 800;
+const AGENT_ROLE_PRECEDENCE: u32 = 810;
+const RUNTIME_ENVIRONMENT_PRECEDENCE: u32 = 900;
 const PROJECT_INSTRUCTION_MAX_BYTES: usize = 64 * 1024;
 const WORKSPACE_SYSTEM_MAX_BYTES: usize = 128 * 1024;
+const WORKSPACE_PROFILE_MAX_BYTES: usize = 64 * 1024;
 const PROJECT_INSTRUCTION_FILE_NAME: &str = "AGENTS.md";
 const PROJECT_INSTRUCTION_OVERRIDE_FILE_NAME: &str = "AGENTS.override.md";
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum InstructionSourceKind {
+    BuiltInIdentity,
+    TurnDeveloper,
     WorkspaceSystem,
+    WorkspaceSoul,
+    WorkspaceUser,
+    WorkspaceTools,
     ProjectAgents,
     ProjectOverride,
+    SelectedSkill,
+    CollaborationMode,
+    AgentRole,
+    RuntimeEnvironment,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -107,6 +126,39 @@ impl InstructionComposer {
         push_instruction_source(
             &mut messages,
             &mut sources,
+            InstructionSourceKind::BuiltInIdentity,
+            PathBuf::from("builtin:identity"),
+            workspace_root.to_path_buf(),
+            BUILTIN_IDENTITY_PRECEDENCE,
+            loaded_at_ms,
+            "You are Tinybot, a local-first AI assistant running on the user's machine."
+                .to_string(),
+            false,
+            Vec::new(),
+            false,
+        );
+        if let Some(content) = optional_turn_instruction(
+            spec,
+            &["developerInstructions", "developer_instructions"],
+            "developer instructions",
+        )? {
+            push_instruction_source(
+                &mut messages,
+                &mut sources,
+                InstructionSourceKind::TurnDeveloper,
+                PathBuf::from("turn:developer"),
+                working_directory.clone(),
+                TURN_DEVELOPER_PRECEDENCE,
+                loaded_at_ms,
+                content,
+                false,
+                Vec::new(),
+                false,
+            );
+        }
+        push_instruction_source(
+            &mut messages,
+            &mut sources,
             InstructionSourceKind::WorkspaceSystem,
             workspace_root.join(crate::system_prompt::SYSTEM_PROMPT_FILE_NAME),
             workspace_root.to_path_buf(),
@@ -117,6 +169,42 @@ impl InstructionComposer {
             Vec::new(),
             false,
         );
+
+        for (file_name, kind, precedence) in [
+            (
+                "SOUL.md",
+                InstructionSourceKind::WorkspaceSoul,
+                WORKSPACE_SOUL_PRECEDENCE,
+            ),
+            (
+                "USER.md",
+                InstructionSourceKind::WorkspaceUser,
+                WORKSPACE_USER_PRECEDENCE,
+            ),
+            (
+                "TOOLS.md",
+                InstructionSourceKind::WorkspaceTools,
+                WORKSPACE_TOOLS_PRECEDENCE,
+            ),
+        ] {
+            let path = workspace_root.join(file_name);
+            let Some((content, warnings)) = read_optional_workspace_instruction(&path)? else {
+                continue;
+            };
+            push_instruction_source(
+                &mut messages,
+                &mut sources,
+                kind,
+                path,
+                workspace_root.to_path_buf(),
+                precedence,
+                loaded_at_ms,
+                content,
+                false,
+                warnings,
+                false,
+            );
+        }
 
         let mut remaining_bytes = self.project_instruction_max_bytes;
         for (depth, candidate) in project_instruction_paths(&working_directory)?
@@ -141,6 +229,81 @@ impl InstructionComposer {
             );
         }
 
+        for (index, skill_name) in selected_skill_names(spec)?.into_iter().enumerate() {
+            let (path, scope_root) = selected_skill_path(workspace_root, &skill_name)?;
+            let (content, warnings) = read_optional_workspace_instruction(&path)?
+                .ok_or_else(|| format!("selected skill `{skill_name}` does not exist"))?;
+            push_instruction_source(
+                &mut messages,
+                &mut sources,
+                InstructionSourceKind::SelectedSkill,
+                path,
+                scope_root,
+                SELECTED_SKILL_PRECEDENCE.saturating_add(index as u32),
+                loaded_at_ms,
+                content,
+                false,
+                warnings,
+                false,
+            );
+        }
+
+        if let Some(content) = optional_turn_instruction(
+            spec,
+            &["collaborationMode", "collaboration_mode"],
+            "collaboration mode instructions",
+        )? {
+            push_instruction_source(
+                &mut messages,
+                &mut sources,
+                InstructionSourceKind::CollaborationMode,
+                PathBuf::from("turn:collaboration"),
+                working_directory.clone(),
+                COLLABORATION_PRECEDENCE,
+                loaded_at_ms,
+                content,
+                false,
+                Vec::new(),
+                false,
+            );
+        }
+        if let Some(content) = optional_turn_instruction(
+            spec,
+            &["agentRole", "agent_role"],
+            "agent role instructions",
+        )? {
+            push_instruction_source(
+                &mut messages,
+                &mut sources,
+                InstructionSourceKind::AgentRole,
+                PathBuf::from("turn:agent_role"),
+                working_directory.clone(),
+                AGENT_ROLE_PRECEDENCE,
+                loaded_at_ms,
+                content,
+                false,
+                Vec::new(),
+                false,
+            );
+        }
+        push_instruction_source(
+            &mut messages,
+            &mut sources,
+            InstructionSourceKind::RuntimeEnvironment,
+            PathBuf::from("runtime:environment"),
+            working_directory.clone(),
+            RUNTIME_ENVIRONMENT_PRECEDENCE,
+            loaded_at_ms,
+            format!(
+                "# Runtime environment\n\n- Working directory: `{}`\n- Operating system: `{}`",
+                working_directory.display(),
+                std::env::consts::OS
+            ),
+            false,
+            Vec::new(),
+            false,
+        );
+
         let rendered_prompt = messages
             .iter()
             .map(|message| message.content.as_str())
@@ -155,6 +318,129 @@ impl InstructionComposer {
             rendered_prompt,
         })
     }
+}
+
+fn selected_skill_names(spec: &Value) -> Result<Vec<String>, String> {
+    let value = std::iter::once(spec)
+        .chain(spec.get("metadata"))
+        .find_map(|source| {
+            ["selectedSkills", "selected_skills"]
+                .iter()
+                .find_map(|key| source.get(*key))
+        });
+    let Some(value) = value else {
+        return Ok(Vec::new());
+    };
+    let values = value
+        .as_array()
+        .ok_or_else(|| "selected skills must be an array of names".to_string())?;
+    let mut names = Vec::with_capacity(values.len());
+    for value in values {
+        let name = value
+            .as_str()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| "selected skills must contain non-empty strings".to_string())?;
+        if !name
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+        {
+            return Err(format!("selected skill name is invalid: `{name}`"));
+        }
+        if names.iter().any(|existing| existing == name) {
+            return Err(format!("selected skill is duplicated: `{name}`"));
+        }
+        names.push(name.to_string());
+    }
+    Ok(names)
+}
+
+fn selected_skill_path(
+    workspace_root: &Path,
+    skill_name: &str,
+) -> Result<(PathBuf, PathBuf), String> {
+    for (root, relative_root) in [
+        (workspace_root.to_path_buf(), "skills"),
+        (crate::repo_root(), "builtin-skills"),
+    ] {
+        let path = root.join(relative_root).join(skill_name).join("SKILL.md");
+        match fs::metadata(&path) {
+            Ok(metadata) if metadata.is_file() => return Ok((path, root)),
+            Ok(_) => {
+                return Err(format!(
+                    "selected skill instruction path is not a file: `{}`",
+                    path.display()
+                ));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(format!(
+                    "failed to inspect selected skill `{}`: {error}",
+                    path.display()
+                ));
+            }
+        }
+    }
+    Err(format!("selected skill `{skill_name}` does not exist"))
+}
+
+fn optional_turn_instruction(
+    spec: &Value,
+    keys: &[&str],
+    label: &str,
+) -> Result<Option<String>, String> {
+    let value = std::iter::once(spec)
+        .chain(spec.get("metadata"))
+        .find_map(|source| keys.iter().find_map(|key| source.get(*key)));
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    value
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .map(Some)
+        .ok_or_else(|| format!("{label} must be a non-empty string"))
+}
+
+fn read_optional_workspace_instruction(
+    path: &Path,
+) -> Result<Option<(String, Vec<String>)>, String> {
+    let metadata = match fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(format!(
+                "failed to inspect workspace instructions `{}`: {error}",
+                path.display()
+            ));
+        }
+    };
+    if !metadata.is_file() {
+        return Err(format!(
+            "workspace instruction path is not a file: `{}`",
+            path.display()
+        ));
+    }
+    if metadata.len() > WORKSPACE_PROFILE_MAX_BYTES as u64 {
+        return Err(format!(
+            "workspace instructions exceed the {WORKSPACE_PROFILE_MAX_BYTES}-byte limit: `{}`",
+            path.display()
+        ));
+    }
+    let content = fs::read_to_string(path).map_err(|error| {
+        format!(
+            "failed to read workspace instructions `{}`: {error}",
+            path.display()
+        )
+    })?;
+    let warnings = if content.trim().is_empty() {
+        vec!["workspace instruction source is empty".to_string()]
+    } else {
+        Vec::new()
+    };
+    Ok(Some((content, warnings)))
 }
 
 impl ComposedInstructions {
@@ -468,11 +754,174 @@ mod tests {
             .compose(&fixture.root, &serde_json::json!({ "cwd": fixture.root }))
             .expect("lossy project instructions should compose with diagnostics");
 
-        let project = &composed.sources[1];
+        let project = composed
+            .sources
+            .iter()
+            .find(|source| source.kind == InstructionSourceKind::ProjectAgents)
+            .expect("project instructions should have provenance");
         assert!(project.truncated);
         assert_eq!(project.validation_warnings.len(), 2);
         assert_eq!(composed.diagnostics().len(), 2);
         assert!(composed.rendered_prompt().contains("abc"));
+    }
+
+    #[test]
+    fn composes_editable_workspace_identity_user_and_tool_instructions() {
+        let fixture = InstructionFixture::new("workspace-profile");
+        fs::write(fixture.root.join("SOUL.md"), "Keep a calm, direct voice.\n")
+            .expect("assistant identity instructions should write");
+        fs::write(
+            fixture.root.join("USER.md"),
+            "The user prefers concise answers.\n",
+        )
+        .expect("user instructions should write");
+        fs::write(
+            fixture.root.join("TOOLS.md"),
+            "Inspect real files before reporting success.\n",
+        )
+        .expect("tool instructions should write");
+
+        let composed = InstructionComposer::default()
+            .compose(&fixture.root, &serde_json::json!({ "cwd": fixture.root }))
+            .expect("editable workspace instructions should compose");
+
+        let identifiers = composed
+            .sources
+            .iter()
+            .map(|source| {
+                Path::new(&source.identifier)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or(&source.identifier)
+                    .to_string()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            identifiers,
+            [
+                "builtin:identity",
+                "SYSTEM.md",
+                "SOUL.md",
+                "USER.md",
+                "TOOLS.md",
+                "runtime:environment"
+            ]
+        );
+        let prompt = composed.rendered_prompt();
+        let soul = prompt
+            .find("Keep a calm, direct voice.")
+            .expect("assistant identity instructions should be visible");
+        let user = prompt
+            .find("The user prefers concise answers.")
+            .expect("user instructions should be visible");
+        let tools = prompt
+            .find("Inspect real files before reporting success.")
+            .expect("tool instructions should be visible");
+        assert!(soul < user && user < tools);
+    }
+
+    #[test]
+    fn composes_explicit_turn_developer_instructions_before_workspace_system() {
+        let fixture = InstructionFixture::new("turn-developer");
+        fs::write(
+            fixture
+                .root
+                .join(crate::system_prompt::SYSTEM_PROMPT_FILE_NAME),
+            "Workspace system instructions.\n",
+        )
+        .expect("workspace system instructions should write");
+
+        let composed = InstructionComposer::default()
+            .compose(
+                &fixture.root,
+                &serde_json::json!({
+                    "cwd": fixture.root,
+                    "developerInstructions": "Use the native runtime for this turn."
+                }),
+            )
+            .expect("turn developer instructions should compose");
+
+        assert_eq!(composed.sources[0].identifier, "builtin:identity");
+        assert_eq!(composed.sources[1].identifier, "turn:developer");
+        assert_eq!(
+            composed.sources[2].identifier,
+            fixture.root.join("SYSTEM.md").display().to_string()
+        );
+        let prompt = composed.rendered_prompt();
+        let developer = prompt
+            .find("Use the native runtime for this turn.")
+            .expect("developer instructions should be visible");
+        let workspace = prompt
+            .find("Workspace system instructions.")
+            .expect("workspace system instructions should be visible");
+        assert!(developer < workspace);
+    }
+
+    #[test]
+    fn composes_selected_workspace_skill_with_provenance() {
+        let fixture = InstructionFixture::new("selected-skill");
+        let skill_dir = fixture.root.join("skills").join("review-work");
+        fs::create_dir_all(&skill_dir).expect("selected skill directory should create");
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: review-work\n---\nReview the actual diff before reporting.\n",
+        )
+        .expect("selected skill should write");
+
+        let composed = InstructionComposer::default()
+            .compose(
+                &fixture.root,
+                &serde_json::json!({
+                    "cwd": fixture.root,
+                    "selectedSkills": ["review-work"]
+                }),
+            )
+            .expect("selected skill should compose");
+
+        let skill_source = composed
+            .sources
+            .iter()
+            .find(|source| {
+                source.identifier.ends_with("skills\\review-work\\SKILL.md")
+                    || source.identifier.ends_with("skills/review-work/SKILL.md")
+            })
+            .expect("selected skill provenance should be recorded");
+        assert_eq!(skill_source.scope_root, fixture.root.display().to_string());
+        assert!(composed
+            .rendered_prompt()
+            .contains("Review the actual diff before reporting."));
+    }
+
+    #[test]
+    fn composes_identity_role_collaboration_and_runtime_facts() {
+        let fixture = InstructionFixture::new("turn-world-state");
+
+        let composed = InstructionComposer::default()
+            .compose(
+                &fixture.root,
+                &serde_json::json!({
+                    "cwd": fixture.root,
+                    "collaborationMode": "Work as the primary implementation agent.",
+                    "agentRole": "Own the result through verification."
+                }),
+            )
+            .expect("turn world state should compose");
+
+        let identifiers = composed
+            .sources
+            .iter()
+            .map(|source| source.identifier.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(identifiers[0], "builtin:identity");
+        assert!(identifiers.contains(&"turn:collaboration"));
+        assert!(identifiers.contains(&"turn:agent_role"));
+        assert_eq!(identifiers.last(), Some(&"runtime:environment"));
+        let prompt = composed.rendered_prompt();
+        assert!(prompt.contains("You are Tinybot"));
+        assert!(prompt.contains("Work as the primary implementation agent."));
+        assert!(prompt.contains("Own the result through verification."));
+        assert!(prompt.contains(&fixture.root.display().to_string()));
+        assert!(prompt.contains(std::env::consts::OS));
     }
 
     struct InstructionFixture {

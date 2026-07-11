@@ -178,16 +178,28 @@ error leaves the task runtime non-accepting, sets `state: "failed"`/`last_error`
 `SYSTEM.md` is the editable native-agent system-prompt template. The backend creates it once when
 missing and reloads it for each workspace-backed turn. Supported placeholders are `{{identity}}`,
 `{{working_directory}}`, and `{{operating_system}}`. Empty templates, unknown placeholders, and
-malformed delimiters fail explicitly; the backend does not replace an invalid user file with a
-hidden fallback prompt. `{{working_directory}}` resolves to the run `cwd` (or thread
+malformed delimiters fail explicitly. `{{working_directory}}` resolves to the run `cwd` (or thread
 `metadata.workingDirectory`) rather than the directory that stores Tinybot state.
 
-Before each workspace-backed run, the native runtime composes `SYSTEM.md` with project
-instructions discovered from the nearest `.git` project root down to the effective working
-directory. At each directory, `AGENTS.override.md` replaces `AGENTS.md` when both exist. Sources are
-ordered deterministically as workspace system instructions followed by project scopes from shallow
-to deep. Project instructions have a 64 KiB aggregate budget; truncation, invalid UTF-8 decoding,
-empty sources, unreadable files, and invalid paths are surfaced instead of silently disappearing.
+Before each workspace-backed run, the native runtime composes one ordered instruction stream with
+source provenance. Increasing precedence is:
+
+1. built-in Tinybot identity (`100`);
+2. explicit turn `developerInstructions` (`200`);
+3. editable workspace `SYSTEM.md` (`300`);
+4. optional workspace `SOUL.md`, `USER.md`, and `TOOLS.md` (`400`, `410`, `420`);
+5. project `AGENTS.md` scopes from the nearest `.git` root to the effective working directory
+   (`500 + depth`), with `AGENTS.override.md` replacing `AGENTS.md` at the same scope;
+6. explicitly selected skill files (`700 + index`);
+7. `collaborationMode` and `agentRole` instructions (`800`, `810`);
+8. generated working-directory and operating-system facts (`900`).
+
+The four turn fields may appear at the run root or under `metadata`; snake_case aliases are also
+accepted. `selectedSkills` is an ordered array of names. Workspace `skills/<name>/SKILL.md` wins over
+the bundled `builtin-skills/<name>/SKILL.md`; invalid, duplicate, or missing selected skill names fail
+before provider dispatch. Workspace profile and skill files have a 64 KiB per-file limit, while
+project instructions share a 64 KiB aggregate budget. Invalid UTF-8, unreadable paths, invalid field
+types, truncation, and empty sources are surfaced instead of silently disappearing.
 
 ## Config Commands
 
@@ -605,6 +617,10 @@ and emits `agent.cleanup_timeout`. Neither timeout is reported as successful can
   "model": "deepseek-v4-pro",
   "maxIterations": 20,
   "stream": true,
+  "developerInstructions": "Use the native runtime for this turn.",
+  "selectedSkills": ["review-work"],
+  "collaborationMode": "Work as the primary implementation agent.",
+  "agentRole": "Own the result through verification.",
   "metadata": {}
 }
 ```

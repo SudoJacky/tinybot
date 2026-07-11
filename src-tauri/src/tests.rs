@@ -3057,7 +3057,7 @@ fn worker_run_agent_omits_large_raw_tool_trace_from_persisted_run_record() {
     let serialized = run.to_string();
 
     assert!(
-        serialized.len() < large_output.len() + 10_000,
+        serialized.len() < 24_000,
         "run record was {} bytes",
         serialized.len()
     );

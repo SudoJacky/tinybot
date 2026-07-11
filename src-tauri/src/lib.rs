@@ -459,7 +459,7 @@ fn lock_runtime(shared: &SharedGateway) -> std::sync::MutexGuard<'_, GatewayRunt
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-fn repo_root() -> PathBuf {
+pub(crate) fn repo_root() -> PathBuf {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     manifest_dir
         .ancestors()
