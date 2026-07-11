@@ -1,3 +1,5 @@
+use super::*;
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct KnowledgeDocument {
     pub id: String,
@@ -59,7 +61,7 @@ pub struct KnowledgeChunk {
 }
 
 impl KnowledgeChunk {
-    fn parent(
+    pub(super) fn parent(
         doc_id: &str,
         doc_name: &str,
         file_path: &str,
@@ -103,7 +105,7 @@ impl KnowledgeChunk {
         }
     }
 
-    fn child(
+    pub(super) fn child(
         doc_id: &str,
         doc_name: &str,
         file_path: &str,
@@ -151,25 +153,25 @@ impl KnowledgeChunk {
 }
 
 #[derive(Clone, Debug)]
-struct ParentSection {
-    content: String,
-    start_char: usize,
-    end_char: usize,
-    line_start: usize,
-    line_end: usize,
-    section_path: String,
-    section_title: String,
-    parent_section_index: Option<usize>,
-    section_ordinal: usize,
-    child_lines: Vec<SectionLine>,
+pub(super) struct ParentSection {
+    pub(super) content: String,
+    pub(super) start_char: usize,
+    pub(super) end_char: usize,
+    pub(super) line_start: usize,
+    pub(super) line_end: usize,
+    pub(super) section_path: String,
+    pub(super) section_title: String,
+    pub(super) parent_section_index: Option<usize>,
+    pub(super) section_ordinal: usize,
+    pub(super) child_lines: Vec<SectionLine>,
 }
 
 #[derive(Clone, Debug)]
-struct SectionLine {
-    content: String,
-    start_char: usize,
-    end_char: usize,
-    line_number: usize,
+pub(super) struct SectionLine {
+    pub(super) content: String,
+    pub(super) start_char: usize,
+    pub(super) end_char: usize,
+    pub(super) line_number: usize,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -532,7 +534,7 @@ pub struct KnowledgeQueryResult {
 }
 
 impl KnowledgeQueryResult {
-    fn from_chunk(chunk: KnowledgeChunk, score: usize) -> Self {
+    pub(super) fn from_chunk(chunk: KnowledgeChunk, score: usize) -> Self {
         Self {
             id: chunk.id,
             doc_id: chunk.doc_id,

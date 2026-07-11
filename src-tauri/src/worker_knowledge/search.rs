@@ -1,4 +1,6 @@
-fn knowledge_chunk_matches_query_filters(
+use super::*;
+
+pub(super) fn knowledge_chunk_matches_query_filters(
     chunk: &KnowledgeChunk,
     params: &KnowledgeQueryParams,
 ) -> bool {
@@ -15,7 +17,7 @@ fn knowledge_chunk_matches_query_filters(
     true
 }
 
-fn expand_query_with_entity_graph(
+pub(super) fn expand_query_with_entity_graph(
     results_by_parent: &mut HashMap<String, KnowledgeQueryResult>,
     parent_chunks: &HashMap<String, KnowledgeChunk>,
     nodes: &[KnowledgeGraphNode],
@@ -132,14 +134,14 @@ fn expand_query_with_entity_graph(
     }
 }
 
-fn relation_graph_edge_matches_frontier(
+pub(super) fn relation_graph_edge_matches_frontier(
     edge: &KnowledgeGraphEdge,
     frontier: &HashSet<String>,
 ) -> bool {
     frontier.contains(&edge.source) || frontier.contains(&edge.target)
 }
 
-fn add_relation_graph_evidence_query_results(
+pub(super) fn add_relation_graph_evidence_query_results(
     results_by_parent: &mut HashMap<String, KnowledgeQueryResult>,
     parent_chunks: &HashMap<String, KnowledgeChunk>,
     evidence_records: &[Value],
@@ -188,7 +190,7 @@ fn add_relation_graph_evidence_query_results(
     added
 }
 
-fn add_graph_evidence_query_result(
+pub(super) fn add_graph_evidence_query_result(
     results_by_parent: &mut HashMap<String, KnowledgeQueryResult>,
     chunk: KnowledgeChunk,
     evidence: &Value,
@@ -239,7 +241,7 @@ fn add_graph_evidence_query_result(
     inserted
 }
 
-fn entity_graph_query_projection_metadata(
+pub(super) fn entity_graph_query_projection_metadata(
     owner_type: &str,
     owner_id: &str,
     owner_label: &str,
@@ -271,7 +273,7 @@ fn entity_graph_query_projection_metadata(
     })
 }
 
-fn relation_graph_query_projection_metadata(
+pub(super) fn relation_graph_query_projection_metadata(
     edge: &KnowledgeGraphEdge,
     node_lookup: &HashMap<String, &KnowledgeGraphNode>,
     evidence: &Value,
@@ -307,7 +309,7 @@ fn relation_graph_query_projection_metadata(
     metadata
 }
 
-fn graph_query_conflict_metadata(
+pub(super) fn graph_query_conflict_metadata(
     edge: &KnowledgeGraphEdge,
     node_lookup: &HashMap<String, &KnowledgeGraphNode>,
     evidence: &Value,
@@ -337,14 +339,17 @@ fn graph_query_conflict_metadata(
     }))
 }
 
-fn entity_graph_node_matches_query(node: &KnowledgeGraphNode, query_terms: &[String]) -> bool {
+pub(super) fn entity_graph_node_matches_query(
+    node: &KnowledgeGraphNode,
+    query_terms: &[String],
+) -> bool {
     let label = node.label.to_ascii_lowercase();
     query_terms
         .iter()
         .any(|term| graph_text_matches_query_term(&label, term))
 }
 
-fn relation_graph_edge_matches_query(
+pub(super) fn relation_graph_edge_matches_query(
     edge: &KnowledgeGraphEdge,
     node_lookup: &HashMap<String, &KnowledgeGraphNode>,
     query_terms: &[String],
@@ -365,11 +370,11 @@ fn relation_graph_edge_matches_query(
     })
 }
 
-fn graph_text_matches_query_term(value: &str, term: &str) -> bool {
+pub(super) fn graph_text_matches_query_term(value: &str, term: &str) -> bool {
     !value.is_empty() && (value.contains(term) || term.contains(value))
 }
 
-fn relation_graph_edge_matches_filters(
+pub(super) fn relation_graph_edge_matches_filters(
     edge: &KnowledgeGraphEdge,
     params: &KnowledgeQueryParams,
 ) -> bool {
@@ -385,7 +390,7 @@ fn relation_graph_edge_matches_filters(
         .any(|filter| filter.eq_ignore_ascii_case(&edge.label))
 }
 
-fn graph_evidence_ids(attributes: &Value) -> HashSet<String> {
+pub(super) fn graph_evidence_ids(attributes: &Value) -> HashSet<String> {
     attributes
         .get("evidence_ids")
         .and_then(Value::as_array)
@@ -399,7 +404,7 @@ fn graph_evidence_ids(attributes: &Value) -> HashSet<String> {
         .unwrap_or_default()
 }
 
-fn graph_evidence_parent_chunk(
+pub(super) fn graph_evidence_parent_chunk(
     parent_chunks: &HashMap<String, KnowledgeChunk>,
     evidence: &Value,
     params: &KnowledgeQueryParams,
@@ -420,7 +425,7 @@ fn graph_evidence_parent_chunk(
     candidates.into_iter().next()
 }
 
-fn ranges_overlap(
+pub(super) fn ranges_overlap(
     left_start: usize,
     left_end: usize,
     right_start: usize,
@@ -429,7 +434,7 @@ fn ranges_overlap(
     left_start <= right_end && right_start <= left_end
 }
 
-fn populate_knowledge_score_metadata(result: &mut KnowledgeQueryResult) {
+pub(super) fn populate_knowledge_score_metadata(result: &mut KnowledgeQueryResult) {
     if result.sparse_contribution > 0
         && !result
             .matched_methods
@@ -542,7 +547,7 @@ fn populate_knowledge_score_metadata(result: &mut KnowledgeQueryResult) {
     });
 }
 
-fn apply_knowledge_evidence_quality_bonus(result: &mut KnowledgeQueryResult) {
+pub(super) fn apply_knowledge_evidence_quality_bonus(result: &mut KnowledgeQueryResult) {
     let bonus = knowledge_evidence_quality_bonus(result);
     if bonus == 0 {
         return;
@@ -551,11 +556,11 @@ fn apply_knowledge_evidence_quality_bonus(result: &mut KnowledgeQueryResult) {
     result.rrf_score += bonus;
 }
 
-fn knowledge_evidence_quality_bonus(result: &KnowledgeQueryResult) -> usize {
+pub(super) fn knowledge_evidence_quality_bonus(result: &KnowledgeQueryResult) -> usize {
     usize::from(!result.source_snippets.is_empty())
 }
 
-fn sort_knowledge_matched_methods(methods: &mut [String]) {
+pub(super) fn sort_knowledge_matched_methods(methods: &mut [String]) {
     methods.sort_by_key(|method| match method.as_str() {
         "keyword" => 0,
         "graph" => 1,
@@ -564,7 +569,7 @@ fn sort_knowledge_matched_methods(methods: &mut [String]) {
     });
 }
 
-fn knowledge_score_model(
+pub(super) fn knowledge_score_model(
     has_graph: bool,
     has_structure: bool,
     has_evidence_quality_bonus: bool,
@@ -581,7 +586,7 @@ fn knowledge_score_model(
     }
 }
 
-fn knowledge_structure_score(structure_context: &Value) -> usize {
+pub(super) fn knowledge_structure_score(structure_context: &Value) -> usize {
     if structure_context.get("object").and_then(Value::as_str)
         != Some("knowledge_structure_context")
     {
@@ -613,7 +618,7 @@ fn knowledge_structure_score(structure_context: &Value) -> usize {
     score
 }
 
-fn normalized_route_score(contribution: f64, final_score: usize) -> f64 {
+pub(super) fn normalized_route_score(contribution: f64, final_score: usize) -> f64 {
     if final_score == 0 {
         0.0
     } else {
@@ -621,7 +626,7 @@ fn normalized_route_score(contribution: f64, final_score: usize) -> f64 {
     }
 }
 
-fn populate_knowledge_structure_context(
+pub(super) fn populate_knowledge_structure_context(
     result: &mut KnowledgeQueryResult,
     parent_chunks: &HashMap<String, KnowledgeChunk>,
 ) {
@@ -682,7 +687,7 @@ fn populate_knowledge_structure_context(
     }
 }
 
-fn knowledge_structure_context_section(chunk: &KnowledgeChunk) -> Value {
+pub(super) fn knowledge_structure_context_section(chunk: &KnowledgeChunk) -> Value {
     serde_json::json!({
         "id": knowledge_chunk_section_id(chunk),
         "chunk_id": chunk.id,
@@ -698,7 +703,7 @@ fn knowledge_structure_context_section(chunk: &KnowledgeChunk) -> Value {
     })
 }
 
-fn knowledge_chunk_parent_section_id(chunk: &KnowledgeChunk) -> String {
+pub(super) fn knowledge_chunk_parent_section_id(chunk: &KnowledgeChunk) -> String {
     if chunk.parent_section_id.is_empty() {
         "section-root".to_string()
     } else {
@@ -706,7 +711,7 @@ fn knowledge_chunk_parent_section_id(chunk: &KnowledgeChunk) -> String {
     }
 }
 
-fn empty_knowledge_context() -> KnowledgeContextResult {
+pub(super) fn empty_knowledge_context() -> KnowledgeContextResult {
     KnowledgeContextResult {
         context: String::new(),
         persistent_results: Vec::new(),
@@ -716,7 +721,10 @@ fn empty_knowledge_context() -> KnowledgeContextResult {
     }
 }
 
-fn format_knowledge_context(results: &[KnowledgeQueryResult], session_results: &[Value]) -> String {
+pub(super) fn format_knowledge_context(
+    results: &[KnowledgeQueryResult],
+    session_results: &[Value],
+) -> String {
     if results.is_empty() && session_results.is_empty() {
         return String::new();
     }
@@ -764,7 +772,7 @@ fn format_knowledge_context(results: &[KnowledgeQueryResult], session_results: &
     lines.join("\n")
 }
 
-fn compact_knowledge_excerpt(content: &str) -> String {
+pub(super) fn compact_knowledge_excerpt(content: &str) -> String {
     let compact = content
         .lines()
         .map(str::trim)
@@ -774,7 +782,7 @@ fn compact_knowledge_excerpt(content: &str) -> String {
     compact.chars().take(600).collect()
 }
 
-fn knowledge_reference_metadata(result: &KnowledgeQueryResult) -> Value {
+pub(super) fn knowledge_reference_metadata(result: &KnowledgeQueryResult) -> Value {
     let mut reference = serde_json::json!({
         "doc_id": result.doc_id,
         "doc_name": result.doc_name,
@@ -828,7 +836,7 @@ fn knowledge_reference_metadata(result: &KnowledgeQueryResult) -> Value {
     reference
 }
 
-fn knowledge_session_reference_metadata(result: &Value) -> Value {
+pub(super) fn knowledge_session_reference_metadata(result: &Value) -> Value {
     serde_json::json!({
         "doc_id": value_string(result, "doc_id").unwrap_or_default(),
         "doc_name": value_string(result, "doc_name").unwrap_or_default(),
@@ -841,7 +849,7 @@ fn knowledge_session_reference_metadata(result: &Value) -> Value {
     })
 }
 
-fn session_temporary_context_results(
+pub(super) fn session_temporary_context_results(
     session_key: Option<&str>,
     files: &[Value],
     query: &str,
@@ -872,7 +880,7 @@ fn session_temporary_context_results(
         .collect()
 }
 
-fn session_temporary_context_result(
+pub(super) fn session_temporary_context_result(
     session_key: Option<&str>,
     file: &Value,
     query_terms: &[String],
@@ -922,11 +930,11 @@ fn session_temporary_context_result(
     ))
 }
 
-fn value_string(value: &Value, key: &str) -> Option<String> {
+pub(super) fn value_string(value: &Value, key: &str) -> Option<String> {
     value.get(key).and_then(Value::as_str).map(str::to_string)
 }
 
-fn value_usize(value: &Value, key: &str) -> Option<usize> {
+pub(super) fn value_usize(value: &Value, key: &str) -> Option<usize> {
     value
         .get(key)
         .and_then(Value::as_u64)

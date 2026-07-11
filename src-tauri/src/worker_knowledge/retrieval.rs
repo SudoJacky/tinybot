@@ -1,4 +1,6 @@
-fn build_knowledge_retrieval_plan(params: &KnowledgeQueryParams, limit: usize) -> Value {
+use super::*;
+
+pub(super) fn build_knowledge_retrieval_plan(params: &KnowledgeQueryParams, limit: usize) -> Value {
     let query = params.query.as_str();
     let terms = knowledge_query_terms(query);
     let budgets = knowledge_retrieval_plan_budgets(params, limit);
@@ -45,7 +47,7 @@ fn build_knowledge_retrieval_plan(params: &KnowledgeQueryParams, limit: usize) -
     }
 }
 
-fn knowledge_retrieval_plan_routes(
+pub(super) fn knowledge_retrieval_plan_routes(
     params: &KnowledgeQueryParams,
 ) -> (Vec<&'static str>, Vec<Value>) {
     let terms = knowledge_query_terms(&params.query);
@@ -74,7 +76,10 @@ fn knowledge_retrieval_plan_routes(
     (selected_routes, route_reasons)
 }
 
-fn knowledge_retrieval_plan_budgets(params: &KnowledgeQueryParams, limit: usize) -> Value {
+pub(super) fn knowledge_retrieval_plan_budgets(
+    params: &KnowledgeQueryParams,
+    limit: usize,
+) -> Value {
     let terms = knowledge_query_terms(&params.query);
     let graph_budget = if knowledge_query_should_include_graph_context(params, &terms) {
         params.graph_max_added_chunks.unwrap_or(5).min(20)
@@ -95,7 +100,7 @@ fn knowledge_retrieval_plan_budgets(params: &KnowledgeQueryParams, limit: usize)
     })
 }
 
-fn knowledge_retrieval_plan_graph_options(params: &KnowledgeQueryParams) -> Value {
+pub(super) fn knowledge_retrieval_plan_graph_options(params: &KnowledgeQueryParams) -> Value {
     let terms = knowledge_query_terms(&params.query);
     serde_json::json!({
         "include_graph_context": knowledge_query_should_include_graph_context(params, &terms),
@@ -106,7 +111,10 @@ fn knowledge_retrieval_plan_graph_options(params: &KnowledgeQueryParams) -> Valu
     })
 }
 
-fn knowledge_retrieval_plan_tree_options(params: &KnowledgeQueryParams, limit: usize) -> Value {
+pub(super) fn knowledge_retrieval_plan_tree_options(
+    params: &KnowledgeQueryParams,
+    limit: usize,
+) -> Value {
     let terms = knowledge_query_terms(&params.query);
     let include_structure_context =
         knowledge_query_should_include_structure_context(params, &terms);
@@ -122,7 +130,7 @@ fn knowledge_retrieval_plan_tree_options(params: &KnowledgeQueryParams, limit: u
     })
 }
 
-fn knowledge_query_should_include_structure_context(
+pub(super) fn knowledge_query_should_include_structure_context(
     params: &KnowledgeQueryParams,
     terms: &[String],
 ) -> bool {
@@ -150,7 +158,7 @@ fn knowledge_query_should_include_structure_context(
     }
 }
 
-fn knowledge_query_should_include_graph_context(
+pub(super) fn knowledge_query_should_include_graph_context(
     params: &KnowledgeQueryParams,
     terms: &[String],
 ) -> bool {
@@ -183,7 +191,7 @@ fn knowledge_query_should_include_graph_context(
     }
 }
 
-fn knowledge_query_terms(query: &str) -> Vec<String> {
+pub(super) fn knowledge_query_terms(query: &str) -> Vec<String> {
     query
         .split(|character: char| !character.is_alphanumeric())
         .map(str::trim)
@@ -192,7 +200,7 @@ fn knowledge_query_terms(query: &str) -> Vec<String> {
         .collect()
 }
 
-fn knowledge_score(content: &str, terms: &[String]) -> usize {
+pub(super) fn knowledge_score(content: &str, terms: &[String]) -> usize {
     let lower = content.to_ascii_lowercase();
     terms
         .iter()
@@ -200,11 +208,14 @@ fn knowledge_score(content: &str, terms: &[String]) -> usize {
         .count()
 }
 
-fn invalid_knowledge_request(message: &str) -> WorkerProtocolError {
+pub(super) fn invalid_knowledge_request(message: &str) -> WorkerProtocolError {
     invalid_knowledge_request_with_details(message, serde_json::json!({}))
 }
 
-fn invalid_knowledge_request_with_details(message: &str, details: Value) -> WorkerProtocolError {
+pub(super) fn invalid_knowledge_request_with_details(
+    message: &str,
+    details: Value,
+) -> WorkerProtocolError {
     WorkerProtocolError::new(
         WorkerProtocolErrorCode::InvalidProtocol,
         message,
@@ -214,7 +225,7 @@ fn invalid_knowledge_request_with_details(message: &str, details: Value) -> Work
     )
 }
 
-fn unknown_knowledge_document(doc_id: &str) -> WorkerProtocolError {
+pub(super) fn unknown_knowledge_document(doc_id: &str) -> WorkerProtocolError {
     WorkerProtocolError::new(
         WorkerProtocolErrorCode::InvalidProtocol,
         "knowledge document not found",
@@ -224,7 +235,7 @@ fn unknown_knowledge_document(doc_id: &str) -> WorkerProtocolError {
     )
 }
 
-fn knowledge_filesystem_error(message: &str, details: Value) -> WorkerProtocolError {
+pub(super) fn knowledge_filesystem_error(message: &str, details: Value) -> WorkerProtocolError {
     WorkerProtocolError::new(
         WorkerProtocolErrorCode::WorkerError,
         message,

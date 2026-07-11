@@ -1,4 +1,9 @@
-fn append_jsonl<T: Serialize>(path: &Path, value: &T) -> Result<(), WorkerProtocolError> {
+use super::*;
+
+pub(super) fn append_jsonl<T: Serialize>(
+    path: &Path,
+    value: &T,
+) -> Result<(), WorkerProtocolError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| {
             knowledge_filesystem_error(
@@ -34,23 +39,31 @@ fn append_jsonl<T: Serialize>(path: &Path, value: &T) -> Result<(), WorkerProtoc
     })
 }
 
-fn read_jsonl<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<Vec<T>, WorkerProtocolError> {
+pub(super) fn read_jsonl<T: for<'de> Deserialize<'de>>(
+    path: &Path,
+) -> Result<Vec<T>, WorkerProtocolError> {
     read_jsonl_strict(path).map_err(knowledge_storage_error)
 }
 
-fn write_jsonl<T: Serialize>(path: &Path, records: &[T]) -> Result<(), WorkerProtocolError> {
+pub(super) fn write_jsonl<T: Serialize>(
+    path: &Path,
+    records: &[T],
+) -> Result<(), WorkerProtocolError> {
     write_jsonl_atomic(path, records, AtomicWriteOptions::default())
         .map_err(knowledge_storage_error)
 }
 
 #[derive(Debug)]
-struct KnowledgeJsonlBackup {
+pub(super) struct KnowledgeJsonlBackup {
     target: PathBuf,
     backup: PathBuf,
     existed: bool,
 }
 
-fn run_knowledge_jsonl_update<F>(paths: &[&Path], update: F) -> Result<(), WorkerProtocolError>
+pub(super) fn run_knowledge_jsonl_update<F>(
+    paths: &[&Path],
+    update: F,
+) -> Result<(), WorkerProtocolError>
 where
     F: FnOnce() -> Result<(), WorkerProtocolError>,
 {
@@ -67,7 +80,7 @@ where
     }
 }
 
-fn prepare_knowledge_jsonl_backups(
+pub(super) fn prepare_knowledge_jsonl_backups(
     paths: &[&Path],
 ) -> Result<Vec<KnowledgeJsonlBackup>, WorkerProtocolError> {
     let mut backups = Vec::new();
@@ -95,7 +108,7 @@ fn prepare_knowledge_jsonl_backups(
     Ok(backups)
 }
 
-fn cleanup_knowledge_jsonl_backups(backups: &[KnowledgeJsonlBackup]) {
+pub(super) fn cleanup_knowledge_jsonl_backups(backups: &[KnowledgeJsonlBackup]) {
     for backup in backups {
         if backup.existed {
             let _ = fs::remove_file(&backup.backup);
@@ -103,7 +116,9 @@ fn cleanup_knowledge_jsonl_backups(backups: &[KnowledgeJsonlBackup]) {
     }
 }
 
-fn restore_knowledge_jsonl_backups(backups: &[KnowledgeJsonlBackup]) -> Result<(), String> {
+pub(super) fn restore_knowledge_jsonl_backups(
+    backups: &[KnowledgeJsonlBackup],
+) -> Result<(), String> {
     let mut errors = Vec::new();
     for backup in backups.iter().rev() {
         let result = if backup.existed {
@@ -127,7 +142,7 @@ fn restore_knowledge_jsonl_backups(backups: &[KnowledgeJsonlBackup]) -> Result<(
     }
 }
 
-fn knowledge_partial_update_error(
+pub(super) fn knowledge_partial_update_error(
     error: WorkerProtocolError,
     recovery_error: Option<String>,
 ) -> WorkerProtocolError {
@@ -147,7 +162,7 @@ fn knowledge_partial_update_error(
     )
 }
 
-fn knowledge_storage_error(error: WorkerStorageError) -> WorkerProtocolError {
+pub(super) fn knowledge_storage_error(error: WorkerStorageError) -> WorkerProtocolError {
     let code = match error {
         WorkerStorageError::Io { .. } => WorkerProtocolErrorCode::WorkerError,
         WorkerStorageError::SerializeJson(_)
@@ -163,6 +178,6 @@ fn knowledge_storage_error(error: WorkerStorageError) -> WorkerProtocolError {
     )
 }
 
-fn is_text_like_knowledge_file_type(file_type: &str) -> bool {
+pub(super) fn is_text_like_knowledge_file_type(file_type: &str) -> bool {
     matches!(file_type, "txt" | "md" | "json" | "csv")
 }

@@ -1,4 +1,6 @@
-fn validate_entity_graph_relations(
+use super::*;
+
+pub(super) fn validate_entity_graph_relations(
     document: &KnowledgeDocument,
     params: &KnowledgeEntityGraphExtractionParams,
 ) -> Result<(), WorkerProtocolError> {
@@ -81,13 +83,13 @@ fn validate_entity_graph_relations(
     Ok(())
 }
 
-fn controlled_relation_predicate(predicate: &str) -> bool {
+pub(super) fn controlled_relation_predicate(predicate: &str) -> bool {
     CONTROLLED_RELATION_PREDICATES
         .iter()
         .any(|allowed| predicate.eq_ignore_ascii_case(allowed))
 }
 
-fn merge_entity_graph_node(
+pub(super) fn merge_entity_graph_node(
     node: &mut KnowledgeGraphNode,
     entity: &KnowledgeExtractedEntity,
     evidence_ids: Vec<String>,
@@ -120,7 +122,7 @@ fn merge_entity_graph_node(
     }
 }
 
-fn append_unique_json_strings(
+pub(super) fn append_unique_json_strings(
     attributes: &mut serde_json::Map<String, Value>,
     key: &str,
     values: Vec<String>,
@@ -147,7 +149,7 @@ fn append_unique_json_strings(
     attributes.insert(key.to_string(), Value::Array(existing));
 }
 
-fn update_entity_graph_evidence_status(attributes: &mut serde_json::Map<String, Value>) {
+pub(super) fn update_entity_graph_evidence_status(attributes: &mut serde_json::Map<String, Value>) {
     let evidence_ids = attributes
         .get("evidence_ids")
         .and_then(Value::as_array)
@@ -170,7 +172,7 @@ fn update_entity_graph_evidence_status(attributes: &mut serde_json::Map<String, 
     );
 }
 
-fn entity_graph_evidence_status(evidence_ids: &[String]) -> &'static str {
+pub(super) fn entity_graph_evidence_status(evidence_ids: &[String]) -> &'static str {
     if evidence_ids.iter().any(|id| !id.trim().is_empty()) {
         "verified"
     } else {
@@ -178,7 +180,7 @@ fn entity_graph_evidence_status(evidence_ids: &[String]) -> &'static str {
     }
 }
 
-fn entity_graph_node_evidence_status(attributes: &Value) -> &str {
+pub(super) fn entity_graph_node_evidence_status(attributes: &Value) -> &str {
     attributes
         .get("evidence_status")
         .and_then(Value::as_str)
@@ -191,11 +193,11 @@ fn entity_graph_node_evidence_status(attributes: &Value) -> &str {
         })
 }
 
-fn normalize_entity_graph_type(value: &str) -> String {
+pub(super) fn normalize_entity_graph_type(value: &str) -> String {
     value.trim().to_ascii_lowercase()
 }
 
-fn entity_graph_stub_node(
+pub(super) fn entity_graph_stub_node(
     document: &KnowledgeDocument,
     name: &str,
     id: &str,
@@ -217,7 +219,7 @@ fn entity_graph_stub_node(
     }
 }
 
-fn purge_entity_graph_records(
+pub(super) fn purge_entity_graph_records(
     store: &KnowledgeStorePaths,
     doc_id: &str,
 ) -> Result<(), WorkerProtocolError> {
@@ -241,7 +243,7 @@ fn purge_entity_graph_records(
     )
 }
 
-fn graph_record_confidence(attributes: &Value) -> f64 {
+pub(super) fn graph_record_confidence(attributes: &Value) -> f64 {
     attributes
         .get("confidence")
         .and_then(Value::as_f64)
@@ -249,7 +251,7 @@ fn graph_record_confidence(attributes: &Value) -> f64 {
         .clamp(0.0, 1.0)
 }
 
-fn entity_graph_conflicts(
+pub(super) fn entity_graph_conflicts(
     nodes: &[KnowledgeGraphNode],
     edges: &[KnowledgeGraphEdge],
 ) -> Vec<Value> {
@@ -279,18 +281,18 @@ fn entity_graph_conflicts(
         .collect()
 }
 
-fn entity_graph_edge_is_conflict(edge: &KnowledgeGraphEdge) -> bool {
+pub(super) fn entity_graph_edge_is_conflict(edge: &KnowledgeGraphEdge) -> bool {
     edge.label.eq_ignore_ascii_case("conflicts_with")
         || edge.edge_type.eq_ignore_ascii_case("conflicts_with")
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-struct EntityGraphStaleness {
-    node_count: usize,
-    edge_count: usize,
+pub(super) struct EntityGraphStaleness {
+    pub(super) node_count: usize,
+    pub(super) edge_count: usize,
 }
 
-fn mark_entity_graph_staleness(
+pub(super) fn mark_entity_graph_staleness(
     root: &Path,
     nodes: &mut [KnowledgeGraphNode],
     edges: &mut [KnowledgeGraphEdge],
@@ -315,7 +317,10 @@ fn mark_entity_graph_staleness(
     Ok(stale)
 }
 
-fn attach_entity_graph_node_evidence(nodes: &mut [KnowledgeGraphNode], evidence_records: &[Value]) {
+pub(super) fn attach_entity_graph_node_evidence(
+    nodes: &mut [KnowledgeGraphNode],
+    evidence_records: &[Value],
+) {
     for node in nodes {
         let evidence_ids = node
             .attributes
@@ -348,7 +353,10 @@ fn attach_entity_graph_node_evidence(nodes: &mut [KnowledgeGraphNode], evidence_
     }
 }
 
-fn mark_graph_attributes_staleness(attributes: &mut Value, current_hash: Option<&String>) -> bool {
+pub(super) fn mark_graph_attributes_staleness(
+    attributes: &mut Value,
+    current_hash: Option<&String>,
+) -> bool {
     let stale = attributes
         .get("source_hash")
         .and_then(Value::as_str)
@@ -370,7 +378,7 @@ fn mark_graph_attributes_staleness(attributes: &mut Value, current_hash: Option<
     stale
 }
 
-fn persist_entity_graph_evidence(
+pub(super) fn persist_entity_graph_evidence(
     evidence_records: &mut Vec<Value>,
     document: &KnowledgeDocument,
     owner_id: &str,
@@ -400,21 +408,21 @@ fn persist_entity_graph_evidence(
     id
 }
 
-fn entity_graph_entity_id(doc_id: &str, name: &str) -> String {
+pub(super) fn entity_graph_entity_id(doc_id: &str, name: &str) -> String {
     document_graph_value_id(
         "entity",
         &format!("{doc_id}:{}", normalize_graph_reference_key(name)),
     )
 }
 
-fn document_content_hash(document: &KnowledgeDocument) -> String {
+pub(super) fn document_content_hash(document: &KnowledgeDocument) -> String {
     format!(
         "{:016x}",
         stable_graph_hash(&format!("{}\n{}", document.id, document.content))
     )
 }
 
-fn refresh_document_graph(root: &Path) -> Result<(), WorkerProtocolError> {
+pub(super) fn refresh_document_graph(root: &Path) -> Result<(), WorkerProtocolError> {
     let store = KnowledgeStorePaths::new(root);
     let documents = read_jsonl::<KnowledgeDocument>(&store.documents_file)?;
     let (nodes, edges) = build_document_graph_records(&documents);
@@ -430,7 +438,7 @@ fn refresh_document_graph(root: &Path) -> Result<(), WorkerProtocolError> {
     )
 }
 
-fn build_document_graph_records(
+pub(super) fn build_document_graph_records(
     documents: &[KnowledgeDocument],
 ) -> (Vec<KnowledgeGraphNode>, Vec<KnowledgeGraphEdge>) {
     let mut nodes: HashMap<String, KnowledgeGraphNode> = HashMap::new();
@@ -513,7 +521,7 @@ fn build_document_graph_records(
     (nodes, edges)
 }
 
-fn document_graph_lookup(documents: &[KnowledgeDocument]) -> HashMap<String, String> {
+pub(super) fn document_graph_lookup(documents: &[KnowledgeDocument]) -> HashMap<String, String> {
     let mut lookup = HashMap::new();
     for document in documents {
         for key in [
@@ -533,7 +541,7 @@ fn document_graph_lookup(documents: &[KnowledgeDocument]) -> HashMap<String, Str
     lookup
 }
 
-fn document_graph_document_node(document: &KnowledgeDocument) -> KnowledgeGraphNode {
+pub(super) fn document_graph_document_node(document: &KnowledgeDocument) -> KnowledgeGraphNode {
     KnowledgeGraphNode {
         id: document_graph_node_id(&document.id),
         label: document.name.clone(),
@@ -550,7 +558,7 @@ fn document_graph_document_node(document: &KnowledgeDocument) -> KnowledgeGraphN
     }
 }
 
-fn document_graph_document_stub_node(
+pub(super) fn document_graph_document_stub_node(
     doc_id: &str,
     documents: &[KnowledgeDocument],
 ) -> KnowledgeGraphNode {
@@ -568,7 +576,7 @@ fn document_graph_document_stub_node(
         })
 }
 
-fn document_graph_value_node(kind: &str, value: &str) -> KnowledgeGraphNode {
+pub(super) fn document_graph_value_node(kind: &str, value: &str) -> KnowledgeGraphNode {
     KnowledgeGraphNode {
         id: document_graph_value_id(kind, value),
         label: value.trim().to_string(),
@@ -579,7 +587,7 @@ fn document_graph_value_node(kind: &str, value: &str) -> KnowledgeGraphNode {
     }
 }
 
-fn upsert_document_graph_edge(
+pub(super) fn upsert_document_graph_edge(
     edges: &mut HashMap<String, KnowledgeGraphEdge>,
     source: &str,
     target: &str,
@@ -609,19 +617,19 @@ fn upsert_document_graph_edge(
 }
 
 #[derive(Clone, Debug)]
-struct ExplicitReference {
+pub(super) struct ExplicitReference {
     target: String,
     kind: ExplicitReferenceKind,
     evidence: Value,
 }
 
 #[derive(Clone, Debug)]
-enum ExplicitReferenceKind {
+pub(super) enum ExplicitReferenceKind {
     Url,
     File,
 }
 
-fn explicit_document_references(document: &KnowledgeDocument) -> Vec<ExplicitReference> {
+pub(super) fn explicit_document_references(document: &KnowledgeDocument) -> Vec<ExplicitReference> {
     let mut references = Vec::new();
     for (line_index, line) in document.content.lines().enumerate() {
         references.extend(markdown_link_references(document, line, line_index + 1));
@@ -652,7 +660,7 @@ fn explicit_document_references(document: &KnowledgeDocument) -> Vec<ExplicitRef
     references
 }
 
-fn markdown_link_references(
+pub(super) fn markdown_link_references(
     document: &KnowledgeDocument,
     line: &str,
     line_number: usize,
@@ -694,7 +702,7 @@ fn markdown_link_references(
     references
 }
 
-fn explicit_reference(
+pub(super) fn explicit_reference(
     document: &KnowledgeDocument,
     target: &str,
     kind: ExplicitReferenceKind,
@@ -716,7 +724,10 @@ fn explicit_reference(
     }
 }
 
-fn resolve_document_graph_link(target: &str, lookup: &HashMap<String, String>) -> Option<String> {
+pub(super) fn resolve_document_graph_link(
+    target: &str,
+    lookup: &HashMap<String, String>,
+) -> Option<String> {
     let normalized = normalize_graph_reference_key(target);
     lookup.get(&normalized).cloned().or_else(|| {
         lookup
@@ -725,31 +736,31 @@ fn resolve_document_graph_link(target: &str, lookup: &HashMap<String, String>) -
     })
 }
 
-fn document_graph_node_id(doc_id: &str) -> String {
+pub(super) fn document_graph_node_id(doc_id: &str) -> String {
     format!("doc:{doc_id}")
 }
 
-fn document_graph_value_id(kind: &str, value: &str) -> String {
+pub(super) fn document_graph_value_id(kind: &str, value: &str) -> String {
     format!(
         "{kind}:{:016x}",
         stable_graph_hash(&normalize_graph_reference_key(value))
     )
 }
 
-fn document_graph_edge_id(source: &str, edge_type: &str, target: &str) -> String {
+pub(super) fn document_graph_edge_id(source: &str, edge_type: &str, target: &str) -> String {
     format!(
         "edge:{:016x}",
         stable_graph_hash(&format!("{source}\n{edge_type}\n{target}"))
     )
 }
 
-fn stable_graph_hash(value: &str) -> u64 {
+pub(super) fn stable_graph_hash(value: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     value.hash(&mut hasher);
     hasher.finish()
 }
 
-fn normalize_graph_reference_key(value: &str) -> String {
+pub(super) fn normalize_graph_reference_key(value: &str) -> String {
     value
         .trim()
         .trim_start_matches("./")
@@ -757,11 +768,11 @@ fn normalize_graph_reference_key(value: &str) -> String {
         .to_ascii_lowercase()
 }
 
-fn path_basename(value: &str) -> &str {
+pub(super) fn path_basename(value: &str) -> &str {
     value.rsplit(['/', '\\']).next().unwrap_or(value)
 }
 
-fn trim_reference_token(value: &str) -> String {
+pub(super) fn trim_reference_token(value: &str) -> String {
     value
         .trim()
         .trim_matches(|character: char| {
@@ -773,11 +784,11 @@ fn trim_reference_token(value: &str) -> String {
         .to_string()
 }
 
-fn is_explicit_url(value: &str) -> bool {
+pub(super) fn is_explicit_url(value: &str) -> bool {
     value.starts_with("http://") || value.starts_with("https://")
 }
 
-fn is_explicit_file_reference(value: &str) -> bool {
+pub(super) fn is_explicit_file_reference(value: &str) -> bool {
     let lower = value.to_ascii_lowercase();
     [".md", ".txt", ".json", ".csv"]
         .iter()

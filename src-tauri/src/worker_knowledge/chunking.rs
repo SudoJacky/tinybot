@@ -1,4 +1,6 @@
-fn make_document_id(name: &str, content: &str, created_at: &str) -> String {
+use super::*;
+
+pub(super) fn make_document_id(name: &str, content: &str, created_at: &str) -> String {
     let mut hasher = DefaultHasher::new();
     created_at.hash(&mut hasher);
     name.hash(&mut hasher);
@@ -6,7 +8,7 @@ fn make_document_id(name: &str, content: &str, created_at: &str) -> String {
     format!("doc_{:08x}", (hasher.finish() & 0xffff_ffff) as u32)
 }
 
-fn build_document_chunks(
+pub(super) fn build_document_chunks(
     doc_id: &str,
     doc_name: &str,
     file_path: &str,
@@ -49,7 +51,7 @@ fn build_document_chunks(
     chunks
 }
 
-fn build_knowledge_document_tree(
+pub(super) fn build_knowledge_document_tree(
     doc_id: &str,
     mut parent_chunks: Vec<KnowledgeChunk>,
 ) -> KnowledgeDocumentTreeResult {
@@ -114,7 +116,7 @@ fn build_knowledge_document_tree(
     }
 }
 
-fn knowledge_chunk_section_id(chunk: &KnowledgeChunk) -> String {
+pub(super) fn knowledge_chunk_section_id(chunk: &KnowledgeChunk) -> String {
     if chunk.section_id.is_empty() {
         section_id(&chunk.doc_id, chunk.section_ordinal)
     } else {
@@ -122,7 +124,7 @@ fn knowledge_chunk_section_id(chunk: &KnowledgeChunk) -> String {
     }
 }
 
-fn split_parent_sections(content: &str) -> Vec<ParentSection> {
+pub(super) fn split_parent_sections(content: &str) -> Vec<ParentSection> {
     let line_spans = content_line_spans(content);
     if line_spans.is_empty() {
         return vec![ParentSection {
@@ -191,7 +193,7 @@ fn split_parent_sections(content: &str) -> Vec<ParentSection> {
     sections
 }
 
-fn parent_section_from_lines(
+pub(super) fn parent_section_from_lines(
     lines: &[LineSpan],
     line_start: usize,
     section_path: String,
@@ -225,7 +227,7 @@ fn parent_section_from_lines(
 }
 
 #[derive(Clone, Debug)]
-struct LineSpan {
+pub(super) struct LineSpan {
     original: String,
     trimmed: String,
     start_char: usize,
@@ -236,7 +238,7 @@ struct LineSpan {
     heading_level: Option<usize>,
 }
 
-fn content_line_spans(content: &str) -> Vec<LineSpan> {
+pub(super) fn content_line_spans(content: &str) -> Vec<LineSpan> {
     let mut spans = Vec::new();
     let mut offset = 0usize;
     for (index, line) in content.split_inclusive('\n').enumerate() {
@@ -274,7 +276,7 @@ fn content_line_spans(content: &str) -> Vec<LineSpan> {
     spans
 }
 
-fn now_timestamp() -> String {
+pub(super) fn now_timestamp() -> String {
     let seconds = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs())
@@ -282,23 +284,23 @@ fn now_timestamp() -> String {
     seconds.to_string()
 }
 
-fn first_markdown_heading(content: &str) -> Option<String> {
+pub(super) fn first_markdown_heading(content: &str) -> Option<String> {
     content
         .lines()
         .find_map(|line| markdown_heading_text(line.trim()))
 }
 
-fn first_markdown_heading_level(content: &str) -> Option<usize> {
+pub(super) fn first_markdown_heading_level(content: &str) -> Option<usize> {
     content
         .lines()
         .find_map(|line| markdown_heading(line.trim()).map(|(level, _)| level))
 }
 
-fn markdown_heading_text(trimmed: &str) -> Option<String> {
+pub(super) fn markdown_heading_text(trimmed: &str) -> Option<String> {
     markdown_heading(trimmed).map(|(_, title)| title)
 }
 
-fn markdown_heading(trimmed: &str) -> Option<(usize, String)> {
+pub(super) fn markdown_heading(trimmed: &str) -> Option<(usize, String)> {
     let level = trimmed
         .chars()
         .take_while(|character| *character == '#')
@@ -313,6 +315,6 @@ fn markdown_heading(trimmed: &str) -> Option<(usize, String)> {
     Some((level, title.to_string()))
 }
 
-fn section_id(doc_id: &str, section_ordinal: usize) -> String {
+pub(super) fn section_id(doc_id: &str, section_ordinal: usize) -> String {
     format!("section_{doc_id}_{section_ordinal}")
 }

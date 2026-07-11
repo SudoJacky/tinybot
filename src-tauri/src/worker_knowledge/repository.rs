@@ -1,10 +1,12 @@
+use super::*;
+
 #[derive(Clone, Debug)]
 pub struct WorkerKnowledgeRpc {
     root: PathBuf,
     policy: CapabilityPolicy,
 }
 
-const CONTROLLED_RELATION_PREDICATES: &[&str] = &[
+pub(super) const CONTROLLED_RELATION_PREDICATES: &[&str] = &[
     "depends_on",
     "causes",
     "implements",
@@ -867,7 +869,7 @@ impl WorkerKnowledgeRpc {
         })
     }
 
-    fn require(&self, capability: WorkerCapability) -> Result<(), WorkerProtocolError> {
+    pub(super) fn require(&self, capability: WorkerCapability) -> Result<(), WorkerProtocolError> {
         if self.policy.allows(&capability) {
             return Ok(());
         }
@@ -882,20 +884,20 @@ impl WorkerKnowledgeRpc {
 }
 
 #[derive(Clone, Debug)]
-struct KnowledgeStorePaths {
-    files_dir: PathBuf,
-    documents_file: PathBuf,
-    chunks_file: PathBuf,
-    jobs_file: PathBuf,
-    document_graph_nodes_file: PathBuf,
-    document_graph_edges_file: PathBuf,
-    entity_graph_nodes_file: PathBuf,
-    entity_graph_edges_file: PathBuf,
-    entity_graph_evidence_file: PathBuf,
+pub(super) struct KnowledgeStorePaths {
+    pub(super) files_dir: PathBuf,
+    pub(super) documents_file: PathBuf,
+    pub(super) chunks_file: PathBuf,
+    pub(super) jobs_file: PathBuf,
+    pub(super) document_graph_nodes_file: PathBuf,
+    pub(super) document_graph_edges_file: PathBuf,
+    pub(super) entity_graph_nodes_file: PathBuf,
+    pub(super) entity_graph_edges_file: PathBuf,
+    pub(super) entity_graph_evidence_file: PathBuf,
 }
 
 impl KnowledgeStorePaths {
-    fn new(root: &Path) -> Self {
+    pub(super) fn new(root: &Path) -> Self {
         let knowledge_dir = root.join("knowledge");
         Self {
             files_dir: knowledge_dir.join("files"),
@@ -910,7 +912,7 @@ impl KnowledgeStorePaths {
         }
     }
 
-    fn ensure_dirs(&self) -> Result<(), WorkerProtocolError> {
+    pub(super) fn ensure_dirs(&self) -> Result<(), WorkerProtocolError> {
         fs::create_dir_all(&self.files_dir).map_err(|error| {
             knowledge_filesystem_error(
                 "failed to create knowledge directory",

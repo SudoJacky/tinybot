@@ -16,12 +16,23 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-include!("worker_knowledge/repository.rs");
-include!("worker_knowledge/types.rs");
-include!("worker_knowledge/search.rs");
-include!("worker_knowledge/graph.rs");
-include!("worker_knowledge/jobs.rs");
-include!("worker_knowledge/persistence.rs");
-include!("worker_knowledge/chunking.rs");
-include!("worker_knowledge/retrieval.rs");
-include!("worker_knowledge/tests.rs");
+mod chunking;
+mod graph;
+mod jobs;
+mod persistence;
+mod repository;
+mod retrieval;
+mod search;
+#[cfg(test)]
+mod tests;
+mod types;
+
+use self::chunking::*;
+use self::graph::*;
+use self::jobs::*;
+use self::persistence::*;
+pub use self::repository::WorkerKnowledgeRpc;
+use self::repository::{KnowledgeStorePaths, CONTROLLED_RELATION_PREDICATES};
+use self::retrieval::*;
+use self::search::*;
+pub use self::types::*;

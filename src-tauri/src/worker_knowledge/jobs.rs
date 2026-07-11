@@ -1,4 +1,6 @@
-fn find_document(
+use super::*;
+
+pub(super) fn find_document(
     root: &Path,
     doc_id: &str,
 ) -> Result<Option<KnowledgeDocument>, WorkerProtocolError> {
@@ -9,7 +11,7 @@ fn find_document(
     )
 }
 
-fn completed_retrieval_job(document: &KnowledgeDocument) -> KnowledgeJob {
+pub(super) fn completed_retrieval_job(document: &KnowledgeDocument) -> KnowledgeJob {
     let timestamp = now_timestamp();
     let chunk_count = document.chunk_count.max(1);
     KnowledgeJob {
@@ -35,7 +37,7 @@ fn completed_retrieval_job(document: &KnowledgeDocument) -> KnowledgeJob {
     }
 }
 
-fn completed_rebuild_job(
+pub(super) fn completed_rebuild_job(
     rebuild_type: &str,
     stats: &KnowledgeStats,
     result: Value,
@@ -106,7 +108,7 @@ fn completed_rebuild_job(
     }
 }
 
-fn knowledge_bm25_rebuild_result(root: &Path) -> Result<Value, WorkerProtocolError> {
+pub(super) fn knowledge_bm25_rebuild_result(root: &Path) -> Result<Value, WorkerProtocolError> {
     let store = KnowledgeStorePaths::new(root);
     let documents = read_jsonl::<KnowledgeDocument>(&store.documents_file)?;
     let chunks = read_jsonl::<KnowledgeChunk>(&store.chunks_file)?;
@@ -127,7 +129,7 @@ fn knowledge_bm25_rebuild_result(root: &Path) -> Result<Value, WorkerProtocolErr
     }))
 }
 
-fn knowledge_tree_rebuild_result(root: &Path) -> Result<Value, WorkerProtocolError> {
+pub(super) fn knowledge_tree_rebuild_result(root: &Path) -> Result<Value, WorkerProtocolError> {
     let store = KnowledgeStorePaths::new(root);
     let documents = read_jsonl::<KnowledgeDocument>(&store.documents_file)?;
     let chunks = read_jsonl::<KnowledgeChunk>(&store.chunks_file)?;
@@ -143,7 +145,7 @@ fn knowledge_tree_rebuild_result(root: &Path) -> Result<Value, WorkerProtocolErr
     }))
 }
 
-fn knowledge_semantic_unavailable_result() -> Value {
+pub(super) fn knowledge_semantic_unavailable_result() -> Value {
     serde_json::json!({
         "skipped": true,
         "available": false,
@@ -156,7 +158,10 @@ fn knowledge_semantic_unavailable_result() -> Value {
     })
 }
 
-fn upsert_knowledge_job(root: &Path, job: &KnowledgeJob) -> Result<(), WorkerProtocolError> {
+pub(super) fn upsert_knowledge_job(
+    root: &Path,
+    job: &KnowledgeJob,
+) -> Result<(), WorkerProtocolError> {
     let jobs_file = KnowledgeStorePaths::new(root).jobs_file;
     let mut jobs = read_jsonl::<KnowledgeJob>(&jobs_file)?;
     jobs.retain(|existing| existing.id != job.id);
@@ -164,7 +169,7 @@ fn upsert_knowledge_job(root: &Path, job: &KnowledgeJob) -> Result<(), WorkerPro
     write_jsonl(&jobs_file, &jobs)
 }
 
-fn completed_entity_graph_job(
+pub(super) fn completed_entity_graph_job(
     document: &KnowledgeDocument,
     params: &KnowledgeEntityGraphExtractionParams,
     source_hash: &str,
