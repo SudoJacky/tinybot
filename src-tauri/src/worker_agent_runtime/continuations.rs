@@ -1,5 +1,7 @@
 use super::checkpoint::{checkpoint_value, test_compat_runtime_metadata};
-use super::events::{event, legacy_result_events_from_runtime_events};
+use super::events::{
+    event, legacy_result_events_from_runtime_events, runtime_event_item_id, runtime_event_timestamp,
+};
 use super::result::{append_runtime_events_to_sink, cancelled_result, waiting_runtime_events};
 use super::tool_projection::{
     assistant_tool_calls_message, completed_tool_result_entry, normalize_tool_result_for_context,
@@ -14,7 +16,7 @@ use super::{
 };
 use crate::agent_loop_runtime_protocol::{
     AgentApprovalDecision, AgentApprovalScope, AgentContinuationInput, AgentFormAction,
-    AgentRuntimePhase,
+    AgentRuntimeEventAppender, AgentRuntimeEventEnvelope, AgentRuntimePhase,
 };
 use serde_json::Value;
 
@@ -527,6 +529,8 @@ async fn approved_tool_continuation_result(
             "stopReason": "final_response",
         }),
     ));
+    let runtime_events = continuation_runtime_events(context, &events);
+    append_runtime_events_to_sink(context, services.trace_sink.as_ref(), &runtime_events);
     Ok(serde_json::json!({
         "runtime": "rust",
         "runId": context.run_id,
@@ -545,7 +549,29 @@ async fn approved_tool_continuation_result(
             "guidance": continuation.guidance,
         },
         "events": events,
+        "runtimeEvents": runtime_events,
     }))
+}
+
+fn continuation_runtime_events(
+    context: &NativeAgentRunContext,
+    events: &[NativeAgentEvent],
+) -> Vec<AgentRuntimeEventEnvelope> {
+    let mut appender = AgentRuntimeEventAppender::new_with_trace_context(
+        &context.session_id,
+        context.trace_context.clone(),
+    );
+    events
+        .iter()
+        .map(|event| {
+            appender.append_legacy_native_event(
+                event.event_name.clone(),
+                runtime_event_item_id(&event.event_name, &event.payload),
+                runtime_event_timestamp(),
+                event.payload.clone(),
+            )
+        })
+        .collect()
 }
 
 fn approved_tool_cleanup_timeout_result(

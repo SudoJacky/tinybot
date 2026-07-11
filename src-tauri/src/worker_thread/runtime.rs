@@ -19,6 +19,17 @@ pub struct ThreadRuntime<S: ThreadStore = LocalThreadStore> {
     store: S,
 }
 
+struct ThreadCompletion {
+    run_id: Option<String>,
+    turn_id: Option<String>,
+    content: Option<String>,
+    message: Value,
+    stop_reason: Option<String>,
+    usage: Option<Value>,
+    instruction_provenance: Option<Value>,
+    instruction_diagnostics: Vec<Value>,
+}
+
 impl<S: ThreadStore> ThreadRuntime<S> {
     pub fn new(store: S) -> Self {
         Self { store }
@@ -421,15 +432,21 @@ impl<S: ThreadStore> ThreadRuntime<S> {
                 message,
                 stop_reason,
                 usage,
+                instruction_provenance,
+                instruction_diagnostics,
             } => self.apply_thread_completion_op(
                 request.thread_id,
-                run_id,
-                turn_id,
                 request.client_event_id,
-                content,
-                message,
-                stop_reason,
-                usage,
+                ThreadCompletion {
+                    run_id,
+                    turn_id,
+                    content,
+                    message,
+                    stop_reason,
+                    usage,
+                    instruction_provenance,
+                    instruction_diagnostics,
+                },
             ),
             ThreadOp::Error {
                 run_id,
@@ -535,13 +552,8 @@ impl<S: ThreadStore> ThreadRuntime<S> {
     fn apply_thread_completion_op(
         &self,
         thread_id: String,
-        run_id: Option<String>,
-        turn_id: Option<String>,
         client_event_id: Option<String>,
-        content: Option<String>,
-        message: Value,
-        stop_reason: Option<String>,
-        usage: Option<Value>,
+        completion: ThreadCompletion,
     ) -> Result<ThreadTurnRuntimeResult, WorkerProtocolError> {
         if let Some(result) =
             self.replay_client_event_result(&thread_id, client_event_id.as_deref())?
@@ -550,19 +562,27 @@ impl<S: ThreadStore> ThreadRuntime<S> {
         }
         let live = self.live_thread(thread_id.clone());
         let status = self.store.get_thread_status(&thread_id)?;
-        let run_id = active_run_id_for_thread_op(&status, &thread_id, run_id)?;
-        let turn_id = turn_id.unwrap_or_else(|| run_id.clone());
+        let run_id = active_run_id_for_thread_op(&status, &thread_id, completion.run_id)?;
+        let turn_id = completion.turn_id.unwrap_or_else(|| run_id.clone());
         let append = live.append_many_with_client_event_id(
             vec![
                 assistant_message_completed_item(
                     &thread_id,
                     &run_id,
                     &turn_id,
-                    content,
-                    message,
-                    usage.clone(),
+                    completion.content,
+                    completion.message,
+                    completion.usage.clone(),
                 ),
-                agent_run_completed_item(&thread_id, &run_id, &turn_id, stop_reason, usage),
+                agent_run_completed_item(
+                    &thread_id,
+                    &run_id,
+                    &turn_id,
+                    completion.stop_reason,
+                    completion.usage,
+                    completion.instruction_provenance,
+                    completion.instruction_diagnostics,
+                ),
             ],
             client_event_id.as_deref(),
         )?;
@@ -1266,6 +1286,8 @@ fn agent_run_completed_item(
     turn_id: &str,
     stop_reason: Option<String>,
     usage: Option<Value>,
+    instruction_provenance: Option<Value>,
+    instruction_diagnostics: Vec<Value>,
 ) -> ThreadItem {
     ThreadItem {
         item_id: format!("thread-runtime:{thread_id}:{run_id}:completed"),
@@ -1280,6 +1302,8 @@ fn agent_run_completed_item(
             "turnId": turn_id,
             "stopReason": stop_reason,
             "usage": usage,
+            "instructionProvenance": instruction_provenance,
+            "instructionDiagnostics": instruction_diagnostics,
             "source": "thread.apply_op"
         })),
     }

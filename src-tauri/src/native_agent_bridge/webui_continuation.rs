@@ -72,7 +72,7 @@ pub(crate) fn pending_approvals_from_checkpoint(
 
 #[cfg(test)]
 mod tests {
-    use super::pending_approvals_from_checkpoint;
+    use super::{native_approval_continuation_spec, pending_approvals_from_checkpoint};
 
     #[test]
     fn pending_approvals_preserve_runtime_tool_approval_id() {
@@ -99,6 +99,32 @@ mod tests {
         assert_eq!(approvals.len(), 1);
         assert_eq!(approvals[0]["id"], "approval:run-deferred-write:call-write");
         assert_eq!(approvals[0]["tool_name"], "workspace.write_file");
+    }
+
+    #[test]
+    fn approval_continuation_preserves_checkpoint_trace_context() {
+        let checkpoint = serde_json::json!({
+            "phase": "awaiting_approval",
+            "runId": "run-traced-approval",
+            "sessionId": "session-traced-approval",
+            "traceContext": {
+                "requestId": "request-traced-approval",
+                "traceId": "trace-traced-approval",
+                "runId": "run-traced-approval",
+                "turnId": "turn-traced-approval",
+                "threadId": "thread-traced-approval"
+            },
+            "payload": { "operation": { "toolName": "workspace.write_file" } }
+        });
+
+        let continuation = native_approval_continuation_spec(
+            &checkpoint,
+            &serde_json::json!({ "scope": "once" }),
+            "approval-traced",
+            true,
+        );
+
+        assert_eq!(continuation["traceContext"], checkpoint["traceContext"]);
     }
 }
 
@@ -161,6 +187,7 @@ pub(crate) fn native_approval_continuation_spec(
         "runtime": "rust",
         "runId": run_id,
         "sessionId": session_id,
+        "traceContext": checkpoint.get("traceContext").cloned().unwrap_or(serde_json::Value::Null),
         "messages": checkpoint
             .get("messages")
             .cloned()

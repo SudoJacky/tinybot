@@ -422,6 +422,10 @@ pub enum ThreadOp {
         stop_reason: Option<String>,
         #[serde(default)]
         usage: Option<Value>,
+        #[serde(default)]
+        instruction_provenance: Option<Value>,
+        #[serde(default)]
+        instruction_diagnostics: Vec<Value>,
     },
     Error {
         #[serde(default)]

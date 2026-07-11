@@ -438,11 +438,14 @@ compaction boundaries. Hook decisions are `continue`, `deny` with a non-empty re
 diagnostic metadata, or throwing a hook error fails the run explicitly; hook failures are never
 converted into successful tool or provider results.
 
-Every `runtimeEvents` entry may include the same `traceContext` object. Provider boundary events add
+Every native agent `runtimeEvents` entry includes the same `traceContext` object. Provider boundary events add
 `providerAttemptId`; tool events retain `itemId`/`toolCallId`. Internal tool, thread, trace, and
 persistence Worker RPC requests reuse the root `traceId` and derive operation-specific request IDs.
 Thread checkpoints/items or direct-session `AgentRunRecord` values persist the correlation context
 so approval/form continuations and post-restart diagnostics do not create an unrelated trace.
+Approval continuation specs restore the checkpoint `traceContext`, and approved tool continuations
+return and persist traced `runtimeEvents` for the approval decision, tool result, usage, and terminal
+boundary. Persisted tool envelopes apply the same config-secret redaction used by live events.
 
 `runtime.metrics` returns a process-local, secret-safe operational snapshot:
 
@@ -830,6 +833,9 @@ canonical store (`thread_log` for durable history and usage, legacy `sessions.sq
 legacy active session state). When a session key belongs to a canonical thread, compatibility
 metadata, history, and checkpoint reads prefer the `ThreadStore` projection; old session JSONL data
 cannot override the thread timeline.
+Compatibility reads first check whether a ThreadStore projection exists. A workspace that has only
+direct-session state does not create an empty `threads.sqlite` file and does not acquire thread-read
+capabilities merely to prove that no canonical thread exists.
 Compatibility `session.persist_turn`, session checkpoint mutation, and `agent_run.*` lifecycle
 writes return a structured authority error for a thread-owned session instead of creating a second
 durable record.
@@ -843,6 +849,8 @@ Thread-owned commands such as `worker_submit_thread_turn`, `worker_resolve_threa
 assistant or error item all append to `.tinybot/state/thread-store.jsonl`. They do not create a
 per-session JSONL file. Their native-agent result contains
 `conversationPersistence.authority: "thread"` and `runPersistence.authority: "thread"`.
+The terminal run item retains instruction provenance and diagnostics, so compatibility
+`agent_run.get` projections preserve the effective working directory and instruction sources.
 Approval/form continuation restores `latestCheckpoint.restorePayload` from `ThreadStore`, including
 after a new runtime instance starts; a later terminal item makes that checkpoint inactive. Direct
 non-thread agent commands continue to persist run lifecycle and completed conversation through the

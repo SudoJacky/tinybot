@@ -8,35 +8,30 @@ impl WorkerRpcRouter {
         match request.method.as_str() {
             "session.get_metadata" => {
                 let params: SessionIdParams = parse_params(request)?;
-                if let Some(session) = self
-                    .thread
-                    .get_session_metadata_from_threads(&params.session_id)?
-                {
-                    return serde_json::to_value(session).map_err(serialization_error);
+                if self.thread.has_thread_store() {
+                    if let Some(session) = self
+                        .thread
+                        .get_session_metadata_from_threads(&params.session_id)?
+                    {
+                        return serde_json::to_value(session).map_err(serialization_error);
+                    }
                 }
                 if let Some(session) = self.thread_log.get_session_metadata(&params.session_id)? {
                     return serde_json::to_value(session).map_err(serialization_error);
                 }
-                let session = match self.session.get_metadata(&params.session_id) {
-                    Ok(session) => session,
-                    Err(error) => match self
-                        .thread
-                        .get_session_metadata_from_threads(&params.session_id)?
-                    {
-                        Some(session) => session,
-                        None => return Err(error),
-                    },
-                };
+                let session = self.session.get_metadata(&params.session_id)?;
                 serde_json::to_value(session).map_err(serialization_error)
             }
             "session.get_history" => {
                 let params: SessionHistoryParams = parse_params(request)?;
                 let limit = params.limit.unwrap_or(80);
-                if let Some(projection) = self
-                    .thread
-                    .get_session_history_from_threads(&params.session_id, limit)?
-                {
-                    return serde_json::to_value(projection).map_err(serialization_error);
+                if self.thread.has_thread_store() {
+                    if let Some(projection) = self
+                        .thread
+                        .get_session_history_from_threads(&params.session_id, limit)?
+                    {
+                        return serde_json::to_value(projection).map_err(serialization_error);
+                    }
                 }
                 if let Some(projection) = self
                     .thread_log
@@ -45,20 +40,16 @@ impl WorkerRpcRouter {
                     return serde_json::to_value(projection).map_err(serialization_error);
                 }
                 let projection = self.session.get_history(&params.session_id, limit)?;
-                let projection =
-                    if projection.messages.is_empty() && projection.updated_at.is_empty() {
-                        self.thread
-                            .get_session_history_from_threads(&params.session_id, limit)?
-                            .unwrap_or(projection)
-                    } else {
-                        projection
-                    };
                 serde_json::to_value(projection).map_err(serialization_error)
             }
             "session.list_metadata" => {
                 let thread_log_sessions = self.thread_log.list_session_metadata()?;
                 let sessions = self.session.list_metadata()?;
-                let mut merged = self.thread.list_session_metadata_with_threads(&sessions)?;
+                let mut merged = if self.thread.has_thread_store() {
+                    self.thread.list_session_metadata_with_threads(&sessions)?
+                } else {
+                    sessions
+                };
                 for session in thread_log_sessions {
                     if let Some(existing_index) = merged
                         .iter()
@@ -85,11 +76,13 @@ impl WorkerRpcRouter {
             }
             "session.get_checkpoint" => {
                 let params: SessionIdParams = parse_params(request)?;
-                if let Some(checkpoint) = self
-                    .thread
-                    .get_session_checkpoint_from_threads(&params.session_id)?
-                {
-                    return serde_json::to_value(checkpoint).map_err(serialization_error);
+                if self.thread.has_thread_store() {
+                    if let Some(checkpoint) = self
+                        .thread
+                        .get_session_checkpoint_from_threads(&params.session_id)?
+                    {
+                        return serde_json::to_value(checkpoint).map_err(serialization_error);
+                    }
                 }
                 let checkpoint = self
                     .thread_log
@@ -292,10 +285,7 @@ impl WorkerRpcRouter {
             }
             "agent_run.list" => {
                 let params: AgentRunListParams = parse_params(request)?;
-                let thread_owned = self
-                    .thread
-                    .get_session_metadata_from_threads(&params.session_id)?
-                    .is_some();
+                let thread_owned = self.thread_owned_session(&params.session_id)?;
                 let mut records = if thread_owned {
                     self.thread
                         .list_agent_runs_from_threads(&params.session_id)?
@@ -312,12 +302,14 @@ impl WorkerRpcRouter {
                             records.push(record);
                         }
                     }
-                    for record in self
-                        .thread
-                        .list_agent_runs_from_threads(&params.session_id)?
-                    {
-                        if seen_run_ids.insert(record.run_id.clone()) {
-                            records.push(record);
+                    if self.thread.has_thread_store() {
+                        for record in self
+                            .thread
+                            .list_agent_runs_from_threads(&params.session_id)?
+                        {
+                            if seen_run_ids.insert(record.run_id.clone()) {
+                                records.push(record);
+                            }
                         }
                     }
                 }
@@ -338,10 +330,7 @@ impl WorkerRpcRouter {
             }
             "agent_run.get" => {
                 let params: AgentRunIdParams = parse_params(request)?;
-                let thread_owned = self
-                    .thread
-                    .get_session_metadata_from_threads(&params.session_id)?
-                    .is_some();
+                let thread_owned = self.thread_owned_session(&params.session_id)?;
                 let record = if thread_owned {
                     self.thread
                         .get_agent_run_from_threads(&params.session_id, &params.run_id)?
@@ -359,10 +348,14 @@ impl WorkerRpcRouter {
                             .get_agent_run(&params.session_id, &params.run_id)
                         {
                             Ok(record) => record,
-                            Err(session_error) => match self
-                                .thread
-                                .get_agent_run_from_threads(&params.session_id, &params.run_id)?
-                            {
+                            Err(session_error) => match if self.thread.has_thread_store() {
+                                self.thread.get_agent_run_from_threads(
+                                    &params.session_id,
+                                    &params.run_id,
+                                )?
+                            } else {
+                                None
+                            } {
                                 Some(record) => record,
                                 None => {
                                     if matches!(
@@ -384,10 +377,7 @@ impl WorkerRpcRouter {
             }
             "agent_run.list_trace" => {
                 let params: AgentRunListTraceParams = parse_params(request)?;
-                let thread_owned = self
-                    .thread
-                    .get_session_metadata_from_threads(&params.session_id)?
-                    .is_some();
+                let thread_owned = self.thread_owned_session(&params.session_id)?;
                 let trace_page = if thread_owned {
                     self.thread
                         .list_agent_run_trace_events(
@@ -414,12 +404,16 @@ impl WorkerRpcRouter {
                             params.limit,
                         ) {
                             Ok(trace_page) => trace_page,
-                            Err(session_error) => match self.thread.list_agent_run_trace_events(
-                                &params.session_id,
-                                &params.run_id,
-                                params.cursor.as_deref(),
-                                params.limit,
-                            )? {
+                            Err(session_error) => match if self.thread.has_thread_store() {
+                                self.thread.list_agent_run_trace_events(
+                                    &params.session_id,
+                                    &params.run_id,
+                                    params.cursor.as_deref(),
+                                    params.limit,
+                                )?
+                            } else {
+                                None
+                            } {
                                 Some(trace_page) => trace_page,
                                 None => {
                                     if matches!(
@@ -441,10 +435,7 @@ impl WorkerRpcRouter {
             }
             "agent_run.runtime_state" => {
                 let params: AgentRunIdParams = parse_params(request)?;
-                let thread_owned = self
-                    .thread
-                    .get_session_metadata_from_threads(&params.session_id)?
-                    .is_some();
+                let thread_owned = self.thread_owned_session(&params.session_id)?;
                 let runtime_state = if thread_owned {
                     self.thread
                         .get_agent_run_runtime_state(&params.session_id, &params.run_id)?
@@ -462,10 +453,14 @@ impl WorkerRpcRouter {
                             .get_agent_run_runtime_state(&params.session_id, &params.run_id)
                         {
                             Ok(runtime_state) => runtime_state,
-                            Err(session_error) => match self
-                                .thread
-                                .get_agent_run_runtime_state(&params.session_id, &params.run_id)?
-                            {
+                            Err(session_error) => match if self.thread.has_thread_store() {
+                                self.thread.get_agent_run_runtime_state(
+                                    &params.session_id,
+                                    &params.run_id,
+                                )?
+                            } else {
+                                None
+                            } {
                                 Some(runtime_state) => runtime_state,
                                 None => {
                                     if matches!(
@@ -513,9 +508,12 @@ impl WorkerRpcRouter {
             }
             "agent_run.get_checkpoint" => {
                 let params: AgentRunIdParams = parse_params(request)?;
-                let thread_checkpoint = self
-                    .thread
-                    .get_session_checkpoint_from_threads(&params.session_id)?;
+                let thread_checkpoint = if self.thread.has_thread_store() {
+                    self.thread
+                        .get_session_checkpoint_from_threads(&params.session_id)?
+                } else {
+                    None
+                };
                 if let Some(checkpoint) = thread_checkpoint {
                     return Ok(checkpoint);
                 }
@@ -590,14 +588,20 @@ impl WorkerRpcRouter {
         session_id: &str,
         method: &str,
     ) -> Result<(), WorkerProtocolError> {
-        if self
-            .thread
-            .get_session_metadata_from_threads(session_id)?
-            .is_some()
-        {
+        if self.thread_owned_session(session_id)? {
             return Err(thread_owned_persistence_error(session_id, method));
         }
         Ok(())
+    }
+
+    fn thread_owned_session(&self, session_id: &str) -> Result<bool, WorkerProtocolError> {
+        if !self.thread.has_thread_store() {
+            return Ok(false);
+        }
+        Ok(self
+            .thread
+            .get_session_metadata_from_threads(session_id)?
+            .is_some())
     }
 }
 

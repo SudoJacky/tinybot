@@ -372,17 +372,21 @@ impl AgentRuntimeEventAppender {
     ) -> AgentRuntimeEventEnvelope {
         let event_name = event_name.into();
         let sequence = self.take_next_sequence();
-        AgentRuntimeEventEnvelope::from_legacy_native_event(LegacyNativeAgentEventEnvelopeInput {
-            session_id: self.session_id.clone(),
-            thread_id: self.thread_id.clone(),
-            turn_id: self.turn_id.clone(),
-            parent_turn_id: None,
-            item_id,
-            event_name,
-            sequence,
-            timestamp: timestamp.into(),
-            payload,
-        })
+        let mut event = AgentRuntimeEventEnvelope::from_legacy_native_event(
+            LegacyNativeAgentEventEnvelopeInput {
+                session_id: self.session_id.clone(),
+                thread_id: self.thread_id.clone(),
+                turn_id: self.turn_id.clone(),
+                parent_turn_id: None,
+                item_id,
+                event_name,
+                sequence,
+                timestamp: timestamp.into(),
+                payload,
+            },
+        );
+        event.trace_context = self.trace_context.clone();
+        event
     }
 
     pub fn next_sequence(&self) -> u64 {

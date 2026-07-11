@@ -650,6 +650,11 @@ pub(crate) fn apply_native_agent_thread_result(
             "message": native_agent_final_assistant_message(result),
             "stopReason": stop_reason,
             "usage": native_agent_usage(result).into_iter().last(),
+            "instructionProvenance": result.get("instructionProvenance").cloned(),
+            "instructionDiagnostics": result
+                .get("instructionDiagnostics")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!([])),
         })),
         "cancelled" => Some(serde_json::json!({
             "type": "interrupt",

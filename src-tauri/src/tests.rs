@@ -1300,7 +1300,7 @@ fn worker_run_agent_stops_before_provider_when_run_start_persistence_fails() {
     )
     .expect_err("run-start persistence failure should fail the command");
 
-    assert!(error.contains("thread log"), "{error}");
+    assert!(error.contains("run start persistence failed"), "{error}");
     assert_eq!(
         *calls
             .lock()
@@ -1370,7 +1370,7 @@ fn worker_run_agent_fails_when_run_record_persistence_fails() {
     )
     .expect_err("run-record persistence failure should fail the command");
 
-    assert!(error.contains("thread log"), "{error}");
+    assert!(error.contains("run persistence failed"), "{error}");
     assert_eq!(
         *calls
             .lock()
@@ -3111,6 +3111,193 @@ fn worker_resolve_thread_approval_resumes_checkpoint_and_updates_thread() {
         ));
     let compatibility_logs = compatibility_thread_log_paths(&fixture.root);
     assert!(compatibility_logs.is_empty(), "{compatibility_logs:?}");
+}
+
+#[test]
+fn thread_turn_trace_is_preserved_and_redacted_across_provider_mcp_subagent_and_approval() {
+    let fixture = WorkspaceFixture::new();
+    let script = fixture.root.join("trace-acceptance-mcp-server.js");
+    std::fs::write(
+        &script,
+        r#"
+const readline = require("readline");
+const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+function send(value) { process.stdout.write(`${JSON.stringify(value)}\n`); }
+lines.on("line", (line) => {
+  const message = JSON.parse(line);
+  if (message.method === "initialize") {
+    send({ jsonrpc: "2.0", id: message.id, result: {
+      protocolVersion: "2025-06-18",
+      capabilities: { tools: { listChanged: false } },
+      serverInfo: { name: "tinybot-trace-acceptance", version: "1.0.0" }
+    }});
+    return;
+  }
+  if (message.method === "tools/list") {
+    send({ jsonrpc: "2.0", id: message.id, result: { tools: [{
+      name: "inspect",
+      description: "Inspect a bounded trace fixture.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      annotations: { readOnlyHint: false }
+    }] }});
+    return;
+  }
+  if (message.method === "tools/call") {
+    send({ jsonrpc: "2.0", id: message.id, result: {
+      content: [{ type: "text", text: "trace-secret-value inspected" }],
+      structuredContent: { result: "trace-secret-value inspected" },
+      isError: false
+    }});
+  }
+});
+"#,
+    )
+    .expect("trace acceptance MCP fixture should write");
+    let config = serde_json::json!({
+        "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+        "providers": {
+            "fixture": {
+                "api_key": "trace-secret-value",
+                "responses": [
+                    {
+                        "content": "",
+                        "toolCalls": [{
+                            "id": "trace-search-mcp",
+                            "name": "tool_search",
+                            "argumentsJson": "{\"query\":\"inspect bounded trace fixture\",\"limit\":1}"
+                        }]
+                    },
+                    {
+                        "content": "",
+                        "toolCalls": [{
+                            "id": "trace-spawn-subagent",
+                            "name": "subagent.spawn",
+                            "argumentsJson": "{\"subagentId\":\"trace-child\",\"childRunId\":\"trace-child-run\",\"task\":\"Inspect one bounded trace boundary\"}"
+                        }]
+                    },
+                    {
+                        "content": "",
+                        "toolCalls": [{
+                            "id": "trace-call-mcp",
+                            "name": "mcp.4:docs.7:inspect",
+                            "argumentsJson": "{}"
+                        }]
+                    },
+                    { "content": "trace acceptance complete" }
+                ]
+            }
+        },
+        "mcp": { "servers": { "docs": {
+            "enabled": true,
+            "transport": "stdio",
+            "command": "node",
+            "args": [script.to_string_lossy()],
+            "cwd": fixture.root.to_string_lossy(),
+            "timeout_seconds": 5,
+            "enabled_tools": ["inspect"]
+        }}}
+    });
+    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let run_id = "run-thread-trace-acceptance";
+    let trace_id = "trace-thread-acceptance";
+    let request_id = "request-thread-acceptance";
+
+    let awaiting = worker_submit_thread_turn_with_options(
+        &shared,
+        WorkerSubmitThreadTurnInput {
+            thread_id: None,
+            input: serde_json::json!({ "content": "exercise the traced runtime path" }),
+            spec: serde_json::json!({
+                "runtime": "rust",
+                "requestId": request_id,
+                "traceId": trace_id,
+                "runId": run_id,
+                "maxIterations": 6
+            }),
+        },
+        fixture.root.clone(),
+        config.clone(),
+        Duration::from_secs(10),
+    )
+    .expect("traced thread turn should reach MCP approval");
+    assert_eq!(awaiting["agentResult"]["stopReason"], "awaiting_approval");
+    let thread_id = awaiting["threadId"]
+        .as_str()
+        .expect("traced thread ID should be present")
+        .to_string();
+    let approval_id = awaiting["agentResult"]["approval"]["approvalId"]
+        .as_str()
+        .expect("traced MCP approval ID should be present")
+        .to_string();
+
+    let completed = worker_resolve_thread_approval_with_options(
+        &shared,
+        WorkerResolveThreadApprovalInput {
+            thread_id: thread_id.clone(),
+            approval_id,
+            approved: true,
+            scope: Some("once".to_string()),
+            guidance: None,
+        },
+        fixture.root.clone(),
+        config,
+        Duration::from_secs(10),
+    )
+    .expect("approved traced MCP tool should complete");
+    assert_eq!(completed["approvalResult"]["stopReason"], "final_response");
+
+    let runtime_events = awaiting["agentResult"]["runtimeEvents"]
+        .as_array()
+        .expect("awaiting runtime events should be present")
+        .iter()
+        .chain(
+            completed["approvalResult"]["runtimeEvents"]
+                .as_array()
+                .expect("resumed runtime events should be present"),
+        )
+        .collect::<Vec<_>>();
+    for event_name in [
+        "agent.provider.requested",
+        "agent.provider.completed",
+        "agent.delegate.linked",
+        "agent.awaiting_approval",
+        "agent.approval.decision",
+    ] {
+        let event = runtime_events
+            .iter()
+            .find(|event| event["eventName"] == event_name)
+            .unwrap_or_else(|| panic!("{event_name} should be emitted"));
+        assert_eq!(event["traceContext"]["traceId"], trace_id);
+        assert_eq!(event["traceContext"]["requestId"], request_id);
+    }
+    let mcp_result = runtime_events
+        .iter()
+        .find(|event| {
+            event["eventName"] == "agent.tool.result"
+                && event["payload"]["toolName"] == "mcp.4:docs.7:inspect"
+        })
+        .expect("real MCP result should be emitted");
+    assert_eq!(mcp_result["traceContext"]["traceId"], trace_id);
+    assert!(!mcp_result.to_string().contains("trace-secret-value"));
+    assert!(mcp_result.to_string().contains("[REDACTED]"));
+
+    let journal = std::fs::read_to_string(
+        fixture
+            .root
+            .join(".tinybot")
+            .join("state")
+            .join("thread-store.jsonl"),
+    )
+    .expect("canonical thread journal should be readable");
+    assert!(journal.contains(trace_id));
+    assert!(journal.contains("agent.delegate.linked"));
+    assert!(journal.contains("agent.approval.decision"));
+    assert!(journal.contains("mcp.4:docs.7:inspect"));
+    assert!(!journal.contains("trace-secret-value"));
+    assert!(journal.contains("[REDACTED]"));
+    assert!(compatibility_thread_log_paths(&fixture.root).is_empty());
+
+    stop_owned_gateway(&shared, false).expect("trace acceptance MCP runtime should stop");
 }
 
 #[test]

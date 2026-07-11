@@ -110,8 +110,8 @@ pub(super) fn agent_run_record_from_thread_run(
         artifacts: Vec::new(),
         usage: Vec::new(),
         token_usage_info: thread_token_usage_info(thread),
-        instruction_provenance: None,
-        instruction_diagnostics: Vec::new(),
+        instruction_provenance: instruction_provenance_for_run(run, items),
+        instruction_diagnostics: instruction_diagnostics_for_run(run, items),
         trace_context: trace_context_for_run(run, items),
         error: (run.status == ThreadStatus::Failed).then(|| {
             serde_json::json!({
@@ -270,4 +270,29 @@ fn trace_context_for_run(
         })
         .cloned()
         .and_then(|value| serde_json::from_value(value).ok())
+}
+
+fn instruction_provenance_for_run(run: &ThreadRunSummary, items: &[ThreadItem]) -> Option<Value> {
+    completed_run_payload(run, items)
+        .and_then(|payload| payload.get("instructionProvenance"))
+        .filter(|value| !value.is_null())
+        .cloned()
+}
+
+fn instruction_diagnostics_for_run(run: &ThreadRunSummary, items: &[ThreadItem]) -> Vec<Value> {
+    completed_run_payload(run, items)
+        .and_then(|payload| payload.get("instructionDiagnostics"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn completed_run_payload<'a>(run: &ThreadRunSummary, items: &'a [ThreadItem]) -> Option<&'a Value> {
+    items
+        .iter()
+        .filter(|item| item.run_id.as_deref() == Some(run.run_id.as_str()))
+        .find_map(|item| match &item.kind {
+            ThreadItemKind::AgentRunCompleted(payload) => Some(payload),
+            _ => None,
+        })
 }
