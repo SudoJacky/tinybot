@@ -1,9 +1,8 @@
 use super::local_store::{LocalThreadStore, ThreadStore};
 use super::types::{
-    AppendThreadItemsResult, CreateThreadRequest, ListThreadsRequest, ListThreadsResult,
-    ReadThreadRequest, SearchThreadsRequest, SearchThreadsResult, ThreadIdParams, ThreadItem,
-    ThreadItemKind, ThreadMetadata, ThreadMetadataPatch, ThreadRecord, ThreadStatus,
-    ThreadStatusResult,
+    ListThreadsRequest, ListThreadsResult, ReadThreadRequest, SearchThreadsRequest,
+    SearchThreadsResult, ThreadIdParams, ThreadItem, ThreadItemKind, ThreadMetadata, ThreadRecord,
+    ThreadStatus, ThreadStatusResult,
 };
 use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource,
@@ -244,35 +243,6 @@ pub fn read_thread_with_legacy_sessions(
     }
 }
 
-pub fn record_session_turn(
-    store: &LocalThreadStore,
-    session_id: &str,
-    run_id: &str,
-    messages: &[Value],
-) -> Result<Option<AppendThreadItemsResult>, WorkerProtocolError> {
-    if messages.is_empty() {
-        return Ok(None);
-    }
-    let thread_id = ensure_thread_for_session(store, session_id, run_id)?;
-    let snapshot = store.read_thread(ReadThreadRequest {
-        thread_id: thread_id.clone(),
-        cursor: None,
-        before_sequence: None,
-        checkpoint_sequence: None,
-        checkpoint_id: None,
-        limit: Some(1),
-    })?;
-    let base_item_count = snapshot.pagination.item_count;
-    let items = messages
-        .iter()
-        .enumerate()
-        .map(|(index, message)| {
-            session_message_item(session_id, run_id, base_item_count + index, message)
-        })
-        .collect::<Vec<_>>();
-    store.append_items(&thread_id, items).map(Some)
-}
-
 pub fn archive_session_thread(
     store: &LocalThreadStore,
     session_id: &str,
@@ -281,31 +251,6 @@ pub fn archive_session_thread(
         return Ok(None);
     };
     store.archive_thread(&thread_id, true).map(Some)
-}
-
-fn ensure_thread_for_session(
-    store: &LocalThreadStore,
-    session_id: &str,
-    run_id: &str,
-) -> Result<String, WorkerProtocolError> {
-    if let Some(thread_id) = find_thread_id_for_session(store, session_id)? {
-        return Ok(thread_id);
-    }
-    let thread = store.create_thread(CreateThreadRequest {
-        title: Some("New session".to_string()),
-        session_key: Some(session_id.to_string()),
-        root_run_id: Some(run_id.to_string()),
-        source: Some("legacy_session".to_string()),
-        metadata: ThreadMetadataPatch {
-            extra: Some(json!({
-                "sessionId": session_id,
-                "source": "session.persist_turn"
-            })),
-            ..ThreadMetadataPatch::default()
-        },
-        ..CreateThreadRequest::default()
-    })?;
-    Ok(thread.thread_id)
 }
 
 fn find_thread_id_for_session(

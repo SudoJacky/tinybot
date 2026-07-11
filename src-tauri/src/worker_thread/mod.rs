@@ -5,7 +5,11 @@ mod session_adapter;
 mod types;
 
 pub use self::live_thread::LiveThread;
-pub use self::local_store::{LocalThreadStore, ThreadStore};
+pub use self::local_store::{
+    LocalThreadStore, MemoryThreadStore, ThreadPersistenceConsistencyReport,
+    ThreadPersistenceConsistencyStatus, ThreadPersistenceRepairMode, ThreadPersistenceRepairReport,
+    ThreadPersistenceRepairRequest, ThreadStore,
+};
 pub use self::runtime::ThreadRuntime;
 pub use self::types::{
     AppendThreadItemsRequest, AppendThreadItemsResult, ArchiveThreadRequest,
@@ -290,16 +294,6 @@ impl WorkerThreadRpc {
         self.runtime.interrupt(request)
     }
 
-    pub fn record_session_turn(
-        &self,
-        session_id: &str,
-        run_id: &str,
-        messages: &[Value],
-    ) -> Result<Option<AppendThreadItemsResult>, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionWrite)?;
-        session_adapter::record_session_turn(&self.store, session_id, run_id, messages)
-    }
-
     pub fn archive_session_thread(
         &self,
         session_id: &str,
@@ -339,6 +333,21 @@ impl WorkerThreadRpc {
 
     pub fn has_thread_store(&self) -> bool {
         self.store.exists()
+    }
+
+    pub fn check_persistence(
+        &self,
+    ) -> Result<ThreadPersistenceConsistencyReport, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionMetadataRead)?;
+        self.store.check_persistence_consistency()
+    }
+
+    pub fn repair_persistence(
+        &self,
+        mode: ThreadPersistenceRepairMode,
+    ) -> Result<ThreadPersistenceRepairReport, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
+        self.store.repair_persistence(mode)
     }
 
     pub fn get_agent_run_from_threads(

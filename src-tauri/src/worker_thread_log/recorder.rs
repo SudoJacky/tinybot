@@ -338,6 +338,7 @@ mod tests {
 
     fn thread_meta(root: &Path, thread_id: &str, created_at: &str) -> ThreadMeta {
         ThreadMeta {
+            schema_version: crate::worker_thread_log::THREAD_LOG_SCHEMA_VERSION,
             thread_id: thread_id.to_string(),
             session_id: Some("session-a".to_string()),
             created_at: created_at.to_string(),

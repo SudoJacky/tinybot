@@ -5,6 +5,7 @@ use crate::worker_protocol::{
 use crate::worker_thread::types::{ThreadItem, ThreadItemKind, ThreadRecord};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs;
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -152,6 +153,139 @@ impl LocalThreadStore {
         transaction.commit().map_err(thread_sqlite_error)
     }
 
+    pub(super) fn read_all_items(
+        &self,
+    ) -> Result<BTreeMap<String, Vec<ThreadItem>>, WorkerProtocolError> {
+        let connection = self.open_connection()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT thread_id, item_json
+                 FROM thread_items
+                 ORDER BY thread_id ASC, sequence ASC",
+            )
+            .map_err(thread_sqlite_error)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(thread_sqlite_error)?;
+        let mut items = BTreeMap::<String, Vec<ThreadItem>>::new();
+        for row in rows {
+            let (thread_id, item_json) = row.map_err(thread_sqlite_error)?;
+            items
+                .entry(thread_id)
+                .or_default()
+                .push(serde_json::from_str(&item_json).map_err(thread_json_error)?);
+        }
+        Ok(items)
+    }
+
+    pub(super) fn projection_journal_head(&self) -> Result<Option<String>, WorkerProtocolError> {
+        let connection = self.open_connection()?;
+        let mut statement = connection
+            .prepare("SELECT value FROM thread_store_meta WHERE key = 'journal_head'")
+            .map_err(thread_sqlite_error)?;
+        let mut rows = statement.query([]).map_err(thread_sqlite_error)?;
+        match rows.next().map_err(thread_sqlite_error)? {
+            Some(row) => row.get(0).map(Some).map_err(thread_sqlite_error),
+            None => Ok(None),
+        }
+    }
+
+    pub(super) fn set_projection_journal_head(
+        &self,
+        journal_head: &str,
+    ) -> Result<(), WorkerProtocolError> {
+        let connection = self.open_connection()?;
+        connection
+            .execute(
+                "INSERT INTO thread_store_meta (key, value) VALUES ('journal_head', ?1)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![journal_head],
+            )
+            .map_err(thread_sqlite_error)?;
+        Ok(())
+    }
+
+    pub(super) fn replace_projection(
+        &self,
+        index: &ThreadIndex,
+        items: &BTreeMap<String, Vec<ThreadItem>>,
+        journal_head: &str,
+    ) -> Result<(), WorkerProtocolError> {
+        let mut connection = self.open_connection()?;
+        let transaction = connection.transaction().map_err(thread_sqlite_error)?;
+        transaction
+            .execute("DELETE FROM thread_items", [])
+            .map_err(thread_sqlite_error)?;
+        transaction
+            .execute("DELETE FROM threads", [])
+            .map_err(thread_sqlite_error)?;
+        {
+            let mut statement = transaction
+                .prepare(
+                    "INSERT INTO threads (
+                        thread_id, title, status, session_key, parent_thread_id, source,
+                        created_at, updated_at, archived_at, record_json
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                )
+                .map_err(thread_sqlite_error)?;
+            for thread in &index.threads {
+                let record_json = serde_json::to_string(thread).map_err(thread_json_error)?;
+                statement
+                    .execute(params![
+                        thread.thread_id.as_str(),
+                        thread.title.as_str(),
+                        format!("{:?}", thread.status),
+                        thread.session_key.as_deref(),
+                        thread.parent_thread_id.as_deref(),
+                        thread.source.as_str(),
+                        thread.created_at.as_str(),
+                        thread.updated_at.as_str(),
+                        thread.archived_at.as_deref(),
+                        record_json
+                    ])
+                    .map_err(thread_sqlite_error)?;
+            }
+        }
+        {
+            let mut statement = transaction
+                .prepare(
+                    "INSERT INTO thread_items (
+                        thread_id, sequence, item_id, run_id, turn_id, parent_item_id,
+                        created_at, kind, item_json
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                )
+                .map_err(thread_sqlite_error)?;
+            for thread_items in items.values() {
+                for item in thread_items {
+                    let item_json = serde_json::to_string(item).map_err(thread_json_error)?;
+                    statement
+                        .execute(params![
+                            item.thread_id.as_str(),
+                            item.sequence,
+                            item.item_id.as_str(),
+                            item.run_id.as_deref(),
+                            item.turn_id.as_deref(),
+                            item.parent_item_id.as_deref(),
+                            item.created_at.as_str(),
+                            thread_item_kind_name(&item.kind),
+                            item_json
+                        ])
+                        .map_err(thread_sqlite_error)?;
+                }
+            }
+        }
+        transaction
+            .execute(
+                "INSERT INTO thread_store_meta (key, value) VALUES ('journal_head', ?1)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![journal_head],
+            )
+            .map_err(thread_sqlite_error)?;
+        transaction.commit().map_err(thread_sqlite_error)
+    }
+
     pub(super) fn delete_items(&self, thread_id: &str) -> Result<(), WorkerProtocolError> {
         validate_thread_id(thread_id)?;
         let connection = self.open_connection()?;
@@ -212,6 +346,10 @@ fn ensure_thread_schema(connection: &Connection) -> Result<(), WorkerProtocolErr
                 ON thread_items(thread_id, run_id);
             CREATE INDEX IF NOT EXISTS idx_thread_items_created
                 ON thread_items(thread_id, created_at);
+            CREATE TABLE IF NOT EXISTS thread_store_meta (
+                key TEXT PRIMARY KEY NOT NULL,
+                value TEXT NOT NULL
+            );
             ",
         )
         .map_err(thread_sqlite_error)

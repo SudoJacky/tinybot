@@ -753,6 +753,7 @@ mod tests {
         ThreadLogLine {
             timestamp: timestamp.to_string(),
             item: ThreadLogItem::ThreadMeta(ThreadMeta {
+                schema_version: crate::worker_thread_log::THREAD_LOG_SCHEMA_VERSION,
                 thread_id: thread_id.to_string(),
                 session_id: session_id.map(str::to_string),
                 created_at: timestamp.to_string(),

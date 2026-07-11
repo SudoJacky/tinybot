@@ -190,7 +190,8 @@ pub(crate) async fn resolve_thread_approval_with_services(
     let scope = input.scope.clone();
     let guidance = input.guidance.clone();
     let body = serde_json::json!({
-        "session_key": session_id,
+        "session_key": session_id.clone(),
+        "thread_id": thread_id.clone(),
         "scope": input.scope,
         "guidance": input.guidance,
     });
@@ -265,7 +266,8 @@ pub(crate) async fn submit_thread_form_with_services(
     let session_id = thread_session_key(&thread).unwrap_or_else(|| thread_id.clone());
     let cancelled = thread_form_action_is_cancel(input.action.as_deref());
     let body = serde_json::json!({
-        "session_key": session_id,
+        "session_key": session_id.clone(),
+        "thread_id": thread_id.clone(),
         "values": input.values,
         "action": input.action,
     });

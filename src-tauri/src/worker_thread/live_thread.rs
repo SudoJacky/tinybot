@@ -6,13 +6,13 @@ use super::types::{
 use crate::worker_protocol::WorkerProtocolError;
 
 #[derive(Clone, Debug)]
-pub struct LiveThread {
+pub struct LiveThread<S: ThreadStore = LocalThreadStore> {
     thread_id: String,
-    store: LocalThreadStore,
+    store: S,
 }
 
-impl LiveThread {
-    pub fn new(thread_id: impl Into<String>, store: LocalThreadStore) -> Self {
+impl<S: ThreadStore> LiveThread<S> {
+    pub fn new(thread_id: impl Into<String>, store: S) -> Self {
         Self {
             thread_id: thread_id.into(),
             store,

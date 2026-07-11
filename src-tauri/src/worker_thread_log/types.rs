@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub const THREAD_LOG_SCHEMA_VERSION: u32 = 1;
+
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadLogLine {
@@ -24,6 +26,8 @@ pub enum ThreadLogItem {
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadMeta {
+    #[serde(default)]
+    pub schema_version: u32,
     pub thread_id: String,
     #[serde(default)]
     pub session_id: Option<String>,
@@ -119,6 +123,7 @@ mod tests {
         let line = ThreadLogLine {
             timestamp: "2026-07-08T10:12:30Z".to_string(),
             item: ThreadLogItem::ThreadMeta(ThreadMeta {
+                schema_version: THREAD_LOG_SCHEMA_VERSION,
                 thread_id: "thread-1".to_string(),
                 session_id: Some("session-1".to_string()),
                 created_at: "2026-07-08T10:12:30Z".to_string(),
@@ -136,7 +141,19 @@ mod tests {
 
         let value = serde_json::to_value(line).unwrap();
         assert_eq!(value["type"], "thread_meta");
+        assert_eq!(value["payload"]["schemaVersion"], 1);
         assert_eq!(value["payload"]["threadId"], "thread-1");
         assert_eq!(value["payload"]["sessionId"], "session-1");
+    }
+
+    #[test]
+    fn legacy_thread_meta_without_schema_version_migrates_as_v0() {
+        let meta: ThreadMeta = serde_json::from_value(json!({
+            "threadId": "thread-legacy",
+            "createdAt": "2026-07-08T10:12:30Z"
+        }))
+        .unwrap();
+
+        assert_eq!(meta.schema_version, 0);
     }
 }

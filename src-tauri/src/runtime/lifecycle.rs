@@ -6,9 +6,14 @@ use crate::worker_protocol::WorkerProtocolError;
 use crate::worker_shell::{ShellProcessCleanupReport, WorkerShellRuntime};
 use crate::worker_subagent_manager::{SubagentThreadManager, SubagentThreadStatus};
 use crate::worker_thread::{
-    InterruptThreadRequest, ListThreadsRequest, ThreadIdParams, WorkerThreadRpc,
+    InterruptThreadRequest, ListThreadsRequest, ThreadIdParams, ThreadPersistenceConsistencyReport,
+    ThreadPersistenceConsistencyStatus, ThreadPersistenceRepairMode, ThreadPersistenceRepairReport,
+    WorkerThreadRpc,
 };
-use crate::worker_thread_log::{AgentRunRecoveryEntry, WorkerThreadLogRpc};
+use crate::worker_thread_log::{
+    AgentRunRecoveryEntry, ThreadLogIndexConsistencyReport, ThreadLogIndexRepairReport,
+    WorkerThreadLogRpc,
+};
 use serde::Serialize;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -72,6 +77,10 @@ pub(crate) struct RuntimeShutdownReport {
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RuntimeStartupRecoveryReport {
+    pub(crate) thread_persistence: Option<ThreadPersistenceConsistencyReport>,
+    pub(crate) thread_persistence_migration: Option<ThreadPersistenceRepairReport>,
+    pub(crate) session_log_index: Option<ThreadLogIndexConsistencyReport>,
+    pub(crate) session_log_index_migration: Option<ThreadLogIndexRepairReport>,
     pub(crate) scanned_threads: usize,
     pub(crate) scanned_run_records: usize,
     pub(crate) interrupted_runs: Vec<LifecycleRunRef>,
@@ -298,6 +307,30 @@ impl RuntimeLifecycle {
         let thread = WorkerThreadRpc::new(workspace_root.to_path_buf(), policy.clone());
         let thread_log = WorkerThreadLogRpc::new(workspace_root.to_path_buf(), policy);
         let mut report = RuntimeStartupRecoveryReport::default();
+
+        let persistence = thread.check_persistence()?;
+        match persistence.status {
+            ThreadPersistenceConsistencyStatus::Clean => {
+                report.thread_persistence = Some(persistence);
+            }
+            ThreadPersistenceConsistencyStatus::LegacyProjection => {
+                let migration = thread
+                    .repair_persistence(ThreadPersistenceRepairMode::MigrateLegacyProjection)?;
+                report.thread_persistence = Some(migration.after.clone());
+                report.thread_persistence_migration = Some(migration);
+            }
+            ThreadPersistenceConsistencyStatus::Diverged => {
+                return Err(WorkerProtocolError::new(
+                    crate::worker_protocol::WorkerProtocolErrorCode::WorkerError,
+                    "thread persistence journal and SQLite projection diverged; run thread.persistence.repair explicitly",
+                    serde_json::to_value(persistence).unwrap_or_default(),
+                    false,
+                    crate::worker_protocol::WorkerProtocolErrorSource::RustCore,
+                ));
+            }
+        }
+        report.session_log_index_migration = thread_log.prepare_state_index_for_startup()?;
+        report.session_log_index = Some(thread_log.check_state_index()?);
 
         for thread_record in list_all_threads(&thread)? {
             report.scanned_threads = report.scanned_threads.saturating_add(1);

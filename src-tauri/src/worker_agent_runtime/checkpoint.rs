@@ -73,6 +73,8 @@ pub(super) fn checkpoint_value(
         "runtime": "rust",
         "runId": context.run_id,
         "sessionId": context.session_id,
+        "threadId": string_field(&context.metadata, "threadId")
+            .or_else(|| string_field(&context.metadata, "thread_id")),
         "phase": phase,
         "iteration": payload.get("iteration").cloned().unwrap_or(Value::Null),
         "maxIterations": context.max_iterations,

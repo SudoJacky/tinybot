@@ -46,9 +46,9 @@ use crate::worker_thread::{
     ReadThreadRequest, RestoreThreadCheckpointRequest, ResumeThreadRequest, SearchThreadsRequest,
     StartThreadTurnRequest, ThreadActivityRequest, ThreadAgentRegistryRequest,
     ThreadApplyOpRequest, ThreadEventsRequest, ThreadIdParams, ThreadOp,
-    UpdateThreadMetadataRequest, WorkerThreadRpc,
+    ThreadPersistenceRepairRequest, UpdateThreadMetadataRequest, WorkerThreadRpc,
 };
-use crate::worker_thread_log::WorkerThreadLogRpc;
+use crate::worker_thread_log::{ThreadLogIndexRepairRequest, WorkerThreadLogRpc};
 use crate::worker_tool_executor::{
     tool_not_found_error, tool_unavailable_error, ToolExecutorExecuteRequest,
     ToolExecutorExecuteResult,

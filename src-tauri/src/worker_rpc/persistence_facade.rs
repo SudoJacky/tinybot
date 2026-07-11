@@ -226,6 +226,15 @@ impl WorkerRpcRouter {
                 )?;
                 serde_json::to_value(result).map_err(serialization_error)
             }
+            "session.persistence.check" => {
+                serde_json::to_value(self.thread_log.check_state_index()?)
+                    .map_err(serialization_error)
+            }
+            "session.persistence.repair" => {
+                let params: ThreadLogIndexRepairRequest = parse_params(request)?;
+                serde_json::to_value(self.thread_log.repair_state_index(params.mode)?)
+                    .map_err(serialization_error)
+            }
             _ => Err(unknown_method_error(request)),
         }
     }

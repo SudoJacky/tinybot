@@ -2055,7 +2055,7 @@ fn worker_submit_thread_turn_creates_thread_and_runs_native_agent() {
             }),
         },
         fixture.root.clone(),
-        config,
+        config.clone(),
         Duration::from_millis(10),
     )
     .expect("thread-first submit should run native agent");
@@ -2071,13 +2071,36 @@ fn worker_submit_thread_turn_creates_thread_and_runs_native_agent() {
         .all(|event| event["threadId"] == thread_id));
     assert_eq!(
         result["snapshot"]["thread"]["sessionKey"],
-        serde_json::Value::String(thread_id)
+        serde_json::Value::String(thread_id.clone())
     );
     assert!(result["snapshot"]["items"]
         .as_array()
         .expect("thread items should be present")
         .iter()
         .any(|item| item["kind"]["type"] == "assistant_message_completed"));
+    let metadata = call_rust_state_service(
+        fixture.root.clone(),
+        config,
+        WorkerRequest::new(
+            "req-thread-submit-session-metadata",
+            "trace-thread-submit-session-metadata",
+            "session.get_metadata",
+            serde_json::json!({ "session_id": thread_id }),
+        ),
+        "thread submit session metadata",
+    )
+    .expect("agent run session metadata should be readable");
+    let session_log_path = std::path::PathBuf::from(
+        metadata["extra"]["threadPath"]
+            .as_str()
+            .expect("session log path"),
+    );
+    let session_log = crate::worker_thread_log::read_thread_lines(&session_log_path)
+        .expect("agent run event log should be readable");
+    assert!(session_log.iter().all(|line| !matches!(
+        &line.item,
+        crate::worker_thread_log::ThreadLogItem::ResponseItem(_)
+    )));
 }
 
 #[test]
@@ -2592,6 +2615,10 @@ fn worker_resolve_thread_approval_resumes_checkpoint_and_updates_thread() {
     assert_eq!(result["threadId"], thread_id);
     assert_eq!(result["sessionId"], session_id);
     assert_eq!(result["approvalResult"]["stopReason"], "final_response");
+    assert_eq!(
+        result["approvalResult"]["conversationPersistence"]["authority"],
+        "thread"
+    );
     assert_eq!(result["snapshot"]["thread"]["status"], "idle");
     assert!(result["snapshot"]["items"]
         .as_array()
@@ -2651,6 +2678,10 @@ fn worker_submit_thread_form_resumes_checkpoint_and_updates_thread() {
     assert_eq!(result["sessionId"], session_id);
     assert_eq!(result["formResult"]["statusCode"], 200);
     assert_eq!(result["formResult"]["stopReason"], "final_response");
+    assert_eq!(
+        result["formResult"]["conversationPersistence"]["authority"],
+        "thread"
+    );
     assert_eq!(result["snapshot"]["thread"]["status"], "idle");
     assert!(result["snapshot"]["items"]
         .as_array()

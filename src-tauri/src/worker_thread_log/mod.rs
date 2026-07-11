@@ -14,7 +14,7 @@ use crate::worker_session::{
     ClearSessionResult, DeleteSessionResult, PersistTurnResult, SessionHistoryProjection,
     SessionMetadata,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
 use std::fs;
@@ -28,7 +28,7 @@ pub use self::session_adapter::{history_from_replay, metadata_from_state};
 pub use self::state_db::ThreadStateDb;
 pub use self::types::{
     ThreadLogItem, ThreadLogLine, ThreadMeta, ThreadReplay, ThreadStateRecord, TokenUsage,
-    TokenUsageInfo,
+    TokenUsageInfo, THREAD_LOG_SCHEMA_VERSION,
 };
 
 #[derive(Clone, Debug)]
@@ -55,6 +55,45 @@ pub struct AgentRunRecoveryReport {
     pub interrupted_runs: Vec<AgentRunRecoveryEntry>,
     pub awaiting_interaction_runs: Vec<AgentRunRecoveryEntry>,
     pub resumable_runs: Vec<AgentRunRecoveryEntry>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ThreadLogIndexConsistencyStatus {
+    Clean,
+    MissingIndex,
+    Diverged,
+    Unreadable,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadLogIndexConsistencyReport {
+    pub status: ThreadLogIndexConsistencyStatus,
+    pub canonical_thread_count: usize,
+    pub indexed_thread_count: usize,
+    pub diagnostics: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ThreadLogIndexRepairMode {
+    RebuildIndex,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadLogIndexRepairRequest {
+    pub mode: ThreadLogIndexRepairMode,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadLogIndexRepairReport {
+    pub mode: ThreadLogIndexRepairMode,
+    pub before: ThreadLogIndexConsistencyReport,
+    pub after: ThreadLogIndexConsistencyReport,
+    pub rebuilt_thread_count: usize,
 }
 
 impl WorkerThreadLogRpc {
@@ -116,66 +155,103 @@ impl WorkerThreadLogRpc {
         Ok(Some(history_from_replay(replay, limit)))
     }
 
-    fn ensure_state_index(&self) -> Result<(), WorkerProtocolError> {
-        match self.state.count_threads() {
-            Ok(count) if count > 0 => {
-                if self.prune_missing_thread_logs()? {
-                    self.rebuild_state_index_from_logs()?;
+    pub fn check_state_index(
+        &self,
+    ) -> Result<ThreadLogIndexConsistencyReport, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionMetadataRead)?;
+        self.state_index_consistency()
+    }
+
+    pub fn repair_state_index(
+        &self,
+        mode: ThreadLogIndexRepairMode,
+    ) -> Result<ThreadLogIndexRepairReport, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
+        let before = self.state_index_consistency()?;
+        let canonical = self.canonical_state_records()?;
+        match mode {
+            ThreadLogIndexRepairMode::RebuildIndex => {
+                self.state.reset()?;
+                for record in &canonical {
+                    self.state.upsert_thread(record)?;
                 }
             }
-            Ok(_) => self.rebuild_state_index_from_logs()?,
-            Err(_) => {
-                self.state.reset()?;
-                self.rebuild_state_index_from_logs()?;
-            }
         }
-        self.backfill_default_titles_from_logs()
+        let after = self.state_index_consistency()?;
+        if after.status != ThreadLogIndexConsistencyStatus::Clean {
+            return Err(thread_log_consistency_error(
+                "thread log index repair did not produce a clean index",
+                serde_json::to_value(&after).unwrap_or_default(),
+            ));
+        }
+        Ok(ThreadLogIndexRepairReport {
+            mode,
+            before,
+            after,
+            rebuilt_thread_count: canonical.len(),
+        })
+    }
+
+    pub fn prepare_state_index_for_startup(
+        &self,
+    ) -> Result<Option<ThreadLogIndexRepairReport>, WorkerProtocolError> {
+        let report = self.state_index_consistency()?;
+        match report.status {
+            ThreadLogIndexConsistencyStatus::Clean => Ok(None),
+            ThreadLogIndexConsistencyStatus::MissingIndex => self
+                .repair_state_index(ThreadLogIndexRepairMode::RebuildIndex)
+                .map(Some),
+            ThreadLogIndexConsistencyStatus::Diverged
+            | ThreadLogIndexConsistencyStatus::Unreadable => Err(thread_log_consistency_error(
+                "thread log and SQLite state index diverged; run session.persistence.repair explicitly",
+                serde_json::to_value(report).unwrap_or_default(),
+            )),
+        }
+    }
+
+    fn ensure_state_index(&self) -> Result<(), WorkerProtocolError> {
+        let report = self.state_index_consistency()?;
+        if report.status == ThreadLogIndexConsistencyStatus::Clean {
+            Ok(())
+        } else {
+            Err(thread_log_consistency_error(
+                "thread log state index is not consistent; run session.persistence.repair explicitly",
+                serde_json::to_value(report).unwrap_or_default(),
+            ))
+        }
     }
 
     fn find_live_record(
         &self,
         session_id: &str,
     ) -> Result<Option<ThreadStateRecord>, WorkerProtocolError> {
-        let Some(record) = self.state.find_by_session_or_thread_id(session_id)? else {
-            self.rebuild_state_index_from_logs()?;
-            return self.state.find_by_session_or_thread_id(session_id);
-        };
-        let path = PathBuf::from(&record.thread_path);
-        self.recorder.validate_thread_path(&path)?;
-        if path.exists() {
-            return Ok(Some(record));
-        }
-        self.state.delete_thread(&record.id)?;
-        self.rebuild_state_index_from_logs()?;
-        self.state.find_by_session_or_thread_id(session_id)
-    }
-
-    fn prune_missing_thread_logs(&self) -> Result<bool, WorkerProtocolError> {
-        let mut pruned = false;
-        for record in self.state.list_all_threads()? {
+        let record = self.state.find_by_session_or_thread_id(session_id)?;
+        if let Some(record) = record.as_ref() {
             let path = PathBuf::from(&record.thread_path);
             self.recorder.validate_thread_path(&path)?;
             if !path.exists() {
-                self.state.delete_thread(&record.id)?;
-                pruned = true;
+                return Err(thread_log_consistency_error(
+                    "thread log indexed path does not exist",
+                    serde_json::json!({
+                        "threadId": record.id,
+                        "threadPath": record.thread_path,
+                    }),
+                ));
             }
         }
-        Ok(pruned)
+        Ok(record)
     }
 
-    fn rebuild_state_index_from_logs(&self) -> Result<(), WorkerProtocolError> {
+    fn canonical_state_records(&self) -> Result<Vec<ThreadStateRecord>, WorkerProtocolError> {
         let mut paths = Vec::new();
         collect_thread_log_paths(&self.thread_root, &self.thread_root, &mut paths)?;
+        let mut records = Vec::with_capacity(paths.len());
         for path in paths {
             self.recorder.validate_thread_path(&path)?;
             let lines = read_thread_lines(&path)?;
             let meta = thread_meta_from_lines(&lines)?;
             let replay = replay_thread(&lines)?;
-            let updated_at = if replay.updated_at.is_empty() {
-                meta.created_at.clone()
-            } else {
-                replay.updated_at
-            };
+            let updated_at = state_projection_updated_at(&meta.created_at, &lines);
             let title = if is_default_session_title(&replay.title) {
                 title_from_messages(&replay.messages).unwrap_or(replay.title)
             } else {
@@ -186,7 +262,7 @@ impl WorkerThreadLogRpc {
                 session_id: meta.session_id,
                 thread_path: path.display().to_string(),
                 created_at: meta.created_at,
-                updated_at,
+                updated_at: updated_at.clone(),
                 source: meta.source,
                 title,
                 preview: preview_from_messages(&replay.messages),
@@ -202,33 +278,65 @@ impl WorkerThreadLogRpc {
                 archived_at: None,
             };
             apply_metadata_events_to_record(&mut record, &lines)?;
-            self.state.upsert_thread(&record)?;
+            apply_agent_run_events_to_record(&mut record, &lines)?;
+            record.updated_at = updated_at;
+            records.push(record);
         }
-        Ok(())
+        records.sort_by(|left, right| left.id.cmp(&right.id));
+        Ok(records)
     }
 
-    fn backfill_default_titles_from_logs(&self) -> Result<(), WorkerProtocolError> {
-        for mut record in self.state.list_all_threads()? {
-            if !is_default_session_title(&record.title) {
-                continue;
-            }
-            let path = PathBuf::from(&record.thread_path);
-            self.recorder.validate_thread_path(&path)?;
-            let lines = read_thread_lines(&path)?;
-            let title = match title_from_metadata_events(&lines) {
-                Some(title) => Some(title),
-                None => {
-                    let replay = replay_thread(&lines)?;
-                    title_from_messages(&replay.messages)
-                }
-            };
-            let Some(title) = title else {
-                continue;
-            };
-            record.title = title;
-            self.state.upsert_thread(&record)?;
+    fn state_index_consistency(
+        &self,
+    ) -> Result<ThreadLogIndexConsistencyReport, WorkerProtocolError> {
+        let canonical = self.canonical_state_records()?;
+        if !self.state.path().exists() {
+            return Ok(ThreadLogIndexConsistencyReport {
+                status: if canonical.is_empty() {
+                    ThreadLogIndexConsistencyStatus::Clean
+                } else {
+                    ThreadLogIndexConsistencyStatus::MissingIndex
+                },
+                canonical_thread_count: canonical.len(),
+                indexed_thread_count: 0,
+                diagnostics: (!canonical.is_empty())
+                    .then(|| {
+                        "canonical thread logs exist but the SQLite state index is missing"
+                            .to_string()
+                    })
+                    .into_iter()
+                    .collect(),
+            });
         }
-        Ok(())
+        let mut indexed = match self.state.list_all_threads() {
+            Ok(indexed) => indexed,
+            Err(error) => {
+                return Ok(ThreadLogIndexConsistencyReport {
+                    status: ThreadLogIndexConsistencyStatus::Unreadable,
+                    canonical_thread_count: canonical.len(),
+                    indexed_thread_count: 0,
+                    diagnostics: vec![error.message],
+                });
+            }
+        };
+        indexed.sort_by(|left, right| left.id.cmp(&right.id));
+        let status = if canonical == indexed {
+            ThreadLogIndexConsistencyStatus::Clean
+        } else if indexed.is_empty() && !canonical.is_empty() {
+            ThreadLogIndexConsistencyStatus::MissingIndex
+        } else {
+            ThreadLogIndexConsistencyStatus::Diverged
+        };
+        let diagnostics = (status != ThreadLogIndexConsistencyStatus::Clean)
+            .then(|| "canonical thread log records differ from the SQLite state index".to_string())
+            .into_iter()
+            .collect();
+        Ok(ThreadLogIndexConsistencyReport {
+            status,
+            canonical_thread_count: canonical.len(),
+            indexed_thread_count: indexed.len(),
+            diagnostics,
+        })
     }
 
     pub fn persist_session_turn(
@@ -246,6 +354,7 @@ impl WorkerThreadLogRpc {
             None => {
                 let thread_id = thread_id_for_session_id(session_id);
                 let meta = ThreadMeta {
+                    schema_version: THREAD_LOG_SCHEMA_VERSION,
                     thread_id: thread_id.clone(),
                     session_id: Some(session_id.to_string()),
                     created_at: timestamp.clone(),
@@ -539,7 +648,7 @@ fn collect_thread_log_paths(
 }
 
 fn thread_meta_from_lines(lines: &[ThreadLogLine]) -> Result<ThreadMeta, WorkerProtocolError> {
-    lines
+    let meta = lines
         .iter()
         .find_map(|line| match &line.item {
             ThreadLogItem::ThreadMeta(meta) => Some(meta.clone()),
@@ -553,7 +662,24 @@ fn thread_meta_from_lines(lines: &[ThreadLogLine]) -> Result<ThreadMeta, WorkerP
                 false,
                 WorkerProtocolErrorSource::RustCore,
             )
-        })
+        })?;
+    if meta.schema_version > THREAD_LOG_SCHEMA_VERSION {
+        return Err(WorkerProtocolError::new(
+            WorkerProtocolErrorCode::InvalidProtocol,
+            format!(
+                "unsupported thread log schema version {}",
+                meta.schema_version
+            ),
+            serde_json::json!({
+                "method": "thread_log.read_meta",
+                "schemaVersion": meta.schema_version,
+                "supportedSchemaVersion": THREAD_LOG_SCHEMA_VERSION,
+            }),
+            false,
+            WorkerProtocolErrorSource::RustCore,
+        ));
+    }
+    Ok(meta)
 }
 
 fn is_default_session_title(title: &str) -> bool {
@@ -572,25 +698,6 @@ fn title_from_messages(messages: &[Value]) -> Option<String> {
             return None;
         }
         Some(first_line.chars().take(80).collect())
-    })
-}
-
-fn title_from_metadata_events(lines: &[ThreadLogLine]) -> Option<String> {
-    lines.iter().rev().find_map(|line| {
-        let ThreadLogItem::EventMsg(event) = &line.item else {
-            return None;
-        };
-        if event.get("type").and_then(Value::as_str) != Some("metadata_updated") {
-            return None;
-        }
-        event
-            .get("payload")
-            .and_then(|payload| payload.get("metadata"))
-            .and_then(|metadata| metadata.get("title"))
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|title| !title.is_empty())
-            .map(str::to_string)
     })
 }
 
@@ -780,6 +887,97 @@ fn apply_metadata_events_to_record(
     Ok(())
 }
 
+fn state_projection_updated_at(created_at: &str, lines: &[ThreadLogLine]) -> String {
+    let mut updated_at = created_at.to_string();
+    for line in lines {
+        let advances_projection = match &line.item {
+            ThreadLogItem::ResponseItem(_) | ThreadLogItem::Compacted(_) => true,
+            ThreadLogItem::EventMsg(event) => matches!(
+                event.get("type").and_then(Value::as_str),
+                Some(
+                    "token_count"
+                        | "turn_complete"
+                        | "metadata_updated"
+                        | "agent_run_upsert"
+                        | "agent_run_checkpoint_set"
+                        | "agent_run_checkpoint_clear"
+                        | "agent_run_terminal"
+                )
+            ),
+            ThreadLogItem::ThreadMeta(_)
+            | ThreadLogItem::TurnContext(_)
+            | ThreadLogItem::WorldState(_)
+            | ThreadLogItem::InterAgentCommunication(_) => false,
+        };
+        if advances_projection {
+            updated_at = line.timestamp.clone();
+        }
+    }
+    updated_at
+}
+
+fn apply_agent_run_events_to_record(
+    record: &mut ThreadStateRecord,
+    lines: &[ThreadLogLine],
+) -> Result<(), WorkerProtocolError> {
+    for line in lines {
+        let ThreadLogItem::EventMsg(event) = &line.item else {
+            continue;
+        };
+        let Some(event_type) = event.get("type").and_then(Value::as_str) else {
+            continue;
+        };
+        let payload = event.get("payload").unwrap_or(&Value::Null);
+        match event_type {
+            "agent_run_upsert" => {
+                let run = payload.get("record").ok_or_else(|| {
+                    thread_log_consistency_error(
+                        "agent_run_upsert event is missing its record",
+                        serde_json::json!({ "timestamp": line.timestamp }),
+                    )
+                })?;
+                if let Some(model) = run
+                    .get("model")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|model| !model.is_empty())
+                {
+                    record.model = Some(model.to_string());
+                }
+                record.model_provider = run
+                    .get("provider")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                if let Some(total_tokens) = run
+                    .get("tokenUsageInfo")
+                    .and_then(|info| info.get("totalTokenUsage"))
+                    .and_then(|usage| usage.get("totalTokens"))
+                    .and_then(Value::as_i64)
+                {
+                    record.tokens_used = total_tokens;
+                }
+                record.updated_at = line.timestamp.clone();
+            }
+            "agent_run_checkpoint_set" | "agent_run_checkpoint_clear" => {
+                record.updated_at = line.timestamp.clone();
+            }
+            "agent_run_terminal" => {
+                record.updated_at = line.timestamp.clone();
+                if let Some(final_content) = payload
+                    .get("finalContent")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|content| !content.is_empty())
+                {
+                    record.preview = final_content.chars().take(160).collect();
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 fn apply_metadata_patch_to_record(
     record: &mut ThreadStateRecord,
     patch: &serde_json::Map<String, Value>,
@@ -808,6 +1006,16 @@ fn thread_log_state_io_error(error: std::io::Error) -> WorkerProtocolError {
         WorkerProtocolErrorCode::WorkerError,
         format!("thread log state IO error: {error}"),
         serde_json::json!({ "method": "thread_log.rebuild_state" }),
+        false,
+        WorkerProtocolErrorSource::RustCore,
+    )
+}
+
+fn thread_log_consistency_error(message: impl Into<String>, details: Value) -> WorkerProtocolError {
+    WorkerProtocolError::new(
+        WorkerProtocolErrorCode::WorkerError,
+        message,
+        details,
         false,
         WorkerProtocolErrorSource::RustCore,
     )
@@ -851,4 +1059,37 @@ fn stable_hash(value: &str) -> u64 {
     value.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
         (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
     })
+}
+
+#[cfg(test)]
+mod schema_tests {
+    use super::*;
+
+    #[test]
+    fn future_thread_log_schema_is_rejected_explicitly() {
+        let error = thread_meta_from_lines(&[ThreadLogLine {
+            timestamp: "2026-07-10T00:00:00Z".to_string(),
+            item: ThreadLogItem::ThreadMeta(ThreadMeta {
+                schema_version: THREAD_LOG_SCHEMA_VERSION + 1,
+                thread_id: "thread-future-schema".to_string(),
+                session_id: None,
+                created_at: "2026-07-10T00:00:00Z".to_string(),
+                cwd: String::new(),
+                source: "test".to_string(),
+                model_provider: None,
+                model: None,
+                base_instructions: None,
+                history_mode: None,
+                forked_from_thread_id: None,
+                parent_thread_id: None,
+                originator: None,
+            }),
+        }])
+        .unwrap_err();
+
+        assert!(error
+            .message
+            .contains("unsupported thread log schema version"));
+        assert_eq!(error.details["supportedSchemaVersion"], 1);
+    }
 }

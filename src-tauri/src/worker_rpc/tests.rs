@@ -2261,7 +2261,7 @@ fn thread_log_history_survives_router_restart() {
 }
 
 #[test]
-fn thread_log_history_rebuilds_missing_state_index_from_jsonl() {
+fn thread_log_history_uses_explicit_startup_index_migration() {
     let fixture = WorkspaceFixture::new();
     {
         let mut router = WorkerRpcRouter::new_persistent_sessions(
@@ -2297,6 +2297,7 @@ fn thread_log_history_rebuilds_missing_state_index_from_jsonl() {
         .join("state")
         .join("state.sqlite");
     std::fs::remove_file(&state_path).expect("state index should be removable");
+    prepare_session_log_index_for_startup(&fixture.root);
 
     let mut router = WorkerRpcRouter::new_persistent_sessions(
         fixture.root.clone(),
@@ -2387,6 +2388,7 @@ fn thread_log_title_is_derived_from_first_user_message_and_survives_state_rebuil
         )
         .expect("legacy title should be writable");
     drop(connection);
+    repair_session_log_index(&fixture.root);
 
     {
         let mut router = WorkerRpcRouter::new_persistent_sessions(
@@ -2411,6 +2413,7 @@ fn thread_log_title_is_derived_from_first_user_message_and_survives_state_rebuil
     }
 
     std::fs::remove_file(&state_path).expect("state index should be removable");
+    prepare_session_log_index_for_startup(&fixture.root);
 
     let mut router = WorkerRpcRouter::new_persistent_sessions(
         fixture.root.clone(),
@@ -2476,6 +2479,7 @@ fn session_list_metadata_rebuild_ignores_legacy_thread_item_jsonl() {
         .join("state")
         .join("state.sqlite");
     std::fs::remove_file(&state_path).expect("state index should be removable");
+    prepare_session_log_index_for_startup(&fixture.root);
 
     let mut router = WorkerRpcRouter::new_persistent_sessions(
         fixture.root.clone(),
@@ -2535,6 +2539,7 @@ fn session_get_metadata_reads_thread_log_after_state_rebuild() {
         .join("state")
         .join("state.sqlite");
     std::fs::remove_file(&state_path).expect("state index should be removable");
+    prepare_session_log_index_for_startup(&fixture.root);
 
     let mut router = WorkerRpcRouter::new_persistent_sessions(
         fixture.root.clone(),
@@ -2559,7 +2564,7 @@ fn session_get_metadata_reads_thread_log_after_state_rebuild() {
 }
 
 #[test]
-fn thread_log_history_rebuilds_corrupt_state_index_from_jsonl() {
+fn thread_log_history_requires_explicit_corrupt_index_repair() {
     let fixture = WorkspaceFixture::new();
     {
         let mut router = WorkerRpcRouter::new_persistent_sessions(
@@ -2595,6 +2600,7 @@ fn thread_log_history_rebuilds_corrupt_state_index_from_jsonl() {
         .join("state")
         .join("state.sqlite");
     std::fs::write(&state_path, b"not sqlite").expect("state index should be corruptible");
+    repair_session_log_index(&fixture.root);
 
     let mut router = WorkerRpcRouter::new_persistent_sessions(
         fixture.root.clone(),
@@ -2674,7 +2680,11 @@ fn thread_log_history_rejects_state_index_path_escape() {
         .as_ref()
         .unwrap()
         .message
-        .contains("thread log path"));
+        .contains("not consistent"));
+    assert_eq!(
+        history.error.as_ref().unwrap().details["status"],
+        "diverged"
+    );
 }
 
 #[test]
@@ -2776,7 +2786,7 @@ fn session_list_metadata_sorts_unix_ms_and_iso_timestamps_by_time() {
 }
 
 #[test]
-fn session_list_metadata_prunes_missing_thread_log_rows() {
+fn session_log_index_divergence_requires_explicit_repair() {
     let fixture = WorkspaceFixture::new();
     {
         let router = WorkerRpcRouter::new_persistent_sessions(
@@ -2811,7 +2821,10 @@ fn session_list_metadata_prunes_missing_thread_log_rows() {
         json!({}),
         vec![],
         50,
-        CapabilityPolicy::new([WorkerCapability::SessionMetadataRead]),
+        CapabilityPolicy::new([
+            WorkerCapability::SessionMetadataRead,
+            WorkerCapability::SessionWrite,
+        ]),
     )
     .unwrap();
     let list = router.dispatch(&WorkerRequest::new(
@@ -2821,6 +2834,32 @@ fn session_list_metadata_prunes_missing_thread_log_rows() {
         json!({}),
     ));
 
+    assert!(list.error.is_some());
+
+    let check = router.dispatch(&WorkerRequest::new(
+        "req-missing-log-check",
+        "trace-missing-log-check",
+        "session.persistence.check",
+        json!({}),
+    ));
+    assert_eq!(check.error, None);
+    assert_eq!(check.result.as_ref().unwrap()["status"], "diverged");
+
+    let repair = router.dispatch(&WorkerRequest::new(
+        "req-missing-log-repair",
+        "trace-missing-log-repair",
+        "session.persistence.repair",
+        json!({ "mode": "rebuild_index" }),
+    ));
+    assert_eq!(repair.error, None);
+    assert_eq!(repair.result.as_ref().unwrap()["after"]["status"], "clean");
+
+    let list = router.dispatch(&WorkerRequest::new(
+        "req-missing-log-list-after-repair",
+        "trace-missing-log-list-after-repair",
+        "session.list_metadata",
+        json!({}),
+    ));
     assert_eq!(list.error, None);
     assert!(list.result.as_ref().unwrap().as_array().unwrap().is_empty());
 }
@@ -2990,6 +3029,7 @@ fn session_clear_rebuilds_thread_log_projection_without_stale_token_usage() {
         .join("state")
         .join("state.sqlite");
     std::fs::remove_file(&state_path).expect("state index should be removable");
+    prepare_session_log_index_for_startup(&fixture.root);
     let mut router = WorkerRpcRouter::new_persistent_sessions(
         fixture.root.clone(),
         json!({}),
@@ -13562,6 +13602,37 @@ fn first_thread_log_file(root: &Path) -> PathBuf {
         None
     }
     visit(&root.join(".tinybot").join("threads")).expect("thread log file should exist")
+}
+
+fn prepare_session_log_index_for_startup(root: &Path) {
+    let rpc = crate::worker_thread_log::WorkerThreadLogRpc::new(
+        root.to_path_buf(),
+        CapabilityPolicy::new([
+            WorkerCapability::SessionMetadataRead,
+            WorkerCapability::SessionWrite,
+        ]),
+    );
+    let migration = rpc
+        .prepare_state_index_for_startup()
+        .expect("startup index preparation should succeed");
+    assert!(migration.is_some(), "missing index should be migrated");
+}
+
+fn repair_session_log_index(root: &Path) {
+    let rpc = crate::worker_thread_log::WorkerThreadLogRpc::new(
+        root.to_path_buf(),
+        CapabilityPolicy::new([
+            WorkerCapability::SessionMetadataRead,
+            WorkerCapability::SessionWrite,
+        ]),
+    );
+    let repair = rpc
+        .repair_state_index(crate::worker_thread_log::ThreadLogIndexRepairMode::RebuildIndex)
+        .expect("explicit index repair should succeed");
+    assert_eq!(
+        repair.after.status,
+        crate::worker_thread_log::ThreadLogIndexConsistencyStatus::Clean
+    );
 }
 
 fn thread_state_updated_at(state_path: &Path, session_id: &str) -> String {

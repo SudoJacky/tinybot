@@ -3,6 +3,8 @@ mod agent_run_projection;
 mod checkpoint;
 mod fork;
 mod index;
+mod journal;
+mod memory;
 mod metadata;
 mod query;
 mod runtime_projection;
@@ -28,6 +30,7 @@ use crate::worker_subagent_manager::{
 use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use self::activity::{
@@ -36,6 +39,12 @@ use self::activity::{
 };
 use self::agent_run_projection::{agent_run_record_from_thread_run, run_summaries_from_items};
 use self::checkpoint::{checkpoint_from_item, latest_checkpoint_from_items};
+use self::journal::ThreadJournalMutation;
+pub use self::journal::{
+    ThreadPersistenceConsistencyReport, ThreadPersistenceConsistencyStatus,
+    ThreadPersistenceRepairMode, ThreadPersistenceRepairReport, ThreadPersistenceRepairRequest,
+};
+pub use self::memory::MemoryThreadStore;
 use self::metadata::{apply_metadata_patch, recompute_dynamic_metadata, set_metadata_extra_string};
 use self::query::{
     bounded_limit, descendant_thread_ids, items_match_query as thread_items_match_query,
@@ -67,7 +76,7 @@ pub(super) const TITLE_SOURCE_MANUAL: &str = "manual";
 static THREAD_ID_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static ITEM_ID_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
-pub trait ThreadStore {
+pub trait ThreadStore: Clone + std::fmt::Debug + Send + Sync + 'static {
     fn create_thread(
         &self,
         request: CreateThreadRequest,
@@ -105,6 +114,12 @@ pub trait ThreadStore {
         thread_id: &str,
         archived: bool,
     ) -> Result<ThreadRecord, WorkerProtocolError>;
+    fn archive_thread_with_children(
+        &self,
+        thread_id: &str,
+        archived: bool,
+        archive_children: bool,
+    ) -> Result<ThreadRecord, WorkerProtocolError>;
     fn delete_thread(
         &self,
         request: DeleteThreadRequest,
@@ -115,17 +130,30 @@ pub trait ThreadStore {
         thread_id: &str,
         items: Vec<ThreadItem>,
     ) -> Result<AppendThreadItemsResult, WorkerProtocolError>;
+    fn append_items_with_client_event_id(
+        &self,
+        thread_id: &str,
+        items: Vec<ThreadItem>,
+        client_event_id: Option<&str>,
+    ) -> Result<AppendThreadItemsResult, WorkerProtocolError>;
+    fn client_event_items(
+        &self,
+        thread_id: &str,
+        client_event_id: &str,
+    ) -> Result<Option<Vec<ThreadItem>>, WorkerProtocolError>;
 }
 
 #[derive(Clone, Debug)]
 pub struct LocalThreadStore {
     root: PathBuf,
+    mutation_lock: Arc<Mutex<()>>,
 }
 
 impl LocalThreadStore {
     pub fn new(workspace_root: PathBuf) -> Self {
         Self {
             root: workspace_root.join(".tinybot").join("threads"),
+            mutation_lock: Arc::new(Mutex::new(())),
         }
     }
 
@@ -559,6 +587,7 @@ impl LocalThreadStore {
         archive_children: bool,
     ) -> Result<ThreadRecord, WorkerProtocolError> {
         validate_thread_id(thread_id)?;
+        let _guard = self.lock_mutation()?;
         let mut index = self.read_index()?;
         let timestamp = now_timestamp();
         let mut archive_ids = vec![thread_id.to_string()];
@@ -590,7 +619,18 @@ impl LocalThreadStore {
         let Some(updated) = updated else {
             return Err(unknown_thread_error(thread_id));
         };
+        let changed = index
+            .threads
+            .iter()
+            .filter(|record| archive_ids.contains(&record.thread_id))
+            .cloned()
+            .map(|record| ThreadJournalMutation::UpsertThread {
+                record: Box::new(record),
+            })
+            .collect();
+        let journal_head = self.begin_persistence_operation(None, changed)?;
         self.write_index(&index)?;
+        self.complete_persistence_operation(&journal_head)?;
         Ok(updated)
     }
 
@@ -704,6 +744,7 @@ impl LocalThreadStore {
         &self,
         summary: &SubagentThreadSummary,
     ) -> Result<ThreadRecord, WorkerProtocolError> {
+        let _guard = self.lock_mutation()?;
         let mut index = self.read_index()?;
         if let Some(position) = index.threads.iter().position(|thread| {
             thread.session_key.as_deref() == Some(summary.session_key.as_str())
@@ -731,8 +772,15 @@ impl LocalThreadStore {
             },
         };
         index.threads.push(thread.clone());
+        let journal_head = self.begin_persistence_operation(
+            None,
+            vec![ThreadJournalMutation::UpsertThread {
+                record: Box::new(thread.clone()),
+            }],
+        )?;
         self.write_index(&index)?;
         self.write_items(&thread.thread_id, &[])?;
+        self.complete_persistence_operation(&journal_head)?;
         Ok(thread)
     }
 
@@ -741,6 +789,7 @@ impl LocalThreadStore {
         summary: &SubagentThreadSummary,
         parent_thread_id: &str,
     ) -> Result<ThreadRecord, WorkerProtocolError> {
+        let _guard = self.lock_mutation()?;
         let mut index = self.read_index()?;
         if let Some(position) = index.threads.iter().position(|thread| {
             thread.source == "subagent"
@@ -764,7 +813,14 @@ impl LocalThreadStore {
             thread.metadata.extra["agentControl"] =
                 subagent_agent_control_payload(summary, parent_thread_id);
             let updated = thread.clone();
+            let journal_head = self.begin_persistence_operation(
+                None,
+                vec![ThreadJournalMutation::UpsertThread {
+                    record: Box::new(updated.clone()),
+                }],
+            )?;
             self.write_index(&index)?;
+            self.complete_persistence_operation(&journal_head)?;
             return Ok(updated);
         }
         let thread = ThreadRecord {
@@ -796,8 +852,15 @@ impl LocalThreadStore {
             },
         };
         index.threads.push(thread.clone());
+        let journal_head = self.begin_persistence_operation(
+            None,
+            vec![ThreadJournalMutation::UpsertThread {
+                record: Box::new(thread.clone()),
+            }],
+        )?;
         self.write_index(&index)?;
         self.write_items(&thread.thread_id, &[])?;
+        self.complete_persistence_operation(&journal_head)?;
         Ok(thread)
     }
 }
@@ -836,6 +899,7 @@ impl ThreadStore for LocalThreadStore {
     ) -> Result<ThreadRecord, WorkerProtocolError> {
         let thread_id = request.thread_id.unwrap_or_else(generate_thread_id);
         validate_thread_id(&thread_id)?;
+        let _guard = self.lock_mutation()?;
         let mut index = self.read_index()?;
         if index
             .threads
@@ -894,8 +958,15 @@ impl ThreadStore for LocalThreadStore {
             metadata,
         };
         index.threads.push(record.clone());
+        let journal_head = self.begin_persistence_operation(
+            None,
+            vec![ThreadJournalMutation::UpsertThread {
+                record: Box::new(record.clone()),
+            }],
+        )?;
         self.write_index(&index)?;
         self.write_items(&thread_id, &[])?;
+        self.complete_persistence_operation(&journal_head)?;
         Ok(record)
     }
 
@@ -990,23 +1061,34 @@ impl ThreadStore for LocalThreadStore {
         request: ResumeThreadRequest,
     ) -> Result<ThreadSnapshot, WorkerProtocolError> {
         validate_thread_id(&request.thread_id)?;
-        let mut index = self.read_index()?;
-        let Some(record) = index
-            .threads
-            .iter_mut()
-            .find(|thread| thread.thread_id == request.thread_id)
-        else {
-            return Err(unknown_thread_error(&request.thread_id));
-        };
-        if record.status == ThreadStatus::Archived {
-            record.status = if record.metadata.item_count == 0 {
-                ThreadStatus::Empty
-            } else {
-                ThreadStatus::Idle
+        {
+            let _guard = self.lock_mutation()?;
+            let mut index = self.read_index()?;
+            let Some(record) = index
+                .threads
+                .iter_mut()
+                .find(|thread| thread.thread_id == request.thread_id)
+            else {
+                return Err(unknown_thread_error(&request.thread_id));
             };
-            record.archived_at = None;
-            record.updated_at = now_timestamp();
-            self.write_index(&index)?;
+            if record.status == ThreadStatus::Archived {
+                record.status = if record.metadata.item_count == 0 {
+                    ThreadStatus::Empty
+                } else {
+                    ThreadStatus::Idle
+                };
+                record.archived_at = None;
+                record.updated_at = now_timestamp();
+                let updated = record.clone();
+                let journal_head = self.begin_persistence_operation(
+                    None,
+                    vec![ThreadJournalMutation::UpsertThread {
+                        record: Box::new(updated),
+                    }],
+                )?;
+                self.write_index(&index)?;
+                self.complete_persistence_operation(&journal_head)?;
+            }
         }
         self.read_thread(ReadThreadRequest {
             thread_id: request.thread_id,
@@ -1131,6 +1213,7 @@ impl ThreadStore for LocalThreadStore {
         patch: ThreadMetadataPatch,
     ) -> Result<ThreadRecord, WorkerProtocolError> {
         validate_thread_id(thread_id)?;
+        let _guard = self.lock_mutation()?;
         let mut index = self.read_index()?;
         let record = index
             .threads
@@ -1140,7 +1223,14 @@ impl ThreadStore for LocalThreadStore {
         apply_metadata_patch(record, patch);
         record.updated_at = now_timestamp();
         let updated = record.clone();
+        let journal_head = self.begin_persistence_operation(
+            None,
+            vec![ThreadJournalMutation::UpsertThread {
+                record: Box::new(updated.clone()),
+            }],
+        )?;
         self.write_index(&index)?;
+        self.complete_persistence_operation(&journal_head)?;
         Ok(updated)
     }
 
@@ -1151,6 +1241,7 @@ impl ThreadStore for LocalThreadStore {
     ) -> Result<ThreadRecord, WorkerProtocolError> {
         validate_thread_id(thread_id)?;
         let normalized_session_key = non_empty_trimmed(session_key, "sessionKey")?;
+        let _guard = self.lock_mutation()?;
         let mut index = self.read_index()?;
         if index.threads.iter().any(|thread| {
             thread.thread_id != thread_id
@@ -1175,7 +1266,14 @@ impl ThreadStore for LocalThreadStore {
         record.session_key = Some(normalized_session_key);
         record.updated_at = now_timestamp();
         let updated = record.clone();
+        let journal_head = self.begin_persistence_operation(
+            None,
+            vec![ThreadJournalMutation::UpsertThread {
+                record: Box::new(updated.clone()),
+            }],
+        )?;
         self.write_index(&index)?;
+        self.complete_persistence_operation(&journal_head)?;
         Ok(updated)
     }
 
@@ -1187,11 +1285,21 @@ impl ThreadStore for LocalThreadStore {
         self.archive_thread_inner(thread_id, archived, false)
     }
 
+    fn archive_thread_with_children(
+        &self,
+        thread_id: &str,
+        archived: bool,
+        archive_children: bool,
+    ) -> Result<ThreadRecord, WorkerProtocolError> {
+        LocalThreadStore::archive_thread_with_children(self, thread_id, archived, archive_children)
+    }
+
     fn delete_thread(
         &self,
         request: DeleteThreadRequest,
     ) -> Result<DeleteThreadResult, WorkerProtocolError> {
         validate_thread_id(&request.thread_id)?;
+        let _guard = self.lock_mutation()?;
         let mut index = self.read_index()?;
         let Some(target_index) = index
             .threads
@@ -1229,10 +1337,19 @@ impl ThreadStore for LocalThreadStore {
         index
             .threads
             .retain(|thread| !delete_ids.contains(&thread.thread_id));
+        let journal_head = self.begin_persistence_operation(
+            None,
+            delete_ids
+                .iter()
+                .cloned()
+                .map(|thread_id| ThreadJournalMutation::DeleteThread { thread_id })
+                .collect(),
+        )?;
         self.write_index(&index)?;
         for thread_id in &delete_ids {
             self.delete_items(thread_id)?;
         }
+        self.complete_persistence_operation(&journal_head)?;
         Ok(DeleteThreadResult {
             thread_id: request.thread_id,
             deleted: true,
@@ -1251,6 +1368,23 @@ impl ThreadStore for LocalThreadStore {
     ) -> Result<AppendThreadItemsResult, WorkerProtocolError> {
         self.append_items_internal(thread_id, items, None)
     }
+
+    fn append_items_with_client_event_id(
+        &self,
+        thread_id: &str,
+        items: Vec<ThreadItem>,
+        client_event_id: Option<&str>,
+    ) -> Result<AppendThreadItemsResult, WorkerProtocolError> {
+        self.append_items_internal(thread_id, items, client_event_id)
+    }
+
+    fn client_event_items(
+        &self,
+        thread_id: &str,
+        client_event_id: &str,
+    ) -> Result<Option<Vec<ThreadItem>>, WorkerProtocolError> {
+        LocalThreadStore::client_event_items(self, thread_id, client_event_id)
+    }
 }
 
 impl LocalThreadStore {
@@ -1264,6 +1398,7 @@ impl LocalThreadStore {
         let client_event_id = client_event_id
             .map(str::trim)
             .filter(|value| !value.is_empty());
+        let _guard = self.lock_mutation()?;
         let mut index = self.read_index()?;
         let record = index
             .threads
@@ -1331,8 +1466,23 @@ impl LocalThreadStore {
         recompute_dynamic_metadata(record, &existing);
         record.updated_at = timestamp;
         let updated = record.clone();
+        let operation_id =
+            client_event_id.map(|client_event_id| format!("client:{thread_id}:{client_event_id}"));
+        let journal_head = self.begin_persistence_operation(
+            operation_id.as_deref(),
+            vec![
+                ThreadJournalMutation::UpsertThread {
+                    record: Box::new(updated.clone()),
+                },
+                ThreadJournalMutation::UpsertItems {
+                    thread_id: thread_id.to_string(),
+                    items: appended.clone(),
+                },
+            ],
+        )?;
         self.write_items(thread_id, &existing)?;
         self.write_index(&index)?;
+        self.complete_persistence_operation(&journal_head)?;
         Ok(AppendThreadItemsResult {
             thread: updated,
             items: appended,
@@ -2696,6 +2846,168 @@ mod tests {
             created_at: String::new(),
             kind: ThreadItemKind::UserMessage(json!({ "text": text })),
         }
+    }
+
+    #[test]
+    fn persistence_consistency_detects_projection_divergence_and_repairs_explicitly() {
+        let root = temp_root("persistence-divergence");
+        let _cleanup = Cleanup(root.clone());
+        let store = LocalThreadStore::new(root);
+        let thread = store
+            .create_thread(CreateThreadRequest {
+                thread_id: Some("thread-persistence-divergence".to_string()),
+                ..CreateThreadRequest::default()
+            })
+            .unwrap();
+        store
+            .append_items(&thread.thread_id, vec![item("canonical")])
+            .unwrap();
+
+        assert_eq!(
+            store.check_persistence_consistency().unwrap().status,
+            ThreadPersistenceConsistencyStatus::Clean
+        );
+
+        store.write_items(&thread.thread_id, &[]).unwrap();
+        let divergence = store.check_persistence_consistency().unwrap();
+        assert_eq!(
+            divergence.status,
+            ThreadPersistenceConsistencyStatus::Diverged
+        );
+        assert_eq!(divergence.projection_item_count, 0);
+        assert_eq!(divergence.canonical_item_count, 1);
+
+        let repaired = store
+            .repair_persistence(ThreadPersistenceRepairMode::RebuildProjection)
+            .unwrap();
+        assert_eq!(
+            repaired.after.status,
+            ThreadPersistenceConsistencyStatus::Clean
+        );
+        assert_eq!(
+            store
+                .read_thread(ReadThreadRequest {
+                    thread_id: thread.thread_id,
+                    cursor: None,
+                    before_sequence: None,
+                    checkpoint_sequence: None,
+                    checkpoint_id: None,
+                    limit: None,
+                })
+                .unwrap()
+                .items
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn legacy_sqlite_projection_requires_explicit_journal_migration() {
+        let root = temp_root("persistence-legacy-migration");
+        let _cleanup = Cleanup(root.clone());
+        let store = LocalThreadStore::new(root);
+        let timestamp = now_timestamp();
+        let record = ThreadRecord {
+            thread_id: "thread-legacy-projection".to_string(),
+            title: "Legacy".to_string(),
+            status: ThreadStatus::Idle,
+            session_key: Some("session-legacy".to_string()),
+            root_run_id: None,
+            active_run_id: None,
+            parent_thread_id: None,
+            source: "legacy".to_string(),
+            created_at: timestamp.clone(),
+            updated_at: timestamp,
+            archived_at: None,
+            metadata: ThreadMetadata::default(),
+        };
+        store
+            .write_index(&index::ThreadIndex {
+                version: THREAD_STORE_VERSION,
+                threads: vec![record],
+            })
+            .unwrap();
+        store.write_items("thread-legacy-projection", &[]).unwrap();
+
+        assert_eq!(
+            store.check_persistence_consistency().unwrap().status,
+            ThreadPersistenceConsistencyStatus::LegacyProjection
+        );
+        let migrated = store
+            .repair_persistence(ThreadPersistenceRepairMode::MigrateLegacyProjection)
+            .unwrap();
+        assert_eq!(
+            migrated.before.status,
+            ThreadPersistenceConsistencyStatus::LegacyProjection
+        );
+        assert_eq!(
+            migrated.after.status,
+            ThreadPersistenceConsistencyStatus::Clean
+        );
+        assert_eq!(migrated.migrated_thread_count, 1);
+    }
+
+    #[test]
+    fn local_and_memory_adapters_share_the_thread_store_contract() {
+        let root = temp_root("store-contract");
+        let _cleanup = Cleanup(root.clone());
+        assert_thread_store_contract(&LocalThreadStore::new(root));
+        assert_thread_store_contract(&MemoryThreadStore::default());
+    }
+
+    #[test]
+    fn thread_runtime_uses_memory_store_and_replays_client_event_ids() {
+        let store = MemoryThreadStore::default();
+        let thread = store
+            .create_thread(CreateThreadRequest {
+                thread_id: Some("thread-memory-runtime".to_string()),
+                ..CreateThreadRequest::default()
+            })
+            .unwrap();
+        let runtime = crate::worker_thread::ThreadRuntime::new(store);
+        let request = crate::worker_thread::StartThreadTurnRequest {
+            thread_id: thread.thread_id,
+            client_event_id: Some("memory-runtime-start-1".to_string()),
+            run_id: Some("run-memory-1".to_string()),
+            turn_id: Some("turn-memory-1".to_string()),
+            input: json!({ "text": "hello" }),
+            model: Some("test-model".to_string()),
+            provider: Some("fixture".to_string()),
+            metadata: ThreadMetadataPatch::default(),
+        };
+
+        let first = runtime.start_turn(request.clone()).unwrap();
+        let replayed = runtime.start_turn(request).unwrap();
+
+        assert_eq!(first.appended_items, replayed.appended_items);
+        assert_eq!(replayed.snapshot.items.len(), 2);
+    }
+
+    fn assert_thread_store_contract<S: ThreadStore>(store: &S) {
+        let thread = store
+            .create_thread(CreateThreadRequest {
+                thread_id: Some(format!("thread-contract-{}", now_millis())),
+                title: Some("Contract".to_string()),
+                ..CreateThreadRequest::default()
+            })
+            .unwrap();
+        let appended = store
+            .append_items(&thread.thread_id, vec![item("shared contract")])
+            .unwrap();
+        let snapshot = store
+            .read_thread(ReadThreadRequest {
+                thread_id: thread.thread_id,
+                cursor: None,
+                before_sequence: None,
+                checkpoint_sequence: None,
+                checkpoint_id: None,
+                limit: None,
+            })
+            .unwrap();
+
+        assert_eq!(appended.items.len(), 1);
+        assert_eq!(snapshot.items.len(), 1);
+        assert_eq!(snapshot.thread.metadata.item_count, 1);
     }
 
     fn temp_root(name: &str) -> PathBuf {

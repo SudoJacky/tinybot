@@ -147,8 +147,12 @@ Known worker error sources:
 ```
 
 `lifecycle` is the queryable native-runtime recovery and cleanup record. Startup pauses new agent
-runs until durable thread and agent-run state has been scanned. A persisted `running` run with no
-live owner is closed as `status: "interrupted"`, `phase: "interrupted"`, and
+runs until both thread journals and their SQLite projections pass consistency checks. The startup
+report includes `threadPersistence`, `threadPersistenceMigration`, `sessionLogIndex`, and
+`sessionLogIndexMigration`. A legacy SQLite-only thread store and a missing session-log index are
+migrated by named startup migrations; an actual log/index divergence fails startup and requires an
+explicit repair command. A persisted `running` run with no live owner is then closed as
+`status: "interrupted"`, `phase: "interrupted"`, and
 `stopReason: "runtime_restarted"`; waiting runs and their checkpoints remain unchanged. A storage
 error leaves the task runtime non-accepting, sets `state: "failed"`/`last_error`, and appends a
 `startup_recovery` diagnostic instead of silently continuing.
@@ -677,13 +681,19 @@ Key response shapes used by the lower-level session RPC:
 
 ## Session and Thread Persistence
 
-Tinybot keeps the existing `session.*` API surface for frontend compatibility. Internally, a
-user-visible session maps to a durable backend thread. Each thread is persisted as an append-only
-JSONL file under `.tinybot/threads/YYYY/MM/DD/thread-*.jsonl`.
+Tinybot keeps the existing `session.*` API surface for frontend compatibility while separating two
+explicit persistence authorities:
 
-`state.sqlite` lives under `.tinybot/state/state.sqlite` and is a derived index for listing,
-session/thread id lookup, archive metadata, and the canonical JSONL path. The JSONL thread file is
-the canonical history source.
+- `thread.*` writes append versioned operations to `.tinybot/state/thread-store.jsonl`, flushes and
+  syncs that journal, and only then updates `.tinybot/threads/threads.sqlite`. The SQLite database is
+  a rebuildable timeline/list/search projection.
+- compatibility `session.*` history and `agent_run.*` lifecycle data append to per-session JSONL
+  files under `.tinybot/threads/YYYY/MM/DD/thread-*.jsonl` before updating
+  `.tinybot/state/state.sqlite`. That SQLite database is a rebuildable session index.
+
+Thread journal operations carry `schemaVersion: 1` and `operationId`. Thread-log metadata carries
+`schemaVersion: 1`; legacy metadata without the field is read as v0. Unsupported future versions
+fail explicitly instead of being guessed or silently downgraded.
 
 Compatibility `session.*` and `agent_run.*` routes keep their response shapes for older callers, but
 new writes do not mirror completed history, checkpoints, metadata patches, or agent-run lifecycle
@@ -692,7 +702,28 @@ canonical store (`thread_log` for durable history and usage, legacy `sessions.sq
 legacy active session state) and read legacy thread projections only as a fallback for existing data.
 Thread-owned commands such as `worker_submit_thread_turn`, `worker_resolve_thread_approval`, and
 `worker_submit_thread_form` update the thread timeline explicitly through `thread.start_turn` and
-`thread.apply_op`.
+`thread.apply_op`. Their native-agent result contains
+`conversationPersistence.authority: "thread"`; the compatibility `session.persist_turn` write is
+skipped, so the session event log keeps run snapshots, trace events, and checkpoints without a
+second copy of user/assistant history. Direct non-thread agent commands continue to persist their
+completed conversation through `session.persist_turn`.
+
+`clientEventId` is the retry/idempotency key for thread appends, starts, continuations, approvals,
+forms, and forks. A successful retry replays the original item IDs instead of appending another
+logical operation. The local and in-memory stores implement the same `ThreadStore` contract, and
+`ThreadRuntime`/`LiveThread` operate on that interface.
+
+Persistence verification and repair are lower-level Worker RPC methods:
+
+| Method | Params | Behavior |
+| --- | --- | --- |
+| `thread.persistence.check` | `{}` | Compare the canonical thread journal, journal head, records, items, and SQLite projection. |
+| `thread.persistence.repair` | `{ mode: "migrate_legacy_projection" | "rebuild_projection" }` | Create journal v1 from a legacy projection, or rebuild the projection from the journal. |
+| `session.persistence.check` | `{}` | Compare canonical session JSONL records with `state.sqlite`. |
+| `session.persistence.repair` | `{ mode: "rebuild_index" }` | Rebuild `state.sqlite` from canonical session logs. |
+
+Normal reads never run these repairs. `clean`, `legacy_projection`/`missing_index`, `diverged`, and
+`unreadable` are observable states; writes fail while their authority is not clean.
 
 `session.get_history` returns frontend-compatible messages. When a thread has token usage, the
 backend derives the message `usage` field from the latest persisted `token_count` event. A malformed

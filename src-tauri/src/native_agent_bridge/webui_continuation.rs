@@ -145,6 +145,7 @@ pub(crate) fn native_approval_continuation_spec(
     let mut metadata = serde_json::json!({
         "agentContinuation": agent_continuation,
     });
+    copy_thread_id_to_continuation_metadata(&mut metadata, checkpoint, body);
     if let Some(final_content) = body
         .get("finalContent")
         .or_else(|| body.get("final_content"))
@@ -503,6 +504,7 @@ pub(crate) fn native_agent_ui_form_continuation_spec(
             "values": values,
         },
     });
+    copy_thread_id_to_continuation_metadata(&mut metadata, checkpoint, body);
     if let Some(final_content) = body
         .get("finalContent")
         .or_else(|| body.get("final_content"))
@@ -521,6 +523,24 @@ pub(crate) fn native_agent_ui_form_continuation_spec(
             .unwrap_or_else(|| serde_json::json!([])),
         "metadata": metadata,
     })
+}
+
+fn copy_thread_id_to_continuation_metadata(
+    metadata: &mut serde_json::Value,
+    checkpoint: &serde_json::Value,
+    body: &serde_json::Value,
+) {
+    let thread_id = checkpoint
+        .get("threadId")
+        .or_else(|| checkpoint.get("thread_id"))
+        .or_else(|| body.get("threadId"))
+        .or_else(|| body.get("thread_id"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if let Some(thread_id) = thread_id {
+        metadata["threadId"] = serde_json::Value::String(thread_id.to_string());
+    }
 }
 
 pub(crate) fn native_agent_ui_form_event(

@@ -15,16 +15,16 @@ static RUNTIME_RUN_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static RUNTIME_ITEM_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug)]
-pub struct ThreadRuntime {
-    store: LocalThreadStore,
+pub struct ThreadRuntime<S: ThreadStore = LocalThreadStore> {
+    store: S,
 }
 
-impl ThreadRuntime {
-    pub fn new(store: LocalThreadStore) -> Self {
+impl<S: ThreadStore> ThreadRuntime<S> {
+    pub fn new(store: S) -> Self {
         Self { store }
     }
 
-    pub fn live_thread(&self, thread_id: impl Into<String>) -> LiveThread {
+    pub fn live_thread(&self, thread_id: impl Into<String>) -> LiveThread<S> {
         LiveThread::new(thread_id, self.store.clone())
     }
 
@@ -704,8 +704,8 @@ enum RequestParentKind<'a> {
     Tool(Option<&'a str>),
 }
 
-fn find_request_parent_item_id(
-    store: &LocalThreadStore,
+fn find_request_parent_item_id<S: ThreadStore>(
+    store: &S,
     thread_id: &str,
     run_id: &str,
     turn_id: &str,

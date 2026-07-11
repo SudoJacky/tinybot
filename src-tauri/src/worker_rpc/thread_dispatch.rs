@@ -117,6 +117,14 @@ impl WorkerRpcRouter {
                 let params: InterruptThreadRequest = parse_params(request)?;
                 serde_json::to_value(self.thread.interrupt(params)?).map_err(serialization_error)
             }
+            "thread.persistence.check" => {
+                serde_json::to_value(self.thread.check_persistence()?).map_err(serialization_error)
+            }
+            "thread.persistence.repair" => {
+                let params: ThreadPersistenceRepairRequest = parse_params(request)?;
+                serde_json::to_value(self.thread.repair_persistence(params.mode)?)
+                    .map_err(serialization_error)
+            }
             _ => Err(unknown_method_error(request)),
         }
     }

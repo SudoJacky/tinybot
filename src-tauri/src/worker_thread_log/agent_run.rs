@@ -466,6 +466,7 @@ impl WorkerThreadLogRpc {
         }
         let thread_id = thread_id_for_session_id(session_id);
         let meta = super::ThreadMeta {
+            schema_version: super::THREAD_LOG_SCHEMA_VERSION,
             thread_id: thread_id.clone(),
             session_id: Some(session_id.to_string()),
             created_at: timestamp.to_string(),

@@ -262,6 +262,14 @@ pub(crate) fn persist_native_agent_turn_if_final(
     if result.get("stopReason").and_then(serde_json::Value::as_str) != Some("final_response") {
         return Ok(());
     }
+    if let Some(thread_id) = native_agent_thread_id(&spec) {
+        result["conversationPersistence"] = serde_json::json!({
+            "authority": "thread",
+            "threadId": thread_id,
+            "compatibilitySessionWriteSkipped": true,
+        });
+        return Ok(());
+    }
     let session_id = native_agent_session_id(&spec)
         .ok_or_else(|| "Rust agent turn missing session id for persistence".to_string())?;
     let run_id = result
