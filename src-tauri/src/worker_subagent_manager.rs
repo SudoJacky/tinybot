@@ -731,6 +731,39 @@ impl SubagentThreadManager {
             .collect()
     }
 
+    pub fn interrupt_all_non_terminal_for_shutdown(&self) -> Vec<SubagentLifecycleResult> {
+        let mut targets = {
+            let state = self
+                .state
+                .lock()
+                .expect("subagent manager lock should not be poisoned");
+            state
+                .records
+                .values()
+                .filter(|record| record.status.is_active())
+                .map(|record| (record.session_key.clone(), record.subagent_id.clone()))
+                .collect::<Vec<_>>()
+        };
+        targets.sort();
+        targets
+            .into_iter()
+            .map(|(session_key, subagent_id)| {
+                self.transition(SubagentTransitionParams {
+                    session_key,
+                    subagent_id,
+                    status: SubagentThreadStatus::Interrupted,
+                    result_summary: None,
+                    blocker_summary: Some(
+                        "Application shutdown interrupted the subagent before completion."
+                            .to_string(),
+                    ),
+                    pending_approval: None,
+                    metadata: serde_json::json!({ "source": "application_shutdown" }),
+                })
+            })
+            .collect()
+    }
+
     pub fn restore_interrupted_from_trace_events(
         &self,
         session_key: &str,

@@ -14,6 +14,7 @@ use crate::worker_session::{
     ClearSessionResult, DeleteSessionResult, PersistTurnResult, SessionHistoryProjection,
     SessionMetadata,
 };
+use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashSet;
 use std::fs;
@@ -36,6 +37,24 @@ pub struct WorkerThreadLogRpc {
     state: ThreadStateDb,
     thread_root: PathBuf,
     policy: CapabilityPolicy,
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRunRecoveryEntry {
+    pub session_id: String,
+    pub run_id: String,
+    pub thread_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRunRecoveryReport {
+    pub scanned_sessions: usize,
+    pub scanned_runs: usize,
+    pub interrupted_runs: Vec<AgentRunRecoveryEntry>,
+    pub awaiting_interaction_runs: Vec<AgentRunRecoveryEntry>,
+    pub resumable_runs: Vec<AgentRunRecoveryEntry>,
 }
 
 impl WorkerThreadLogRpc {

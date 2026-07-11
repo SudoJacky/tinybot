@@ -130,9 +130,28 @@ Known worker error sources:
   },
   "route_owner_summary": { "rustOwned": 0, "unsupported": 0 },
   "webui_route_inventory": [],
-  "compatibility_fallback_diagnostics": []
+  "compatibility_fallback_diagnostics": [],
+  "lifecycle": {
+    "startupReconciled": true,
+    "lastStartupRecovery": {
+      "scannedThreads": 0,
+      "scannedRunRecords": 0,
+      "interruptedRuns": [],
+      "awaitingInteractionRuns": [],
+      "resumableRuns": []
+    },
+    "lastShutdown": null,
+    "diagnostics": []
+  }
 }
 ```
+
+`lifecycle` is the queryable native-runtime recovery and cleanup record. Startup pauses new agent
+runs until durable thread and agent-run state has been scanned. A persisted `running` run with no
+live owner is closed as `status: "interrupted"`, `phase: "interrupted"`, and
+`stopReason: "runtime_restarted"`; waiting runs and their checkpoints remain unchanged. A storage
+error leaves the task runtime non-accepting, sets `state: "failed"`/`last_error`, and appends a
+`startup_recovery` diagnostic instead of silently continuing.
 
 ## File Dialog Commands
 
@@ -375,9 +394,14 @@ without starting another task.
 
 The desktop `thread.interrupt` path first persists the thread cancellation item and then cancels the
 same run owner. Its existing thread result gains `taskCancellation`, containing the same
-`worker_cancel_agent` payload. Gateway shutdown stops accepting starts, cancels active owners, waits
-up to five seconds for active and draining cleanup, continues MCP/worker cleanup even if that wait
-fails, and returns an explicit combined error for remaining cleanup failures.
+`worker_cancel_agent` payload. Gateway shutdown follows one ordered path: stop accepting starts,
+cancel and drain owned runs, terminate retained shell process trees, stop MCP clients/stdio children,
+interrupt non-terminal subagents, stop the background worker, and emit a `RuntimeShutdownReport`.
+Each bounded stage continues after an earlier failure. Cleanup failures are returned as a combined
+error, retained in `GatewayRuntimeStatus.lifecycle.diagnostics`, mirrored to `last_error`, and written
+to the persistent native-backend log. The report includes agent cleanup, shell process IDs, MCP,
+subagent, worker, state-persistence, elapsed-time, and failure details. A same-process gateway restart
+reopens agent and shell start admission only after cleanup is complete.
 
 ### Async provider execution
 

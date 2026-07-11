@@ -69,6 +69,7 @@ pub enum AgentRunStatus {
     Completed,
     Failed,
     Cancelled,
+    Interrupted,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]

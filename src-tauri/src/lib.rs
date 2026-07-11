@@ -97,8 +97,8 @@ use crate::desktop_commands::config::{
 };
 use crate::desktop_commands::gateway::{
     gateway_exit_policy_preference_path, gateway_status, load_gateway_exit_policy,
-    native_backend_log_path, set_gateway_keep_running, start_gateway, stop_gateway,
-    stop_owned_gateway,
+    native_backend_log_path, set_gateway_keep_running, start_gateway,
+    start_gateway_with_workspace_root, stop_gateway, stop_owned_gateway,
 };
 use crate::desktop_commands::knowledge::{
     worker_knowledge_add_document, worker_knowledge_add_document_with_options,
@@ -174,6 +174,7 @@ use crate::desktop_menu::{
 };
 use crate::native_agent_bridge::{native_agent_run_record, persist_native_agent_run_start};
 use crate::native_backend_contract::NativeCompatibilityFallbackDiagnostic;
+use crate::runtime::lifecycle::RuntimeLifecycleStatus;
 use crate::runtime::mcp::McpRuntime;
 use crate::system_prompt::{load_or_create_system_prompt, SYSTEM_PROMPT_FILE_NAME};
 use crate::worker_agent_runtime::NativeAgentRuntimeServices;
@@ -225,6 +226,7 @@ pub(crate) struct GatewayRuntime {
     native_agent_runtime: NativeAgentRuntimeServices,
     mcp_runtime: McpRuntime,
     subagent_manager: SubagentThreadManager,
+    lifecycle_status: RuntimeLifecycleStatus,
     logs: VecDeque<String>,
     compatibility_fallbacks: VecDeque<NativeCompatibilityFallbackDiagnostic>,
     persistent_log_path: PathBuf,
@@ -247,6 +249,7 @@ impl Default for GatewayRuntime {
             .with_mcp_runtime(mcp_runtime.clone()),
             mcp_runtime,
             subagent_manager,
+            lifecycle_status: RuntimeLifecycleStatus::default(),
             logs: VecDeque::with_capacity(200),
             compatibility_fallbacks: VecDeque::with_capacity(50),
             persistent_log_path: native_backend_log_path(),
@@ -510,6 +513,16 @@ pub fn run() {
                     &setup_state,
                     &format!("failed to initialize system prompt: {error}"),
                 ),
+            }
+            if let Err(error) =
+                start_gateway_with_workspace_root(&setup_state, workspace_root.clone())
+            {
+                push_log(
+                    &setup_state,
+                    &format!(
+                        "native agent runtime remains paused because startup recovery failed: {error}"
+                    ),
+                );
             }
             let app_handle = app.handle().clone();
             let log_state = setup_state.clone();

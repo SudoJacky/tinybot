@@ -199,6 +199,353 @@ lines.on("close", () => {
 }
 
 #[test]
+fn startup_reconciles_orphaned_run_and_preserves_waiting_checkpoint() {
+    let fixture = WorkspaceFixture::new();
+    let policy = default_desktop_capability_policy();
+    let thread_log =
+        crate::worker_thread_log::WorkerThreadLogRpc::new(fixture.root.clone(), policy.clone());
+    let thread = crate::worker_thread::WorkerThreadRpc::new(fixture.root.clone(), policy);
+    thread
+        .create_thread(crate::worker_thread::CreateThreadRequest {
+            thread_id: Some("thread-recovery".to_string()),
+            session_key: Some("session-recovery".to_string()),
+            ..Default::default()
+        })
+        .expect("recovery thread should be created");
+    thread
+        .start_turn(crate::worker_thread::StartThreadTurnRequest {
+            thread_id: "thread-recovery".to_string(),
+            run_id: Some("run-orphaned".to_string()),
+            input: serde_json::json!({ "content": "unfinished" }),
+            ..Default::default()
+        })
+        .expect("orphaned thread run should start");
+
+    let mut running_record: crate::worker_session::AgentRunRecord =
+        serde_json::from_value(native_agent_run_record(
+            &serde_json::json!({
+                "runId": "run-orphaned",
+                "sessionId": "session-recovery",
+                "threadId": "thread-recovery"
+            }),
+            &serde_json::json!({
+                "runId": "run-orphaned",
+                "sessionId": "session-recovery"
+            }),
+            &serde_json::json!({}),
+            "session-recovery",
+            "run-orphaned",
+        ))
+        .expect("running recovery record should deserialize");
+    running_record.thread_id = Some("thread-recovery".to_string());
+    thread_log
+        .upsert_agent_run(running_record)
+        .expect("running recovery record should persist");
+    let waiting_record: crate::worker_session::AgentRunRecord =
+        serde_json::from_value(native_agent_run_record(
+            &serde_json::json!({
+                "runId": "run-waiting",
+                "sessionId": "session-recovery"
+            }),
+            &serde_json::json!({
+                "runId": "run-waiting",
+                "sessionId": "session-recovery",
+                "stopReason": "awaiting_approval",
+                "checkpoint": {
+                    "phase": "awaiting_approval",
+                    "runId": "run-waiting"
+                }
+            }),
+            &serde_json::json!({}),
+            "session-recovery",
+            "run-waiting",
+        ))
+        .expect("waiting recovery record should deserialize");
+    thread_log
+        .upsert_agent_run(waiting_record)
+        .expect("waiting recovery record should persist");
+
+    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    crate::desktop_commands::gateway::start_gateway_with_workspace_root(
+        &shared,
+        fixture.root.clone(),
+    )
+    .expect("startup reconciliation should succeed");
+
+    let recovered = thread_log
+        .get_agent_run("session-recovery", "run-orphaned")
+        .expect("orphaned run should remain queryable")
+        .expect("orphaned run should exist");
+    assert_eq!(
+        recovered.status,
+        crate::worker_session::AgentRunStatus::Interrupted
+    );
+    assert_eq!(recovered.phase, "interrupted");
+    assert_eq!(recovered.stop_reason.as_deref(), Some("runtime_restarted"));
+    assert_eq!(
+        recovered
+            .error
+            .as_ref()
+            .and_then(|error| error["code"].as_str()),
+        Some("orphaned_run")
+    );
+    let waiting = thread_log
+        .get_agent_run("session-recovery", "run-waiting")
+        .expect("waiting run should remain queryable")
+        .expect("waiting run should exist");
+    assert_eq!(
+        waiting.status,
+        crate::worker_session::AgentRunStatus::Waiting
+    );
+    assert!(waiting.checkpoint.is_some());
+    let thread_status = thread
+        .get_thread_status(crate::worker_thread::ThreadIdParams {
+            thread_id: "thread-recovery".to_string(),
+        })
+        .expect("reconciled thread should remain queryable");
+    assert!(thread_status.active_run.is_none());
+
+    let status = current_status(&shared);
+    let recovery = status
+        .lifecycle
+        .last_startup_recovery
+        .expect("startup recovery report should be exposed");
+    assert!(recovery
+        .interrupted_runs
+        .iter()
+        .any(|run| run.run_id == "run-orphaned"));
+    assert_eq!(
+        recovery
+            .interrupted_runs
+            .iter()
+            .filter(|run| run.run_id == "run-orphaned")
+            .count(),
+        1
+    );
+    assert!(recovery
+        .resumable_runs
+        .iter()
+        .any(|run| run.run_id == "run-waiting"));
+    assert!(status.lifecycle.diagnostics.is_empty());
+
+    let restarted = Arc::new(Mutex::new(GatewayRuntime::default()));
+    crate::desktop_commands::gateway::start_gateway_with_workspace_root(
+        &restarted,
+        fixture.root.clone(),
+    )
+    .expect("repeated process startup recovery should be idempotent");
+    let repeated = current_status(&restarted)
+        .lifecycle
+        .last_startup_recovery
+        .expect("repeated startup should expose its report");
+    assert!(repeated.interrupted_runs.is_empty());
+    assert!(repeated
+        .resumable_runs
+        .iter()
+        .any(|run| run.run_id == "run-waiting"));
+}
+
+#[test]
+fn startup_recovery_failure_pauses_runtime_and_exposes_diagnostic() {
+    let fixture = WorkspaceFixture::new();
+    let invalid_workspace = fixture.root.join("workspace-is-a-file");
+    std::fs::write(&invalid_workspace, "not a directory")
+        .expect("invalid workspace fixture should write");
+    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+    let error = match crate::desktop_commands::gateway::start_gateway_with_workspace_root(
+        &shared,
+        invalid_workspace,
+    ) {
+        Ok(_) => panic!("startup recovery storage failure must fail closed"),
+        Err(error) => error,
+    };
+
+    assert!(error.contains("startup recovery failed"));
+    let status = current_status(&shared);
+    assert_eq!(status.state, "failed");
+    assert!(!status.agent_tasks.accepting);
+    assert!(!status.lifecycle.startup_reconciled);
+    assert!(status
+        .lifecycle
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.stage == "startup_recovery"));
+    assert!(status
+        .last_error
+        .as_deref()
+        .is_some_and(|message| message.contains("startup recovery failed")));
+}
+
+#[test]
+fn close_shutdown_stops_shell_and_interrupts_subagents_with_report() {
+    let fixture = WorkspaceFixture::new();
+    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let (shell_runtime, subagents) = {
+        let runtime = lock_runtime(&shared);
+        (
+            runtime.native_agent_runtime.shell_runtime(),
+            runtime.subagent_manager.clone(),
+        )
+    };
+    let shell = crate::worker_shell::WorkerShellRpc::with_runtime(
+        fixture.root.clone(),
+        crate::worker_capability::CapabilityPolicy::new([
+            crate::worker_capability::WorkerCapability::ShellExecute,
+        ]),
+        shell_runtime.clone(),
+    );
+    let process = shell
+        .start(crate::worker_shell::ShellStartParams {
+            command: lifecycle_blocking_command(),
+            working_dir: Some(".".to_string()),
+            restrict_to_workspace: Some(true),
+            tty: Some(false),
+            yield_time_ms: Some(0),
+            rows: None,
+            cols: None,
+            sandbox_mode: None,
+            network_mode: None,
+            run_id: Some("run-shell-shutdown".to_string()),
+            tool_call_id: Some("tool-shell-shutdown".to_string()),
+            cancellation: None,
+        })
+        .expect("shutdown shell fixture should start");
+    let spawned = subagents.spawn(crate::worker_subagent_manager::SubagentSpawnParams {
+        session_key: "session-shutdown".to_string(),
+        parent_run_id: Some("run-parent".to_string()),
+        subagent_id: Some("delegate-shutdown".to_string()),
+        child_run_id: Some("run-child".to_string()),
+        trace_ref: None,
+        name: Some("shutdown-child".to_string()),
+        task: Some("wait for shutdown".to_string()),
+        status: None,
+        created_at: None,
+        metadata: serde_json::json!({}),
+    });
+    assert!(spawned.accepted);
+
+    stop_owned_gateway(&shared, true).expect("unified shutdown should complete");
+
+    assert_eq!(shell_runtime.active_process_count(), 0);
+    assert_eq!(
+        subagents.list("session-shutdown").subagents[0].status,
+        crate::worker_subagent_manager::SubagentThreadStatus::Interrupted
+    );
+    let report = current_status(&shared)
+        .lifecycle
+        .last_shutdown
+        .expect("shutdown report should be exposed");
+    assert!(report.completed);
+    assert!(report
+        .shell
+        .terminated_process_ids
+        .contains(&process.process_id));
+    assert!(report
+        .subagents
+        .interrupted
+        .iter()
+        .any(|subagent| subagent.subagent_id == "delegate-shutdown"));
+    assert!(report.failures.is_empty());
+
+    crate::desktop_commands::gateway::start_gateway_with_workspace_root(
+        &shared,
+        fixture.root.clone(),
+    )
+    .expect("same-process runtime restart should resume shell starts");
+    let resumed = shell
+        .start(crate::worker_shell::ShellStartParams {
+            command: lifecycle_echo_command(),
+            working_dir: Some(".".to_string()),
+            restrict_to_workspace: Some(true),
+            tty: Some(false),
+            yield_time_ms: Some(1_000),
+            rows: None,
+            cols: None,
+            sandbox_mode: None,
+            network_mode: None,
+            run_id: Some("run-shell-resumed".to_string()),
+            tool_call_id: Some("tool-shell-resumed".to_string()),
+            cancellation: None,
+        })
+        .expect("shell manager should accept starts after gateway restart");
+    assert_eq!(resumed.exit_code, Some(0));
+}
+
+#[test]
+fn close_shutdown_exposes_cleanup_timeout_diagnostics() {
+    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let task_runtime = lock_runtime(&shared).native_agent_runtime.task_runtime();
+    let (release_sender, release_receiver) = std::sync::mpsc::channel();
+    let handle = task_runtime
+        .start_blocking(
+            crate::runtime::agent_task::StartAgentRun::new(
+                "run-cleanup-timeout",
+                "session-cleanup-timeout",
+            ),
+            move || {
+                release_receiver
+                    .recv()
+                    .expect("cleanup timeout fixture should release");
+                Ok(serde_json::json!({ "stopReason": "final_response" }))
+            },
+        )
+        .expect("cleanup timeout fixture should start");
+
+    let error = crate::desktop_commands::gateway::stop_owned_gateway_with_timeout(
+        &shared,
+        true,
+        Duration::from_millis(20),
+    )
+    .expect_err("cleanup timeout must fail explicitly");
+    assert!(error.contains("agent task cleanup timed out"));
+    let status = current_status(&shared);
+    let report = status
+        .lifecycle
+        .last_shutdown
+        .expect("failed shutdown should still expose its report");
+    assert!(!report.completed);
+    assert!(report
+        .failures
+        .iter()
+        .any(|failure| failure.stage == "agent_tasks"));
+    assert!(status
+        .lifecycle
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.stage == "agent_tasks"));
+    assert!(status
+        .last_error
+        .as_deref()
+        .is_some_and(|message| message.contains("agent task cleanup timed out")));
+
+    release_sender
+        .send(())
+        .expect("cleanup timeout fixture should release");
+    let _ = handle.wait();
+}
+
+#[cfg(target_os = "windows")]
+fn lifecycle_blocking_command() -> String {
+    "for /L %i in (0,0,1) do @rem".to_string()
+}
+
+#[cfg(not(target_os = "windows"))]
+fn lifecycle_blocking_command() -> String {
+    "while true; do :; done".to_string()
+}
+
+#[cfg(target_os = "windows")]
+fn lifecycle_echo_command() -> String {
+    "echo resumed".to_string()
+}
+
+#[cfg(not(target_os = "windows"))]
+fn lifecycle_echo_command() -> String {
+    "printf 'resumed\\n'".to_string()
+}
+
+#[test]
 fn start_gateway_defaults_to_rust_backend() {
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
 
@@ -5545,6 +5892,7 @@ fn gateway_runtime_status_serializes_worker_runtime_status() {
         route_owner_summary: crate::native_backend_contract::native_route_owner_summary(),
         webui_route_inventory: crate::native_backend_contract::native_webui_route_inventory(),
         compatibility_fallback_diagnostics: vec![],
+        lifecycle: crate::runtime::lifecycle::RuntimeLifecycleStatus::default(),
     };
 
     let value = serde_json::to_value(status).expect("status should serialize");
@@ -5552,6 +5900,7 @@ fn gateway_runtime_status_serializes_worker_runtime_status() {
     assert_eq!(value["worker_runtime"]["state"], "stopped");
     assert_eq!(value["agent_tasks"]["accepting"], true);
     assert_eq!(value["agent_tasks"]["activeRuns"], 0);
+    assert_eq!(value["lifecycle"]["startupReconciled"], false);
     assert!(value["worker_runtime"]["transport_mode"].is_null());
     assert!(value["route_owner_summary"]["rustOwned"]
         .as_u64()

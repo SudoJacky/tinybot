@@ -6,6 +6,7 @@ pub(crate) fn native_agent_run_status(stop_reason: Option<&str>) -> &'static str
     match stop_reason {
         Some("final_response") => "completed",
         Some("cancelled") => "cancelled",
+        Some("interrupted") | Some("runtime_restarted") => "interrupted",
         Some("awaiting_approval")
         | Some("awaiting_form")
         | Some("awaiting_tool")
@@ -22,6 +23,7 @@ pub(crate) fn native_agent_run_phase_from_stop_reason(
     match stop_reason {
         Some("final_response") => Some("completed"),
         Some("cancelled") => Some("cancelled"),
+        Some("interrupted") | Some("runtime_restarted") => Some("interrupted"),
         Some("awaiting_approval") => Some("awaiting_approval"),
         Some("awaiting_form") => Some("awaiting_form"),
         Some("awaiting_tool") => Some("tool_running"),
@@ -31,7 +33,8 @@ pub(crate) fn native_agent_run_phase_from_stop_reason(
 }
 
 pub(crate) fn native_agent_run_completed_at(status: &str, timestamp: &str) -> Option<String> {
-    matches!(status, "completed" | "failed" | "cancelled").then(|| timestamp.to_string())
+    matches!(status, "completed" | "failed" | "cancelled" | "interrupted")
+        .then(|| timestamp.to_string())
 }
 
 pub(crate) fn native_agent_session_id(value: &serde_json::Value) -> Option<String> {

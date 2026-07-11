@@ -240,5 +240,6 @@ fn agent_run_phase_from_thread_run(run: &ThreadRunSummary) -> &'static str {
         AgentRunStatus::Completed => "completed",
         AgentRunStatus::Failed => "failed",
         AgentRunStatus::Cancelled => "cancelled",
+        AgentRunStatus::Interrupted => "interrupted",
     }
 }

@@ -56,7 +56,13 @@ pub(super) fn checkpoint_value(
 ) -> Value {
     let activated_tool_ids = if matches!(
         phase,
-        "cancelled" | "completed" | "failed" | "final_response" | "max_iterations"
+        "cancelled"
+            | "interrupted"
+            | "runtime_restarted"
+            | "completed"
+            | "failed"
+            | "final_response"
+            | "max_iterations"
     ) {
         Vec::new()
     } else {

@@ -46,6 +46,21 @@ impl Default for WorkerShellRuntime {
     }
 }
 
+impl WorkerShellRuntime {
+    pub(crate) fn shutdown(&self) -> ShellProcessCleanupReport {
+        self.processes.shutdown()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn active_process_count(&self) -> usize {
+        self.processes.active_count()
+    }
+
+    pub(crate) fn resume_accepting(&self) -> Result<(), WorkerProtocolError> {
+        self.processes.resume_accepting()
+    }
+}
+
 impl WorkerShellRpc {
     pub fn new(workspace_root: PathBuf, policy: CapabilityPolicy) -> Self {
         Self::with_runtime(workspace_root, policy, WorkerShellRuntime::default())

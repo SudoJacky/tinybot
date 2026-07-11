@@ -294,6 +294,30 @@ impl ShellProcessManager {
         report
     }
 
+    pub(super) fn resume_accepting(&self) -> Result<(), WorkerProtocolError> {
+        let processes = self
+            .inner
+            .processes
+            .lock()
+            .expect("shell process store lock should not be poisoned");
+        let starting_processes = self.inner.starting_processes.load(Ordering::Acquire);
+        let active_processes = processes
+            .values()
+            .filter(|record| record.is_running())
+            .count();
+        if starting_processes > 0 || active_processes > 0 {
+            return Err(shell_error(
+                "shell process manager cannot resume while cleanup is incomplete",
+                serde_json::json!({
+                    "startingProcesses": starting_processes,
+                    "activeProcesses": active_processes,
+                }),
+            ));
+        }
+        self.inner.accepting_starts.store(true, Ordering::Release);
+        Ok(())
+    }
+
     pub(super) fn active_count(&self) -> usize {
         self.inner
             .processes

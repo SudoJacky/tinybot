@@ -314,7 +314,13 @@ fn mirror_checkpoint_to_agent_run(
         .to_string();
     record.status = agent_run_status_from_checkpoint(&checkpoint);
     record.updated_at = timestamp.to_string();
-    if matches!(record.status, AgentRunStatus::Completed | AgentRunStatus::Failed | AgentRunStatus::Cancelled)
+    if matches!(
+        record.status,
+        AgentRunStatus::Completed
+            | AgentRunStatus::Failed
+            | AgentRunStatus::Cancelled
+            | AgentRunStatus::Interrupted
+    )
         && record.completed_at.is_none()
     {
         record.completed_at = Some(timestamp.to_string());
@@ -532,6 +538,7 @@ fn agent_run_status_from_checkpoint(checkpoint: &Value) -> AgentRunStatus {
     {
         Some("final_response") | Some("completed") | Some("done") | Some("terminal") => AgentRunStatus::Completed,
         Some("cancelled") => AgentRunStatus::Cancelled,
+        Some("interrupted") | Some("runtime_restarted") => AgentRunStatus::Interrupted,
         Some("provider_error")
         | Some("tool_error")
         | Some("policy_denied")
@@ -659,6 +666,7 @@ fn agent_run_status_from_phase(phase: &str) -> AgentRunStatus {
         "awaiting_approval" | "awaiting_form" | "awaiting_subagent" | "queued" => {
             AgentRunStatus::Waiting
         }
+        "interrupted" => AgentRunStatus::Interrupted,
         _ => AgentRunStatus::Running,
     }
 }

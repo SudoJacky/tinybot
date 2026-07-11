@@ -1,6 +1,6 @@
 use super::{
     now_thread_timestamp, read_thread_lines, thread_id_for_session_id, value_event,
-    WorkerThreadLogRpc,
+    AgentRunRecoveryEntry, AgentRunRecoveryReport, WorkerThreadLogRpc,
 };
 use crate::agent_loop_runtime_protocol::{
     project_turn_items_from_trace_events, AgentRuntimeEventEnvelope,
@@ -88,6 +88,63 @@ impl WorkerThreadLogRpc {
     ) -> Result<Vec<AgentRunRecord>, WorkerProtocolError> {
         self.require(WorkerCapability::SessionMetadataRead)?;
         self.agent_run_records_for_session(session_id)
+    }
+
+    pub fn reconcile_orphaned_agent_runs(
+        &self,
+    ) -> Result<AgentRunRecoveryReport, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionMetadataRead)?;
+        self.require(WorkerCapability::SessionWrite)?;
+        self.ensure_state_index()?;
+        let mut session_ids = self
+            .state
+            .list_all_threads()?
+            .into_iter()
+            .map(|record| record.session_id.unwrap_or(record.id))
+            .collect::<Vec<_>>();
+        session_ids.sort();
+        session_ids.dedup();
+        let mut report = AgentRunRecoveryReport {
+            scanned_sessions: session_ids.len(),
+            ..Default::default()
+        };
+        for session_id in session_ids {
+            for run in self.agent_run_records_for_session(&session_id)? {
+                report.scanned_runs = report.scanned_runs.saturating_add(1);
+                let entry = AgentRunRecoveryEntry {
+                    session_id: run.session_id.clone(),
+                    run_id: run.run_id.clone(),
+                    thread_id: run.thread_id.clone(),
+                };
+                match run.status {
+                    AgentRunStatus::Running => {
+                        self.mark_agent_run_interrupted(
+                            &run.session_id,
+                            &run.run_id,
+                            "Runtime restarted before the run reached a terminal state.",
+                        )?;
+                        report.interrupted_runs.push(entry);
+                    }
+                    AgentRunStatus::Waiting if run.checkpoint.is_some() => {
+                        report.resumable_runs.push(entry);
+                    }
+                    AgentRunStatus::Waiting => {
+                        report.awaiting_interaction_runs.push(entry);
+                    }
+                    AgentRunStatus::Completed
+                    | AgentRunStatus::Failed
+                    | AgentRunStatus::Cancelled
+                    | AgentRunStatus::Interrupted => {}
+                }
+            }
+        }
+        report.interrupted_runs.sort();
+        report.interrupted_runs.dedup();
+        report.awaiting_interaction_runs.sort();
+        report.awaiting_interaction_runs.dedup();
+        report.resumable_runs.sort();
+        report.resumable_runs.dedup();
+        Ok(report)
     }
 
     pub fn get_agent_run(
@@ -322,6 +379,50 @@ impl WorkerThreadLogRpc {
         )
     }
 
+    pub fn mark_agent_run_interrupted(
+        &self,
+        session_id: &str,
+        run_id: &str,
+        reason: &str,
+    ) -> Result<AgentRunRecord, WorkerProtocolError> {
+        let record = self
+            .get_agent_run_record(session_id, run_id)?
+            .ok_or_else(|| unknown_agent_run_error(session_id, run_id))?;
+        if record.status != AgentRunStatus::Running {
+            return Ok(record);
+        }
+        self.append_agent_run_trace_event(
+            session_id,
+            run_id,
+            serde_json::json!({
+                "eventId": format!("startup-recovery:{session_id}:{run_id}"),
+                "eventName": "agent.cancelled",
+                "timestamp": now_thread_timestamp(),
+                "payload": {
+                    "runId": run_id,
+                    "sessionId": session_id,
+                    "cancelled": true,
+                    "stopReason": "runtime_restarted",
+                    "reason": reason,
+                    "source": "startup_recovery"
+                }
+            }),
+        )?;
+        self.mark_agent_run_terminal(
+            session_id,
+            run_id,
+            AgentRunStatus::Interrupted,
+            "interrupted",
+            Some("runtime_restarted".to_string()),
+            None,
+            Some(serde_json::json!({
+                "code": "orphaned_run",
+                "message": reason,
+                "source": "startup_recovery"
+            })),
+        )
+    }
+
     fn get_agent_run_record(
         &self,
         session_id: &str,
@@ -527,6 +628,7 @@ fn agent_run_records_from_lines(
                         Some("completed") => AgentRunStatus::Completed,
                         Some("failed") => AgentRunStatus::Failed,
                         Some("cancelled") => AgentRunStatus::Cancelled,
+                        Some("interrupted") => AgentRunStatus::Interrupted,
                         _ => record.status.clone(),
                     };
                     let phase = payload
@@ -761,6 +863,7 @@ fn agent_run_status_from_checkpoint(checkpoint: &Value) -> AgentRunStatus {
             AgentRunStatus::Completed
         }
         Some("cancelled") => AgentRunStatus::Cancelled,
+        Some("interrupted") | Some("runtime_restarted") => AgentRunStatus::Interrupted,
         Some("provider_error")
         | Some("tool_error")
         | Some("policy_denied")
@@ -800,6 +903,7 @@ fn agent_run_status_from_phase(phase: &str) -> AgentRunStatus {
         "awaiting_approval" | "awaiting_form" | "awaiting_subagent" | "queued" => {
             AgentRunStatus::Waiting
         }
+        "interrupted" => AgentRunStatus::Interrupted,
         _ => AgentRunStatus::Running,
     }
 }

@@ -702,6 +702,14 @@ impl AgentTaskRuntime {
             .expect("agent task runtime state lock should not be poisoned")
             .accepting = true;
     }
+
+    pub(crate) fn pause_accepting(&self) {
+        self.inner
+            .state
+            .lock()
+            .expect("agent task runtime state lock should not be poisoned")
+            .accepting = false;
+    }
 }
 
 pub(crate) struct AgentRunHandle {
