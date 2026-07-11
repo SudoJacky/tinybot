@@ -441,8 +441,8 @@ converted into successful tool or provider results.
 Every `runtimeEvents` entry may include the same `traceContext` object. Provider boundary events add
 `providerAttemptId`; tool events retain `itemId`/`toolCallId`. Internal tool, thread, trace, and
 persistence Worker RPC requests reuse the root `traceId` and derive operation-specific request IDs.
-Checkpoints and `AgentRunRecord` persist the correlation context so approval/form continuations and
-post-restart diagnostics do not create an unrelated trace.
+Thread checkpoints/items or direct-session `AgentRunRecord` values persist the correlation context
+so approval/form continuations and post-restart diagnostics do not create an unrelated trace.
 
 `runtime.metrics` returns a process-local, secret-safe operational snapshot:
 
@@ -827,18 +827,26 @@ Compatibility `session.*` and `agent_run.*` routes keep their response shapes fo
 new writes do not mirror completed history, checkpoints, metadata patches, or agent-run lifecycle
 events into the legacy `.tinybot/threads/threads.sqlite` projection. Those routes write their own
 canonical store (`thread_log` for durable history and usage, legacy `sessions.sqlite` only for
-legacy active session state) and read legacy thread projections only as a fallback for existing data.
+legacy active session state). When a session key belongs to a canonical thread, compatibility
+metadata, history, and checkpoint reads prefer the `ThreadStore` projection; old session JSONL data
+cannot override the thread timeline.
+Compatibility `session.persist_turn`, session checkpoint mutation, and `agent_run.*` lifecycle
+writes return a structured authority error for a thread-owned session instead of creating a second
+durable record.
 Native agent lifecycle persistence is fail-fast: a terminal-run lookup or run-start write failure
 returns a command error before the provider is called, and a run-record write failure returns a
 command error instead of embedding a failed `runPersistence` diagnostic in an otherwise successful
 result.
 Thread-owned commands such as `worker_submit_thread_turn`, `worker_resolve_thread_approval`, and
 `worker_submit_thread_form` update the thread timeline explicitly through `thread.start_turn` and
-`thread.apply_op`. Their native-agent result contains
-`conversationPersistence.authority: "thread"`; the compatibility `session.persist_turn` write is
-skipped, so the session event log keeps run snapshots, trace events, and checkpoints without a
-second copy of user/assistant history. Direct non-thread agent commands continue to persist their
-completed conversation through `session.persist_turn`.
+`thread.apply_op`. Their runtime events, run state, resumable checkpoint, approvals/forms, and final
+assistant or error item all append to `.tinybot/state/thread-store.jsonl`. They do not create a
+per-session JSONL file. Their native-agent result contains
+`conversationPersistence.authority: "thread"` and `runPersistence.authority: "thread"`.
+Approval/form continuation restores `latestCheckpoint.restorePayload` from `ThreadStore`, including
+after a new runtime instance starts; a later terminal item makes that checkpoint inactive. Direct
+non-thread agent commands continue to persist run lifecycle and completed conversation through the
+session JSONL authority and `session.persist_turn`.
 
 `clientEventId` is the retry/idempotency key for thread appends, starts, continuations, approvals,
 forms, and forks. A successful retry replays the original item IDs instead of appending another

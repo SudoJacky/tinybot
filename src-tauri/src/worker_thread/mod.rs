@@ -148,6 +148,14 @@ impl WorkerThreadRpc {
         session_adapter::get_session_history_from_threads(&self.store, session_id, limit)
     }
 
+    pub fn get_session_checkpoint_from_threads(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<Value>, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionMetadataRead)?;
+        session_adapter::get_session_checkpoint_from_threads(&self.store, session_id)
+    }
+
     pub fn search_threads(
         &self,
         request: SearchThreadsRequest,

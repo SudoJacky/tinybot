@@ -23,6 +23,53 @@ pub(crate) fn reject_native_agent_terminal_run_reentry(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> Result<Option<serde_json::Value>, String> {
+    if let Some(thread_id) = native_agent_thread_id(spec) {
+        let Some(run_id) = native_agent_run_id(spec) else {
+            return Ok(None);
+        };
+        let trace_context = agent_trace_context_from_value(spec);
+        let snapshot = call_traced_state_service(
+            workspace_root,
+            config_snapshot,
+            &trace_context,
+            "terminal-thread-check",
+            WorkerRequest::new(
+                format!("{}:terminal-thread-check", trace_context.request_id),
+                trace_context.trace_id.clone(),
+                "thread.read",
+                serde_json::json!({ "threadId": thread_id }),
+            ),
+            "native agent terminal thread run check",
+            "read",
+        )?;
+        let terminal = snapshot
+            .get("runs")
+            .and_then(serde_json::Value::as_array)
+            .and_then(|runs| {
+                runs.iter().find(|run| {
+                    run.get("runId").and_then(serde_json::Value::as_str) == Some(run_id.as_str())
+                        && run.get("active").and_then(serde_json::Value::as_bool) == Some(false)
+                        && run.get("completedAt").is_some_and(|value| !value.is_null())
+                })
+            });
+        return Ok(terminal.map(|run| {
+            let projected_status = run
+                .get("status")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("completed");
+            let status = if projected_status == "failed" {
+                "failed"
+            } else {
+                "completed"
+            };
+            terminal_run_rejection(
+                &run_id,
+                &native_agent_session_id(spec).unwrap_or(thread_id),
+                status,
+                status,
+            )
+        }));
+    }
     let Some(session_id) = native_agent_session_id(spec) else {
         return Ok(None);
     };
@@ -66,8 +113,22 @@ pub(crate) fn reject_native_agent_terminal_run_reentry(
         .get("phase")
         .and_then(serde_json::Value::as_str)
         .unwrap_or(status);
+    Ok(Some(terminal_run_rejection(
+        &run_id,
+        &session_id,
+        status,
+        phase,
+    )))
+}
+
+fn terminal_run_rejection(
+    run_id: &str,
+    session_id: &str,
+    status: &str,
+    phase: &str,
+) -> serde_json::Value {
     let message = format!("agent run `{run_id}` is terminal ({status}) and cannot continue");
-    Ok(Some(serde_json::json!({
+    serde_json::json!({
         "runtime": "rust",
         "runId": run_id,
         "sessionId": session_id,
@@ -91,7 +152,7 @@ pub(crate) fn reject_native_agent_terminal_run_reentry(
                 "error": message,
             }
         }],
-    })))
+    })
 }
 
 pub(crate) fn persist_native_agent_run_start(
@@ -99,6 +160,9 @@ pub(crate) fn persist_native_agent_run_start(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> Result<(), String> {
+    if native_agent_thread_id(&spec).is_some() {
+        return Ok(());
+    }
     let session_id =
         native_agent_session_id(&spec).unwrap_or_else(|| "native-rust-session".to_string());
     let run_id = native_agent_run_id(&spec).unwrap_or_else(|| "native-rust-run".to_string());
@@ -133,6 +197,14 @@ pub(crate) fn persist_native_agent_run_record(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> Result<(), String> {
+    if let Some(thread_id) = native_agent_thread_id(&spec) {
+        result["runPersistence"] = serde_json::json!({
+            "authority": "thread",
+            "threadId": thread_id,
+            "compatibilitySessionWriteSkipped": true,
+        });
+        return Ok(());
+    }
     let session_id = native_agent_session_id(result)
         .or_else(|| native_agent_session_id(&spec))
         .ok_or_else(|| "Rust agent run missing session id for persistence".to_string())?;
@@ -246,6 +318,16 @@ pub(crate) fn persist_native_agent_checkpoint_if_present(
     let Some(checkpoint) = result.get("checkpoint").filter(|value| !value.is_null()) else {
         return Ok(());
     };
+    if native_agent_thread_id(result).is_some()
+        || native_agent_thread_id(checkpoint).is_some()
+        || checkpoint
+            .get("threadId")
+            .or_else(|| checkpoint.get("thread_id"))
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty())
+    {
+        return Ok(());
+    }
     let session_id = result
         .get("sessionId")
         .or_else(|| result.get("session_id"))

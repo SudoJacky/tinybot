@@ -1,6 +1,6 @@
 use crate::native_agent_bridge::{
     hydrate_native_agent_history_for_runtime, native_agent_services_with_tool_executor,
-    native_agent_trace_sink, persist_native_agent_checkpoint_if_present,
+    native_agent_thread_id, native_agent_trace_sink, persist_native_agent_checkpoint_if_present,
     persist_native_agent_run_record, persist_native_agent_run_start,
     persist_native_agent_turn_if_final, reject_native_agent_terminal_run_reentry,
 };
@@ -20,6 +20,7 @@ pub(crate) async fn run_agent_with_services(
 ) -> Result<serde_json::Value, String> {
     let trace_context = ensure_agent_trace_context(&mut spec)?;
     let mut persistence_spec = spec.clone();
+    let thread_owned = native_agent_thread_id(&persistence_spec).is_some();
     if let Some(mut rejection) = reject_native_agent_terminal_run_reentry(
         &persistence_spec,
         workspace_root.clone(),
@@ -45,12 +46,20 @@ pub(crate) async fn run_agent_with_services(
         base_services,
         workspace_root.clone(),
         config_snapshot.clone(),
-    )
-    .with_trace_sink(native_agent_trace_sink(
-        workspace_root.clone(),
-        config_snapshot.clone(),
-        live_trace_sink,
-    ));
+    );
+    let services = if thread_owned {
+        if let Some(live_trace_sink) = live_trace_sink {
+            services.with_trace_sink(live_trace_sink)
+        } else {
+            services
+        }
+    } else {
+        services.with_trace_sink(native_agent_trace_sink(
+            workspace_root.clone(),
+            config_snapshot.clone(),
+            live_trace_sink,
+        ))
+    };
     let mut result = run_native_agent_turn_with_workspace_and_instructions_async(
         &services,
         runtime_spec,

@@ -218,12 +218,21 @@ pub(crate) async fn resolve_thread_approval_with_services(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let thread = read_thread_target(
+    let target_snapshot = read_thread_snapshot(
         &input.thread_id,
         workspace_root.clone(),
         config_snapshot.clone(),
         "thread approval target read",
     )?;
+    let thread = target_snapshot
+        .get("thread")
+        .cloned()
+        .ok_or_else(|| "thread approval target read returned no thread".to_string())?;
+    let thread_checkpoint = target_snapshot
+        .get("latestCheckpoint")
+        .and_then(|checkpoint| checkpoint.get("restorePayload"))
+        .cloned()
+        .ok_or_else(|| "thread approval target has no canonical checkpoint".to_string())?;
     let thread_id = thread_thread_id(&thread)?;
     let session_id = thread_session_key(&thread).unwrap_or_else(|| thread_id.clone());
     let approval_id = input.approval_id.clone();
@@ -235,6 +244,7 @@ pub(crate) async fn resolve_thread_approval_with_services(
         "thread_id": thread_id.clone(),
         "scope": input.scope,
         "guidance": input.guidance,
+        "threadCheckpoint": thread_checkpoint,
     });
     let mut result = resolve_approval_body_with_services(
         base_services,
@@ -298,12 +308,21 @@ pub(crate) async fn submit_thread_form_with_services(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let thread = read_thread_target(
+    let target_snapshot = read_thread_snapshot(
         &input.thread_id,
         workspace_root.clone(),
         config_snapshot.clone(),
         "thread form target read",
     )?;
+    let thread = target_snapshot
+        .get("thread")
+        .cloned()
+        .ok_or_else(|| "thread form target read returned no thread".to_string())?;
+    let thread_checkpoint = target_snapshot
+        .get("latestCheckpoint")
+        .and_then(|checkpoint| checkpoint.get("restorePayload"))
+        .cloned()
+        .ok_or_else(|| "thread form target has no canonical checkpoint".to_string())?;
     let thread_id = thread_thread_id(&thread)?;
     let session_id = thread_session_key(&thread).unwrap_or_else(|| thread_id.clone());
     let cancelled = thread_form_action_is_cancel(input.action.as_deref());
@@ -312,6 +331,7 @@ pub(crate) async fn submit_thread_form_with_services(
         "thread_id": thread_id.clone(),
         "values": input.values,
         "action": input.action,
+        "threadCheckpoint": thread_checkpoint,
     });
     let (status_code, mut result) = resolve_agent_ui_form_body_with_services(
         base_services,
@@ -384,19 +404,6 @@ fn ensure_thread_turn_target(
             )
         }
     }
-}
-
-pub(crate) fn read_thread_target(
-    thread_id: &str,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    label: &str,
-) -> Result<serde_json::Value, String> {
-    let snapshot = read_thread_snapshot(thread_id, workspace_root, config_snapshot, label)?;
-    snapshot
-        .get("thread")
-        .cloned()
-        .ok_or_else(|| "thread target read returned no thread".to_string())
 }
 
 pub(crate) fn read_thread_snapshot(
@@ -569,9 +576,73 @@ pub(crate) fn apply_native_agent_thread_result(
         .or_else(|| result.get("stop_reason"))
         .and_then(serde_json::Value::as_str)
         .unwrap_or_default();
-    let op = match stop_reason {
-        "awaiting_approval" => native_agent_thread_approval_request_op(&run_id, result)?,
-        "final_response" => serde_json::json!({
+    let trace_context = agent_trace_context_from_value(result);
+    let result_identity = native_agent_thread_result_identity(result, stop_reason);
+    let mut applied = Vec::new();
+
+    if let Some(runtime_events) = result
+        .get("runtimeEvents")
+        .and_then(serde_json::Value::as_array)
+    {
+        for (index, event) in runtime_events.iter().enumerate() {
+            let Some(event_name) = native_agent_string_field(event, "eventName") else {
+                return Err(format!(
+                    "native agent runtime event at index {index} missing eventName"
+                ));
+            };
+            let event_identity = native_agent_string_field(event, "eventId")
+                .unwrap_or_else(|| format!("{event_name}:{index}"));
+            let operation = apply_native_agent_thread_op(
+                thread_id,
+                Some(format!(
+                    "native-agent-thread-event:{run_id}:{result_identity}:{event_identity}"
+                )),
+                serde_json::json!({
+                    "type": "runtime_event",
+                    "runId": run_id,
+                    "turnId": run_id,
+                    "eventName": event_name,
+                    "source": event.get("source").cloned().unwrap_or(serde_json::Value::Null),
+                    "visibility": event.get("visibility").cloned().unwrap_or(serde_json::Value::Null),
+                    "payload": event.get("payload").cloned().unwrap_or(serde_json::Value::Null),
+                }),
+                workspace_root.clone(),
+                config_snapshot.clone(),
+                "native agent thread runtime event append",
+                Some(&trace_context),
+            )?;
+            applied.push(native_agent_thread_persistence_receipt(operation));
+        }
+    }
+
+    if let Some(checkpoint) = result.get("checkpoint").filter(|value| !value.is_null()) {
+        let checkpoint_id = native_agent_string_field(checkpoint, "resumeToken")
+            .or_else(|| native_agent_string_field(checkpoint, "checkpointId"))
+            .unwrap_or_else(|| format!("{run_id}:{stop_reason}"));
+        let operation = apply_native_agent_thread_op(
+            thread_id,
+            Some(format!(
+                "native-agent-thread-checkpoint:{run_id}:{checkpoint_id}"
+            )),
+            serde_json::json!({
+                "type": "checkpoint",
+                "runId": run_id,
+                "turnId": run_id,
+                "checkpointId": checkpoint_id,
+                "label": stop_reason,
+                "restorePayload": checkpoint,
+            }),
+            workspace_root.clone(),
+            config_snapshot.clone(),
+            "native agent thread checkpoint append",
+            Some(&trace_context),
+        )?;
+        applied.push(native_agent_thread_persistence_receipt(operation));
+    }
+
+    let terminal_op = match stop_reason {
+        "awaiting_approval" => Some(native_agent_thread_approval_request_op(&run_id, result)?),
+        "final_response" => Some(serde_json::json!({
             "type": "assistant_response",
             "runId": run_id,
             "turnId": run_id,
@@ -579,11 +650,18 @@ pub(crate) fn apply_native_agent_thread_result(
             "message": native_agent_final_assistant_message(result),
             "stopReason": stop_reason,
             "usage": native_agent_usage(result).into_iter().last(),
-        }),
-        "awaiting_form" | "awaiting_tool" | "tool_running" | "awaiting_subagent" => {
-            return Ok(None);
-        }
-        _ => serde_json::json!({
+        })),
+        "cancelled" => Some(serde_json::json!({
+            "type": "interrupt",
+            "runId": run_id,
+            "reason": result
+                .get("error")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("native agent run cancelled"),
+        })),
+        "terminal_turn" => None,
+        "awaiting_form" | "awaiting_tool" | "tool_running" | "awaiting_subagent" => None,
+        _ => Some(serde_json::json!({
             "type": "error",
             "runId": run_id,
             "turnId": run_id,
@@ -592,18 +670,65 @@ pub(crate) fn apply_native_agent_thread_result(
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("native agent run failed"),
             "details": result,
-        }),
+        })),
     };
-    let applied = apply_native_agent_thread_op(
-        thread_id,
-        Some(format!("native-agent-thread-final:{run_id}:{stop_reason}")),
-        op,
-        workspace_root,
-        config_snapshot,
-        "native agent thread result append",
-        Some(&agent_trace_context_from_value(result)),
-    )?;
-    Ok(Some(applied))
+    if let Some(op) = terminal_op {
+        let operation = apply_native_agent_thread_op(
+            thread_id,
+            Some(format!(
+                "native-agent-thread-final:{run_id}:{result_identity}"
+            )),
+            op,
+            workspace_root,
+            config_snapshot,
+            "native agent thread result append",
+            Some(&trace_context),
+        )?;
+        applied.push(native_agent_thread_persistence_receipt(operation));
+    }
+    Ok((!applied.is_empty()).then(|| {
+        serde_json::json!({
+            "authority": "thread",
+            "threadId": thread_id,
+            "operationCount": applied.len(),
+            "operations": applied,
+        })
+    }))
+}
+
+fn native_agent_thread_persistence_receipt(operation: serde_json::Value) -> serde_json::Value {
+    let appended_item_ids = operation
+        .get("appendedItems")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| native_agent_string_field(item, "itemId"))
+        .collect::<Vec<_>>();
+    serde_json::json!({ "appendedItemIds": appended_item_ids })
+}
+
+fn native_agent_thread_result_identity(result: &serde_json::Value, stop_reason: &str) -> String {
+    if let Some(approval_id) = native_agent_string_field(result, "approvalId") {
+        let decision = native_agent_string_field(result, "status")
+            .or_else(|| native_agent_string_field(result, "decision"))
+            .unwrap_or_else(|| "resolved".to_string());
+        return format!("approval:{approval_id}:{decision}");
+    }
+    if let Some(form_id) = native_agent_string_field(result, "form_id")
+        .or_else(|| native_agent_string_field(result, "formId"))
+    {
+        let action = if result
+            .get("cancelled")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+        {
+            "cancel"
+        } else {
+            "submit"
+        };
+        return format!("form:{form_id}:{action}");
+    }
+    stop_reason.to_string()
 }
 
 pub(crate) fn apply_native_agent_thread_op(

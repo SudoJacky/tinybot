@@ -221,13 +221,17 @@ pub(crate) async fn resolve_approval_body_with_services(
         .or_else(|| body.get("session_id"))
         .and_then(serde_json::Value::as_str)
         .unwrap_or_default();
-    let Some(checkpoint) = native_session_checkpoint(
-        session_key,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-        "native approval resolution checkpoint lookup",
-    )?
-    else {
+    let canonical_thread_checkpoint = body.get("threadCheckpoint").cloned();
+    let checkpoint = match canonical_thread_checkpoint {
+        Some(checkpoint) => Some(checkpoint),
+        None => native_session_checkpoint(
+            session_key,
+            workspace_root.clone(),
+            config_snapshot.clone(),
+            "native approval resolution checkpoint lookup",
+        )?,
+    };
+    let Some(checkpoint) = checkpoint else {
         return Ok(native_webui_approval_not_found_body(
             approval_id,
             body,
@@ -306,12 +310,14 @@ pub(crate) async fn resolve_approval_continuation_with_services(
         workspace_root.clone(),
         config_snapshot.clone(),
     )?;
-    clear_native_session_checkpoint(
-        session_key,
-        workspace_root,
-        config_snapshot,
-        "native approval resolution checkpoint clear",
-    )?;
+    if body.get("threadCheckpoint").is_none() {
+        clear_native_session_checkpoint(
+            session_key,
+            workspace_root,
+            config_snapshot,
+            "native approval resolution checkpoint clear",
+        )?;
+    }
     continuation["ok"] = serde_json::Value::Bool(true);
     continuation["status"] =
         serde_json::Value::String(if approved { "approved" } else { "denied" }.to_string());
@@ -378,13 +384,17 @@ pub(crate) async fn resolve_agent_ui_form_body_with_services(
         .filter(|value| value.is_object())
         .cloned()
         .unwrap_or_else(|| serde_json::json!({}));
-    let Some(checkpoint) = native_session_checkpoint(
-        &session_key,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-        "native Agent UI form checkpoint lookup",
-    )?
-    else {
+    let canonical_thread_checkpoint = body.get("threadCheckpoint").cloned();
+    let checkpoint = match canonical_thread_checkpoint {
+        Some(checkpoint) => Some(checkpoint),
+        None => native_session_checkpoint(
+            &session_key,
+            workspace_root.clone(),
+            config_snapshot.clone(),
+            "native Agent UI form checkpoint lookup",
+        )?,
+    };
+    let Some(checkpoint) = checkpoint else {
         return Ok((404, native_webui_agent_ui_form_not_found_body(form_id)));
     };
     if checkpoint.get("phase").and_then(serde_json::Value::as_str) != Some("awaiting_form")
@@ -601,12 +611,14 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
         workspace_root.clone(),
         config_snapshot.clone(),
     )?;
-    clear_native_session_checkpoint(
-        session_key,
-        workspace_root,
-        config_snapshot,
-        "native Agent UI form checkpoint clear",
-    )?;
+    if body.get("threadCheckpoint").is_none() {
+        clear_native_session_checkpoint(
+            session_key,
+            workspace_root,
+            config_snapshot,
+            "native Agent UI form checkpoint clear",
+        )?;
+    }
     continuation["form_id"] = serde_json::Value::String(form_id.clone());
     continuation["source"] = serde_json::Value::String("rust".to_string());
     continuation["continuation"] = serde_json::json!({

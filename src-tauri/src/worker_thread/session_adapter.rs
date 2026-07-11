@@ -109,6 +109,22 @@ pub fn get_session_history_from_threads(
     }))
 }
 
+pub fn get_session_checkpoint_from_threads(
+    store: &LocalThreadStore,
+    session_id: &str,
+) -> Result<Option<Value>, WorkerProtocolError> {
+    let Some(thread) = find_thread_for_session(store, session_id)? else {
+        return Ok(None);
+    };
+    Ok(Some(
+        store
+            .get_thread_status(&thread.thread_id)?
+            .latest_checkpoint
+            .map(|checkpoint| checkpoint.restore_payload)
+            .unwrap_or(Value::Null),
+    ))
+}
+
 pub fn get_thread_status_with_legacy_sessions(
     store: &LocalThreadStore,
     params: ThreadIdParams,

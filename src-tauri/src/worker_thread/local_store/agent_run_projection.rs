@@ -156,6 +156,16 @@ fn update_run_summary_from_item(run: &mut ThreadRunSummary, item: &ThreadItem) {
                     string_field(payload, "completedAt").or_else(|| Some(item.created_at.clone()));
             }
         }
+        ThreadItemKind::CheckpointCreated(payload) => {
+            if run.completed_at.is_none() {
+                match string_field(payload, "label").as_deref() {
+                    Some("awaiting_form") => run.status = ThreadStatus::WaitingForInput,
+                    Some("awaiting_approval") => run.status = ThreadStatus::WaitingForApproval,
+                    _ => {}
+                }
+                run.active = true;
+            }
+        }
         ThreadItemKind::ApprovalRequested(_) => {
             if run.completed_at.is_none() {
                 run.status = ThreadStatus::WaitingForApproval;

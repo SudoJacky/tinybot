@@ -18,6 +18,27 @@ fn test_request_correlation(suffix: &str) -> WorkerRequestCorrelation {
     WorkerRequestCorrelation::from_suffix(suffix)
 }
 
+fn compatibility_thread_log_paths(workspace_root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    fn collect(directory: &std::path::Path, paths: &mut Vec<std::path::PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(directory) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect(&path, paths);
+            } else if path.extension().and_then(|extension| extension.to_str()) == Some("jsonl") {
+                paths.push(path);
+            }
+        }
+    }
+
+    let mut paths = Vec::new();
+    collect(&workspace_root.join(".tinybot").join("threads"), &mut paths);
+    paths.sort();
+    paths
+}
+
 #[test]
 fn close_shutdown_stops_background_worker_child() {
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
@@ -2317,17 +2338,241 @@ fn worker_submit_thread_turn_creates_thread_and_runs_native_agent() {
         "thread submit session metadata",
     )
     .expect("agent run session metadata should be readable");
-    let session_log_path = std::path::PathBuf::from(
-        metadata["extra"]["threadPath"]
-            .as_str()
-            .expect("session log path"),
+    assert_eq!(metadata["extra"]["threadMetadataProjection"], true);
+    assert!(metadata["extra"].get("threadPath").is_none());
+    let compatibility_logs = compatibility_thread_log_paths(&fixture.root);
+    assert!(compatibility_logs.is_empty(), "{compatibility_logs:?}");
+}
+
+#[test]
+fn thread_owned_terminal_reentry_uses_thread_authority_without_session_log() {
+    let fixture = WorkspaceFixture::new();
+    let config = serde_json::json!({
+        "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+        "providers": { "fixture": { "responses": [{ "content": "terminal answer" }] } }
+    });
+    let first_shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let first = worker_submit_thread_turn_with_options(
+        &first_shared,
+        WorkerSubmitThreadTurnInput {
+            thread_id: None,
+            input: serde_json::json!({ "content": "complete once" }),
+            spec: serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-thread-terminal-reentry"
+            }),
+        },
+        fixture.root.clone(),
+        config.clone(),
+        Duration::from_millis(10),
+    )
+    .expect("initial thread turn should complete");
+    let thread_id = first["threadId"].as_str().unwrap().to_string();
+
+    let restarted_shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let retry = worker_submit_thread_turn_with_options(
+        &restarted_shared,
+        WorkerSubmitThreadTurnInput {
+            thread_id: Some(thread_id.clone()),
+            input: serde_json::json!({ "content": "complete once" }),
+            spec: serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-thread-terminal-reentry"
+            }),
+        },
+        fixture.root.clone(),
+        config,
+        Duration::from_millis(10),
+    )
+    .expect("terminal retry should return a stable rejection");
+
+    assert_eq!(retry["threadId"], thread_id);
+    assert_eq!(retry["agentResult"]["stopReason"], "terminal_turn");
+    assert_eq!(retry["snapshot"]["thread"]["status"], "idle");
+    let compatibility_logs = compatibility_thread_log_paths(&fixture.root);
+    assert!(compatibility_logs.is_empty(), "{compatibility_logs:?}");
+}
+
+#[test]
+fn canonical_thread_reads_override_stale_session_log_and_reject_parallel_writes() {
+    let fixture = WorkspaceFixture::new();
+    let config = serde_json::json!({});
+    let session_id = "canonical-thread-session";
+    let stale_record = native_agent_run_record(
+        &serde_json::json!({
+            "runtime": "rust",
+            "runId": "stale-session-run",
+            "sessionId": session_id,
+        }),
+        &serde_json::json!({
+            "runId": "stale-session-run",
+            "sessionId": session_id,
+            "stopReason": "awaiting_form",
+        }),
+        &config,
+        session_id,
+        "stale-session-run",
     );
-    let session_log = crate::worker_thread_log::read_thread_lines(&session_log_path)
-        .expect("agent run event log should be readable");
-    assert!(session_log.iter().all(|line| !matches!(
-        &line.item,
-        crate::worker_thread_log::ThreadLogItem::ResponseItem(_)
-    )));
+    call_rust_state_service(
+        fixture.root.clone(),
+        config.clone(),
+        WorkerRequest::new(
+            "seed-stale-session-run",
+            "trace-stale-session-run",
+            "agent_run.upsert",
+            serde_json::json!({ "record": stale_record }),
+        ),
+        "seed stale session run",
+    )
+    .expect("stale compatibility run should seed before thread ownership exists");
+    call_rust_state_service(
+        fixture.root.clone(),
+        config.clone(),
+        WorkerRequest::new(
+            "seed-stale-session-checkpoint",
+            "trace-stale-session-checkpoint",
+            "session.set_checkpoint",
+            serde_json::json!({
+                "session_id": session_id,
+                "checkpoint": {
+                    "schemaVersion": 1,
+                    "runId": "stale-session-run",
+                    "sessionId": session_id,
+                    "phase": "awaiting_form"
+                }
+            }),
+        ),
+        "seed stale session checkpoint",
+    )
+    .expect("stale compatibility checkpoint should seed before thread ownership exists");
+
+    call_rust_state_service(
+        fixture.root.clone(),
+        config.clone(),
+        WorkerRequest::new(
+            "create-canonical-thread",
+            "trace-canonical-thread",
+            "thread.create",
+            serde_json::json!({
+                "threadId": "canonical-thread",
+                "sessionKey": session_id,
+            }),
+        ),
+        "create canonical thread",
+    )
+    .expect("canonical thread should create");
+    call_rust_state_service(
+        fixture.root.clone(),
+        config.clone(),
+        WorkerRequest::new(
+            "start-canonical-thread-run",
+            "trace-canonical-thread",
+            "thread.start_turn",
+            serde_json::json!({
+                "threadId": "canonical-thread",
+                "runId": "canonical-thread-run",
+                "turnId": "canonical-thread-run",
+                "input": { "role": "user", "content": "canonical input" },
+            }),
+        ),
+        "start canonical thread run",
+    )
+    .expect("canonical thread run should start");
+    call_rust_state_service(
+        fixture.root.clone(),
+        config.clone(),
+        WorkerRequest::new(
+            "complete-canonical-thread-run",
+            "trace-canonical-thread",
+            "thread.apply_op",
+            serde_json::json!({
+                "threadId": "canonical-thread",
+                "op": {
+                    "type": "assistant_response",
+                    "runId": "canonical-thread-run",
+                    "turnId": "canonical-thread-run",
+                    "content": "canonical answer",
+                    "stopReason": "final_response"
+                }
+            }),
+        ),
+        "complete canonical thread run",
+    )
+    .expect("canonical thread run should complete");
+
+    let runs = call_rust_state_service(
+        fixture.root.clone(),
+        config.clone(),
+        WorkerRequest::new(
+            "list-canonical-thread-runs",
+            "trace-canonical-thread",
+            "agent_run.list",
+            serde_json::json!({ "session_id": session_id }),
+        ),
+        "list canonical thread runs",
+    )
+    .expect("compatibility run list should project canonical thread");
+    assert_eq!(runs["runs"].as_array().map(Vec::len), Some(1));
+    assert_eq!(runs["runs"][0]["runId"], "canonical-thread-run");
+    let checkpoint = call_rust_state_service(
+        fixture.root.clone(),
+        config.clone(),
+        WorkerRequest::new(
+            "get-canonical-thread-checkpoint",
+            "trace-canonical-thread",
+            "session.get_checkpoint",
+            serde_json::json!({ "session_id": session_id }),
+        ),
+        "get canonical thread checkpoint",
+    )
+    .expect("compatibility checkpoint read should use canonical thread");
+    assert!(checkpoint.is_null());
+
+    let duplicate_turn = call_rust_state_service(
+        fixture.root.clone(),
+        config.clone(),
+        WorkerRequest::new(
+            "reject-duplicate-session-turn",
+            "trace-canonical-thread",
+            "session.persist_turn",
+            serde_json::json!({
+                "session_id": session_id,
+                "run_id": "duplicate-run",
+                "messages": [{ "role": "assistant", "content": "duplicate" }]
+            }),
+        ),
+        "reject duplicate session turn",
+    )
+    .expect_err("thread-owned session.persist_turn must fail");
+    assert!(duplicate_turn.contains("thread-owned persistence"));
+
+    let duplicate_record = native_agent_run_record(
+        &serde_json::json!({
+            "runtime": "rust",
+            "sessionId": session_id,
+            "runId": "duplicate-run",
+        }),
+        &serde_json::json!({
+            "sessionId": session_id,
+            "runId": "duplicate-run",
+        }),
+        &config,
+        session_id,
+        "duplicate-run",
+    );
+    let duplicate_run = call_rust_state_service(
+        fixture.root.clone(),
+        config,
+        WorkerRequest::new(
+            "reject-duplicate-agent-run",
+            "trace-canonical-thread",
+            "agent_run.upsert",
+            serde_json::json!({ "record": duplicate_record }),
+        ),
+        "reject duplicate agent run",
+    )
+    .expect_err("thread-owned agent_run.upsert must fail");
+    assert!(duplicate_run.contains("thread-owned persistence"));
 }
 
 #[test]
@@ -2821,11 +3066,20 @@ fn worker_resolve_thread_approval_resumes_checkpoint_and_updates_thread() {
     )
     .expect("awaiting approval run should persist");
     assert_eq!(awaiting["agentResult"]["stopReason"], "awaiting_approval");
+    assert_eq!(
+        awaiting["snapshot"]["activeRun"]["status"],
+        "waiting_for_approval"
+    );
+    assert_eq!(
+        awaiting["snapshot"]["latestCheckpoint"]["restorePayload"]["phase"],
+        "awaiting_approval"
+    );
     let thread_id = awaiting["threadId"].as_str().unwrap().to_string();
     let session_id = awaiting["sessionId"].as_str().unwrap().to_string();
+    let resumed_shared = Arc::new(Mutex::new(GatewayRuntime::default()));
 
     let result = worker_resolve_thread_approval_with_options(
-        &shared,
+        &resumed_shared,
         WorkerResolveThreadApprovalInput {
             thread_id: thread_id.clone(),
             approval_id: "approval-thread-command".to_string(),
@@ -2847,6 +3101,7 @@ fn worker_resolve_thread_approval_resumes_checkpoint_and_updates_thread() {
         "thread"
     );
     assert_eq!(result["snapshot"]["thread"]["status"], "idle");
+    assert!(result["snapshot"]["latestCheckpoint"].is_null());
     assert!(result["snapshot"]["items"]
         .as_array()
         .expect("thread items should be present")
@@ -2854,6 +3109,8 @@ fn worker_resolve_thread_approval_resumes_checkpoint_and_updates_thread() {
         .any(
             |item| item["kind"]["type"] == "assistant_message_completed" && item["runId"] == run_id
         ));
+    let compatibility_logs = compatibility_thread_log_paths(&fixture.root);
+    assert!(compatibility_logs.is_empty(), "{compatibility_logs:?}");
 }
 
 #[test]
@@ -2884,11 +3141,20 @@ fn worker_submit_thread_form_resumes_checkpoint_and_updates_thread() {
     )
     .expect("awaiting form run should persist");
     assert_eq!(awaiting["agentResult"]["stopReason"], "awaiting_form");
+    assert_eq!(
+        awaiting["snapshot"]["activeRun"]["status"],
+        "waiting_for_input"
+    );
+    assert_eq!(
+        awaiting["snapshot"]["latestCheckpoint"]["restorePayload"]["phase"],
+        "awaiting_form"
+    );
     let thread_id = awaiting["threadId"].as_str().unwrap().to_string();
     let session_id = awaiting["sessionId"].as_str().unwrap().to_string();
+    let resumed_shared = Arc::new(Mutex::new(GatewayRuntime::default()));
 
     let result = worker_submit_thread_form_with_options(
-        &shared,
+        &resumed_shared,
         WorkerSubmitThreadFormInput {
             thread_id: thread_id.clone(),
             form_id: "form-thread-command".to_string(),
@@ -2910,6 +3176,7 @@ fn worker_submit_thread_form_resumes_checkpoint_and_updates_thread() {
         "thread"
     );
     assert_eq!(result["snapshot"]["thread"]["status"], "idle");
+    assert!(result["snapshot"]["latestCheckpoint"].is_null());
     assert!(result["snapshot"]["items"]
         .as_array()
         .expect("thread items should be present")
@@ -2917,6 +3184,8 @@ fn worker_submit_thread_form_resumes_checkpoint_and_updates_thread() {
         .any(
             |item| item["kind"]["type"] == "assistant_message_completed" && item["runId"] == run_id
         ));
+    let compatibility_logs = compatibility_thread_log_paths(&fixture.root);
+    assert!(compatibility_logs.is_empty(), "{compatibility_logs:?}");
 }
 
 #[test]
