@@ -536,6 +536,41 @@ lines.on("line", (line) => {
         )
     }
 
+    fn wait_for_fixture_marker(path: &std::path::Path) -> bool {
+        for _ in 0..40 {
+            if path.exists() {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        false
+    }
+
+    #[cfg(windows)]
+    fn fixture_process_is_alive(pid: u32) -> bool {
+        let output = std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+            .output()
+            .expect("tasklist should inspect fixture process");
+        String::from_utf8_lossy(&output.stdout).contains(&format!(",\"{pid}\","))
+    }
+
+    #[cfg(unix)]
+    fn fixture_process_is_alive(pid: u32) -> bool {
+        let result = unsafe { libc::kill(pid as i32, 0) };
+        result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    }
+
+    fn wait_for_fixture_process_exit(pid: u32) -> bool {
+        for _ in 0..40 {
+            if !fixture_process_is_alive(pid) {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        false
+    }
+
     #[test]
     fn mcp_fixture_fields_never_create_a_fake_runtime() {
         let rpc = mcp_rpc(json!({
@@ -834,7 +869,9 @@ lines.on("line", (line) => {
     fn mcp_cancellation_during_call_closes_transport_and_marks_failure() {
         let fixture = StdioMcpFixture::from_source(
             r#"
+const fs = require("fs");
 const readline = require("readline");
+const closedMarker = process.argv[2];
 const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 function send(value) { process.stdout.write(`${JSON.stringify(value)}\n`); }
 lines.on("line", (line) => {
@@ -861,13 +898,18 @@ lines.on("line", (line) => {
     }}), 10000);
   }
 });
+lines.on("close", () => {
+  fs.writeFileSync(closedMarker, "closed");
+  process.exit(0);
+});
 "#,
         );
+        let closed_marker = fixture.root.join("cancelled-call-closed.txt");
         let rpc = mcp_rpc(json!({
             "tools": { "mcp_servers": { "slow": {
                 "transport": "stdio",
                 "command": "node",
-                "args": [fixture.script.to_string_lossy()],
+                "args": [fixture.script.to_string_lossy(), closed_marker.to_string_lossy()],
                 "cwd": fixture.root.to_string_lossy(),
                 "timeout_seconds": 5,
                 "enabled_tools": ["slow"]
@@ -904,13 +946,20 @@ lines.on("line", (line) => {
         assert!(status["lastError"]
             .as_str()
             .is_some_and(|error| error.contains("cancelled")));
+        assert!(
+            wait_for_fixture_marker(&closed_marker),
+            "in-flight cancellation should close the MCP child stdin"
+        );
     }
 
     #[test]
     fn mcp_cancellation_during_startup_stops_discovery_promptly() {
         let fixture = StdioMcpFixture::from_source(
             r#"
+const fs = require("fs");
 const readline = require("readline");
+const pidPath = process.argv[2];
+fs.writeFileSync(pidPath, String(process.pid));
 const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 function send(value) { process.stdout.write(`${JSON.stringify(value)}\n`); }
 lines.on("line", (line) => {
@@ -925,11 +974,12 @@ lines.on("line", (line) => {
 });
 "#,
         );
+        let pid_path = fixture.root.join("cancelled-startup.pid");
         let config = json!({
             "mcp": { "servers": { "slow-start": {
                 "transport": "stdio",
                 "command": "node",
-                "args": [fixture.script.to_string_lossy()],
+                "args": [fixture.script.to_string_lossy(), pid_path.to_string_lossy()],
                 "cwd": fixture.root.to_string_lossy(),
                 "startup_timeout_seconds": 30,
                 "timeout_seconds": 30,
@@ -942,8 +992,12 @@ lines.on("line", (line) => {
             .expect("slow startup server should be configured");
         let cancellation = Arc::new(TestCancellation::new(false));
         let cancel_from_thread = cancellation.clone();
+        let pid_for_cancellation = pid_path.clone();
         let cancel_thread = std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(75));
+            assert!(
+                wait_for_fixture_marker(&pid_for_cancellation),
+                "MCP child should start before startup cancellation"
+            );
             cancel_from_thread.cancelled.store(true, Ordering::SeqCst);
         });
         let started = std::time::Instant::now();
@@ -968,6 +1022,18 @@ lines.on("line", (line) => {
         assert!(status["lastError"]
             .as_str()
             .is_some_and(|error| error.contains("cancelled")));
+        assert!(
+            wait_for_fixture_marker(&pid_path),
+            "MCP child should publish its PID"
+        );
+        let pid = std::fs::read_to_string(&pid_path)
+            .expect("MCP child PID should be readable")
+            .parse::<u32>()
+            .expect("MCP child PID should be numeric");
+        assert!(
+            wait_for_fixture_process_exit(pid),
+            "startup cancellation should leave no live MCP child process"
+        );
         rpc.shutdown()
             .expect("cancelled startup should leave no live MCP process");
     }
