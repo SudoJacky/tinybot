@@ -11,6 +11,7 @@ use tauri::{Emitter, Manager, Runtime, State, WindowEvent};
 
 mod adapters;
 pub mod agent_loop_runtime_protocol;
+mod config_application;
 pub mod config_store;
 pub mod desktop_commands;
 pub mod desktop_cron;
@@ -55,6 +56,14 @@ pub mod worker_tool_executor;
 pub mod worker_tool_registry;
 pub mod worker_workspace;
 
+use crate::config_application::{
+    apply_config_operations_to_path, apply_config_patch_result_to_path,
+    config_editor_snapshot_from_path, default_tinybot_config_path, default_tinybot_workspace_root,
+    ensure_default_config_file, experimental_worker_config_snapshot,
+    experimental_worker_config_snapshot_from_path, experimental_worker_default_config_snapshot,
+    get_settings_snapshot_from_path, native_backend_workspace_root,
+    resolve_native_backend_workspace_root_from_config_path,
+};
 use crate::config_store::ConfigDiagnosticCode;
 #[cfg(test)]
 use crate::desktop_commands::agent::{
@@ -87,13 +96,8 @@ use crate::desktop_commands::agent::{
     worker_task_plan_delete, worker_task_plan_get, worker_task_plan_list, worker_task_plan_save,
 };
 use crate::desktop_commands::config::{
-    apply_config_operations, apply_config_operations_to_path, apply_config_patch_result,
-    apply_config_patch_result_to_path, config_editor_snapshot_from_path,
-    default_tinybot_config_path, default_tinybot_workspace_root, ensure_default_config_file,
-    experimental_worker_config_snapshot, experimental_worker_config_snapshot_from_path,
-    experimental_worker_default_config_snapshot, get_config_editor_snapshot, get_settings_snapshot,
-    get_settings_snapshot_from_path, native_backend_workspace_root,
-    resolve_native_backend_workspace_root_from_config_path,
+    apply_config_operations, apply_config_patch_result, get_config_editor_snapshot,
+    get_settings_snapshot,
 };
 use crate::desktop_commands::gateway::{
     gateway_exit_policy_preference_path, gateway_status, load_gateway_exit_policy,

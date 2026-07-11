@@ -1,4 +1,4 @@
-use crate::desktop_commands::config::{
+use crate::config_application::{
     experimental_worker_config_snapshot, native_backend_workspace_root,
 };
 use crate::desktop_commands::knowledge::{

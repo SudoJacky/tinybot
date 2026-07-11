@@ -225,6 +225,22 @@ config files. If default creation succeeds, config snapshots include an info dia
 `DefaultConfigCreated`. If default creation fails, snapshots still return effective in-memory defaults
 and include a warning diagnostic with code `DefaultConfigCreateFailed`.
 
+Infrastructure failures reject config commands with a structured IPC payload instead of a plain
+string:
+
+```json
+{
+  "code": "load_config_store",
+  "message": "failed to read configuration",
+  "configPath": "C:\\Users\\example\\.tinybot\\config.json"
+}
+```
+
+Stable `code` values are `initialize_default_config`, `load_config_store`, `apply_config_patch`,
+`apply_config_operations`, and `reconcile_mcp_runtime`. Validation and revision conflicts remain
+successful `ConfigPatchApplyResult` responses with `ok: false`; the structured IPC error is reserved
+for failures that prevent the operation from producing a valid application result.
+
 `SettingsSnapshot` is the Rust-owned settings control-center projection for the first settings MVP.
 It is intended for frontend settings UI callers that need grouped fields, scope/source metadata,
 readonly runtime status, and secret-safe field metadata without reading arbitrary raw config JSON.
