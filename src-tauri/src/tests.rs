@@ -1227,6 +1227,138 @@ fn worker_run_agent_persists_rust_turn_messages_in_session_store() {
 }
 
 #[test]
+fn worker_run_agent_stops_before_provider_when_run_start_persistence_fails() {
+    #[derive(Clone)]
+    struct CountingProvider {
+        calls: Arc<Mutex<usize>>,
+    }
+
+    impl crate::worker_agent_runtime::NativeAgentProvider for CountingProvider {
+        fn complete(
+            &self,
+            _context: &crate::worker_agent_runtime::NativeAgentRunContext,
+        ) -> Result<crate::worker_agent_runtime::NativeAgentProviderResponse, String> {
+            *self
+                .calls
+                .lock()
+                .expect("counting provider lock should not be poisoned") += 1;
+            Ok(crate::worker_agent_runtime::NativeAgentProviderResponse {
+                final_content: "provider should not run".to_string(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: Vec::new(),
+            })
+        }
+    }
+
+    let fixture = WorkspaceFixture::new();
+    fixture.write(".tinybot/threads", "blocks thread-log directory creation");
+    let calls = Arc::new(Mutex::new(0));
+    let shared = Arc::new(Mutex::new(GatewayRuntime {
+        native_agent_runtime: NativeAgentRuntimeServices::new(
+            Arc::new(CountingProvider {
+                calls: calls.clone(),
+            }),
+            Arc::new(crate::worker_agent_runtime::FakeNativeAgentToolDispatcher),
+            Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCancellation::default()),
+        ),
+        ..GatewayRuntime::default()
+    }));
+
+    let error = worker_run_agent_with_options(
+        &shared,
+        serde_json::json!({
+            "runtime": "rust",
+            "runId": "run-persistence-failure",
+            "messages": [{ "role": "user", "content": "do not call provider" }]
+        }),
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(10),
+    )
+    .expect_err("run-start persistence failure should fail the command");
+
+    assert!(error.contains("thread log"), "{error}");
+    assert_eq!(
+        *calls
+            .lock()
+            .expect("counting provider lock should not be poisoned"),
+        0,
+        "provider must not run after run-start persistence fails"
+    );
+}
+
+#[test]
+fn worker_run_agent_fails_when_run_record_persistence_fails() {
+    #[derive(Clone)]
+    struct PersistenceBreakingProvider {
+        workspace_root: PathBuf,
+        calls: Arc<Mutex<usize>>,
+    }
+
+    impl crate::worker_agent_runtime::NativeAgentProvider for PersistenceBreakingProvider {
+        fn complete(
+            &self,
+            _context: &crate::worker_agent_runtime::NativeAgentRunContext,
+        ) -> Result<crate::worker_agent_runtime::NativeAgentProviderResponse, String> {
+            *self
+                .calls
+                .lock()
+                .expect("persistence-breaking provider lock should not be poisoned") += 1;
+            let thread_root = self.workspace_root.join(".tinybot").join("threads");
+            std::fs::remove_dir_all(&thread_root)
+                .expect("provider fixture should remove the initialized thread log");
+            std::fs::write(&thread_root, "blocks later thread-log writes")
+                .expect("provider fixture should replace thread log directory");
+            Ok(crate::worker_agent_runtime::NativeAgentProviderResponse {
+                final_content: "result must not be reported as durable".to_string(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: Vec::new(),
+            })
+        }
+    }
+
+    let fixture = WorkspaceFixture::new();
+    let calls = Arc::new(Mutex::new(0));
+    let shared = Arc::new(Mutex::new(GatewayRuntime {
+        native_agent_runtime: NativeAgentRuntimeServices::new(
+            Arc::new(PersistenceBreakingProvider {
+                workspace_root: fixture.root.clone(),
+                calls: calls.clone(),
+            }),
+            Arc::new(crate::worker_agent_runtime::FakeNativeAgentToolDispatcher),
+            Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCancellation::default()),
+        ),
+        ..GatewayRuntime::default()
+    }));
+
+    let error = worker_run_agent_with_options(
+        &shared,
+        serde_json::json!({
+            "runtime": "rust",
+            "runId": "run-record-persistence-failure",
+            "sessionId": "session-record-persistence-failure",
+            "messages": [{ "role": "user", "content": "break persistence after start" }]
+        }),
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(10),
+    )
+    .expect_err("run-record persistence failure should fail the command");
+
+    assert!(error.contains("thread log"), "{error}");
+    assert_eq!(
+        *calls
+            .lock()
+            .expect("persistence-breaking provider lock should not be poisoned"),
+        1
+    );
+}
+
+#[test]
 fn native_agent_run_record_includes_structured_token_usage_info() {
     let spec = serde_json::json!({
         "runtime": "rust",

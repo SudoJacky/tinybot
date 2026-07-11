@@ -38,16 +38,21 @@ pub(crate) fn reject_native_agent_terminal_run_reentry(
         WorkerRequest::new(
             format!("{}:terminal-check", trace_context.request_id),
             trace_context.trace_id.clone(),
-            "agent_run.get",
-            serde_json::json!({
-                "session_id": session_id,
-                "run_id": run_id,
-            }),
+            "agent_run.list",
+            serde_json::json!({ "session_id": session_id }),
         ),
         "native agent terminal run check",
         "read",
-    );
-    let Ok(existing) = existing else {
+    )?;
+    let Some(existing) = existing
+        .get("runs")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|runs| {
+            runs.iter().find(|run| {
+                run.get("runId").and_then(serde_json::Value::as_str) == Some(run_id.as_str())
+            })
+        })
+    else {
         return Ok(None);
     };
     let status = existing

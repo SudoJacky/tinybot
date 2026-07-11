@@ -807,6 +807,10 @@ new writes do not mirror completed history, checkpoints, metadata patches, or ag
 events into the legacy `.tinybot/threads/threads.sqlite` projection. Those routes write their own
 canonical store (`thread_log` for durable history and usage, legacy `sessions.sqlite` only for
 legacy active session state) and read legacy thread projections only as a fallback for existing data.
+Native agent lifecycle persistence is fail-fast: a terminal-run lookup or run-start write failure
+returns a command error before the provider is called, and a run-record write failure returns a
+command error instead of embedding a failed `runPersistence` diagnostic in an otherwise successful
+result.
 Thread-owned commands such as `worker_submit_thread_turn`, `worker_resolve_thread_approval`, and
 `worker_submit_thread_form` update the thread timeline explicitly through `thread.start_turn` and
 `thread.apply_op`. Their native-agent result contains
