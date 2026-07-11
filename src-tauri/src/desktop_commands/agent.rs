@@ -11,7 +11,6 @@ use crate::native_agent_bridge::{
     SubmitThreadFormInput, SubmitThreadTurnInput,
 };
 use crate::worker_agent_runtime::NativeAgentTraceSink;
-use crate::worker_background::BackgroundTraceEvent;
 use crate::worker_client::WorkerClient;
 use crate::worker_manager::{WorkerCommandSpec, WorkerManager, WorkerManagerState};
 use crate::worker_protocol::WorkerRequest;
@@ -19,7 +18,7 @@ use crate::worker_request_id::{next_worker_request_correlation, WorkerRequestCor
 use crate::worker_subagent_manager::{
     SubagentSendInputParams, SubagentSpawnParams, SubagentTargetParams, SubagentWaitParams,
 };
-use crate::{call_rust_state_service, experimental_worker_router, lock_runtime, SharedGateway};
+use crate::{experimental_worker_router, lock_runtime, SharedGateway};
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tauri::State;
@@ -418,18 +417,12 @@ pub(crate) fn worker_subagent_spawn(
     input: SubagentSpawnParams,
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
-    let manager = {
-        let runtime = lock_runtime(state.inner());
-        runtime.subagent_manager.clone()
-    };
-    let result = manager.spawn(input);
-    persist_subagent_manager_event_if_present(
-        result.event.as_ref(),
-        native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
-    )?;
-    serde_json::to_value(result)
-        .map_err(|error| format!("worker subagent spawn serialization failed: {error}"))
+    dispatch_worker_subagent_request(
+        state.inner(),
+        "subagent.spawn",
+        input,
+        "worker subagent spawn",
+    )
 }
 
 #[tauri::command]
@@ -437,12 +430,12 @@ pub(crate) fn worker_subagent_list(
     input: WorkerSubagentListInput,
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
-    let manager = {
-        let runtime = lock_runtime(state.inner());
-        runtime.subagent_manager.clone()
-    };
-    serde_json::to_value(manager.list(&input.session_key))
-        .map_err(|error| format!("worker subagent list serialization failed: {error}"))
+    dispatch_worker_subagent_request(
+        state.inner(),
+        "subagent.list",
+        input,
+        "worker subagent list",
+    )
 }
 
 #[tauri::command]
@@ -450,12 +443,12 @@ pub(crate) fn worker_subagent_query(
     input: SubagentTargetParams,
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
-    let manager = {
-        let runtime = lock_runtime(state.inner());
-        runtime.subagent_manager.clone()
-    };
-    serde_json::to_value(manager.query(input))
-        .map_err(|error| format!("worker subagent query serialization failed: {error}"))
+    dispatch_worker_subagent_request(
+        state.inner(),
+        "subagent.query",
+        input,
+        "worker subagent query",
+    )
 }
 
 #[tauri::command]
@@ -463,18 +456,12 @@ pub(crate) fn worker_subagent_send_input(
     input: SubagentSendInputParams,
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
-    let manager = {
-        let runtime = lock_runtime(state.inner());
-        runtime.subagent_manager.clone()
-    };
-    let result = manager.enqueue_input(input);
-    persist_subagent_manager_event_if_present(
-        result.event.as_ref(),
-        native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
-    )?;
-    serde_json::to_value(result)
-        .map_err(|error| format!("worker subagent send input serialization failed: {error}"))
+    dispatch_worker_subagent_request(
+        state.inner(),
+        "subagent.send_input",
+        input,
+        "worker subagent send input",
+    )
 }
 
 #[tauri::command]
@@ -482,12 +469,12 @@ pub(crate) fn worker_subagent_wait(
     input: SubagentWaitParams,
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
-    let manager = {
-        let runtime = lock_runtime(state.inner());
-        runtime.subagent_manager.clone()
-    };
-    serde_json::to_value(manager.wait(input))
-        .map_err(|error| format!("worker subagent wait serialization failed: {error}"))
+    dispatch_worker_subagent_request(
+        state.inner(),
+        "subagent.wait",
+        input,
+        "worker subagent wait",
+    )
 }
 
 #[tauri::command]
@@ -495,18 +482,12 @@ pub(crate) fn worker_subagent_cancel(
     input: SubagentTargetParams,
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
-    let manager = {
-        let runtime = lock_runtime(state.inner());
-        runtime.subagent_manager.clone()
-    };
-    let result = manager.cancel(input);
-    persist_subagent_manager_event_if_present(
-        result.event.as_ref(),
-        native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
-    )?;
-    serde_json::to_value(result)
-        .map_err(|error| format!("worker subagent cancel serialization failed: {error}"))
+    dispatch_worker_subagent_request(
+        state.inner(),
+        "subagent.cancel",
+        input,
+        "worker subagent cancel",
+    )
 }
 
 #[tauri::command]
@@ -514,18 +495,25 @@ pub(crate) fn worker_subagent_close(
     input: SubagentTargetParams,
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
-    let manager = {
-        let runtime = lock_runtime(state.inner());
-        runtime.subagent_manager.clone()
-    };
-    let result = manager.close(input);
-    persist_subagent_manager_event_if_present(
-        result.event.as_ref(),
-        native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
-    )?;
-    serde_json::to_value(result)
-        .map_err(|error| format!("worker subagent close serialization failed: {error}"))
+    dispatch_worker_subagent_request(
+        state.inner(),
+        "subagent.close",
+        input,
+        "worker subagent close",
+    )
+}
+
+#[tauri::command]
+pub(crate) fn worker_subagent_resume(
+    input: SubagentTargetParams,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    dispatch_worker_subagent_request(
+        state.inner(),
+        "subagent.resume",
+        input,
+        "worker subagent resume",
+    )
 }
 
 #[tauri::command]
@@ -896,27 +884,36 @@ fn dispatch_worker_background_trace_request(
         .ok_or_else(|| format!("{context} response missing result"))
 }
 
-fn persist_subagent_manager_event_if_present(
-    event: Option<&BackgroundTraceEvent>,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-) -> Result<(), String> {
-    let Some(event) = event else {
-        return Ok(());
+fn dispatch_worker_subagent_request(
+    shared: &SharedGateway,
+    method: &str,
+    input: impl Serialize,
+    context: &str,
+) -> Result<serde_json::Value, String> {
+    let manager = {
+        let runtime = lock_runtime(shared);
+        runtime.subagent_manager.clone()
     };
+    let params = serde_json::to_value(input)
+        .map_err(|error| format!("{context} request serialization failed: {error}"))?;
     let request_id = next_worker_request_correlation();
-    call_rust_state_service(
-        workspace_root,
-        config_snapshot,
-        WorkerRequest::new(
-            request_id.id("subagent-manager-trace-append"),
-            request_id.trace_id("subagent-manager-trace-append"),
-            "background.trace.append",
-            serde_json::json!({ "event": event }),
-        ),
-        "subagent manager trace append",
-    )?;
-    Ok(())
+    let mut router = experimental_worker_router(
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+    )
+    .with_subagent_manager(manager);
+    let response = router.dispatch(&WorkerRequest::new(
+        request_id.id(method),
+        request_id.trace_id(method),
+        method,
+        params,
+    ));
+    if let Some(error) = response.error {
+        return Err(format!("{context} failed: {}", error.message));
+    }
+    response
+        .result
+        .ok_or_else(|| format!("{context} failed: missing response result"))
 }
 
 pub(crate) fn worker_cancel_agent_with_options(

@@ -36,17 +36,18 @@ use crate::worker_shell::{
     WorkerShellRuntime,
 };
 use crate::worker_subagent_manager::{
-    SubagentInputSender, SubagentSendInputParams, SubagentSpawnParams, SubagentTargetParams,
-    SubagentThreadManager, SubagentWaitParams,
+    SubagentHistoryMode, SubagentInputSender, SubagentSendInputParams, SubagentSpawnParams,
+    SubagentTargetParams, SubagentThreadManager, SubagentThreadStatus, SubagentThreadSummary,
+    SubagentWaitParams,
 };
 use crate::worker_task::{TaskPlanIdParams, TaskPlanListParams, TaskPlanSaveParams, WorkerTaskRpc};
 use crate::worker_thread::{
     AppendThreadItemsRequest, ArchiveThreadRequest, ContinueThreadTurnRequest, CreateThreadRequest,
     DeleteThreadRequest, ForkThreadRequest, InterruptThreadRequest, ListThreadsRequest,
     ReadThreadRequest, RestoreThreadCheckpointRequest, ResumeThreadRequest, SearchThreadsRequest,
-    StartThreadTurnRequest, ThreadActivityRequest, ThreadAgentRegistryRequest,
-    ThreadApplyOpRequest, ThreadEventsRequest, ThreadIdParams, ThreadOp,
-    ThreadPersistenceRepairRequest, UpdateThreadMetadataRequest, WorkerThreadRpc,
+    StartThreadTurnRequest, ThreadActivityRequest, ThreadAgentRegistryEntry,
+    ThreadAgentRegistryRequest, ThreadApplyOpRequest, ThreadEventsRequest, ThreadIdParams,
+    ThreadOp, ThreadPersistenceRepairRequest, UpdateThreadMetadataRequest, WorkerThreadRpc,
 };
 use crate::worker_thread_log::{ThreadLogIndexRepairRequest, WorkerThreadLogRpc};
 use crate::worker_tool_executor::{

@@ -6,6 +6,7 @@ use crate::worker_agent_runtime::{
 };
 use crate::worker_protocol::{WorkerRequest, WorkerRequestCancellation};
 use crate::worker_shell::WorkerShellRuntime;
+use crate::worker_subagent_manager::SubagentThreadManager;
 use crate::worker_tool_registry::ToolExecutionTarget;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -17,6 +18,7 @@ struct NativeAgentToolExecutorDispatcher {
     fallback: Arc<dyn NativeAgentToolDispatcher>,
     mcp_runtime: McpRuntime,
     shell_runtime: WorkerShellRuntime,
+    subagent_manager: SubagentThreadManager,
 }
 
 impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
@@ -28,13 +30,14 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
         if native_agent_tool_executor_should_fallback(&tool_call.name) {
             return self.fallback.dispatch(context, tool_call);
         }
-        let arguments: serde_json::Value = serde_json::from_str(&tool_call.arguments_json)
+        let mut arguments: serde_json::Value = serde_json::from_str(&tool_call.arguments_json)
             .map_err(|error| {
                 format!(
                     "native tool `{}` arguments are invalid JSON: {error}",
                     tool_call.name
                 )
             })?;
+        normalize_subagent_arguments(context, &tool_call.name, &mut arguments)?;
         let execution_target = context.tool_execution_target(&tool_call.name);
         if matches!(
             &execution_target,
@@ -76,6 +79,7 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
             self.config_snapshot.clone(),
             self.mcp_runtime.clone(),
             self.shell_runtime.clone(),
+            self.subagent_manager.clone(),
             WorkerRequest::new(
                 format!("{}:tool:{}", context.trace_context.request_id, tool_call.id),
                 context.trace_context.trace_id.clone(),
@@ -93,14 +97,20 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
                     .cloned()
                     .unwrap_or_else(|| executor_result.clone());
                 let model_content = native_tool_executor_model_content(&raw_result);
-                Ok(NativeAgentToolResult::generic_success(
-                    tool_call,
-                    serde_json::json!({
-                        "content": model_content,
-                        "result": raw_result,
-                        "executor": executor_result,
-                    }),
-                ))
+                if is_persisted_subagent_tool(&tool_call.name) {
+                    Ok(NativeAgentToolResult::generic_success(
+                        tool_call, raw_result,
+                    ))
+                } else {
+                    Ok(NativeAgentToolResult::generic_success(
+                        tool_call,
+                        serde_json::json!({
+                            "content": model_content,
+                            "result": raw_result,
+                            "executor": executor_result,
+                        }),
+                    ))
+                }
             }
             Err(_error) if native_agent_tool_executor_can_fallback(tool_call) => {
                 self.fallback.dispatch(context, tool_call)
@@ -230,28 +240,107 @@ pub(crate) fn native_agent_services_with_tool_executor(
     let fallback = services.tool_dispatcher();
     let mcp_runtime = services.mcp_runtime();
     let shell_runtime = services.shell_runtime();
+    let subagent_manager = services.subagent_manager();
     services.with_tool_dispatcher(Arc::new(NativeAgentToolExecutorDispatcher {
         workspace_root,
         config_snapshot,
         fallback,
         mcp_runtime,
         shell_runtime,
+        subagent_manager,
     }))
 }
 
-fn native_agent_tool_executor_should_fallback(tool_name: &str) -> bool {
+fn normalize_subagent_arguments(
+    context: &NativeAgentRunContext,
+    tool_name: &str,
+    arguments: &mut serde_json::Value,
+) -> Result<(), String> {
+    if !is_persisted_subagent_tool(tool_name) {
+        return Ok(());
+    }
+    let object = arguments.as_object_mut().ok_or_else(|| {
+        format!("native subagent tool `{tool_name}` arguments must be a JSON object")
+    })?;
+    object.remove("session_key");
+    object.insert(
+        "sessionKey".to_string(),
+        serde_json::Value::String(context.session_id.clone()),
+    );
+    if tool_name == "subagent.send_input" {
+        object.insert(
+            "sender".to_string(),
+            serde_json::Value::String("main_agent".to_string()),
+        );
+    }
+    if tool_name != "subagent.spawn" {
+        return Ok(());
+    }
+    object.remove("parent_run_id");
+    object.insert(
+        "parentRunId".to_string(),
+        serde_json::Value::String(context.run_id.clone()),
+    );
+    object.remove("trace_ref");
+    object.insert(
+        "traceRef".to_string(),
+        serde_json::Value::String(context.trace_context.trace_id.clone()),
+    );
+    let parent_subagent_id = ["subagentId", "subagent_id", "agentId", "agent_id"]
+        .iter()
+        .find_map(|key| {
+            context
+                .metadata
+                .get(*key)
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        });
+    if let Some(parent_subagent_id) = parent_subagent_id {
+        object.insert(
+            "parentSubagentId".to_string(),
+            serde_json::Value::String(parent_subagent_id),
+        );
+    } else {
+        object.remove("parentSubagentId");
+        object.remove("parentAgentId");
+    }
+    let parent_depth = context
+        .metadata
+        .get("delegationDepth")
+        .or_else(|| context.metadata.get("delegation_depth"))
+        .or_else(|| context.metadata.get("depth"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    object.insert(
+        "delegationDepth".to_string(),
+        serde_json::json!(parent_depth.saturating_add(1)),
+    );
+    Ok(())
+}
+
+fn is_persisted_subagent_tool(tool_name: &str) -> bool {
     matches!(
         tool_name,
         "subagent.spawn"
             | "subagent.send_input"
             | "subagent.wait"
-            | "subagent.query"
-            | "subagent.cancel"
             | "subagent.close"
+            | "subagent.resume"
+    )
+}
+
+fn native_agent_tool_executor_should_fallback(tool_name: &str) -> bool {
+    matches!(
+        tool_name,
+        "subagent.query"
+            | "subagent.cancel"
             | "spawn_agent"
             | "send_input"
             | "wait_agent"
             | "close_agent"
+            | "resume_agent"
     )
 }
 

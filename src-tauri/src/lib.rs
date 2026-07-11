@@ -81,10 +81,10 @@ use crate::desktop_commands::agent::{
     worker_background_trace_list, worker_cancel_agent, worker_echo_agent,
     worker_resolve_thread_approval, worker_restore_agent_checkpoint, worker_resume_agent_approval,
     worker_run_agent, worker_run_agent_input, worker_subagent_cancel, worker_subagent_close,
-    worker_subagent_list, worker_subagent_query, worker_subagent_send_input, worker_subagent_spawn,
-    worker_subagent_wait, worker_submit_agent_form, worker_submit_thread_form,
-    worker_submit_thread_turn, worker_task_plan_delete, worker_task_plan_get,
-    worker_task_plan_list, worker_task_plan_save,
+    worker_subagent_list, worker_subagent_query, worker_subagent_resume,
+    worker_subagent_send_input, worker_subagent_spawn, worker_subagent_wait,
+    worker_submit_agent_form, worker_submit_thread_form, worker_submit_thread_turn,
+    worker_task_plan_delete, worker_task_plan_get, worker_task_plan_list, worker_task_plan_save,
 };
 use crate::desktop_commands::config::{
     apply_config_operations, apply_config_operations_to_path, apply_config_patch_result,
@@ -283,12 +283,14 @@ pub(crate) fn call_rust_state_service_with_mcp_runtime(
     config_snapshot: serde_json::Value,
     mcp_runtime: McpRuntime,
     shell_runtime: crate::worker_shell::WorkerShellRuntime,
+    subagent_manager: SubagentThreadManager,
     request: WorkerRequest,
     label: &str,
 ) -> Result<serde_json::Value, String> {
     let mut router = experimental_worker_router(workspace_root, config_snapshot)
         .with_mcp_runtime(mcp_runtime)
-        .with_shell_runtime(shell_runtime);
+        .with_shell_runtime(shell_runtime)
+        .with_subagent_manager(subagent_manager);
     let response = router.dispatch(&request);
     if let Some(error) = response.error {
         return Err(format!("{label} failed: {}", error.message));
@@ -615,6 +617,7 @@ pub fn run() {
             worker_subagent_wait,
             worker_subagent_cancel,
             worker_subagent_close,
+            worker_subagent_resume,
             worker_task_plan_list,
             worker_task_plan_get,
             worker_task_plan_save,

@@ -414,6 +414,9 @@ fn close_shutdown_stops_shell_and_interrupts_subagents_with_report() {
     let spawned = subagents.spawn(crate::worker_subagent_manager::SubagentSpawnParams {
         session_key: "session-shutdown".to_string(),
         parent_run_id: Some("run-parent".to_string()),
+        parent_subagent_id: None,
+        delegation_depth: None,
+        history_mode: None,
         subagent_id: Some("delegate-shutdown".to_string()),
         child_run_id: Some("run-child".to_string()),
         trace_ref: None,

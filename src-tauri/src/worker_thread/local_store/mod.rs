@@ -55,9 +55,10 @@ use self::runtime_projection::{
     runtime_events_from_thread_items, trace_event_from_thread_item, turn_items_from_thread_items,
 };
 use self::subagent_projection::{
-    active_child_run_id_for_status, status_value, subagent_agent_control_payload,
-    subagent_child_status_item, subagent_initial_child_items, subagent_input_item,
-    subagent_parent_item, thread_status_for_subagent,
+    active_child_run_id_for_status, inherited_subagent_history_items, status_value,
+    subagent_agent_control_payload, subagent_child_status_item, subagent_initial_child_items,
+    subagent_input_item, subagent_lifecycle_item_label, subagent_parent_item,
+    thread_status_for_subagent,
 };
 
 const THREAD_STORE_VERSION: usize = 1;
@@ -679,7 +680,10 @@ impl LocalThreadStore {
     ) -> Result<AppendThreadItemsResult, WorkerProtocolError> {
         let parent = self.ensure_parent_thread_for_subagent(summary)?;
         let child = self.ensure_child_thread_for_subagent(summary, &parent.thread_id)?;
-        let child_items = subagent_initial_child_items(summary, event.clone());
+        let parent_items = self.read_items(&parent.thread_id)?;
+        let mut child_items =
+            inherited_subagent_history_items(summary, &parent.thread_id, &parent_items);
+        child_items.extend(subagent_initial_child_items(summary, event.clone()));
         if !child_items.is_empty() {
             self.append_items(&child.thread_id, child_items)?;
         }
@@ -719,6 +723,10 @@ impl LocalThreadStore {
             &child.thread_id,
             vec![subagent_child_status_item(summary, event.clone())],
         )?;
+        let lifecycle_label = format!(
+            "lifecycle:{}",
+            subagent_lifecycle_item_label(summary, event.as_ref())
+        );
         if matches!(
             summary.status,
             SubagentThreadStatus::Completed
@@ -732,11 +740,20 @@ impl LocalThreadStore {
                 vec![subagent_parent_item(
                     summary,
                     event,
-                    "completed",
+                    &lifecycle_label,
                     ThreadItemKind::SubagentCompleted,
                 )],
             );
         }
+        self.append_items(
+            &parent.thread_id,
+            vec![subagent_parent_item(
+                summary,
+                event,
+                &lifecycle_label,
+                ThreadItemKind::SubagentMessage,
+            )],
+        )?;
         Ok(child_result)
     }
 
@@ -746,6 +763,35 @@ impl LocalThreadStore {
     ) -> Result<ThreadRecord, WorkerProtocolError> {
         let _guard = self.lock_mutation()?;
         let mut index = self.read_index()?;
+        if let Some(parent_subagent_id) = summary.parent_subagent_id.as_deref() {
+            return index
+                .threads
+                .iter()
+                .find(|thread| {
+                    thread.source == "subagent"
+                        && thread.session_key.as_deref() == Some(summary.session_key.as_str())
+                        && thread
+                            .metadata
+                            .extra
+                            .get("subagentId")
+                            .and_then(Value::as_str)
+                            == Some(parent_subagent_id)
+                })
+                .cloned()
+                .ok_or_else(|| {
+                    WorkerProtocolError::new(
+                        WorkerProtocolErrorCode::InvalidProtocol,
+                        "durable parent subagent thread is missing",
+                        serde_json::json!({
+                            "sessionKey": summary.session_key,
+                            "parentSubagentId": parent_subagent_id,
+                            "subagentId": summary.subagent_id,
+                        }),
+                        false,
+                        WorkerProtocolErrorSource::RustCore,
+                    )
+                });
+        }
         if let Some(position) = index.threads.iter().position(|thread| {
             thread.session_key.as_deref() == Some(summary.session_key.as_str())
                 && thread.parent_thread_id.is_none()

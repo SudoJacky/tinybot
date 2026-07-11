@@ -338,7 +338,9 @@ fn chat_completion_request_injects_available_model_tools() {
             WorkerCapability::FsWorkspaceRead,
             WorkerCapability::MemoryRead,
             WorkerCapability::KnowledgeRead,
+            WorkerCapability::BackgroundRead,
             WorkerCapability::BackgroundWrite,
+            WorkerCapability::SessionMetadataRead,
             WorkerCapability::SessionWrite,
             WorkerCapability::FormRequest,
         ]))

@@ -30,6 +30,7 @@ describe("native backend contract", () => {
       "worker_thread_continue_turn",
       "worker_thread_interrupt",
       "worker_thread_apply_op",
+      "worker_subagent_resume",
     ]));
   });
 

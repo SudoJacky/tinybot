@@ -2,8 +2,8 @@ use super::{
     NativeAgentRunContext, NativeAgentToolCall, NativeAgentToolDispatcher, NativeAgentToolResult,
 };
 use crate::worker_subagent_manager::{
-    SubagentInputSender, SubagentSendInputParams, SubagentSpawnParams, SubagentTargetParams,
-    SubagentThreadManager, SubagentThreadStatus, SubagentWaitParams,
+    SubagentHistoryMode, SubagentInputSender, SubagentSendInputParams, SubagentSpawnParams,
+    SubagentTargetParams, SubagentThreadManager, SubagentThreadStatus, SubagentWaitParams,
 };
 use crate::worker_tool_registry::ToolCancellationMode;
 use serde_json::Value;
@@ -77,6 +77,28 @@ impl NativeAgentToolDispatcher for SubagentNativeAgentToolDispatcher {
                         .or_else(|| tool_arg_string(&args, "session_key"))
                         .unwrap_or_else(|| context.session_id.clone()),
                     parent_run_id: Some(context.run_id.clone()),
+                    parent_subagent_id: tool_arg_string(&context.metadata, "subagentId")
+                        .or_else(|| tool_arg_string(&context.metadata, "subagent_id")),
+                    delegation_depth: Some(
+                        context
+                            .metadata
+                            .get("delegationDepth")
+                            .or_else(|| context.metadata.get("delegation_depth"))
+                            .or_else(|| context.metadata.get("depth"))
+                            .and_then(Value::as_u64)
+                            .and_then(|value| usize::try_from(value).ok())
+                            .unwrap_or(0)
+                            .saturating_add(1),
+                    ),
+                    history_mode: args
+                        .get("historyMode")
+                        .or_else(|| args.get("history_mode"))
+                        .cloned()
+                        .map(serde_json::from_value::<SubagentHistoryMode>)
+                        .transpose()
+                        .map_err(|error| {
+                            format!("subagent.spawn historyMode is invalid: {error}")
+                        })?,
                     subagent_id: tool_arg_string(&args, "subagentId")
                         .or_else(|| tool_arg_string(&args, "subagent_id"))
                         .or_else(|| tool_arg_string(&args, "agentId"))
@@ -134,16 +156,24 @@ impl NativeAgentToolDispatcher for SubagentNativeAgentToolDispatcher {
                     .or_else(|| tool_arg_string(&args, "target").map(|value| vec![value]))
                     .unwrap_or_default();
                 serde_json::to_value(
-                    self.subagents.wait(SubagentWaitParams {
-                        session_key: tool_arg_string(&args, "sessionKey")
-                            .or_else(|| tool_arg_string(&args, "session_key"))
-                            .unwrap_or_else(|| context.session_id.clone()),
-                        subagent_ids: ids,
-                        timeout_ms: args
-                            .get("timeoutMs")
-                            .or_else(|| args.get("timeout_ms"))
-                            .and_then(Value::as_u64),
-                    }),
+                    self.subagents.wait_with_cancellation(
+                        SubagentWaitParams {
+                            session_key: tool_arg_string(&args, "sessionKey")
+                                .or_else(|| tool_arg_string(&args, "session_key"))
+                                .unwrap_or_else(|| context.session_id.clone()),
+                            subagent_ids: ids,
+                            timeout_ms: args
+                                .get("timeoutMs")
+                                .or_else(|| args.get("timeout_ms"))
+                                .and_then(Value::as_u64),
+                        },
+                        || {
+                            context
+                                .cancellation
+                                .as_ref()
+                                .is_some_and(|cancellation| cancellation.is_cancelled())
+                        },
+                    ),
                 )
             }
             "subagent.query" => serde_json::to_value(
@@ -176,6 +206,18 @@ impl NativeAgentToolDispatcher for SubagentNativeAgentToolDispatcher {
                     subagent_id: tool_arg_string(&args, "subagentId")
                         .or_else(|| tool_arg_string(&args, "subagent_id"))
                         .or_else(|| tool_arg_string(&args, "target"))
+                        .unwrap_or_default(),
+                }),
+            ),
+            "subagent.resume" | "resume_agent" => serde_json::to_value(
+                self.subagents.resume(SubagentTargetParams {
+                    session_key: tool_arg_string(&args, "sessionKey")
+                        .or_else(|| tool_arg_string(&args, "session_key"))
+                        .unwrap_or_else(|| context.session_id.clone()),
+                    subagent_id: tool_arg_string(&args, "subagentId")
+                        .or_else(|| tool_arg_string(&args, "subagent_id"))
+                        .or_else(|| tool_arg_string(&args, "target"))
+                        .or_else(|| tool_arg_string(&args, "id"))
                         .unwrap_or_default(),
                 }),
             ),
@@ -275,8 +317,10 @@ fn legacy_native_tool_alias_is_permitted(context: &NativeAgentRunContext, name: 
         "knowledge.search" => registry_tool_available(context, "knowledge.query"),
         "spawn_agent" => registry_tool_available(context, "subagent.spawn"),
         "send_input" => registry_tool_available(context, "subagent.send_input"),
-        "subagent.wait" | "subagent.query" | "subagent.cancel" | "subagent.close"
-        | "wait_agent" | "close_agent" => {
+        "wait_agent" => registry_tool_available(context, "subagent.wait"),
+        "close_agent" => registry_tool_available(context, "subagent.close"),
+        "resume_agent" => registry_tool_available(context, "subagent.resume"),
+        "subagent.query" | "subagent.cancel" => {
             registry_tool_available(context, "subagent.spawn")
                 || registry_tool_available(context, "subagent.send_input")
         }
@@ -301,8 +345,10 @@ fn legacy_native_tool_alias_waits_for_runtime_cancellation(
         "send_input" => {
             registry_tool_waits_for_runtime_cancellation(context, "subagent.send_input")
         }
-        "subagent.wait" | "subagent.query" | "subagent.cancel" | "subagent.close"
-        | "wait_agent" | "close_agent" => {
+        "wait_agent" => registry_tool_waits_for_runtime_cancellation(context, "subagent.wait"),
+        "close_agent" => registry_tool_waits_for_runtime_cancellation(context, "subagent.close"),
+        "resume_agent" => registry_tool_waits_for_runtime_cancellation(context, "subagent.resume"),
+        "subagent.query" | "subagent.cancel" => {
             registry_tool_waits_for_runtime_cancellation(context, "subagent.spawn")
                 || registry_tool_waits_for_runtime_cancellation(context, "subagent.send_input")
         }
@@ -314,8 +360,10 @@ fn legacy_native_tool_alias_mutates_session(context: &NativeAgentRunContext, nam
     match name {
         "spawn_agent" => registry_tool_mutates_session(context, "subagent.spawn"),
         "send_input" => registry_tool_mutates_session(context, "subagent.send_input"),
-        "subagent.wait" | "subagent.query" | "subagent.cancel" | "subagent.close"
-        | "wait_agent" | "close_agent" => {
+        "wait_agent" => registry_tool_mutates_session(context, "subagent.wait"),
+        "close_agent" => registry_tool_mutates_session(context, "subagent.close"),
+        "resume_agent" => registry_tool_mutates_session(context, "subagent.resume"),
+        "subagent.query" | "subagent.cancel" => {
             registry_tool_mutates_session(context, "subagent.spawn")
                 || registry_tool_mutates_session(context, "subagent.send_input")
         }
@@ -329,8 +377,10 @@ fn legacy_native_tool_alias_policy_method(name: &str) -> Option<&'static str> {
         "knowledge.search" => Some("knowledge.query"),
         "spawn_agent" => Some("subagent.spawn"),
         "send_input" => Some("subagent.send_input"),
-        "subagent.wait" | "subagent.query" | "subagent.cancel" | "subagent.close"
-        | "wait_agent" | "close_agent" => Some("subagent.spawn"),
+        "wait_agent" => Some("subagent.wait"),
+        "close_agent" => Some("subagent.close"),
+        "resume_agent" => Some("subagent.resume"),
+        "subagent.query" | "subagent.cancel" => Some("subagent.spawn"),
         _ => None,
     }
 }
@@ -504,10 +554,12 @@ pub(super) fn is_subagent_tool(name: &str) -> bool {
             | "subagent.query"
             | "subagent.cancel"
             | "subagent.close"
+            | "subagent.resume"
             | "spawn_agent"
             | "send_input"
             | "wait_agent"
             | "close_agent"
+            | "resume_agent"
     )
 }
 

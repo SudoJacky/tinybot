@@ -1132,13 +1132,43 @@ Lower-level knowledge RPC additionally supports:
 | --- | --- |
 | Background trace | `worker_background_trace_list`, `worker_background_trace_get_delegate_trace`, `worker_background_trace_get_artifact`, `worker_background_trace_append` |
 | Background subagent input | `worker_background_subagent_enqueue_input` |
-| Subagent manager | `worker_subagent_spawn`, `worker_subagent_list`, `worker_subagent_query`, `worker_subagent_send_input`, `worker_subagent_wait`, `worker_subagent_cancel`, `worker_subagent_close` |
+| Subagent manager | `worker_subagent_spawn`, `worker_subagent_list`, `worker_subagent_query`, `worker_subagent_send_input`, `worker_subagent_wait`, `worker_subagent_cancel`, `worker_subagent_close`, `worker_subagent_resume` |
 | Task plans | `worker_task_plan_list`, `worker_task_plan_get`, `worker_task_plan_save`, `worker_task_plan_delete` |
 | Transport | `worker_transport_gateway_frame`, `worker_transport_websocket_message`, `worker_transport_dispatch_websocket_message` |
 | Channel connector | `worker_channel_dispatch_inbound`, `worker_channel_start`, `worker_channel_status`, `worker_channel_stop`, `worker_channel_login` |
 | Cron | `worker_cron_dispatch_due` |
 | Cowork proxy | `worker_cowork_route` |
 | WebUI proxy | `worker_webui_route` |
+
+### Subagent lifecycle
+
+The desktop commands and model-visible tools share the same manager and canonical thread store.
+Model-visible lifecycle tools are `subagent.spawn`, `subagent.send_input`, `subagent.wait`,
+`subagent.close`, and `subagent.resume`; `subagent.list`, `subagent.query`, and `subagent.cancel`
+remain Worker RPC and desktop-control operations.
+
+The default limits are eight active children per session, 32 active children process-wide, and a
+maximum delegation depth of four. Nested spawns must name their direct `parentSubagentId` and exact
+`delegationDepth`; the persisted child thread is attached to that direct parent's thread. Capacity
+and depth failures are explicit control errors and do not create partial durable edges.
+
+`historyMode` controls the public conversation copied into a child thread:
+
+- `isolated` copies no parent messages;
+- `parent_turn` copies user and completed assistant messages from the latest user turn;
+- `full_history` copies all user and completed assistant messages.
+
+Reasoning, tool calls and outputs, approvals, and private trace items are never inherited. Copied
+messages contain source-thread and source-item provenance and use deterministic child item IDs.
+
+After a process restart, canonically persisted active children are restored as `interrupted`.
+`subagent.resume` selectively returns one interrupted child to `running`; explicitly closed or
+otherwise terminal children cannot be reopened. `close` is a lifecycle retention decision, while
+`cancel` records task cancellation; completed, failed, cancelled, and interrupted children remain
+queryable until explicitly closed. `subagent.wait` blocks until a selected child reaches a waiting
+or terminal boundary, the timeout expires, or the parent request is cancelled. The timeout defaults
+to 30 seconds and is capped at 30 seconds. Waiting does not write polling snapshots into thread
+history.
 
 Transport input examples:
 
@@ -1308,7 +1338,7 @@ External callers should usually prefer the Tauri commands above.
 | `session` | `append_messages`, `clear`, `clear_checkpoint`, `delete`, `get_checkpoint`, `get_history`, `get_metadata`, `list_metadata`, `patch_metadata`, `patch_user_profile`, `persist_turn`, `set_checkpoint`, `trim` |
 | `shell` | `execute`, `start`, `poll`, `write_stdin`, `resize`, `interrupt`, `terminate`, `terminate_run`, `list`, `shutdown` |
 | `skills` | `list`, `webui_create`, `webui_delete`, `webui_detail`, `webui_list`, `webui_update`, `webui_validate` |
-| `subagent` | `cancel`, `close`, `list`, `query`, `send_input`, `spawn`, `wait` |
+| `subagent` | `cancel`, `close`, `list`, `query`, `resume`, `send_input`, `spawn`, `wait` |
 | `thread` | `activity`, `agent_registry`, `append_items`, `apply_op`, `archive`, `continue_turn`, `create`, `delete`, `events`, `fork`, `interrupt`, `list`, `read`, `restore_checkpoint`, `resume`, `search`, `start_turn`, `status`, `unarchive`, `update_metadata` |
 | `tool_executor` | `execute` |
 | `tool_registry` | `list`, `search` |

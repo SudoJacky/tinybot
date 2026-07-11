@@ -724,17 +724,23 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
             vec![
+                WorkerCapability::BackgroundRead,
                 WorkerCapability::BackgroundWrite,
+                WorkerCapability::SessionMetadataRead,
                 WorkerCapability::SessionWrite,
             ],
             approval(false, None, None),
             json!({
                 "type": "object",
-                "required": ["sessionKey"],
+                "required": ["task"],
                 "properties": {
                     "sessionKey": { "type": "string" },
                     "subagentId": { "type": "string" },
                     "task": { "type": "string" },
+                    "historyMode": {
+                        "type": "string",
+                        "enum": ["isolated", "parent_turn", "full_history"]
+                    },
                     "metadata": { "type": "object" }
                 }
             }),
@@ -748,18 +754,94 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
             vec![
+                WorkerCapability::BackgroundRead,
                 WorkerCapability::BackgroundWrite,
+                WorkerCapability::SessionMetadataRead,
                 WorkerCapability::SessionWrite,
             ],
             approval(false, None, None),
             json!({
                 "type": "object",
-                "required": ["sessionKey", "subagentId", "content", "sender"],
+                "required": ["subagentId", "content"],
                 "properties": {
                     "sessionKey": { "type": "string" },
                     "subagentId": { "type": "string" },
                     "content": { "type": "string" },
                     "sender": { "type": "string" }
+                }
+            }),
+        ),
+        tool(
+            "subagent.wait",
+            "subagent",
+            "Wait for subagent",
+            "Wait until a selected child agent reaches a result or input boundary.",
+            ToolExposure::Model,
+            false,
+            runtime_policy(false, ToolCancellationMode::Cooperative, false, false),
+            vec![
+                WorkerCapability::BackgroundRead,
+                WorkerCapability::SessionMetadataRead,
+            ],
+            approval(false, None, None),
+            json!({
+                "type": "object",
+                "properties": {
+                    "sessionKey": { "type": "string" },
+                    "subagentIds": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "minItems": 1
+                    },
+                    "timeoutMs": { "type": "integer", "minimum": 0, "maximum": 30000 }
+                }
+            }),
+        ),
+        tool(
+            "subagent.close",
+            "subagent",
+            "Close subagent",
+            "Explicitly close a retained child agent. Closed children cannot be resumed.",
+            ToolExposure::Model,
+            false,
+            runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
+            vec![
+                WorkerCapability::BackgroundRead,
+                WorkerCapability::BackgroundWrite,
+                WorkerCapability::SessionMetadataRead,
+                WorkerCapability::SessionWrite,
+            ],
+            approval(false, None, None),
+            json!({
+                "type": "object",
+                "required": ["subagentId"],
+                "properties": {
+                    "sessionKey": { "type": "string" },
+                    "subagentId": { "type": "string" }
+                }
+            }),
+        ),
+        tool(
+            "subagent.resume",
+            "subagent",
+            "Resume subagent",
+            "Resume one interrupted child agent after runtime restart.",
+            ToolExposure::Model,
+            false,
+            runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
+            vec![
+                WorkerCapability::BackgroundRead,
+                WorkerCapability::BackgroundWrite,
+                WorkerCapability::SessionMetadataRead,
+                WorkerCapability::SessionWrite,
+            ],
+            approval(false, None, None),
+            json!({
+                "type": "object",
+                "required": ["subagentId"],
+                "properties": {
+                    "sessionKey": { "type": "string" },
+                    "subagentId": { "type": "string" }
                 }
             }),
         ),
@@ -992,6 +1074,59 @@ mod tests {
             ToolExecutionTarget::WorkerRpc {
                 method: "shell.write_stdin".to_string()
             }
+        );
+    }
+
+    #[test]
+    fn model_registry_exposes_complete_subagent_lifecycle_controls() {
+        let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
+            WorkerCapability::BackgroundRead,
+            WorkerCapability::BackgroundWrite,
+            WorkerCapability::SessionMetadataRead,
+            WorkerCapability::SessionWrite,
+        ]));
+
+        for method in [
+            "subagent.spawn",
+            "subagent.send_input",
+            "subagent.wait",
+            "subagent.close",
+            "subagent.resume",
+        ] {
+            let tool = registry
+                .get_tool(method)
+                .unwrap_or_else(|| panic!("{method} should be registered"));
+            assert_eq!(tool.exposure, ToolExposure::Model);
+            assert!(tool.available);
+            assert_eq!(
+                tool.execution_target,
+                ToolExecutionTarget::WorkerRpc {
+                    method: method.to_string()
+                }
+            );
+        }
+
+        let wait = registry.get_tool("subagent.wait").unwrap();
+        assert_eq!(
+            wait.runtime_policy.cancellation_mode,
+            ToolCancellationMode::Cooperative
+        );
+        assert!(!wait.runtime_policy.mutates_session);
+        assert_eq!(
+            registry.get_tool("subagent.spawn").unwrap().input_schema["properties"]["historyMode"]
+                ["enum"],
+            json!(["isolated", "parent_turn", "full_history"])
+        );
+        assert_eq!(
+            registry.get_tool("subagent.spawn").unwrap().input_schema["required"],
+            json!(["task"])
+        );
+        assert_eq!(
+            registry
+                .get_tool("subagent.send_input")
+                .unwrap()
+                .input_schema["required"],
+            json!(["subagentId", "content"])
         );
     }
 

@@ -364,6 +364,7 @@ impl WorkerThreadRpc {
         summary: &SubagentThreadSummary,
         event: Option<Value>,
     ) -> Result<AppendThreadItemsResult, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
         self.store.record_subagent_spawn(summary, event)
     }
 
@@ -373,6 +374,7 @@ impl WorkerThreadRpc {
         input: &SubagentMailboxInput,
         event: Option<Value>,
     ) -> Result<AppendThreadItemsResult, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
         self.store.record_subagent_input(summary, input, event)
     }
 
@@ -381,6 +383,7 @@ impl WorkerThreadRpc {
         summary: &SubagentThreadSummary,
         event: Option<Value>,
     ) -> Result<AppendThreadItemsResult, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
         self.store.record_subagent_status(summary, event)
     }
 

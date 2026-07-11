@@ -62,10 +62,14 @@ pub(super) fn agent_registry_entry(
             .and_then(|control| string_field(control, "agentId"))
             .unwrap_or(default_agent_id),
         thread_id: thread.thread_id.clone(),
+        session_key: thread.session_key.clone(),
         parent_thread_id: agent_control
             .as_ref()
             .and_then(|control| string_field(control, "parentThreadId"))
             .or_else(|| thread.parent_thread_id.clone()),
+        parent_agent_id: agent_control
+            .as_ref()
+            .and_then(|control| string_field(control, "parentAgentId")),
         parent_run_id: agent_control
             .as_ref()
             .and_then(|control| string_field(control, "parentRunId")),
@@ -104,7 +108,19 @@ pub(super) fn agent_registry_entry(
                 }
             }),
         child_count,
+        created_at: thread.created_at.clone(),
         updated_at: thread.updated_at.clone(),
+        trace_ref: agent_control
+            .as_ref()
+            .and_then(|control| string_field(control, "traceRef"))
+            .or_else(|| string_field(&thread.metadata.extra, "traceRef")),
+        task: agent_control
+            .as_ref()
+            .and_then(|control| string_field(control, "task"))
+            .or_else(|| thread.metadata.preview.clone()),
+        history_mode: agent_control
+            .as_ref()
+            .and_then(|control| string_field(control, "historyMode")),
         mailbox_depth: lifecycle.and_then(|value| u64_field(value, "mailboxDepth")),
         pending_approval: lifecycle
             .and_then(|value| value.get("pendingApproval"))

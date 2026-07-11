@@ -75,6 +75,7 @@ pub const NATIVE_TAURI_COMMANDS: &[&str] = &[
     "worker_subagent_wait",
     "worker_subagent_cancel",
     "worker_subagent_close",
+    "worker_subagent_resume",
     "worker_task_plan_list",
     "worker_task_plan_get",
     "worker_task_plan_save",

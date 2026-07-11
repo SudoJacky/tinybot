@@ -15,6 +15,7 @@ fn contract_inventory_lists_native_commands_and_events_used_by_frontend() {
     assert!(NATIVE_TAURI_COMMANDS.contains(&"worker_restore_agent_checkpoint"));
     assert!(NATIVE_TAURI_COMMANDS.contains(&"worker_submit_agent_form"));
     assert!(NATIVE_TAURI_COMMANDS.contains(&"worker_resume_agent_approval"));
+    assert!(NATIVE_TAURI_COMMANDS.contains(&"worker_subagent_resume"));
 
     assert!(NATIVE_AGENT_EVENT_NAMES.contains(&"agent.delta"));
     assert!(NATIVE_AGENT_EVENT_NAMES.contains(&"agent.status"));

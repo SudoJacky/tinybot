@@ -9122,7 +9122,11 @@ fn dispatches_subagent_control_requests() {
     );
     assert_eq!(
         child_thread["metadata"]["extra"]["agentControl"]["capacity"],
-        json!({ "maxActivePerSession": 8 })
+        json!({
+            "maxActivePerSession": 8,
+            "maxActiveGlobal": 32,
+            "maxDelegationDepth": 4
+        })
     );
     assert_eq!(
         child_thread["metadata"]["extra"]["agentControl"]["lifecycle"]["status"],
@@ -9220,7 +9224,7 @@ fn dispatches_subagent_control_requests() {
     );
     assert_eq!(
         child_read.result.as_ref().unwrap()["pagination"]["itemCount"],
-        5
+        4
     );
     let child_kinds = child_read.result.as_ref().unwrap()["items"]
         .as_array()
@@ -9234,7 +9238,6 @@ fn dispatches_subagent_control_requests() {
             "user_message",
             "agent_run_started",
             "user_message",
-            "subagent_message",
             "agent_run_completed",
         ]
     );
@@ -9265,12 +9268,256 @@ fn dispatches_subagent_control_requests() {
 }
 
 #[test]
+fn subagent_history_modes_copy_only_public_parent_messages() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        20,
+        CapabilityPolicy::new([
+            WorkerCapability::BackgroundRead,
+            WorkerCapability::BackgroundWrite,
+            WorkerCapability::SessionMetadataRead,
+            WorkerCapability::SessionWrite,
+        ]),
+    )
+    .with_subagent_manager(SubagentThreadManager::default());
+
+    let create = router.dispatch(&WorkerRequest::new(
+        "req-history-thread-create",
+        "trace-history",
+        "thread.create",
+        json!({
+            "threadId": "thread-history-parent",
+            "title": "History parent",
+            "sessionKey": "desktop:history",
+            "source": "user"
+        }),
+    ));
+    assert_eq!(create.error, None);
+
+    let append = router.dispatch(&WorkerRequest::new(
+        "req-history-thread-append",
+        "trace-history",
+        "thread.append_items",
+        json!({
+            "threadId": "thread-history-parent",
+            "items": [
+                {
+                    "itemId": "history:user:old",
+                    "threadId": "",
+                    "runId": "parent-run",
+                    "turnId": "turn-old",
+                    "sequence": 0,
+                    "createdAt": "1000",
+                    "kind": { "type": "user_message", "payload": { "text": "old user" } }
+                },
+                {
+                    "itemId": "history:assistant:old",
+                    "threadId": "",
+                    "runId": "parent-run",
+                    "turnId": "turn-old",
+                    "sequence": 0,
+                    "createdAt": "1001",
+                    "kind": { "type": "assistant_message_completed", "payload": { "text": "old assistant" } }
+                },
+                {
+                    "itemId": "history:reasoning:private",
+                    "threadId": "",
+                    "runId": "parent-run",
+                    "turnId": "turn-current",
+                    "sequence": 0,
+                    "createdAt": "1002",
+                    "kind": { "type": "reasoning", "payload": { "text": "private reasoning" } }
+                },
+                {
+                    "itemId": "history:tool:private",
+                    "threadId": "",
+                    "runId": "parent-run",
+                    "turnId": "turn-current",
+                    "sequence": 0,
+                    "createdAt": "1003",
+                    "kind": { "type": "tool_call_output", "payload": { "text": "private tool output" } }
+                },
+                {
+                    "itemId": "history:user:current",
+                    "threadId": "",
+                    "runId": "parent-run",
+                    "turnId": "turn-current",
+                    "sequence": 0,
+                    "createdAt": "1004",
+                    "kind": { "type": "user_message", "payload": { "text": "current user" } }
+                },
+                {
+                    "itemId": "history:assistant:current",
+                    "threadId": "",
+                    "runId": "parent-run",
+                    "turnId": "turn-current",
+                    "sequence": 0,
+                    "createdAt": "1005",
+                    "kind": { "type": "assistant_message_completed", "payload": { "text": "current assistant" } }
+                }
+            ]
+        }),
+    ));
+    assert_eq!(append.error, None);
+
+    for (subagent_id, history_mode) in [
+        ("delegate-parent-turn", "parent_turn"),
+        ("delegate-full-history", "full_history"),
+    ] {
+        let spawn = router.dispatch(&WorkerRequest::new(
+            format!("req-history-spawn-{subagent_id}"),
+            "trace-history",
+            "subagent.spawn",
+            json!({
+                "sessionKey": "desktop:history",
+                "parentRunId": "parent-run",
+                "subagentId": subagent_id,
+                "childRunId": format!("run-{subagent_id}"),
+                "task": "Inspect inherited context",
+                "historyMode": history_mode
+            }),
+        ));
+        assert_eq!(spawn.error, None);
+        assert_eq!(spawn.result.as_ref().unwrap()["accepted"], true);
+    }
+
+    let list = router.dispatch(&WorkerRequest::new(
+        "req-history-thread-list",
+        "trace-history",
+        "thread.list",
+        json!({ "includeArchived": true, "includeChildThreads": true }),
+    ));
+    assert_eq!(list.error, None);
+    let threads = list.result.as_ref().unwrap()["threads"].as_array().unwrap();
+
+    for (subagent_id, expected_messages) in [
+        (
+            "delegate-parent-turn",
+            vec!["current user", "current assistant"],
+        ),
+        (
+            "delegate-full-history",
+            vec![
+                "old user",
+                "old assistant",
+                "current user",
+                "current assistant",
+            ],
+        ),
+    ] {
+        let child = threads
+            .iter()
+            .find(|thread| thread["metadata"]["extra"]["subagentId"] == subagent_id)
+            .unwrap();
+        let read = router.dispatch(&WorkerRequest::new(
+            format!("req-history-read-{subagent_id}"),
+            "trace-history",
+            "thread.read",
+            json!({ "threadId": child["threadId"] }),
+        ));
+        assert_eq!(read.error, None);
+        let inherited = read.result.as_ref().unwrap()["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|item| !item["kind"]["payload"]["inherited"].is_null())
+            .map(|item| item["kind"]["payload"]["text"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(inherited, expected_messages);
+        assert!(read.result.as_ref().unwrap()["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(
+                |item| item["kind"]["payload"]["text"] != "private reasoning"
+                    && item["kind"]["payload"]["text"] != "private tool output"
+            ));
+    }
+}
+
+#[test]
+fn nested_subagents_persist_their_direct_parent_thread_edge() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        20,
+        CapabilityPolicy::new([
+            WorkerCapability::BackgroundRead,
+            WorkerCapability::BackgroundWrite,
+            WorkerCapability::SessionMetadataRead,
+            WorkerCapability::SessionWrite,
+        ]),
+    )
+    .with_subagent_manager(SubagentThreadManager::with_limits(4, 8, 3));
+
+    for params in [
+        json!({
+            "sessionKey": "desktop:nested",
+            "parentRunId": "root-run",
+            "subagentId": "delegate-parent",
+            "childRunId": "delegate-parent-run",
+            "delegationDepth": 1,
+            "task": "Delegate a bounded child task"
+        }),
+        json!({
+            "sessionKey": "desktop:nested",
+            "parentRunId": "delegate-parent-run",
+            "parentSubagentId": "delegate-parent",
+            "subagentId": "delegate-child",
+            "childRunId": "delegate-child-run",
+            "delegationDepth": 2,
+            "task": "Inspect the nested detail"
+        }),
+    ] {
+        let spawn = router.dispatch(&WorkerRequest::new(
+            format!("req-nested-spawn-{}", params["subagentId"]),
+            "trace-nested",
+            "subagent.spawn",
+            params,
+        ));
+        assert_eq!(spawn.error, None);
+        assert_eq!(spawn.result.as_ref().unwrap()["accepted"], true);
+    }
+
+    let list = router.dispatch(&WorkerRequest::new(
+        "req-nested-thread-list",
+        "trace-nested",
+        "thread.list",
+        json!({ "includeArchived": true, "includeChildThreads": true }),
+    ));
+    assert_eq!(list.error, None);
+    let threads = list.result.as_ref().unwrap()["threads"].as_array().unwrap();
+    let parent = threads
+        .iter()
+        .find(|thread| thread["metadata"]["extra"]["subagentId"] == "delegate-parent")
+        .unwrap();
+    let child = threads
+        .iter()
+        .find(|thread| thread["metadata"]["extra"]["subagentId"] == "delegate-child")
+        .unwrap();
+    assert_eq!(child["parentThreadId"], parent["threadId"]);
+    assert_eq!(
+        child["metadata"]["extra"]["agentControl"]["parentAgentId"],
+        "delegate-parent"
+    );
+    assert_eq!(child["metadata"]["extra"]["agentControl"]["depth"], 2);
+}
+
+#[test]
 fn background_subagent_enqueue_input_live_delivers_when_manager_has_child() {
     let fixture = WorkspaceFixture::new();
     let manager = SubagentThreadManager::default();
     manager.spawn(SubagentSpawnParams {
         session_key: "desktop:chat-1".to_string(),
         parent_run_id: Some("parent-run".to_string()),
+        parent_subagent_id: None,
+        delegation_depth: None,
+        history_mode: None,
         subagent_id: Some("delegate-1".to_string()),
         child_run_id: Some("child-1".to_string()),
         trace_ref: Some("trace-delegate-1".to_string()),
@@ -9326,6 +9573,7 @@ fn subagent_list_restores_interrupted_children_from_background_trace() {
         CapabilityPolicy::new([
             WorkerCapability::BackgroundRead,
             WorkerCapability::BackgroundWrite,
+            WorkerCapability::SessionMetadataRead,
         ]),
     )
     .with_subagent_manager(manager);
@@ -9365,6 +9613,176 @@ fn subagent_list_restores_interrupted_children_from_background_trace() {
     assert_eq!(subagents.len(), 1);
     assert_eq!(subagents[0]["subagentId"], "delegate-1");
     assert_eq!(subagents[0]["status"], "interrupted");
+}
+
+#[test]
+fn subagent_restart_restores_canonical_edges_and_resumes_only_selected_children() {
+    let fixture = WorkspaceFixture::new();
+    let policy = CapabilityPolicy::new([
+        WorkerCapability::BackgroundRead,
+        WorkerCapability::BackgroundWrite,
+        WorkerCapability::SessionMetadataRead,
+        WorkerCapability::SessionWrite,
+    ]);
+    let first_manager = SubagentThreadManager::with_limits(4, 8, 3);
+    let mut first_router =
+        WorkerRpcRouter::new(fixture.root.clone(), json!({}), vec![], 20, policy.clone())
+            .with_subagent_manager(first_manager);
+
+    for subagent_id in ["delegate-1", "delegate-2"] {
+        let spawn = first_router.dispatch(&WorkerRequest::new(
+            format!("req-spawn-{subagent_id}"),
+            "trace-subagent-restart",
+            "subagent.spawn",
+            json!({
+                "sessionKey": "desktop:restart",
+                "parentRunId": "parent-run",
+                "subagentId": subagent_id,
+                "childRunId": format!("child-{subagent_id}"),
+                "task": format!("Task for {subagent_id}"),
+                "historyMode": "isolated"
+            }),
+        ));
+        assert_eq!(spawn.error, None);
+        assert_eq!(spawn.result.as_ref().unwrap()["accepted"], true);
+    }
+    let before_restart_input = first_router.dispatch(&WorkerRequest::new(
+        "req-input-before-restart",
+        "trace-subagent-restart",
+        "subagent.send_input",
+        json!({
+            "sessionKey": "desktop:restart",
+            "subagentId": "delegate-1",
+            "content": "before restart",
+            "sender": "main_agent"
+        }),
+    ));
+    assert_eq!(before_restart_input.error, None);
+    drop(first_router);
+
+    let second_manager = SubagentThreadManager::with_limits(4, 8, 3);
+    let mut second_router =
+        WorkerRpcRouter::new(fixture.root.clone(), json!({}), vec![], 20, policy.clone())
+            .with_subagent_manager(second_manager);
+    let restored = second_router.dispatch(&WorkerRequest::new(
+        "req-list-restored",
+        "trace-subagent-restart",
+        "subagent.list",
+        json!({ "sessionKey": "desktop:restart" }),
+    ));
+    assert_eq!(restored.error, None);
+    assert_eq!(
+        restored.result.as_ref().unwrap()["subagents"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert!(restored.result.as_ref().unwrap()["subagents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|subagent| subagent["status"] == "interrupted"));
+
+    let resumed = second_router.dispatch(&WorkerRequest::new(
+        "req-resume-selected",
+        "trace-subagent-restart",
+        "subagent.resume",
+        json!({
+            "sessionKey": "desktop:restart",
+            "subagentId": "delegate-1"
+        }),
+    ));
+    assert_eq!(resumed.error, None);
+    assert_eq!(resumed.result.as_ref().unwrap()["accepted"], true);
+    assert_eq!(
+        resumed.result.as_ref().unwrap()["subagent"]["status"],
+        "running"
+    );
+    let after_restart_input = second_router.dispatch(&WorkerRequest::new(
+        "req-input-after-restart",
+        "trace-subagent-restart",
+        "subagent.send_input",
+        json!({
+            "sessionKey": "desktop:restart",
+            "subagentId": "delegate-1",
+            "content": "after restart",
+            "sender": "main_agent"
+        }),
+    ));
+    assert_eq!(after_restart_input.error, None);
+
+    let thread_list = second_router.dispatch(&WorkerRequest::new(
+        "req-list-restarted-child-threads",
+        "trace-subagent-restart",
+        "thread.list",
+        json!({ "includeArchived": true, "includeChildThreads": true }),
+    ));
+    let delegate_thread = thread_list.result.as_ref().unwrap()["threads"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|thread| thread["metadata"]["extra"]["subagentId"] == "delegate-1")
+        .unwrap();
+    let delegate_read = second_router.dispatch(&WorkerRequest::new(
+        "req-read-restarted-child-thread",
+        "trace-subagent-restart",
+        "thread.read",
+        json!({ "threadId": delegate_thread["threadId"] }),
+    ));
+    let delivered_inputs = delegate_read.result.as_ref().unwrap()["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|item| item["kind"]["payload"]["sender"] == "main_agent")
+        .map(|item| item["kind"]["payload"]["text"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(delivered_inputs, vec!["before restart", "after restart"]);
+
+    let after_resume = second_router.dispatch(&WorkerRequest::new(
+        "req-list-after-resume",
+        "trace-subagent-restart",
+        "subagent.list",
+        json!({ "sessionKey": "desktop:restart" }),
+    ));
+    let statuses = after_resume.result.as_ref().unwrap()["subagents"]
+        .as_array()
+        .unwrap();
+    assert_eq!(statuses[0]["status"], "running");
+    assert_eq!(statuses[1]["status"], "interrupted");
+
+    let closed = second_router.dispatch(&WorkerRequest::new(
+        "req-close-selected",
+        "trace-subagent-restart",
+        "subagent.close",
+        json!({
+            "sessionKey": "desktop:restart",
+            "subagentId": "delegate-1"
+        }),
+    ));
+    assert_eq!(closed.error, None);
+    assert_eq!(closed.result.as_ref().unwrap()["accepted"], true);
+    drop(second_router);
+
+    let third_manager = SubagentThreadManager::with_limits(4, 8, 3);
+    let mut third_router =
+        WorkerRpcRouter::new(fixture.root.clone(), json!({}), vec![], 20, policy)
+            .with_subagent_manager(third_manager);
+    let closed_resume = third_router.dispatch(&WorkerRequest::new(
+        "req-resume-explicitly-closed",
+        "trace-subagent-restart",
+        "subagent.resume",
+        json!({
+            "sessionKey": "desktop:restart",
+            "subagentId": "delegate-1"
+        }),
+    ));
+    assert_eq!(closed_resume.error, None);
+    assert_eq!(closed_resume.result.as_ref().unwrap()["accepted"], false);
+    assert_eq!(
+        closed_resume.result.as_ref().unwrap()["error"]["code"],
+        "forbidden"
+    );
 }
 
 #[test]

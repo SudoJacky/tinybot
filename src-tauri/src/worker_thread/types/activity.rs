@@ -57,8 +57,12 @@ pub struct ThreadAgentRegistryResult {
 pub struct ThreadAgentRegistryEntry {
     pub agent_id: String,
     pub thread_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_key: Option<String>,
     #[serde(default)]
     pub parent_thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_agent_id: Option<String>,
     #[serde(default)]
     pub parent_run_id: Option<String>,
     #[serde(default)]
@@ -73,7 +77,14 @@ pub struct ThreadAgentRegistryEntry {
     pub depth: u64,
     pub agent_path: Value,
     pub child_count: u64,
+    pub created_at: String,
     pub updated_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub history_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mailbox_depth: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

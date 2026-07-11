@@ -1,9 +1,82 @@
 use super::string_field;
 use crate::worker_subagent_manager::{
-    SubagentMailboxInput, SubagentThreadStatus, SubagentThreadSummary,
+    SubagentHistoryMode, SubagentMailboxInput, SubagentThreadStatus, SubagentThreadSummary,
 };
 use crate::worker_thread::types::{ThreadItem, ThreadItemKind, ThreadStatus};
 use serde_json::Value;
+
+pub(super) fn inherited_subagent_history_items(
+    summary: &SubagentThreadSummary,
+    source_thread_id: &str,
+    source_items: &[ThreadItem],
+) -> Vec<ThreadItem> {
+    let start = match summary.history_mode {
+        SubagentHistoryMode::Isolated => return Vec::new(),
+        SubagentHistoryMode::ParentTurn => source_items
+            .iter()
+            .rposition(|item| matches!(item.kind, ThreadItemKind::UserMessage(_)))
+            .unwrap_or(source_items.len()),
+        SubagentHistoryMode::FullHistory => 0,
+    };
+
+    source_items[start..]
+        .iter()
+        .filter_map(|source| {
+            let payload = match &source.kind {
+                ThreadItemKind::UserMessage(payload)
+                | ThreadItemKind::AssistantMessageCompleted(payload) => payload.clone(),
+                _ => return None,
+            };
+            let payload =
+                inherited_message_payload(payload, &summary.history_mode, source_thread_id, source);
+            let kind = match source.kind {
+                ThreadItemKind::UserMessage(_) => ThreadItemKind::UserMessage(payload),
+                ThreadItemKind::AssistantMessageCompleted(_) => {
+                    ThreadItemKind::AssistantMessageCompleted(payload)
+                }
+                _ => unreachable!("inherited history filters non-message items"),
+            };
+            Some(ThreadItem {
+                item_id: format!(
+                    "subagent:{}:{}:inherited:{}",
+                    summary.session_key, summary.subagent_id, source.item_id
+                ),
+                thread_id: String::new(),
+                run_id: Some(summary.child_run_id.clone()),
+                turn_id: summary.parent_run_id.clone(),
+                parent_item_id: None,
+                sequence: 0,
+                created_at: source.created_at.clone(),
+                kind,
+            })
+        })
+        .collect()
+}
+
+fn inherited_message_payload(
+    payload: Value,
+    mode: &SubagentHistoryMode,
+    source_thread_id: &str,
+    source: &ThreadItem,
+) -> Value {
+    let provenance = serde_json::json!({
+        "mode": mode,
+        "sourceThreadId": source_thread_id,
+        "sourceItemId": source.item_id,
+        "sourceRunId": source.run_id,
+        "sourceTurnId": source.turn_id,
+    });
+    match payload {
+        Value::Object(mut object) => {
+            object.insert("inherited".to_string(), provenance);
+            Value::Object(object)
+        }
+        value => serde_json::json!({
+            "content": value,
+            "inherited": provenance,
+        }),
+    }
+}
 
 pub(super) fn subagent_initial_child_items(
     summary: &SubagentThreadSummary,
@@ -75,6 +148,7 @@ pub(super) fn subagent_child_status_item(
     summary: &SubagentThreadSummary,
     event: Option<Value>,
 ) -> ThreadItem {
+    let lifecycle_label = subagent_lifecycle_item_label(summary, event.as_ref());
     let payload = subagent_summary_payload(summary, event);
     let kind = match summary.status {
         SubagentThreadStatus::Completed | SubagentThreadStatus::Closed => {
@@ -91,10 +165,8 @@ pub(super) fn subagent_child_status_item(
     };
     ThreadItem {
         item_id: format!(
-            "subagent:{}:{}:status:{}",
-            summary.session_key,
-            summary.subagent_id,
-            status_string(&summary.status)
+            "subagent:{}:{}:status:{lifecycle_label}",
+            summary.session_key, summary.subagent_id
         ),
         thread_id: String::new(),
         run_id: Some(summary.child_run_id.clone()),
@@ -104,6 +176,18 @@ pub(super) fn subagent_child_status_item(
         created_at: summary.updated_at.clone(),
         kind,
     }
+}
+
+pub(super) fn subagent_lifecycle_item_label(
+    summary: &SubagentThreadSummary,
+    event: Option<&Value>,
+) -> String {
+    event
+        .and_then(|value| value.get("eventId"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("{}:{}", status_string(&summary.status), summary.updated_at))
 }
 
 pub(super) fn subagent_parent_item(
@@ -168,11 +252,7 @@ pub(super) fn subagent_agent_control_payload(
         .filter(|value| value.is_array())
         .cloned()
         .unwrap_or_else(|| serde_json::json!(["main", summary.subagent_id]));
-    let depth = summary
-        .metadata
-        .get("depth")
-        .and_then(Value::as_u64)
-        .unwrap_or(1);
+    let depth = summary.delegation_depth as u64;
     let capacity = summary
         .metadata
         .get("capacity")
@@ -182,13 +262,21 @@ pub(super) fn subagent_agent_control_payload(
     serde_json::json!({
         "agentId": summary.subagent_id,
         "agentPath": agent_path,
+        "sessionKey": summary.session_key,
         "parentThreadId": parent_thread_id,
         "parentRunId": summary.parent_run_id,
+        "parentAgentId": summary.parent_subagent_id,
         "childRunId": summary.child_run_id,
+        "traceRef": summary.trace_ref,
+        "task": summary.task,
+        "historyMode": summary.history_mode,
+        "createdAt": summary.created_at,
+        "updatedAt": summary.updated_at,
         "role": role,
         "nickname": nickname,
         "depth": depth,
         "capacity": capacity,
+        "metadata": summary.metadata,
         "lifecycle": {
             "status": status_value(&summary.status),
             "active": active_child_run_id_for_status(summary).is_some(),
@@ -206,8 +294,11 @@ fn subagent_summary_payload(summary: &SubagentThreadSummary, event: Option<Value
     serde_json::json!({
         "sessionKey": summary.session_key,
         "parentRunId": summary.parent_run_id,
+        "parentSubagentId": summary.parent_subagent_id,
         "subagentId": summary.subagent_id,
         "childRunId": summary.child_run_id,
+        "delegationDepth": summary.delegation_depth,
+        "historyMode": summary.history_mode,
         "traceRef": summary.trace_ref,
         "name": summary.name,
         "task": summary.task,

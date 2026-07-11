@@ -3,16 +3,21 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{Arc, Mutex},
-    time::{SystemTime, UNIX_EPOCH},
+    sync::{Arc, Condvar, Mutex},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 const DEFAULT_MAX_ACTIVE_SUBAGENTS_PER_SESSION: usize = 8;
+const DEFAULT_MAX_ACTIVE_SUBAGENTS_GLOBAL: usize = 32;
+const DEFAULT_MAX_DELEGATION_DEPTH: usize = 4;
 
 #[derive(Clone, Debug)]
 pub struct SubagentThreadManager {
     state: Arc<Mutex<SubagentThreadManagerState>>,
+    changed: Arc<Condvar>,
     max_active_per_session: usize,
+    max_active_global: usize,
+    max_delegation_depth: usize,
 }
 
 #[derive(Debug, Default)]
@@ -50,7 +55,7 @@ impl SubagentThreadStatus {
         }
     }
 
-    fn is_active(&self) -> bool {
+    pub(crate) fn is_active(&self) -> bool {
         matches!(
             self,
             Self::Running | Self::WaitingMainAgent | Self::WaitingUser | Self::AwaitingApproval
@@ -88,12 +93,27 @@ impl SubagentInputSender {
     }
 }
 
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SubagentHistoryMode {
+    #[default]
+    Isolated,
+    ParentTurn,
+    FullHistory,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SubagentSpawnParams {
     pub session_key: String,
-    #[serde(default)]
+    #[serde(default, alias = "runId")]
     pub parent_run_id: Option<String>,
+    #[serde(default, alias = "parentAgentId")]
+    pub parent_subagent_id: Option<String>,
+    #[serde(default, alias = "depth")]
+    pub delegation_depth: Option<usize>,
+    #[serde(default)]
+    pub history_mode: Option<SubagentHistoryMode>,
     #[serde(default)]
     pub subagent_id: Option<String>,
     #[serde(default)]
@@ -172,8 +192,11 @@ pub struct SubagentTransitionParams {
 pub struct SubagentThreadSummary {
     pub session_key: String,
     pub parent_run_id: Option<String>,
+    pub parent_subagent_id: Option<String>,
     pub subagent_id: String,
     pub child_run_id: String,
+    pub delegation_depth: usize,
+    pub history_mode: SubagentHistoryMode,
     pub trace_ref: Option<String>,
     pub name: String,
     pub task: String,
@@ -203,8 +226,11 @@ pub struct SubagentMailboxInput {
 struct SubagentThreadRecord {
     session_key: String,
     parent_run_id: Option<String>,
+    parent_subagent_id: Option<String>,
     subagent_id: String,
     child_run_id: String,
+    delegation_depth: usize,
+    history_mode: SubagentHistoryMode,
     trace_ref: Option<String>,
     name: String,
     task: String,
@@ -245,6 +271,7 @@ pub enum SubagentControlErrorCode {
     Forbidden,
     Inactive,
     CapacityExhausted,
+    DepthExceeded,
     Interrupted,
 }
 
@@ -295,6 +322,7 @@ pub struct SubagentListResult {
 #[serde(rename_all = "camelCase")]
 pub struct SubagentWaitResult {
     pub timed_out: bool,
+    pub cancelled: bool,
     pub statuses: Vec<SubagentThreadSummary>,
 }
 
@@ -309,18 +337,37 @@ pub struct SubagentLifecycleResult {
 
 impl Default for SubagentThreadManager {
     fn default() -> Self {
-        Self::new(DEFAULT_MAX_ACTIVE_SUBAGENTS_PER_SESSION)
+        Self::with_limits(
+            DEFAULT_MAX_ACTIVE_SUBAGENTS_PER_SESSION,
+            DEFAULT_MAX_ACTIVE_SUBAGENTS_GLOBAL,
+            DEFAULT_MAX_DELEGATION_DEPTH,
+        )
     }
 }
 
 impl SubagentThreadManager {
     pub fn new(max_active_per_session: usize) -> Self {
+        Self::with_limits(
+            max_active_per_session,
+            DEFAULT_MAX_ACTIVE_SUBAGENTS_GLOBAL,
+            DEFAULT_MAX_DELEGATION_DEPTH,
+        )
+    }
+
+    pub fn with_limits(
+        max_active_per_session: usize,
+        max_active_global: usize,
+        max_delegation_depth: usize,
+    ) -> Self {
         Self {
             state: Arc::new(Mutex::new(SubagentThreadManagerState {
                 records: HashMap::new(),
                 next_sequence: 1,
             })),
+            changed: Arc::new(Condvar::new()),
             max_active_per_session,
+            max_active_global,
+            max_delegation_depth,
         }
     }
 
@@ -334,15 +381,108 @@ impl SubagentThreadManager {
         let child_run_id =
             non_empty(params.child_run_id.as_deref()).unwrap_or_else(|| subagent_id.clone());
         let created_at = non_empty(params.created_at.as_deref()).unwrap_or_else(now_timestamp);
-        let status = params.status.unwrap_or(SubagentThreadStatus::Running);
+        let status = params
+            .status
+            .clone()
+            .unwrap_or(SubagentThreadStatus::Running);
         let key = record_key(session_key, &subagent_id);
         let mut state = self
             .state
             .lock()
             .expect("subagent manager lock should not be poisoned");
-        if !state.records.contains_key(&key)
-            && active_count_for_session(&state.records, session_key) >= self.max_active_per_session
+        if let Some(existing) = state.records.get(&key) {
+            if existing.status.is_active() {
+                return SubagentSpawnResult {
+                    accepted: true,
+                    subagent: Some(existing.summary()),
+                    event: None,
+                    error: None,
+                };
+            }
+            let error = if existing.status == SubagentThreadStatus::Closed {
+                SubagentControlError {
+                    code: SubagentControlErrorCode::Forbidden,
+                    message: "explicitly closed subagent cannot be reopened by spawn; use a new id"
+                        .to_string(),
+                    current_status: Some(existing.status.clone()),
+                }
+            } else {
+                SubagentControlError {
+                    code: SubagentControlErrorCode::Inactive,
+                    message:
+                        "inactive subagent cannot be reopened by spawn; use resume when interrupted"
+                            .to_string(),
+                    current_status: Some(existing.status.clone()),
+                }
+            };
+            return SubagentSpawnResult::error(error);
+        }
+
+        let parent_subagent_id = params
+            .parent_subagent_id
+            .clone()
+            .and_then(|value| non_empty(Some(&value)));
+        let expected_depth = if let Some(parent_subagent_id) = parent_subagent_id.as_deref() {
+            let Some(parent) = state
+                .records
+                .get(&record_key(session_key, parent_subagent_id))
+            else {
+                return SubagentSpawnResult::error(not_found(parent_subagent_id));
+            };
+            if !parent.status.is_active() {
+                return SubagentSpawnResult::error(SubagentControlError {
+                    code: SubagentControlErrorCode::Inactive,
+                    message: format!(
+                        "parent subagent cannot delegate while {}",
+                        parent.status.as_str()
+                    ),
+                    current_status: Some(parent.status.clone()),
+                });
+            }
+            parent.delegation_depth.saturating_add(1)
+        } else {
+            1
+        };
+        if params
+            .delegation_depth
+            .is_some_and(|depth| depth != expected_depth)
         {
+            return SubagentSpawnResult::error(invalid(
+                "delegation_depth does not match the durable parent edge",
+            ));
+        }
+        let delegation_depth = params.delegation_depth.unwrap_or(expected_depth);
+        if delegation_depth > self.max_delegation_depth {
+            let event = next_event(
+                &mut state,
+                "agent.delegate.spawn_rejected",
+                session_key,
+                params.parent_run_id.as_deref().unwrap_or("subagent-spawn"),
+                &subagent_id,
+                Some(&child_run_id),
+                params.trace_ref.as_deref(),
+                serde_json::json!({
+                    "reason": "depth_exceeded",
+                    "delegationDepth": delegation_depth,
+                    "maxDelegationDepth": self.max_delegation_depth,
+                    "parentSubagentId": parent_subagent_id,
+                }),
+            );
+            return SubagentSpawnResult {
+                accepted: false,
+                subagent: None,
+                event: Some(event),
+                error: Some(SubagentControlError {
+                    code: SubagentControlErrorCode::DepthExceeded,
+                    message: "maximum subagent delegation depth exceeded".to_string(),
+                    current_status: None,
+                }),
+            };
+        }
+        let session_at_capacity =
+            active_count_for_session(&state.records, session_key) >= self.max_active_per_session;
+        let global_at_capacity = active_count_global(&state.records) >= self.max_active_global;
+        if session_at_capacity || global_at_capacity {
             let event = next_event(
                 &mut state,
                 "agent.delegate.spawn_rejected",
@@ -353,7 +493,9 @@ impl SubagentThreadManager {
                 params.trace_ref.as_deref(),
                 serde_json::json!({
                     "reason": "capacity_exhausted",
+                    "capacityScope": if global_at_capacity { "global" } else { "session" },
                     "maxActiveSubagents": self.max_active_per_session,
+                    "maxActiveSubagentsGlobal": self.max_active_global,
                     "task": params.task,
                 }),
             );
@@ -368,14 +510,56 @@ impl SubagentThreadManager {
                 }),
             };
         }
+        let history_mode = params.history_mode.clone().unwrap_or_default();
+        let mut agent_path = parent_subagent_id
+            .as_deref()
+            .and_then(|parent_id| state.records.get(&record_key(session_key, parent_id)))
+            .and_then(|parent| parent.metadata.get("agentPath"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_else(|| vec![Value::String("main".to_string())]);
+        agent_path.push(Value::String(subagent_id.clone()));
+        let mut metadata = params.metadata.clone();
+        if !metadata.is_object() {
+            metadata = serde_json::json!({});
+        }
+        let metadata_object = metadata
+            .as_object_mut()
+            .expect("normalized subagent metadata must be an object");
+        metadata_object.insert("depth".to_string(), serde_json::json!(delegation_depth));
+        metadata_object.insert(
+            "parentSubagentId".to_string(),
+            parent_subagent_id
+                .clone()
+                .map(Value::String)
+                .unwrap_or(Value::Null),
+        );
+        metadata_object.insert(
+            "historyMode".to_string(),
+            serde_json::to_value(&history_mode).expect("subagent history mode must serialize"),
+        );
+        metadata_object.insert(
+            "capacity".to_string(),
+            serde_json::json!({
+                "maxActivePerSession": self.max_active_per_session,
+                "maxActiveGlobal": self.max_active_global,
+                "maxDelegationDepth": self.max_delegation_depth,
+            }),
+        );
+        metadata_object
+            .entry("agentPath".to_string())
+            .or_insert(Value::Array(agent_path));
         let record = SubagentThreadRecord {
             session_key: session_key.to_string(),
             parent_run_id: params
                 .parent_run_id
                 .clone()
                 .and_then(|value| non_empty(Some(&value))),
+            parent_subagent_id: parent_subagent_id.clone(),
             subagent_id: subagent_id.clone(),
             child_run_id: child_run_id.clone(),
+            delegation_depth,
+            history_mode: history_mode.clone(),
             trace_ref: params
                 .trace_ref
                 .clone()
@@ -390,9 +574,10 @@ impl SubagentThreadManager {
             terminal_result: None,
             blocker_summary: None,
             pending_approval: None,
-            metadata: params.metadata.clone(),
+            metadata,
         };
         state.records.insert(key, record.clone());
+        self.changed.notify_all();
         let event = next_event(
             &mut state,
             "agent.delegate.started",
@@ -407,6 +592,9 @@ impl SubagentThreadManager {
                 "name": record.name,
                 "task": record.task,
                 "status": record.status.as_str(),
+                "parentSubagentId": record.parent_subagent_id,
+                "delegationDepth": record.delegation_depth,
+                "historyMode": record.history_mode,
                 "metadata": record.metadata,
             }),
         );
@@ -427,13 +615,15 @@ impl SubagentThreadManager {
             .records
             .values()
             .filter(|record| {
-                record.session_key == session_key
-                    && (record.status.is_active()
-                        || record.status == SubagentThreadStatus::Interrupted)
+                record.session_key == session_key && record.status != SubagentThreadStatus::Closed
             })
             .map(SubagentThreadRecord::summary)
             .collect::<Vec<_>>();
-        subagents.sort_by(|left, right| left.created_at.cmp(&right.created_at));
+        subagents.sort_by(|left, right| {
+            left.created_at
+                .cmp(&right.created_at)
+                .then_with(|| left.subagent_id.cmp(&right.subagent_id))
+        });
         SubagentListResult {
             session_key: session_key.to_string(),
             subagents,
@@ -511,8 +701,9 @@ impl SubagentThreadManager {
         let created_at = non_empty(params.created_at.as_deref()).unwrap_or_else(now_timestamp);
         let input = SubagentMailboxInput {
             input_id: format!(
-                "subagent-input-{}-{input_sequence}",
-                safe_event_id_part(subagent_id)
+                "subagent-input-{}-{}-{input_sequence}",
+                safe_event_id_part(subagent_id),
+                now_unix_nanos()
             ),
             sender: params.sender.clone(),
             content: content.to_string(),
@@ -526,6 +717,7 @@ impl SubagentThreadManager {
         record.mailbox.push_back(input.clone());
         record.updated_at = created_at;
         let summary = record.summary();
+        self.changed.notify_all();
         let event = next_event(
             &mut state,
             "agent.delegate.message_queued",
@@ -571,7 +763,17 @@ impl SubagentThreadManager {
     }
 
     pub fn wait(&self, params: SubagentWaitParams) -> SubagentWaitResult {
-        let state = self
+        self.wait_with_cancellation(params, || false)
+    }
+
+    pub fn wait_with_cancellation(
+        &self,
+        params: SubagentWaitParams,
+        is_cancelled: impl Fn() -> bool,
+    ) -> SubagentWaitResult {
+        let timeout = Duration::from_millis(params.timeout_ms.unwrap_or(30_000).min(30_000));
+        let started_at = Instant::now();
+        let mut state = self
             .state
             .lock()
             .expect("subagent manager lock should not be poisoned");
@@ -580,26 +782,57 @@ impl SubagentThreadManager {
             .iter()
             .map(|value| value.trim())
             .filter(|value| !value.is_empty())
+            .map(str::to_string)
             .collect::<Vec<_>>();
-        let statuses = state
-            .records
-            .values()
-            .filter(|record| record.session_key == params.session_key)
-            .filter(|record| targets.is_empty() || targets.contains(&record.subagent_id.as_str()))
-            .map(SubagentThreadRecord::summary)
-            .collect::<Vec<_>>();
-        let has_ready = statuses.iter().any(|status| {
-            status.status.is_terminal()
-                || matches!(
-                    status.status,
-                    SubagentThreadStatus::WaitingMainAgent
-                        | SubagentThreadStatus::WaitingUser
-                        | SubagentThreadStatus::AwaitingApproval
-                )
-        });
-        SubagentWaitResult {
-            timed_out: !has_ready,
-            statuses,
+        loop {
+            let mut statuses = state
+                .records
+                .values()
+                .filter(|record| record.session_key == params.session_key)
+                .filter(|record| {
+                    targets.is_empty() || targets.iter().any(|target| target == &record.subagent_id)
+                })
+                .map(SubagentThreadRecord::summary)
+                .collect::<Vec<_>>();
+            statuses.sort_by(|left, right| left.subagent_id.cmp(&right.subagent_id));
+            let has_ready = statuses.iter().any(|status| {
+                status.status.is_terminal()
+                    || matches!(
+                        status.status,
+                        SubagentThreadStatus::WaitingMainAgent
+                            | SubagentThreadStatus::WaitingUser
+                            | SubagentThreadStatus::AwaitingApproval
+                    )
+            });
+            if has_ready {
+                return SubagentWaitResult {
+                    timed_out: false,
+                    cancelled: false,
+                    statuses,
+                };
+            }
+            if is_cancelled() {
+                return SubagentWaitResult {
+                    timed_out: false,
+                    cancelled: true,
+                    statuses,
+                };
+            }
+            let elapsed = started_at.elapsed();
+            if elapsed >= timeout {
+                return SubagentWaitResult {
+                    timed_out: true,
+                    cancelled: false,
+                    statuses,
+                };
+            }
+            let remaining = timeout.saturating_sub(elapsed);
+            let poll_interval = remaining.min(Duration::from_millis(50));
+            let (next_state, _) = self
+                .changed
+                .wait_timeout(state, poll_interval)
+                .expect("subagent manager lock should not be poisoned while waiting");
+            state = next_state;
         }
     }
 
@@ -618,6 +851,43 @@ impl SubagentThreadManager {
         let Some(record) = state.records.get_mut(&record_key(session_key, subagent_id)) else {
             return SubagentLifecycleResult::error(not_found(subagent_id));
         };
+        if record.status == params.status {
+            return SubagentLifecycleResult {
+                accepted: true,
+                subagent: Some(record.summary()),
+                event: None,
+                error: None,
+            };
+        }
+        if record.status == SubagentThreadStatus::Closed {
+            return SubagentLifecycleResult::error(SubagentControlError {
+                code: SubagentControlErrorCode::Forbidden,
+                message: "explicitly closed subagent lifecycle is immutable".to_string(),
+                current_status: Some(record.status.clone()),
+            });
+        }
+        if matches!(
+            record.status,
+            SubagentThreadStatus::Completed
+                | SubagentThreadStatus::Failed
+                | SubagentThreadStatus::Cancelled
+        ) && params.status != SubagentThreadStatus::Closed
+        {
+            return SubagentLifecycleResult::error(SubagentControlError {
+                code: SubagentControlErrorCode::Inactive,
+                message: "terminal subagent can only be explicitly closed".to_string(),
+                current_status: Some(record.status.clone()),
+            });
+        }
+        if record.status == SubagentThreadStatus::Interrupted
+            && params.status == SubagentThreadStatus::Running
+        {
+            return SubagentLifecycleResult::error(SubagentControlError {
+                code: SubagentControlErrorCode::Interrupted,
+                message: "interrupted subagent must be resumed through subagent.resume".to_string(),
+                current_status: Some(record.status.clone()),
+            });
+        }
         record.status = params.status.clone();
         record.updated_at = now_timestamp();
         if matches!(record.status, SubagentThreadStatus::Closed) {
@@ -641,6 +911,7 @@ impl SubagentThreadManager {
             }
         });
         let summary = record.summary();
+        self.changed.notify_all();
         let event_type = match summary.status {
             SubagentThreadStatus::Completed => "agent.delegate.completed",
             SubagentThreadStatus::Failed => "agent.delegate.failed",
@@ -687,6 +958,106 @@ impl SubagentThreadManager {
             pending_approval: None,
             metadata: serde_json::json!({ "source": "close" }),
         })
+    }
+
+    pub fn resume(&self, params: SubagentTargetParams) -> SubagentLifecycleResult {
+        let session_key = params.session_key.trim();
+        let subagent_id = params.subagent_id.trim();
+        if session_key.is_empty() || subagent_id.is_empty() {
+            return SubagentLifecycleResult::error(invalid(
+                "session_key and subagent_id are required",
+            ));
+        }
+        let mut state = self
+            .state
+            .lock()
+            .expect("subagent manager lock should not be poisoned");
+        let key = record_key(session_key, subagent_id);
+        let Some(existing) = state.records.get(&key).cloned() else {
+            return SubagentLifecycleResult::error(not_found(subagent_id));
+        };
+        if existing.status.is_active() {
+            return SubagentLifecycleResult {
+                accepted: true,
+                subagent: Some(existing.summary()),
+                event: None,
+                error: None,
+            };
+        }
+        if existing.status == SubagentThreadStatus::Closed {
+            return SubagentLifecycleResult::error(SubagentControlError {
+                code: SubagentControlErrorCode::Forbidden,
+                message: "explicitly closed subagent cannot be resumed".to_string(),
+                current_status: Some(existing.status),
+            });
+        }
+        if existing.status != SubagentThreadStatus::Interrupted {
+            return SubagentLifecycleResult::error(SubagentControlError {
+                code: SubagentControlErrorCode::Inactive,
+                message: "only an interrupted subagent can be resumed".to_string(),
+                current_status: Some(existing.status),
+            });
+        }
+        if existing.delegation_depth > self.max_delegation_depth {
+            return SubagentLifecycleResult::error(SubagentControlError {
+                code: SubagentControlErrorCode::DepthExceeded,
+                message: "restored subagent exceeds the configured delegation depth".to_string(),
+                current_status: Some(existing.status),
+            });
+        }
+        if active_count_for_session(&state.records, session_key) >= self.max_active_per_session
+            || active_count_global(&state.records) >= self.max_active_global
+        {
+            return SubagentLifecycleResult::error(SubagentControlError {
+                code: SubagentControlErrorCode::CapacityExhausted,
+                message: "active subagent capacity exhausted".to_string(),
+                current_status: Some(existing.status),
+            });
+        }
+        let record = state
+            .records
+            .get_mut(&key)
+            .expect("validated interrupted subagent must still exist");
+        record.status = SubagentThreadStatus::Running;
+        record.updated_at = now_timestamp();
+        record.closed_at = None;
+        record.blocker_summary = None;
+        record.pending_approval = None;
+        if let Some(metadata) = record.metadata.as_object_mut() {
+            let resume_count = metadata
+                .get("resumeCount")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+                .saturating_add(1);
+            metadata.insert("resumeCount".to_string(), serde_json::json!(resume_count));
+        }
+        let summary = record.summary();
+        self.changed.notify_all();
+        let event = next_event(
+            &mut state,
+            "agent.delegate.resumed",
+            session_key,
+            summary
+                .parent_run_id
+                .as_deref()
+                .unwrap_or("subagent-resume"),
+            subagent_id,
+            Some(&summary.child_run_id),
+            summary.trace_ref.as_deref(),
+            serde_json::json!({
+                "status": summary.status.as_str(),
+                "parentSubagentId": summary.parent_subagent_id,
+                "delegationDepth": summary.delegation_depth,
+                "historyMode": summary.history_mode,
+                "metadata": { "source": "resume" },
+            }),
+        );
+        SubagentLifecycleResult {
+            accepted: true,
+            subagent: Some(summary),
+            event: Some(event),
+            error: None,
+        }
     }
 
     pub fn cancel(&self, params: SubagentTargetParams) -> SubagentLifecycleResult {
@@ -816,8 +1187,25 @@ impl SubagentThreadManager {
             let record = SubagentThreadRecord {
                 session_key: session_key.to_string(),
                 parent_run_id: Some(event.turn_id.clone()),
+                parent_subagent_id: event
+                    .payload
+                    .get("parentSubagentId")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
                 subagent_id: delegate_id.clone(),
                 child_run_id,
+                delegation_depth: event
+                    .payload
+                    .get("delegationDepth")
+                    .and_then(Value::as_u64)
+                    .and_then(|value| usize::try_from(value).ok())
+                    .unwrap_or(1),
+                history_mode: event
+                    .payload
+                    .get("historyMode")
+                    .cloned()
+                    .and_then(|value| serde_json::from_value(value).ok())
+                    .unwrap_or_default(),
                 trace_ref: event.trace_ref.clone(),
                 name: event
                     .payload
@@ -847,6 +1235,86 @@ impl SubagentThreadManager {
             restored.push(record.summary());
             state.records.insert(key, record);
         }
+        if !restored.is_empty() {
+            self.changed.notify_all();
+        }
+        restored
+    }
+
+    pub fn restore_from_durable_summaries(
+        &self,
+        session_key: &str,
+        summaries: &[SubagentThreadSummary],
+    ) -> Vec<SubagentThreadSummary> {
+        let mut restored = Vec::new();
+        let mut state = self
+            .state
+            .lock()
+            .expect("subagent manager lock should not be poisoned");
+        for summary in summaries
+            .iter()
+            .filter(|summary| summary.session_key == session_key)
+        {
+            let key = record_key(session_key, &summary.subagent_id);
+            if state.records.contains_key(&key) {
+                continue;
+            }
+            let persisted_status = summary.status.clone();
+            let status = if persisted_status.is_active() {
+                SubagentThreadStatus::Interrupted
+            } else {
+                persisted_status.clone()
+            };
+            let mut metadata = summary.metadata.clone();
+            if !metadata.is_object() {
+                metadata = serde_json::json!({});
+            }
+            if let Some(object) = metadata.as_object_mut() {
+                object.insert(
+                    "restoreSource".to_string(),
+                    Value::String("canonical_thread_store".to_string()),
+                );
+                object.insert(
+                    "persistedStatus".to_string(),
+                    serde_json::to_value(&persisted_status)
+                        .expect("persisted subagent status must serialize"),
+                );
+            }
+            let record = SubagentThreadRecord {
+                session_key: summary.session_key.clone(),
+                parent_run_id: summary.parent_run_id.clone(),
+                parent_subagent_id: summary.parent_subagent_id.clone(),
+                subagent_id: summary.subagent_id.clone(),
+                child_run_id: summary.child_run_id.clone(),
+                delegation_depth: summary.delegation_depth,
+                history_mode: summary.history_mode.clone(),
+                trace_ref: summary.trace_ref.clone(),
+                name: summary.name.clone(),
+                task: summary.task.clone(),
+                status,
+                created_at: summary.created_at.clone(),
+                updated_at: now_timestamp(),
+                closed_at: summary.closed_at.clone(),
+                mailbox: VecDeque::new(),
+                terminal_result: summary.terminal_result.clone(),
+                blocker_summary: if persisted_status.is_active() {
+                    Some("Runtime restarted before subagent completed.".to_string())
+                } else {
+                    summary.blocker_summary.clone()
+                },
+                pending_approval: if persisted_status.is_active() {
+                    None
+                } else {
+                    summary.pending_approval.clone()
+                },
+                metadata,
+            };
+            restored.push(record.summary());
+            state.records.insert(key, record);
+        }
+        if !restored.is_empty() {
+            self.changed.notify_all();
+        }
         restored
     }
 }
@@ -856,8 +1324,11 @@ impl SubagentThreadRecord {
         SubagentThreadSummary {
             session_key: self.session_key.clone(),
             parent_run_id: self.parent_run_id.clone(),
+            parent_subagent_id: self.parent_subagent_id.clone(),
             subagent_id: self.subagent_id.clone(),
             child_run_id: self.child_run_id.clone(),
+            delegation_depth: self.delegation_depth,
+            history_mode: self.history_mode.clone(),
             trace_ref: self.trace_ref.clone(),
             name: self.name.clone(),
             task: self.task.clone(),
@@ -931,9 +1402,10 @@ fn next_event(
 ) -> BackgroundTraceEvent {
     let sequence = state.next_sequence;
     state.next_sequence += 1;
+    let event_nonce = now_unix_nanos();
     BackgroundTraceEvent {
         event_id: format!(
-            "{}-{}-{sequence}",
+            "{}-{}-{event_nonce}-{sequence}",
             event_type.replace('.', "-"),
             safe_event_id_part(subagent_id)
         ),
@@ -958,6 +1430,13 @@ fn active_count_for_session(
     records
         .values()
         .filter(|record| record.session_key == session_key && record.status.is_active())
+        .count()
+}
+
+fn active_count_global(records: &HashMap<String, SubagentThreadRecord>) -> usize {
+    records
+        .values()
+        .filter(|record| record.status.is_active())
         .count()
 }
 
@@ -1010,6 +1489,13 @@ fn now_unix_ms() -> u128 {
         .as_millis()
 }
 
+fn now_unix_nanos() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos()
+}
+
 fn safe_event_id_part(value: &str) -> String {
     let sanitized = value
         .chars()
@@ -1036,6 +1522,9 @@ mod tests {
         SubagentSpawnParams {
             session_key: session_key.to_string(),
             parent_run_id: Some("parent-run".to_string()),
+            parent_subagent_id: None,
+            delegation_depth: None,
+            history_mode: None,
             subagent_id: Some(subagent_id.to_string()),
             child_run_id: Some(format!("child-{subagent_id}")),
             trace_ref: Some(format!("trace-{subagent_id}")),
@@ -1217,8 +1706,14 @@ mod tests {
             SubagentThreadStatus::Interrupted
         );
         let listed = manager.list("session-a").subagents;
-        assert_eq!(listed.len(), 1);
-        assert_eq!(listed[0].status, SubagentThreadStatus::Interrupted);
+        assert_eq!(listed.len(), 2);
+        assert!(listed.iter().any(|subagent| {
+            subagent.subagent_id == "worker-1"
+                && subagent.status == SubagentThreadStatus::Interrupted
+        }));
+        assert!(listed.iter().any(|subagent| {
+            subagent.subagent_id == "worker-2" && subagent.status == SubagentThreadStatus::Completed
+        }));
     }
 
     #[test]
@@ -1264,5 +1759,127 @@ mod tests {
         assert_eq!(restored[0].subagent_id, "worker-1");
         assert_eq!(restored[0].status, SubagentThreadStatus::Interrupted);
         assert_eq!(manager.list("session-a").subagents.len(), 1);
+    }
+
+    #[test]
+    fn enforces_global_capacity_and_delegation_depth() {
+        let manager = SubagentThreadManager::with_limits(2, 2, 2);
+        assert!(manager.spawn(spawn_params("session-a", "root-a")).accepted);
+        assert!(manager.spawn(spawn_params("session-b", "root-b")).accepted);
+
+        let global_rejection = manager.spawn(spawn_params("session-c", "root-c"));
+        assert!(!global_rejection.accepted);
+        assert_eq!(
+            global_rejection.error.unwrap().code,
+            SubagentControlErrorCode::CapacityExhausted
+        );
+
+        manager.close(SubagentTargetParams {
+            session_key: "session-b".to_string(),
+            subagent_id: "root-b".to_string(),
+        });
+        let mut nested = spawn_params("session-a", "nested-a");
+        nested.parent_subagent_id = Some("root-a".to_string());
+        nested.delegation_depth = Some(2);
+        assert!(manager.spawn(nested).accepted);
+
+        let mut too_deep = spawn_params("session-a", "too-deep");
+        too_deep.parent_subagent_id = Some("nested-a".to_string());
+        too_deep.delegation_depth = Some(3);
+        let depth_rejection = manager.spawn(too_deep);
+        assert!(!depth_rejection.accepted);
+        assert_eq!(
+            depth_rejection.error.unwrap().code,
+            SubagentControlErrorCode::DepthExceeded
+        );
+    }
+
+    #[test]
+    fn interrupted_children_resume_selectively_but_closed_children_stay_closed() {
+        let manager = SubagentThreadManager::with_limits(2, 4, 3);
+        manager.spawn(spawn_params("session-a", "worker-1"));
+        manager.spawn(spawn_params("session-a", "worker-2"));
+        manager.interrupt_non_terminal("session-a");
+
+        let resumed = manager.resume(SubagentTargetParams {
+            session_key: "session-a".to_string(),
+            subagent_id: "worker-1".to_string(),
+        });
+        assert!(resumed.accepted);
+        assert_eq!(
+            resumed.subagent.as_ref().unwrap().status,
+            SubagentThreadStatus::Running
+        );
+        assert_eq!(
+            resumed.event.as_ref().unwrap().event_type,
+            "agent.delegate.resumed"
+        );
+
+        let statuses = manager.list("session-a").subagents;
+        assert_eq!(statuses.len(), 2);
+        assert_eq!(statuses[0].status, SubagentThreadStatus::Running);
+        assert_eq!(statuses[1].status, SubagentThreadStatus::Interrupted);
+
+        manager.close(SubagentTargetParams {
+            session_key: "session-a".to_string(),
+            subagent_id: "worker-1".to_string(),
+        });
+        let closed_resume = manager.resume(SubagentTargetParams {
+            session_key: "session-a".to_string(),
+            subagent_id: "worker-1".to_string(),
+        });
+        assert!(!closed_resume.accepted);
+        assert_eq!(
+            closed_resume.error.unwrap().code,
+            SubagentControlErrorCode::Forbidden
+        );
+        assert_eq!(manager.list("session-a").subagents.len(), 1);
+    }
+
+    #[test]
+    fn wait_blocks_until_a_child_reaches_a_lifecycle_boundary() {
+        let manager = SubagentThreadManager::default();
+        manager.spawn(spawn_params("session-a", "worker-1"));
+        let transition_manager = manager.clone();
+        let transition = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            transition_manager.transition(SubagentTransitionParams {
+                session_key: "session-a".to_string(),
+                subagent_id: "worker-1".to_string(),
+                status: SubagentThreadStatus::Completed,
+                result_summary: Some("done".to_string()),
+                blocker_summary: None,
+                pending_approval: None,
+                metadata: Value::Null,
+            })
+        });
+
+        let result = manager.wait(SubagentWaitParams {
+            session_key: "session-a".to_string(),
+            subagent_ids: vec!["worker-1".to_string()],
+            timeout_ms: Some(500),
+        });
+        assert!(transition.join().unwrap().accepted);
+        assert!(!result.timed_out);
+        assert_eq!(result.statuses[0].status, SubagentThreadStatus::Completed);
+    }
+
+    #[test]
+    fn wait_stops_when_the_parent_run_is_cancelled() {
+        let manager = SubagentThreadManager::default();
+        manager.spawn(spawn_params("session-a", "worker-1"));
+
+        let result = manager.wait_with_cancellation(
+            SubagentWaitParams {
+                session_key: "session-a".to_string(),
+                subagent_ids: vec!["worker-1".to_string()],
+                timeout_ms: Some(500),
+            },
+            || true,
+        );
+
+        assert!(result.cancelled);
+        assert!(!result.timed_out);
+        assert_eq!(result.statuses[0].status, SubagentThreadStatus::Running);
     }
 }
