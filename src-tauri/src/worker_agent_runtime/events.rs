@@ -1,3 +1,4 @@
+use super::item_event_projection::attach_agent_item;
 use super::{string_field, NativeAgentEvent};
 use crate::agent_loop_runtime_protocol::{
     project_legacy_native_agent_events, AgentRuntimeEventEnvelope, AgentRuntimeEventSource,
@@ -8,7 +9,7 @@ use serde_json::Value;
 pub(super) fn event(event_name: &str, payload: Value) -> NativeAgentEvent {
     NativeAgentEvent {
         event_name: event_name.to_string(),
-        payload,
+        payload: attach_agent_item(event_name, payload),
     }
 }
 
@@ -57,6 +58,9 @@ pub(super) fn runtime_event_timestamp() -> String {
 }
 
 pub(super) fn runtime_event_item_id(event_name: &str, payload: &Value) -> Option<String> {
+    if let Some(item_id) = string_field(payload.get("agentItem").unwrap_or(&Value::Null), "id") {
+        return Some(item_id);
+    }
     match event_name {
         "agent.tool_call.delta" | "agent.tool.start" | "agent.tool.result" | "agent.tool.debug" => {
             string_field(payload, "toolCallId")

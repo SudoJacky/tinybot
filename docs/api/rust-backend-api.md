@@ -1580,6 +1580,9 @@ The Rust backend can emit live events through Tauri. Dotted worker event names a
 - `agent.awaiting_form`
 - `agent.form.resolution`
 - `agent.awaiting_approval`
+- `agent.context.compacted`
+- `agent.context.trimmed`
+- `agent.file.reference`
 - `agent.memory_reference`
 - `agent.task_progress`
 - `agent.browser_frame`
@@ -1600,6 +1603,19 @@ The Rust backend can emit live events through Tauri. Dotted worker event names a
 - `agent.error`
 - `diagnostics.log`
 - `worker.status`
+
+Semantic runtime events retain their existing compatibility fields and also include a typed
+`payload.agentItem` object. The discriminator is `type`. Current production projections cover
+approval requests/decisions, form requests/responses, task-plan progress, subagent activity,
+context compaction/trimming, errors/cancellation, usage updates, and user file/image references.
+Runtime event `itemId` is derived from the same typed item ID, so live delivery, trace persistence,
+and replay refer to one semantic item. Unknown or malformed internally constructed semantic events
+fail at the projection boundary instead of being persisted as an incomplete item.
+
+`session.task_progress.upsert` persists the same `plan_progress` item under `_agent_item` in its
+compatibility progress message. User message content parts of type `file`, `input_file`,
+`image_url`, or `input_image` emit one `agent.file.reference` event per reference; image references
+use `referenceKind: "image"` and file references use `referenceKind: "file"`.
 
 `agent.usage` payloads preserve provider-returned OpenAI-compatible usage fields such as
 `prompt_tokens`, `completion_tokens`, and `total_tokens`. The Rust agent runtime also appends

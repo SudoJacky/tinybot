@@ -22,6 +22,24 @@ impl WorkerSessionRpc {
             ensure_extra_object(session);
             ensure_messages_array(session);
             let timestamp = now_session_timestamp();
+            let completed = progress
+                .get("completed")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+                .min(u32::MAX as u64) as u32;
+            let total = progress
+                .get("total")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+                .min(u32::MAX as u64) as u32;
+            let agent_item = crate::worker_agent_runtime::AgentItem::PlanProgress(
+                crate::worker_agent_runtime::AgentPlanProgressItem {
+                    id: plan_id.to_string(),
+                    summary: content.clone(),
+                    completed,
+                    total,
+                },
+            );
             let progress_message = serde_json::json!({
                 "role": "progress",
                 "content": content,
@@ -31,6 +49,7 @@ impl WorkerSessionRpc {
                 "_task_progress": progress,
                 "_task_plan_id": plan_id,
                 "_tool_name": "task",
+                "_agent_item": agent_item,
             });
             if let Some(existing) = session
                 .extra

@@ -1459,6 +1459,10 @@ mod tests {
         );
         assert_eq!(messages[1]["_task_plan_id"], "plan-1");
         assert_eq!(messages[1]["_tool_name"], "task");
+        assert_eq!(messages[1]["_agent_item"]["type"], "plan_progress");
+        assert_eq!(messages[1]["_agent_item"]["id"], "plan-1");
+        assert_eq!(messages[1]["_agent_item"]["completed"], 1);
+        assert_eq!(messages[1]["_agent_item"]["total"], 2);
         assert!(messages[1]["timestamp"].is_string());
     }
 

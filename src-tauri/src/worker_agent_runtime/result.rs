@@ -3,6 +3,7 @@ use super::events::{
     event, legacy_result_events_from_runtime_events, runtime_event_source, runtime_event_timestamp,
     runtime_event_visibility,
 };
+use super::item_event_projection::attach_agent_item;
 use super::{NativeAgentRunContext, NativeAgentRuntimeServices, NativeAgentTraceSink};
 use crate::agent_loop_runtime_protocol::{
     AgentRunEmitter, AgentRuntimeEventAppendInput, AgentRuntimeEventEnvelope,
@@ -93,14 +94,17 @@ pub(super) fn cancelled_run_result(
     runtime_events.push(emitter.cancelled_with_payload(
         runtime_event_timestamp(),
         "cancelled",
-        serde_json::json!({
-            "runId": context.run_id,
-            "sessionId": context.session_id,
-            "iteration": iteration,
-            "cancelled": true,
-            "stopReason": "cancelled",
-            "error": "cancelled",
-        }),
+        attach_agent_item(
+            "agent.cancelled",
+            serde_json::json!({
+                "runId": context.run_id,
+                "sessionId": context.session_id,
+                "iteration": iteration,
+                "cancelled": true,
+                "stopReason": "cancelled",
+                "error": "cancelled",
+            }),
+        ),
     ));
     let events = legacy_result_events_from_runtime_events(&runtime_events);
     serde_json::json!({
@@ -145,6 +149,7 @@ pub(super) fn waiting_runtime_events(
         }),
     });
     for (event_name, item_id, phase, payload) in events {
+        let payload = attach_agent_item(event_name, payload);
         emitter.emit(AgentRuntimeEventAppendInput {
             parent_turn_id: None,
             item_id,

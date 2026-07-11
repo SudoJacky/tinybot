@@ -4,6 +4,7 @@ use super::events::{
     runtime_event_timestamp, runtime_event_visibility, runtime_status_label,
 };
 use super::hooks::AgentHookEvaluation;
+use super::item_event_projection::attach_agent_item;
 use super::usage::{
     enrich_usage_with_context_window, latest_cumulative_usage_tokens, usage_context_used_tokens,
 };
@@ -208,6 +209,7 @@ impl NativeAgentRunState {
     }
 
     pub(super) fn emit_event(&mut self, event_name: &str, payload: Value) {
+        let payload = attach_agent_item(event_name, payload);
         let event = self.emitter.emit(AgentRuntimeEventAppendInput {
             parent_turn_id: None,
             item_id: runtime_event_item_id(event_name, &payload),
@@ -262,10 +264,17 @@ impl NativeAgentRunState {
                     .map(str::to_string)
             })
             .unwrap_or_default();
+        let reference_payloads = current
+            .as_ref()
+            .map(|message| user_reference_payloads(context, message, &message_id))
+            .unwrap_or_default();
         let event =
             self.emitter
                 .user_turn_started(runtime_event_timestamp(), Some(message_id), content);
         self.append_trace_event(&event);
+        for payload in reference_payloads {
+            self.emit_event("agent.file.reference", payload);
+        }
     }
 
     pub(super) fn runtime_events(&self) -> Vec<AgentRuntimeEventEnvelope> {
@@ -316,6 +325,50 @@ impl NativeAgentRunState {
             }),
         );
     }
+}
+
+fn user_reference_payloads(
+    context: &NativeAgentRunContext,
+    message: &Value,
+    message_id: &str,
+) -> Vec<Value> {
+    message
+        .get("content")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .enumerate()
+        .filter_map(|(index, part)| {
+            let part_type = part.get("type").and_then(Value::as_str)?;
+            let (path, reference_kind) = match part_type {
+                "file" | "input_file" => (
+                    part.get("path")
+                        .or_else(|| part.get("file_id"))
+                        .or_else(|| part.get("filename"))
+                        .and_then(Value::as_str)?
+                        .to_string(),
+                    "file",
+                ),
+                "image_url" | "input_image" => {
+                    let image = part.get("image_url").or_else(|| part.get("url"))?;
+                    let url = image
+                        .as_str()
+                        .or_else(|| image.get("url").and_then(Value::as_str))?;
+                    (url.to_string(), "image")
+                }
+                _ => return None,
+            };
+            Some(serde_json::json!({
+                "runId": context.run_id,
+                "sessionId": context.session_id,
+                "referenceId": format!("{message_id}:reference:{index}"),
+                "messageId": message_id,
+                "path": path,
+                "mimeType": part.get("mime_type").or_else(|| part.get("mimeType")).cloned().unwrap_or(Value::Null),
+                "referenceKind": reference_kind,
+            }))
+        })
+        .collect()
 }
 
 fn current_user_message(messages: &[Value]) -> Option<Value> {

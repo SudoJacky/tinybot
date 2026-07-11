@@ -19,6 +19,7 @@ mod continuations;
 mod events;
 mod hooks;
 mod instructions;
+mod item_event_projection;
 mod items;
 mod provider;
 mod provider_adapter;
@@ -45,8 +46,8 @@ pub use self::hooks::{AgentHook, AgentHookDecision, AgentHookInvocation, AgentHo
 pub(crate) use self::instructions::{ComposedInstructions, InstructionComposer};
 pub use self::items::{
     AgentAssistantMessage, AgentContentPart, AgentInstructionMessage, AgentInstructionRole,
-    AgentItem, AgentItemHistory, AgentMessage, AgentMessageContent, AgentReasoningItem,
-    AgentToolCallItem, AgentToolResultItem, AgentUsageItem,
+    AgentItem, AgentItemHistory, AgentMessage, AgentMessageContent, AgentPlanProgressItem,
+    AgentReasoningItem, AgentToolCallItem, AgentToolResultItem, AgentUsageItem,
 };
 use self::provider::{
     agent_chat_completion_request, agent_provider_config, chat_completion_content,

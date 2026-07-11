@@ -2617,6 +2617,11 @@ fn agent_run_emits_context_compaction_event_when_old_messages_are_summarized() {
     assert_eq!(compact_event["payload"]["retainedMessageCount"], 1);
     assert_eq!(compact_event["payload"]["replacementMessageCount"], 2);
     assert_eq!(compact_event["payload"]["contextWindowTokens"], 80);
+    assert_eq!(
+        compact_event["payload"]["agentItem"]["type"],
+        "context_compaction"
+    );
+    assert_eq!(compact_event["payload"]["agentItem"]["droppedItemCount"], 2);
 }
 
 #[test]
@@ -2653,6 +2658,52 @@ fn agent_usage_event_includes_context_window_budget() {
     assert_eq!(usage["context_window_tokens"], 100);
     assert!(usage["context_window_remaining_tokens"].is_number());
     assert!(usage["context_window_used_tokens"].is_number());
+    assert_eq!(usage_event["payload"]["agentItem"]["type"], "usage");
+    assert_eq!(
+        usage_event["payload"]["agentItem"]["providerPayload"],
+        *usage
+    );
+}
+
+#[test]
+fn user_file_and_image_parts_emit_typed_reference_items() {
+    let result = run_native_agent_turn_with_services(
+        &NativeAgentRuntimeServices::default(),
+        json!({
+            "runtime": "rust",
+            "runId": "run-file-references",
+            "sessionId": "websocket:chat-file-references",
+            "messages": [{
+                "role": "user",
+                "content": [
+                    { "type": "text", "text": "Inspect these inputs" },
+                    { "type": "file", "path": "D:/workspace/report.md", "mime_type": "text/markdown" },
+                    { "type": "image_url", "image_url": { "url": "https://example.invalid/image.png", "detail": "low" } }
+                ]
+            }]
+        }),
+    )
+    .expect("fixture provider run should succeed");
+
+    let references = result["events"]
+        .as_array()
+        .expect("events should be present")
+        .iter()
+        .filter(|event| event["eventName"] == "agent.file.reference")
+        .collect::<Vec<_>>();
+    assert_eq!(references.len(), 2);
+    assert_eq!(
+        references[0]["payload"]["agentItem"]["type"],
+        "file_reference"
+    );
+    assert_eq!(
+        references[0]["payload"]["agentItem"]["path"],
+        "D:/workspace/report.md"
+    );
+    assert_eq!(
+        references[1]["payload"]["agentItem"]["referenceKind"],
+        "image"
+    );
 }
 
 #[test]
@@ -4564,6 +4615,12 @@ fn subagent_tools_share_manager_state_without_copying_child_transcript_to_parent
     assert_eq!(link_event["payload"]["childRunId"], "child-1");
     assert_eq!(link_event["payload"]["traceRef"], "trace-delegate-1");
     assert_eq!(link_event["payload"]["sourceToolCallId"], "call-spawn");
+    assert_eq!(link_event["payload"]["agentItem"]["type"], "subagent");
+    assert_eq!(link_event["payload"]["agentItem"]["agentId"], "delegate-1");
+    assert_eq!(
+        link_event["payload"]["agentItem"]["id"],
+        "delegate-1:linked:call-spawn"
+    );
     assert_eq!(
         result["messages"],
         json!([{ "role": "assistant", "content": "Subagent lifecycle handled." }])
@@ -5882,6 +5939,14 @@ fn saves_and_restores_approval_checkpoint_before_resume() {
         }));
     assert_eq!(awaiting["events"][1]["payload"]["status"], "waiting");
     assert_eq!(
+        awaiting["events"][1]["payload"]["agentItem"]["type"],
+        "approval"
+    );
+    assert_eq!(
+        awaiting["events"][1]["payload"]["agentItem"]["status"],
+        "waiting"
+    );
+    assert_eq!(
         awaiting["events"][1]["payload"]["detailId"],
         "approval:approval-1"
     );
@@ -5941,6 +6006,14 @@ fn saves_and_restores_approval_checkpoint_before_resume() {
     assert_eq!(resumed["events"][0]["eventName"], "agent.approval.decision");
     assert_eq!(resumed["events"][0]["payload"]["decision"], "approved");
     assert_eq!(resumed["events"][0]["payload"]["scope"], "once");
+    assert_eq!(
+        resumed["events"][0]["payload"]["agentItem"]["type"],
+        "approval"
+    );
+    assert_eq!(
+        resumed["events"][0]["payload"]["agentItem"]["decision"],
+        "approved"
+    );
     assert_eq!(resumed["restoredCheckpoint"]["phase"], "awaiting_approval");
     assert!(services.restore_checkpoint("websocket:chat-approval")["checkpoint"].is_null());
 }
@@ -6081,6 +6154,10 @@ fn handles_approval_denial_form_submit_and_cancel_events() {
         }));
     assert_eq!(awaiting_form["events"][1]["payload"]["status"], "waiting");
     assert_eq!(
+        awaiting_form["events"][1]["payload"]["agentItem"]["type"],
+        "user_input"
+    );
+    assert_eq!(
         awaiting_form["events"][1]["payload"]["detailId"],
         "form:form-1"
     );
@@ -6110,6 +6187,10 @@ fn handles_approval_denial_form_submit_and_cancel_events() {
     assert_eq!(submitted["events"][0]["eventName"], "agent.form.resolution");
     assert_eq!(submitted["events"][0]["payload"]["status"], "completed");
     assert_eq!(submitted["events"][0]["payload"]["action"], "submit");
+    assert_eq!(
+        submitted["events"][0]["payload"]["agentItem"]["action"],
+        "submit"
+    );
     assert_eq!(submitted["events"][0]["payload"]["detailId"], "form:form-1");
     assert_eq!(form_cancelled["stopReason"], "form_cancelled");
     assert_eq!(
@@ -6122,11 +6203,19 @@ fn handles_approval_denial_form_submit_and_cancel_events() {
         "form:form-cancelled"
     );
     assert_eq!(form_cancelled["events"][1]["eventName"], "agent.error");
+    assert_eq!(
+        form_cancelled["events"][1]["payload"]["agentItem"]["type"],
+        "error"
+    );
     assert_eq!(cancelled["stopReason"], "cancelled");
     assert_eq!(cancelled["error"], "cancelled");
     assert_eq!(cancelled["events"][0]["eventName"], "agent.cancelled");
     assert_eq!(cancelled["events"][0]["payload"]["stopReason"], "cancelled");
     assert_eq!(cancel_result["stopReason"], "cancelled");
+    assert_eq!(
+        cancel_result["events"][0]["payload"]["agentItem"]["cancelled"],
+        true
+    );
 }
 
 #[test]

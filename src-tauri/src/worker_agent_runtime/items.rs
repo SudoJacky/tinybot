@@ -94,6 +94,8 @@ pub struct AgentApprovalItem {
     pub tool_call_id: Option<String>,
     pub status: String,
     pub reason: Option<String>,
+    pub decision: Option<String>,
+    pub scope: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -101,6 +103,7 @@ pub struct AgentApprovalItem {
 pub struct AgentUserInputItem {
     pub id: String,
     pub status: String,
+    pub action: Option<String>,
     #[serde(default)]
     pub field_ids: Vec<String>,
 }
@@ -158,6 +161,7 @@ pub struct AgentFileReferenceItem {
     pub id: String,
     pub path: String,
     pub mime_type: Option<String>,
+    pub reference_kind: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
