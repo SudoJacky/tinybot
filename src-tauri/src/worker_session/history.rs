@@ -1,3 +1,5 @@
+use super::*;
+
 impl WorkerSessionRpc {
     pub fn get_history(
         &self,

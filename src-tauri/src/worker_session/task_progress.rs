@@ -1,3 +1,5 @@
+use super::*;
+
 impl WorkerSessionRpc {
     pub fn upsert_task_progress(
         &mut self,

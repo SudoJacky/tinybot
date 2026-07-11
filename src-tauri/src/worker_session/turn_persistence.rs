@@ -1,3 +1,5 @@
+use super::*;
+
 impl WorkerSessionRpc {
     pub fn append_messages(
         &mut self,

@@ -1,3 +1,5 @@
+use super::*;
+
 impl WorkerSessionRpc {
     pub fn get_checkpoint(&self, session_id: &str) -> Result<Option<Value>, WorkerProtocolError> {
         self.require(WorkerCapability::SessionMetadataRead)?;
@@ -44,10 +46,7 @@ impl WorkerSessionRpc {
         validate_session_id(session_id)?;
         let session = {
             let session = self.session_mut_or_create(session_id);
-            let legacy_checkpoint = session
-                .extra
-                .get("runtime_checkpoint")
-                .cloned();
+            let legacy_checkpoint = session.extra.get("runtime_checkpoint").cloned();
             if let Some(extra) = session.extra.as_object_mut() {
                 extra.remove("runtime_checkpoint");
             }

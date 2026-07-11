@@ -1,3 +1,5 @@
+use super::*;
+
 impl WorkerSessionRpc {
     pub fn patch_user_profile(
         &mut self,

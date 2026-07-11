@@ -18,18 +18,25 @@ pub struct WorkerSessionRpc {
     sqlite_path: Option<PathBuf>,
 }
 
-include!("worker_session/metadata.rs");
-include!("worker_session/checkpoint.rs");
-include!("worker_session/history.rs");
-include!("worker_session/profile.rs");
-include!("worker_session/temporary_file.rs");
-include!("worker_session/turn_persistence.rs");
-include!("worker_session/task_progress.rs");
+mod agent_run;
+mod checkpoint;
+mod common;
+mod history;
+mod history_helpers;
+mod metadata;
+mod metadata_helpers;
+mod profile;
+mod task_progress;
+mod task_progress_helpers;
+mod temporary_file;
+#[cfg(test)]
+mod tests;
+mod turn_persistence;
+mod types;
 
-include!("worker_session/types.rs");
-include!("worker_session/agent_run.rs");
-include!("worker_session/metadata_helpers.rs");
-include!("worker_session/history_helpers.rs");
-include!("worker_session/task_progress_helpers.rs");
-include!("worker_session/common.rs");
-include!("worker_session/tests.rs");
+use self::agent_run::*;
+use self::common::*;
+use self::history_helpers::*;
+use self::metadata_helpers::*;
+use self::task_progress_helpers::*;
+pub use self::types::*;

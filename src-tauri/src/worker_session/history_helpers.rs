@@ -1,4 +1,6 @@
-fn session_message_key(message: &Value) -> String {
+use super::*;
+
+pub(super) fn session_message_key(message: &Value) -> String {
     let role = message.get("role").and_then(Value::as_str).unwrap_or("");
     let key = match role {
         "tool" => serde_json::json!(["tool", message_field(message, "toolCallId", "tool_call_id")]),
@@ -16,7 +18,7 @@ fn session_message_key(message: &Value) -> String {
     serde_json::to_string(&key).unwrap_or_default()
 }
 
-fn message_field(message: &Value, camel: &str, snake: &str) -> Value {
+pub(super) fn message_field(message: &Value, camel: &str, snake: &str) -> Value {
     message
         .get(camel)
         .or_else(|| message.get(snake))
@@ -24,7 +26,7 @@ fn message_field(message: &Value, camel: &str, snake: &str) -> Value {
         .unwrap_or(Value::Null)
 }
 
-fn normalized_tool_calls_for_key(message: &Value) -> Value {
+pub(super) fn normalized_tool_calls_for_key(message: &Value) -> Value {
     let Some(tool_calls) = message_array_any(message, &["toolCalls", "tool_calls"]) else {
         return Value::Null;
     };
@@ -36,7 +38,7 @@ fn normalized_tool_calls_for_key(message: &Value) -> Value {
     )
 }
 
-fn normalized_tool_call_for_key(tool_call: &Value) -> Value {
+pub(super) fn normalized_tool_call_for_key(tool_call: &Value) -> Value {
     let function = tool_call.get("function").and_then(Value::as_object);
     serde_json::json!({
         "id": message_string(tool_call, "id"),
@@ -48,7 +50,7 @@ fn normalized_tool_call_for_key(tool_call: &Value) -> Value {
     })
 }
 
-fn project_history_messages(
+pub(super) fn project_history_messages(
     messages: &[Value],
     last_consolidated: usize,
     limit: usize,
@@ -71,7 +73,7 @@ fn project_history_messages(
         .collect()
 }
 
-fn recent_legal_suffix(messages: &[Value], keep_recent_messages: usize) -> Vec<Value> {
+pub(super) fn recent_legal_suffix(messages: &[Value], keep_recent_messages: usize) -> Vec<Value> {
     if messages.len() <= keep_recent_messages {
         return messages.to_vec();
     }
@@ -84,7 +86,7 @@ fn recent_legal_suffix(messages: &[Value], keep_recent_messages: usize) -> Vec<V
     retained[legal_start..].to_vec()
 }
 
-fn session_last_consolidated(session: &SessionMetadata) -> usize {
+pub(super) fn session_last_consolidated(session: &SessionMetadata) -> usize {
     session
         .extra
         .get("last_consolidated")
@@ -93,7 +95,7 @@ fn session_last_consolidated(session: &SessionMetadata) -> usize {
         .unwrap_or_default()
 }
 
-fn temporary_chunk_count(content: &str) -> usize {
+pub(super) fn temporary_chunk_count(content: &str) -> usize {
     let len = content.chars().count();
     if len == 0 {
         0
@@ -102,7 +104,12 @@ fn temporary_chunk_count(content: &str) -> usize {
     }
 }
 
-fn stable_upload_digest(session_id: &str, name: &str, timestamp: &str, content: &str) -> String {
+pub(super) fn stable_upload_digest(
+    session_id: &str,
+    name: &str,
+    timestamp: &str,
+    content: &str,
+) -> String {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     session_id.hash(&mut hasher);
@@ -116,7 +123,7 @@ fn stable_upload_digest(session_id: &str, name: &str, timestamp: &str, content: 
     format!("{:010x}", hasher.finish())[..10].to_string()
 }
 
-fn find_legal_message_start(messages: &[Value]) -> usize {
+pub(super) fn find_legal_message_start(messages: &[Value]) -> usize {
     let mut declared: Vec<String> = Vec::new();
     let mut start = 0;
     for (index, message) in messages.iter().enumerate() {
@@ -153,7 +160,7 @@ fn find_legal_message_start(messages: &[Value]) -> usize {
     start
 }
 
-fn project_history_message(message: &Value) -> Option<Value> {
+pub(super) fn project_history_message(message: &Value) -> Option<Value> {
     let object = message.as_object()?;
     let role = object.get("role")?.as_str()?;
     let mut projected = serde_json::Map::new();
@@ -184,7 +191,7 @@ fn project_history_message(message: &Value) -> Option<Value> {
     Some(Value::Object(projected))
 }
 
-fn assistant_tool_call_ids(message: &Value) -> Vec<String> {
+pub(super) fn assistant_tool_call_ids(message: &Value) -> Vec<String> {
     message_array_any(message, &["tool_calls", "toolCalls"])
         .map(|tool_calls| {
             tool_calls

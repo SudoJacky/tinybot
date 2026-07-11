@@ -1,3 +1,5 @@
+use super::*;
+
 impl WorkerSessionRpc {
     pub fn new(sessions: Vec<SessionMetadata>, policy: CapabilityPolicy) -> Self {
         Self {
@@ -162,7 +164,7 @@ impl WorkerSessionRpc {
         Ok(session)
     }
 
-    fn require(&self, capability: WorkerCapability) -> Result<(), WorkerProtocolError> {
+    pub(super) fn require(&self, capability: WorkerCapability) -> Result<(), WorkerProtocolError> {
         if self.policy.allows(&capability) {
             return Ok(());
         }
@@ -175,7 +177,7 @@ impl WorkerSessionRpc {
         ))
     }
 
-    fn session_mut_or_create(&mut self, session_id: &str) -> &mut SessionMetadata {
+    pub(super) fn session_mut_or_create(&mut self, session_id: &str) -> &mut SessionMetadata {
         if let Some(index) = self
             .sessions
             .iter()
@@ -197,7 +199,7 @@ impl WorkerSessionRpc {
             .expect("newly pushed session should be present")
     }
 
-    fn persist_sessions(&self) -> Result<(), WorkerProtocolError> {
+    pub(super) fn persist_sessions(&self) -> Result<(), WorkerProtocolError> {
         let Some(sqlite_path) = &self.sqlite_path else {
             return Ok(());
         };

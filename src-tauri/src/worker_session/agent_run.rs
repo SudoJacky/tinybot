@@ -1,3 +1,5 @@
+use super::*;
+
 const AGENT_RUNS_KEY: &str = "agent_runs";
 
 impl WorkerSessionRpc {
@@ -21,7 +23,9 @@ impl WorkerSessionRpc {
                 .find(|value| value.get("runId").and_then(Value::as_str) == Some(&record.run_id))
             {
                 let mut next = record.clone();
-                if let Ok(existing_record) = serde_json::from_value::<AgentRunRecord>((*existing).clone()) {
+                if let Ok(existing_record) =
+                    serde_json::from_value::<AgentRunRecord>((*existing).clone())
+                {
                     next.started_at = existing_record.started_at;
                 }
                 *existing = serde_json::to_value(&next).map_err(session_serialization_error)?;
@@ -45,7 +49,11 @@ impl WorkerSessionRpc {
         self.sessions
             .iter()
             .find(|session| session.session_id == session_id)
-            .and_then(|session| agent_run_records(session).into_iter().find(|run| run.run_id == run_id))
+            .and_then(|session| {
+                agent_run_records(session)
+                    .into_iter()
+                    .find(|run| run.run_id == run_id)
+            })
             .ok_or_else(|| unknown_agent_run_error(session_id, run_id))
     }
 
@@ -88,7 +96,8 @@ impl WorkerSessionRpc {
             .cloned()
             .collect::<Vec<_>>();
         let next_offset = offset.saturating_add(items.len());
-        let next_cursor = (next_offset < record.trace_events.len()).then(|| next_offset.to_string());
+        let next_cursor =
+            (next_offset < record.trace_events.len()).then(|| next_offset.to_string());
         Ok(AgentRunTracePage {
             session_id: record.session_id,
             run_id: record.run_id,
@@ -109,10 +118,9 @@ impl WorkerSessionRpc {
             .enumerate()
             .filter_map(|(index, event)| runtime_event_from_trace_value(&record, index, event))
             .collect::<Vec<_>>();
-        let turn_items =
-            crate::agent_loop_runtime_protocol::project_turn_items_from_trace_events(
-                &runtime_events,
-            );
+        let turn_items = crate::agent_loop_runtime_protocol::project_turn_items_from_trace_events(
+            &runtime_events,
+        );
         Ok(AgentRunRuntimeState {
             session_id: record.session_id,
             run_id: record.run_id,
@@ -131,12 +139,11 @@ impl WorkerSessionRpc {
         let mut record = self.get_agent_run_for_update(session_id, run_id)?;
         let snapshot_event = event.clone();
         if let Some(event_id) = event.get("eventId").and_then(Value::as_str) {
-            if let Some(existing) = record.trace_events.iter_mut().find(|existing| {
-                existing
-                    .get("eventId")
-                    .and_then(Value::as_str)
-                    == Some(event_id)
-            }) {
+            if let Some(existing) = record
+                .trace_events
+                .iter_mut()
+                .find(|existing| existing.get("eventId").and_then(Value::as_str) == Some(event_id))
+            {
                 *existing = event;
             } else {
                 record.trace_events.push(event);
@@ -273,7 +280,11 @@ impl WorkerSessionRpc {
         self.sessions
             .iter()
             .find(|session| session.session_id == session_id)
-            .and_then(|session| agent_run_records(session).into_iter().find(|run| run.run_id == run_id))
+            .and_then(|session| {
+                agent_run_records(session)
+                    .into_iter()
+                    .find(|run| run.run_id == run_id)
+            })
             .ok_or_else(|| unknown_agent_run_error(session_id, run_id))
     }
 }
@@ -284,7 +295,7 @@ impl AgentRunStatus {
     }
 }
 
-fn mirror_checkpoint_to_agent_run(
+pub(super) fn mirror_checkpoint_to_agent_run(
     session: &mut SessionMetadata,
     session_id: &str,
     checkpoint: Value,
@@ -320,8 +331,7 @@ fn mirror_checkpoint_to_agent_run(
             | AgentRunStatus::Failed
             | AgentRunStatus::Cancelled
             | AgentRunStatus::Interrupted
-    )
-        && record.completed_at.is_none()
+    ) && record.completed_at.is_none()
     {
         record.completed_at = Some(timestamp.to_string());
     }
@@ -359,7 +369,9 @@ fn mirror_checkpoint_to_agent_run(
     Ok(())
 }
 
-fn latest_resumable_checkpoint_for_session(session: &SessionMetadata) -> Option<AgentRunCheckpoint> {
+pub(super) fn latest_resumable_checkpoint_for_session(
+    session: &SessionMetadata,
+) -> Option<AgentRunCheckpoint> {
     let mut runs = agent_run_records(session);
     runs.sort_by(|left, right| {
         right
@@ -379,27 +391,29 @@ fn latest_resumable_checkpoint_for_session(session: &SessionMetadata) -> Option<
     })
 }
 
-fn clear_compatible_agent_run_checkpoint(
+pub(super) fn clear_compatible_agent_run_checkpoint(
     session: &mut SessionMetadata,
     legacy_checkpoint: Option<&Value>,
 ) -> Result<(), WorkerProtocolError> {
-    let selected_run_id = legacy_checkpoint
-        .and_then(checkpoint_run_id)
-        .or_else(|| latest_resumable_checkpoint_for_session(session).map(|checkpoint| checkpoint.run_id));
+    let selected_run_id = legacy_checkpoint.and_then(checkpoint_run_id).or_else(|| {
+        latest_resumable_checkpoint_for_session(session).map(|checkpoint| checkpoint.run_id)
+    });
     let Some(run_id) = selected_run_id else {
         return Ok(());
     };
     clear_agent_run_checkpoint_by_id(session, &run_id)
 }
 
-fn clear_agent_run_checkpoint_by_id(
+pub(super) fn clear_agent_run_checkpoint_by_id(
     session: &mut SessionMetadata,
     run_id: &str,
 ) -> Result<(), WorkerProtocolError> {
     update_agent_run_checkpoints(session, |run| run.run_id == run_id)
 }
 
-fn clear_all_agent_run_checkpoints(session: &mut SessionMetadata) -> Result<(), WorkerProtocolError> {
+pub(super) fn clear_all_agent_run_checkpoints(
+    session: &mut SessionMetadata,
+) -> Result<(), WorkerProtocolError> {
     update_agent_run_checkpoints(session, |run| run.checkpoint.is_some())
 }
 
@@ -542,7 +556,9 @@ fn agent_run_status_from_checkpoint(checkpoint: &Value) -> AgentRunStatus {
         .and_then(Value::as_str)
         .or_else(|| checkpoint.get("phase").and_then(Value::as_str))
     {
-        Some("final_response") | Some("completed") | Some("done") | Some("terminal") => AgentRunStatus::Completed,
+        Some("final_response") | Some("completed") | Some("done") | Some("terminal") => {
+            AgentRunStatus::Completed
+        }
         Some("cancelled") => AgentRunStatus::Cancelled,
         Some("interrupted") | Some("runtime_restarted") => AgentRunStatus::Interrupted,
         Some("provider_error")
@@ -563,12 +579,16 @@ fn validate_agent_run_key(session_id: &str, run_id: &str) -> Result<(), WorkerPr
 }
 
 fn ensure_agent_runs_array(session: &mut SessionMetadata) {
-    if !session.extra.get(AGENT_RUNS_KEY).is_some_and(Value::is_array) {
+    if !session
+        .extra
+        .get(AGENT_RUNS_KEY)
+        .is_some_and(Value::is_array)
+    {
         session.extra[AGENT_RUNS_KEY] = serde_json::json!([]);
     }
 }
 
-fn agent_run_records(session: &SessionMetadata) -> Vec<AgentRunRecord> {
+pub(super) fn agent_run_records(session: &SessionMetadata) -> Vec<AgentRunRecord> {
     session
         .extra
         .get(AGENT_RUNS_KEY)
@@ -585,15 +605,15 @@ fn parse_trace_cursor(cursor: Option<&str>) -> Result<usize, WorkerProtocolError
     let Some(cursor) = cursor else {
         return Ok(0);
     };
-    cursor
-        .parse::<usize>()
-        .map_err(|_| WorkerProtocolError::new(
+    cursor.parse::<usize>().map_err(|_| {
+        WorkerProtocolError::new(
             WorkerProtocolErrorCode::InvalidProtocol,
             "invalid agent run trace cursor",
             serde_json::json!({ "cursor": cursor }),
             false,
             WorkerProtocolErrorSource::RustCore,
-        ))
+        )
+    })
 }
 
 fn runtime_event_from_trace_value(
@@ -601,10 +621,9 @@ fn runtime_event_from_trace_value(
     index: usize,
     event: &Value,
 ) -> Option<crate::agent_loop_runtime_protocol::AgentRuntimeEventEnvelope> {
-    if let Ok(envelope) =
-        serde_json::from_value::<crate::agent_loop_runtime_protocol::AgentRuntimeEventEnvelope>(
-            event.clone(),
-        )
+    if let Ok(envelope) = serde_json::from_value::<
+        crate::agent_loop_runtime_protocol::AgentRuntimeEventEnvelope,
+    >(event.clone())
     {
         return Some(envelope);
     }

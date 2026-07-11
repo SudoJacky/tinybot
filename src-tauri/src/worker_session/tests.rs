@@ -1,4 +1,6 @@
-﻿#[cfg(test)]
+use super::*;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::agent_loop_runtime_protocol::{
@@ -282,14 +284,14 @@ mod tests {
         completed.updated_at = "unix-ms:4".to_string();
         completed.checkpoint = Some(json!({ "sessionId": "session-1", "runId": "run-done" }));
 
-        rpc.upsert_agent_run(older).expect("older run should upsert");
-        rpc.upsert_agent_run(newer).expect("newer run should upsert");
+        rpc.upsert_agent_run(older)
+            .expect("older run should upsert");
+        rpc.upsert_agent_run(newer)
+            .expect("newer run should upsert");
         rpc.upsert_agent_run(completed)
             .expect("completed run should upsert");
 
-        let runs = rpc
-            .list_agent_runs("session-1")
-            .expect("runs should list");
+        let runs = rpc.list_agent_runs("session-1").expect("runs should list");
         assert_eq!(
             runs.iter()
                 .map(|run| run.run_id.as_str())
@@ -362,7 +364,8 @@ mod tests {
     fn agent_run_summary_and_trace_page_omit_full_record_payloads() {
         let mut record = agent_run_fixture("session-1", "run-1", AgentRunStatus::Completed);
         record.trace_events = vec![json!({ "eventName": "agent.tool.result" })];
-        record.completed_tool_results = vec![json!({ "toolCallId": "call-1", "toolName": "workspace.read_file" })];
+        record.completed_tool_results =
+            vec![json!({ "toolCallId": "call-1", "toolName": "workspace.read_file" })];
         record.artifacts = vec![json!({ "type": "file" })];
         record.stop_reason = Some("final_response".to_string());
         record.completed_at = Some("unix-ms:2".to_string());
@@ -377,7 +380,11 @@ mod tests {
             .get("traceEvents")
             .is_some());
 
-        let page = AgentRunTracePage::new("session-1", "run-1", vec![json!({ "eventName": "agent.done" })]);
+        let page = AgentRunTracePage::new(
+            "session-1",
+            "run-1",
+            vec![json!({ "eventName": "agent.done" })],
+        );
         assert_eq!(page.session_id, "session-1");
         assert_eq!(page.run_id, "run-1");
         assert_eq!(page.items.len(), 1);
@@ -419,7 +426,10 @@ mod tests {
             runtime_state.runtime_events[0].schema_version,
             "tinybot.agent_event.v1"
         );
-        assert_eq!(runtime_state.turn_items[0].kind, AgentTurnItemKind::ToolCall);
+        assert_eq!(
+            runtime_state.turn_items[0].kind,
+            AgentTurnItemKind::ToolCall
+        );
         assert_eq!(runtime_state.turn_items[0].item_id, "call-legacy");
         assert_eq!(
             runtime_state.turn_items[1].kind,
@@ -489,7 +499,8 @@ mod tests {
     #[test]
     fn terminal_agent_run_status_event_does_not_terminalize_snapshot() {
         let mut rpc = WorkerSessionRpc::new(vec![session_fixture()], read_write_policy());
-        let mut record = agent_run_fixture("session-1", "run-terminal-status", AgentRunStatus::Running);
+        let mut record =
+            agent_run_fixture("session-1", "run-terminal-status", AgentRunStatus::Running);
         record.phase = "finalizing".to_string();
         record.current_iteration = 2;
         rpc.upsert_agent_run(record)
@@ -600,8 +611,7 @@ mod tests {
             json!({ "eventName": "agent.tool.start" }),
             json!({ "eventName": "agent.tool.result" }),
         ];
-        rpc.upsert_agent_run(record)
-            .expect("run should upsert");
+        rpc.upsert_agent_run(record).expect("run should upsert");
 
         let first_page = rpc
             .list_agent_run_trace_events("session-1", "run-1", None, Some(2))
@@ -687,7 +697,10 @@ mod tests {
             )
             .expect("checkpoint should set");
 
-        assert_eq!(updated.extra["runtime_checkpoint"]["runId"], "run-checkpoint");
+        assert_eq!(
+            updated.extra["runtime_checkpoint"]["runId"],
+            "run-checkpoint"
+        );
         let run_checkpoint = rpc
             .get_agent_run_checkpoint("session-1", "run-checkpoint")
             .expect("run checkpoint should read")
@@ -1808,11 +1821,7 @@ mod tests {
         }
     }
 
-    fn agent_run_fixture(
-        session_id: &str,
-        run_id: &str,
-        status: AgentRunStatus,
-    ) -> AgentRunRecord {
+    fn agent_run_fixture(session_id: &str, run_id: &str, status: AgentRunStatus) -> AgentRunRecord {
         AgentRunRecord {
             session_id: session_id.to_string(),
             run_id: run_id.to_string(),

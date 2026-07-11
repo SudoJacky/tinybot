@@ -10,11 +10,11 @@ pub struct SessionMetadata {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
-struct SessionStore {
+pub(super) struct SessionStore {
     #[serde(default = "default_session_store_version")]
-    version: usize,
+    pub(super) version: usize,
     #[serde(default)]
-    sessions: Vec<SessionMetadata>,
+    pub(super) sessions: Vec<SessionMetadata>,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -60,6 +60,8 @@ pub struct DeleteSessionResult {
     pub session_id: String,
     pub deleted: bool,
 }
+
+use super::*;
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]

@@ -1,4 +1,6 @@
-fn is_progress_message(message: &Value) -> bool {
+use super::*;
+
+pub(super) fn is_progress_message(message: &Value) -> bool {
     message_role(message) == Some("progress")
         || message
             .get("_task_event")
