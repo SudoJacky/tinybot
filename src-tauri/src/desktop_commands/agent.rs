@@ -12,7 +12,6 @@ use crate::native_agent_bridge::{
 };
 use crate::worker_agent_runtime::NativeAgentTraceSink;
 use crate::worker_client::WorkerClient;
-use crate::worker_manager::{WorkerCommandSpec, WorkerManager, WorkerManagerState};
 use crate::worker_protocol::WorkerRequest;
 use crate::worker_request_id::{next_worker_request_correlation, WorkerRequestCorrelation};
 use crate::worker_subagent_manager::{
@@ -579,8 +578,7 @@ pub(crate) fn worker_echo_agent_with_options(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<WorkerAgentEchoResult, String> {
-    let client = WorkerClient::experimental(shared);
-    client.ensure_experimental_fixture_running(workspace_root, config_snapshot)?;
+    let client = WorkerClient::experimental_fixture(shared, workspace_root, config_snapshot)?;
 
     let request_id = next_worker_request_correlation();
     let request = WorkerRequest::new(
@@ -1188,35 +1186,6 @@ fn dispatch_rust_task_request(
     response
         .result
         .ok_or_else(|| format!("{context} response missing result"))
-}
-
-pub(crate) fn ensure_experimental_fixture_worker_running(
-    worker: &WorkerManager,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-) -> Result<(), String> {
-    if worker.status().state == WorkerManagerState::Running {
-        return Ok(());
-    }
-    worker
-        .start_stdio_rpc(
-            stdio_worker_fixture_command_spec(),
-            experimental_worker_router(workspace_root, config_snapshot),
-        )
-        .map_err(|error| format!("failed to start TS worker fixture: {error:?}"))
-}
-
-fn stdio_worker_fixture_command_spec() -> WorkerCommandSpec {
-    let desktop_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("src-tauri should have repo parent")
-        .to_path_buf();
-    WorkerCommandSpec::new(
-        "node",
-        ["workers/ts-worker-fixture/src/index.ts"],
-        desktop_dir,
-    )
-    .with_label("ts-worker-fixture")
 }
 
 fn experimental_worker_workspace_root() -> PathBuf {
