@@ -1137,6 +1137,12 @@ objects deliberately labeled low integrity remain writable and appear in normali
 `windows://low-integrity`. Read-only PTY requests and read-only requests on platforms without an
 adapter fail closed.
 
+Windows unsandboxed pipe processes also receive a dedicated kill-on-close Job Object immediately
+after creation. Failure to create or assign that job fails the start and terminates the direct child.
+`shell.terminate`, run cancellation, and gateway shutdown terminate the job and verify the root
+record reaches terminal state, preventing descendants from retaining inherited pipe handles or
+surviving the owner.
+
 Process snapshots use camel-case fields and include:
 
 ```json

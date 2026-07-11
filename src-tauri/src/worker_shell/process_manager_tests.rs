@@ -146,6 +146,78 @@ fn windows_read_only_job_terminates_descendant_processes() {
     );
 }
 
+#[cfg(target_os = "windows")]
+#[test]
+fn windows_unsandboxed_termination_stops_descendant_processes() {
+    let fixture = ProcessFixture::new();
+    let rpc = shell_rpc(&fixture);
+    let child_started = fixture.root.join("unsandboxed-child-started.txt");
+    let child_survived = fixture.root.join("unsandboxed-child-survived.txt");
+    std::fs::write(
+        fixture.root.join("unsandboxed-child.ps1"),
+        concat!(
+            "Set-Content -LiteralPath 'unsandboxed-child-started.txt' -Value 'started'\r\n",
+            "Start-Sleep -Seconds 2\r\n",
+            "Set-Content -LiteralPath 'unsandboxed-child-survived.txt' -Value 'survived'\r\n"
+        ),
+    )
+    .expect("unsandboxed child fixture should be written");
+    std::fs::write(
+        fixture.root.join("unsandboxed-parent.ps1"),
+        concat!(
+            "$child = Start-Process -FilePath 'powershell.exe' ",
+            "-ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','unsandboxed-child.ps1' ",
+            "-PassThru -WindowStyle Hidden\r\n",
+            "Set-Content -LiteralPath 'unsandboxed-child-pid.txt' -Value $child.Id\r\n",
+            "while ($true) { Start-Sleep -Seconds 1 }\r\n"
+        ),
+    )
+    .expect("unsandboxed parent fixture should be written");
+    let started = rpc
+        .start(ShellStartParams {
+            command: concat!(
+                "powershell.exe -NoProfile -ExecutionPolicy Bypass ",
+                "-File unsandboxed-parent.ps1"
+            )
+            .to_string(),
+            working_dir: Some(".".to_string()),
+            restrict_to_workspace: Some(true),
+            tty: Some(false),
+            yield_time_ms: Some(0),
+            rows: None,
+            cols: None,
+            sandbox_mode: Some(ShellSandboxMode::Unsandboxed),
+            network_mode: Some(PermissionNetworkMode::Unrestricted),
+            run_id: Some("run-unsandboxed-tree".to_string()),
+            tool_call_id: Some("tool-unsandboxed-tree".to_string()),
+            cancellation: None,
+        })
+        .expect("unsandboxed process tree should start");
+    assert!(started.running, "{started:?}");
+
+    let child_start_deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while !child_started.exists() {
+        assert!(
+            std::time::Instant::now() < child_start_deadline,
+            "unsandboxed descendant should start before termination"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    let terminated = rpc
+        .terminate(ShellProcessIdParams {
+            process_id: started.process_id,
+            run_id: Some("run-unsandboxed-tree".to_string()),
+        })
+        .expect("unsandboxed process tree should terminate");
+    assert_eq!(terminated.status, "terminated", "{terminated:?}");
+    std::thread::sleep(Duration::from_secs(3));
+    assert!(
+        !child_survived.exists(),
+        "an unsandboxed descendant escaped task-tree termination"
+    );
+}
+
 #[test]
 fn interactive_process_accepts_input_resizes_and_exits_cleanly() {
     let fixture = ProcessFixture::new();

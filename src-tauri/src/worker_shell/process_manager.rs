@@ -1,5 +1,7 @@
 #[cfg(target_os = "windows")]
-use super::sandbox::windows::{spawn_read_only_pipe_process, WindowsReadOnlyChild};
+use super::sandbox::windows::{
+    spawn_read_only_pipe_process, WindowsProcessJob, WindowsReadOnlyChild,
+};
 use super::{
     sandbox::ShellSandboxAdapter, shell_command, shell_error, ShellOutputChunk,
     ShellProcessCleanupReport, ShellProcessOutput,
@@ -513,12 +515,27 @@ fn spawn_unsandboxed_pipe_process(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     configure_process_group(&mut command);
+    #[cfg(target_os = "windows")]
+    let job = WindowsProcessJob::new().map_err(|error| {
+        shell_error(
+            "failed to create shell process job",
+            serde_json::json!({ "error": error.to_string() }),
+        )
+    })?;
     let mut child = command.spawn().map_err(|error| {
         shell_error(
             "failed to start shell process",
             serde_json::json!({ "error": error.to_string() }),
         )
     })?;
+    #[cfg(target_os = "windows")]
+    if let Err(error) = job.assign(&child) {
+        let _ = super::terminate_child_process(&mut child);
+        return Err(shell_error(
+            "failed to assign shell process to job",
+            serde_json::json!({ "error": error.to_string() }),
+        ));
+    }
     let system_process_id = child.id();
     let stdin = child.stdin.take().ok_or_else(|| {
         shell_error(
@@ -543,6 +560,8 @@ fn spawn_unsandboxed_pipe_process(
     record.set_stdin(Box::new(stdin));
     record.set_terminator(ProcessTerminator::Pipe {
         child: child.clone(),
+        #[cfg(target_os = "windows")]
+        job,
     });
     let stdout_reader = spawn_output_reader(record.clone(), "stdout", Box::new(stdout));
     let stderr_reader = spawn_output_reader(record.clone(), "stderr", Box::new(stderr));
@@ -846,6 +865,8 @@ enum BeginTermination {
 enum ProcessTerminator {
     Pipe {
         child: Arc<Mutex<Child>>,
+        #[cfg(target_os = "windows")]
+        job: WindowsProcessJob,
     },
     Pty {
         killer: Box<dyn ChildKiller + Send + Sync>,
@@ -860,11 +881,24 @@ enum ProcessTerminator {
 impl ProcessTerminator {
     fn terminate(&mut self) -> std::io::Result<()> {
         match self {
-            Self::Pipe { child } => {
+            Self::Pipe {
+                child,
+                #[cfg(target_os = "windows")]
+                job,
+            } => {
                 let mut child = child
                     .lock()
                     .map_err(|_| std::io::Error::other("shell child process lock was poisoned"))?;
-                super::terminate_child_process(&mut child)
+                #[cfg(target_os = "windows")]
+                {
+                    let tree_result = job.terminate();
+                    let child_result = super::terminate_child_process(&mut child);
+                    combine_termination_results(tree_result, child_result)
+                }
+                #[cfg(not(target_os = "windows"))]
+                {
+                    super::terminate_child_process(&mut child)
+                }
             }
             Self::Pty {
                 killer,

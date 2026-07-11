@@ -3,8 +3,9 @@ use std::fs::File;
 use std::io;
 use std::mem::{replace, size_of};
 use std::os::windows::ffi::OsStrExt;
-use std::os::windows::io::{FromRawHandle, RawHandle};
+use std::os::windows::io::{AsRawHandle, FromRawHandle, RawHandle};
 use std::path::{Path, PathBuf};
+use std::process::Child;
 use std::ptr::{null, null_mut};
 
 use windows_sys::Win32::Foundation::{
@@ -50,6 +51,33 @@ pub(in crate::worker_shell) struct WindowsReadOnlySpawn {
 pub(in crate::worker_shell) struct WindowsReadOnlyChild {
     process: OwnedHandle,
     job: Option<OwnedHandle>,
+}
+
+pub(in crate::worker_shell) struct WindowsProcessJob {
+    job: OwnedHandle,
+}
+
+impl WindowsProcessJob {
+    pub(in crate::worker_shell) fn new() -> io::Result<Self> {
+        Ok(Self {
+            job: create_kill_on_close_job()?,
+        })
+    }
+
+    pub(in crate::worker_shell) fn assign(&self, child: &Child) -> io::Result<()> {
+        let process = child.as_raw_handle() as HANDLE;
+        if unsafe { AssignProcessToJobObject(self.job.raw(), process) } == 0 {
+            return Err(last_error("AssignProcessToJobObject"));
+        }
+        Ok(())
+    }
+
+    pub(in crate::worker_shell) fn terminate(&self) -> io::Result<()> {
+        if unsafe { TerminateJobObject(self.job.raw(), 1) } == 0 {
+            return Err(last_error("TerminateJobObject"));
+        }
+        Ok(())
+    }
 }
 
 impl WindowsReadOnlyChild {
