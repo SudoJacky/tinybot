@@ -25,7 +25,6 @@ use crate::agent_loop_runtime_protocol::{
     AgentRuntimeEventSource, AgentRuntimeEventVisibility, AgentRuntimePhase,
 };
 use crate::runtime::agent_task::StartAgentRun;
-use crate::worker_capability::default_desktop_capability_policy;
 use crate::worker_tool_registry::{McpToolContributor, WorkerToolRegistryRpc};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -211,6 +210,10 @@ async fn run_native_agent_turn_with_instructions_async(
 ) -> Result<Value, String> {
     let mut context = NativeAgentRunContext::from_spec(spec, config_snapshot.clone());
     context.attach_observability(services);
+    if let Some(instructions) = instructions.as_ref() {
+        context.settings.working_directory = Some(instructions.working_directory.clone());
+    }
+    context.settings.validate()?;
     context.instructions = instructions;
     context.attach_cancellation(
         services.cancellations.clone(),
@@ -272,7 +275,7 @@ async fn run_native_agent_turn_with_instructions_async(
                 ));
             }
         };
-        let mut tool_registry = WorkerToolRegistryRpc::new(default_desktop_capability_policy());
+        let mut tool_registry = WorkerToolRegistryRpc::new(context.settings.capability_policy()?);
         for server in discovered {
             tool_registry =
                 tool_registry.with_contributor(Arc::new(McpToolContributor::from_discovery(
@@ -288,6 +291,10 @@ async fn run_native_agent_turn_with_instructions_async(
     if let Some(entries) = services.test_tool_registry_entries.clone() {
         context.tool_router = super::tool_router::NativeToolRouter::new(entries);
     }
+    context.tool_router.configure_for_turn(
+        &context.settings.selected_tools,
+        context.settings.effective_approval_policy(),
+    )?;
     #[cfg(test)]
     context
         .tool_router

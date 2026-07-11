@@ -532,6 +532,24 @@ fn instruction_working_directory(spec: &Value, workspace_root: &Path) -> Result<
             working_directory.display()
         ));
     }
+    let canonical_workspace = fs::canonicalize(workspace_root).map_err(|error| {
+        format!(
+            "failed to resolve agent workspace root `{}`: {error}",
+            workspace_root.display()
+        )
+    })?;
+    let canonical_working_directory = fs::canonicalize(&working_directory).map_err(|error| {
+        format!(
+            "failed to resolve agent working directory `{}`: {error}",
+            working_directory.display()
+        )
+    })?;
+    if !canonical_working_directory.starts_with(&canonical_workspace) {
+        return Err(format!(
+            "agent working directory escapes workspace root: `{}`",
+            working_directory.display()
+        ));
+    }
     Ok(working_directory)
 }
 
@@ -736,6 +754,23 @@ fn current_unix_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rejects_a_working_directory_outside_the_workspace_root() {
+        let fixture = InstructionFixture::new("outside-working-directory");
+        let outside = fixture.root.with_extension("outside");
+        fs::create_dir_all(&outside).expect("outside working directory fixture should create");
+
+        let error = InstructionComposer::default()
+            .compose(
+                &fixture.root,
+                &serde_json::json!({ "workingDirectory": outside }),
+            )
+            .expect_err("working directory outside workspace must fail");
+        fs::remove_dir_all(&outside).expect("outside working directory fixture should clean up");
+
+        assert!(error.contains("escapes workspace root"));
+    }
 
     #[test]
     fn reports_truncation_and_invalid_utf8_without_hiding_the_source() {

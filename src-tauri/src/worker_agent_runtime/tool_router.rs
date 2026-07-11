@@ -43,6 +43,61 @@ impl NativeToolRouter {
         Ok(specs)
     }
 
+    pub(super) fn configure_for_turn(
+        &mut self,
+        selected_tools: &[String],
+        approval_policy: &str,
+    ) -> Result<(), String> {
+        let mut selected_tool_ids = BTreeSet::new();
+        if !selected_tools.is_empty() {
+            for selected in selected_tools {
+                let selected = selected.trim();
+                let Some(entry) = self
+                    .entries
+                    .iter()
+                    .find(|entry| entry.tool_id == selected || entry.method == selected)
+                else {
+                    return Err(format!("unknown selected tool: {selected}"));
+                };
+                if !entry.available {
+                    return Err(format!("selected tool is unavailable: {}", entry.tool_id));
+                }
+                if !selected_tool_ids.insert(entry.tool_id.clone()) {
+                    return Err(format!(
+                        "selected tools contain duplicate entry: {}",
+                        entry.tool_id
+                    ));
+                }
+            }
+            self.entries
+                .retain(|entry| selected_tool_ids.contains(&entry.tool_id));
+        }
+
+        if approval_policy == "never" {
+            if let Some(entry) = self.entries.iter().find(|entry| entry.approval.required) {
+                if !selected_tools.is_empty() {
+                    return Err(format!(
+                        "selected tool `{}` requires approval but approval_policy is `never`",
+                        entry.tool_id
+                    ));
+                }
+            }
+            self.entries.retain(|entry| !entry.approval.required);
+        }
+
+        self.activated_tool_ids = if selected_tools.is_empty() {
+            BTreeSet::new()
+        } else {
+            self.entries
+                .iter()
+                .filter(|entry| entry.exposure == ToolExposure::Deferred)
+                .map(|entry| entry.tool_id.clone())
+                .collect()
+        };
+        self.provider_name_map(&self.activated_tool_ids)?;
+        Ok(())
+    }
+
     pub(super) fn resolve_provider_name(&self, provider_name: &str) -> Result<String, String> {
         if let Some(entry) = self
             .visible_entries(&self.activated_tool_ids)

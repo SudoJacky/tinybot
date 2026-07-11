@@ -512,6 +512,19 @@ with the provider ID and missing capability. Declared settings map to Chat Compl
 follows: service tier to `service_tier`, reasoning effort to `reasoning_effort`, reasoning summary
 configuration to `reasoning`, and output schemas to `response_format.type = "json_schema"`.
 
+Turn-level runtime controls are also typed and validated before MCP discovery or provider dispatch:
+
+- `workingDirectory`/`cwd` must resolve to an existing directory inside the workspace. The composed
+  instruction provenance and provider context use that directory, and shell tools inherit its
+  workspace-relative path when their call does not provide `workingDir`.
+- `approvalPolicy` accepts `on_request` (also `on-request`) or `never`. `never` removes
+  approval-required tools from the turn; explicitly selecting one is a validation error.
+- `permissionProfile` currently accepts only `local-worker`, which selects the native desktop
+  capability policy. Unknown profiles fail explicitly.
+- `selectedTools` is an optional exact allowlist of tool IDs or methods. Deferred selections activate
+  for that turn; unknown, unavailable, or duplicate selections fail. An omitted or empty list keeps
+  the normal registry.
+
 ### Agent task ownership
 
 Every native run attempt is registered under one in-process task owner before system-prompt loading,

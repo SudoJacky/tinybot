@@ -178,6 +178,7 @@ fn normalizes_desktop_run_spec_inputs_for_rust_turns() {
 fn composed_workspace_instructions_reach_provider_and_reload_user_edits() {
     struct CapturingProvider {
         requests: Arc<Mutex<Vec<Vec<Value>>>>,
+        working_directories: Arc<Mutex<Vec<Option<PathBuf>>>>,
     }
 
     impl NativeAgentProvider for CapturingProvider {
@@ -195,6 +196,10 @@ fn composed_workspace_instructions_reach_provider_and_reload_user_edits() {
                         .expect("request messages should be an array")
                         .clone(),
                 );
+            self.working_directories
+                .lock()
+                .expect("captured working directories lock should not be poisoned")
+                .push(context.settings.working_directory.clone());
             Ok(NativeAgentProviderResponse {
                 final_content: "done".to_string(),
                 reasoning_delta: None,
@@ -223,9 +228,11 @@ fn composed_workspace_instructions_reach_provider_and_reload_user_edits() {
     )
     .expect("nested override instructions should write");
     let requests = Arc::new(Mutex::new(Vec::new()));
+    let working_directories = Arc::new(Mutex::new(Vec::new()));
     let services = NativeAgentRuntimeServices::new(
         Arc::new(CapturingProvider {
             requests: requests.clone(),
+            working_directories: working_directories.clone(),
         }),
         Arc::new(FakeNativeAgentToolDispatcher),
         Arc::new(InMemoryNativeAgentCheckpointStore::default()),
@@ -303,6 +310,15 @@ fn composed_workspace_instructions_reach_provider_and_reload_user_edits() {
         .expect("custom system prompt should be text")
         .contains("You are Tinybot"));
     assert_eq!(requests[1][1]["content"], "hello again");
+    assert_eq!(
+        *working_directories
+            .lock()
+            .expect("captured working directories lock should not be poisoned"),
+        [
+            Some(working_directory.clone()),
+            Some(working_directory.clone())
+        ]
+    );
 
     for result in [&default_result, &custom_result] {
         assert_eq!(
@@ -2126,6 +2142,172 @@ fn typed_turn_settings_encode_declared_provider_features() {
     assert_eq!(request["reasoning_effort"], "high");
     assert_eq!(request["response_format"]["type"], "json_schema");
     assert_eq!(request["response_format"]["json_schema"]["name"], "answer");
+}
+
+#[test]
+fn selected_turn_tools_limit_the_production_provider_registry() {
+    #[derive(Clone)]
+    struct ToolRegistryProvider {
+        specs: Arc<Mutex<Vec<Vec<Value>>>>,
+        activated: Arc<Mutex<Vec<Vec<String>>>>,
+    }
+
+    impl NativeAgentProvider for ToolRegistryProvider {
+        fn complete(
+            &self,
+            context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            self.specs
+                .lock()
+                .expect("tool registry provider lock should not be poisoned")
+                .push(context.tool_router.provider_specs()?);
+            self.activated
+                .lock()
+                .expect("activated tools lock should not be poisoned")
+                .push(context.tool_router.activated_tool_ids());
+            Ok(NativeAgentProviderResponse {
+                final_content: "selected tools applied".to_string(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: Vec::new(),
+            })
+        }
+    }
+
+    let specs = Arc::new(Mutex::new(Vec::new()));
+    let activated = Arc::new(Mutex::new(Vec::new()));
+    let services = NativeAgentRuntimeServices::new(
+        Arc::new(ToolRegistryProvider {
+            specs: specs.clone(),
+            activated: activated.clone(),
+        }),
+        Arc::new(FakeNativeAgentToolDispatcher),
+        Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(InMemoryNativeAgentCancellation::default()),
+    );
+    let result = run_native_agent_turn_with_services(
+        &services,
+        json!({
+            "runtime": "rust",
+            "runId": "run-selected-tools",
+            "sessionId": "session-selected-tools",
+            "selectedTools": ["workspace.read_file"],
+            "messages": [{ "role": "user", "content": "read one file" }]
+        }),
+    )
+    .expect("selected tool should configure the final provider registry");
+    run_native_agent_turn_with_services(
+        &services,
+        json!({
+            "runtime": "rust",
+            "runId": "run-selected-deferred-tool",
+            "sessionId": "session-selected-deferred-tool",
+            "selectedTools": ["workspace.apply_patch"],
+            "messages": [{ "role": "user", "content": "prepare one patch tool" }]
+        }),
+    )
+    .expect("selected deferred tool should activate for the turn");
+    run_native_agent_turn_with_services(
+        &services,
+        json!({
+            "runtime": "rust",
+            "runId": "run-never-approval",
+            "sessionId": "session-never-approval",
+            "approvalPolicy": "never",
+            "messages": [{ "role": "user", "content": "use safe tools only" }]
+        }),
+    )
+    .expect("never approval policy should expose only no-approval tools");
+    let captured = specs
+        .lock()
+        .expect("tool registry provider lock should not be poisoned");
+    let activated = activated
+        .lock()
+        .expect("activated tools lock should not be poisoned");
+
+    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(captured.len(), 3);
+    assert_eq!(captured[0].len(), 1);
+    assert_eq!(captured[0][0]["function"]["name"], "workspace_read_file");
+    assert!(activated[0].is_empty());
+    assert_eq!(activated[1], ["workspace.apply_patch"]);
+    assert!(captured[2].iter().all(|tool| !matches!(
+        tool["function"]["name"].as_str(),
+        Some("workspace_apply_patch" | "exec_command")
+    )));
+    assert!(activated[2].is_empty());
+}
+
+#[test]
+fn invalid_turn_policy_stops_before_provider_dispatch() {
+    #[derive(Clone)]
+    struct CountingProvider {
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl NativeAgentProvider for CountingProvider {
+        fn complete(
+            &self,
+            _context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(NativeAgentProviderResponse {
+                final_content: "provider should not run".to_string(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: Vec::new(),
+            })
+        }
+    }
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let services = NativeAgentRuntimeServices::new(
+        Arc::new(CountingProvider {
+            calls: calls.clone(),
+        }),
+        Arc::new(FakeNativeAgentToolDispatcher),
+        Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(InMemoryNativeAgentCancellation::default()),
+    );
+    let invalid_profile = run_native_agent_turn_with_services(
+        &services,
+        json!({
+            "runtime": "rust",
+            "runId": "run-invalid-profile",
+            "sessionId": "session-invalid-profile",
+            "permissionProfile": "remote-worker",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }),
+    )
+    .expect_err("unsupported permission profiles must fail explicitly");
+    let impossible_selection = run_native_agent_turn_with_services(
+        &services,
+        json!({
+            "runtime": "rust",
+            "runId": "run-never-approval-tool",
+            "sessionId": "session-never-approval-tool",
+            "approvalPolicy": "never",
+            "selectedTools": ["workspace.apply_patch"],
+            "messages": [{ "role": "user", "content": "patch a file" }]
+        }),
+    )
+    .expect_err("approval-required selections must conflict with never policy");
+    let unknown_tool = run_native_agent_turn_with_services(
+        &services,
+        json!({
+            "runtime": "rust",
+            "runId": "run-unknown-selected-tool",
+            "sessionId": "session-unknown-selected-tool",
+            "selectedTools": ["missing.tool"],
+            "messages": [{ "role": "user", "content": "use missing tool" }]
+        }),
+    )
+    .expect_err("unknown selected tools must fail explicitly");
+
+    assert!(invalid_profile.contains("permission_profile"));
+    assert!(impossible_selection.contains("approval_policy"));
+    assert!(unknown_tool.contains("unknown selected tool"));
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
 
 #[test]

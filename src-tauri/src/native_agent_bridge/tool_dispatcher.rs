@@ -37,6 +37,12 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
                     tool_call.name
                 )
             })?;
+        apply_turn_working_directory(
+            context.settings.working_directory.as_deref(),
+            &tool_call.name,
+            &mut arguments,
+            &self.workspace_root,
+        )?;
         normalize_subagent_arguments(context, &tool_call.name, &mut arguments)?;
         let execution_target = context.tool_execution_target(&tool_call.name);
         if matches!(
@@ -132,6 +138,97 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
             }
             self.dispatch(&context, &tool_call)
         })
+    }
+}
+
+fn apply_turn_working_directory(
+    turn_working_directory: Option<&std::path::Path>,
+    tool_name: &str,
+    arguments: &mut serde_json::Value,
+    workspace_root: &std::path::Path,
+) -> Result<(), String> {
+    if !matches!(tool_name, "exec_command" | "shell.start" | "shell.execute") {
+        return Ok(());
+    }
+    let object = arguments.as_object_mut().ok_or_else(|| {
+        format!("native shell tool `{tool_name}` arguments must be a JSON object")
+    })?;
+    if ["workingDir", "working_dir", "workdir", "cwd"]
+        .iter()
+        .any(|key| object.contains_key(*key))
+    {
+        return Ok(());
+    }
+    let Some(working_directory) = turn_working_directory else {
+        return Ok(());
+    };
+    let relative = working_directory
+        .strip_prefix(workspace_root)
+        .map_err(|_| {
+            format!(
+                "agent working directory `{}` is outside workspace `{}`",
+                working_directory.display(),
+                workspace_root.display()
+            )
+        })?;
+    let working_directory = if relative.as_os_str().is_empty() {
+        ".".to_string()
+    } else {
+        relative.to_string_lossy().replace('\\', "/")
+    };
+    object.insert(
+        "workingDir".to_string(),
+        serde_json::Value::String(working_directory),
+    );
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::apply_turn_working_directory;
+
+    #[test]
+    fn turn_working_directory_becomes_shell_default_without_overriding_tool_input() {
+        let workspace = std::path::PathBuf::from("D:/workspace");
+        let turn_directory = workspace.join("project").join("task");
+        let mut defaulted = serde_json::json!({ "command": "pwd" });
+        apply_turn_working_directory(
+            Some(&turn_directory),
+            "exec_command",
+            &mut defaulted,
+            &workspace,
+        )
+        .expect("turn working directory should become shell default");
+        let mut explicit = serde_json::json!({
+            "command": "pwd",
+            "workingDir": "other"
+        });
+        apply_turn_working_directory(
+            Some(&turn_directory),
+            "shell.start",
+            &mut explicit,
+            &workspace,
+        )
+        .expect("explicit shell working directory should remain valid");
+
+        assert_eq!(defaulted["workingDir"], "project/task");
+        assert_eq!(explicit["workingDir"], "other");
+    }
+
+    #[test]
+    fn turn_working_directory_rejects_a_path_outside_the_workspace() {
+        let workspace = std::path::PathBuf::from("D:/workspace");
+        let mut arguments = serde_json::json!({ "command": "pwd" });
+
+        let error = apply_turn_working_directory(
+            Some(std::path::Path::new("D:/outside")),
+            "shell.execute",
+            &mut arguments,
+            &workspace,
+        )
+        .expect_err("outside turn working directory must not reach shell dispatch");
+
+        assert!(error.contains("outside workspace"));
     }
 }
 

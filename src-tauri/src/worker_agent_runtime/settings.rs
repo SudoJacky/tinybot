@@ -1,6 +1,8 @@
 use serde_json::Value;
 use std::path::PathBuf;
 
+use crate::worker_capability::{default_desktop_capability_policy, CapabilityPolicy};
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ContextWindowStrategy {
     Discard,
@@ -117,7 +119,8 @@ impl AgentTurnSettings {
             &["approvalPolicy", "approval_policy"],
             "approval_policy",
             &mut validation_errors,
-        );
+        )
+        .and_then(|policy| normalize_approval_policy(policy, &mut validation_errors));
         let permission_profile = optional_string_setting(
             spec,
             metadata,
@@ -125,7 +128,8 @@ impl AgentTurnSettings {
             &["permissionProfile", "permission_profile"],
             "permission_profile",
             &mut validation_errors,
-        );
+        )
+        .and_then(|profile| normalize_permission_profile(profile, &mut validation_errors));
         let selected_tools = optional_string_array_setting(
             spec,
             metadata,
@@ -172,6 +176,48 @@ impl AgentTurnSettings {
                 self.validation_errors.join("; ")
             ))
         }
+    }
+
+    pub(super) fn capability_policy(&self) -> Result<CapabilityPolicy, String> {
+        self.validate()?;
+        match self.permission_profile.as_deref().unwrap_or("local-worker") {
+            "local-worker" => Ok(default_desktop_capability_policy()),
+            profile => Err(format!("unsupported permission profile `{profile}`")),
+        }
+    }
+
+    pub(super) fn effective_approval_policy(&self) -> &str {
+        self.approval_policy.as_deref().unwrap_or("on_request")
+    }
+}
+
+fn normalize_approval_policy(
+    policy: String,
+    validation_errors: &mut Vec<String>,
+) -> Option<String> {
+    let normalized = policy.to_ascii_lowercase().replace('-', "_");
+    if matches!(normalized.as_str(), "on_request" | "never") {
+        Some(normalized)
+    } else {
+        validation_errors.push(format!(
+            "approval_policy must be `on_request` or `never`, got `{policy}`"
+        ));
+        None
+    }
+}
+
+fn normalize_permission_profile(
+    profile: String,
+    validation_errors: &mut Vec<String>,
+) -> Option<String> {
+    let normalized = profile.to_ascii_lowercase().replace('_', "-");
+    if normalized == "local-worker" {
+        Some(normalized)
+    } else {
+        validation_errors.push(format!(
+            "permission_profile must be `local-worker`, got `{profile}`"
+        ));
+        None
     }
 }
 
