@@ -656,7 +656,7 @@ impl AgentTaskRuntime {
             run_ids
         };
         for run_id in &active_run_ids {
-            self.cancel(run_id, AgentCancelReason::Shutdown);
+            self.request_cancel(run_id, AgentCancelReason::Shutdown);
         }
 
         let deadline = Instant::now() + timeout;
@@ -665,7 +665,7 @@ impl AgentTaskRuntime {
             .state
             .lock()
             .expect("agent task runtime state lock should not be poisoned");
-        while !state.draining.is_empty() {
+        while !state.active.is_empty() || !state.draining.is_empty() {
             let now = Instant::now();
             if now >= deadline {
                 break;
@@ -682,9 +682,10 @@ impl AgentTaskRuntime {
             }
         }
         let mut cleanup_pending_runs = state
-            .draining
+            .active
             .keys()
-            .map(|key| key.run_id.clone())
+            .cloned()
+            .chain(state.draining.keys().map(|key| key.run_id.clone()))
             .collect::<Vec<_>>();
         cleanup_pending_runs.sort();
         cleanup_pending_runs.dedup();
@@ -1207,6 +1208,77 @@ mod tests {
             .expect("runtime should accept after resume")
             .wait()
             .expect("restarted run should finish");
+    }
+
+    #[test]
+    fn shutdown_does_not_publish_terminal_result_before_cooperative_cleanup() {
+        tauri::async_runtime::block_on(async {
+            let runtime = AgentTaskRuntime::new();
+            let cleanup_completed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let operation_cleanup_completed = cleanup_completed.clone();
+            let token_slot = Arc::new(Mutex::new(None::<CancellationToken>));
+            let operation_token_slot = token_slot.clone();
+            let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
+            let handle = runtime
+                .start_cooperative_async(
+                    request("run-shutdown-cleanup-order"),
+                    Duration::from_secs(1),
+                    async move {
+                        let cancellation = loop {
+                            if let Some(cancellation) = operation_token_slot
+                                .lock()
+                                .expect("operation token slot should not be poisoned")
+                                .clone()
+                            {
+                                break cancellation;
+                            }
+                            tokio::task::yield_now().await;
+                        };
+                        started_sender.send(()).expect("async start should send");
+                        cancellation.cancelled().await;
+                        tokio::time::sleep(Duration::from_millis(80)).await;
+                        operation_cleanup_completed
+                            .store(true, std::sync::atomic::Ordering::SeqCst);
+                        Ok(cancelled_task_result(
+                            &request("run-shutdown-cleanup-order"),
+                            AgentCancelReason::Shutdown.as_str(),
+                        ))
+                    },
+                )
+                .expect("cooperative run should start");
+            *token_slot
+                .lock()
+                .expect("test token slot should not be poisoned") =
+                runtime.cancellation_token("run-shutdown-cleanup-order");
+            started_receiver
+                .await
+                .expect("cooperative operation should start");
+
+            let shutdown_runtime = runtime.clone();
+            let shutdown = thread::spawn(move || shutdown_runtime.shutdown(Duration::from_secs(1)));
+            while !runtime
+                .status("run-shutdown-cleanup-order")
+                .is_some_and(|status| status.cancellation_requested)
+            {
+                tokio::task::yield_now().await;
+            }
+
+            let result = handle
+                .wait_async()
+                .await
+                .expect("shutdown should publish a cancellation result");
+            let cleanup_was_complete_when_result_published =
+                cleanup_completed.load(std::sync::atomic::Ordering::SeqCst);
+            let report = shutdown.join().expect("shutdown thread should finish");
+
+            assert_eq!(result["stopReason"], "cancelled");
+            assert!(
+                cleanup_was_complete_when_result_published,
+                "shutdown published a terminal result before owned cleanup completed"
+            );
+            assert!(!report.timed_out);
+            assert!(report.cleanup_pending_runs.is_empty());
+        });
     }
 
     #[test]

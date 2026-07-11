@@ -550,6 +550,9 @@ same run owner. Its existing thread result gains `taskCancellation`, containing 
 `worker_cancel_agent` payload. Gateway shutdown follows one ordered path: stop accepting starts,
 cancel and drain owned runs, terminate retained shell process trees, stop MCP clients/stdio children,
 interrupt non-terminal subagents, stop the background worker, and emit a `RuntimeShutdownReport`.
+For cooperative agent tasks, shutdown requests cancellation without publishing a terminal result;
+the cancellation or cleanup-timeout result becomes visible only after the owned operation has
+finished its bounded cleanup. Shutdown waits for both cancelling active tasks and draining tasks.
 Each bounded stage continues after an earlier failure. Cleanup failures are returned as a combined
 error, retained in `GatewayRuntimeStatus.lifecycle.diagnostics`, mirrored to `last_error`, and written
 to the persistent native-backend log. The report includes agent cleanup, shell process IDs, MCP,
