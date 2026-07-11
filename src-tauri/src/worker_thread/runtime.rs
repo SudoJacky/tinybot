@@ -51,6 +51,7 @@ impl<S: ThreadStore> ThreadRuntime<S> {
                     &turn_id,
                     request.model.as_deref(),
                     request.provider.as_deref(),
+                    request.trace_context.as_ref(),
                 ),
             ],
             request.client_event_id.as_deref(),
@@ -85,6 +86,7 @@ impl<S: ThreadStore> ThreadRuntime<S> {
                 model,
                 provider,
                 metadata,
+                trace_context: None,
             }),
             ThreadOp::ContinueRun {
                 run_id,
@@ -781,6 +783,7 @@ fn agent_run_started_item(
     turn_id: &str,
     model: Option<&str>,
     provider: Option<&str>,
+    trace_context: Option<&crate::agent_loop_runtime_protocol::AgentTraceContext>,
 ) -> ThreadItem {
     ThreadItem {
         item_id: format!("thread-runtime:{thread_id}:{run_id}:started"),
@@ -795,6 +798,7 @@ fn agent_run_started_item(
             "turnId": turn_id,
             "model": model,
             "provider": provider,
+            "traceContext": trace_context,
             "source": "thread.start_turn"
         })),
     }

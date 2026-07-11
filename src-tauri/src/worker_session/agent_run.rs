@@ -527,6 +527,10 @@ fn agent_run_from_checkpoint(
         token_usage_info: None,
         instruction_provenance: None,
         instruction_diagnostics: Vec::new(),
+        trace_context: checkpoint
+            .get("traceContext")
+            .cloned()
+            .and_then(|value| serde_json::from_value(value).ok()),
         error: None,
     }
 }

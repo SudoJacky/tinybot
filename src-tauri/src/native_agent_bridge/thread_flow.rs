@@ -1,9 +1,13 @@
+use crate::agent_loop_runtime_protocol::AgentTraceContext;
 use crate::call_rust_state_service;
 use crate::native_agent_bridge::{
     native_agent_assistant_messages, native_agent_current_user_message, native_agent_model,
     native_agent_provider, native_agent_run_id, native_agent_string_field, native_agent_usage,
 };
-use crate::worker_agent_runtime::NativeAgentRuntimeServices;
+use crate::worker_agent_runtime::{
+    agent_trace_context_from_value, ensure_agent_trace_context, AgentHookInvocation,
+    AgentHookStage, NativeAgentRuntimeServices,
+};
 use crate::worker_protocol::WorkerRequest;
 use crate::worker_request_id::next_worker_request_correlation;
 use std::path::PathBuf;
@@ -130,11 +134,40 @@ pub(crate) async fn submit_thread_turn_with_services(
             }
         }
     }
+    let trace_context = ensure_agent_trace_context(&mut spec)?;
+    let thread_hook_services = base_services.clone();
+    let thread_start_invocation =
+        AgentHookInvocation::lifecycle(AgentHookStage::ThreadStart, trace_context.clone());
+    let thread_start_evaluation =
+        thread_hook_services.evaluate_hook_invocation(thread_start_invocation.clone())?;
+    if let Some(reason) = thread_start_evaluation.denied_reason.clone() {
+        return Ok(serde_json::json!({
+            "threadId": thread_id,
+            "sessionId": session_id,
+            "runId": run_id,
+            "agentResult": {
+                "runtime": "rust",
+                "runId": run_id,
+                "sessionId": session_id,
+                "threadId": thread_id,
+                "stopReason": "hook_denied",
+                "finalContent": "",
+                "messages": [],
+                "toolsUsed": [],
+                "error": reason,
+                "traceContext": trace_context,
+                "threadHookDiagnostics": [
+                    thread_start_evaluation.event_payload(&thread_start_invocation)
+                ],
+            }
+        }));
+    }
 
     start_native_agent_thread_turn(
         &thread_id,
         &run_id,
         &spec,
+        &trace_context,
         workspace_root.clone(),
         config_snapshot.clone(),
     )?;
@@ -162,6 +195,14 @@ pub(crate) async fn submit_thread_turn_with_services(
     )?;
     agent_result["threadId"] = serde_json::Value::String(thread_id.clone());
     agent_result["threadSnapshot"] = snapshot.clone();
+    let thread_stop_invocation =
+        AgentHookInvocation::lifecycle(AgentHookStage::ThreadStop, trace_context);
+    let thread_stop_evaluation =
+        thread_hook_services.evaluate_hook_invocation(thread_stop_invocation.clone())?;
+    agent_result["threadHookDiagnostics"] = serde_json::json!([
+        thread_start_evaluation.event_payload(&thread_start_invocation),
+        thread_stop_evaluation.event_payload(&thread_stop_invocation),
+    ]);
     Ok(serde_json::json!({
         "threadId": thread_id,
         "sessionId": session_id,
@@ -223,6 +264,7 @@ pub(crate) async fn resolve_thread_approval_with_services(
             workspace_root.clone(),
             config_snapshot.clone(),
             "native agent thread approval decision append",
+            Some(&agent_trace_context_from_value(&result)),
         )?;
         result["threadApprovalPersistence"] = decision;
     }
@@ -486,18 +528,18 @@ fn start_native_agent_thread_turn(
     thread_id: &str,
     run_id: &str,
     spec: &serde_json::Value,
+    trace_context: &AgentTraceContext,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     let input = native_agent_current_user_message(spec)
         .unwrap_or_else(|| serde_json::json!({ "role": "user", "content": "" }));
-    let request_id = next_worker_request_correlation();
     call_rust_state_service(
         workspace_root,
         config_snapshot.clone(),
         WorkerRequest::new(
-            request_id.id("native-agent-thread-start"),
-            request_id.trace_id("native-agent-thread-start"),
+            format!("{}:thread-start", trace_context.request_id),
+            trace_context.trace_id.clone(),
             "thread.start_turn",
             serde_json::json!({
                 "threadId": thread_id,
@@ -507,6 +549,7 @@ fn start_native_agent_thread_turn(
                 "input": input,
                 "model": native_agent_model(spec, &config_snapshot),
                 "provider": native_agent_provider(spec, &config_snapshot),
+                "traceContext": trace_context,
             }),
         ),
         "native agent thread turn start",
@@ -558,6 +601,7 @@ pub(crate) fn apply_native_agent_thread_result(
         workspace_root,
         config_snapshot,
         "native agent thread result append",
+        Some(&agent_trace_context_from_value(result)),
     )?;
     Ok(Some(applied))
 }
@@ -569,14 +613,21 @@ pub(crate) fn apply_native_agent_thread_op(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     label: &str,
+    trace_context: Option<&AgentTraceContext>,
 ) -> Result<serde_json::Value, String> {
-    let request_id = next_worker_request_correlation();
+    let generated = next_worker_request_correlation();
+    let request_id = trace_context
+        .map(|trace| format!("{}:thread-op", trace.request_id))
+        .unwrap_or_else(|| generated.id("native-agent-thread-op"));
+    let trace_id = trace_context
+        .map(|trace| trace.trace_id.clone())
+        .unwrap_or_else(|| generated.trace_id("native-agent-thread-op"));
     call_rust_state_service(
         workspace_root,
         config_snapshot,
         WorkerRequest::new(
-            request_id.id("native-agent-thread-op"),
-            request_id.trace_id("native-agent-thread-op"),
+            request_id,
+            trace_id,
             "thread.apply_op",
             serde_json::json!({
                 "threadId": thread_id,

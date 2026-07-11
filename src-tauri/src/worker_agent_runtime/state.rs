@@ -3,12 +3,13 @@ use super::events::{
     legacy_result_events_from_runtime_events, runtime_event_item_id, runtime_event_source,
     runtime_event_timestamp, runtime_event_visibility, runtime_status_label,
 };
+use super::hooks::AgentHookEvaluation;
 use super::usage::{
     enrich_usage_with_context_window, latest_cumulative_usage_tokens, usage_context_used_tokens,
 };
 use super::{
-    string_field, NativeAgentEvent, NativeAgentRunContext, NativeAgentToolCall,
-    NativeAgentTraceSink,
+    string_field, AgentHookInvocation, NativeAgentEvent, NativeAgentRunContext,
+    NativeAgentToolCall, NativeAgentTraceSink,
 };
 use crate::agent_loop_runtime_protocol::{
     AgentRunEmitter, AgentRuntimeEventAppendInput, AgentRuntimeEventEnvelope,
@@ -49,10 +50,9 @@ impl NativeAgentRunState {
             pending_tool_calls: Vec::new(),
             completed_tool_results: Vec::new(),
             messages: context.messages.clone(),
-            emitter: AgentRunEmitter::new_with_thread_id(
+            emitter: AgentRunEmitter::new_with_trace_context(
                 &context.session_id,
-                &context.run_id,
-                context.thread_id.clone(),
+                context.trace_context.clone(),
             ),
             usage: Vec::new(),
             tools_used: Vec::new(),
@@ -64,7 +64,15 @@ impl NativeAgentRunState {
 
     fn append_trace_event(&self, event: &AgentRuntimeEventEnvelope) {
         if let Some(trace_sink) = self.trace_sink.as_ref() {
-            let _ = trace_sink.append_trace_event(&self.session_id, &self.run_id, event);
+            if let Err(error) = trace_sink.append_trace_event(&self.session_id, &self.run_id, event)
+            {
+                crate::runtime::observability::global_agent_runtime_metrics()
+                    .increment("trace.sink.failed");
+                eprintln!(
+                    "native agent trace sink failed for run {} event {}: {}",
+                    self.run_id, event.event_id, error
+                );
+            }
         }
     }
 
@@ -215,6 +223,17 @@ impl NativeAgentRunState {
 
     pub(super) fn emit_native_event(&mut self, event: NativeAgentEvent) {
         self.emit_event(&event.event_name, event.payload);
+    }
+
+    pub(super) fn emit_hook_evaluation(
+        &mut self,
+        invocation: &AgentHookInvocation,
+        evaluation: &AgentHookEvaluation,
+    ) {
+        if evaluation.decisions.is_empty() {
+            return;
+        }
+        self.emit_event("agent.hook.decision", evaluation.event_payload(invocation));
     }
 
     pub(super) fn emit_turn_started(&mut self, context: &NativeAgentRunContext) {

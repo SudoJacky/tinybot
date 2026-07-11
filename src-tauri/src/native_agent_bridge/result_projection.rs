@@ -224,6 +224,10 @@ pub(crate) fn native_agent_persisted_trace_values(
 ) -> Vec<serde_json::Value> {
     values
         .iter()
+        .filter(|value| {
+            value.get("eventName").and_then(serde_json::Value::as_str)
+                != Some("agent.provider.requested")
+        })
         .cloned()
         .map(|value| native_agent_bound_persisted_trace_value(value).0)
         .collect()
@@ -301,6 +305,15 @@ fn native_agent_bound_persisted_trace_value(value: serde_json::Value) -> (serde_
         }
         serde_json::Value::Object(entries) => {
             let mut truncated = false;
+            let mut entries = entries;
+            let retain_trace_context = entries
+                .get("eventName")
+                .and_then(serde_json::Value::as_str)
+                .map(persisted_event_needs_trace_context)
+                .unwrap_or(true);
+            if !retain_trace_context {
+                entries.remove("traceContext");
+            }
             let mut entries = entries
                 .into_iter()
                 .map(|(key, value)| {
@@ -322,4 +335,11 @@ fn native_agent_bound_persisted_trace_value(value: serde_json::Value) -> (serde_
         }
         value => (value, false),
     }
+}
+
+fn persisted_event_needs_trace_context(event_name: &str) -> bool {
+    matches!(
+        event_name,
+        "agent.provider.completed" | "agent.tool.result" | "agent.hook.decision"
+    )
 }

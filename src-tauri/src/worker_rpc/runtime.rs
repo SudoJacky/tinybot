@@ -61,6 +61,13 @@ impl WorkerRuntimeRpc {
         self.restart(parse_params(request)?)
     }
 
+    pub(super) fn metrics_from_request(
+        &self,
+        _request: &WorkerRequest,
+    ) -> Result<Value, WorkerProtocolError> {
+        Ok(crate::runtime::observability::global_agent_runtime_metrics().snapshot())
+    }
+
     fn restart(&self, params: RuntimeRestartParams) -> Result<Value, WorkerProtocolError> {
         let request = RuntimeRestartRequest {
             run_id: params.run_id,
@@ -269,5 +276,27 @@ mod tests {
             .as_str()
             .expect("current_time should be a string")
             .starts_with("unix-ms:"));
+    }
+
+    #[test]
+    fn runtime_metrics_returns_process_observability_snapshot() {
+        crate::runtime::observability::global_agent_runtime_metrics().increment("turn.started");
+        let mut router = WorkerRpcRouter::new(
+            fixture_root("metrics"),
+            json!({}),
+            vec![],
+            20,
+            CapabilityPolicy::default(),
+        );
+        let request =
+            WorkerRequest::new("req-metrics", "trace-metrics", "runtime.metrics", json!({}));
+
+        let response = router.dispatch(&request);
+        let result = response.result.expect("metrics result should be present");
+
+        assert!(response.error.is_none());
+        assert_eq!(result["schemaVersion"], 1);
+        assert!(result["counters"]["turn.started"].as_u64().unwrap_or(0) >= 1);
+        assert!(result["generatedAtUnixMs"].as_u64().is_some());
     }
 }

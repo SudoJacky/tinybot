@@ -112,6 +112,7 @@ pub(super) fn agent_run_record_from_thread_run(
         token_usage_info: thread_token_usage_info(thread),
         instruction_provenance: None,
         instruction_diagnostics: Vec::new(),
+        trace_context: trace_context_for_run(run, items),
         error: (run.status == ThreadStatus::Failed).then(|| {
             serde_json::json!({
                 "message": "thread run failed"
@@ -244,4 +245,19 @@ fn agent_run_phase_from_thread_run(run: &ThreadRunSummary) -> &'static str {
         AgentRunStatus::Cancelled => "cancelled",
         AgentRunStatus::Interrupted => "interrupted",
     }
+}
+
+fn trace_context_for_run(
+    run: &ThreadRunSummary,
+    items: &[ThreadItem],
+) -> Option<crate::agent_loop_runtime_protocol::AgentTraceContext> {
+    items
+        .iter()
+        .filter(|item| item.run_id.as_deref() == Some(run.run_id.as_str()))
+        .find_map(|item| match &item.kind {
+            ThreadItemKind::AgentRunStarted(payload) => payload.get("traceContext"),
+            _ => None,
+        })
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok())
 }

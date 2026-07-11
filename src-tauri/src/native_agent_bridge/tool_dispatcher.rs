@@ -5,7 +5,6 @@ use crate::worker_agent_runtime::{
     NativeAgentToolDispatcher, NativeAgentToolResult,
 };
 use crate::worker_protocol::{WorkerRequest, WorkerRequestCancellation};
-use crate::worker_request_id::next_worker_request_correlation;
 use crate::worker_shell::WorkerShellRuntime;
 use crate::worker_tool_registry::ToolExecutionTarget;
 use std::path::PathBuf;
@@ -46,7 +45,6 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
                 tool_call.name
             ));
         }
-        let request_id = next_worker_request_correlation();
         let cancellation = context
             .cancellation
             .clone()
@@ -79,8 +77,8 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
             self.mcp_runtime.clone(),
             self.shell_runtime.clone(),
             WorkerRequest::new(
-                request_id.id("native-tool-executor"),
-                request_id.trace_id("native-tool-executor"),
+                format!("{}:tool:{}", context.trace_context.request_id, tool_call.id),
+                context.trace_context.trace_id.clone(),
                 method,
                 params,
             )

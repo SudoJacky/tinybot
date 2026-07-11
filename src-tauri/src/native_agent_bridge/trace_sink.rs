@@ -5,6 +5,7 @@ use crate::worker_request_id::next_worker_request_correlation;
 use crate::{call_rust_state_service, tauri_safe_event_name};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 use tauri::{Emitter, Runtime};
 
 #[derive(Clone)]
@@ -29,15 +30,28 @@ impl NativeAgentTraceSink for NativeAgentRunTraceSink {
         run_id: &str,
         event: &AgentRuntimeEventEnvelope,
     ) -> Result<(), String> {
+        let generated = next_worker_request_correlation();
+        let request_id = event
+            .trace_context
+            .as_ref()
+            .map(|trace| format!("{}:trace:{}", trace.request_id, event.event_id))
+            .unwrap_or_else(|| generated.id("agent-run-append-trace"));
+        let trace_id = event
+            .trace_context
+            .as_ref()
+            .map(|trace| trace.trace_id.clone())
+            .unwrap_or_else(|| generated.trace_id("agent-run-append-trace"));
         let event = serde_json::to_value(event)
             .map_err(|error| format!("native agent trace event serialization failed: {error}"))?;
-        let request_id = next_worker_request_correlation();
-        call_rust_state_service(
+        let metrics = crate::runtime::observability::global_agent_runtime_metrics();
+        metrics.increment("persistence.write.started");
+        let started_at = Instant::now();
+        let result = call_rust_state_service(
             self.workspace_root.clone(),
             self.config_snapshot.clone(),
             WorkerRequest::new(
-                request_id.id("agent-run-append-trace"),
-                request_id.trace_id("agent-run-append-trace"),
+                request_id,
+                trace_id,
                 "agent_run.append_trace",
                 serde_json::json!({
                     "session_id": session_id,
@@ -46,8 +60,14 @@ impl NativeAgentTraceSink for NativeAgentRunTraceSink {
                 }),
             ),
             "native agent run trace append",
-        )
-        .map(|_| ())
+        );
+        metrics.record_duration("persistence.write.durationMs", started_at.elapsed());
+        metrics.increment(if result.is_ok() {
+            "persistence.write.completed"
+        } else {
+            "persistence.write.failed"
+        });
+        result.map(|_| ())
     }
 }
 
@@ -86,8 +106,19 @@ impl<R: Runtime + 'static> NativeAgentTraceSink for DesktopAgentEventSink<R> {
         event: &AgentRuntimeEventEnvelope,
     ) -> Result<(), String> {
         let event_name = tauri_safe_event_name(&event.event_name);
+        let mut payload = event.payload.clone();
+        if let (Some(object), Some(trace_context)) =
+            (payload.as_object_mut(), event.trace_context.as_ref())
+        {
+            object.insert(
+                "traceContext".to_string(),
+                serde_json::to_value(trace_context).map_err(|error| {
+                    format!("native agent live trace context serialization failed: {error}")
+                })?,
+            );
+        }
         self.app
-            .emit(&event_name, event.payload.clone())
+            .emit(&event_name, payload)
             .map_err(|error| format!("native agent frontend event emit failed: {error}"))
     }
 }

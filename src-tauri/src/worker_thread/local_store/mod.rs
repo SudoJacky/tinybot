@@ -2974,6 +2974,7 @@ mod tests {
             model: Some("test-model".to_string()),
             provider: Some("fixture".to_string()),
             metadata: ThreadMetadataPatch::default(),
+            trace_context: None,
         };
 
         let first = runtime.start_turn(request.clone()).unwrap();

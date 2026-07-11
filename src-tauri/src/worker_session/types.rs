@@ -123,6 +123,8 @@ pub struct AgentRunRecord {
     pub instruction_provenance: Option<Value>,
     #[serde(default)]
     pub instruction_diagnostics: Vec<Value>,
+    #[serde(default)]
+    pub trace_context: Option<crate::agent_loop_runtime_protocol::AgentTraceContext>,
     pub error: Option<Value>,
 }
 

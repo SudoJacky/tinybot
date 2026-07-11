@@ -75,6 +75,7 @@ pub(super) fn checkpoint_value(
         "sessionId": context.session_id,
         "threadId": string_field(&context.metadata, "threadId")
             .or_else(|| string_field(&context.metadata, "thread_id")),
+        "traceContext": context.trace_context,
         "phase": phase,
         "iteration": payload.get("iteration").cloned().unwrap_or(Value::Null),
         "maxIterations": context.max_iterations,

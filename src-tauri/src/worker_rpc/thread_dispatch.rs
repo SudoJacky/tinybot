@@ -101,7 +101,20 @@ impl WorkerRpcRouter {
                 serde_json::to_value(self.thread.activity(params)?).map_err(serialization_error)
             }
             "thread.start_turn" => {
-                let params: StartThreadTurnRequest = parse_params(request)?;
+                let mut params: StartThreadTurnRequest = parse_params(request)?;
+                if params.trace_context.is_none() {
+                    if let Some(run_id) = params.run_id.clone() {
+                        params.trace_context =
+                            Some(crate::agent_loop_runtime_protocol::AgentTraceContext {
+                                request_id: request.id.clone(),
+                                trace_id: request.trace_id.clone(),
+                                run_id: run_id.clone(),
+                                turn_id: params.turn_id.clone().unwrap_or_else(|| run_id.clone()),
+                                thread_id: Some(params.thread_id.clone()),
+                                parent_run_id: None,
+                            });
+                    }
+                }
                 serde_json::to_value(self.thread.start_turn(params)?).map_err(serialization_error)
             }
             "thread.apply_op" => {

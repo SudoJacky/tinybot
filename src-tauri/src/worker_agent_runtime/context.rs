@@ -1,10 +1,14 @@
 use super::continuations::queued_user_continuation_message;
+use super::hooks::AgentHookEvaluation;
 use super::tool_router::NativeToolRouter;
 use super::{
-    string_field, AgentTurnSettings, ComposedInstructions, NativeAgentCancellation,
-    NativeAgentCancellationContext, NativeAgentRunContext,
+    string_field, AgentHookInvocation, AgentTurnSettings, ComposedInstructions,
+    NativeAgentCancellation, NativeAgentCancellationContext, NativeAgentRunContext,
+    NativeAgentRuntimeServices,
 };
+use crate::agent_loop_runtime_protocol::AgentTraceContext;
 use crate::worker_capability::default_desktop_capability_policy;
+use crate::worker_request_id::next_worker_request_correlation;
 use crate::worker_tool_registry::ToolExecutionTarget;
 use crate::worker_tool_registry::WorkerToolRegistryRpc;
 use serde_json::Value;
@@ -69,6 +73,42 @@ impl NativeAgentRunContext {
             max_iterations,
             stream,
         );
+        let trace_value = spec.get("traceContext").unwrap_or(&Value::Null);
+        let turn_id = string_field(&spec, "turnId")
+            .or_else(|| string_field(&spec, "turn_id"))
+            .or_else(|| string_field(trace_value, "turnId"))
+            .or_else(|| string_field(trace_value, "turn_id"))
+            .or_else(|| string_field(&metadata, "turnId"))
+            .or_else(|| string_field(&metadata, "turn_id"))
+            .unwrap_or_else(|| run_id.clone());
+        let request_id = string_field(&spec, "requestId")
+            .or_else(|| string_field(&spec, "request_id"))
+            .or_else(|| string_field(trace_value, "requestId"))
+            .or_else(|| string_field(trace_value, "request_id"))
+            .or_else(|| string_field(&metadata, "requestId"))
+            .or_else(|| string_field(&metadata, "request_id"))
+            .unwrap_or_else(|| format!("agent-run-{run_id}"));
+        let trace_id = string_field(&spec, "traceId")
+            .or_else(|| string_field(&spec, "trace_id"))
+            .or_else(|| string_field(trace_value, "traceId"))
+            .or_else(|| string_field(trace_value, "trace_id"))
+            .or_else(|| string_field(&metadata, "traceId"))
+            .or_else(|| string_field(&metadata, "trace_id"))
+            .unwrap_or_else(|| format!("trace-agent-run-{run_id}"));
+        let parent_run_id = string_field(&spec, "parentRunId")
+            .or_else(|| string_field(&spec, "parent_run_id"))
+            .or_else(|| string_field(trace_value, "parentRunId"))
+            .or_else(|| string_field(trace_value, "parent_run_id"))
+            .or_else(|| string_field(&metadata, "parentRunId"))
+            .or_else(|| string_field(&metadata, "parent_run_id"));
+        let trace_context = AgentTraceContext {
+            request_id,
+            trace_id,
+            run_id: run_id.clone(),
+            turn_id,
+            thread_id: thread_id.clone(),
+            parent_run_id,
+        };
         Self {
             run_id,
             session_id,
@@ -85,8 +125,48 @@ impl NativeAgentRunContext {
             max_iterations,
             settings,
             cancellation: None,
+            trace_context,
+            hooks: super::hooks::AgentHookPipeline::default(),
+            metrics: crate::runtime::observability::global_agent_runtime_metrics().clone(),
+            pending_hook_evaluations: Arc::new(std::sync::Mutex::new(Vec::new())),
             tool_router,
         }
+    }
+
+    pub(super) fn attach_observability(&mut self, services: &NativeAgentRuntimeServices) {
+        self.hooks = services.hooks.clone();
+        self.metrics = services.metrics.clone();
+    }
+
+    pub(crate) fn evaluate_hook(
+        &self,
+        invocation: AgentHookInvocation,
+    ) -> Result<AgentHookEvaluation, String> {
+        self.hooks.evaluate(invocation, &self.metrics)
+    }
+
+    pub(crate) fn metrics(&self) -> &crate::runtime::observability::AgentRuntimeMetrics {
+        &self.metrics
+    }
+
+    pub(crate) fn queue_hook_evaluation(
+        &self,
+        invocation: AgentHookInvocation,
+        evaluation: AgentHookEvaluation,
+    ) {
+        self.pending_hook_evaluations
+            .lock()
+            .expect("pending agent hook evaluation lock should not be poisoned")
+            .push((invocation, evaluation));
+    }
+
+    pub(crate) fn drain_hook_evaluations(&self) -> Vec<(AgentHookInvocation, AgentHookEvaluation)> {
+        std::mem::take(
+            &mut *self
+                .pending_hook_evaluations
+                .lock()
+                .expect("pending agent hook evaluation lock should not be poisoned"),
+        )
     }
 
     pub(super) fn attach_cancellation(
@@ -119,6 +199,85 @@ impl NativeAgentRunContext {
             .as_ref()
             .map(ComposedInstructions::rendered_prompt)
             .or(self.system_prompt.as_deref())
+    }
+}
+
+pub(crate) fn ensure_agent_trace_context(spec: &mut Value) -> Result<AgentTraceContext, String> {
+    if !spec.is_object() {
+        return Err("agent run spec must be a JSON object before trace initialization".to_string());
+    }
+    let existing_run_id = string_field(spec, "runId").or_else(|| string_field(spec, "run_id"));
+    let correlation = next_worker_request_correlation();
+    let run_id = existing_run_id.unwrap_or_else(|| correlation.id("agent-run"));
+    let request_id = string_field(spec, "requestId")
+        .or_else(|| string_field(spec, "request_id"))
+        .or_else(|| {
+            spec.get("traceContext")
+                .and_then(|trace| string_field(trace, "requestId"))
+        })
+        .unwrap_or_else(|| correlation.id("agent-run-request"));
+    let trace_id = string_field(spec, "traceId")
+        .or_else(|| string_field(spec, "trace_id"))
+        .or_else(|| {
+            spec.get("traceContext")
+                .and_then(|trace| string_field(trace, "traceId"))
+        })
+        .unwrap_or_else(|| correlation.trace_id("agent-run"));
+    let turn_id = string_field(spec, "turnId")
+        .or_else(|| string_field(spec, "turn_id"))
+        .or_else(|| {
+            spec.get("traceContext")
+                .and_then(|trace| string_field(trace, "turnId"))
+        })
+        .unwrap_or_else(|| run_id.clone());
+    let object = spec
+        .as_object_mut()
+        .ok_or_else(|| "agent run spec must remain a JSON object".to_string())?;
+    object.insert("runId".to_string(), Value::String(run_id));
+    object.insert("turnId".to_string(), Value::String(turn_id));
+    object.insert("requestId".to_string(), Value::String(request_id));
+    object.insert("traceId".to_string(), Value::String(trace_id));
+    Ok(agent_trace_context_from_value(spec))
+}
+
+pub(crate) fn agent_trace_context_from_value(value: &Value) -> AgentTraceContext {
+    let trace_value = value.get("traceContext").unwrap_or(&Value::Null);
+    let metadata = value.get("metadata").unwrap_or(&Value::Null);
+    let run_id = string_field(value, "runId")
+        .or_else(|| string_field(value, "run_id"))
+        .or_else(|| string_field(trace_value, "runId"))
+        .or_else(|| string_field(trace_value, "run_id"))
+        .unwrap_or_else(|| "native-rust-run".to_string());
+    let turn_id = string_field(value, "turnId")
+        .or_else(|| string_field(value, "turn_id"))
+        .or_else(|| string_field(trace_value, "turnId"))
+        .or_else(|| string_field(trace_value, "turn_id"))
+        .unwrap_or_else(|| run_id.clone());
+    AgentTraceContext {
+        request_id: string_field(value, "requestId")
+            .or_else(|| string_field(value, "request_id"))
+            .or_else(|| string_field(trace_value, "requestId"))
+            .or_else(|| string_field(trace_value, "request_id"))
+            .unwrap_or_else(|| format!("agent-run-{run_id}")),
+        trace_id: string_field(value, "traceId")
+            .or_else(|| string_field(value, "trace_id"))
+            .or_else(|| string_field(trace_value, "traceId"))
+            .or_else(|| string_field(trace_value, "trace_id"))
+            .unwrap_or_else(|| format!("trace-agent-run-{run_id}")),
+        run_id: run_id.clone(),
+        turn_id,
+        thread_id: string_field(value, "threadId")
+            .or_else(|| string_field(value, "thread_id"))
+            .or_else(|| string_field(trace_value, "threadId"))
+            .or_else(|| string_field(trace_value, "thread_id"))
+            .or_else(|| string_field(metadata, "threadId"))
+            .or_else(|| string_field(metadata, "thread_id")),
+        parent_run_id: string_field(value, "parentRunId")
+            .or_else(|| string_field(value, "parent_run_id"))
+            .or_else(|| string_field(trace_value, "parentRunId"))
+            .or_else(|| string_field(trace_value, "parent_run_id"))
+            .or_else(|| string_field(metadata, "parentRunId"))
+            .or_else(|| string_field(metadata, "parent_run_id")),
     }
 }
 

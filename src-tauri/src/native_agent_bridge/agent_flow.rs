@@ -5,25 +5,28 @@ use crate::native_agent_bridge::{
     persist_native_agent_turn_if_final, reject_native_agent_terminal_run_reentry,
 };
 use crate::worker_agent_runtime::{
-    run_native_agent_turn_with_workspace_and_instructions_async, InstructionComposer,
-    NativeAgentRuntimeServices, NativeAgentTraceSink,
+    ensure_agent_trace_context, run_native_agent_turn_with_workspace_and_instructions_async,
+    InstructionComposer, NativeAgentRuntimeServices, NativeAgentTraceSink,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
 
 pub(crate) async fn run_agent_with_services(
     base_services: NativeAgentRuntimeServices,
-    spec: serde_json::Value,
+    mut spec: serde_json::Value,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 ) -> Result<serde_json::Value, String> {
+    let trace_context = ensure_agent_trace_context(&mut spec)?;
     let mut persistence_spec = spec.clone();
-    if let Some(rejection) = reject_native_agent_terminal_run_reentry(
+    if let Some(mut rejection) = reject_native_agent_terminal_run_reentry(
         &persistence_spec,
         workspace_root.clone(),
         config_snapshot.clone(),
     )? {
+        rejection["traceContext"] = serde_json::to_value(trace_context)
+            .map_err(|error| format!("failed to serialize terminal run trace context: {error}"))?;
         return Ok(rejection);
     }
     let instructions = InstructionComposer::default().compose(&workspace_root, &spec)?;

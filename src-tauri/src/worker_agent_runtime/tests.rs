@@ -6596,6 +6596,205 @@ fn hanging_cleanup_tool_batch_times_out_without_hanging_the_owned_run() {
     });
 }
 
+#[test]
+fn trace_context_and_hook_rewrite_follow_provider_tool_and_completion() {
+    struct ToolThenFinalProvider {
+        calls: AtomicUsize,
+    }
+
+    impl NativeAgentProvider for ToolThenFinalProvider {
+        fn complete(
+            &self,
+            _context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            let call = self.calls.fetch_add(1, Ordering::SeqCst);
+            if call == 0 {
+                return Ok(NativeAgentProviderResponse {
+                    final_content: String::new(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![NativeAgentToolCall {
+                        id: "call-traced-hook".to_string(),
+                        name: "workspace.read_file".to_string(),
+                        arguments_json: r#"{"path":"before.md"}"#.to_string(),
+                        result: Value::Null,
+                    }],
+                });
+            }
+            Ok(NativeAgentProviderResponse {
+                final_content: "done".to_string(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: Vec::new(),
+            })
+        }
+    }
+
+    struct RewriteToolInputHook;
+
+    impl AgentHook for RewriteToolInputHook {
+        fn evaluate(&self, invocation: &AgentHookInvocation) -> Result<AgentHookDecision, String> {
+            if invocation.stage == AgentHookStage::BeforeToolUse {
+                return Ok(AgentHookDecision::ReplaceNormalizedInput {
+                    normalized_input: json!({ "path": "after.md" }),
+                });
+            }
+            Ok(AgentHookDecision::Continue)
+        }
+    }
+
+    struct RecordingDispatcher {
+        arguments: Arc<Mutex<Vec<Value>>>,
+    }
+
+    impl NativeAgentToolDispatcher for RecordingDispatcher {
+        fn dispatch(
+            &self,
+            _context: &NativeAgentRunContext,
+            tool_call: &NativeAgentToolCall,
+        ) -> Result<NativeAgentToolResult, String> {
+            let arguments = serde_json::from_str(&tool_call.arguments_json)
+                .expect("hook-rewritten tool input should remain JSON");
+            self.arguments
+                .lock()
+                .expect("tool arguments lock should not be poisoned")
+                .push(arguments);
+            Ok(NativeAgentToolResult::generic_success(
+                tool_call,
+                json!({ "content": "after" }),
+            ))
+        }
+    }
+
+    let arguments = Arc::new(Mutex::new(Vec::new()));
+    let metrics = AgentRuntimeMetrics::isolated();
+    let services = NativeAgentRuntimeServices::new(
+        Arc::new(ToolThenFinalProvider {
+            calls: AtomicUsize::new(0),
+        }),
+        Arc::new(RecordingDispatcher {
+            arguments: arguments.clone(),
+        }),
+        Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(InMemoryNativeAgentCancellation::default()),
+    )
+    .with_metrics(metrics.clone())
+    .with_hook(Arc::new(RewriteToolInputHook));
+
+    let result = run_native_agent_turn_with_services(
+        &services,
+        json!({
+            "runtime": "rust",
+            "requestId": "request-traced-hook",
+            "traceId": "trace-traced-hook",
+            "threadId": "thread-traced-hook",
+            "turnId": "turn-traced-hook",
+            "runId": "run-traced-hook",
+            "sessionId": "session-traced-hook",
+            "maxIterations": 2,
+            "messages": [{ "role": "user", "content": "read" }]
+        }),
+    )
+    .expect("traced hook run should complete");
+
+    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(result["traceContext"]["requestId"], "request-traced-hook");
+    assert_eq!(result["traceContext"]["traceId"], "trace-traced-hook");
+    assert_eq!(result["traceContext"]["threadId"], "thread-traced-hook");
+    assert_eq!(result["traceContext"]["turnId"], "turn-traced-hook");
+    assert_eq!(
+        arguments
+            .lock()
+            .expect("tool arguments lock should not be poisoned")
+            .as_slice(),
+        [json!({ "path": "after.md" })]
+    );
+    let runtime_events = result["runtimeEvents"]
+        .as_array()
+        .expect("runtime events should be present");
+    assert!(runtime_events
+        .iter()
+        .any(|event| event["eventName"] == "agent.provider.requested"));
+    assert!(runtime_events
+        .iter()
+        .any(|event| event["eventName"] == "agent.provider.completed"));
+    assert!(runtime_events
+        .iter()
+        .any(|event| event["eventName"] == "agent.hook.decision"));
+    assert!(runtime_events.iter().all(|event| {
+        event["traceContext"]["traceId"] == "trace-traced-hook"
+            && event["traceContext"]["requestId"] == "request-traced-hook"
+    }));
+    let snapshot = metrics.snapshot();
+    assert_eq!(snapshot["counters"]["turn.started"], 1);
+    assert_eq!(snapshot["counters"]["turn.completed"], 1);
+    assert_eq!(snapshot["counters"]["provider.attempted"], 2);
+    assert_eq!(snapshot["counters"]["tool.completed"], 1);
+    assert!(snapshot["durations"]["turn.durationMs"]["count"] == 1);
+    assert!(snapshot["durations"]["provider.durationMs"]["count"] == 2);
+    assert!(snapshot["durations"]["tool.durationMs"]["count"] == 1);
+}
+
+#[test]
+fn lifecycle_hook_denial_aborts_before_provider_call() {
+    struct DenyTurnStartHook;
+
+    impl AgentHook for DenyTurnStartHook {
+        fn evaluate(&self, invocation: &AgentHookInvocation) -> Result<AgentHookDecision, String> {
+            if invocation.stage == AgentHookStage::TurnStart {
+                return Ok(AgentHookDecision::Deny {
+                    reason: "blocked by lifecycle policy".to_string(),
+                });
+            }
+            Ok(AgentHookDecision::Continue)
+        }
+    }
+
+    struct CountingProvider(Arc<AtomicUsize>);
+
+    impl NativeAgentProvider for CountingProvider {
+        fn complete(
+            &self,
+            _context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(NativeAgentProviderResponse {
+                final_content: "must not run".to_string(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: Vec::new(),
+            })
+        }
+    }
+
+    let provider_calls = Arc::new(AtomicUsize::new(0));
+    let metrics = AgentRuntimeMetrics::isolated();
+    let services = NativeAgentRuntimeServices::new(
+        Arc::new(CountingProvider(provider_calls.clone())),
+        Arc::new(FakeNativeAgentToolDispatcher),
+        Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(InMemoryNativeAgentCancellation::default()),
+    )
+    .with_metrics(metrics.clone())
+    .with_hook(Arc::new(DenyTurnStartHook));
+
+    let result = run_native_agent_turn_with_services(
+        &services,
+        json!({
+            "runtime": "rust",
+            "runId": "run-hook-denied",
+            "sessionId": "session-hook-denied",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }),
+    )
+    .expect("hook denial should be a structured terminal result");
+
+    assert_eq!(result["stopReason"], "hook_denied");
+    assert_eq!(result["error"], "blocked by lifecycle policy");
+    assert_eq!(provider_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(metrics.snapshot()["counters"]["turn.aborted"], 1);
+}
+
 fn event_names(result: &Value) -> Vec<&str> {
     result["events"]
         .as_array()

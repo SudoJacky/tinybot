@@ -5,6 +5,19 @@ use std::collections::HashMap;
 pub const AGENT_RUNTIME_EVENT_SCHEMA_VERSION: &str = "tinybot.agent_event.v1";
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentTraceContext {
+    pub request_id: String,
+    pub trace_id: String,
+    pub run_id: String,
+    pub turn_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_run_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentRuntimePhase {
     Queued,
@@ -195,6 +208,8 @@ pub struct AgentRuntimeEventEnvelope {
     pub timestamp: String,
     pub source: AgentRuntimeEventSource,
     pub visibility: AgentRuntimeEventVisibility,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace_context: Option<AgentTraceContext>,
     pub payload: Value,
 }
 
@@ -260,6 +275,7 @@ pub struct AgentRuntimeEventAppender {
     session_id: String,
     thread_id: Option<String>,
     turn_id: String,
+    trace_context: Option<AgentTraceContext>,
     next_sequence: u64,
 }
 
@@ -277,6 +293,20 @@ impl AgentRuntimeEventAppender {
             session_id: session_id.into(),
             thread_id,
             turn_id: turn_id.into(),
+            trace_context: None,
+            next_sequence: 1,
+        }
+    }
+
+    pub fn new_with_trace_context(
+        session_id: impl Into<String>,
+        trace_context: AgentTraceContext,
+    ) -> Self {
+        Self {
+            session_id: session_id.into(),
+            thread_id: trace_context.thread_id.clone(),
+            turn_id: trace_context.turn_id.clone(),
+            trace_context: Some(trace_context),
             next_sequence: 1,
         }
     }
@@ -307,6 +337,7 @@ impl AgentRuntimeEventAppender {
             session_id: session_id.into(),
             thread_id,
             turn_id: turn_id.into(),
+            trace_context: events.iter().find_map(|event| event.trace_context.clone()),
             next_sequence,
         }
     }
@@ -327,6 +358,7 @@ impl AgentRuntimeEventAppender {
             timestamp: input.timestamp,
             source: input.source,
             visibility: input.visibility,
+            trace_context: self.trace_context.clone(),
             payload: input.payload,
         }
     }
@@ -382,6 +414,16 @@ impl AgentRunEmitter {
     ) -> Self {
         Self {
             appender: AgentRuntimeEventAppender::new_with_thread_id(session_id, turn_id, thread_id),
+            events: Vec::new(),
+        }
+    }
+
+    pub fn new_with_trace_context(
+        session_id: impl Into<String>,
+        trace_context: AgentTraceContext,
+    ) -> Self {
+        Self {
+            appender: AgentRuntimeEventAppender::new_with_trace_context(session_id, trace_context),
             events: Vec::new(),
         }
     }
@@ -1306,6 +1348,7 @@ impl AgentRuntimeEventEnvelope {
             timestamp: input.timestamp,
             source: AgentRuntimeEventSource::RustBackend,
             visibility,
+            trace_context: None,
             payload: input.payload,
         }
     }
@@ -2086,6 +2129,7 @@ mod tests {
             timestamp: format!("2026-07-03T00:00:{sequence:02}Z"),
             source: AgentRuntimeEventSource::RustBackend,
             visibility: AgentRuntimeEventVisibility::User,
+            trace_context: None,
             payload,
         }
     }

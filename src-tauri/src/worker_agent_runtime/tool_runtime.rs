@@ -12,8 +12,8 @@ use super::tool_projection::{
     tool_observation_content, tool_observation_message,
 };
 use super::{
-    NativeAgentRunContext, NativeAgentRuntimeServices, NativeAgentToolCall,
-    NativeAgentToolDispatcher,
+    AgentHookInvocation, AgentHookStage, NativeAgentRunContext, NativeAgentRuntimeServices,
+    NativeAgentToolCall, NativeAgentToolDispatcher,
 };
 use crate::agent_loop_runtime_protocol::AgentRuntimePhase;
 use crate::worker_tool_registry::{ToolApprovalMetadata, ToolCancellationMode};
@@ -412,16 +412,17 @@ pub(super) async fn execute_tool_calls_for_iteration(
                 "tool_search must be the only tool call in its provider response".to_string(),
             );
         }
-        return execute_tool_search(
-            services,
-            context,
-            state,
-            iteration,
-            tool_calls
-                .into_iter()
-                .next()
-                .expect("single tool_search call should exist"),
-        );
+        let tool_call = tool_calls
+            .into_iter()
+            .next()
+            .expect("single tool_search call should exist");
+        let tool_call = match prepare_special_tool_call(context, state, tool_call.clone()) {
+            Ok(tool_call) => tool_call,
+            Err(error) => {
+                return tool_error_result(services, context, state, iteration, &tool_call, error);
+            }
+        };
+        return execute_tool_search(services, context, state, iteration, tool_call);
     }
 
     if tool_calls
@@ -447,6 +448,12 @@ pub(super) async fn execute_tool_calls_for_iteration(
             .into_iter()
             .next()
             .expect("single request_user_input call should exist");
+        let tool_call = match prepare_special_tool_call(context, state, tool_call.clone()) {
+            Ok(tool_call) => tool_call,
+            Err(error) => {
+                return tool_error_result(services, context, state, iteration, &tool_call, error);
+            }
+        };
         return match super::user_input::awaiting_user_input_result(
             services,
             context,
@@ -476,12 +483,19 @@ pub(super) async fn execute_tool_calls_for_iteration(
                 "approval-required tools must be requested one at a time".to_string(),
             );
         }
+        let prepared_tool_call = match prepare_special_tool_call(context, state, tool_call.clone())
+        {
+            Ok(tool_call) => tool_call,
+            Err(error) => {
+                return tool_error_result(services, context, state, iteration, tool_call, error);
+            }
+        };
         return awaiting_tool_approval_result(
             services,
             context,
             state,
             iteration,
-            tool_call.clone(),
+            prepared_tool_call,
             approval,
         );
     }
@@ -491,6 +505,58 @@ pub(super) async fn execute_tool_calls_for_iteration(
     } else {
         execute_locked_tool_batch(services, context, state, iteration, tool_calls).await
     }
+}
+
+fn prepare_special_tool_call(
+    context: &NativeAgentRunContext,
+    state: &mut NativeAgentRunState,
+    mut tool_call: NativeAgentToolCall,
+) -> Result<NativeAgentToolCall, String> {
+    let normalized_input =
+        serde_json::from_str::<Value>(&tool_call.arguments_json).map_err(|error| {
+            format!(
+                "native tool `{}` arguments are invalid JSON before hook dispatch: {error}",
+                tool_call.name
+            )
+        })?;
+    let invocation = AgentHookInvocation::tool(
+        AgentHookStage::BeforeToolUse,
+        context.trace_context.clone(),
+        tool_call.id.clone(),
+        tool_call.name.clone(),
+        Some(normalized_input),
+        None,
+    );
+    let evaluation = context.evaluate_hook(invocation.clone())?;
+    state.emit_hook_evaluation(&invocation, &evaluation);
+    if let Some(reason) = evaluation.denied_reason {
+        context.metrics().increment("tool.denied");
+        return Err(format!(
+            "native tool `{}` denied by hook: {reason}",
+            tool_call.name
+        ));
+    }
+    if evaluation.input_replaced {
+        let replacement = evaluation.normalized_input.ok_or_else(|| {
+            format!(
+                "native tool `{}` hook replacement is missing normalized input",
+                tool_call.name
+            )
+        })?;
+        if !replacement.is_object() {
+            return Err(format!(
+                "native tool `{}` hook replacement must be a JSON object",
+                tool_call.name
+            ));
+        }
+        tool_call.arguments_json = serde_json::to_string(&replacement).map_err(|error| {
+            format!(
+                "native tool `{}` hook replacement failed to serialize: {error}",
+                tool_call.name
+            )
+        })?;
+    }
+    Ok(tool_call)
 }
 
 fn awaiting_tool_approval_result(
@@ -517,6 +583,36 @@ fn awaiting_tool_approval_result(
             );
         }
     };
+    let permission_invocation = AgentHookInvocation::tool(
+        AgentHookStage::PermissionRequest,
+        context.trace_context.clone(),
+        tool_call.id.clone(),
+        tool_call.name.clone(),
+        Some(arguments.clone()),
+        None,
+    );
+    let permission_evaluation = match context.evaluate_hook(permission_invocation.clone()) {
+        Ok(evaluation) => evaluation,
+        Err(error) => {
+            return tool_error_result(services, context, state, iteration, &tool_call, error);
+        }
+    };
+    state.emit_hook_evaluation(&permission_invocation, &permission_evaluation);
+    if let Some(reason) = permission_evaluation.denied_reason {
+        context.metrics().increment("approval.denied_by_hook");
+        return tool_error_result(
+            services,
+            context,
+            state,
+            iteration,
+            &tool_call,
+            format!(
+                "native tool `{}` approval denied by hook: {reason}",
+                tool_call.name
+            ),
+        );
+    }
+    context.metrics().increment("approval.requested");
     let approval_id = format!("approval:{}:{}", context.run_id, tool_call.id);
     let summary = format!("Approval required: {}", tool_call.name);
     let risk = if matches!(
@@ -625,16 +721,41 @@ fn execute_tool_search(
     tool_call: NativeAgentToolCall,
 ) -> NativeAgentToolExecutionOutcome {
     start_tool_call(services, context, state, iteration, &tool_call);
+    context.metrics().increment("tool.started");
+    let tool_started_at = std::time::Instant::now();
     let raw_result = match context
         .tool_router
         .search_and_activate(&tool_call.arguments_json)
     {
         Ok(result) => result,
         Err(error) => {
+            context
+                .metrics()
+                .record_duration("tool.durationMs", tool_started_at.elapsed());
+            context.metrics().increment("tool.failed");
             return tool_error_result(services, &*context, state, iteration, &tool_call, error);
         }
     };
+    context
+        .metrics()
+        .record_duration("tool.durationMs", tool_started_at.elapsed());
+    context.metrics().increment("tool.completed");
     let result = super::NativeAgentToolResult::generic_success(&tool_call, raw_result);
+    let after_invocation = AgentHookInvocation::tool(
+        AgentHookStage::AfterToolUse,
+        context.trace_context.clone(),
+        tool_call.id.clone(),
+        tool_call.name.clone(),
+        None,
+        Some("completed".to_string()),
+    );
+    let after_evaluation = match context.evaluate_hook(after_invocation.clone()) {
+        Ok(evaluation) => evaluation,
+        Err(error) => {
+            return tool_error_result(services, context, state, iteration, &tool_call, error);
+        }
+    };
+    state.emit_hook_evaluation(&after_invocation, &after_evaluation);
     record_tool_success(&*context, state, iteration, tool_call, result);
     state.clear_pending_tool_calls();
     state.transition_phase(AgentRuntimePhase::Planning, iteration, "agent.tool.result");
@@ -793,14 +914,78 @@ pub(super) async fn dispatch_owned_tool_call(
 async fn dispatch_tool_with_cancellation_policy(
     dispatcher: Arc<dyn NativeAgentToolDispatcher>,
     context: NativeAgentRunContext,
-    tool_call: NativeAgentToolCall,
+    mut tool_call: NativeAgentToolCall,
 ) -> ToolDispatchOutcome {
+    let normalized_input = match serde_json::from_str::<Value>(&tool_call.arguments_json) {
+        Ok(input) => input,
+        Err(error) => {
+            return ToolDispatchOutcome::Failure {
+                error: format!(
+                    "native tool `{}` arguments are invalid JSON before hook dispatch: {error}",
+                    tool_call.name
+                ),
+                tool_call,
+            };
+        }
+    };
+    let before_invocation = AgentHookInvocation::tool(
+        AgentHookStage::BeforeToolUse,
+        context.trace_context.clone(),
+        tool_call.id.clone(),
+        tool_call.name.clone(),
+        Some(normalized_input),
+        None,
+    );
+    let before_evaluation = match context.evaluate_hook(before_invocation.clone()) {
+        Ok(evaluation) => evaluation,
+        Err(error) => return ToolDispatchOutcome::Failure { tool_call, error },
+    };
+    let denied_reason = before_evaluation.denied_reason.clone();
+    let replacement = before_evaluation
+        .input_replaced
+        .then(|| before_evaluation.normalized_input.clone())
+        .flatten();
+    context.queue_hook_evaluation(before_invocation, before_evaluation);
+    if let Some(reason) = denied_reason {
+        context.metrics().increment("tool.denied");
+        return ToolDispatchOutcome::Failure {
+            error: format!("native tool `{}` denied by hook: {reason}", tool_call.name),
+            tool_call,
+        };
+    }
+    if let Some(replacement) = replacement {
+        if !replacement.is_object() {
+            return ToolDispatchOutcome::Failure {
+                error: format!(
+                    "native tool `{}` hook replacement must be a JSON object",
+                    tool_call.name
+                ),
+                tool_call,
+            };
+        }
+        tool_call.arguments_json = match serde_json::to_string(&replacement) {
+            Ok(arguments) => arguments,
+            Err(error) => {
+                return ToolDispatchOutcome::Failure {
+                    error: format!(
+                        "native tool `{}` hook replacement failed to serialize: {error}",
+                        tool_call.name
+                    ),
+                    tool_call,
+                };
+            }
+        };
+    }
     let cancellation_mode = native_tool_cancellation_mode(&context, &tool_call.name);
     let cleanup_timeout_ms = native_tool_cleanup_timeout_ms(&context, &tool_call.name).max(1);
     let dispatch_call = tool_call.clone();
+    let tool_call_id = tool_call.id.clone();
+    let tool_name = tool_call.name.clone();
+    context.metrics().increment("tool.started");
+    let tool_started_at = std::time::Instant::now();
     let operation = dispatcher.dispatch_async(context.clone(), dispatch_call);
     tokio::pin!(operation);
-    tokio::select! {
+    let outcome = tokio::select! {
         biased;
         _ = wait_for_context_cancellation(&context) => {
             let cleanup = tokio::time::timeout(
@@ -831,7 +1016,40 @@ async fn dispatch_tool_with_cancellation_policy(
                 error,
             },
         },
-    }
+    };
+    let tool_duration = tool_started_at.elapsed();
+    context
+        .metrics()
+        .record_duration("tool.durationMs", tool_duration);
+    let outcome_label = match &outcome {
+        ToolDispatchOutcome::Success(_) => "completed",
+        ToolDispatchOutcome::Failure { .. } => "failed",
+        ToolDispatchOutcome::Cancelled { .. } => "cancelled",
+        ToolDispatchOutcome::CleanupTimedOut { .. } => "cleanup_timeout",
+        ToolDispatchOutcome::Skipped { .. } => "skipped",
+    };
+    context
+        .metrics()
+        .increment(&format!("tool.{outcome_label}"));
+    let after_invocation = AgentHookInvocation::tool(
+        AgentHookStage::AfterToolUse,
+        context.trace_context.clone(),
+        tool_call_id,
+        tool_name,
+        None,
+        Some(outcome_label.to_string()),
+    );
+    let after_evaluation = match context.evaluate_hook(after_invocation.clone()) {
+        Ok(evaluation) => evaluation,
+        Err(error) => {
+            return ToolDispatchOutcome::Failure {
+                tool_call: tool_dispatch_outcome_tool_call(&outcome).clone(),
+                error,
+            };
+        }
+    };
+    context.queue_hook_evaluation(after_invocation, after_evaluation);
+    outcome
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1481,6 +1699,7 @@ fn record_tool_success(
     tool_call: NativeAgentToolCall,
     result: super::NativeAgentToolResult,
 ) {
+    emit_pending_tool_hook_evaluations(context, state);
     let result = normalize_tool_result_for_context(result, context);
     let observation_content = tool_observation_content(&result);
     let completed_result = completed_tool_result_entry(&tool_call, &result);
@@ -1535,6 +1754,7 @@ fn policy_denied_result(
     iteration: i64,
     tool_call: &NativeAgentToolCall,
 ) -> NativeAgentToolExecutionOutcome {
+    emit_pending_tool_hook_evaluations(context, state);
     let error = format!(
         "native tool `{}` is not permitted by Rust capability policy",
         tool_call.name
@@ -1581,6 +1801,7 @@ fn tool_error_result(
     tool_call: &NativeAgentToolCall,
     error: String,
 ) -> NativeAgentToolExecutionOutcome {
+    emit_pending_tool_hook_evaluations(context, state);
     state.set_stop_reason("tool_error", iteration, "agent.error");
     state.emit_event(
         "agent.error",
@@ -1624,6 +1845,7 @@ fn tool_cleanup_timeout_result(
     cancellation_mode: ToolCancellationMode,
     timeout_ms: u64,
 ) -> NativeAgentToolExecutionOutcome {
+    emit_pending_tool_hook_evaluations(context, state);
     let error = format!(
         "native tool `{}` cleanup exceeded {} ms for cancellation mode `{}`",
         tool_call.name,
@@ -1676,6 +1898,7 @@ fn cancelled_result(
     state: &mut NativeAgentRunState,
     iteration: i64,
 ) -> NativeAgentToolExecutionOutcome {
+    emit_pending_tool_hook_evaluations(context, state);
     state.transition_phase(AgentRuntimePhase::Cancelled, iteration, "agent.cancelled");
     NativeAgentToolExecutionOutcome::Finished(cancelled_run_result(
         services,
@@ -1685,4 +1908,13 @@ fn cancelled_result(
         std::mem::take(&mut state.completed_tool_results),
         iteration,
     ))
+}
+
+fn emit_pending_tool_hook_evaluations(
+    context: &NativeAgentRunContext,
+    state: &mut NativeAgentRunState,
+) {
+    for (invocation, evaluation) in context.drain_hook_evaluations() {
+        state.emit_hook_evaluation(&invocation, &evaluation);
+    }
 }

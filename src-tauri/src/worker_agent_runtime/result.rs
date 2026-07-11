@@ -125,11 +125,8 @@ pub(super) fn waiting_runtime_events(
     trigger_event_name: &str,
     events: Vec<(&'static str, Option<String>, AgentRuntimePhase, Value)>,
 ) -> Vec<AgentRuntimeEventEnvelope> {
-    let mut emitter = AgentRunEmitter::new_with_thread_id(
-        &context.session_id,
-        &context.run_id,
-        context.thread_id.clone(),
-    );
+    let mut emitter =
+        AgentRunEmitter::new_with_trace_context(&context.session_id, context.trace_context.clone());
     emitter.emit(AgentRuntimeEventAppendInput {
         parent_turn_id: None,
         item_id: None,

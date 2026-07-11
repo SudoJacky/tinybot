@@ -21,6 +21,9 @@ pub(super) fn legacy_result_events_from_runtime_events(
             event.event_name != "agent.turn.started"
                 && event.event_name != "agent.phase.changed"
                 && event.event_name != "agent.status"
+                && event.event_name != "agent.hook.decision"
+                && event.event_name != "agent.provider.requested"
+                && event.event_name != "agent.provider.completed"
         })
         .map(NativeAgentEvent::from)
         .collect()
@@ -75,9 +78,11 @@ pub(super) fn runtime_event_item_id(event_name: &str, payload: &Value) -> Option
 
 pub(super) fn runtime_event_source(event_name: &str) -> AgentRuntimeEventSource {
     match event_name {
-        "agent.delta" | "agent.reasoning_delta" | "agent.usage" => {
-            AgentRuntimeEventSource::Provider
-        }
+        "agent.delta"
+        | "agent.reasoning_delta"
+        | "agent.usage"
+        | "agent.provider.requested"
+        | "agent.provider.completed" => AgentRuntimeEventSource::Provider,
         "agent.tool_call.delta" | "agent.tool.start" | "agent.tool.result" | "agent.tool.debug" => {
             AgentRuntimeEventSource::Tool
         }
@@ -95,7 +100,10 @@ pub(super) fn runtime_event_visibility(event_name: &str) -> AgentRuntimeEventVis
         | "agent.usage"
         | "agent.done"
         | "agent.phase.changed"
-        | "agent.tool.debug" => AgentRuntimeEventVisibility::Debug,
+        | "agent.tool.debug"
+        | "agent.hook.decision"
+        | "agent.provider.requested"
+        | "agent.provider.completed" => AgentRuntimeEventVisibility::Debug,
         _ => AgentRuntimeEventVisibility::User,
     }
 }

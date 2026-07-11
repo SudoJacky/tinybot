@@ -3,6 +3,8 @@ use super::continuations::{
     maybe_approval_resume_result, maybe_awaiting_approval_result, maybe_awaiting_form_result,
     maybe_form_submit_result, restore_activated_tools_for_continuation,
 };
+use super::events::runtime_event_timestamp;
+use super::hooks::AgentHookEvaluation;
 use super::result::{cancelled_result, cancelled_run_result, error_result};
 use super::state::NativeAgentRunState;
 use super::tool_runtime::{execute_tool_calls_for_iteration, NativeAgentToolExecutionOutcome};
@@ -14,18 +16,21 @@ use super::user_input::{
     prepare_user_input_continuation, UserInputContinuationOutcome, UserInputResume,
 };
 use super::{
-    bool_field, ComposedInstructions, InstructionComposer, NativeAgentProviderFailure,
-    NativeAgentProviderFailureKind, NativeAgentProviderStreamEvent, NativeAgentRunContext,
-    NativeAgentRuntimeServices,
+    bool_field, AgentHookInvocation, AgentHookStage, ComposedInstructions, InstructionComposer,
+    NativeAgentProviderFailure, NativeAgentProviderFailureKind, NativeAgentProviderStreamEvent,
+    NativeAgentRunContext, NativeAgentRuntimeServices,
 };
-use crate::agent_loop_runtime_protocol::AgentRuntimePhase;
+use crate::agent_loop_runtime_protocol::{
+    AgentRunEmitter, AgentRuntimeEventAppendInput, AgentRuntimeEventEnvelope,
+    AgentRuntimeEventSource, AgentRuntimeEventVisibility, AgentRuntimePhase,
+};
 use crate::runtime::agent_task::StartAgentRun;
 use crate::worker_capability::default_desktop_capability_policy;
 use crate::worker_tool_registry::{mcp_tool_registry_entries, WorkerToolRegistryRpc};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub fn run_native_agent_turn_with_config(
     services: &NativeAgentRuntimeServices,
@@ -102,7 +107,8 @@ async fn run_owned_native_agent_turn_async(
     workspace_root: Option<PathBuf>,
     instructions: Option<ComposedInstructions>,
 ) -> Result<Value, String> {
-    let identity = NativeAgentRunContext::from_spec(spec.clone(), config_snapshot.clone());
+    let mut identity = NativeAgentRunContext::from_spec(spec.clone(), config_snapshot.clone());
+    identity.attach_observability(services);
     if services
         .task_runtime
         .status(&identity.run_id)
@@ -142,7 +148,53 @@ async fn run_owned_native_agent_turn_async(
     if handle.status().is_none() {
         return Err("owned agent task did not publish a runtime status".to_string());
     }
-    let mut result = handle.wait_async().await?;
+    let turn_started_at = Instant::now();
+    identity.metrics().increment("turn.started");
+    let mut result = match handle.wait_async().await {
+        Ok(result) => result,
+        Err(error) => {
+            identity.metrics().increment("turn.aborted");
+            identity
+                .metrics()
+                .record_duration("turn.durationMs", turn_started_at.elapsed());
+            let invocation = AgentHookInvocation::lifecycle(
+                AgentHookStage::TurnAbort,
+                identity.trace_context.clone(),
+            );
+            identity
+                .evaluate_hook(invocation)
+                .map_err(|hook_error| format!("{error}; turn abort hook failed: {hook_error}"))?;
+            return Err(error);
+        }
+    };
+    let stop_reason = result
+        .get("stopReason")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    let completed = matches!(
+        stop_reason,
+        "final_response" | "awaiting_approval" | "awaiting_form" | "awaiting_subagent"
+    );
+    let stage = if completed {
+        identity.metrics().increment("turn.completed");
+        AgentHookStage::TurnComplete
+    } else {
+        identity.metrics().increment("turn.aborted");
+        AgentHookStage::TurnAbort
+    };
+    let duration = turn_started_at.elapsed();
+    identity
+        .metrics()
+        .record_duration("turn.durationMs", duration);
+    let invocation = AgentHookInvocation::lifecycle(stage, identity.trace_context.clone());
+    let evaluation = identity.evaluate_hook(invocation.clone())?;
+    append_hook_evaluation_to_result(&mut result, &identity, &invocation, &evaluation)?;
+    result["traceContext"] = serde_json::to_value(&identity.trace_context)
+        .map_err(|error| format!("failed to serialize agent trace context: {error}"))?;
+    result["runMetrics"] = serde_json::json!({
+        "turnDurationMs": duration.as_millis().min(u128::from(u64::MAX)) as u64,
+        "outcome": if completed { "completed" } else { "aborted" },
+    });
     if let Some(instructions) = result_instructions {
         instructions.attach_diagnostics(&mut result)?;
     }
@@ -157,6 +209,7 @@ async fn run_native_agent_turn_with_instructions_async(
     workspace_root: Option<&Path>,
 ) -> Result<Value, String> {
     let mut context = NativeAgentRunContext::from_spec(spec, config_snapshot.clone());
+    context.attach_observability(services);
     context.instructions = instructions;
     context.attach_cancellation(
         services.cancellations.clone(),
@@ -272,6 +325,19 @@ async fn run_native_agent_turn_with_instructions_async(
         state.emit_turn_started(&context);
         0
     };
+    let turn_start_invocation =
+        AgentHookInvocation::lifecycle(AgentHookStage::TurnStart, context.trace_context.clone());
+    let turn_start_evaluation = context.evaluate_hook(turn_start_invocation.clone())?;
+    state.emit_hook_evaluation(&turn_start_invocation, &turn_start_evaluation);
+    if let Some(reason) = turn_start_evaluation.denied_reason {
+        return Ok(hook_denied_result(
+            services,
+            &context,
+            &mut state,
+            start_iteration,
+            reason,
+        ));
+    }
     for iteration in start_iteration..context.max_iterations {
         state.transition_phase(AgentRuntimePhase::CallingModel, iteration, "provider_call");
         if run_context_is_cancelled(&context) {
@@ -314,10 +380,51 @@ async fn run_native_agent_turn_with_instructions_async(
         };
         if let Some(action) = projection.action.as_ref() {
             let payload = context_window_action_payload(&context, iteration, action);
+            if let Some(tokens) = payload.get("estimatedTokensBefore").and_then(Value::as_i64) {
+                context.metrics().set_gauge("context.tokens.before", tokens);
+            }
+            if let Some(tokens) = payload.get("estimatedTokensAfter").and_then(Value::as_i64) {
+                context.metrics().set_gauge("context.tokens.after", tokens);
+            }
             state.emit_event(action.event_name, payload);
+            if action.event_name == "agent.context.compacted" {
+                context.metrics().increment("compaction.completed");
+                let invocation = AgentHookInvocation::lifecycle(
+                    AgentHookStage::CompactionComplete,
+                    context.trace_context.clone(),
+                );
+                let evaluation = context.evaluate_hook(invocation.clone())?;
+                state.emit_hook_evaluation(&invocation, &evaluation);
+            }
         }
         let provider_context = context_with_projected_messages(&context, projection.messages);
         let estimated_context_tokens = estimate_context_tokens_for_request(&provider_context);
+        let provider_attempt_id = format!("{}:provider:{}", context.run_id, iteration + 1);
+        let before_provider_invocation = AgentHookInvocation::provider(
+            AgentHookStage::BeforeProviderRequest,
+            context.trace_context.clone(),
+            provider_attempt_id.clone(),
+            None,
+        );
+        let before_provider_evaluation =
+            context.evaluate_hook(before_provider_invocation.clone())?;
+        state.emit_hook_evaluation(&before_provider_invocation, &before_provider_evaluation);
+        if let Some(reason) = before_provider_evaluation.denied_reason {
+            return Ok(hook_denied_result(
+                services, &context, &mut state, iteration, reason,
+            ));
+        }
+        context.metrics().increment("provider.attempted");
+        state.emit_event(
+            "agent.provider.requested",
+            serde_json::json!({
+                "runId": context.run_id,
+                "sessionId": context.session_id,
+                "iteration": iteration,
+                "providerAttemptId": provider_attempt_id,
+            }),
+        );
+        let provider_started_at = Instant::now();
         let mut provider_streamed_content = false;
         let mut provider_streamed_reasoning = false;
         let mut provider_observer_cancelled = false;
@@ -388,6 +495,43 @@ async fn run_native_agent_turn_with_instructions_async(
                 provider_call.await
             }
         };
+        let provider_duration = provider_started_at.elapsed();
+        context
+            .metrics()
+            .record_duration("provider.durationMs", provider_duration);
+        let provider_outcome = if provider_observer_cancelled {
+            "cancelled"
+        } else {
+            match &provider_response {
+                Ok(_) => "completed",
+                Err(error) if error.kind() == NativeAgentProviderFailureKind::Cancelled => {
+                    "cancelled"
+                }
+                Err(_) => "failed",
+            }
+        };
+        context
+            .metrics()
+            .increment(&format!("provider.{provider_outcome}"));
+        state.emit_event(
+            "agent.provider.completed",
+            serde_json::json!({
+                "runId": context.run_id,
+                "sessionId": context.session_id,
+                "iteration": iteration,
+                "providerAttemptId": provider_attempt_id,
+                "outcome": provider_outcome,
+                "durationMs": provider_duration.as_millis().min(u128::from(u64::MAX)) as u64,
+            }),
+        );
+        let after_provider_invocation = AgentHookInvocation::provider(
+            AgentHookStage::AfterProviderResponse,
+            context.trace_context.clone(),
+            provider_attempt_id,
+            Some(provider_outcome.to_string()),
+        );
+        let after_provider_evaluation = context.evaluate_hook(after_provider_invocation.clone())?;
+        state.emit_hook_evaluation(&after_provider_invocation, &after_provider_evaluation);
         if provider_observer_cancelled {
             state.transition_phase(AgentRuntimePhase::Cancelled, iteration, "agent.cancelled");
             return Ok(cancelled_run_result(
@@ -640,6 +784,100 @@ fn provider_failure_result(
         "events": events,
         "runtimeEvents": runtime_events,
     })
+}
+
+fn hook_denied_result(
+    services: &NativeAgentRuntimeServices,
+    context: &NativeAgentRunContext,
+    state: &mut NativeAgentRunState,
+    iteration: i64,
+    reason: String,
+) -> Value {
+    state.set_stop_reason("hook_denied", iteration, "agent.error");
+    state.emit_event(
+        "agent.error",
+        serde_json::json!({
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "iteration": iteration,
+            "stopReason": "hook_denied",
+            "message": reason,
+            "error": reason,
+        }),
+    );
+    services
+        .checkpoints
+        .clear_for_run(&context.session_id, &context.run_id);
+    let runtime_events = state.runtime_events();
+    let events = state.legacy_events();
+    serde_json::json!({
+        "runtime": "rust",
+        "runId": context.run_id,
+        "sessionId": context.session_id,
+        "finalContent": "",
+        "stopReason": "hook_denied",
+        "messages": [],
+        "toolsUsed": std::mem::take(&mut state.tools_used),
+        "completedToolResults": std::mem::take(&mut state.completed_tool_results),
+        "error": reason,
+        "events": events,
+        "runtimeEvents": runtime_events,
+    })
+}
+
+fn append_hook_evaluation_to_result(
+    result: &mut Value,
+    context: &NativeAgentRunContext,
+    invocation: &AgentHookInvocation,
+    evaluation: &AgentHookEvaluation,
+) -> Result<(), String> {
+    if evaluation.decisions.is_empty() {
+        return Ok(());
+    }
+    let existing = result
+        .get("runtimeEvents")
+        .filter(|events| events.is_array())
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!([]));
+    let existing: Vec<AgentRuntimeEventEnvelope> = serde_json::from_value(existing)
+        .map_err(|error| format!("failed to read runtime events for lifecycle hook: {error}"))?;
+    let mut emitter = if existing.is_empty() {
+        AgentRunEmitter::new_with_trace_context(&context.session_id, context.trace_context.clone())
+    } else {
+        AgentRunEmitter::from_existing_events_with_thread_id(
+            &context.session_id,
+            &context.trace_context.turn_id,
+            context.trace_context.thread_id.clone(),
+            &existing,
+        )
+    };
+    let phase = match invocation.stage {
+        AgentHookStage::TurnComplete => AgentRuntimePhase::Completed,
+        AgentHookStage::TurnAbort => AgentRuntimePhase::Failed,
+        _ => AgentRuntimePhase::Planning,
+    };
+    let event = emitter.emit(AgentRuntimeEventAppendInput {
+        parent_turn_id: context.trace_context.parent_run_id.clone(),
+        item_id: None,
+        event_name: "agent.hook.decision".to_string(),
+        phase,
+        timestamp: runtime_event_timestamp(),
+        source: AgentRuntimeEventSource::RustBackend,
+        visibility: AgentRuntimeEventVisibility::Debug,
+        payload: evaluation.event_payload(invocation),
+    });
+    let events = result
+        .as_object_mut()
+        .ok_or_else(|| "agent result must be a JSON object".to_string())?
+        .entry("runtimeEvents".to_string())
+        .or_insert_with(|| serde_json::json!([]))
+        .as_array_mut()
+        .ok_or_else(|| "agent result runtimeEvents must be an array".to_string())?;
+    events.push(
+        serde_json::to_value(event)
+            .map_err(|error| format!("failed to serialize lifecycle hook event: {error}"))?,
+    );
+    Ok(())
 }
 
 enum PreparedContinuation {

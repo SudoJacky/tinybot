@@ -200,6 +200,14 @@ mod tests {
             token_usage_info: None,
             instruction_provenance: Some(json!({ "contentHash": "abc" })),
             instruction_diagnostics: vec![json!({ "level": "warning" })],
+            trace_context: Some(crate::agent_loop_runtime_protocol::AgentTraceContext {
+                request_id: "request-1".to_string(),
+                trace_id: "trace-1".to_string(),
+                run_id: "run-1".to_string(),
+                turn_id: "turn-1".to_string(),
+                thread_id: Some("thread-1".to_string()),
+                parent_run_id: None,
+            }),
             error: Some(json!({ "message": "waiting" })),
         };
 
@@ -213,6 +221,7 @@ mod tests {
         assert_eq!(value["currentIteration"], 1);
         assert_eq!(value["completedToolResults"][0]["toolCallId"], "call-1");
         assert_eq!(value["instructionProvenance"]["contentHash"], "abc");
+        assert_eq!(value["traceContext"]["traceId"], "trace-1");
 
         let restored: AgentRunRecord =
             serde_json::from_value(value).expect("run record should deserialize");
@@ -445,6 +454,7 @@ mod tests {
             timestamp: "unix-ms:2".to_string(),
             source: AgentRuntimeEventSource::RustBackend,
             visibility: AgentRuntimeEventVisibility::User,
+            trace_context: None,
             payload: json!({
                 "runId": "run-1",
                 "sessionId": "session-1",
@@ -499,6 +509,7 @@ mod tests {
             timestamp: "unix-ms:3".to_string(),
             source: AgentRuntimeEventSource::RustBackend,
             visibility: AgentRuntimeEventVisibility::User,
+            trace_context: None,
             payload: json!({
                 "runId": "run-terminal-status",
                 "sessionId": "session-1",
@@ -1826,6 +1837,7 @@ mod tests {
             token_usage_info: None,
             instruction_provenance: None,
             instruction_diagnostics: Vec::new(),
+            trace_context: None,
             error: None,
         }
     }

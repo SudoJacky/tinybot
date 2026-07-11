@@ -1050,6 +1050,73 @@ fn worker_run_agent_uses_rust_runtime_when_selected() {
 }
 
 #[test]
+fn worker_run_agent_preserves_trace_from_ingress_through_persistence() {
+    let fixture = WorkspaceFixture::new();
+    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let config = serde_json::json!({
+        "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+        "providers": { "fixture": { "responses": [{ "content": "traced answer" }] } }
+    });
+
+    let result = worker_run_agent_with_options(
+        &shared,
+        serde_json::json!({
+            "runtime": "rust",
+            "requestId": "request-ingress-persistence",
+            "traceId": "trace-ingress-persistence",
+            "runId": "run-ingress-persistence",
+            "turnId": "turn-ingress-persistence",
+            "sessionId": "session-ingress-persistence",
+            "messages": [{ "role": "user", "content": "trace this turn" }]
+        }),
+        fixture.root.clone(),
+        config.clone(),
+        Duration::from_millis(10),
+    )
+    .expect("traced Rust runtime should complete");
+    let run = read_agent_run_record(
+        fixture.root.clone(),
+        config,
+        "session-ingress-persistence",
+        "run-ingress-persistence",
+    );
+
+    assert_eq!(
+        result["traceContext"]["requestId"],
+        "request-ingress-persistence"
+    );
+    assert_eq!(
+        result["traceContext"]["traceId"],
+        "trace-ingress-persistence"
+    );
+    assert_eq!(
+        run["traceContext"]["requestId"],
+        "request-ingress-persistence"
+    );
+    assert_eq!(run["traceContext"]["traceId"], "trace-ingress-persistence");
+    let trace_events = run["traceEvents"]
+        .as_array()
+        .expect("persisted trace events should be an array");
+    assert!(trace_events
+        .iter()
+        .any(|event| event["eventName"] == "agent.provider.completed"));
+    for event_name in ["agent.provider.completed"] {
+        let event = trace_events
+            .iter()
+            .find(|event| event["eventName"] == event_name)
+            .expect("provider boundary event should be persisted");
+        assert_eq!(
+            event["traceContext"]["requestId"],
+            "request-ingress-persistence"
+        );
+        assert_eq!(
+            event["traceContext"]["traceId"],
+            "trace-ingress-persistence"
+        );
+    }
+}
+
+#[test]
 fn worker_run_agent_preserves_legacy_tool_content_with_envelope_payload() {
     let fixture = WorkspaceFixture::new();
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
@@ -1714,8 +1781,15 @@ fn worker_run_agent_persists_agent_run_record_and_keeps_history_compact() {
     let result_runtime_events = result["runtimeEvents"]
         .as_array()
         .expect("runtime events should be returned");
-    assert_eq!(trace_events.len(), result_runtime_events.len());
-    for (persisted, emitted) in trace_events.iter().zip(result_runtime_events) {
+    let durable_runtime_events = result_runtime_events
+        .iter()
+        .filter(|event| event["eventName"] != "agent.provider.requested")
+        .collect::<Vec<_>>();
+    assert!(result_runtime_events
+        .iter()
+        .any(|event| event["eventName"] == "agent.provider.requested"));
+    assert_eq!(trace_events.len(), durable_runtime_events.len());
+    for (persisted, emitted) in trace_events.iter().zip(durable_runtime_events) {
         assert_eq!(persisted["eventId"], emitted["eventId"]);
     }
     assert_eq!(trace_events[0]["schemaVersion"], "tinybot.agent_event.v1");
@@ -2069,6 +2143,14 @@ fn worker_submit_thread_turn_creates_thread_and_runs_native_agent() {
         .expect("runtime events should be present")
         .iter()
         .all(|event| event["threadId"] == thread_id));
+    let trace_id = result["agentResult"]["traceContext"]["traceId"]
+        .as_str()
+        .expect("thread agent result should expose traceId");
+    assert!(result["agentResult"]["runtimeEvents"]
+        .as_array()
+        .expect("runtime events should be present")
+        .iter()
+        .all(|event| event["traceContext"]["traceId"] == trace_id));
     assert_eq!(
         result["snapshot"]["thread"]["sessionKey"],
         serde_json::Value::String(thread_id.clone())
@@ -2078,6 +2160,16 @@ fn worker_submit_thread_turn_creates_thread_and_runs_native_agent() {
         .expect("thread items should be present")
         .iter()
         .any(|item| item["kind"]["type"] == "assistant_message_completed"));
+    let started = result["snapshot"]["items"]
+        .as_array()
+        .expect("thread items should be present")
+        .iter()
+        .find(|item| item["kind"]["type"] == "agent_run_started")
+        .expect("thread run start item should be present");
+    assert_eq!(
+        started["kind"]["payload"]["traceContext"]["traceId"],
+        trace_id
+    );
     let metadata = call_rust_state_service(
         fixture.root.clone(),
         config,

@@ -1,5 +1,5 @@
 use crate::agent_loop_runtime_protocol::{
-    AgentRuntimeEventEnvelope, LegacyNativeAgentEventProjection,
+    AgentRuntimeEventEnvelope, AgentTraceContext, LegacyNativeAgentEventProjection,
 };
 use crate::runtime::agent_task::{AgentCancelReason, AgentTaskRuntime};
 use crate::runtime::mcp::McpRuntime;
@@ -16,6 +16,7 @@ mod checkpoint;
 mod context;
 mod continuations;
 mod events;
+mod hooks;
 mod instructions;
 mod items;
 mod provider;
@@ -33,6 +34,10 @@ mod tool_runtime;
 mod usage;
 mod user_input;
 
+pub(crate) use self::context::{agent_trace_context_from_value, ensure_agent_trace_context};
+pub(crate) use self::hooks::AgentHookEvaluation;
+
+pub use self::hooks::{AgentHook, AgentHookDecision, AgentHookInvocation, AgentHookStage};
 pub(crate) use self::instructions::{ComposedInstructions, InstructionComposer};
 pub use self::items::{
     AgentAssistantMessage, AgentContentPart, AgentInstructionMessage, AgentInstructionRole,
@@ -51,6 +56,7 @@ use self::tool_router::NativeToolRouter;
 use self::usage::{
     context_window_messages, context_window_messages_async, enrich_usage_with_context_window,
 };
+pub use crate::runtime::observability::AgentRuntimeMetrics;
 pub(crate) use provider_loop::run_native_agent_turn_with_workspace_and_instructions_async;
 pub use provider_loop::{
     run_native_agent_turn_with_config, run_native_agent_turn_with_config_async,
@@ -166,6 +172,11 @@ pub struct NativeAgentRunContext {
     pub max_iterations: i64,
     pub settings: AgentTurnSettings,
     pub cancellation: Option<NativeAgentCancellationContext>,
+    pub trace_context: AgentTraceContext,
+    hooks: hooks::AgentHookPipeline,
+    metrics: AgentRuntimeMetrics,
+    pending_hook_evaluations:
+        Arc<std::sync::Mutex<Vec<(AgentHookInvocation, hooks::AgentHookEvaluation)>>>,
     tool_router: NativeToolRouter,
 }
 
@@ -365,6 +376,8 @@ pub struct NativeAgentRuntimeServices {
     mcp_runtime: McpRuntime,
     shell_runtime: WorkerShellRuntime,
     task_runtime: AgentTaskRuntime,
+    hooks: hooks::AgentHookPipeline,
+    metrics: AgentRuntimeMetrics,
     #[cfg(test)]
     test_activated_tool_ids: Vec<String>,
     #[cfg(test)]
@@ -388,6 +401,8 @@ impl NativeAgentRuntimeServices {
             mcp_runtime: McpRuntime::new(),
             shell_runtime: WorkerShellRuntime::default(),
             task_runtime: AgentTaskRuntime::new(),
+            hooks: hooks::AgentHookPipeline::default(),
+            metrics: crate::runtime::observability::global_agent_runtime_metrics().clone(),
             #[cfg(test)]
             test_activated_tool_ids: Vec::new(),
             #[cfg(test)]
@@ -413,6 +428,27 @@ impl NativeAgentRuntimeServices {
     pub fn with_trace_sink(mut self, trace_sink: Arc<dyn NativeAgentTraceSink>) -> Self {
         self.trace_sink = Some(trace_sink);
         self
+    }
+
+    pub fn with_hook(mut self, hook: Arc<dyn AgentHook>) -> Self {
+        self.hooks = self.hooks.with_hook(hook);
+        self
+    }
+
+    pub fn with_metrics(mut self, metrics: AgentRuntimeMetrics) -> Self {
+        self.metrics = metrics;
+        self
+    }
+
+    pub fn metrics_snapshot(&self) -> Value {
+        self.metrics.snapshot()
+    }
+
+    pub(crate) fn evaluate_hook_invocation(
+        &self,
+        invocation: AgentHookInvocation,
+    ) -> Result<AgentHookEvaluation, String> {
+        self.hooks.evaluate(invocation, &self.metrics)
     }
 
     pub fn tool_dispatcher(&self) -> Arc<dyn NativeAgentToolDispatcher> {

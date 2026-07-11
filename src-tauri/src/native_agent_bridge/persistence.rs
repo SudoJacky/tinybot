@@ -1,6 +1,6 @@
 use crate::agent_loop_runtime_protocol::{
     AgentRuntimeEventAppendInput, AgentRuntimeEventAppender, AgentRuntimeEventSource,
-    AgentRuntimeEventVisibility, AgentRuntimePhase,
+    AgentRuntimeEventVisibility, AgentRuntimePhase, AgentTraceContext,
 };
 use crate::native_agent_bridge::{
     attach_native_agent_latest_usage, native_agent_artifacts, native_agent_assistant_messages,
@@ -11,11 +11,12 @@ use crate::native_agent_bridge::{
     native_agent_session_id, native_agent_thread_id, native_agent_token_usage_info,
     native_agent_trace_event_item_id, native_agent_usage, native_agent_user_messages,
 };
-use crate::worker_agent_runtime::NativeAgentRuntimeServices;
+use crate::worker_agent_runtime::{agent_trace_context_from_value, NativeAgentRuntimeServices};
 use crate::worker_protocol::WorkerRequest;
 use crate::worker_request_id::next_worker_request_correlation;
 use crate::{call_rust_state_service, now_unix_ms};
 use std::path::PathBuf;
+use std::time::Instant;
 
 pub(crate) fn reject_native_agent_terminal_run_reentry(
     spec: &serde_json::Value,
@@ -28,13 +29,15 @@ pub(crate) fn reject_native_agent_terminal_run_reentry(
     let Some(run_id) = native_agent_run_id(spec) else {
         return Ok(None);
     };
-    let request_id = next_worker_request_correlation();
-    let existing = call_rust_state_service(
+    let trace_context = agent_trace_context_from_value(spec);
+    let existing = call_traced_state_service(
         workspace_root,
         config_snapshot,
+        &trace_context,
+        "terminal-check",
         WorkerRequest::new(
-            request_id.id("agent-run-terminal-check"),
-            request_id.trace_id("agent-run-terminal-check"),
+            format!("{}:terminal-check", trace_context.request_id),
+            trace_context.trace_id.clone(),
             "agent_run.get",
             serde_json::json!({
                 "session_id": session_id,
@@ -42,6 +45,7 @@ pub(crate) fn reject_native_agent_terminal_run_reentry(
             }),
         ),
         "native agent terminal run check",
+        "read",
     );
     let Ok(existing) = existing else {
         return Ok(None);
@@ -100,17 +104,20 @@ pub(crate) fn persist_native_agent_run_start(
         &session_id,
         &run_id,
     );
-    let request_id = next_worker_request_correlation();
-    call_rust_state_service(
+    let trace_context = agent_trace_context_from_value(&spec);
+    call_traced_state_service(
         workspace_root,
         config_snapshot,
+        &trace_context,
+        "run-start",
         WorkerRequest::new(
-            request_id.id("agent-run-start-native"),
-            request_id.trace_id("agent-run-start-native"),
+            format!("{}:run-start", trace_context.request_id),
+            trace_context.trace_id.clone(),
             "agent_run.upsert",
             serde_json::json!({ "record": record }),
         ),
         "native agent run start persistence",
+        "write",
     )?;
     Ok(())
 }
@@ -128,17 +135,20 @@ pub(crate) fn persist_native_agent_run_record(
         .or_else(|| native_agent_run_id(&spec))
         .unwrap_or_else(|| "native-rust-run".to_string());
     let record = native_agent_run_record(&spec, result, &config_snapshot, &session_id, &run_id);
-    let request_id = next_worker_request_correlation();
-    let persisted = call_rust_state_service(
+    let trace_context = trace_context_from_result_or_spec(result, &spec);
+    let persisted = call_traced_state_service(
         workspace_root,
         config_snapshot,
+        &trace_context,
+        "run-record",
         WorkerRequest::new(
-            request_id.id("agent-run-upsert-native"),
-            request_id.trace_id("agent-run-upsert-native"),
+            format!("{}:run-record", trace_context.request_id),
+            trace_context.trace_id.clone(),
             "agent_run.upsert",
             serde_json::json!({ "record": record }),
         ),
         "native agent run persistence",
+        "write",
     )?;
     result["runPersistence"] = persisted;
     Ok(())
@@ -182,6 +192,7 @@ pub(crate) fn native_agent_run_record(
         .and_then(serde_json::Value::as_array)
         .cloned()
         .unwrap_or_default();
+    let trace_context = trace_context_from_result_or_spec(result, spec);
 
     serde_json::json!({
         "sessionId": session_id,
@@ -217,6 +228,7 @@ pub(crate) fn native_agent_run_record(
         "tokenUsageInfo": native_agent_token_usage_info(result),
         "instructionProvenance": instruction_provenance,
         "instructionDiagnostics": instruction_diagnostics,
+        "traceContext": trace_context,
         "error": error,
     })
 }
@@ -235,13 +247,15 @@ pub(crate) fn persist_native_agent_checkpoint_if_present(
         .and_then(serde_json::Value::as_str)
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| "Rust agent checkpoint missing session id".to_string())?;
-    let request_id = next_worker_request_correlation();
-    call_rust_state_service(
+    let trace_context = agent_trace_context_from_value(result);
+    call_traced_state_service(
         workspace_root,
         config_snapshot,
+        &trace_context,
+        "checkpoint-write",
         WorkerRequest::new(
-            request_id.id("session-set-native-checkpoint"),
-            request_id.trace_id("session-set-native-checkpoint"),
+            format!("{}:checkpoint-write", trace_context.request_id),
+            trace_context.trace_id.clone(),
             "session.set_checkpoint",
             serde_json::json!({
                 "session_id": session_id,
@@ -249,6 +263,7 @@ pub(crate) fn persist_native_agent_checkpoint_if_present(
             }),
         ),
         "native agent checkpoint persistence",
+        "write",
     )?;
     Ok(())
 }
@@ -284,13 +299,15 @@ pub(crate) fn persist_native_agent_turn_if_final(
     if messages.is_empty() {
         return Ok(());
     }
-    let request_id = next_worker_request_correlation();
-    let persisted = call_rust_state_service(
+    let trace_context = trace_context_from_result_or_spec(result, &spec);
+    let persisted = call_traced_state_service(
         workspace_root,
         config_snapshot,
+        &trace_context,
+        "session-turn-write",
         WorkerRequest::new(
-            request_id.id("session-persist-native-turn"),
-            request_id.trace_id("session-persist-native-turn"),
+            format!("{}:session-turn-write", trace_context.request_id),
+            trace_context.trace_id.clone(),
             "session.persist_turn",
             serde_json::json!({
                 "session_id": session_id,
@@ -304,6 +321,7 @@ pub(crate) fn persist_native_agent_turn_if_final(
             }),
         ),
         "native agent session persistence",
+        "write",
     )?;
     result["sessionPersistence"] = persisted;
     Ok(())
@@ -397,11 +415,15 @@ fn native_agent_runtime_trace_events(
         return native_agent_persisted_trace_values(runtime_events);
     }
 
-    let mut appender = AgentRuntimeEventAppender::new_with_thread_id(
-        session_id,
-        run_id,
-        native_agent_thread_id(spec),
-    );
+    let mut trace_context = trace_context_from_result_or_spec(result, spec);
+    trace_context.run_id = run_id.to_string();
+    if trace_context.turn_id.trim().is_empty() {
+        trace_context.turn_id = run_id.to_string();
+    }
+    trace_context.thread_id = trace_context
+        .thread_id
+        .or_else(|| native_agent_thread_id(spec));
+    let mut appender = AgentRuntimeEventAppender::new_with_trace_context(session_id, trace_context);
     let user_message = native_agent_current_user_message(spec);
     let user_message_id = user_message.as_ref().and_then(native_agent_message_id);
     let mut trace_events = vec![native_agent_persisted_runtime_event(appender.append(
@@ -483,6 +505,56 @@ fn native_agent_runtime_trace_events(
     }
 
     trace_events
+}
+
+fn trace_context_from_result_or_spec(
+    result: &serde_json::Value,
+    spec: &serde_json::Value,
+) -> AgentTraceContext {
+    if result.get("traceContext").is_some()
+        || result.get("traceId").is_some()
+        || result.get("trace_id").is_some()
+    {
+        return agent_trace_context_from_value(result);
+    }
+    agent_trace_context_from_value(spec)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn call_traced_state_service(
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    trace_context: &AgentTraceContext,
+    operation: &str,
+    request: WorkerRequest,
+    label: &str,
+    metric_kind: &str,
+) -> Result<serde_json::Value, String> {
+    let metrics = crate::runtime::observability::global_agent_runtime_metrics();
+    metrics.increment(&format!("persistence.{metric_kind}.started"));
+    if request.trace_id != trace_context.trace_id
+        || !request.id.starts_with(&trace_context.request_id)
+    {
+        metrics.increment(&format!("persistence.{metric_kind}.failed"));
+        return Err(format!(
+            "persistence operation `{operation}` lost its root request/trace correlation"
+        ));
+    }
+    let started_at = Instant::now();
+    let result = call_rust_state_service(workspace_root, config_snapshot, request, label);
+    metrics.record_duration(
+        &format!("persistence.{metric_kind}.durationMs"),
+        started_at.elapsed(),
+    );
+    metrics.increment(&format!(
+        "persistence.{metric_kind}.{}",
+        if result.is_ok() {
+            "completed"
+        } else {
+            "failed"
+        }
+    ));
+    result
 }
 
 fn native_agent_push_phase_transition(

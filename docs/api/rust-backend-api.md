@@ -377,10 +377,54 @@ Workspace-backed agent results include:
   instruction text, and ordered source records. Each source records `kind`, path identifier,
   precedence, scope root, load timestamp, source hash, truncation state, and validation warnings.
 - `instructionDiagnostics`: structured warnings derived from the source records.
+- `traceContext`: stable `requestId`, `traceId`, `runId`, `turnId`, optional `threadId`, and optional
+  `parentRunId` values shared by runtime events and durable run records.
+- `runMetrics`: the turn duration and terminal outcome for the completed invocation.
 
 The same provenance and diagnostics are stored on the durable agent-run record, so
 `worker_agent_runs_list` and `worker_agent_run_runtime_state` can explain the instruction inputs of
 a historical run without persisting a second write authority.
+
+### Hooks, trace correlation, and runtime metrics
+
+The native runtime evaluates typed hooks at provider, tool, permission, turn, thread, and context
+compaction boundaries. Hook decisions are `continue`, `deny` with a non-empty reason,
+`replace_normalized_input` for the supported pre-tool boundary, or
+`append_diagnostic_metadata`. Returning a decision at an unsupported stage, returning malformed
+diagnostic metadata, or throwing a hook error fails the run explicitly; hook failures are never
+converted into successful tool or provider results.
+
+Every `runtimeEvents` entry may include the same `traceContext` object. Provider boundary events add
+`providerAttemptId`; tool events retain `itemId`/`toolCallId`. Internal tool, thread, trace, and
+persistence Worker RPC requests reuse the root `traceId` and derive operation-specific request IDs.
+Checkpoints and `AgentRunRecord` persist the correlation context so approval/form continuations and
+post-restart diagnostics do not create an unrelated trace.
+
+`runtime.metrics` returns a process-local, secret-safe operational snapshot:
+
+```json
+{
+  "schemaVersion": 1,
+  "generatedAtUnixMs": 0,
+  "counters": {
+    "turn.started": 1,
+    "provider.attempted": 1,
+    "tool.completed": 1,
+    "persistence.write.completed": 4
+  },
+  "durations": {
+    "turn.durationMs": { "count": 1, "totalMs": 20, "maxMs": 20, "averageMs": 20.0 },
+    "provider.durationMs": { "count": 1, "totalMs": 8, "maxMs": 8, "averageMs": 8.0 }
+  },
+  "gauges": {
+    "context.tokens.before": 1200,
+    "context.tokens.after": 600
+  }
+}
+```
+
+Metric names and outcomes come from bounded runtime enums. Prompts, tool output, secrets, and memory
+content are not used as metric names or labels.
 
 ### Typed agent items and provider capabilities
 
@@ -1260,7 +1304,7 @@ External callers should usually prefer the Tauri commands above.
 | `permission_profile` | `current`, `evaluate_tool`, `request_tool_approval`, `resolve_tool_approval` |
 | `provider` | `resolve_secret` |
 | `rag` | `query` |
-| `runtime` | `now`, `restart` |
+| `runtime` | `metrics`, `now`, `restart` |
 | `session` | `append_messages`, `clear`, `clear_checkpoint`, `delete`, `get_checkpoint`, `get_history`, `get_metadata`, `list_metadata`, `patch_metadata`, `patch_user_profile`, `persist_turn`, `set_checkpoint`, `trim` |
 | `shell` | `execute`, `start`, `poll`, `write_stdin`, `resize`, `interrupt`, `terminate`, `terminate_run`, `list`, `shutdown` |
 | `skills` | `list`, `webui_create`, `webui_delete`, `webui_detail`, `webui_list`, `webui_update`, `webui_validate` |

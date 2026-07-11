@@ -4,6 +4,7 @@ use super::items::ThreadItem;
 use super::records::{
     ThreadCheckpoint, ThreadMetadataPatch, ThreadRecord, ThreadRunSummary, ThreadSnapshot,
 };
+use crate::agent_loop_runtime_protocol::AgentTraceContext;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 #[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
@@ -478,6 +479,8 @@ pub struct StartThreadTurnRequest {
     pub provider: Option<String>,
     #[serde(default)]
     pub metadata: ThreadMetadataPatch,
+    #[serde(default)]
+    pub trace_context: Option<AgentTraceContext>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
