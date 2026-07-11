@@ -16,9 +16,9 @@ use super::user_input::{
     prepare_user_input_continuation, UserInputContinuationOutcome, UserInputResume,
 };
 use super::{
-    bool_field, AgentHookInvocation, AgentHookStage, ComposedInstructions, InstructionComposer,
-    NativeAgentProviderFailure, NativeAgentProviderFailureKind, NativeAgentProviderStreamEvent,
-    NativeAgentRunContext, NativeAgentRuntimeServices,
+    bool_field, AgentContextRequest, AgentHookInvocation, AgentHookStage, ComposedInstructions,
+    InstructionComposer, NativeAgentProviderFailure, NativeAgentProviderFailureKind,
+    NativeAgentProviderStreamEvent, NativeAgentRunContext, NativeAgentRuntimeServices,
 };
 use crate::agent_loop_runtime_protocol::{
     AgentRunEmitter, AgentRuntimeEventAppendInput, AgentRuntimeEventEnvelope,
@@ -26,7 +26,7 @@ use crate::agent_loop_runtime_protocol::{
 };
 use crate::runtime::agent_task::StartAgentRun;
 use crate::worker_capability::default_desktop_capability_policy;
-use crate::worker_tool_registry::{mcp_tool_registry_entries, WorkerToolRegistryRpc};
+use crate::worker_tool_registry::{McpToolContributor, WorkerToolRegistryRpc};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -167,6 +167,7 @@ async fn run_owned_native_agent_turn_async(
             return Err(error);
         }
     };
+    attach_context_contributions_to_result(&mut result)?;
     let stop_reason = result
         .get("stopReason")
         .and_then(Value::as_str)
@@ -271,20 +272,17 @@ async fn run_native_agent_turn_with_instructions_async(
                 ));
             }
         };
-        let mut dynamic_tools = Vec::new();
+        let mut tool_registry = WorkerToolRegistryRpc::new(default_desktop_capability_policy());
         for server in discovered {
-            dynamic_tools.extend(mcp_tool_registry_entries(
-                &server.server_id,
-                &server.server_config,
-                &server.tools,
-            )?);
+            tool_registry =
+                tool_registry.with_contributor(Arc::new(McpToolContributor::from_discovery(
+                    &server.server_id,
+                    &server.server_config,
+                    &server.tools,
+                )?))?;
         }
-        context.tool_router = super::tool_router::NativeToolRouter::new(
-            WorkerToolRegistryRpc::new(default_desktop_capability_policy())
-                .with_dynamic_tools(dynamic_tools)?
-                .list_tools()
-                .tools,
-        );
+        context.tool_router =
+            super::tool_router::NativeToolRouter::new(tool_registry.list_tools().tools);
     }
     #[cfg(test)]
     if let Some(entries) = services.test_tool_registry_entries.clone() {
@@ -311,6 +309,13 @@ async fn run_native_agent_turn_with_instructions_async(
             "Rust agent runtime requires at least one user input or chat message.",
         ));
     }
+    if let Some(workspace_root) = workspace_root {
+        let request = AgentContextRequest::from_run_context(workspace_root.to_path_buf(), &context);
+        let hydration = services
+            .context_contributors
+            .hydrate(&request, context.system_instruction_prompt())?;
+        context.apply_context_hydration(hydration);
+    }
 
     let mut state = NativeAgentRunState::new(&context, services.trace_sink.clone());
     state.transition_phase(
@@ -318,6 +323,16 @@ async fn run_native_agent_turn_with_instructions_async(
         0,
         "agent.history.hydrated",
     );
+    if !context.context_contribution_diagnostics().is_empty() {
+        state.emit_event(
+            "agent.context.hydrated",
+            serde_json::json!({
+                "runId": context.run_id,
+                "sessionId": context.session_id,
+                "contributors": context.context_contribution_diagnostics(),
+            }),
+        );
+    }
     state.transition_phase(AgentRuntimePhase::Planning, 0, "agent.turn.started");
     let start_iteration = if let Some(resume) = user_input_resume {
         resume.apply(&context, &mut state)
@@ -877,6 +892,31 @@ fn append_hook_evaluation_to_result(
         serde_json::to_value(event)
             .map_err(|error| format!("failed to serialize lifecycle hook event: {error}"))?,
     );
+    Ok(())
+}
+
+fn attach_context_contributions_to_result(result: &mut Value) -> Result<(), String> {
+    let contributions = result
+        .get("runtimeEvents")
+        .and_then(Value::as_array)
+        .and_then(|events| {
+            events.iter().rev().find(|event| {
+                event.get("eventName").and_then(Value::as_str) == Some("agent.context.hydrated")
+            })
+        })
+        .and_then(|event| event.get("payload"))
+        .and_then(|payload| payload.get("contributors"))
+        .cloned();
+    let Some(contributions) = contributions else {
+        return Ok(());
+    };
+    if !contributions.is_array() {
+        return Err("agent context contribution diagnostics must be an array".to_string());
+    }
+    result
+        .as_object_mut()
+        .ok_or_else(|| "agent result must be a JSON object".to_string())?
+        .insert("contextContributions".to_string(), contributions);
     Ok(())
 }
 

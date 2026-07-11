@@ -103,7 +103,8 @@ pub(super) fn runtime_event_visibility(event_name: &str) -> AgentRuntimeEventVis
         | "agent.tool.debug"
         | "agent.hook.decision"
         | "agent.provider.requested"
-        | "agent.provider.completed" => AgentRuntimeEventVisibility::Debug,
+        | "agent.provider.completed"
+        | "agent.context.hydrated" => AgentRuntimeEventVisibility::Debug,
         _ => AgentRuntimeEventVisibility::User,
     }
 }

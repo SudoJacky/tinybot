@@ -380,10 +380,42 @@ Workspace-backed agent results include:
 - `traceContext`: stable `requestId`, `traceId`, `runId`, `turnId`, optional `threadId`, and optional
   `parentRunId` values shared by runtime events and durable run records.
 - `runMetrics`: the turn duration and terminal outcome for the completed invocation.
+- `contextContributions`: ordered, content-free diagnostics for enabled context contributors. Each
+  record includes `contributorId`, `kind`, `status`, `contentChars`, `contentSha256`,
+  `referenceCount`, safe reference identifiers, and `truncated`.
 
-The same provenance and diagnostics are stored on the durable agent-run record, so
+The instruction provenance and instruction diagnostics are stored on the durable agent-run record, so
 `worker_agent_runs_list` and `worker_agent_run_runtime_state` can explain the instruction inputs of
 a historical run without persisting a second write authority.
+
+### Extension contributors and context hydration
+
+Native tools are assembled through ordered `ToolContributor` registrations. Built-in workspace
+tools and the generic MCP call tool have named contributors, while each discovered MCP server adds
+one contributor for its validated dynamic tools. Duplicate contributor IDs, tool IDs, or tool
+methods fail before the registry becomes active. The former direct dynamic-tool injection path is
+not used by the agent runtime.
+
+Workspace-backed turns hydrate provider context through ordered `AgentContextContributor`
+registrations after continuation state is restored and before the first provider request. The
+default order is memory followed by knowledge:
+
+- Memory retrieval requires `memory.enabled: true`. `max_notes`/`maxNotes` defaults to `6` and must
+  not exceed `20`; `max_chars`/`maxChars` defaults to `1600` and must not exceed `12000`.
+- Knowledge retrieval requires both `knowledge.enabled: true` and
+  `knowledge.auto_retrieve`/`autoRetrieve: true`. `max_chunks`/`maxChunks` defaults to `5` and must
+  not exceed `20`.
+
+Malformed sections, incorrectly typed fields, out-of-range limits, and enabled-contributor
+retrieval failures stop the run before provider execution. Contributed text is JSON-encoded and
+appended after the composed system instructions under an explicit evidence-only frame; retrieved
+text never receives instruction precedence.
+
+Enabled contributors emit the debug event `agent.context.hydrated`, including `empty` evaluations
+when no source matched. This event follows the durable runtime trace path. The event and top-level
+`contextContributions` projection contain hashes, counts, truncation state, and allowlisted source
+identifiers only. They do not contain prompt text, memory content, knowledge excerpts, document
+names, or filesystem paths.
 
 ### Hooks, trace correlation, and runtime metrics
 
@@ -582,6 +614,10 @@ and emits `agent.cleanup_timeout`. Neither timeout is reported as successful can
 The native agent provider initially receives the capability-allowed model tools plus the runtime
 control tool `tool_search`. Deferred tools are not included until the model searches for them in the
 current run.
+
+The catalog is the deterministic projection of registered tool contributors. Workspace tools,
+generic MCP dispatch, and per-server MCP discovery all enter through this registry; feature-specific
+tool arrays are not appended directly by the provider loop.
 
 `tool_search` input:
 

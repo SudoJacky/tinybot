@@ -14,6 +14,7 @@ use tokio_util::sync::CancellationToken;
 
 mod checkpoint;
 mod context;
+mod context_contributors;
 mod continuations;
 mod events;
 mod hooks;
@@ -37,6 +38,9 @@ mod user_input;
 pub(crate) use self::context::{agent_trace_context_from_value, ensure_agent_trace_context};
 pub(crate) use self::hooks::AgentHookEvaluation;
 
+pub use self::context_contributors::{
+    AgentContextContribution, AgentContextContributor, AgentContextRequest,
+};
 pub use self::hooks::{AgentHook, AgentHookDecision, AgentHookInvocation, AgentHookStage};
 pub(crate) use self::instructions::{ComposedInstructions, InstructionComposer};
 pub use self::items::{
@@ -168,6 +172,8 @@ pub struct NativeAgentRunContext {
     pub provider: Option<String>,
     pub system_prompt: Option<String>,
     pub instructions: Option<ComposedInstructions>,
+    assembled_system_prompt: Option<String>,
+    context_contributions: Vec<Value>,
     pub stream: bool,
     pub max_iterations: i64,
     pub settings: AgentTurnSettings,
@@ -377,6 +383,7 @@ pub struct NativeAgentRuntimeServices {
     shell_runtime: WorkerShellRuntime,
     task_runtime: AgentTaskRuntime,
     hooks: hooks::AgentHookPipeline,
+    context_contributors: context_contributors::AgentContextContributorRegistry,
     metrics: AgentRuntimeMetrics,
     #[cfg(test)]
     test_activated_tool_ids: Vec<String>,
@@ -402,6 +409,7 @@ impl NativeAgentRuntimeServices {
             shell_runtime: WorkerShellRuntime::default(),
             task_runtime: AgentTaskRuntime::new(),
             hooks: hooks::AgentHookPipeline::default(),
+            context_contributors: context_contributors::AgentContextContributorRegistry::default(),
             metrics: crate::runtime::observability::global_agent_runtime_metrics().clone(),
             #[cfg(test)]
             test_activated_tool_ids: Vec::new(),
@@ -433,6 +441,14 @@ impl NativeAgentRuntimeServices {
     pub fn with_hook(mut self, hook: Arc<dyn AgentHook>) -> Self {
         self.hooks = self.hooks.with_hook(hook);
         self
+    }
+
+    pub fn try_with_context_contributor(
+        mut self,
+        contributor: Arc<dyn AgentContextContributor>,
+    ) -> Result<Self, String> {
+        self.context_contributors = self.context_contributors.with_contributor(contributor)?;
+        Ok(self)
     }
 
     pub fn with_metrics(mut self, metrics: AgentRuntimeMetrics) -> Self {

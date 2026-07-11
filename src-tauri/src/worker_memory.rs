@@ -43,6 +43,19 @@ impl WorkerMemoryRpc {
         self.recall(parse_params(request)?)
     }
 
+    pub(crate) fn recall_context(
+        &self,
+        query: String,
+        max_notes: usize,
+        max_chars: usize,
+    ) -> Result<Value, WorkerProtocolError> {
+        self.recall(MemoryRecallParams {
+            query,
+            max_notes: Some(max_notes),
+            max_chars: Some(max_chars),
+        })
+    }
+
     pub(crate) fn dream_run_from_request(
         &self,
         request: &WorkerRequest,

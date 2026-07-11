@@ -1,3 +1,4 @@
+use super::context_contributors::AgentContextHydration;
 use super::continuations::queued_user_continuation_message;
 use super::hooks::AgentHookEvaluation;
 use super::tool_router::NativeToolRouter;
@@ -121,6 +122,8 @@ impl NativeAgentRunContext {
             provider,
             system_prompt: None,
             instructions: None,
+            assembled_system_prompt: None,
+            context_contributions: Vec::new(),
             stream,
             max_iterations,
             settings,
@@ -195,10 +198,21 @@ impl NativeAgentRunContext {
     }
 
     pub(crate) fn system_instruction_prompt(&self) -> Option<&str> {
-        self.instructions
-            .as_ref()
-            .map(ComposedInstructions::rendered_prompt)
-            .or(self.system_prompt.as_deref())
+        self.assembled_system_prompt.as_deref().or_else(|| {
+            self.instructions
+                .as_ref()
+                .map(ComposedInstructions::rendered_prompt)
+                .or(self.system_prompt.as_deref())
+        })
+    }
+
+    pub(super) fn apply_context_hydration(&mut self, hydration: AgentContextHydration) {
+        self.assembled_system_prompt = hydration.rendered_prompt;
+        self.context_contributions = hydration.diagnostics;
+    }
+
+    pub(super) fn context_contribution_diagnostics(&self) -> &[Value] {
+        &self.context_contributions
     }
 }
 

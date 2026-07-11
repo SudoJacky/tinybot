@@ -1,6 +1,13 @@
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
+mod contributors;
+
+use contributors::default_tool_contributors;
+#[cfg(test)]
+use contributors::workspace_tool_entries;
+pub use contributors::{McpToolContributor, ToolContributor};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::sync::Arc;
 
 pub const TOOL_SEARCH_METHOD: &str = "tool_search";
 pub const REQUEST_USER_INPUT_METHOD: &str = "request_user_input";
@@ -10,7 +17,7 @@ pub const MAX_TOOL_SEARCH_LIMIT: usize = 20;
 #[derive(Clone, Debug)]
 pub struct WorkerToolRegistryRpc {
     policy: CapabilityPolicy,
-    dynamic_tools: Vec<ToolRegistryEntry>,
+    contributors: Vec<Arc<dyn ToolContributor>>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -139,41 +146,57 @@ impl WorkerToolRegistryRpc {
     pub fn new(policy: CapabilityPolicy) -> Self {
         Self {
             policy,
-            dynamic_tools: Vec::new(),
+            contributors: default_tool_contributors(),
         }
     }
 
-    pub fn with_dynamic_tools(
+    pub fn with_contributor(
         mut self,
-        dynamic_tools: Vec<ToolRegistryEntry>,
+        contributor: Arc<dyn ToolContributor>,
     ) -> Result<Self, String> {
-        let mut known_ids = builtin_tool_entries()
+        let contributor_id = contributor.id().trim();
+        if contributor_id.is_empty() {
+            return Err("tool contributor ID must not be empty".to_string());
+        }
+        if self
+            .contributors
+            .iter()
+            .any(|existing| existing.id().trim() == contributor_id)
+        {
+            return Err(format!("duplicate tool contributor ID: {contributor_id}"));
+        }
+        let mut known_ids = self
+            .contributed_tools()
             .into_iter()
             .map(|entry| entry.tool_id)
             .collect::<std::collections::BTreeSet<_>>();
-        let mut known_methods = builtin_tool_entries()
+        let mut known_methods = self
+            .contributed_tools()
             .into_iter()
             .map(|entry| entry.method)
             .collect::<std::collections::BTreeSet<_>>();
-        for tool in &dynamic_tools {
+        for tool in contributor.contribute() {
             if !known_ids.insert(tool.tool_id.clone()) {
-                return Err(format!("duplicate tool ID in registry: {}", tool.tool_id));
+                return Err(format!(
+                    "tool contributor `{contributor_id}` produced duplicate tool ID `{}`",
+                    tool.tool_id
+                ));
             }
             if !known_methods.insert(tool.method.clone()) {
                 return Err(format!(
-                    "duplicate tool method in registry: {}",
+                    "tool contributor `{contributor_id}` produced duplicate tool method `{}`",
                     tool.method
                 ));
             }
         }
-        self.dynamic_tools = dynamic_tools;
+        self.contributors.push(contributor);
         Ok(self)
     }
 
     pub fn list_tools(&self) -> ToolRegistryListResult {
-        let tools = builtin_tool_entries()
+        let tools = self
+            .contributed_tools()
             .into_iter()
-            .chain(self.dynamic_tools.clone())
             .map(|mut tool| {
                 tool.available = tool
                     .required_capabilities
@@ -186,6 +209,31 @@ impl WorkerToolRegistryRpc {
             total: tools.len(),
             tools,
         }
+    }
+
+    pub fn contributor_ids(&self) -> Vec<String> {
+        self.contributors
+            .iter()
+            .map(|contributor| contributor.id().to_string())
+            .collect()
+    }
+
+    pub fn contributor_id_for_tool(&self, tool_id: &str) -> Option<String> {
+        let tool_id = tool_id.trim();
+        self.contributors.iter().find_map(|contributor| {
+            contributor
+                .contribute()
+                .into_iter()
+                .any(|entry| entry.tool_id == tool_id || entry.method == tool_id)
+                .then(|| contributor.id().to_string())
+        })
+    }
+
+    fn contributed_tools(&self) -> Vec<ToolRegistryEntry> {
+        self.contributors
+            .iter()
+            .flat_map(|contributor| contributor.contribute())
+            .collect()
     }
 
     pub fn get_tool(&self, tool_id: &str) -> Option<ToolRegistryEntry> {
@@ -259,119 +307,7 @@ fn tool_matches_query(tool: &ToolRegistryEntry, query: &str) -> bool {
         || tool.description.to_lowercase().contains(query)
 }
 
-pub fn mcp_tool_registry_entries(
-    server_name: &str,
-    server_config: &Value,
-    discovered_tools: &[Value],
-) -> Result<Vec<ToolRegistryEntry>, String> {
-    let server_name = server_name.trim();
-    if server_name.is_empty() {
-        return Err("MCP server name must not be empty".to_string());
-    }
-    let server_parallel = server_config
-        .get("supportsParallelToolCalls")
-        .or_else(|| server_config.get("supports_parallel_tool_calls"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    let mut entries = Vec::with_capacity(discovered_tools.len());
-    for definition in discovered_tools {
-        let tool_name = definition
-            .get("name")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|name| !name.is_empty())
-            .ok_or_else(|| format!("MCP server `{server_name}` returned a tool without a name"))?;
-        let mut input_schema = definition
-            .get("inputSchema")
-            .or_else(|| definition.get("input_schema"))
-            .cloned()
-            .unwrap_or_else(|| json!({ "type": "object" }));
-        let input = input_schema.as_object_mut().ok_or_else(|| {
-            format!("MCP tool `{server_name}.{tool_name}` input schema must be a JSON object")
-        })?;
-        if let Some(schema_type) = input.get("type") {
-            if schema_type.as_str() != Some("object") {
-                return Err(format!(
-                    "MCP tool `{server_name}.{tool_name}` input schema type must be object"
-                ));
-            }
-        } else {
-            input.insert("type".to_string(), Value::String("object".to_string()));
-        }
-        let output_schema = definition
-            .get("outputSchema")
-            .or_else(|| definition.get("output_schema"))
-            .cloned()
-            .unwrap_or_else(|| json!({ "type": "object" }));
-        if !output_schema.is_object() {
-            return Err(format!(
-                "MCP tool `{server_name}.{tool_name}` output schema must be a JSON object"
-            ));
-        }
-        let read_only = definition
-            .get("annotations")
-            .and_then(Value::as_object)
-            .and_then(|annotations| {
-                annotations
-                    .get("readOnlyHint")
-                    .or_else(|| annotations.get("read_only_hint"))
-            })
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        let tool_id = mcp_tool_id(server_name, tool_name);
-        let title = definition
-            .get("title")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|title| !title.is_empty())
-            .map(str::to_string)
-            .unwrap_or_else(|| format!("{server_name}: {tool_name}"));
-        let description = definition
-            .get("description")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|description| !description.is_empty())
-            .map(|description| format!("MCP server {server_name}: {description}"))
-            .unwrap_or_else(|| format!("Call {tool_name} on MCP server {server_name}."));
-        let runtime_policy = runtime_policy(
-            server_parallel || read_only,
-            ToolCancellationMode::DetachForbidden,
-            !read_only,
-            false,
-        );
-        entries.push(ToolRegistryEntry {
-            tool_id: tool_id.clone(),
-            method: tool_id,
-            namespace: "mcp".to_string(),
-            title,
-            description,
-            exposure: ToolExposure::Deferred,
-            dynamic: true,
-            supports_parallel_tool_calls: runtime_policy.supports_parallel_tool_calls,
-            runtime_policy,
-            required_capabilities: vec![WorkerCapability::McpCall],
-            available: false,
-            approval: approval(true, Some("mcp_tool"), Some("per_request")),
-            input_schema,
-            output_schema,
-            execution_target: ToolExecutionTarget::Mcp {
-                server: server_name.to_string(),
-                tool: tool_name.to_string(),
-            },
-        });
-    }
-    Ok(entries)
-}
-
-fn mcp_tool_id(server_name: &str, tool_name: &str) -> String {
-    format!(
-        "mcp.{}:{server_name}.{}:{tool_name}",
-        server_name.len(),
-        tool_name.len()
-    )
-}
-
-fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
+fn core_tool_entries() -> Vec<ToolRegistryEntry> {
     vec![
         runtime_control_tool(
             TOOL_SEARCH_METHOD,
@@ -465,97 +401,6 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
             }),
         ),
         tool(
-            "workspace.read_file",
-            "workspace",
-            "Read workspace file",
-            "Read a file under the current workspace.",
-            ToolExposure::Model,
-            false,
-            runtime_policy(true, ToolCancellationMode::Cooperative, false, false),
-            vec![WorkerCapability::FsWorkspaceRead],
-            approval(false, None, None),
-            json!({
-                "type": "object",
-                "required": ["path"],
-                "properties": {
-                    "path": { "type": "string" },
-                    "offset": { "type": "integer" },
-                    "limit": { "type": "integer" },
-                    "format": { "type": "string" }
-                }
-            }),
-        ),
-        tool(
-            "workspace.write_file",
-            "workspace",
-            "Write workspace file",
-            "Write a file under the current workspace.",
-            ToolExposure::Deferred,
-            false,
-            runtime_policy(false, ToolCancellationMode::DetachForbidden, true, false),
-            vec![
-                WorkerCapability::FsWorkspaceWrite,
-                WorkerCapability::ApprovalRequest,
-            ],
-            approval(true, Some("file"), Some("per_request")),
-            json!({
-                "type": "object",
-                "required": ["path", "contents"],
-                "properties": {
-                    "path": { "type": "string" },
-                    "contents": { "type": "string" },
-                    "expectedUpdatedAt": { "type": "string" }
-                }
-            }),
-        ),
-        tool(
-            "workspace.apply_patch",
-            "workspace",
-            "Apply workspace patch",
-            "Apply a strict multi-file patch under the current workspace. Patch context must match exactly.",
-            ToolExposure::Deferred,
-            false,
-            runtime_policy(false, ToolCancellationMode::DetachForbidden, true, false),
-            vec![
-                WorkerCapability::FsWorkspaceWrite,
-                WorkerCapability::ApprovalRequest,
-            ],
-            approval(true, Some("file"), Some("per_request")),
-            json!({
-                "type": "object",
-                "required": ["patch"],
-                "properties": {
-                    "patch": {
-                        "type": "string",
-                        "description": "Strict patch text delimited by *** Begin Patch and *** End Patch."
-                    }
-                },
-                "additionalProperties": false
-            }),
-        ),
-        tool(
-            "workspace.delete_file",
-            "workspace",
-            "Delete workspace file",
-            "Delete a file or directory under the current workspace.",
-            ToolExposure::Deferred,
-            false,
-            runtime_policy(false, ToolCancellationMode::DetachForbidden, true, false),
-            vec![
-                WorkerCapability::FsWorkspaceWrite,
-                WorkerCapability::ApprovalRequest,
-            ],
-            approval(true, Some("file"), Some("per_request")),
-            json!({
-                "type": "object",
-                "required": ["path"],
-                "properties": {
-                    "path": { "type": "string" },
-                    "recursive": { "type": "boolean" }
-                }
-            }),
-        ),
-        tool(
             "knowledge.query",
             "knowledge",
             "Query knowledge",
@@ -610,26 +455,6 @@ fn builtin_tool_entries() -> Vec<ToolRegistryEntry> {
                 "properties": {
                     "query": { "type": "string" },
                     "sessionId": { "type": "string" }
-                }
-            }),
-        ),
-        tool(
-            "mcp.call_tool",
-            "mcp",
-            "Call MCP tool",
-            "Call a tool exposed by a configured MCP server.",
-            ToolExposure::Deferred,
-            true,
-            runtime_policy(false, ToolCancellationMode::DetachForbidden, true, true),
-            vec![WorkerCapability::McpCall],
-            approval(true, Some("mcp_tool"), Some("per_request")),
-            json!({
-                "type": "object",
-                "required": ["server", "tool"],
-                "properties": {
-                    "server": { "type": "string" },
-                    "tool": { "type": "string" },
-                    "arguments": { "type": "object" }
                 }
             }),
         ),
@@ -1130,9 +955,63 @@ mod tests {
         );
     }
 
+    #[derive(Debug)]
+    struct DuplicateWorkspaceContributor;
+
+    impl ToolContributor for DuplicateWorkspaceContributor {
+        fn id(&self) -> &str {
+            "test.duplicate_workspace"
+        }
+
+        fn contribute(&self) -> Vec<ToolRegistryEntry> {
+            vec![workspace_tool_entries()[0].clone()]
+        }
+    }
+
+    #[test]
+    fn workspace_and_mcp_tools_are_owned_by_named_contributors() {
+        let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
+            WorkerCapability::FsWorkspaceRead,
+            WorkerCapability::McpCall,
+        ]));
+        assert_eq!(
+            registry.contributor_id_for_tool("workspace.read_file"),
+            Some("builtin.workspace".to_string())
+        );
+        assert_eq!(
+            registry.contributor_id_for_tool("mcp.call_tool"),
+            Some("builtin.mcp".to_string())
+        );
+
+        let registry = registry
+            .with_contributor(std::sync::Arc::new(
+                McpToolContributor::from_discovery(
+                    "search",
+                    &json!({ "supportsParallelToolCalls": true }),
+                    &[json!({
+                        "name": "lookup",
+                        "description": "Look up a record",
+                        "inputSchema": { "type": "object" }
+                    })],
+                )
+                .expect("valid discovery should build a contributor"),
+            ))
+            .expect("MCP contributor should register");
+        assert_eq!(
+            registry.contributor_id_for_tool("mcp.6:search.6:lookup"),
+            Some("mcp.search".to_string())
+        );
+
+        let error = registry
+            .with_contributor(std::sync::Arc::new(DuplicateWorkspaceContributor))
+            .expect_err("duplicate tool methods must fail before activation");
+        assert!(error.contains("workspace.read_file"));
+        assert!(error.contains("test.duplicate_workspace"));
+    }
+
     #[test]
     fn discovered_mcp_tool_becomes_deferred_registry_entry() {
-        let entries = mcp_tool_registry_entries(
+        let entries = McpToolContributor::from_discovery(
             "docs",
             &json!({}),
             &[json!({
@@ -1145,7 +1024,8 @@ mod tests {
                 "annotations": { "readOnlyHint": true }
             })],
         )
-        .expect("valid MCP definition should normalize");
+        .expect("valid MCP definition should normalize")
+        .contribute();
 
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].exposure, ToolExposure::Deferred);
@@ -1164,7 +1044,7 @@ mod tests {
 
     #[test]
     fn malformed_mcp_tool_schema_fails_explicitly() {
-        let error = mcp_tool_registry_entries(
+        let error = McpToolContributor::from_discovery(
             "docs",
             &json!({}),
             &[json!({ "name": "bad", "inputSchema": { "type": "string" } })],
