@@ -1,3 +1,5 @@
+use super::*;
+
 impl WorkerWorkspaceRpc {
     pub fn new(root: PathBuf, policy: CapabilityPolicy) -> Self {
         Self {
@@ -24,7 +26,7 @@ impl WorkerWorkspaceRpc {
         })
     }
 
-    fn require(&self, capability: WorkerCapability) -> Result<(), WorkerProtocolError> {
+    pub(super) fn require(&self, capability: WorkerCapability) -> Result<(), WorkerProtocolError> {
         if self.policy.allows(&capability) {
             return Ok(());
         }
@@ -38,7 +40,9 @@ impl WorkerWorkspaceRpc {
     }
 }
 
-fn normalize_workspace_path(requested_path: &str) -> Result<String, WorkerProtocolError> {
+pub(super) fn normalize_workspace_path(
+    requested_path: &str,
+) -> Result<String, WorkerProtocolError> {
     let normalized = requested_path.replace('\\', "/");
     if normalized.is_empty()
         || normalized.starts_with('/')
@@ -53,7 +57,9 @@ fn normalize_workspace_path(requested_path: &str) -> Result<String, WorkerProtoc
     Ok(normalized)
 }
 
-fn normalize_workspace_dir_path(requested_path: &str) -> Result<String, WorkerProtocolError> {
+pub(super) fn normalize_workspace_dir_path(
+    requested_path: &str,
+) -> Result<String, WorkerProtocolError> {
     let normalized = requested_path.replace('\\', "/");
     let normalized = normalized.trim_end_matches('/');
     if normalized == "." {
@@ -72,25 +78,25 @@ fn normalize_workspace_dir_path(requested_path: &str) -> Result<String, WorkerPr
     Ok(normalized.to_string())
 }
 
-fn join_workspace_relative(root: &Path, relative_path: &str) -> PathBuf {
+pub(super) fn join_workspace_relative(root: &Path, relative_path: &str) -> PathBuf {
     relative_path
         .split('/')
         .fold(root.to_path_buf(), |path, part| path.join(part))
 }
 
-fn workspace_dir_absolute_path(root: &Path, relative_path: &str) -> PathBuf {
+pub(super) fn workspace_dir_absolute_path(root: &Path, relative_path: &str) -> PathBuf {
     if relative_path == "." {
         return root.to_path_buf();
     }
     join_workspace_relative(root, relative_path)
 }
 
-fn ensure_inside_workspace(root: &Path, path: &Path) -> Result<(), WorkerProtocolError> {
+pub(super) fn ensure_inside_workspace(root: &Path, path: &Path) -> Result<(), WorkerProtocolError> {
     let root = canonicalize_workspace_root(root)?;
     ensure_inside_canonical_workspace(&root, path)
 }
 
-fn ensure_write_target_inside_workspace(
+pub(super) fn ensure_write_target_inside_workspace(
     root: &Path,
     path: &Path,
 ) -> Result<(), WorkerProtocolError> {
@@ -121,7 +127,10 @@ fn ensure_new_parent_chain_inside_workspace(
     ensure_inside_canonical_workspace(root, existing_parent)
 }
 
-fn ensure_inside_canonical_workspace(root: &Path, path: &Path) -> Result<(), WorkerProtocolError> {
+pub(super) fn ensure_inside_canonical_workspace(
+    root: &Path,
+    path: &Path,
+) -> Result<(), WorkerProtocolError> {
     let path = path.canonicalize().map_err(|error| {
         filesystem_error(
             "failed to resolve workspace path",
@@ -146,7 +155,10 @@ fn ensure_inside_canonical_workspace(root: &Path, path: &Path) -> Result<(), Wor
     ))
 }
 
-fn workspace_relative_path(root: &Path, path: &Path) -> Result<String, WorkerProtocolError> {
+pub(super) fn workspace_relative_path(
+    root: &Path,
+    path: &Path,
+) -> Result<String, WorkerProtocolError> {
     path.strip_prefix(root)
         .map_err(|error| {
             filesystem_error(
@@ -160,7 +172,7 @@ fn workspace_relative_path(root: &Path, path: &Path) -> Result<String, WorkerPro
         .map(|relative| relative.to_string_lossy().replace('\\', "/"))
 }
 
-fn canonicalize_workspace_root(root: &Path) -> Result<PathBuf, WorkerProtocolError> {
+pub(super) fn canonicalize_workspace_root(root: &Path) -> Result<PathBuf, WorkerProtocolError> {
     root.canonicalize().map_err(|error| {
         filesystem_error(
             "failed to resolve workspace root",
@@ -182,7 +194,10 @@ fn invalid_workspace_path(requested_path: &str) -> WorkerProtocolError {
     )
 }
 
-fn filesystem_error(message: impl Into<String>, details: serde_json::Value) -> WorkerProtocolError {
+pub(super) fn filesystem_error(
+    message: impl Into<String>,
+    details: serde_json::Value,
+) -> WorkerProtocolError {
     WorkerProtocolError::new(
         WorkerProtocolErrorCode::WorkerError,
         message,

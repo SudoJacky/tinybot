@@ -1,3 +1,5 @@
+use super::*;
+
 impl WorkerWorkspaceRpc {
     pub fn read_file(
         &self,
@@ -228,7 +230,7 @@ fn collect_workspace_files(
     Ok(())
 }
 
-fn workspace_updated_at(path: &Path) -> Option<String> {
+pub(super) fn workspace_updated_at(path: &Path) -> Option<String> {
     let modified = std::fs::metadata(path).ok()?.modified().ok()?;
     let duration = modified.duration_since(UNIX_EPOCH).ok()?;
     Some(duration.as_millis().to_string())

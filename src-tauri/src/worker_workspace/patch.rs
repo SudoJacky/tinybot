@@ -1,3 +1,4 @@
+use super::*;
 use crate::worker_storage::{write_text_atomic, AtomicWriteOptions};
 use std::collections::HashSet;
 
@@ -517,7 +518,11 @@ fn apply_update_hunks(
     hunks: &[PatchHunk],
     relative_path: &str,
 ) -> Result<String, WorkerProtocolError> {
-    let line_ending = if source.contains("\r\n") { "\r\n" } else { "\n" };
+    let line_ending = if source.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
     if !source.is_empty() && !source.ends_with(line_ending) {
         return Err(patch_error(
             "update patch target must end with a newline",

@@ -26,10 +26,15 @@ pub struct WorkerWorkspaceRpc {
     policy: CapabilityPolicy,
 }
 
-include!("worker_workspace/path_guard.rs");
-include!("worker_workspace/patch.rs");
-include!("worker_workspace/read.rs");
-include!("worker_workspace/skills.rs");
-include!("worker_workspace/write.rs");
-include!("worker_workspace/types.rs");
-include!("worker_workspace/tests.rs");
+mod patch;
+mod path_guard;
+mod read;
+mod skills;
+#[cfg(test)]
+mod tests;
+mod types;
+mod write;
+
+use self::path_guard::*;
+use self::read::*;
+pub use self::types::*;

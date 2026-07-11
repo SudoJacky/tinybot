@@ -1,3 +1,5 @@
+use super::*;
+
 impl WorkerWorkspaceRpc {
     pub fn write_file(
         &self,

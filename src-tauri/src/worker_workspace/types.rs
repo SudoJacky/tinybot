@@ -1,3 +1,5 @@
+use super::*;
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct WorkspaceResolvedPath {
     pub relative_path: String,

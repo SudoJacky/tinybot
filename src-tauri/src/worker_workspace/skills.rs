@@ -1,3 +1,5 @@
+use super::*;
+
 impl WorkerWorkspaceRpc {
     pub fn list_skills(&self) -> Result<WorkspaceSkillsList, WorkerProtocolError> {
         self.require(WorkerCapability::FsWorkspaceRead)?;
