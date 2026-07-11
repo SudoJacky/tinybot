@@ -287,6 +287,8 @@ fn startup_reconciles_orphaned_run_and_preserves_waiting_checkpoint() {
         .expect("waiting recovery record should persist");
 
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let recovery_metrics_before =
+        crate::runtime::observability::global_agent_runtime_metrics().snapshot();
     crate::desktop_commands::gateway::start_gateway_with_workspace_root(
         &shared,
         fixture.root.clone(),
@@ -348,6 +350,26 @@ fn startup_reconciles_orphaned_run_and_preserves_waiting_checkpoint() {
         .iter()
         .any(|run| run.run_id == "run-waiting"));
     assert!(status.lifecycle.diagnostics.is_empty());
+    let recovery_metrics_after =
+        crate::runtime::observability::global_agent_runtime_metrics().snapshot();
+    assert!(
+        recovery_metrics_after["counters"]["recovery.orphaned_runs.interrupted"]
+            .as_u64()
+            .unwrap_or_default()
+            >= recovery_metrics_before["counters"]["recovery.orphaned_runs.interrupted"]
+                .as_u64()
+                .unwrap_or_default()
+                .saturating_add(1)
+    );
+    assert!(
+        recovery_metrics_after["durations"]["recovery.orphaned_runs.durationMs"]["count"]
+            .as_u64()
+            .unwrap_or_default()
+            >= recovery_metrics_before["durations"]["recovery.orphaned_runs.durationMs"]["count"]
+                .as_u64()
+                .unwrap_or_default()
+                .saturating_add(1)
+    );
 
     let restarted = Arc::new(Mutex::new(GatewayRuntime::default()));
     crate::desktop_commands::gateway::start_gateway_with_workspace_root(

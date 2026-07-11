@@ -303,6 +303,9 @@ impl RuntimeLifecycle {
     pub(crate) fn reconcile_startup(
         workspace_root: &Path,
     ) -> Result<RuntimeStartupRecoveryReport, WorkerProtocolError> {
+        let recovery_started = Instant::now();
+        let metrics = crate::runtime::observability::global_agent_runtime_metrics();
+        metrics.increment("recovery.orphaned_runs.requested");
         let policy = default_desktop_capability_policy();
         let thread = WorkerThreadRpc::new(workspace_root.to_path_buf(), policy.clone());
         let thread_log = WorkerThreadLogRpc::new(workspace_root.to_path_buf(), policy);
@@ -415,6 +418,23 @@ impl RuntimeLifecycle {
             let key = (run.session_id.clone(), run.run_id.clone());
             !interrupted_keys.contains(&key) && !resumable_keys.contains(&key)
         });
+        metrics.increment_by(
+            "recovery.orphaned_runs.interrupted",
+            report.interrupted_runs.len() as u64,
+        );
+        metrics.increment_by(
+            "recovery.orphaned_runs.resumable",
+            report.resumable_runs.len() as u64,
+        );
+        metrics.increment_by(
+            "recovery.orphaned_runs.awaiting_interaction",
+            report.awaiting_interaction_runs.len() as u64,
+        );
+        metrics.record_duration(
+            "recovery.orphaned_runs.durationMs",
+            recovery_started.elapsed(),
+        );
+        metrics.increment("recovery.orphaned_runs.completed");
         Ok(report)
     }
 }

@@ -1171,6 +1171,8 @@ fn discovered_mcp_tool_searches_activates_approves_and_calls_real_server() {
     }
 
     let workspace = SystemPromptWorkspace::new();
+    let metrics = AgentRuntimeMetrics::isolated();
+    let global_before = crate::runtime::observability::global_agent_runtime_metrics().snapshot();
     let script = workspace.root.join("agent-mcp-server.js");
     std::fs::write(
         &script,
@@ -1233,7 +1235,8 @@ lines.on("line", (line) => {
             Arc::new(FakeNativeAgentToolDispatcher),
             Arc::new(InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(InMemoryNativeAgentCancellation::default()),
-        ),
+        )
+        .with_metrics(metrics.clone()),
         workspace.root.clone(),
         config.clone(),
     );
@@ -1288,6 +1291,31 @@ lines.on("line", (line) => {
     assert_eq!(completed["toolsUsed"], json!(["mcp.4:docs.4:echo"]));
     tauri::async_runtime::block_on(services.mcp_runtime().shutdown())
         .expect("agent MCP fixture should shut down");
+    let metric_snapshot = metrics.snapshot();
+    assert_eq!(
+        metric_snapshot["durations"]["approval.wait.durationMs"]["count"],
+        1
+    );
+    assert_eq!(metric_snapshot["counters"]["approval.resolved"], 1);
+    let global_after = crate::runtime::observability::global_agent_runtime_metrics().snapshot();
+    assert!(
+        global_after["counters"]["mcp.server.start.completed"]
+            .as_u64()
+            .unwrap_or_default()
+            >= global_before["counters"]["mcp.server.start.completed"]
+                .as_u64()
+                .unwrap_or_default()
+                .saturating_add(1)
+    );
+    assert!(
+        global_after["counters"]["mcp.server.stop.completed"]
+            .as_u64()
+            .unwrap_or_default()
+            >= global_before["counters"]["mcp.server.stop.completed"]
+                .as_u64()
+                .unwrap_or_default()
+                .saturating_add(1)
+    );
 }
 
 #[test]

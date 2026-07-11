@@ -631,6 +631,8 @@ impl McpRuntime {
         }
 
         let started = Instant::now();
+        let metrics = crate::runtime::observability::global_agent_runtime_metrics();
+        metrics.increment("mcp.server.start.requested");
         let startup = self.start_client(server_name, config);
         let startup_result = if let Some(cancellation) = cancellation {
             tokio::select! {
@@ -645,6 +647,12 @@ impl McpRuntime {
         let service = match startup_result {
             Ok(service) => service,
             Err(error) => {
+                metrics.record_duration("mcp.server.start.durationMs", started.elapsed());
+                metrics.increment(if error.cancelled {
+                    "mcp.server.start.cancelled"
+                } else {
+                    "mcp.server.start.failed"
+                });
                 let mut servers = self.servers.lock().await;
                 servers.insert(
                     key.clone(),
@@ -693,6 +701,8 @@ impl McpRuntime {
             None,
         )
         .await;
+        metrics.record_duration("mcp.server.start.durationMs", started.elapsed());
+        metrics.increment("mcp.server.start.completed");
         Ok(service)
     }
 
@@ -787,6 +797,7 @@ impl McpRuntime {
         final_state: McpServerState,
         last_error: Option<String>,
     ) -> Result<(), McpRuntimeError> {
+        let shutdown_started = Instant::now();
         let (service, transport, elapsed_ms) = {
             let mut servers = self.servers.lock().await;
             let Some(server) = servers.get_mut(key) else {
@@ -799,6 +810,8 @@ impl McpRuntime {
                 server.elapsed_ms,
             )
         };
+        let metrics = crate::runtime::observability::global_agent_runtime_metrics();
+        metrics.increment("mcp.server.stop.requested");
         self.record_transition(
             key,
             McpServerState::Stopping,
@@ -826,6 +839,8 @@ impl McpRuntime {
                     Some(&error.message),
                 )
                 .await;
+                metrics.record_duration("mcp.server.stop.durationMs", shutdown_started.elapsed());
+                metrics.increment("mcp.server.stop.failed");
                 return Err(error);
             }
         }
@@ -848,6 +863,8 @@ impl McpRuntime {
             error_message,
         )
         .await;
+        metrics.record_duration("mcp.server.stop.durationMs", shutdown_started.elapsed());
+        metrics.increment("mcp.server.stop.completed");
         Ok(())
     }
 

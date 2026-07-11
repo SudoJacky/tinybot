@@ -78,6 +78,9 @@ impl ShellProcessManager {
         &self,
         request: ValidatedShellStart,
     ) -> Result<ShellProcessOutput, WorkerProtocolError> {
+        let started_at = Instant::now();
+        let metrics = crate::runtime::observability::global_agent_runtime_metrics();
+        metrics.increment("process.start.requested");
         let process_id = format!(
             "process-{}",
             self.inner.next_process_id.fetch_add(1, Ordering::Relaxed)
@@ -104,6 +107,8 @@ impl ShellProcessManager {
             Ok(record) => record,
             Err(error) => {
                 self.cancel_process_slot();
+                metrics.record_duration("process.start.durationMs", started_at.elapsed());
+                metrics.increment("process.start.failed");
                 return Err(error);
             }
         };
@@ -146,6 +151,8 @@ impl ShellProcessManager {
             }));
         }
         record.wait_for_terminal(Duration::from_millis(yield_time_ms));
+        metrics.record_duration("process.start.durationMs", started_at.elapsed());
+        metrics.increment("process.start.completed");
         Ok(record.snapshot(0))
     }
 
@@ -806,6 +813,9 @@ fn terminate_record(
         BeginTermination::InProgress => return wait_for_termination(record),
         BeginTermination::Started => {}
     }
+    let stop_started = Instant::now();
+    let metrics = crate::runtime::observability::global_agent_runtime_metrics();
+    metrics.increment("process.stop.requested");
     let terminate_result = record
         .terminator
         .lock()
@@ -826,12 +836,21 @@ fn terminate_record(
     if let Err(error) = terminate_result {
         let message = format!("failed to terminate shell process tree: {error}");
         record.record_failure(message.clone());
+        metrics.record_duration("process.stop.durationMs", stop_started.elapsed());
+        metrics.increment("process.stop.failed");
         return Err(shell_error(
             message,
             serde_json::json!({ "processId": record.process_id }),
         ));
     }
-    wait_for_termination(record)
+    let result = wait_for_termination(record);
+    metrics.record_duration("process.stop.durationMs", stop_started.elapsed());
+    metrics.increment(if result.is_ok() {
+        "process.stop.completed"
+    } else {
+        "process.stop.failed"
+    });
+    result
 }
 
 fn wait_for_termination(record: &Arc<ShellProcessRecord>) -> Result<(), WorkerProtocolError> {

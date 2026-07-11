@@ -530,6 +530,7 @@ fn output_buffer_preserves_bounded_head_and_tail() {
 
 #[test]
 fn cancellation_terminates_the_owned_process() {
+    let metrics_before = crate::runtime::observability::global_agent_runtime_metrics().snapshot();
     let fixture = ProcessFixture::new();
     let rpc = shell_rpc(&fixture);
     let cancellation = Arc::new(TestCancellation::default());
@@ -571,6 +572,25 @@ fn cancellation_terminates_the_owned_process() {
 
     assert_eq!(output.status, "cancelled", "{output:?}");
     assert_eq!(rpc.active_process_count(), 0);
+    let metrics_after = crate::runtime::observability::global_agent_runtime_metrics().snapshot();
+    assert!(
+        metrics_after["counters"]["process.start.completed"]
+            .as_u64()
+            .unwrap_or_default()
+            >= metrics_before["counters"]["process.start.completed"]
+                .as_u64()
+                .unwrap_or_default()
+                .saturating_add(1)
+    );
+    assert!(
+        metrics_after["counters"]["process.stop.completed"]
+            .as_u64()
+            .unwrap_or_default()
+            >= metrics_before["counters"]["process.stop.completed"]
+                .as_u64()
+                .unwrap_or_default()
+                .saturating_add(1)
+    );
 }
 
 #[test]

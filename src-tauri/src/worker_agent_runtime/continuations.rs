@@ -234,6 +234,21 @@ pub(super) async fn maybe_approval_resume_result(
     if checkpoint.is_none() {
         return Err("approval continuation checkpoint is missing".to_string());
     }
+    if let Some(requested_at) = checkpoint
+        .as_ref()
+        .and_then(|checkpoint| checkpoint.pointer("/payload/approvalRequestedAtUnixMs"))
+        .and_then(Value::as_u64)
+    {
+        let waited_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_millis().min(u128::from(u64::MAX)) as u64)
+            .unwrap_or_default()
+            .saturating_sub(requested_at);
+        context
+            .metrics()
+            .record_duration_ms("approval.wait.durationMs", waited_ms);
+        context.metrics().increment("approval.resolved");
+    }
     if approved
         && checkpoint
             .as_ref()

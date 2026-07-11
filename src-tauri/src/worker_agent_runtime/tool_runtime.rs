@@ -24,7 +24,7 @@ use std::collections::BTreeMap;
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::{mpsc, Notify};
 use tokio_util::sync::CancellationToken;
 
@@ -613,6 +613,7 @@ fn awaiting_tool_approval_result(
         );
     }
     context.metrics().increment("approval.requested");
+    let approval_requested_at_unix_ms = now_unix_ms();
     let approval_id = format!("approval:{}:{}", context.run_id, tool_call.id);
     let summary = format!("Approval required: {}", tool_call.name);
     let risk = if matches!(
@@ -642,6 +643,7 @@ fn awaiting_tool_approval_result(
             "kind": "tool_approval",
             "iteration": iteration,
             "approvalId": approval_id,
+            "approvalRequestedAtUnixMs": approval_requested_at_unix_ms,
             "operation": operation,
             "pendingToolCalls": state.pending_tool_calls.clone(),
             "completedToolResults": state.completed_tool_results.clone(),
@@ -711,6 +713,13 @@ fn awaiting_tool_approval_result(
         "events": events,
         "runtimeEvents": runtime_events,
     }))
+}
+
+fn now_unix_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis().min(u128::from(u64::MAX)) as u64)
+        .unwrap_or_default()
 }
 
 fn execute_tool_search(

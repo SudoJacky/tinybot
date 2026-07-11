@@ -28,12 +28,16 @@ impl AgentRuntimeMetrics {
     }
 
     pub fn increment(&self, name: &str) {
+        self.increment_by(name, 1);
+    }
+
+    pub fn increment_by(&self, name: &str, value: u64) {
         let mut state = self
             .state
             .lock()
             .expect("agent runtime metrics lock should not be poisoned");
         let counter = state.counters.entry(name.to_string()).or_default();
-        *counter = counter.saturating_add(1);
+        *counter = counter.saturating_add(value);
     }
 
     pub fn record_duration(&self, name: &str, duration: Duration) {
@@ -124,6 +128,7 @@ mod tests {
     fn snapshot_aggregates_bounded_metric_names_without_dynamic_labels() {
         let metrics = AgentRuntimeMetrics::isolated();
         metrics.increment("turn.started");
+        metrics.increment_by("recovery.orphaned_runs.interrupted", 2);
         metrics.record_duration_ms("turn.durationMs", 10);
         metrics.record_duration_ms("turn.durationMs", 30);
         metrics.set_gauge("context.tokens.after", 42);
@@ -131,6 +136,10 @@ mod tests {
         let snapshot = metrics.snapshot();
 
         assert_eq!(snapshot["counters"]["turn.started"], 1);
+        assert_eq!(
+            snapshot["counters"]["recovery.orphaned_runs.interrupted"],
+            2
+        );
         assert_eq!(snapshot["durations"]["turn.durationMs"]["count"], 2);
         assert_eq!(snapshot["durations"]["turn.durationMs"]["totalMs"], 40);
         assert_eq!(snapshot["durations"]["turn.durationMs"]["maxMs"], 30);

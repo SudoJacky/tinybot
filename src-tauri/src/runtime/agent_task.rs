@@ -411,13 +411,28 @@ impl AgentTaskRuntime {
                             biased;
                             result = &mut operation => Some(async_operation_result(result)),
                             _ = cancellation.cancelled() => {
-                                Some(match tokio::time::timeout(grace, &mut operation).await {
+                                let cleanup_started = Instant::now();
+                                let result = match tokio::time::timeout(grace, &mut operation).await {
                                     Ok(result) => async_operation_result(result),
                                     Err(_) => Ok(cancellation_cleanup_timeout_result(
                                         &async_task.request,
                                         grace,
                                     )),
-                                })
+                                };
+                                let metrics = crate::runtime::observability::global_agent_runtime_metrics();
+                                metrics.record_duration(
+                                    "cancellation.cleanup.durationMs",
+                                    cleanup_started.elapsed(),
+                                );
+                                metrics.increment(if result.as_ref().is_ok_and(|value| {
+                                    value.get("stopReason").and_then(Value::as_str)
+                                        == Some("cancellation_cleanup_timeout")
+                                }) {
+                                    "cancellation.cleanup.timed_out"
+                                } else {
+                                    "cancellation.cleanup.completed"
+                                });
+                                Some(result)
                             }
                         }
                     }
@@ -1333,6 +1348,8 @@ mod tests {
     #[test]
     fn cooperative_async_cancellation_reports_cleanup_timeout_and_releases_owner() {
         tauri::async_runtime::block_on(async {
+            let metrics_before =
+                crate::runtime::observability::global_agent_runtime_metrics().snapshot();
             struct DropSignal(Arc<std::sync::atomic::AtomicBool>);
 
             impl Drop for DropSignal {
@@ -1380,6 +1397,26 @@ mod tests {
             assert!(dropped.load(std::sync::atomic::Ordering::SeqCst));
             assert_eq!(runtime.active_count(), 0);
             assert_eq!(runtime.draining_count(), 0);
+            let metrics_after =
+                crate::runtime::observability::global_agent_runtime_metrics().snapshot();
+            assert!(
+                metrics_after["counters"]["cancellation.cleanup.timed_out"]
+                    .as_u64()
+                    .unwrap_or_default()
+                    >= metrics_before["counters"]["cancellation.cleanup.timed_out"]
+                        .as_u64()
+                        .unwrap_or_default()
+                        .saturating_add(1)
+            );
+            assert!(
+                metrics_after["durations"]["cancellation.cleanup.durationMs"]["count"]
+                    .as_u64()
+                    .unwrap_or_default()
+                    >= metrics_before["durations"]["cancellation.cleanup.durationMs"]["count"]
+                        .as_u64()
+                        .unwrap_or_default()
+                        .saturating_add(1)
+            );
         });
     }
 }

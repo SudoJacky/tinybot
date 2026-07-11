@@ -457,11 +457,22 @@ boundary. Persisted tool envelopes apply the same config-secret redaction used b
     "turn.started": 1,
     "provider.attempted": 1,
     "tool.completed": 1,
-    "persistence.write.completed": 4
+    "approval.resolved": 1,
+    "cancellation.cleanup.completed": 1,
+    "mcp.server.start.completed": 1,
+    "mcp.server.stop.completed": 1,
+    "process.start.completed": 1,
+    "process.stop.completed": 1,
+    "recovery.orphaned_runs.interrupted": 1
   },
   "durations": {
     "turn.durationMs": { "count": 1, "totalMs": 20, "maxMs": 20, "averageMs": 20.0 },
-    "provider.durationMs": { "count": 1, "totalMs": 8, "maxMs": 8, "averageMs": 8.0 }
+    "provider.durationMs": { "count": 1, "totalMs": 8, "maxMs": 8, "averageMs": 8.0 },
+    "approval.wait.durationMs": { "count": 1, "totalMs": 12, "maxMs": 12, "averageMs": 12.0 },
+    "cancellation.cleanup.durationMs": { "count": 1, "totalMs": 4, "maxMs": 4, "averageMs": 4.0 },
+    "mcp.server.start.durationMs": { "count": 1, "totalMs": 30, "maxMs": 30, "averageMs": 30.0 },
+    "process.stop.durationMs": { "count": 1, "totalMs": 10, "maxMs": 10, "averageMs": 10.0 },
+    "recovery.orphaned_runs.durationMs": { "count": 1, "totalMs": 6, "maxMs": 6, "averageMs": 6.0 }
   },
   "gauges": {
     "context.tokens.before": 1200,
@@ -472,6 +483,9 @@ boundary. Persisted tool envelopes apply the same config-secret redaction used b
 
 Metric names and outcomes come from bounded runtime enums. Prompts, tool output, secrets, and memory
 content are not used as metric names or labels.
+Approval wait time is restored from the durable checkpoint timestamp. Cancellation cleanup, MCP
+server lifecycle, owned shell-process lifecycle, and orphaned-run reconciliation use fixed metric
+names; server names, process IDs, run IDs, and trace IDs are never metric keys.
 
 ### Typed agent items and provider capabilities
 
