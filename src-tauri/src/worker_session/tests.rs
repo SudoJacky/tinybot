@@ -198,6 +198,8 @@ mod tests {
             artifacts: vec![json!({ "type": "file", "path": "report.md" })],
             usage: vec![json!({ "totalTokens": 12 })],
             token_usage_info: None,
+            instruction_provenance: Some(json!({ "contentHash": "abc" })),
+            instruction_diagnostics: vec![json!({ "level": "warning" })],
             error: Some(json!({ "message": "waiting" })),
         };
 
@@ -210,6 +212,7 @@ mod tests {
         assert_eq!(value["status"], "waiting");
         assert_eq!(value["currentIteration"], 1);
         assert_eq!(value["completedToolResults"][0]["toolCallId"], "call-1");
+        assert_eq!(value["instructionProvenance"]["contentHash"], "abc");
 
         let restored: AgentRunRecord =
             serde_json::from_value(value).expect("run record should deserialize");
@@ -1821,6 +1824,8 @@ mod tests {
             artifacts: Vec::new(),
             usage: Vec::new(),
             token_usage_info: None,
+            instruction_provenance: None,
+            instruction_diagnostics: Vec::new(),
             error: None,
         }
     }

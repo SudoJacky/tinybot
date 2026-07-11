@@ -110,6 +110,8 @@ pub(super) fn agent_run_record_from_thread_run(
         artifacts: Vec::new(),
         usage: Vec::new(),
         token_usage_info: thread_token_usage_info(thread),
+        instruction_provenance: None,
+        instruction_diagnostics: Vec::new(),
         error: (run.status == ThreadStatus::Failed).then(|| {
             serde_json::json!({
                 "message": "thread run failed"

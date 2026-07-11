@@ -2083,6 +2083,14 @@ fn worker_submit_thread_turn_creates_thread_and_runs_native_agent() {
 #[test]
 fn worker_submit_thread_turn_uses_existing_thread_session_key() {
     let fixture = WorkspaceFixture::new();
+    let working_directory = fixture.root.join("existing-thread-project");
+    std::fs::create_dir_all(working_directory.join(".git"))
+        .expect("existing thread project marker should create");
+    std::fs::write(
+        working_directory.join("AGENTS.md"),
+        "existing thread project instructions",
+    )
+    .expect("existing thread project instructions should write");
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
     let config = serde_json::json!({
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
@@ -2103,7 +2111,10 @@ fn worker_submit_thread_turn_uses_existing_thread_session_key() {
             serde_json::json!({
                 "threadId": "thread-existing-submit",
                 "sessionKey": "session-existing-submit",
-                "title": "Existing thread"
+                "title": "Existing thread",
+                "metadata": {
+                    "workingDirectory": working_directory
+                }
             }),
         ),
         "existing thread create",
@@ -2126,7 +2137,7 @@ fn worker_submit_thread_turn_uses_existing_thread_session_key() {
             }),
         },
         fixture.root.clone(),
-        config,
+        config.clone(),
         Duration::from_millis(10),
     )
     .expect("existing thread submit should run native agent");
@@ -2141,11 +2152,40 @@ fn worker_submit_thread_turn_uses_existing_thread_session_key() {
         result["snapshot"]["thread"]["threadId"],
         "thread-existing-submit"
     );
+    assert_eq!(
+        result["agentResult"]["instructionProvenance"]["workingDirectory"],
+        working_directory.display().to_string()
+    );
+    assert!(result["agentResult"]["instructionProvenance"]["sources"]
+        .as_array()
+        .expect("thread instruction provenance should list sources")
+        .iter()
+        .any(|source| source["kind"] == "project_agents"));
     assert!(result["snapshot"]["items"]
         .as_array()
         .expect("thread items should be present")
         .iter()
         .any(|item| item["runId"] == "run-thread-submit-existing"));
+    let run_request = next_worker_request_correlation();
+    let persisted_run = call_rust_state_service(
+        fixture.root.clone(),
+        config,
+        WorkerRequest::new(
+            run_request.id("existing-thread-agent-run-read"),
+            run_request.trace_id("existing-thread-agent-run-read"),
+            "agent_run.get",
+            serde_json::json!({
+                "session_id": "session-existing-submit",
+                "run_id": "run-thread-submit-existing"
+            }),
+        ),
+        "existing thread agent run read",
+    )
+    .expect("existing thread agent run should persist");
+    assert_eq!(
+        persisted_run["instructionProvenance"]["workingDirectory"],
+        working_directory.display().to_string()
+    );
 }
 
 #[test]

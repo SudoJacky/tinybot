@@ -119,6 +119,10 @@ pub struct AgentRunRecord {
     pub usage: Vec<Value>,
     #[serde(default)]
     pub token_usage_info: Option<TokenUsageInfo>,
+    #[serde(default)]
+    pub instruction_provenance: Option<Value>,
+    #[serde(default)]
+    pub instruction_diagnostics: Vec<Value>,
     pub error: Option<Value>,
 }
 

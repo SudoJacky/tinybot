@@ -444,8 +444,7 @@ fn estimate_messages_tokens(messages: &[Value]) -> i64 {
 
 fn estimate_system_prompt_tokens(context: &NativeAgentRunContext) -> i64 {
     context
-        .system_prompt
-        .as_deref()
+        .system_instruction_prompt()
         .map(|content| {
             estimate_message_tokens(&serde_json::json!({
                 "role": "system",

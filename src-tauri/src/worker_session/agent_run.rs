@@ -525,6 +525,8 @@ fn agent_run_from_checkpoint(
         artifacts: Vec::new(),
         usage: Vec::new(),
         token_usage_info: None,
+        instruction_provenance: None,
+        instruction_diagnostics: Vec::new(),
         error: None,
     }
 }

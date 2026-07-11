@@ -14,8 +14,9 @@ use super::user_input::{
     prepare_user_input_continuation, UserInputContinuationOutcome, UserInputResume,
 };
 use super::{
-    bool_field, NativeAgentProviderFailure, NativeAgentProviderFailureKind,
-    NativeAgentProviderStreamEvent, NativeAgentRunContext, NativeAgentRuntimeServices,
+    bool_field, ComposedInstructions, InstructionComposer, NativeAgentProviderFailure,
+    NativeAgentProviderFailureKind, NativeAgentProviderStreamEvent, NativeAgentRunContext,
+    NativeAgentRuntimeServices,
 };
 use crate::agent_loop_runtime_protocol::AgentRuntimePhase;
 use crate::runtime::agent_task::StartAgentRun;
@@ -43,7 +44,7 @@ pub async fn run_native_agent_turn_with_config_async(
     spec: Value,
     config_snapshot: Value,
 ) -> Result<Value, String> {
-    run_owned_native_agent_turn_async(services, spec, config_snapshot, None).await
+    run_owned_native_agent_turn_async(services, spec, config_snapshot, None, None).await
 }
 
 pub fn run_native_agent_turn_with_workspace(
@@ -66,11 +67,30 @@ pub async fn run_native_agent_turn_with_workspace_async(
     config_snapshot: Value,
     workspace_root: &Path,
 ) -> Result<Value, String> {
+    let instructions = InstructionComposer::default().compose(workspace_root, &spec)?;
     run_owned_native_agent_turn_async(
         services,
         spec,
         config_snapshot,
         Some(workspace_root.to_path_buf()),
+        Some(instructions),
+    )
+    .await
+}
+
+pub(crate) async fn run_native_agent_turn_with_workspace_and_instructions_async(
+    services: &NativeAgentRuntimeServices,
+    spec: Value,
+    config_snapshot: Value,
+    workspace_root: &Path,
+    instructions: ComposedInstructions,
+) -> Result<Value, String> {
+    run_owned_native_agent_turn_async(
+        services,
+        spec,
+        config_snapshot,
+        Some(workspace_root.to_path_buf()),
+        Some(instructions),
     )
     .await
 }
@@ -80,6 +100,7 @@ async fn run_owned_native_agent_turn_async(
     spec: Value,
     config_snapshot: Value,
     workspace_root: Option<PathBuf>,
+    instructions: Option<ComposedInstructions>,
 ) -> Result<Value, String> {
     let identity = NativeAgentRunContext::from_spec(spec.clone(), config_snapshot.clone());
     if services
@@ -101,18 +122,15 @@ async fn run_owned_native_agent_turn_async(
     }
     let request = StartAgentRun::new(identity.run_id.clone(), identity.session_id.clone());
     let owned_services = services.clone();
+    let result_instructions = instructions.clone();
     let handle = services
         .task_runtime
         .start_cooperative_async(request, Duration::from_secs(5), async move {
-            let system_prompt = workspace_root
-                .as_deref()
-                .map(crate::system_prompt::load_or_create_system_prompt)
-                .transpose()?;
-            run_native_agent_turn_with_system_prompt_async(
+            run_native_agent_turn_with_instructions_async(
                 &owned_services,
                 spec,
                 config_snapshot,
-                system_prompt,
+                instructions,
                 workspace_root.as_deref(),
             )
             .await
@@ -124,18 +142,22 @@ async fn run_owned_native_agent_turn_async(
     if handle.status().is_none() {
         return Err("owned agent task did not publish a runtime status".to_string());
     }
-    handle.wait_async().await
+    let mut result = handle.wait_async().await?;
+    if let Some(instructions) = result_instructions {
+        instructions.attach_diagnostics(&mut result)?;
+    }
+    Ok(result)
 }
 
-async fn run_native_agent_turn_with_system_prompt_async(
+async fn run_native_agent_turn_with_instructions_async(
     services: &NativeAgentRuntimeServices,
     spec: Value,
     config_snapshot: Value,
-    system_prompt: Option<String>,
+    instructions: Option<ComposedInstructions>,
     workspace_root: Option<&Path>,
 ) -> Result<Value, String> {
     let mut context = NativeAgentRunContext::from_spec(spec, config_snapshot.clone());
-    context.system_prompt = system_prompt;
+    context.instructions = instructions;
     context.attach_cancellation(
         services.cancellations.clone(),
         services.task_runtime.clone(),

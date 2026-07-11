@@ -202,6 +202,23 @@ fn workspace_system_prompt_is_sent_first_and_reloads_user_edits() {
     }
 
     let workspace = SystemPromptWorkspace::new();
+    let project_root = workspace.root.join("project");
+    let nested_root = project_root.join("nested");
+    let working_directory = nested_root.join("task");
+    std::fs::create_dir_all(project_root.join(".git")).expect("project marker should create");
+    std::fs::create_dir_all(&working_directory).expect("nested project should create");
+    std::fs::write(project_root.join("AGENTS.md"), "root project instructions")
+        .expect("root project instructions should write");
+    std::fs::write(
+        nested_root.join("AGENTS.md"),
+        "shadowed nested instructions",
+    )
+    .expect("nested project instructions should write");
+    std::fs::write(
+        nested_root.join("AGENTS.override.md"),
+        "nested override instructions",
+    )
+    .expect("nested override instructions should write");
     let requests = Arc::new(Mutex::new(Vec::new()));
     let services = NativeAgentRuntimeServices::new(
         Arc::new(CapturingProvider {
@@ -212,11 +229,12 @@ fn workspace_system_prompt_is_sent_first_and_reloads_user_edits() {
         Arc::new(InMemoryNativeAgentCancellation::default()),
     );
 
-    run_native_agent_turn_with_workspace(
+    let default_result = run_native_agent_turn_with_workspace(
         &services,
         json!({
             "runId": "run-system-prompt-default",
             "sessionId": "session-system-prompt-default",
+            "cwd": working_directory,
             "messages": [{ "role": "user", "content": "hello" }]
         }),
         json!({}),
@@ -234,11 +252,12 @@ fn workspace_system_prompt_is_sent_first_and_reloads_user_edits() {
     )
     .expect("custom system prompt should write");
 
-    run_native_agent_turn_with_workspace(
+    let custom_result = run_native_agent_turn_with_workspace(
         &services,
         json!({
             "runId": "run-system-prompt-custom",
             "sessionId": "session-system-prompt-custom",
+            "cwd": working_directory,
             "messages": [{ "role": "user", "content": "hello again" }]
         }),
         json!({}),
@@ -255,6 +274,17 @@ fn workspace_system_prompt_is_sent_first_and_reloads_user_edits() {
         .as_str()
         .expect("default system prompt should be text")
         .contains("You are Tinybot"));
+    let default_instructions = requests[0][0]["content"]
+        .as_str()
+        .expect("default instructions should be text");
+    let root_position = default_instructions
+        .find("root project instructions")
+        .expect("root project instructions should reach the provider");
+    let override_position = default_instructions
+        .find("nested override instructions")
+        .expect("nested override instructions should reach the provider");
+    assert!(root_position < override_position);
+    assert!(!default_instructions.contains("shadowed nested instructions"));
     assert_eq!(requests[0][1]["content"], "hello");
     assert_eq!(requests[1][0]["role"], "system");
     assert!(requests[1][0]["content"]
@@ -264,12 +294,31 @@ fn workspace_system_prompt_is_sent_first_and_reloads_user_edits() {
     assert!(requests[1][0]["content"]
         .as_str()
         .expect("custom system prompt should be text")
-        .contains(&workspace.root.display().to_string()));
+        .contains(&working_directory.display().to_string()));
     assert!(!requests[1][0]["content"]
         .as_str()
         .expect("custom system prompt should be text")
         .contains("You are Tinybot"));
     assert_eq!(requests[1][1]["content"], "hello again");
+
+    for result in [&default_result, &custom_result] {
+        assert_eq!(
+            result["instructionProvenance"]["workingDirectory"],
+            working_directory.display().to_string()
+        );
+        let sources = result["instructionProvenance"]["sources"]
+            .as_array()
+            .expect("instruction provenance sources should be visible");
+        assert_eq!(sources[0]["kind"], "workspace_system");
+        assert_eq!(sources[1]["kind"], "project_agents");
+        assert_eq!(sources[2]["kind"], "project_override");
+        assert!(sources.iter().all(|source| source["contentHash"]
+            .as_str()
+            .is_some_and(|hash| hash.len() == 64)));
+        assert!(result["instructionProvenance"]["contentHash"]
+            .as_str()
+            .is_some_and(|hash| hash.len() == 64));
+    }
 }
 
 #[test]

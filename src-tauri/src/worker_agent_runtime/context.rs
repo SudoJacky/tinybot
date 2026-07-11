@@ -1,7 +1,8 @@
 use super::continuations::queued_user_continuation_message;
 use super::tool_router::NativeToolRouter;
 use super::{
-    string_field, NativeAgentCancellation, NativeAgentCancellationContext, NativeAgentRunContext,
+    string_field, ComposedInstructions, NativeAgentCancellation, NativeAgentCancellationContext,
+    NativeAgentRunContext,
 };
 use crate::worker_capability::default_desktop_capability_policy;
 use crate::worker_tool_registry::ToolExecutionTarget;
@@ -70,6 +71,7 @@ impl NativeAgentRunContext {
             model,
             provider,
             system_prompt: None,
+            instructions: None,
             stream,
             max_iterations,
             cancellation: None,
@@ -100,6 +102,13 @@ impl NativeAgentRunContext {
 
     pub(crate) fn tool_execution_target(&self, method: &str) -> Option<ToolExecutionTarget> {
         self.tool_router.execution_target(method)
+    }
+
+    pub(crate) fn system_instruction_prompt(&self) -> Option<&str> {
+        self.instructions
+            .as_ref()
+            .map(ComposedInstructions::rendered_prompt)
+            .or(self.system_prompt.as_deref())
     }
 }
 

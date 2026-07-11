@@ -171,6 +171,17 @@ pub(crate) fn native_agent_run_record(
         .get("error")
         .filter(|value| !value.is_null())
         .cloned();
+    let instruction_provenance = result
+        .get("instructionProvenance")
+        .or_else(|| spec.get("instructionProvenance"))
+        .filter(|value| !value.is_null())
+        .cloned();
+    let instruction_diagnostics = result
+        .get("instructionDiagnostics")
+        .or_else(|| spec.get("instructionDiagnostics"))
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
 
     serde_json::json!({
         "sessionId": session_id,
@@ -204,6 +215,8 @@ pub(crate) fn native_agent_run_record(
         "artifacts": native_agent_artifacts(result),
         "usage": native_agent_usage(result),
         "tokenUsageInfo": native_agent_token_usage_info(result),
+        "instructionProvenance": instruction_provenance,
+        "instructionDiagnostics": instruction_diagnostics,
         "error": error,
     })
 }

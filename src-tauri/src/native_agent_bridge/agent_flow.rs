@@ -5,7 +5,8 @@ use crate::native_agent_bridge::{
     persist_native_agent_turn_if_final, reject_native_agent_terminal_run_reentry,
 };
 use crate::worker_agent_runtime::{
-    run_native_agent_turn_with_workspace_async, NativeAgentRuntimeServices, NativeAgentTraceSink,
+    run_native_agent_turn_with_workspace_and_instructions_async, InstructionComposer,
+    NativeAgentRuntimeServices, NativeAgentTraceSink,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -17,7 +18,7 @@ pub(crate) async fn run_agent_with_services(
     config_snapshot: serde_json::Value,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 ) -> Result<serde_json::Value, String> {
-    let persistence_spec = spec.clone();
+    let mut persistence_spec = spec.clone();
     if let Some(rejection) = reject_native_agent_terminal_run_reentry(
         &persistence_spec,
         workspace_root.clone(),
@@ -25,6 +26,8 @@ pub(crate) async fn run_agent_with_services(
     )? {
         return Ok(rejection);
     }
+    let instructions = InstructionComposer::default().compose(&workspace_root, &spec)?;
+    instructions.attach_diagnostics(&mut persistence_spec)?;
     let runtime_spec = hydrate_native_agent_history_for_runtime(
         spec,
         workspace_root.clone(),
@@ -46,11 +49,12 @@ pub(crate) async fn run_agent_with_services(
         config_snapshot.clone(),
         live_trace_sink,
     ));
-    let mut result = run_native_agent_turn_with_workspace_async(
+    let mut result = run_native_agent_turn_with_workspace_and_instructions_async(
         &services,
         runtime_spec,
         config_snapshot.clone(),
         &workspace_root,
+        instructions,
     )
     .await?;
     if let Err(error) = persist_native_agent_run_record(

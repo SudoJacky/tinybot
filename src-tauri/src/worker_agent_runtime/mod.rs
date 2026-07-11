@@ -16,6 +16,7 @@ mod checkpoint;
 mod context;
 mod continuations;
 mod events;
+mod instructions;
 mod provider;
 mod provider_loop;
 mod result;
@@ -29,6 +30,7 @@ mod tool_runtime;
 mod usage;
 mod user_input;
 
+pub(crate) use self::instructions::{ComposedInstructions, InstructionComposer};
 use self::provider::{
     agent_chat_completion_request, agent_provider_config, chat_completion_content,
     RustNativeAgentProvider,
@@ -38,6 +40,7 @@ use self::tool_router::NativeToolRouter;
 use self::usage::{
     context_window_messages, context_window_messages_async, enrich_usage_with_context_window,
 };
+pub(crate) use provider_loop::run_native_agent_turn_with_workspace_and_instructions_async;
 pub use provider_loop::{
     run_native_agent_turn_with_config, run_native_agent_turn_with_config_async,
     run_native_agent_turn_with_workspace, run_native_agent_turn_with_workspace_async,
@@ -147,6 +150,7 @@ pub struct NativeAgentRunContext {
     pub model: String,
     pub provider: Option<String>,
     pub system_prompt: Option<String>,
+    pub instructions: Option<ComposedInstructions>,
     pub stream: bool,
     pub max_iterations: i64,
     pub cancellation: Option<NativeAgentCancellationContext>,

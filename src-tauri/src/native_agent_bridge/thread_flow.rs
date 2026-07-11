@@ -47,6 +47,7 @@ pub(crate) async fn submit_thread_turn_with_services(
         config_snapshot.clone(),
     )?;
     let thread_id = thread_thread_id(&thread)?;
+    let thread_working_directory = thread_working_directory(&thread);
     let session_id = match thread_session_key(&thread) {
         Some(session_key) => session_key,
         None => {
@@ -61,6 +62,28 @@ pub(crate) async fn submit_thread_turn_with_services(
         }
     };
     let run_id = native_agent_run_id(&input.spec).unwrap_or_else(generate_thread_turn_run_id);
+    let spec_has_working_directory = native_agent_string_field(&input.spec, "cwd")
+        .or_else(|| native_agent_string_field(&input.spec, "workingDirectory"))
+        .or_else(|| native_agent_string_field(&input.spec, "working_directory"))
+        .or_else(|| {
+            input
+                .spec
+                .get("metadata")
+                .and_then(|metadata| native_agent_string_field(metadata, "cwd"))
+        })
+        .or_else(|| {
+            input
+                .spec
+                .get("metadata")
+                .and_then(|metadata| native_agent_string_field(metadata, "workingDirectory"))
+        })
+        .or_else(|| {
+            input
+                .spec
+                .get("metadata")
+                .and_then(|metadata| native_agent_string_field(metadata, "working_directory"))
+        })
+        .is_some();
     let mut spec = if input.spec.is_object() {
         input.spec
     } else {
@@ -98,6 +121,14 @@ pub(crate) async fn submit_thread_turn_with_services(
             "threadId".to_string(),
             serde_json::Value::String(thread_id.clone()),
         );
+        if !spec_has_working_directory {
+            if let Some(working_directory) = thread_working_directory {
+                metadata_object.insert(
+                    "workingDirectory".to_string(),
+                    serde_json::Value::String(working_directory),
+                );
+            }
+        }
     }
 
     start_native_agent_thread_turn(
@@ -383,6 +414,19 @@ pub(crate) fn thread_session_key(thread: &serde_json::Value) -> Option<String> {
         .and_then(serde_json::Value::as_str)
         .filter(|value| !value.trim().is_empty())
         .map(str::to_string)
+}
+
+fn thread_working_directory(thread: &serde_json::Value) -> Option<String> {
+    thread
+        .get("metadata")
+        .and_then(|metadata| {
+            native_agent_string_field(metadata, "workingDirectory")
+                .or_else(|| native_agent_string_field(metadata, "working_directory"))
+                .or_else(|| native_agent_string_field(metadata, "cwd"))
+        })
+        .or_else(|| native_agent_string_field(thread, "workingDirectory"))
+        .or_else(|| native_agent_string_field(thread, "working_directory"))
+        .or_else(|| native_agent_string_field(thread, "cwd"))
 }
 
 fn normalize_thread_turn_messages(input: serde_json::Value) -> serde_json::Value {

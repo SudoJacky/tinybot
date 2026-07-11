@@ -175,7 +175,15 @@ error leaves the task runtime non-accepting, sets `state: "failed"`/`last_error`
 missing and reloads it for each workspace-backed turn. Supported placeholders are `{{identity}}`,
 `{{working_directory}}`, and `{{operating_system}}`. Empty templates, unknown placeholders, and
 malformed delimiters fail explicitly; the backend does not replace an invalid user file with a
-hidden fallback prompt.
+hidden fallback prompt. `{{working_directory}}` resolves to the run `cwd` (or thread
+`metadata.workingDirectory`) rather than the directory that stores Tinybot state.
+
+Before each workspace-backed run, the native runtime composes `SYSTEM.md` with project
+instructions discovered from the nearest `.git` project root down to the effective working
+directory. At each directory, `AGENTS.override.md` replaces `AGENTS.md` when both exist. Sources are
+ordered deterministically as workspace system instructions followed by project scopes from shallow
+to deep. Project instructions have a 64 KiB aggregate budget; truncation, invalid UTF-8 decoding,
+empty sources, unreadable files, and invalid paths are surfaced instead of silently disappearing.
 
 ## Config Commands
 
@@ -358,6 +366,17 @@ UI should prefer `SettingsSnapshot` once the frontend is migrated to the Rust-ow
 | `worker_restore_agent_checkpoint` | `{ input: { sessionId: string } }` | JSON result |
 | `worker_submit_agent_form` | `{ input: { sessionId, formId, values?, action? } }` | JSON result |
 | `worker_resume_agent_approval` | `{ input: { sessionId, approvalId, approved, scope?, guidance? } }` | JSON result |
+
+Workspace-backed agent results include:
+
+- `instructionProvenance`: the effective working directory, a SHA-256 hash of the complete model
+  instruction text, and ordered source records. Each source records `kind`, path identifier,
+  precedence, scope root, load timestamp, source hash, truncation state, and validation warnings.
+- `instructionDiagnostics`: structured warnings derived from the source records.
+
+The same provenance and diagnostics are stored on the durable agent-run record, so
+`worker_agent_runs_list` and `worker_agent_run_runtime_state` can explain the instruction inputs of
+a historical run without persisting a second write authority.
 
 ### Agent task ownership
 

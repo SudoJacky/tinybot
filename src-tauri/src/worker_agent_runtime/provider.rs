@@ -281,7 +281,7 @@ fn agent_chat_messages_from_window(
     context: &NativeAgentRunContext,
     mut messages: Vec<Value>,
 ) -> Value {
-    if let Some(system_prompt) = context.system_prompt.as_deref() {
+    if let Some(system_prompt) = context.system_instruction_prompt() {
         messages.insert(
             0,
             serde_json::json!({

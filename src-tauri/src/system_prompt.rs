@@ -27,6 +27,13 @@ You are {{identity}}, a local-first AI assistant running on the user's machine.
 "#;
 
 pub(crate) fn load_or_create_system_prompt(workspace_root: &Path) -> Result<String, String> {
+    load_or_create_system_prompt_for_working_directory(workspace_root, workspace_root)
+}
+
+pub(crate) fn load_or_create_system_prompt_for_working_directory(
+    workspace_root: &Path,
+    working_directory: &Path,
+) -> Result<String, String> {
     fs::create_dir_all(workspace_root).map_err(|error| {
         format!(
             "failed to create system prompt directory `{}`: {error}",
@@ -44,7 +51,7 @@ pub(crate) fn load_or_create_system_prompt(workspace_root: &Path) -> Result<Stri
     if template.trim().is_empty() {
         return Err(format!("system prompt file is empty: `{}`", path.display()));
     }
-    render_system_prompt(&template, workspace_root, &path)
+    render_system_prompt(&template, working_directory, &path)
 }
 
 fn create_default_system_prompt_if_missing(path: &Path) -> Result<(), String> {
