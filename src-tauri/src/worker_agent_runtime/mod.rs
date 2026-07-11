@@ -17,9 +17,12 @@ mod context;
 mod continuations;
 mod events;
 mod instructions;
+mod items;
 mod provider;
+mod provider_adapter;
 mod provider_loop;
 mod result;
+mod settings;
 mod state;
 mod stores;
 mod tool_dispatcher;
@@ -31,11 +34,19 @@ mod usage;
 mod user_input;
 
 pub(crate) use self::instructions::{ComposedInstructions, InstructionComposer};
+pub use self::items::{
+    AgentAssistantMessage, AgentContentPart, AgentInstructionMessage, AgentInstructionRole,
+    AgentItem, AgentItemHistory, AgentMessage, AgentMessageContent, AgentReasoningItem,
+    AgentToolCallItem, AgentToolResultItem, AgentUsageItem,
+};
 use self::provider::{
     agent_chat_completion_request, agent_provider_config, chat_completion_content,
     RustNativeAgentProvider,
 };
 use self::result::event_value;
+pub use self::settings::{
+    AgentOutputSchema, AgentReasoningSettings, AgentTurnSettings, ContextWindowStrategy,
+};
 use self::tool_router::NativeToolRouter;
 use self::usage::{
     context_window_messages, context_window_messages_async, enrich_usage_with_context_window,
@@ -153,6 +164,7 @@ pub struct NativeAgentRunContext {
     pub instructions: Option<ComposedInstructions>,
     pub stream: bool,
     pub max_iterations: i64,
+    pub settings: AgentTurnSettings,
     pub cancellation: Option<NativeAgentCancellationContext>,
     tool_router: NativeToolRouter,
 }

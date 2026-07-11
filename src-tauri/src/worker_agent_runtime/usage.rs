@@ -1,6 +1,6 @@
 use super::{
-    agent_provider_config, bool_field, chat_completion_content, string_field,
-    NativeAgentProviderFailure, NativeAgentRunContext,
+    agent_provider_config, bool_field, chat_completion_content, NativeAgentProviderFailure,
+    NativeAgentRunContext,
 };
 use serde_json::Value;
 use std::sync::Arc;
@@ -253,11 +253,11 @@ fn effective_context_window_tokens(context: &NativeAgentRunContext) -> i64 {
 }
 
 fn context_window_strategy(context: &NativeAgentRunContext) -> String {
-    string_config_field(context, "contextWindowStrategy")
-        .or_else(|| string_config_field(context, "context_window_strategy"))
-        .map(|strategy| strategy.to_ascii_lowercase())
-        .filter(|strategy| strategy == "compact")
-        .unwrap_or_else(|| "discard".to_string())
+    context
+        .settings
+        .context_window_strategy
+        .as_str()
+        .to_string()
 }
 
 fn compact_trigger_percent(context: &NativeAgentRunContext) -> i64 {
@@ -291,16 +291,6 @@ fn compact_summary_max_tokens(context: &NativeAgentRunContext) -> i64 {
                 })
         })
         .unwrap_or(DEFAULT_COMPACT_SUMMARY_MAX_TOKENS)
-}
-
-fn string_config_field(context: &NativeAgentRunContext, key: &str) -> Option<String> {
-    string_field(&context.spec, key).or_else(|| {
-        context
-            .config_snapshot
-            .get("agents")
-            .and_then(|agents| agents.get("defaults"))
-            .and_then(|defaults| string_field(defaults, key))
-    })
 }
 
 fn compact_threshold_reached(
@@ -432,7 +422,7 @@ async fn compact_old_messages_async(
             error.message(),
         )
     })?;
-    Ok(chat_completion_content(&completion))
+    chat_completion_content(&completion).map_err(NativeAgentProviderFailure::provider)
 }
 
 fn estimate_messages_tokens(messages: &[Value]) -> i64 {

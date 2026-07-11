@@ -1,7 +1,8 @@
 use super::events::event;
 use super::tool_dispatcher::is_subagent_tool;
 use super::{
-    string_field, NativeAgentEvent, NativeAgentRunContext, NativeAgentToolCall,
+    string_field, AgentAssistantMessage, AgentItem, AgentMessageContent, AgentToolCallItem,
+    AgentToolResultItem, NativeAgentEvent, NativeAgentRunContext, NativeAgentToolCall,
     NativeAgentToolResult,
 };
 use serde_json::Value;
@@ -10,32 +11,33 @@ pub(super) fn assistant_tool_calls_message(
     content: &str,
     tool_calls: &[NativeAgentToolCall],
 ) -> Value {
-    serde_json::json!({
-        "role": "assistant",
-        "content": content,
-        "tool_calls": tool_calls
+    AgentItem::AssistantMessage(AgentAssistantMessage {
+        id: None,
+        content: Some(AgentMessageContent::text(content)),
+        reasoning: None,
+        tool_calls: tool_calls
             .iter()
-            .map(|tool_call| {
-                serde_json::json!({
-                    "id": tool_call.id,
-                    "type": "function",
-                    "function": {
-                        "name": tool_call.name,
-                        "arguments": tool_call.arguments_json,
-                    }
-                })
+            .map(|tool_call| AgentToolCallItem {
+                id: tool_call.id.clone(),
+                name: tool_call.name.clone(),
+                arguments_json: tool_call.arguments_json.clone(),
             })
-            .collect::<Vec<_>>()
+            .collect(),
     })
+    .to_legacy_message()
+    .expect("constructed assistant tool-call item must serialize")
 }
 
 pub(super) fn tool_observation_message(tool_call: &NativeAgentToolCall, content: &str) -> Value {
-    serde_json::json!({
-        "role": "tool",
-        "tool_call_id": tool_call.id,
-        "name": tool_call.name,
-        "content": content,
+    AgentItem::ToolResult(AgentToolResultItem {
+        id: None,
+        tool_call_id: tool_call.id.clone(),
+        name: Some(tool_call.name.clone()),
+        content: AgentMessageContent::text(content),
+        is_error: false,
     })
+    .to_legacy_message()
+    .expect("constructed tool-result item must serialize")
 }
 
 pub(super) fn tool_observation_content(result: &NativeAgentToolResult) -> String {

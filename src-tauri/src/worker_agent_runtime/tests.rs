@@ -1652,8 +1652,19 @@ fn chat_completion_request_enables_parallel_tool_calls_only_when_explicitly_requ
         .expect("explicit parallel tool request should build");
     assert_eq!(enabled_request["parallel_tool_calls"], true);
 
-    context.spec["parallelToolCalls"] = json!(false);
-    let disabled_request = agent_chat_completion_request(&context)
+    let mut disabled_context = NativeAgentRunContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "runId": "run-parallel-request-disabled",
+            "sessionId": "websocket:chat-parallel-request",
+            "model": "fixture-model",
+            "parallelToolCalls": false,
+            "messages": [{ "role": "user", "content": "read and search" }]
+        }),
+        json!({}),
+    );
+    disabled_context.tool_router = context.tool_router.clone();
+    let disabled_request = agent_chat_completion_request(&disabled_context)
         .expect("disabled parallel tool request should build");
     assert!(disabled_request.get("parallel_tool_calls").is_none());
 }
@@ -1777,6 +1788,125 @@ fn provider_tool_call_names_restore_internal_registry_methods() {
     assert_eq!(tool_calls.len(), 1);
     assert_eq!(tool_calls[0].name, "workspace.read_file");
     assert_eq!(tool_calls[0].arguments_json, "{\"path\":\"README.md\"}");
+}
+
+#[test]
+fn typed_agent_history_rejects_unknown_roles_before_provider_dispatch() {
+    let context = NativeAgentRunContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "provider": "fixture",
+            "model": "fixture-model",
+            "messages": [{ "role": "observer", "content": "hidden shape" }]
+        }),
+        json!({}),
+    );
+
+    let error = agent_chat_completion_request(&context)
+        .expect_err("unknown history roles must not pass through to provider JSON");
+
+    assert!(error.contains("unsupported agent message role"));
+    assert!(error.contains("observer"));
+}
+
+#[test]
+fn typed_provider_response_rejects_malformed_tool_calls_instead_of_dropping_them() {
+    let context = NativeAgentRunContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "messages": [{ "role": "user", "content": "run a tool" }]
+        }),
+        json!({}),
+    );
+    let completion = json!({
+        "choices": [{
+            "message": {
+                "content": "",
+                "tool_calls": [{
+                    "id": "call-malformed",
+                    "type": "function",
+                    "function": { "arguments": "{}" }
+                }]
+            }
+        }]
+    });
+
+    let error = super::provider::chat_completion_tool_calls(&completion, &context)
+        .expect_err("missing provider tool names must fail explicitly");
+
+    assert!(error.contains("call-malformed"));
+    assert!(error.contains("name"));
+}
+
+#[test]
+fn typed_turn_settings_report_unsupported_provider_features() {
+    let unsupported = NativeAgentRunContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "provider": "fixture",
+            "model": "fixture-model",
+            "serviceTier": "priority",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }),
+        json!({ "providers": { "fixture": {} } }),
+    );
+
+    let error = agent_chat_completion_request(&unsupported)
+        .expect_err("undeclared provider features must not be silently dropped");
+
+    assert!(error.contains("fixture"));
+    assert!(error.contains("service_tier"));
+}
+
+#[test]
+fn typed_turn_settings_encode_declared_provider_features() {
+    let context = NativeAgentRunContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "provider": "fixture",
+            "model": "fixture-model",
+            "serviceTier": "priority",
+            "reasoning": { "effort": "high" },
+            "outputSchema": {
+                "name": "answer",
+                "strict": true,
+                "schema": {
+                    "type": "object",
+                    "properties": { "answer": { "type": "string" } },
+                    "required": ["answer"]
+                }
+            },
+            "messages": [{ "role": "user", "content": "hello" }]
+        }),
+        json!({
+            "providers": {
+                "fixture": {
+                    "capabilities": {
+                        "serviceTier": true,
+                        "reasoning": true,
+                        "structuredOutput": true
+                    }
+                }
+            }
+        }),
+    );
+
+    let request = agent_chat_completion_request(&context)
+        .expect("declared provider features should encode through typed settings");
+
+    assert_eq!(context.settings.service_tier.as_deref(), Some("priority"));
+    assert_eq!(
+        context
+            .settings
+            .reasoning
+            .as_ref()
+            .and_then(|reasoning| reasoning.effort.as_deref()),
+        Some("high")
+    );
+    assert_eq!(request["service_tier"], "priority");
+    assert_eq!(request["reasoning_effort"], "high");
+    assert_eq!(request["response_format"]["type"], "json_schema");
+    assert_eq!(request["response_format"]["json_schema"]["name"], "answer");
 }
 
 #[test]

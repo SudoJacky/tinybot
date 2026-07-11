@@ -1,8 +1,8 @@
 use super::continuations::queued_user_continuation_message;
 use super::tool_router::NativeToolRouter;
 use super::{
-    string_field, ComposedInstructions, NativeAgentCancellation, NativeAgentCancellationContext,
-    NativeAgentRunContext,
+    string_field, AgentTurnSettings, ComposedInstructions, NativeAgentCancellation,
+    NativeAgentCancellationContext, NativeAgentRunContext,
 };
 use crate::worker_capability::default_desktop_capability_policy;
 use crate::worker_tool_registry::ToolExecutionTarget;
@@ -60,6 +60,15 @@ impl NativeAgentRunContext {
                 .list_tools()
                 .tools,
         );
+        let settings = AgentTurnSettings::from_sources(
+            &spec,
+            &metadata,
+            &config_snapshot,
+            model.clone(),
+            provider.clone(),
+            max_iterations,
+            stream,
+        );
         Self {
             run_id,
             session_id,
@@ -74,6 +83,7 @@ impl NativeAgentRunContext {
             instructions: None,
             stream,
             max_iterations,
+            settings,
             cancellation: None,
             tool_router,
         }

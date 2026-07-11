@@ -378,6 +378,48 @@ The same provenance and diagnostics are stored on the durable agent-run record, 
 `worker_agent_runs_list` and `worker_agent_run_runtime_state` can explain the instruction inputs of
 a historical run without persisting a second write authority.
 
+### Typed agent items and provider capabilities
+
+The native runtime converts legacy message JSON into a typed `AgentItem` history before building a
+provider request. The internal vocabulary covers instructions, user and assistant messages,
+reasoning, tool results and calls, approvals, user-input forms, plan progress, subagent lifecycle,
+context compaction, errors, usage, and file references. Chat Completions message objects remain a
+compatibility projection owned by `ChatCompletionsAdapter`; they are not the runtime domain model.
+
+History encoding and provider response decoding are strict. Unknown roles, unsupported content
+parts, missing tool-call IDs or names, malformed tool-call arrays, invalid usage numbers, and
+non-string assistant content return an error before the runtime can persist or dispatch a partial
+turn. Tool, approval, and form continuations construct typed assistant/tool-result items before
+projecting the existing persisted message shape.
+
+Each `NativeAgentRunContext` also owns an immutable `AgentTurnSettings` snapshot parsed from the run
+spec, metadata, and agent defaults. It includes model, provider, iteration and streaming limits,
+maximum completion tokens, context-window strategy, reasoning options, service tier, output schema,
+working directory, approval policy, permission profile, selected tools, and parallel-tool policy.
+Invalid values fail request construction rather than being reread differently by later stages.
+
+Optional provider features must be declared explicitly under the selected provider:
+
+```json
+{
+  "providers": {
+    "fixture": {
+      "capabilities": {
+        "serviceTier": true,
+        "reasoning": true,
+        "structuredOutput": true
+      }
+    }
+  }
+}
+```
+
+`capabilities` may instead be an array containing `service_tier`, `reasoning`, and/or
+`structured_output` (camel-case spellings are also accepted). A requested undeclared feature fails
+with the provider ID and missing capability. Declared settings map to Chat Completions fields as
+follows: service tier to `service_tier`, reasoning effort to `reasoning_effort`, reasoning summary
+configuration to `reasoning`, and output schemas to `response_format.type = "json_schema"`.
+
 ### Agent task ownership
 
 Every native run attempt is registered under one in-process task owner before system-prompt loading,
