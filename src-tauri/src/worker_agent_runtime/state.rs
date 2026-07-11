@@ -13,8 +13,9 @@ use super::{
     NativeAgentToolCall, NativeAgentTraceSink,
 };
 use crate::agent_loop_runtime_protocol::{
-    AgentRunEmitter, AgentRuntimeEventAppendInput, AgentRuntimeEventEnvelope,
-    AgentRuntimeEventSource, AgentRuntimeEventVisibility, AgentRuntimePhase,
+    project_timeline_patch, AgentRunEmitter, AgentRuntimeEventAppendInput,
+    AgentRuntimeEventEnvelope, AgentRuntimeEventSource, AgentRuntimeEventVisibility,
+    AgentRuntimePhase,
 };
 use serde_json::Value;
 use std::sync::Arc;
@@ -74,7 +75,51 @@ impl NativeAgentRunState {
                     self.run_id, event.event_id, error
                 );
             }
+            match project_timeline_patch(&self.session_id, &self.run_id, self.emitter.events()) {
+                Ok(Some(patch)) => {
+                    if let Err(error) =
+                        trace_sink.append_timeline_patch(&self.session_id, &self.run_id, &patch)
+                    {
+                        crate::runtime::observability::global_agent_runtime_metrics()
+                            .increment("timeline.patch.sink.failed");
+                        eprintln!(
+                            "canonical timeline patch sink failed for run {} item {} revision {}: {}",
+                            self.run_id, patch.item.item_id, patch.item.revision, error
+                        );
+                    }
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    crate::runtime::observability::global_agent_runtime_metrics()
+                        .increment("timeline.patch.projection.failed");
+                    eprintln!(
+                        "canonical timeline patch projection failed for run {} event {}: {}",
+                        self.run_id, event.event_id, error
+                    );
+                }
+            }
         }
+    }
+
+    pub(super) fn new_for_continuation(
+        context: &NativeAgentRunContext,
+        trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
+    ) -> Result<Self, String> {
+        let existing = trace_sink
+            .as_ref()
+            .map(|sink| sink.load_runtime_events(&context.session_id, &context.run_id))
+            .transpose()?
+            .unwrap_or_default();
+        let mut state = Self::new(context, trace_sink);
+        if !existing.is_empty() {
+            state.emitter = AgentRunEmitter::from_existing_events_with_thread_id(
+                &context.session_id,
+                &context.run_id,
+                context.thread_id.clone(),
+                &existing,
+            );
+        }
+        Ok(state)
     }
 
     pub(super) fn transition_phase(
@@ -254,23 +299,27 @@ impl NativeAgentRunState {
                     .and_then(|message| string_field(message, "id"))
             })
             .unwrap_or_else(|| format!("{}:user", context.run_id));
-        let content = current
-            .as_ref()
-            .and_then(|message| {
-                message
-                    .get("content")
-                    .or_else(|| message.get("text"))
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-            })
-            .unwrap_or_default();
+        let content = current.as_ref().map(user_message_text).unwrap_or_default();
         let reference_payloads = current
             .as_ref()
             .map(|message| user_reference_payloads(context, message, &message_id))
             .unwrap_or_default();
-        let event =
-            self.emitter
-                .user_turn_started(runtime_event_timestamp(), Some(message_id), content);
+        let client_event_id = current
+            .as_ref()
+            .and_then(|message| string_field(message, "clientEventId"))
+            .or_else(|| {
+                current
+                    .as_ref()
+                    .and_then(|message| string_field(message, "client_event_id"))
+            })
+            .or_else(|| string_field(&context.metadata, "clientEventId"))
+            .or_else(|| string_field(&context.metadata, "client_event_id"));
+        let event = self.emitter.user_turn_started(
+            runtime_event_timestamp(),
+            Some(message_id),
+            client_event_id,
+            content,
+        );
         self.append_trace_event(&event);
         for payload in reference_payloads {
             self.emit_event("agent.file.reference", payload);
@@ -325,6 +374,21 @@ impl NativeAgentRunState {
             }),
         );
     }
+}
+
+fn user_message_text(message: &Value) -> String {
+    let content = message.get("content").or_else(|| message.get("text"));
+    if let Some(text) = content.and_then(Value::as_str) {
+        return text.to_string();
+    }
+    content
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|part| part.get("type").and_then(Value::as_str) == Some("text"))
+        .filter_map(|part| part.get("text").and_then(Value::as_str))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn user_reference_payloads(

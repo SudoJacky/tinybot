@@ -427,16 +427,18 @@ mod tests {
             "tinybot.agent_event.v1"
         );
         assert_eq!(
-            runtime_state.turn_items[0].kind,
+            runtime_state.timeline.items[0].kind,
             AgentTurnItemKind::ToolCall
         );
-        assert_eq!(runtime_state.turn_items[0].item_id, "call-legacy");
+        assert_eq!(runtime_state.timeline.schema_version, "tinybot.timeline.v1");
+        assert_eq!(runtime_state.timeline.snapshot_revision, 2);
+        assert_eq!(runtime_state.timeline.items[0].item_id, "call-legacy");
         assert_eq!(
-            runtime_state.turn_items[1].kind,
+            runtime_state.timeline.items[1].kind,
             AgentTurnItemKind::AssistantMessage
         );
         assert_eq!(
-            runtime_state.turn_items[1].payload["content"],
+            serde_json::to_value(&runtime_state.timeline.items[1].data).unwrap()["content"],
             "Legacy final answer"
         );
     }
@@ -1449,7 +1451,14 @@ mod tests {
             .upsert_task_progress(
                 "session-1",
                 "plan-1",
-                json!({ "completed": 1, "total": 2 }),
+                json!({
+                    "completed": 1,
+                    "total": 2,
+                    "steps": [
+                        { "step": "Inspect session", "status": "completed" },
+                        { "step": "Finish session", "status": "in_progress" }
+                    ]
+                }),
                 "new progress".to_string(),
             )
             .expect("task progress should upsert");
@@ -1466,9 +1475,15 @@ mod tests {
         assert_eq!(messages[1]["content"], "new progress");
         assert_eq!(messages[1]["_progress"], true);
         assert_eq!(messages[1]["_task_event"], true);
+        assert_eq!(messages[1]["_task_progress"]["completed"], 1);
+        assert_eq!(messages[1]["_task_progress"]["total"], 2);
         assert_eq!(
-            messages[1]["_task_progress"],
-            json!({ "completed": 1, "total": 2 })
+            messages[1]["_task_progress"]["currentStep"],
+            "Finish session"
+        );
+        assert_eq!(
+            messages[1]["_task_progress"]["steps"][0]["status"],
+            "completed"
         );
         assert_eq!(messages[1]["_task_plan_id"], "plan-1");
         assert_eq!(messages[1]["_tool_name"], "task");
@@ -1476,6 +1491,11 @@ mod tests {
         assert_eq!(messages[1]["_agent_item"]["id"], "plan-1");
         assert_eq!(messages[1]["_agent_item"]["completed"], 1);
         assert_eq!(messages[1]["_agent_item"]["total"], 2);
+        assert_eq!(messages[1]["_agent_item"]["currentStep"], "Finish session");
+        assert_eq!(
+            messages[1]["_agent_item"]["steps"][0]["status"],
+            "completed"
+        );
         assert!(messages[1]["timestamp"].is_string());
     }
 
@@ -1487,7 +1507,14 @@ mod tests {
             .upsert_task_progress(
                 "desktop:chat-1",
                 "plan-1",
-                json!({ "completed": 0, "total": 2 }),
+                json!({
+                    "completed": 0,
+                    "total": 2,
+                    "steps": [
+                        { "step": "Inspect session", "status": "in_progress" },
+                        { "step": "Finish session", "status": "pending" }
+                    ]
+                }),
                 "progress".to_string(),
             )
             .expect("task progress should create session and message");
@@ -1501,13 +1528,36 @@ mod tests {
         assert_eq!(messages[0]["content"], "progress");
         assert_eq!(messages[0]["_progress"], true);
         assert_eq!(messages[0]["_task_event"], true);
+        assert_eq!(messages[0]["_task_progress"]["completed"], 0);
+        assert_eq!(messages[0]["_task_progress"]["total"], 2);
         assert_eq!(
-            messages[0]["_task_progress"],
-            json!({ "completed": 0, "total": 2 })
+            messages[0]["_task_progress"]["currentStep"],
+            "Inspect session"
+        );
+        assert_eq!(
+            messages[0]["_task_progress"]["steps"][1]["status"],
+            "pending"
         );
         assert_eq!(messages[0]["_task_plan_id"], "plan-1");
         assert_eq!(messages[0]["_tool_name"], "task");
         assert!(messages[0]["timestamp"].is_string());
+    }
+
+    #[test]
+    fn upsert_task_progress_rejects_counter_only_compatibility_payloads() {
+        let mut rpc = WorkerSessionRpc::new(vec![], write_policy());
+
+        let error = rpc
+            .upsert_task_progress(
+                "desktop:chat-plan-invalid",
+                "plan-1",
+                json!({ "completed": 0, "total": 2 }),
+                "progress".to_string(),
+            )
+            .expect_err("task progress without complete steps must fail");
+
+        assert_eq!(error.code, WorkerProtocolErrorCode::InvalidProtocol);
+        assert!(error.message.contains("plan steps are required"));
     }
 
     #[test]

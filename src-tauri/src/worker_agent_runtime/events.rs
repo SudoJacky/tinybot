@@ -87,9 +87,11 @@ pub(super) fn runtime_event_source(event_name: &str) -> AgentRuntimeEventSource 
         | "agent.usage"
         | "agent.provider.requested"
         | "agent.provider.completed" => AgentRuntimeEventSource::Provider,
-        "agent.tool_call.delta" | "agent.tool.start" | "agent.tool.result" | "agent.tool.debug" => {
-            AgentRuntimeEventSource::Tool
-        }
+        "agent.tool_call.delta"
+        | "agent.tool.start"
+        | "agent.tool.result"
+        | "agent.tool.debug"
+        | "agent.plan.progress" => AgentRuntimeEventSource::Tool,
         "agent.guidance" | "agent.approval.decision" | "agent.form.resolution" => {
             AgentRuntimeEventSource::User
         }

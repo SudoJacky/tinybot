@@ -4,18 +4,19 @@ import {
   canonicalSessionKey,
   createNativeChatState,
   activateSession,
-  hydrateAgentRunRuntimeStates,
   hydrateDelegatedRunsFromTraceEvents,
-  normalizeAgentRunRuntimeStatesPayload,
-  normalizeMessagesPayload,
   normalizeSessionsPayload,
-  setMessages,
   setSessions,
   sessionKeyForChat,
   sessionKeyForChatState,
   type NativeBackgroundTraceEvent,
   type NativeChatState,
 } from "./nativeChat";
+import {
+  createAgentTimelineModel,
+  TimelineRevisionGapError,
+  type ChatTimelineSnapshot,
+} from "./agentTimelineModel";
 import { createGatewaySocketMessage, type NormalizedGatewayEvent } from "../gateway/gatewayWebSocketClient";
 import { logDesktopNativeDebug, summarizeDebugText } from "../native/desktopNativeChatDebug";
 
@@ -35,12 +36,13 @@ export interface DesktopChatSessionControllerOptions {
   api: DesktopChatSessionControllerApi;
   sendSocketMessage(message: unknown): void;
   now?: () => string;
+  createClientEventId?: () => string;
 }
 
 export type ChatSubmitResult =
   | { status: "empty" }
-  | { status: "creating"; pendingContent: string }
-  | { status: "sent"; chatId: string; content: string };
+  | { status: "creating"; pendingContent: string; clientEventId: string }
+  | { status: "sent"; chatId: string; content: string; clientEventId: string };
 
 export type ChatGatewayEventResult = {
   pendingMessageSent: boolean;
@@ -64,6 +66,8 @@ export interface DesktopChatSessionController {
   interruptActiveChat(): boolean;
   handleGatewayEvent(event: NormalizedGatewayEvent): Promise<ChatGatewayEventResult>;
   loadMessagesForChat(chatId: string): Promise<boolean>;
+  loadTimeline(sessionKey: string): Promise<ChatTimelineSnapshot>;
+  applyTimelinePatch(sessionKey: string, payload: unknown): Promise<ChatTimelineSnapshot | null>;
   loadDelegateTrace(selection: { sessionKey: string; delegateId?: string; traceRef?: string }): Promise<unknown>;
   loadArtifact(selection: { sessionKey: string; delegateId?: string; traceRef?: string; artifactId: string }): Promise<unknown>;
 }
@@ -72,9 +76,14 @@ export function createDesktopChatSessionController({
   api,
   sendSocketMessage,
   now = () => new Date().toISOString(),
+  createClientEventId = defaultClientEventId,
 }: DesktopChatSessionControllerOptions): DesktopChatSessionController {
   const state = createNativeChatState();
-  let pendingMessage: { content: string; model?: string; usePersistentRag: boolean } | null = null;
+  const timelineModel = createAgentTimelineModel();
+  const loadedTimelineSessions = new Set<string>();
+  const loadingTimelineSessions = new Set<string>();
+  const bufferedTimelinePatches = new Map<string, unknown[]>();
+  let pendingMessage: { clientEventId: string; content: string; model?: string; usePersistentRag: boolean } | null = null;
 
   async function loadSessions(): Promise<number> {
     logDesktopNativeDebug("session.load.start", summarizeSessionState());
@@ -99,10 +108,7 @@ export function createDesktopChatSessionController({
     });
     activateSession(state, sessionKey, chatId);
     try {
-      const payload = await api.loadMessages(sessionKey);
-      const messages = normalizeMessagesPayload(payload);
-      setMessages(state, sessionKey, messages);
-      await loadAgentRunRuntimeStatesForSession(sessionKey);
+      await loadTimeline(sessionKey);
       await loadTraceEventsForSession(sessionKey);
       state.error = "";
     } catch (error) {
@@ -112,6 +118,7 @@ export function createDesktopChatSessionController({
         error: state.error,
         sessionKey,
       });
+      throw error;
     }
     sendSocketMessage(createGatewaySocketMessage.attach(chatId));
     logDesktopNativeDebug("session.select.complete", {
@@ -230,33 +237,90 @@ export function createDesktopChatSessionController({
     }
   }
 
-  async function loadAgentRunRuntimeStatesForSession(sessionKey: string): Promise<void> {
+  async function loadTimeline(sessionKey: string): Promise<ChatTimelineSnapshot> {
+    if (loadedTimelineSessions.has(sessionKey)) {
+      return timelineModel.snapshot(sessionKey);
+    }
     if (!api.listAgentRuns || !api.getAgentRunRuntimeState) {
-      return;
+      throw new Error("Canonical agent timeline API is unavailable");
     }
     logDesktopNativeDebug("session.agentRunRuntime.load.start", {
       ...summarizeSessionState(),
       sessionKey,
     });
+    loadingTimelineSessions.add(sessionKey);
     try {
       const runsPayload = await api.listAgentRuns(sessionKey);
       const runIds = normalizeAgentRunIdsPayload(runsPayload);
       const payloads = await Promise.all(runIds.map((runId) => api.getAgentRunRuntimeState?.(sessionKey, runId)));
-      const runtimeStates = normalizeAgentRunRuntimeStatesPayload(payloads);
-      const changed = hydrateAgentRunRuntimeStates(state, sessionKey, runtimeStates);
+      let snapshot = timelineModel.load(sessionKey, payloads.filter((payload) => payload !== null && payload !== undefined));
+      for (const patch of bufferedTimelinePatches.get(sessionKey) ?? []) {
+        snapshot = timelineModel.applyPatch(sessionKey, patch);
+      }
+      bufferedTimelinePatches.delete(sessionKey);
+      loadedTimelineSessions.add(sessionKey);
+      state.chatRuns.turnsBySession.set(sessionKey, snapshot.turns);
+      syncRespondingState(sessionKey, snapshot);
       logDesktopNativeDebug("session.agentRunRuntime.load.complete", {
         ...summarizeSessionState(),
-        changed,
         runCount: runIds.length,
-        runtimeStateCount: runtimeStates.length,
+        runtimeStateCount: payloads.length,
         sessionKey,
       });
+      return snapshot;
     } catch (error) {
       logDesktopNativeDebug("session.agentRunRuntime.load.failed", {
         ...summarizeSessionState(),
         error: error instanceof Error ? error.message : String(error),
         sessionKey,
       });
+      throw error;
+    } finally {
+      loadingTimelineSessions.delete(sessionKey);
+    }
+  }
+
+  async function applyTimelinePatch(sessionKey: string, payload: unknown): Promise<ChatTimelineSnapshot | null> {
+    if (loadingTimelineSessions.has(sessionKey) || !loadedTimelineSessions.has(sessionKey)) {
+      const patches = bufferedTimelinePatches.get(sessionKey) ?? [];
+      patches.push(payload);
+      bufferedTimelinePatches.set(sessionKey, patches);
+      return null;
+    }
+    try {
+      const snapshot = timelineModel.applyPatch(sessionKey, payload);
+      state.chatRuns.turnsBySession.set(sessionKey, snapshot.turns);
+      syncRespondingState(sessionKey, snapshot);
+      return snapshot;
+    } catch (error) {
+      if (!(error instanceof TimelineRevisionGapError)) {
+        throw error;
+      }
+      logDesktopNativeDebug("session.agentRunRuntime.patch.gap", {
+        expectedRevision: error.expectedRevision,
+        receivedRevision: error.receivedRevision,
+        runId: error.runId,
+        sessionKey,
+      });
+      const buffered = bufferedTimelinePatches.get(sessionKey) ?? [];
+      buffered.push(payload);
+      bufferedTimelinePatches.set(sessionKey, buffered);
+      loadedTimelineSessions.delete(sessionKey);
+      return loadTimeline(sessionKey);
+    }
+  }
+
+  function syncRespondingState(sessionKey: string, snapshot: ChatTimelineSnapshot): void {
+    const responding = snapshot.turns.some((turn) => (
+      turn.status === "pending"
+      || turn.status === "running"
+      || turn.status === "awaiting_approval"
+      || turn.status === "awaiting_user"
+    ));
+    if (responding) {
+      state.respondingSessionKeys.add(sessionKey);
+    } else {
+      state.respondingSessionKeys.delete(sessionKey);
     }
   }
 
@@ -291,9 +355,10 @@ export function createDesktopChatSessionController({
       logDesktopNativeDebug("session.message.empty", summarizeSessionState());
       return { status: "empty" };
     }
+    const clientEventId = createClientEventId();
 
     if (!state.activeChatId) {
-      pendingMessage = { content: trimmed, model, usePersistentRag };
+      pendingMessage = { clientEventId, content: trimmed, model, usePersistentRag };
       startNewChat();
       logDesktopNativeDebug("session.message.queued", {
         ...summarizeSessionState(),
@@ -301,17 +366,17 @@ export function createDesktopChatSessionController({
         model: model || "",
         usePersistentRag,
       });
-      return { status: "creating", pendingContent: trimmed };
+      return { status: "creating", pendingContent: trimmed, clientEventId };
     }
 
-    sendActiveChatMessage(trimmed, usePersistentRag, model);
+    sendActiveChatMessage(trimmed, usePersistentRag, model, clientEventId);
     logDesktopNativeDebug("session.message.sent", {
       ...summarizeSessionState(),
       content: summarizeDebugText(trimmed),
       model: model || "",
       usePersistentRag,
     });
-    return { status: "sent", chatId: state.activeChatId, content: trimmed };
+    return { status: "sent", chatId: state.activeChatId, content: trimmed, clientEventId };
   }
 
   function interruptActiveChat(): boolean {
@@ -331,7 +396,11 @@ export function createDesktopChatSessionController({
       reloadedSessions: false,
     };
 
-    applyChatEvent(state, event);
+    // Raw Agent and usage events are trace/transport signals only. Canonical
+    // timeline snapshots and patches are the sole writers of Chat turns.
+    if (event.kind !== "agent.event" && event.kind !== "usage") {
+      applyChatEvent(state, event);
+    }
 
     if (event.kind === "chat.created") {
       await loadSessions();
@@ -340,9 +409,9 @@ export function createDesktopChatSessionController({
       }
       result.reloadedSessions = true;
       if (pendingMessage) {
-        const { content, model, usePersistentRag } = pendingMessage;
+        const { clientEventId, content, model, usePersistentRag } = pendingMessage;
         pendingMessage = null;
-        sendActiveChatMessage(content, usePersistentRag, model);
+        sendActiveChatMessage(content, usePersistentRag, model, clientEventId);
         logDesktopNativeDebug("session.message.queued.sent", {
           ...summarizeSessionState(),
           content: summarizeDebugText(content),
@@ -366,14 +435,12 @@ export function createDesktopChatSessionController({
     if (!sessionKey) {
       return false;
     }
-    const payload = await api.loadMessages(sessionKey);
-    const messages = normalizeMessagesPayload(payload);
-    setMessages(state, sessionKey, messages);
-    await loadAgentRunRuntimeStatesForSession(sessionKey);
+    loadedTimelineSessions.delete(sessionKey);
+    await loadTimeline(sessionKey);
     await loadTraceEventsForSession(sessionKey);
     logDesktopNativeDebug("session.messages.loaded", {
       chatId,
-      messageCount: messages.length,
+      turnCount: state.chatRuns.turnsBySession.get(sessionKey)?.length ?? 0,
       sessionKey,
     });
     return true;
@@ -419,9 +486,20 @@ export function createDesktopChatSessionController({
     return artifact;
   }
 
-  function sendActiveChatMessage(content: string, usePersistentRag = true, model?: string): void {
+  function sendActiveChatMessage(
+    content: string,
+    usePersistentRag = true,
+    model?: string,
+    clientEventId?: string,
+  ): void {
     appendUserMessage(state, content, now());
-    sendSocketMessage(createGatewaySocketMessage.message(state.activeChatId, content, usePersistentRag, model));
+    sendSocketMessage(createGatewaySocketMessage.message(
+      state.activeChatId,
+      content,
+      usePersistentRag,
+      model,
+      clientEventId,
+    ));
   }
 
   return {
@@ -435,6 +513,8 @@ export function createDesktopChatSessionController({
     interruptActiveChat,
     handleGatewayEvent,
     loadMessagesForChat,
+    loadTimeline,
+    applyTimelinePatch,
     loadDelegateTrace,
     loadArtifact,
   };
@@ -447,6 +527,10 @@ export function createDesktopChatSessionController({
       sessionCount: state.sessions.length,
     };
   }
+}
+
+function defaultClientEventId(): string {
+  return `client-message-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function normalizeTraceEventsPayload(payload: unknown): NativeBackgroundTraceEvent[] {

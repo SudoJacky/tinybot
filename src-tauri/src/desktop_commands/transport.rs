@@ -322,6 +322,14 @@ pub(crate) fn native_websocket_transport_result(
             serde_json::Value::Bool(use_persistent_rag),
         );
     }
+    if let Some(client_event_id) = json_string_field(frame, "client_event_id")
+        .or_else(|| json_string_field(frame, "clientEventId"))
+    {
+        metadata.insert(
+            "clientEventId".to_string(),
+            serde_json::Value::String(client_event_id.to_string()),
+        );
+    }
 
     Some(serde_json::json!({
         "kind": "message",
@@ -367,6 +375,9 @@ pub(crate) fn build_worker_transport_websocket_run_input_request(
             request_id.suffix()
         )
     });
+    let client_event_id = json_string_field(&metadata, "clientEventId")
+        .or_else(|| json_string_field(&metadata, "client_event_id"))
+        .map(str::to_string);
     let mut input = serde_json::json!({
         "runId": run_id,
         "sessionId": session_id,
@@ -379,6 +390,9 @@ pub(crate) fn build_worker_transport_websocket_run_input_request(
         "stream": options.stream.unwrap_or(true),
         "metadata": serde_json::Value::Object(metadata),
     });
+    if let Some(client_event_id) = client_event_id {
+        input["input"]["clientEventId"] = serde_json::Value::String(client_event_id);
+    }
     if let Some(model) = options.model {
         input["model"] = serde_json::Value::String(model);
     }

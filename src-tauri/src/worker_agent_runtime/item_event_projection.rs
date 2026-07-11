@@ -1,6 +1,6 @@
 use super::items::{
     AgentApprovalItem, AgentContextCompactionItem, AgentErrorItem, AgentFileReferenceItem,
-    AgentSubagentItem, AgentUserInputItem,
+    AgentSubagentItem, AgentSubagentMessageItem, AgentUserInputItem,
 };
 use super::{AgentItem, AgentUsageItem};
 use serde_json::Value;
@@ -42,25 +42,55 @@ fn agent_item_for_runtime_event(event_name: &str, payload: &Value) -> Option<Age
                     .unwrap_or_else(|| "completed".to_string()),
                 action: optional_string(payload, &["action"]),
                 field_ids: form_field_ids(payload.get("form")),
+                values: payload.get("values").cloned(),
+                errors: payload.get("errors").cloned(),
             }))
         }
         "agent.plan.progress" | "agent.task_progress" => {
+            let mut steps = payload
+                .get("steps")
+                .or_else(|| payload.get("plan"))
+                .cloned()
+                .map(|steps| {
+                    serde_json::from_value(steps).unwrap_or_else(|error| {
+                        panic!("runtime plan progress steps are invalid: {error}")
+                    })
+                })
+                .unwrap_or_else(|| panic!("runtime plan progress requires complete steps"));
+            let derived = super::validate_and_normalize_plan_steps(&mut steps)
+                .unwrap_or_else(|error| panic!("runtime plan progress is invalid: {error}"));
+            if payload.get("completed").and_then(Value::as_u64)
+                != Some(u64::from(derived.completed))
+                || payload.get("total").and_then(Value::as_u64) != Some(u64::from(derived.total))
+                || optional_string(payload, &["currentStep", "current_step"]).as_deref()
+                    != derived.current_step.as_deref()
+            {
+                panic!("runtime plan progress derived fields do not match its steps");
+            }
             Some(AgentItem::PlanProgress(super::AgentPlanProgressItem {
                 id: required_string(payload, &["planId", "plan_id"], event_name),
+                explanation: optional_string(payload, &["explanation"]),
+                steps,
                 summary: optional_string(payload, &["summary", "content"]).unwrap_or_default(),
-                completed: optional_u32(payload, &["completed"]),
-                total: optional_u32(payload, &["total"]),
+                completed: derived.completed,
+                total: derived.total,
+                current_step: derived.current_step,
             }))
         }
         name if name.starts_with("agent.delegate.") => {
+            if name == "agent.delegate.user_message" || name == "agent.delegate.notification" {
+                return Some(AgentItem::SubagentMessage(AgentSubagentMessageItem {
+                    id: required_string(payload, &["messageId", "eventId"], event_name),
+                    agent_id: required_string(payload, &["delegateId", "subagentId"], event_name),
+                    content: required_string(payload, &["content", "message"], event_name),
+                    visibility: optional_string(payload, &["visibility"])
+                        .unwrap_or_else(|| "user".to_string()),
+                }));
+            }
             let action = name.trim_start_matches("agent.delegate.").to_string();
             let agent_id = optional_string(payload, &["delegateId", "subagentId"])
                 .unwrap_or_else(|| "multiple".to_string());
-            let id = optional_string(payload, &["delegateEventId"]).unwrap_or_else(|| {
-                optional_string(payload, &["sourceToolCallId"])
-                    .map(|source| format!("{agent_id}:{action}:{source}"))
-                    .unwrap_or_else(|| format!("{agent_id}:{action}"))
-            });
+            let id = agent_id.clone();
             Some(AgentItem::Subagent(AgentSubagentItem {
                 id,
                 agent_id,
@@ -88,6 +118,14 @@ fn agent_item_for_runtime_event(event_name: &str, payload: &Value) -> Option<Age
                     .or_else(|| payload.get("dropped_item_count"))
                     .and_then(Value::as_u64)
                     .unwrap_or(0) as usize,
+                estimated_tokens_before: optional_u64(
+                    payload,
+                    &["estimatedTokensBefore", "estimated_tokens_before"],
+                ),
+                estimated_tokens_after: optional_u64(
+                    payload,
+                    &["estimatedTokensAfter", "estimated_tokens_after"],
+                ),
             }))
         }
         "agent.error" | "agent.cancelled" | "agent.tool.cleanup_timeout" => {
@@ -156,11 +194,9 @@ fn optional_string(payload: &Value, keys: &[&str]) -> Option<String> {
     })
 }
 
-fn optional_u32(payload: &Value, keys: &[&str]) -> u32 {
+fn optional_u64(payload: &Value, keys: &[&str]) -> Option<u64> {
     keys.iter()
         .find_map(|key| payload.get(*key).and_then(Value::as_u64))
-        .unwrap_or(0)
-        .min(u32::MAX as u64) as u32
 }
 
 fn form_field_ids(form: Option<&Value>) -> Vec<String> {

@@ -24,6 +24,13 @@ You are {{identity}}, a local-first AI assistant running on the user's machine.
 - Inspect real files and runtime state before making claims about them.
 - Report errors clearly. Do not hide failures or claim success without verification.
 - Preserve existing user changes and request confirmation before destructive operations.
+
+## Planning
+
+- Use `update_plan` for non-trivial, ambiguous, or multi-phase work; do not add plans to simple tasks.
+- Keep exactly one plan step `in_progress` until all steps are `completed`.
+- Update the complete plan before moving to the next step, and explain material plan revisions.
+- Do not repeat the full plan in a message because the timeline already renders it.
 "#;
 
 pub(crate) fn load_or_create_system_prompt(workspace_root: &Path) -> Result<String, String> {
@@ -148,6 +155,7 @@ mod tests {
         assert!(saved.contains("{{identity}}"));
         assert!(saved.contains("{{working_directory}}"));
         assert!(saved.contains("{{operating_system}}"));
+        assert!(saved.contains("Use `update_plan`"));
         assert!(prompt.contains("You are Tinybot"));
         assert!(prompt.contains(&fixture.root.display().to_string()));
         assert!(prompt.contains(std::env::consts::OS));

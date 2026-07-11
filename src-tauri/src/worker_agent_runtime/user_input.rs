@@ -279,7 +279,8 @@ fn cancelled_user_input_result(
     iteration: i64,
 ) -> Value {
     let message = "User input request was cancelled.";
-    let mut state = NativeAgentRunState::new(context, services.trace_sink.clone());
+    let mut state = NativeAgentRunState::new_for_continuation(context, services.trace_sink.clone())
+        .expect("form cancellation must restore persisted runtime events");
     state.tools_used.push(REQUEST_USER_INPUT_METHOD.to_string());
     state.transition_phase(
         AgentRuntimePhase::AwaitingForm,

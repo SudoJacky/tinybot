@@ -43,6 +43,19 @@ import { reduceSessionDeleteState } from "../sessions/sessionDeleteState";
 import { canBranchFromMessage, canCopyMessage, type ContextReferenceSummary, type ReactChatMessage, type ToolCallSummary } from "./messageActions";
 import type { AgentUiForm, AgentUiFormField } from "../../app-core/agent-ui/agentUiEvents";
 import { AssistantMarkdown } from "./AssistantMarkdown";
+import {
+  applyLoadedDelegatedAgentTrace,
+  projectLoadedArtifactDetail,
+  type ArtifactRef,
+  type ChatStep,
+  type ChatTurn,
+  type DelegatedAgentState,
+  type LoadedArtifactDetail,
+  type TokenUsage,
+  type ToolCallState,
+} from "../../app-core/chat/chatRunModel";
+import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
+import type { NativeChatReference } from "../../app-core/chat/nativeChat";
 
 export type ChatPageProps = {
   chatStore: ChatStore;
@@ -57,10 +70,11 @@ export type ChatPageProps = {
   now?: () => number;
 };
 
-type DrawerState = {
-  title: string;
-  toolCall: ToolCallSummary;
-} | null;
+type DrawerState =
+  | { kind: "tool"; title: string; toolCall: ToolCallSummary }
+  | { kind: "subagent"; title: string; delegate: DelegatedAgentState; loading: boolean; error?: string }
+  | { kind: "artifact"; title: string; artifact: ArtifactRef; detail?: LoadedArtifactDetail; loading: boolean; error?: string }
+  | null;
 
 type QueuedComposerInput = QueuedInput & Pick<ChatInput, "model" | "usePersistentRag">;
 
@@ -151,8 +165,9 @@ export function ChatPage({
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState("");
-  const [messages, setMessages] = useState<ReactChatMessage[]>([]);
-  const [loadedMessageSessionId, setLoadedMessageSessionId] = useState("");
+  const [timeline, setTimeline] = useState<ChatTimelineSnapshot | null>(null);
+  const [optimisticMessages, setOptimisticMessages] = useState<ReactChatMessage[]>([]);
+  const [timelineError, setTimelineError] = useState("");
   const [composerModels, setComposerModels] = useState<ModelOption[]>([]);
   const [defaultComposerModel, setDefaultComposerModel] = useState("");
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
@@ -177,15 +192,12 @@ export function ChatPage({
     [activeSessionId, sessions],
   );
   const draftNewSession = sessionsLoaded && !activeSession;
-  const messagesLoaded = Boolean(activeSession) && loadedMessageSessionId === activeSession?.id;
-  const emptyActiveSession = draftNewSession || (messagesLoaded && messages.length === 0);
+  const timelineLoaded = Boolean(activeSession) && timeline?.sessionId === activeSession?.id;
+  const emptyActiveSession = draftNewSession || (timelineLoaded && timeline.turns.length === 0 && optimisticMessages.length === 0);
   const sessionRunning = activeSession?.status === "running" || activeSession?.status === "waiting_approval";
   const sessionResponding = sessionRunning && !emptyActiveSession;
   const activeQueuedInputs = activeSession ? queuedInputsBySession.get(activeSession.id) ?? [] : [];
-  const activeContextUsage = useMemo(
-    () => [...messages].reverse().find((message) => message.usage)?.usage,
-    [messages],
-  );
+  const activeContextUsage = useMemo(() => latestTimelineUsage(timeline?.turns ?? []), [timeline]);
 
   useEffect(() => {
     sessionsRef.current = sessions;
@@ -224,18 +236,24 @@ export function ChatPage({
 
   useEffect(() => {
     if (!activeSessionId) {
-      setMessages([]);
-      setLoadedMessageSessionId("");
+      setTimeline(null);
+      setOptimisticMessages([]);
+      setTimelineError("");
       return;
     }
-    setMessages([]);
+    setTimeline(null);
+    setOptimisticMessages([]);
+    setTimelineError("");
     setAgentUiForms([]);
-    setLoadedMessageSessionId("");
     let cancelled = false;
-    const loadMessages = () => chatStore.load(activeSessionId).then((nextMessages) => {
+    const loadTimeline = () => chatStore.load(activeSessionId).then((nextTimeline) => {
       if (!cancelled) {
-        setMessages((current) => mergeLoadedMessagesWithLiveUsage(current, nextMessages));
-        setLoadedMessageSessionId(activeSessionId);
+        setTimeline(nextTimeline);
+        setTimelineError("");
+      }
+    }).catch((error) => {
+      if (!cancelled) {
+        setTimelineError(error instanceof Error ? error.message : String(error));
       }
     });
     const loadAgentUiForms = () => chatStore.listAgentUiForms(activeSessionId).then((nextForms) => {
@@ -243,26 +261,37 @@ export function ChatPage({
         setAgentUiForms(nextForms);
       }
     });
-    void loadMessages();
+    void loadTimeline();
     void loadAgentUiForms();
     const unsubscribe = chatStore.subscribe(activeSessionId, (event) => {
+      if (event.timeline) {
+        setTimeline(event.timeline);
+        setTimelineError("");
+        setOptimisticMessages((current) => current.filter((message) => !event.timeline!.turns.some((turn) => (
+          turn.userMessage.clientEventId === message.id
+        ))));
+        return;
+      }
+      if (event.error) {
+        setTimelineError(event.error);
+        return;
+      }
       if (event.message) {
         const nextMessage = event.message;
-        setMessages((current) => (
+        setOptimisticMessages((current) => (
           current.some((message) => message.id === nextMessage.id)
             ? current.map((message) => (
               message.id === nextMessage.id ? { ...message, ...nextMessage } : message
             ))
             : [...current, nextMessage]
         ));
-        setLoadedMessageSessionId(activeSessionId);
         return;
       }
       if (shouldReloadSessionsForChatEvent(event)) {
         void handleQueueStateAfterChatEvent(activeSessionId, event);
       }
       if (shouldReloadMessagesForChatEvent(event.type)) {
-        void loadMessages();
+        void loadTimeline();
       }
       if (shouldReloadAgentUiFormsForChatEvent(event.type)) {
         void loadAgentUiForms();
@@ -573,11 +602,60 @@ export function ChatPage({
         approvalId: toolCall.approvalId,
       });
       await handleSessionStoreRefresh();
-      const nextMessages = await chatStore.load(sessionId);
-      setMessages(nextMessages);
-      setLoadedMessageSessionId(sessionId);
+      setTimeline(await chatStore.load(sessionId));
     } finally {
       setResolvingApprovalId("");
+    }
+  }
+
+  async function handleOpenSubagent(delegate: DelegatedAgentState) {
+    if (!activeSession) {
+      return;
+    }
+    setDrawer({ kind: "subagent", title: delegate.title, delegate, loading: Boolean(chatStore.loadDelegateTrace) });
+    if (!chatStore.loadDelegateTrace) {
+      return;
+    }
+    try {
+      const payload = await chatStore.loadDelegateTrace({
+        sessionKey: activeSession.id,
+        delegateId: delegate.id,
+        ...(delegate.traceRef ? { traceRef: delegate.traceRef } : {}),
+      });
+      const loaded = applyLoadedDelegatedAgentTrace(delegate, payload);
+      setDrawer((current) => current?.kind === "subagent" && current.delegate.id === delegate.id
+        ? { ...current, delegate: loaded, loading: false }
+        : current);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setDrawer((current) => current?.kind === "subagent" && current.delegate.id === delegate.id
+        ? { ...current, error: message, loading: false }
+        : current);
+    }
+  }
+
+  async function handleOpenArtifact(artifact: ArtifactRef) {
+    if (!activeSession) {
+      return;
+    }
+    setDrawer({ kind: "artifact", title: artifact.title, artifact, loading: Boolean(chatStore.loadArtifact) });
+    if (!chatStore.loadArtifact) {
+      return;
+    }
+    try {
+      const payload = await chatStore.loadArtifact({
+        artifactId: artifact.id,
+        sessionKey: activeSession.id,
+      });
+      const detail = projectLoadedArtifactDetail(artifact, payload);
+      setDrawer((current) => current?.kind === "artifact" && current.artifact.id === artifact.id
+        ? { ...current, detail, loading: false }
+        : current);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setDrawer((current) => current?.kind === "artifact" && current.artifact.id === artifact.id
+        ? { ...current, error: message, loading: false }
+        : current);
     }
   }
 
@@ -609,6 +687,7 @@ export function ChatPage({
   }
 
   const visibleAgentUiForms = agentUiForms.filter(isVisibleAgentUiForm);
+  const interactiveFormIds = new Set(visibleAgentUiForms.map((form) => form.form_id));
   const headerTitle = activeSession?.title ?? (draftNewSession ? "New Chat" : "No session selected");
 
   return (
@@ -735,20 +814,29 @@ export function ChatPage({
           </div>
         </header>
 
-        <div className="react-conversation-view" aria-label="Conversation">
-          {activeSession && messages.length > 0 ? messages.map((message) => (
+        <div className="react-conversation-view" aria-label="Conversation" aria-live="polite">
+          {timelineError ? <p aria-live="assertive" className="react-timeline-error">{timelineError}</p> : null}
+          {activeSession && timeline?.turns.length ? timeline.turns.map((turn) => (
+            <CanonicalChatTurn
+              interactiveFormIds={interactiveFormIds}
+              key={turn.id}
+              turn={turn}
+              onBranch={(messageId) => void handleBranchFromMessage(activeSession, messageId)}
+              onOpenArtifact={(artifact) => void handleOpenArtifact(artifact)}
+              onOpenSubagent={(delegate) => void handleOpenSubagent(delegate)}
+              onOpenTool={(toolCall) => setDrawer({ kind: "tool", title: toolCall.name, toolCall })}
+            />
+          )) : emptyActiveSession ? <EmptyChatStart /> : activeSession ? null : <EmptyStateText text="Select or create a session." />}
+          {optimisticMessages.map((message) => (
             <MessageBubble
               key={message.id}
               message={message}
-              onBranch={() => void handleBranchFromMessage(activeSession, message.id)}
+              onBranch={() => undefined}
               onCopy={() => void writeClipboardText(formatMessageForCopy(message))}
-              onOpenTool={(toolCall) => setDrawer({
-                title: toolCall.name,
-                toolCall,
-              })}
+              onOpenTool={() => undefined}
               sessionRunning={sessionRunning}
             />
-          )) : emptyActiveSession ? <EmptyChatStart /> : activeSession ? null : <EmptyStateText text="Select or create a session." />}
+          ))}
           {visibleAgentUiForms.length ? (
             <div className="react-agent-ui-forms" aria-label="Agent forms">
               {visibleAgentUiForms.map((form) => (
@@ -793,11 +881,17 @@ export function ChatPage({
               <X aria-hidden="true" size={16} />
             </button>
           </div>
-          <ToolCallDetails
-            resolvingApprovalId={resolvingApprovalId}
-            toolCall={drawer.toolCall}
-            onResolveApproval={(toolCall, action) => void handleResolveApproval(toolCall, action)}
-          />
+          {drawer.kind === "tool" ? (
+            <ToolCallDetails
+              resolvingApprovalId={resolvingApprovalId}
+              toolCall={drawer.toolCall}
+              onResolveApproval={(toolCall, action) => void handleResolveApproval(toolCall, action)}
+            />
+          ) : drawer.kind === "subagent" ? (
+            <SubagentDetails delegate={drawer.delegate} error={drawer.error} loading={drawer.loading} />
+          ) : (
+            <ArtifactDetails artifact={drawer.artifact} detail={drawer.detail} error={drawer.error} loading={drawer.loading} />
+          )}
         </aside>
       ) : null}
 
@@ -1002,9 +1096,6 @@ function EmptyStateText({ text }: { text: string }) {
 
 const MESSAGE_RELOAD_EVENT_TYPES = new Set([
   "attached",
-  "agent.event",
-  "message-sent",
-  "interrupted",
 ]);
 
 const SESSION_RELOAD_EVENT_TYPES = new Set([
@@ -1046,26 +1137,8 @@ function canDispatchQueuedInputForSession(session: SessionSummary | undefined): 
   return session?.status !== "running" && session?.status !== "waiting_approval" && session?.status !== "failed";
 }
 
-function mergeLoadedMessagesWithLiveUsage(
-  currentMessages: ReactChatMessage[],
-  loadedMessages: ReactChatMessage[],
-): ReactChatMessage[] {
-  if (!currentMessages.some((message) => message.usage)) {
-    return loadedMessages;
-  }
-  return loadedMessages.map((message) => {
-    if (message.usage) {
-      return message;
-    }
-    const liveMessage = currentMessages.find((current) => current.id === message.id)
-      ?? currentMessages.find((current) => (
-        current.role === "assistant"
-        && message.role === "assistant"
-        && Boolean(current.turnId)
-        && current.turnId === message.turnId
-      ));
-    return liveMessage?.usage ? { ...message, usage: liveMessage.usage } : message;
-  });
+function latestTimelineUsage(turns: ChatTurn[]): TokenUsage | undefined {
+  return [...turns].reverse().find((turn) => turn.usage)?.usage;
 }
 
 function isQueueableRunningSession(session: SessionSummary, emptyActiveSession: boolean): boolean {
@@ -1201,6 +1274,7 @@ function AgentUiFormCard({
       <div className="react-agent-ui-form-card__fields">
         {form.fields.map((field) => (
           <AgentUiFormFieldControl
+            error={form.errors?.[field.name]}
             field={field}
             key={field.name}
             value={values[field.name]}
@@ -1217,22 +1291,26 @@ function AgentUiFormCard({
 }
 
 function AgentUiFormFieldControl({
+  error,
   field,
   onChange,
   value,
 }: {
+  error?: string;
   field: AgentUiFormField;
   onChange: (value: unknown) => void;
   value: unknown;
 }) {
   const id = `agent-ui-form-${field.name}`;
+  const errorId = `${id}-error`;
   const stringValue = value === undefined || value === null ? "" : String(value);
   return (
-    <label className="react-agent-ui-form-field" htmlFor={id}>
-      <span>{field.label}</span>
-      {renderAgentUiFormInput(field, id, stringValue, value, onChange)}
+    <div className="react-agent-ui-form-field">
+      <label htmlFor={id}>{field.label}</label>
+      {renderAgentUiFormInput(field, id, stringValue, value, onChange, error ? errorId : undefined)}
       {field.help ? <small>{field.help}</small> : null}
-    </label>
+      {error ? <small className="react-agent-ui-form-field__error" id={errorId} role="alert">{error}</small> : null}
+    </div>
   );
 }
 
@@ -1242,10 +1320,13 @@ function renderAgentUiFormInput(
   stringValue: string,
   value: unknown,
   onChange: (value: unknown) => void,
+  errorId?: string,
 ): ReactNode {
   if (field.type === "textarea") {
     return (
       <textarea
+        aria-describedby={errorId}
+        aria-invalid={Boolean(errorId)}
         id={id}
         maxLength={field.max_length}
         minLength={field.min_length}
@@ -1258,7 +1339,7 @@ function renderAgentUiFormInput(
   }
   if (field.type === "select") {
     return (
-      <select id={id} required={field.required} value={stringValue} onChange={(event) => onChange(optionValueFromString(field, event.currentTarget.value))}>
+      <select aria-describedby={errorId} aria-invalid={Boolean(errorId)} id={id} required={field.required} value={stringValue} onChange={(event) => onChange(optionValueFromString(field, event.currentTarget.value))}>
         <option value="">Select...</option>
         {(field.options ?? []).map((option) => (
           <option key={String(option.value)} value={String(option.value)}>{option.label}</option>
@@ -1270,6 +1351,8 @@ function renderAgentUiFormInput(
     const selected = Array.isArray(value) ? value.map(String) : [];
     return (
       <select
+        aria-describedby={errorId}
+        aria-invalid={Boolean(errorId)}
         id={id}
         multiple
         required={field.required}
@@ -1284,7 +1367,7 @@ function renderAgentUiFormInput(
   }
   if (field.type === "radio") {
     return (
-      <span className="react-agent-ui-form-field__choices">
+      <span aria-describedby={errorId} aria-invalid={Boolean(errorId)} className="react-agent-ui-form-field__choices">
         {(field.options ?? []).map((option) => (
           <label key={String(option.value)}>
             <input
@@ -1304,6 +1387,8 @@ function renderAgentUiFormInput(
   if (field.type === "checkbox") {
     return (
       <input
+        aria-describedby={errorId}
+        aria-invalid={Boolean(errorId)}
         checked={value === true}
         id={id}
         type="checkbox"
@@ -1313,6 +1398,8 @@ function renderAgentUiFormInput(
   }
   return (
     <input
+      aria-describedby={errorId}
+      aria-invalid={Boolean(errorId)}
       id={id}
       max={field.max}
       maxLength={field.max_length}
@@ -1371,6 +1458,375 @@ function normalizeAgentUiFormValues(form: AgentUiForm, values: Record<string, un
 
 function optionValueFromString(field: AgentUiFormField, value: string): string | number | boolean {
   return field.options?.find((option) => String(option.value) === value)?.value ?? value;
+}
+
+function CanonicalChatTurn({
+  interactiveFormIds,
+  onBranch,
+  onOpenArtifact,
+  onOpenSubagent,
+  onOpenTool,
+  turn,
+}: {
+  interactiveFormIds: ReadonlySet<string>;
+  onBranch: (messageId: string) => void;
+  onOpenArtifact: (artifact: ArtifactRef) => void;
+  onOpenSubagent: (delegate: DelegatedAgentState) => void;
+  onOpenTool: (toolCall: ToolCallSummary) => void;
+  turn: ChatTurn;
+}) {
+  const reasoningSteps = turn.steps.filter((step) => step.kind === "reasoning");
+  const processSteps = turn.steps.filter((step) => (
+    step.kind !== "reasoning"
+    && !(step.kind === "form" && step.form && interactiveFormIds.has(step.form.formId))
+  ));
+  const hasToolSteps = processSteps.some((step) => step.kind === "tool_call");
+  return (
+    <section aria-label="Chat turn" className="react-canonical-turn" data-status={turn.status}>
+      <CanonicalMessage
+        messageId={turn.userMessage.id}
+        role="user"
+        text={turn.userMessage.text}
+      />
+      {groupCanonicalSteps(processSteps).map((group) => (
+        Array.isArray(group) ? (
+          <div className="react-canonical-tool-group" key={group.map((step) => step.id).join(":")}>
+            <AgentSteps
+              onOpenTool={onOpenTool}
+              toolCalls={group.map((step) => toolCallSummaryFromStep(step, step.toolCall!))}
+            />
+            <CanonicalArtifacts artifacts={group.flatMap((step) => step.artifacts ?? [])} onOpen={onOpenArtifact} />
+            <CanonicalScopedErrors errors={group.flatMap((step) => step.scopedErrors ?? [])} />
+          </div>
+        ) : (
+          <CanonicalChatStep key={group.id} onOpenArtifact={onOpenArtifact} onOpenSubagent={onOpenSubagent} onOpenTool={onOpenTool} step={group} />
+        )
+      ))}
+      {turn.finalMessage ? (
+        <CanonicalMessage
+          allowActions={turn.status === "completed"}
+          messageId={turn.finalMessage.id}
+          reasoning={reasoningSteps}
+          references={turn.finalMessage.references}
+          role="assistant"
+          streaming={turn.status === "running"}
+          text={turn.finalMessage.text}
+          onBranch={turn.status === "completed" && !hasToolSteps ? () => onBranch(turn.finalMessage!.id) : undefined}
+        />
+      ) : reasoningSteps.length ? (
+        <CanonicalMessage
+          allowActions={false}
+          messageId={reasoningSteps[reasoningSteps.length - 1]?.messageId || reasoningSteps[reasoningSteps.length - 1]?.id || turn.id}
+          reasoning={reasoningSteps}
+          role="assistant"
+          streaming={turn.status === "running"}
+          text=""
+        />
+      ) : null}
+    </section>
+  );
+}
+
+function groupCanonicalSteps(steps: ChatStep[]): Array<ChatStep | ChatStep[]> {
+  const groups: Array<ChatStep | ChatStep[]> = [];
+  for (const step of steps) {
+    if (step.kind !== "tool_call" || !step.toolCall) {
+      groups.push(step);
+      continue;
+    }
+    const previous = groups[groups.length - 1];
+    if (Array.isArray(previous)) {
+      previous.push(step);
+    } else {
+      groups.push([step]);
+    }
+  }
+  return groups;
+}
+
+function CanonicalMessage({
+  allowActions = true,
+  messageId,
+  onBranch,
+  reasoning = [],
+  references = [],
+  role,
+  streaming = false,
+  text,
+}: {
+  allowActions?: boolean;
+  messageId: string;
+  onBranch?: () => void;
+  reasoning?: ChatStep[];
+  references?: NativeChatReference[];
+  role: "user" | "assistant";
+  streaming?: boolean;
+  text: string;
+}) {
+  return (
+    <article className="react-message" data-actions-placement="bottom" data-role={role} data-testid={`message-${messageId}`}>
+      <div className="react-message__body">
+        {reasoning.map((step) => (
+          <MessageReasoning key={step.id} streaming={step.status === "running"} text={step.summary ?? ""} />
+        ))}
+        {role === "assistant" ? <AssistantMarkdown streaming={streaming} text={text} /> : <PlainMessageText text={text} />}
+        {references?.length ? <MessageContext references={references.map(canonicalReferenceSummary)} /> : null}
+        {streaming ? <span aria-label="Agent is responding" className="react-message__streaming" /> : null}
+      </div>
+      {allowActions && text.trim() ? (
+        <div className="react-message__actions" data-align={role === "user" ? "right" : "left"}>
+          <button aria-label="Copy message" type="button" onClick={() => void writeClipboardText(text)}>
+            <Copy aria-hidden="true" size={14} />
+          </button>
+          {onBranch ? (
+            <button aria-label="Branch from here" type="button" onClick={onBranch}>
+              <GitBranch aria-hidden="true" size={14} />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function CanonicalChatStep({
+  onOpenArtifact,
+  onOpenSubagent,
+  onOpenTool,
+  step,
+}: {
+  onOpenArtifact: (artifact: ArtifactRef) => void;
+  onOpenSubagent: (delegate: DelegatedAgentState) => void;
+  onOpenTool: (toolCall: ToolCallSummary) => void;
+  step: ChatStep;
+}) {
+  if (step.kind === "reasoning") {
+    return <MessageReasoning streaming={step.status === "running"} text={step.summary ?? ""} />;
+  }
+  if (step.kind === "message") {
+    return (
+      <CanonicalMessage
+        allowActions={step.status === "completed"}
+        messageId={step.messageId || step.id}
+        role="assistant"
+        streaming={step.status === "running"}
+        text={step.summary ?? ""}
+      />
+    );
+  }
+  if (step.kind === "tool_call" && step.toolCall) {
+    return <AgentSteps onOpenTool={onOpenTool} toolCalls={[toolCallSummaryFromStep(step, step.toolCall)]} />;
+  }
+  if (step.kind === "approval" && step.approval) {
+    const approval = step.approval;
+    return (
+      <AgentSteps
+        onOpenTool={onOpenTool}
+        toolCalls={[{
+          id: step.id,
+          name: step.title,
+          status: step.status,
+          summary: step.summary,
+          approvalId: approval.approvalId,
+          approvalStatus: step.status,
+        }]}
+      />
+    );
+  }
+  if (step.kind === "form" && step.form) {
+    const values = canonicalFormEntries(step.form.values);
+    const errors = Object.entries(step.form.errors ?? {});
+    const resolution = step.form.action === "submit"
+      ? "Submitted"
+      : step.form.action === "cancel"
+        ? "Cancelled"
+        : step.status === "completed"
+          ? "Resolved"
+          : "Waiting for input";
+    return (
+      <section aria-label={step.title} className="react-canonical-step" data-kind={step.kind} data-status={step.status}>
+        <span className="react-canonical-step__icon"><AgentStepIcon status={canonicalStepIconStatus(step)} /></span>
+        <div>
+          <strong>{step.title}</strong>
+          <small>{resolution}</small>
+          {values.length ? (
+            <dl className="react-canonical-form-summary">
+              {values.map(([key, value]) => (
+                <div key={key}><dt>{key}</dt><dd>{canonicalFormValue(value)}</dd></div>
+              ))}
+            </dl>
+          ) : null}
+          {errors.length ? (
+            <ul aria-label="Form errors" role="alert">
+              {errors.map(([key, error]) => <li key={key}>{key}: {error}</li>)}
+            </ul>
+          ) : null}
+          <CanonicalScopedErrors errors={step.scopedErrors ?? []} />
+        </div>
+      </section>
+    );
+  }
+  if (step.kind === "delegate" && step.delegate) {
+    return (
+      <div className="react-canonical-step-stack">
+        <button
+          aria-label={`Open details for ${step.title}`}
+          className="react-canonical-step react-canonical-step--button"
+          data-kind={step.kind}
+          data-status={step.status}
+          type="button"
+          onClick={() => onOpenSubagent(step.delegate!)}
+        >
+          <span className="react-canonical-step__icon"><AgentStepIcon status={canonicalStepIconStatus(step)} /></span>
+          <span>
+            <strong>{step.title}</strong>
+            {step.delegate.latestActivity ? <small>{step.delegate.latestActivity}</small> : null}
+          </span>
+        </button>
+        <CanonicalScopedErrors errors={step.scopedErrors ?? []} />
+      </div>
+    );
+  }
+  if (step.kind === "plan" && step.plan) {
+    return (
+      <section aria-label={step.title} className="react-canonical-step" data-kind={step.kind} data-status={step.status}>
+        <span className="react-canonical-step__icon"><AgentStepIcon status={canonicalStepIconStatus(step)} /></span>
+        <div className="react-canonical-plan">
+          <div className="react-canonical-plan__heading">
+            <strong>{step.title}</strong>
+            <span>{step.plan.completed}/{step.plan.total}</span>
+          </div>
+          {step.plan.explanation ? <p className="react-canonical-plan__explanation">{step.plan.explanation}</p> : null}
+          <progress
+            aria-label={step.title}
+            aria-valuemax={step.plan.total}
+            aria-valuemin={0}
+            aria-valuenow={step.plan.completed}
+            max={Math.max(step.plan.total, 1)}
+            value={step.plan.completed}
+          />
+          <ol className="react-canonical-plan__steps">
+            {step.plan.steps.map((planStep, index) => (
+              <li data-status={planStep.status} key={`${index}:${planStep.step}`}>
+                <span aria-hidden="true">{planStep.status === "completed" ? "✓" : planStep.status === "in_progress" ? "●" : "○"}</span>
+                <span>{planStep.step}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </section>
+    );
+  }
+  if (step.kind === "error") {
+    return (
+      <section aria-label={step.title} className="react-canonical-step" data-kind={step.kind} data-status={step.status} role="alert">
+        <AlertTriangle aria-hidden="true" size={16} />
+        <div><strong>{step.title}</strong>{step.summary ? <p>{step.summary}</p> : null}</div>
+      </section>
+    );
+  }
+  if (step.kind === "compaction") {
+    const compaction = step.compaction;
+    return (
+      <details className="react-canonical-step" data-kind={step.kind}>
+        <summary>{step.title}</summary>
+        {step.summary ? <p>{step.summary}</p> : null}
+        {compaction ? (
+          <ul aria-label="Compaction details">
+            {compaction.estimatedTokensBefore !== undefined ? <li>Before: {compaction.estimatedTokensBefore.toLocaleString("en-US")} tokens</li> : null}
+            {compaction.estimatedTokensAfter !== undefined ? <li>After: {compaction.estimatedTokensAfter.toLocaleString("en-US")} tokens</li> : null}
+            <li>Dropped items: {compaction.droppedItemCount.toLocaleString("en-US")}</li>
+          </ul>
+        ) : null}
+      </details>
+    );
+  }
+  return (
+    <section aria-label={step.title} className="react-canonical-step" data-kind={step.kind} data-status={step.status}>
+      <span className="react-canonical-step__icon"><AgentStepIcon status={canonicalStepIconStatus(step)} /></span>
+      <div>
+        <strong>{step.title}</strong>
+        {step.summary ? <p>{step.summary}</p> : null}
+        {step.delegate?.latestActivity ? <small>{step.delegate.latestActivity}</small> : null}
+        <CanonicalArtifacts artifacts={step.artifacts ?? []} onOpen={onOpenArtifact} />
+        <CanonicalScopedErrors errors={step.scopedErrors ?? []} />
+      </div>
+    </section>
+  );
+}
+
+function CanonicalArtifacts({ artifacts, onOpen }: { artifacts: ArtifactRef[]; onOpen: (artifact: ArtifactRef) => void }) {
+  if (!artifacts.length) {
+    return null;
+  }
+  return (
+    <ul aria-label="Artifacts" className="react-canonical-artifacts">
+      {artifacts.map((artifact) => (
+        <li key={artifact.id}>
+          <button aria-label={`Preview ${artifact.title}`} type="button" onClick={() => onOpen(artifact)}>{artifact.title}</button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function CanonicalScopedErrors({ errors }: { errors: NonNullable<ChatStep["scopedErrors"]> }) {
+  if (!errors.length) {
+    return null;
+  }
+  return (
+    <ul className="react-canonical-scoped-errors" role="alert">
+      {errors.map((error, index) => <li key={`${error.code}:${index}`}><strong>{error.code}</strong>: {error.message}</li>)}
+    </ul>
+  );
+}
+
+function canonicalFormEntries(values: unknown): Array<[string, unknown]> {
+  return values !== null && typeof values === "object" && !Array.isArray(values)
+    ? Object.entries(values)
+    : [];
+}
+
+function canonicalFormValue(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value === undefined) {
+    return "";
+  }
+  return JSON.stringify(value);
+}
+
+function canonicalReferenceSummary(reference: NativeChatReference, index: number): ContextReferenceSummary {
+  return {
+    id: reference.noteId || reference.evidenceId || `${reference.kind}:${index}`,
+    kind: reference.kind,
+    title: reference.title,
+    detail: reference.detail,
+    sourcePath: reference.sourcePath,
+    sourceLine: reference.sourceLine,
+  };
+}
+
+function toolCallSummaryFromStep(step: ChatStep, toolCall: ToolCallState): ToolCallSummary {
+  return {
+    id: toolCall.id,
+    name: toolCall.name,
+    status: step.status,
+    summary: toolCall.resultPreview || step.summary,
+    ...(toolCall.approvalId ? { approvalId: toolCall.approvalId } : {}),
+    ...(toolCall.approvalStatus ? { approvalStatus: toolCall.approvalStatus } : {}),
+    ...(toolCall.argsPreview ? { argsText: toolCall.argsPreview } : {}),
+    ...(toolCall.resultPreview ? { responseText: toolCall.resultPreview } : {}),
+  };
+}
+
+function canonicalStepIconStatus(step: ChatStep): AgentStepStatus {
+  if (step.status === "completed") return "success";
+  if (step.status === "running") return "active";
+  if (step.status === "blocked") return "waiting";
+  if (step.status === "failed" || step.status === "cancelled") return "error";
+  return "pending";
 }
 
 function MessageBubble({
@@ -1672,6 +2128,68 @@ function ToolCallDetails({
           <pre>{section.value}</pre>
         </section>
       ))}
+    </div>
+  );
+}
+
+function SubagentDetails({
+  delegate,
+  error,
+  loading,
+}: {
+  delegate: DelegatedAgentState;
+  error?: string;
+  loading: boolean;
+}) {
+  return (
+    <div className="react-subagent-detail">
+      <dl>
+        <div><dt>ID</dt><dd>{delegate.id}</dd></div>
+        <div><dt>Status</dt><dd>{delegate.status}</dd></div>
+        {delegate.traceRef ? <div><dt>Trace</dt><dd>{delegate.traceRef}</dd></div> : null}
+        {delegate.childRunId ? <div><dt>Child run</dt><dd>{delegate.childRunId}</dd></div> : null}
+      </dl>
+      {delegate.task ? <p>{delegate.task}</p> : null}
+      {delegate.latestActivity ? <p>{delegate.latestActivity}</p> : null}
+      {loading ? <p aria-live="polite">Loading trace...</p> : null}
+      {error ? <p role="alert">{error}</p> : null}
+      {delegate.trace?.steps.length ? (
+        <ol aria-label="Subagent trace">
+          {delegate.trace.steps.map((step) => (
+            <li data-status={step.status} key={step.id}>
+              <strong>{step.title}</strong>
+              {step.summary ? <p>{step.summary}</p> : null}
+            </li>
+          ))}
+        </ol>
+      ) : null}
+      {delegate.finalOutput ? <section><h3>Final output</h3><p>{delegate.finalOutput}</p></section> : null}
+    </div>
+  );
+}
+
+function ArtifactDetails({
+  artifact,
+  detail,
+  error,
+  loading,
+}: {
+  artifact: ArtifactRef;
+  detail?: LoadedArtifactDetail;
+  error?: string;
+  loading: boolean;
+}) {
+  return (
+    <div className="react-artifact-detail">
+      <dl>
+        <div><dt>ID</dt><dd>{artifact.id}</dd></div>
+        {detail?.mimeType || artifact.mimeType ? <div><dt>Type</dt><dd>{detail?.mimeType || artifact.mimeType}</dd></div> : null}
+      </dl>
+      {loading ? <p aria-live="polite">Loading artifact...</p> : null}
+      {error ? <p role="alert">{error}</p> : null}
+      {detail?.imageDataUrl ? <img alt={detail.title} src={detail.imageDataUrl} /> : null}
+      {detail?.textContent ? <pre>{detail.textContent}</pre> : null}
+      {!loading && !error && !detail?.imageDataUrl && !detail?.textContent ? <p>No preview content is available.</p> : null}
     </div>
   );
 }

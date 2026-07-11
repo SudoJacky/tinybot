@@ -3,6 +3,9 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 pub const AGENT_RUNTIME_EVENT_SCHEMA_VERSION: &str = "tinybot.agent_event.v1";
+pub const AGENT_TURN_ITEM_SCHEMA_VERSION: &str = "tinybot.turn_item.v1";
+pub const AGENT_TIMELINE_SCHEMA_VERSION: &str = "tinybot.timeline.v1";
+pub const AGENT_TIMELINE_PATCH_SCHEMA_VERSION: &str = "tinybot.timeline_patch.v1";
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -83,9 +86,18 @@ pub enum AgentTurnItemKind {
     AssistantMessage,
     Reasoning,
     ToolCall,
-    ApprovalRequest,
-    FormRequest,
-    SubagentActivity,
+    #[serde(alias = "approval_request")]
+    Approval,
+    #[serde(alias = "form_request")]
+    Form,
+    #[serde(alias = "subagent_activity")]
+    SubagentLifecycle,
+    SubagentMessage,
+    PlanProgress,
+    ContextCompaction,
+    Usage,
+    FileReference,
+    Error,
     SystemNotice,
 }
 
@@ -99,10 +111,11 @@ impl AgentTurnItemKind {
             "agent.tool_call.delta" | "agent.tool.start" | "agent.tool.result" => {
                 Some(Self::ToolCall)
             }
-            "agent.awaiting_approval" | "agent.approval.decision" => Some(Self::ApprovalRequest),
-            "agent.awaiting_form" | "agent.form.resolution" => Some(Self::FormRequest),
-            "agent.error" | "agent.cancelled" | "agent.checkpoint" => Some(Self::SystemNotice),
-            _ if event_name.starts_with("agent.delegate.") => Some(Self::SubagentActivity),
+            "agent.awaiting_approval" | "agent.approval.decision" => Some(Self::Approval),
+            "agent.awaiting_form" | "agent.form.resolution" => Some(Self::Form),
+            "agent.error" | "agent.cancelled" => Some(Self::Error),
+            "agent.checkpoint" => Some(Self::SystemNotice),
+            _ if event_name.starts_with("agent.delegate.") => Some(Self::SubagentLifecycle),
             _ => None,
         }
     }
@@ -214,11 +227,123 @@ pub struct AgentRuntimeEventEnvelope {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(
+    tag = "type",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
+pub enum AgentTurnItemData {
+    UserMessage {
+        message_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        client_event_id: Option<String>,
+        content: String,
+    },
+    AssistantMessage {
+        message_id: Option<String>,
+        content: String,
+    },
+    Reasoning {
+        summary: String,
+    },
+    ToolCall {
+        tool_call_id: String,
+        name: String,
+        status: String,
+        args: Value,
+        result: Value,
+        detail_id: Option<String>,
+        timing: Value,
+    },
+    Approval {
+        approval_id: String,
+        tool_call_id: Option<String>,
+        status: String,
+        reason: Option<String>,
+        decision: Option<String>,
+        scope: Option<String>,
+        guidance: Option<String>,
+        detail_id: Option<String>,
+    },
+    Form {
+        form_id: String,
+        status: String,
+        title: Option<String>,
+        action: Option<String>,
+        field_ids: Vec<String>,
+        values: Value,
+        errors: Value,
+        detail_id: Option<String>,
+    },
+    SubagentLifecycle {
+        agent_id: String,
+        action: String,
+        status: String,
+        message: Option<String>,
+        child_run_id: Option<String>,
+        trace_ref: Option<String>,
+    },
+    SubagentMessage {
+        agent_id: String,
+        message_id: String,
+        content: String,
+        visibility: String,
+    },
+    PlanProgress {
+        id: String,
+        explanation: Option<String>,
+        steps: Vec<crate::worker_agent_runtime::AgentPlanStep>,
+        summary: String,
+        completed: u32,
+        total: u32,
+        current_step: Option<String>,
+    },
+    ContextCompaction {
+        id: String,
+        summary: String,
+        dropped_item_count: usize,
+        estimated_tokens_before: Option<u64>,
+        estimated_tokens_after: Option<u64>,
+    },
+    Usage {
+        id: Option<String>,
+        input_tokens: Option<i64>,
+        output_tokens: Option<i64>,
+        total_tokens: Option<i64>,
+        provider_payload: Value,
+    },
+    FileReference {
+        id: String,
+        path: String,
+        mime_type: Option<String>,
+        reference_kind: String,
+    },
+    Error {
+        id: Option<String>,
+        code: String,
+        message: String,
+        cancelled: bool,
+    },
+    SystemNotice {
+        message: String,
+        detail: Value,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentTurnItem {
+    pub schema_version: String,
     pub item_id: String,
     pub session_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
+    pub run_id: String,
     pub turn_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_item_id: Option<String>,
+    pub sequence: u64,
+    pub revision: u64,
     pub kind: AgentTurnItemKind,
     pub status: AgentTurnItemStatus,
     pub created_at: String,
@@ -228,7 +353,29 @@ pub struct AgentTurnItem {
     pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    pub data: AgentTurnItemData,
+    #[serde(skip)]
     pub payload: Value,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentTimelineSnapshot {
+    pub schema_version: String,
+    pub session_id: String,
+    pub run_id: String,
+    pub snapshot_revision: u64,
+    pub items: Vec<AgentTurnItem>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentTimelinePatch {
+    pub schema_version: String,
+    pub session_id: String,
+    pub run_id: String,
+    pub snapshot_revision: u64,
+    pub item: AgentTurnItem,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -532,9 +679,29 @@ impl AgentRunEmitter {
         &mut self,
         timestamp: impl Into<String>,
         message_id: Option<String>,
+        client_event_id: Option<String>,
         content: impl Into<String>,
     ) -> AgentRuntimeEventEnvelope {
         let content = content.into();
+        let mut payload = serde_json::json!({
+            "clientEventId": client_event_id,
+            "userMessageId": message_id,
+            "userMessage": {
+                "id": message_id,
+                "clientEventId": client_event_id,
+                "content": content
+            }
+        });
+        if client_event_id.is_none() {
+            payload
+                .as_object_mut()
+                .expect("turn-started payload must be an object")
+                .remove("clientEventId");
+            payload["userMessage"]
+                .as_object_mut()
+                .expect("turn-started user message must be an object")
+                .remove("clientEventId");
+        }
         self.emit(AgentRuntimeEventAppendInput {
             parent_turn_id: None,
             item_id: None,
@@ -543,13 +710,7 @@ impl AgentRunEmitter {
             timestamp: timestamp.into(),
             source: AgentRuntimeEventSource::User,
             visibility: AgentRuntimeEventVisibility::User,
-            payload: serde_json::json!({
-                "userMessageId": message_id,
-                "userMessage": {
-                    "id": message_id,
-                    "content": content
-                }
-            }),
+            payload,
         })
     }
 
@@ -895,31 +1056,63 @@ pub fn project_turn_items_from_trace_events(
         let payload = projected_item_payload(items.get(&item_id).map(|item| &item.payload), event);
         let title = projected_item_title(&kind, items.get(&item_id), &payload);
         let summary = projected_item_summary(&kind, items.get(&item_id), &payload);
+        let data = projected_item_data(&kind, &payload, event);
 
         if let Some(item) = items.get_mut(&item_id) {
+            if item.kind != kind {
+                panic!(
+                    "canonical timeline item `{item_id}` changed kind from {:?} to {:?}",
+                    item.kind, kind
+                );
+            }
+            if matches!(
+                item.status,
+                AgentTurnItemStatus::Completed
+                    | AgentTurnItemStatus::Failed
+                    | AgentTurnItemStatus::Cancelled
+            ) && item.status != status
+            {
+                panic!(
+                    "canonical timeline item `{item_id}` cannot transition from {:?} to {:?}",
+                    item.status, status
+                );
+            }
             item.status = status;
             item.updated_at = Some(event.timestamp.clone());
+            item.revision += 1;
             if title.is_some() {
                 item.title = title;
             }
             if summary.is_some() {
                 item.summary = summary;
             }
+            item.data = data;
             item.payload = payload;
         } else {
             order.push(item_id.clone());
             items.insert(
                 item_id.clone(),
                 AgentTurnItem {
+                    schema_version: AGENT_TURN_ITEM_SCHEMA_VERSION.to_string(),
                     item_id,
                     session_id: event.session_id.clone(),
+                    thread_id: event.thread_id.clone(),
+                    run_id: event
+                        .trace_context
+                        .as_ref()
+                        .map(|trace| trace.run_id.clone())
+                        .unwrap_or_else(|| event.turn_id.clone()),
                     turn_id: event.turn_id.clone(),
+                    parent_item_id: parent_item_id(&event.payload),
+                    sequence: event.sequence,
+                    revision: 1,
                     kind,
                     status,
                     created_at: event.timestamp.clone(),
                     updated_at: None,
                     title,
                     summary,
+                    data,
                     payload,
                 },
             );
@@ -930,6 +1123,88 @@ pub fn project_turn_items_from_trace_events(
         .into_iter()
         .filter_map(|item_id| items.remove(&item_id))
         .collect()
+}
+
+pub fn project_timeline_snapshot(
+    session_id: &str,
+    run_id: &str,
+    events: &[AgentRuntimeEventEnvelope],
+) -> Result<AgentTimelineSnapshot, String> {
+    validate_timeline_event_identity(session_id, run_id, events)?;
+    let mut items = project_turn_items_from_trace_events(events);
+    items.sort_by(|left, right| {
+        left.sequence
+            .cmp(&right.sequence)
+            .then_with(|| left.item_id.cmp(&right.item_id))
+    });
+    Ok(AgentTimelineSnapshot {
+        schema_version: AGENT_TIMELINE_SCHEMA_VERSION.to_string(),
+        session_id: session_id.to_string(),
+        run_id: run_id.to_string(),
+        snapshot_revision: events
+            .iter()
+            .filter(|event| projected_item_kind(event).is_some())
+            .count() as u64,
+        items,
+    })
+}
+
+pub fn project_timeline_patch(
+    session_id: &str,
+    run_id: &str,
+    events: &[AgentRuntimeEventEnvelope],
+) -> Result<Option<AgentTimelinePatch>, String> {
+    let snapshot = project_timeline_snapshot(session_id, run_id, events)?;
+    let Some(event) = events.last() else {
+        return Ok(None);
+    };
+    let Some(kind) = projected_item_kind(event) else {
+        return Ok(None);
+    };
+    let item_id = event
+        .item_id
+        .clone()
+        .unwrap_or_else(|| projected_item_id(event, &kind));
+    let item = snapshot
+        .items
+        .iter()
+        .find(|item| item.item_id == item_id)
+        .cloned()
+        .ok_or_else(|| format!("projected timeline item `{item_id}` is missing from snapshot"))?;
+    Ok(Some(AgentTimelinePatch {
+        schema_version: AGENT_TIMELINE_PATCH_SCHEMA_VERSION.to_string(),
+        session_id: session_id.to_string(),
+        run_id: run_id.to_string(),
+        snapshot_revision: snapshot.snapshot_revision,
+        item,
+    }))
+}
+
+fn validate_timeline_event_identity(
+    session_id: &str,
+    run_id: &str,
+    events: &[AgentRuntimeEventEnvelope],
+) -> Result<(), String> {
+    for event in events {
+        if event.session_id != session_id {
+            return Err(format!(
+                "timeline event `{}` belongs to session `{}`, expected `{session_id}`",
+                event.event_id, event.session_id
+            ));
+        }
+        let event_run_id = event
+            .trace_context
+            .as_ref()
+            .map(|trace| trace.run_id.as_str())
+            .unwrap_or(event.turn_id.as_str());
+        if event_run_id != run_id {
+            return Err(format!(
+                "timeline event `{}` belongs to run `{event_run_id}`, expected `{run_id}`",
+                event.event_id
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn projected_item_id(event: &AgentRuntimeEventEnvelope, kind: &AgentTurnItemKind) -> String {
@@ -955,15 +1230,352 @@ fn projected_item_id(event: &AgentRuntimeEventEnvelope, kind: &AgentTurnItemKind
 }
 
 fn projected_item_kind(event: &AgentRuntimeEventEnvelope) -> Option<AgentTurnItemKind> {
+    if let Some(item_type) = event
+        .payload
+        .get("agentItem")
+        .and_then(|item| item.get("type"))
+        .and_then(Value::as_str)
+    {
+        return match item_type {
+            "user_message" => Some(AgentTurnItemKind::UserMessage),
+            "assistant_message" => Some(AgentTurnItemKind::AssistantMessage),
+            "reasoning" => Some(AgentTurnItemKind::Reasoning),
+            "tool_result" => Some(AgentTurnItemKind::ToolCall),
+            "approval" => Some(AgentTurnItemKind::Approval),
+            "user_input" => Some(AgentTurnItemKind::Form),
+            "plan_progress" => Some(AgentTurnItemKind::PlanProgress),
+            "subagent" => Some(AgentTurnItemKind::SubagentLifecycle),
+            "subagent_message" => Some(AgentTurnItemKind::SubagentMessage),
+            "context_compaction" => Some(AgentTurnItemKind::ContextCompaction),
+            "error" => Some(AgentTurnItemKind::Error),
+            "usage" => Some(AgentTurnItemKind::Usage),
+            "file_reference" => Some(AgentTurnItemKind::FileReference),
+            "instruction" => Some(AgentTurnItemKind::SystemNotice),
+            _ => panic!("unsupported typed agent item `{item_type}`"),
+        };
+    }
     match event.event_name.as_str() {
         "agent.turn.started" => Some(AgentTurnItemKind::UserMessage),
+        "agent.plan.progress" | "agent.task_progress" => Some(AgentTurnItemKind::PlanProgress),
+        "agent.context.compacted" | "agent.context.trimmed" => {
+            Some(AgentTurnItemKind::ContextCompaction)
+        }
+        "agent.usage" => Some(AgentTurnItemKind::Usage),
+        "agent.file.reference" => Some(AgentTurnItemKind::FileReference),
         "agent.done" if !done_event_has_final_content(&event.payload) => None,
         _ => AgentTurnItemKind::for_legacy_event(&event.event_name),
     }
 }
 
+fn parent_item_id(payload: &Value) -> Option<String> {
+    string_field_any(payload, &["parentItemId", "parent_item_id"])
+}
+
+fn projected_item_data(
+    kind: &AgentTurnItemKind,
+    payload: &Value,
+    event: &AgentRuntimeEventEnvelope,
+) -> AgentTurnItemData {
+    let typed_item = event.payload.get("agentItem");
+    match kind {
+        AgentTurnItemKind::PlanProgress => {
+            let source = typed_item.unwrap_or(payload);
+            let mut plan = serde_json::from_value::<
+                crate::worker_agent_runtime::AgentPlanProgressItem,
+            >(source.clone())
+            .unwrap_or_else(|error| panic!("invalid typed plan progress item: {error}"));
+            let derived =
+                crate::worker_agent_runtime::validate_and_normalize_plan_steps(&mut plan.steps)
+                    .unwrap_or_else(|error| panic!("invalid typed plan progress item: {error}"));
+            if plan.completed != derived.completed
+                || plan.total != derived.total
+                || plan.current_step != derived.current_step
+            {
+                panic!("typed plan progress derived fields do not match its steps");
+            }
+            AgentTurnItemData::PlanProgress {
+                id: plan.id,
+                explanation: plan.explanation,
+                steps: plan.steps,
+                summary: plan.summary,
+                completed: derived.completed,
+                total: derived.total,
+                current_step: derived.current_step,
+            }
+        }
+        AgentTurnItemKind::ContextCompaction
+        | AgentTurnItemKind::Usage
+        | AgentTurnItemKind::FileReference
+        | AgentTurnItemKind::Error => {
+            if let Some(typed_item) = typed_item {
+                return serde_json::from_value(typed_item.clone()).unwrap_or_else(|error| {
+                    panic!("invalid typed agent item for `{kind:?}`: {error}")
+                });
+            }
+            legacy_item_data(kind, payload, event)
+        }
+        AgentTurnItemKind::Approval => {
+            let source = typed_item.unwrap_or(payload);
+            AgentTurnItemData::Approval {
+                approval_id: required_item_string(
+                    source,
+                    &["id", "approvalId", "approval_id"],
+                    kind,
+                ),
+                tool_call_id: item_string(source, &["toolCallId", "tool_call_id"]),
+                status: item_string(source, &["status"]).unwrap_or_else(|| "waiting".to_string()),
+                reason: item_string(source, &["reason"])
+                    .or_else(|| item_string(payload, &["summary", "content"])),
+                decision: item_string(source, &["decision"]),
+                scope: item_string(source, &["scope"]),
+                guidance: item_string(payload, &["guidance"]),
+                detail_id: item_string(payload, &["detailId", "detail_id"]),
+            }
+        }
+        AgentTurnItemKind::Form => {
+            let source = typed_item.unwrap_or(payload);
+            AgentTurnItemData::Form {
+                form_id: required_item_string(source, &["id", "formId", "form_id"], kind),
+                status: item_string(source, &["status"]).unwrap_or_else(|| "waiting".to_string()),
+                title: item_string(payload, &["title"]),
+                action: item_string(source, &["action"]),
+                field_ids: source
+                    .get("fieldIds")
+                    .or_else(|| source.get("field_ids"))
+                    .and_then(Value::as_array)
+                    .map(|values| {
+                        values
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(ToString::to_string)
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                values: source
+                    .get("values")
+                    .or_else(|| payload.get("values"))
+                    .cloned()
+                    .unwrap_or(Value::Null),
+                errors: source
+                    .get("errors")
+                    .or_else(|| payload.get("errors"))
+                    .cloned()
+                    .unwrap_or(Value::Null),
+                detail_id: item_string(payload, &["detailId", "detail_id"]),
+            }
+        }
+        AgentTurnItemKind::SubagentLifecycle => {
+            let source = typed_item.unwrap_or(payload);
+            AgentTurnItemData::SubagentLifecycle {
+                agent_id: item_string(source, &["agentId", "agent_id", "delegateId", "subagentId"])
+                    .unwrap_or_else(|| "multiple".to_string()),
+                action: item_string(source, &["action"]).unwrap_or_else(|| {
+                    event
+                        .event_name
+                        .strip_prefix("agent.delegate.")
+                        .unwrap_or("updated")
+                        .to_string()
+                }),
+                status: item_string(source, &["status"]).unwrap_or_else(|| "running".to_string()),
+                message: item_string(source, &["message"]),
+                child_run_id: item_string(payload, &["childRunId", "child_run_id"]),
+                trace_ref: item_string(payload, &["traceRef", "trace_ref"]),
+            }
+        }
+        AgentTurnItemKind::SubagentMessage => {
+            let source = typed_item.unwrap_or(payload);
+            AgentTurnItemData::SubagentMessage {
+                agent_id: required_item_string(source, &["agentId", "agent_id"], kind),
+                message_id: required_item_string(source, &["id", "messageId", "message_id"], kind),
+                content: required_item_string(source, &["content", "message"], kind),
+                visibility: item_string(source, &["visibility"])
+                    .unwrap_or_else(|| "user".to_string()),
+            }
+        }
+        _ => legacy_item_data(kind, payload, event),
+    }
+}
+
+fn legacy_item_data(
+    kind: &AgentTurnItemKind,
+    payload: &Value,
+    event: &AgentRuntimeEventEnvelope,
+) -> AgentTurnItemData {
+    match kind {
+        AgentTurnItemKind::UserMessage => AgentTurnItemData::UserMessage {
+            message_id: item_string(payload, &["messageId", "message_id"]),
+            client_event_id: item_string(payload, &["clientEventId", "client_event_id"]),
+            content: item_string(payload, &["content", "text"]).unwrap_or_default(),
+        },
+        AgentTurnItemKind::AssistantMessage => AgentTurnItemData::AssistantMessage {
+            message_id: item_string(payload, &["messageId", "message_id", "id"]),
+            content: item_string(payload, &["content", "text"]).unwrap_or_default(),
+        },
+        AgentTurnItemKind::Reasoning => AgentTurnItemData::Reasoning {
+            summary: item_string(payload, &["content", "summary", "text"]).unwrap_or_default(),
+        },
+        AgentTurnItemKind::ToolCall => AgentTurnItemData::ToolCall {
+            tool_call_id: required_item_string(
+                payload,
+                &["toolCallId", "tool_call_id", "id"],
+                kind,
+            ),
+            name: item_string(payload, &["toolName", "tool_name", "name"]).unwrap_or_default(),
+            status: item_string(payload, &["status"]).unwrap_or_else(|| "running".to_string()),
+            args: payload
+                .get("arguments")
+                .or_else(|| payload.get("args"))
+                .cloned()
+                .unwrap_or(Value::Null),
+            result: payload
+                .get("envelope")
+                .or_else(|| payload.get("result"))
+                .cloned()
+                .unwrap_or(Value::Null),
+            detail_id: item_string(payload, &["detailId", "detail_id"]),
+            timing: payload.get("timing").cloned().unwrap_or(Value::Null),
+        },
+        AgentTurnItemKind::Approval => AgentTurnItemData::Approval {
+            approval_id: required_item_string(payload, &["approvalId", "approval_id", "id"], kind),
+            tool_call_id: item_string(payload, &["toolCallId", "tool_call_id"]),
+            status: item_string(payload, &["status"]).unwrap_or_else(|| "waiting".to_string()),
+            reason: item_string(payload, &["reason", "summary", "content"]),
+            decision: item_string(payload, &["decision"]),
+            scope: item_string(payload, &["scope"]),
+            guidance: item_string(payload, &["guidance"]),
+            detail_id: item_string(payload, &["detailId", "detail_id"]),
+        },
+        AgentTurnItemKind::SystemNotice => AgentTurnItemData::SystemNotice {
+            message: item_string(payload, &["message", "content", "summary"])
+                .unwrap_or_else(|| event.event_name.clone()),
+            detail: payload.clone(),
+        },
+        AgentTurnItemKind::PlanProgress => AgentTurnItemData::PlanProgress {
+            id: item_string(payload, &["planId", "plan_id", "id"])
+                .or_else(|| event.item_id.clone())
+                .unwrap_or_else(|| format!("{}:plan", event.turn_id)),
+            explanation: item_string(payload, &["explanation"]),
+            steps: payload
+                .get("steps")
+                .or_else(|| payload.get("plan"))
+                .cloned()
+                .map(|steps| {
+                    serde_json::from_value(steps).unwrap_or_else(|error| {
+                        panic!("canonical plan progress steps are invalid: {error}")
+                    })
+                })
+                .unwrap_or_default(),
+            summary: item_string(payload, &["summary", "content"]).unwrap_or_default(),
+            completed: item_u32(payload, &["completed"]),
+            total: item_u32(payload, &["total"]),
+            current_step: item_string(payload, &["currentStep", "current_step"]),
+        },
+        AgentTurnItemKind::ContextCompaction => AgentTurnItemData::ContextCompaction {
+            id: event
+                .item_id
+                .clone()
+                .or_else(|| item_string(payload, &["id"]))
+                .unwrap_or_else(|| format!("{}:context:{}", event.turn_id, event.sequence)),
+            summary: item_string(payload, &["summary", "strategy"]).unwrap_or_default(),
+            dropped_item_count: payload
+                .get("droppedItemCount")
+                .or_else(|| payload.get("droppedMessageCount"))
+                .or_else(|| payload.get("dropped_item_count"))
+                .and_then(Value::as_u64)
+                .unwrap_or(0) as usize,
+            estimated_tokens_before: payload
+                .get("estimatedTokensBefore")
+                .or_else(|| payload.get("estimated_tokens_before"))
+                .and_then(Value::as_u64),
+            estimated_tokens_after: payload
+                .get("estimatedTokensAfter")
+                .or_else(|| payload.get("estimated_tokens_after"))
+                .and_then(Value::as_u64),
+        },
+        AgentTurnItemKind::Usage => {
+            let usage = payload.get("usage").unwrap_or(payload);
+            AgentTurnItemData::Usage {
+                id: event
+                    .item_id
+                    .clone()
+                    .or_else(|| item_string(payload, &["id"])),
+                input_tokens: item_i64(usage, &["inputTokens", "input_tokens"]),
+                output_tokens: item_i64(usage, &["outputTokens", "output_tokens"]),
+                total_tokens: item_i64(usage, &["totalTokens", "total_tokens"]),
+                provider_payload: usage.clone(),
+            }
+        }
+        AgentTurnItemKind::FileReference => AgentTurnItemData::FileReference {
+            id: event
+                .item_id
+                .clone()
+                .or_else(|| item_string(payload, &["referenceId", "reference_id", "id"]))
+                .unwrap_or_else(|| format!("{}:file:{}", event.turn_id, event.sequence)),
+            path: required_item_string(payload, &["path", "url"], kind),
+            mime_type: item_string(payload, &["mimeType", "mime_type"]),
+            reference_kind: item_string(payload, &["referenceKind", "reference_kind"])
+                .unwrap_or_else(|| "file".to_string()),
+        },
+        AgentTurnItemKind::Error => AgentTurnItemData::Error {
+            id: event
+                .item_id
+                .clone()
+                .or_else(|| item_string(payload, &["id"])),
+            code: item_string(payload, &["stopReason", "code"])
+                .unwrap_or_else(|| event.event_name.trim_start_matches("agent.").to_string()),
+            message: item_string(payload, &["message", "error"])
+                .unwrap_or_else(|| event.event_name.clone()),
+            cancelled: event.event_name == "agent.cancelled"
+                || payload
+                    .get("cancelled")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+        },
+        AgentTurnItemKind::Form
+        | AgentTurnItemKind::SubagentLifecycle
+        | AgentTurnItemKind::SubagentMessage => {
+            panic!("canonical item `{kind:?}` requires typed agent item data")
+        }
+    }
+}
+
+fn item_string(payload: &Value, keys: &[&str]) -> Option<String> {
+    string_field_any(payload, keys)
+}
+
+fn item_u32(payload: &Value, keys: &[&str]) -> u32 {
+    keys.iter()
+        .find_map(|key| payload.get(*key).and_then(Value::as_u64))
+        .unwrap_or(0)
+        .min(u32::MAX as u64) as u32
+}
+
+fn item_i64(payload: &Value, keys: &[&str]) -> Option<i64> {
+    keys.iter()
+        .find_map(|key| payload.get(*key).and_then(Value::as_i64))
+}
+
+fn required_item_string(payload: &Value, keys: &[&str], kind: &AgentTurnItemKind) -> String {
+    item_string(payload, keys).unwrap_or_else(|| {
+        panic!(
+            "canonical item `{kind:?}` requires one of: {}",
+            keys.join(", ")
+        )
+    })
+}
+
 fn projected_item_status(event: &AgentRuntimeEventEnvelope) -> AgentTurnItemStatus {
     match event.event_name.as_str() {
+        "agent.plan.progress"
+            if event
+                .payload
+                .get("completed")
+                .and_then(Value::as_u64)
+                .zip(event.payload.get("total").and_then(Value::as_u64))
+                .is_some_and(|(completed, total)| total > 0 && completed == total) =>
+        {
+            AgentTurnItemStatus::Completed
+        }
         "agent.message.completed"
         | "agent.done"
         | "agent.tool.result"
@@ -1047,6 +1659,23 @@ fn projected_user_payload(event: &AgentRuntimeEventEnvelope) -> Value {
         {
             payload.insert("content".to_string(), Value::String(content.to_string()));
         }
+        if let Some(client_event_id) = message
+            .get("clientEventId")
+            .or_else(|| message.get("client_event_id"))
+            .and_then(Value::as_str)
+            .or_else(|| {
+                event
+                    .payload
+                    .get("clientEventId")
+                    .or_else(|| event.payload.get("client_event_id"))
+                    .and_then(Value::as_str)
+            })
+        {
+            payload.insert(
+                "clientEventId".to_string(),
+                Value::String(client_event_id.to_string()),
+            );
+        }
         if !payload.contains_key("messageId") {
             if let Some(id) = event
                 .payload
@@ -1063,6 +1692,17 @@ fn projected_user_payload(event: &AgentRuntimeEventEnvelope) -> Value {
     }
 
     let mut payload = serde_json::Map::new();
+    if let Some(client_event_id) = event
+        .payload
+        .get("clientEventId")
+        .or_else(|| event.payload.get("client_event_id"))
+        .and_then(Value::as_str)
+    {
+        payload.insert(
+            "clientEventId".to_string(),
+            Value::String(client_event_id.to_string()),
+        );
+    }
     if let Some(id) = event
         .payload
         .get("userMessageId")
@@ -1179,11 +1819,11 @@ fn projected_item_title(
         return string_field_any(payload, &["toolName", "name", "tool_name"])
             .or_else(|| existing_item.and_then(|item| item.title.clone()));
     }
-    if *kind == AgentTurnItemKind::ApprovalRequest {
+    if *kind == AgentTurnItemKind::Approval {
         return string_field_any(payload, &["summary", "content", "reason"])
             .or_else(|| existing_item.and_then(|item| item.title.clone()));
     }
-    if *kind == AgentTurnItemKind::FormRequest {
+    if *kind == AgentTurnItemKind::Form {
         return string_field_any(payload, &["title", "summary", "content"])
             .or_else(|| existing_item.and_then(|item| item.title.clone()));
     }
@@ -1199,11 +1839,11 @@ fn projected_item_summary(
         return string_field_any(payload, &["summary", "content"])
             .or_else(|| existing_item.and_then(|item| item.summary.clone()));
     }
-    if *kind == AgentTurnItemKind::ApprovalRequest {
+    if *kind == AgentTurnItemKind::Approval {
         return string_field_any(payload, &["summary", "content", "reason"])
             .or_else(|| existing_item.and_then(|item| item.summary.clone()));
     }
-    if *kind == AgentTurnItemKind::FormRequest {
+    if *kind == AgentTurnItemKind::Form {
         return string_field_any(payload, &["summary", "title", "content"])
             .or_else(|| existing_item.and_then(|item| item.summary.clone()));
     }
@@ -1448,29 +2088,57 @@ mod tests {
     #[test]
     fn turn_item_serializes_stable_shape() {
         let item = AgentTurnItem {
+            schema_version: AGENT_TURN_ITEM_SCHEMA_VERSION.to_string(),
             item_id: "item-1".to_string(),
             session_id: "session-1".to_string(),
+            thread_id: None,
+            run_id: "run-1".to_string(),
             turn_id: "turn-1".to_string(),
+            parent_item_id: None,
+            sequence: 7,
+            revision: 1,
             kind: AgentTurnItemKind::ToolCall,
             status: AgentTurnItemStatus::Running,
             created_at: "2026-07-03T00:00:00Z".to_string(),
             updated_at: None,
             title: Some("Reading file".to_string()),
             summary: None,
+            data: AgentTurnItemData::ToolCall {
+                tool_call_id: "tool-1".to_string(),
+                name: "read_file".to_string(),
+                status: "running".to_string(),
+                args: Value::Null,
+                result: Value::Null,
+                detail_id: None,
+                timing: Value::Null,
+            },
             payload: json!({ "toolName": "read_file" }),
         };
 
         assert_eq!(
             serde_json::to_value(item).unwrap(),
             json!({
+                "schemaVersion": "tinybot.turn_item.v1",
                 "itemId": "item-1",
                 "sessionId": "session-1",
+                "runId": "run-1",
                 "turnId": "turn-1",
+                "sequence": 7,
+                "revision": 1,
                 "kind": "tool_call",
                 "status": "running",
                 "createdAt": "2026-07-03T00:00:00Z",
                 "title": "Reading file",
-                "payload": { "toolName": "read_file" }
+                "data": {
+                    "type": "tool_call",
+                    "toolCallId": "tool-1",
+                    "name": "read_file",
+                    "status": "running",
+                    "args": null,
+                    "result": null,
+                    "detailId": null,
+                    "timing": null
+                }
             })
         );
     }
@@ -1518,11 +2186,11 @@ mod tests {
         );
         assert_eq!(
             AgentTurnItemKind::for_legacy_event("agent.awaiting_approval"),
-            Some(AgentTurnItemKind::ApprovalRequest)
+            Some(AgentTurnItemKind::Approval)
         );
         assert_eq!(
             AgentTurnItemKind::for_legacy_event("agent.delegate.completed"),
-            Some(AgentTurnItemKind::SubagentActivity)
+            Some(AgentTurnItemKind::SubagentLifecycle)
         );
         assert_eq!(
             AgentRuntimePhase::for_legacy_event("agent.delegate.linked"),
@@ -1656,7 +2324,12 @@ mod tests {
     fn run_emitter_helpers_emit_canonical_payloads() {
         let mut emitter = AgentRunEmitter::new("session-1", "turn-1");
 
-        emitter.user_turn_started("2026-07-03T00:00:00Z", Some("user-1".to_string()), "Start");
+        emitter.user_turn_started(
+            "2026-07-03T00:00:00Z",
+            Some("user-1".to_string()),
+            None,
+            "Start",
+        );
         emitter.tool_start(
             "2026-07-03T00:00:01Z",
             "call-1",
@@ -1811,7 +2484,7 @@ mod tests {
         let items = project_turn_items_from_trace_events(&events);
 
         assert_eq!(items.len(), 1);
-        assert_eq!(items[0].kind, AgentTurnItemKind::ApprovalRequest);
+        assert_eq!(items[0].kind, AgentTurnItemKind::Approval);
         assert_eq!(items[0].status, AgentTurnItemStatus::Waiting);
     }
 
@@ -1968,7 +2641,7 @@ mod tests {
 
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].item_id, "approval-1");
-        assert_eq!(items[0].kind, AgentTurnItemKind::ApprovalRequest);
+        assert_eq!(items[0].kind, AgentTurnItemKind::Approval);
         assert_eq!(items[0].status, AgentTurnItemStatus::Completed);
         assert_eq!(
             items[0].title.as_deref(),
@@ -2004,7 +2677,8 @@ mod tests {
                     "form": {
                         "title": "Configure run",
                         "fields": [{ "name": "destination", "required": true }]
-                    }
+                    },
+                    "errors": { "destination": "Required" }
                 }),
             ),
             appender.append_legacy_native_event(
@@ -2014,7 +2688,8 @@ mod tests {
                 json!({
                     "formId": "form-1",
                     "action": "submit",
-                    "values": { "destination": "Paris" }
+                    "values": { "destination": "Paris" },
+                    "errors": {}
                 }),
             ),
         ];
@@ -2023,7 +2698,7 @@ mod tests {
 
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].item_id, "form-1");
-        assert_eq!(items[0].kind, AgentTurnItemKind::FormRequest);
+        assert_eq!(items[0].kind, AgentTurnItemKind::Form);
         assert_eq!(items[0].status, AgentTurnItemStatus::Completed);
         assert_eq!(items[0].title.as_deref(), Some("Configure run"));
         assert_eq!(items[0].summary.as_deref(), Some("Configure run"));
@@ -2031,6 +2706,9 @@ mod tests {
         assert_eq!(items[0].payload["action"], "submit");
         assert_eq!(items[0].payload["values"]["destination"], "Paris");
         assert_eq!(items[0].payload["detailId"], "form:form-1");
+        let data = serde_json::to_value(&items[0].data).expect("form data should serialize");
+        assert_eq!(data["values"]["destination"], "Paris");
+        assert_eq!(data["errors"], json!({}));
         assert_eq!(items[0].created_at, "2026-07-03T00:00:01Z");
         assert_eq!(items[0].updated_at.as_deref(), Some("2026-07-03T00:00:02Z"));
     }
@@ -2103,12 +2781,271 @@ mod tests {
         assert_eq!(items[1].status, AgentTurnItemStatus::Completed);
         assert_eq!(items[2].status, AgentTurnItemStatus::Failed);
         assert_eq!(items[3].status, AgentTurnItemStatus::Cancelled);
-        assert_eq!(items[4].kind, AgentTurnItemKind::ApprovalRequest);
+        assert_eq!(items[4].kind, AgentTurnItemKind::Approval);
         assert_eq!(items[4].status, AgentTurnItemStatus::Waiting);
-        assert_eq!(items[5].kind, AgentTurnItemKind::FormRequest);
+        assert_eq!(items[5].kind, AgentTurnItemKind::Form);
         assert_eq!(items[5].status, AgentTurnItemStatus::Waiting);
-        assert_eq!(items[6].kind, AgentTurnItemKind::SubagentActivity);
+        assert_eq!(items[6].kind, AgentTurnItemKind::SubagentLifecycle);
         assert_eq!(items[6].status, AgentTurnItemStatus::Waiting);
+    }
+
+    #[test]
+    fn canonical_turn_items_cover_typed_runtime_items_with_stable_revisions() {
+        let events = vec![
+            runtime_event(
+                "run-typed",
+                "agent.plan.progress",
+                AgentRuntimePhase::ToolRunning,
+                Some("plan-1"),
+                1,
+                json!({
+                    "agentItem": {
+                        "type": "plan_progress",
+                        "id": "plan-1",
+                        "summary": "Inspect repository",
+                        "completed": 0,
+                        "total": 2,
+                        "currentStep": "Inspect repository",
+                        "steps": [
+                            { "step": "Inspect repository", "status": "in_progress" },
+                            { "step": "Read runtime events", "status": "pending" }
+                        ]
+                    }
+                }),
+            ),
+            runtime_event(
+                "run-typed",
+                "agent.plan.progress",
+                AgentRuntimePhase::ToolRunning,
+                Some("plan-1"),
+                2,
+                json!({
+                    "agentItem": {
+                        "type": "plan_progress",
+                        "id": "plan-1",
+                        "summary": "Inspect repository",
+                        "completed": 1,
+                        "total": 2,
+                        "currentStep": "Read runtime events",
+                        "explanation": "Repository inspection is complete.",
+                        "steps": [
+                            { "step": "Inspect repository", "status": "completed" },
+                            { "step": "Read runtime events", "status": "in_progress" }
+                        ]
+                    }
+                }),
+            ),
+            runtime_event(
+                "run-typed",
+                "agent.context.compacted",
+                AgentRuntimePhase::CallingModel,
+                Some("run-typed:context:1"),
+                3,
+                json!({
+                    "agentItem": {
+                        "type": "context_compaction",
+                        "id": "run-typed:context:1",
+                        "summary": "compact",
+                        "droppedItemCount": 4,
+                        "estimatedTokensBefore": 12000,
+                        "estimatedTokensAfter": 4200
+                    }
+                }),
+            ),
+            runtime_event(
+                "run-typed",
+                "agent.usage",
+                AgentRuntimePhase::CallingModel,
+                Some("run-typed:usage:1"),
+                4,
+                json!({
+                    "agentItem": {
+                        "type": "usage",
+                        "id": "run-typed:usage:1",
+                        "inputTokens": 10,
+                        "outputTokens": 5,
+                        "totalTokens": 15,
+                        "providerPayload": {}
+                    }
+                }),
+            ),
+            runtime_event(
+                "run-typed",
+                "agent.file.reference",
+                AgentRuntimePhase::ToolRunning,
+                Some("file-1"),
+                5,
+                json!({
+                    "agentItem": {
+                        "type": "file_reference",
+                        "id": "file-1",
+                        "path": "output/report.md",
+                        "mimeType": "text/markdown",
+                        "referenceKind": "file"
+                    }
+                }),
+            ),
+            runtime_event(
+                "run-typed",
+                "agent.cancelled",
+                AgentRuntimePhase::Cancelled,
+                Some("run-typed:error:cancelled"),
+                6,
+                json!({
+                    "agentItem": {
+                        "type": "error",
+                        "id": "run-typed:error:cancelled",
+                        "code": "cancelled",
+                        "message": "Cancelled by user",
+                        "cancelled": true
+                    }
+                }),
+            ),
+        ];
+
+        let items = serde_json::to_value(project_turn_items_from_trace_events(&events))
+            .expect("canonical turn items should serialize");
+        let items = items.as_array().expect("turn items should be an array");
+
+        assert_eq!(items.len(), 5);
+        assert_eq!(items[0]["schemaVersion"], "tinybot.turn_item.v1");
+        assert_eq!(items[0]["runId"], "run-typed");
+        assert_eq!(items[0]["sequence"], 1);
+        assert_eq!(items[0]["revision"], 2);
+        assert_eq!(items[0]["kind"], "plan_progress");
+        assert_eq!(items[0]["data"]["type"], "plan_progress");
+        assert_eq!(items[0]["data"]["completed"], 1);
+        assert_eq!(items[0]["data"]["currentStep"], "Read runtime events");
+        assert_eq!(items[0]["data"]["steps"][0]["status"], "completed");
+        assert_eq!(
+            items[0]["data"]["explanation"],
+            "Repository inspection is complete."
+        );
+        assert_eq!(items[1]["kind"], "context_compaction");
+        assert_eq!(items[1]["data"]["estimatedTokensBefore"], 12000);
+        assert_eq!(items[1]["data"]["estimatedTokensAfter"], 4200);
+        assert_eq!(items[2]["kind"], "usage");
+        assert_eq!(items[3]["kind"], "file_reference");
+        assert_eq!(items[4]["kind"], "error");
+        assert_eq!(items[4]["status"], "cancelled");
+    }
+
+    #[test]
+    fn timeline_snapshot_and_patch_share_revision_and_item_projection() {
+        let events = vec![
+            runtime_event(
+                "run-live",
+                "agent.phase.changed",
+                AgentRuntimePhase::CallingModel,
+                None,
+                8,
+                json!({ "nextPhase": "calling_model" }),
+            ),
+            runtime_event(
+                "run-live",
+                "agent.delta",
+                AgentRuntimePhase::StreamingModel,
+                Some("assistant-1"),
+                7,
+                json!({ "delta": "hel" }),
+            ),
+            runtime_event(
+                "run-live",
+                "agent.delta",
+                AgentRuntimePhase::StreamingModel,
+                Some("assistant-1"),
+                9,
+                json!({ "delta": "lo" }),
+            ),
+        ];
+
+        let snapshot = project_timeline_snapshot("session-1", "run-live", &events)
+            .expect("timeline snapshot should project");
+        let patch = project_timeline_patch("session-1", "run-live", &events)
+            .expect("timeline patch should project")
+            .expect("assistant delta should create a patch");
+
+        assert_eq!(snapshot.schema_version, AGENT_TIMELINE_SCHEMA_VERSION);
+        assert_eq!(snapshot.snapshot_revision, 2);
+        assert_eq!(snapshot.items.len(), 1);
+        assert_eq!(snapshot.items[0].sequence, 7);
+        assert_eq!(snapshot.items[0].revision, 2);
+        assert_eq!(patch.schema_version, AGENT_TIMELINE_PATCH_SCHEMA_VERSION);
+        assert_eq!(patch.snapshot_revision, 2);
+        assert_eq!(patch.item, snapshot.items[0]);
+    }
+
+    #[test]
+    #[should_panic(expected = "cannot transition from Completed to Running")]
+    fn canonical_projection_rejects_terminal_status_regression() {
+        let events = vec![
+            runtime_event(
+                "run-terminal",
+                "agent.tool.result",
+                AgentRuntimePhase::Completed,
+                Some("tool-1"),
+                1,
+                json!({ "toolCallId": "tool-1", "toolName": "shell" }),
+            ),
+            runtime_event(
+                "run-terminal",
+                "agent.tool.start",
+                AgentRuntimePhase::ToolRunning,
+                Some("tool-1"),
+                2,
+                json!({ "toolCallId": "tool-1", "toolName": "shell" }),
+            ),
+        ];
+
+        let _ = project_timeline_snapshot("session-1", "run-terminal", &events);
+    }
+
+    #[test]
+    fn canonical_projection_preserves_explicit_subagent_messages() {
+        let event = runtime_event(
+            "run-subagent-message",
+            "agent.delegate.user_message",
+            AgentRuntimePhase::AwaitingSubagent,
+            Some("child-message-1"),
+            1,
+            json!({
+                "agentItem": {
+                    "type": "subagent_message",
+                    "id": "child-message-1",
+                    "agentId": "child-1",
+                    "content": "The child found a user-relevant result.",
+                    "visibility": "user"
+                }
+            }),
+        );
+
+        let snapshot = project_timeline_snapshot("session-1", "run-subagent-message", &[event])
+            .expect("subagent message should project");
+
+        assert_eq!(snapshot.items[0].kind, AgentTurnItemKind::SubagentMessage);
+        assert_eq!(snapshot.items[0].item_id, "child-message-1");
+        assert!(matches!(
+            &snapshot.items[0].data,
+            AgentTurnItemData::SubagentMessage { agent_id, content, .. }
+                if agent_id == "child-1" && content.contains("user-relevant")
+        ));
+    }
+
+    #[test]
+    fn canonical_user_item_preserves_client_event_id() {
+        let mut emitter = AgentRunEmitter::new("session-1", "run-client-event");
+        let event = emitter.user_turn_started(
+            "2026-07-11T00:00:00Z",
+            Some("user-1".to_string()),
+            Some("client-message-1".to_string()),
+            "hello",
+        );
+        let snapshot = project_timeline_snapshot("session-1", "run-client-event", &[event])
+            .expect("user item should project");
+        let data = serde_json::to_value(&snapshot.items[0].data)
+            .expect("canonical user data should serialize");
+
+        assert_eq!(data["clientEventId"], "client-message-1");
     }
 
     fn runtime_event(

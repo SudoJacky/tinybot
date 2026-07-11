@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { createDesktopChatSessionController } from "../app-core/chat/desktopChatSessionController";
-import { sessionKeyForChat, sessionKeyForChatState, type NativeChatMessage, type NativeChatReference, type NativeChatSession } from "../app-core/chat/nativeChat";
+import { sessionKeyForChat, sessionKeyForChatState, type NativeChatSession } from "../app-core/chat/nativeChat";
 import { submitDesktopApprovalAction } from "../app-core/agent-ui/desktopApprovalActions";
 import {
   AGENT_UI_FORM_STATUSES,
@@ -122,6 +122,25 @@ export function createDesktopAppServices(): AppServices {
             handler(normalizeNativeBackendEventPayload(event.payload));
           }),
         });
+        await listen(toDesktopNativeTauriEventName("agent.timeline.patch"), async (event) => {
+          const payload = normalizeNativeBackendEventPayload(event.payload);
+          const sessionId = isRecord(payload) ? stringValue(payload.sessionId) : "";
+          if (!sessionId) {
+            notifyAll({ type: "timeline.error", error: "Canonical timeline patch is missing sessionId" });
+            return;
+          }
+          try {
+            const timeline = await controller.applyTimelinePatch(sessionId, payload);
+            if (timeline) {
+              notifySession(sessionId, { type: "timeline.patch", timeline });
+            }
+          } catch (error) {
+            notifySession(sessionId, {
+              type: "timeline.error",
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        });
       }
       const health = await checkGatewayHealth({ config }).catch(() => null);
       wsUrl = health?.tokenReady ? health.wsUrl : config.wsUrl;
@@ -169,30 +188,13 @@ export function createDesktopAppServices(): AppServices {
       pendingNewSessionId = "";
       pendingNewSession = null;
     }
-    const chatEvent = chatEventFromGatewayEvent(event, latestMessageForGatewayEvent(event));
+    const chatEvent = chatEventFromGatewayEvent(event);
     const usageSessionId = event.kind === "usage" ? sessionKeyForGatewayEvent(event) : "";
     if (usageSessionId) {
       notifySession(usageSessionId, chatEvent);
     } else {
       notifyAll(chatEvent);
     }
-  }
-
-  function latestMessageForGatewayEvent(event: NormalizedGatewayEvent): ReactChatMessage | undefined {
-    if (event.kind !== "usage") {
-      return undefined;
-    }
-    const sessionId = sessionKeyForGatewayEvent(event);
-    if (!sessionId) {
-      return undefined;
-    }
-    const sessionMessages = controller.state.messages.get(sessionId) ?? [];
-    const sessionRunning = controller.state.respondingSessionKeys.has(sessionId);
-    const messages = sessionMessages.map((message, index) => mapMessage(message, index, {
-      isLatest: index === sessionMessages.length - 1,
-      sessionRunning,
-    }));
-    return [...messages].reverse().find((message) => message.usage) ?? messages[messages.length - 1];
   }
 
   function sessionKeyForGatewayEvent(event: NormalizedGatewayEvent): string {
@@ -296,18 +298,20 @@ export function createDesktopAppServices(): AppServices {
       async load(sessionId) {
         await initialize();
         if (sessionId.startsWith("pending:")) {
-          return [];
+          return {
+            schemaVersion: "tinybot.chat_timeline.v1",
+            sessionId,
+            source: "canonical",
+            runRevisions: {},
+            turns: [],
+            diagnostics: [],
+          };
         }
         const session = controller.state.sessions.find((item) => item.key === sessionId);
         if (session && controller.state.activeSessionKey !== session.key) {
           await controller.selectSession(session.key, session.chatId);
         }
-        const sessionMessages = controller.state.messages.get(sessionId) ?? [];
-        const sessionRunning = controller.state.respondingSessionKeys.has(sessionId);
-        return sessionMessages.map((message, index) => mapMessage(message, index, {
-          isLatest: index === sessionMessages.length - 1,
-          sessionRunning,
-        }));
+        return controller.loadTimeline(sessionId);
       },
       async send(sessionId, input) {
         await initialize();
@@ -326,9 +330,12 @@ export function createDesktopAppServices(): AppServices {
           : result.status === "creating"
             ? result.pendingContent
             : "";
+        const optimisticMessage = result.status === "empty"
+          ? undefined
+          : createOptimisticUserMessage(result.clientEventId, optimisticText);
         notifySession(sessionId, {
           type: "message-sent",
-          ...(optimisticText ? { message: createOptimisticUserMessage(optimisticText) } : {}),
+          ...(optimisticMessage ? { message: optimisticMessage } : {}),
         });
       },
       async stop() {
@@ -391,6 +398,14 @@ export function createDesktopAppServices(): AppServices {
         });
         notifyAll({ type: "agent-ui.form" });
       },
+      async loadDelegateTrace(selection) {
+        await initialize();
+        return controller.loadDelegateTrace(selection);
+      },
+      async loadArtifact(selection) {
+        await initialize();
+        return controller.loadArtifact(selection);
+      },
       async branchFromMessage(sessionId, messageId) {
         await initialize();
         const payload = await gatewayApi.sessions.branch?.({ session_key: sessionId, message_id: messageId });
@@ -405,8 +420,11 @@ export function createDesktopAppServices(): AppServices {
       },
       async copyMarkdown(sessionId) {
         await initialize();
-        const messages = controller.state.messages.get(sessionId) ?? [];
-        return messages.map((message) => `${message.role}: ${message.content}`).join("\n\n");
+        const timeline = await controller.loadTimeline(sessionId);
+        return timeline.turns.flatMap((turn) => [
+          `user: ${turn.userMessage.text}`,
+          ...(turn.finalMessage ? [`assistant: ${turn.finalMessage.text}`] : []),
+        ]).join("\n\n");
       },
       subscribe(sessionId, listener) {
         const callbacks = listeners.get(sessionId) ?? new Set<Listener>();
@@ -526,121 +544,14 @@ function mapSession(session: NativeChatSession, responding: boolean, fallbackPay
   };
 }
 
-function mapMessage(
-  message: NativeChatMessage,
-  index: number,
-  options: { isLatest?: boolean; sessionRunning?: boolean } = {},
-): ReactChatMessage {
-  const role = message.role === "user" || message.role === "system" || message.role === "tool"
-    ? message.role
-    : "assistant";
-  const toolCalls = (message.toolActivities ?? []).map((activity) => ({
-    ...(activity.approvalId ? { approvalId: activity.approvalId } : {}),
-    ...(activity.approvalStatus ? { approvalStatus: activity.approvalStatus } : {}),
-    ...(activity.argsText ? { argsText: activity.argsText } : {}),
-    ...(activity.childRunId ? { childRunId: activity.childRunId } : {}),
-    ...(activity.delegateId ? { delegateId: activity.delegateId } : {}),
-    ...(activity.delegateTask ? { delegateTask: activity.delegateTask } : {}),
-    ...(activity.delegateTitle ? { delegateTitle: activity.delegateTitle } : {}),
-    ...(activity.delegateType ? { delegateType: activity.delegateType } : {}),
-    ...(activity.finalOutput ? { finalOutput: activity.finalOutput } : {}),
-    id: activity.id,
-    name: activity.name,
-    ...(activity.parentRunId ? { parentRunId: activity.parentRunId } : {}),
-    ...(activity.parentTurnId ? { parentTurnId: activity.parentTurnId } : {}),
-    ...(activity.responseText ? { responseText: activity.responseText } : {}),
-    ...(activity.sessionKey ? { sessionKey: activity.sessionKey } : {}),
-    status: activity.status || activity.approvalStatus || (activity.kind === "result" ? "complete" : "running"),
-    summary: activity.responseText || activity.argsText,
-    ...(activity.traceRef ? { traceRef: activity.traceRef } : {}),
-  }));
-  const streaming = role === "assistant" && Boolean(options.sessionRunning && options.isLatest);
-  const contextReferences = (message.references ?? []).map(mapContextReference);
+function createOptimisticUserMessage(clientEventId: string, text: string): ReactChatMessage {
   return {
-    id: message.messageId || `${role}:${index}`,
-    role,
-    createdAtMs: timestampMs(message.timestamp) ?? Date.now(),
-    text: message.content || (toolCalls.length ? "Tool activity" : ""),
-    status: streaming ? "streaming" : "complete",
-    ...(contextReferences.length ? { contextReferences } : {}),
-    ...(message.reasoningContent ? { reasoningText: message.reasoningContent } : {}),
-    ...(toolCalls.length ? { toolCalls } : {}),
-    ...(message.turnId ? { turnId: message.turnId } : {}),
-    ...(message.turnStatus ? { turnStatus: message.turnStatus } : {}),
-    ...(message.usage ? { usage: normalizeUsage(message.usage) } : {}),
-  };
-}
-
-function createOptimisticUserMessage(text: string): ReactChatMessage {
-  return {
-    id: `local:user:${Date.now().toString(36)}`,
+    id: clientEventId,
     role: "user",
     createdAtMs: Date.now(),
     text,
     status: "complete",
   };
-}
-
-function mapContextReference(reference: NativeChatReference, index: number) {
-  return {
-    id: reference.noteId || reference.evidenceId || `${reference.kind}:${index}`,
-    kind: reference.kind,
-    title: reference.title,
-    ...(reference.detail ? { detail: reference.detail } : {}),
-    ...(reference.sourcePath ? { sourcePath: reference.sourcePath } : {}),
-    ...(typeof reference.sourceLine === "number" ? { sourceLine: reference.sourceLine } : {}),
-  };
-}
-
-function normalizeUsage(value: unknown) {
-  const payload = isRecord(value) ? value : {};
-  if (!Object.keys(payload).length) {
-    return undefined;
-  }
-  const promptTokens = numberValue(payload.prompt_tokens ?? payload.promptTokens);
-  const totalTokens = numberValue(payload.total_tokens ?? payload.totalTokens);
-  const reportedContextWindowUsedTokens = numberValue(payload.context_window_used_tokens ?? payload.contextWindowUsedTokens);
-  const estimatedContextTokens = numberValue(payload.estimated_context_tokens ?? payload.estimatedContextTokens);
-  const contextWindowUsedTokens = normalizeContextWindowUsedTokens(
-    reportedContextWindowUsedTokens,
-    estimatedContextTokens,
-    promptTokens,
-    totalTokens,
-  );
-  return {
-    cachedTokens: numberValue(payload.cached_tokens ?? payload.cachedTokens),
-    completionTokens: numberValue(payload.completion_tokens ?? payload.completionTokens),
-    contextWindowRemainingTokens: numberValue(payload.context_window_remaining_tokens ?? payload.contextWindowRemainingTokens),
-    contextWindowStrategy: stringValue(payload.context_window_strategy ?? payload.contextWindowStrategy) || undefined,
-    contextWindowTokens: numberValue(
-      payload.context_window_tokens
-        ?? payload.contextWindowTokens
-        ?? payload.context_window
-        ?? payload.contextWindow
-        ?? payload.max_context_tokens
-        ?? payload.maxContextTokens,
-    ),
-    contextWindowUsedTokens,
-    estimatedContextTokens,
-    percent: numberValue(payload.percent ?? payload.percentage ?? payload.token_usage_percent ?? payload.tokenUsagePercent),
-    promptTokens,
-    totalTokens,
-  };
-}
-
-function normalizeContextWindowUsedTokens(
-  reported: number | undefined,
-  estimated: number | undefined,
-  promptTokens: number | undefined,
-  totalTokens: number | undefined,
-): number | undefined {
-  if (reported !== undefined) {
-    if (estimated !== undefined && reported <= estimated) {
-      return totalTokens ?? promptTokens ?? reported;
-    }
-    return reported;
-  }
-  return totalTokens ?? promptTokens;
 }
 
 function timestampMs(value: string): number | null {

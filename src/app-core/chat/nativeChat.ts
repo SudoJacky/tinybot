@@ -2,13 +2,10 @@ import type { NormalizedGatewayEvent } from "../gateway/gatewayWebSocketClient";
 import { logDesktopNativeChatDebug, summarizeDebugText } from "../native/desktopNativeChatDebug";
 import {
   createChatRunState,
-  applyBackendRuntimeStates,
   legacyMessagesToTurns,
-  normalizeAgentRunRuntimeStatePayload,
   reduceAgentEvent,
   turnsToConversationMessages,
   type AgentEventEnvelope,
-  type BackendAgentRunRuntimeState,
   type ChatRunState,
   type TokenUsage,
 } from "./chatRunModel";
@@ -207,26 +204,6 @@ export function setMessages(state: NativeChatState, sessionKey: string, messages
   state.chatRuns.legacyMessagesBySession.set(sessionKey, messages);
   state.chatRuns.turnsBySession.set(sessionKey, legacyMessagesToTurns(sessionKey, messages));
   hydrateDelegatedRunsFromMessages(state, sessionKey, messages);
-}
-
-export function normalizeAgentRunRuntimeStatesPayload(payloads: unknown[]): BackendAgentRunRuntimeState[] {
-  return payloads
-    .map(normalizeAgentRunRuntimeStatePayload)
-    .filter((payload): payload is BackendAgentRunRuntimeState => Boolean(payload));
-}
-
-export function hydrateAgentRunRuntimeStates(
-  state: NativeChatState,
-  sessionKey: string,
-  runtimeStates: BackendAgentRunRuntimeState[],
-): boolean {
-  const changed = applyBackendRuntimeStates(state.chatRuns, sessionKey, runtimeStates);
-  if (!changed) {
-    return false;
-  }
-  const turns = state.chatRuns.turnsBySession.get(sessionKey) ?? [];
-  state.messages.set(sessionKey, coalesceToolActivityMessages(conversationMessagesToNativeMessages(turnsToConversationMessages(turns))));
-  return true;
 }
 
 export function hydrateDelegatedRunsFromTraceEvents(

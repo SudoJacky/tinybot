@@ -249,4 +249,16 @@ impl NativeAgentToolResult {
             envelope,
         }
     }
+
+    pub fn generic_error(tool_call: &NativeAgentToolCall, message: String) -> Self {
+        let envelope = NativeToolResultEnvelope::generic_error(
+            tool_call,
+            message.clone(),
+            Value::String(message.clone()),
+        );
+        Self {
+            content: Value::String(message),
+            envelope,
+        }
+    }
 }

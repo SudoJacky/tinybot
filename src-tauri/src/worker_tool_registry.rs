@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 pub const TOOL_SEARCH_METHOD: &str = "tool_search";
 pub const REQUEST_USER_INPUT_METHOD: &str = "request_user_input";
+pub const UPDATE_PLAN_METHOD: &str = "update_plan";
 pub const DEFAULT_TOOL_SEARCH_LIMIT: usize = 5;
 pub const MAX_TOOL_SEARCH_LIMIT: usize = 20;
 
@@ -88,6 +89,7 @@ pub enum ToolExecutionTarget {
 pub enum ToolRuntimeControl {
     ToolSearch,
     RequestUserInput,
+    UpdatePlan,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -309,6 +311,40 @@ fn tool_matches_query(tool: &ToolRegistryEntry, query: &str) -> bool {
 
 fn core_tool_entries() -> Vec<ToolRegistryEntry> {
     vec![
+        runtime_control_tool(
+            UPDATE_PLAN_METHOD,
+            "planning",
+            "Update task plan",
+            "Update the execution checklist for a non-trivial task. Submit the complete current plan on every call. Each step must have a short step description and a status of pending, in_progress, or completed. Until all steps are completed, exactly one step must be in_progress. Provide explanation when revising the plan. Do not repeat the full plan in a message because the timeline renders it.",
+            ToolRuntimeControl::UpdatePlan,
+            runtime_policy(false, ToolCancellationMode::Cooperative, false, true),
+            Vec::new(),
+            json!({
+                "type": "object",
+                "required": ["plan"],
+                "properties": {
+                    "explanation": { "type": "string", "minLength": 1, "maxLength": 1024 },
+                    "plan": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 50,
+                        "items": {
+                            "type": "object",
+                            "required": ["step", "status"],
+                            "properties": {
+                                "step": { "type": "string", "minLength": 1, "maxLength": 512 },
+                                "status": {
+                                    "type": "string",
+                                    "enum": ["pending", "in_progress", "completed"]
+                                }
+                            },
+                            "additionalProperties": false
+                        }
+                    }
+                },
+                "additionalProperties": false
+            }),
+        ),
         runtime_control_tool(
             TOOL_SEARCH_METHOD,
             "tool_registry",
@@ -800,6 +836,28 @@ fn approval(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn update_plan_is_an_always_available_runtime_control_tool() {
+        let tool = WorkerToolRegistryRpc::new(CapabilityPolicy::default())
+            .get_tool(UPDATE_PLAN_METHOD)
+            .expect("update_plan should be registered");
+
+        assert_eq!(tool.exposure, ToolExposure::Model);
+        assert!(tool.available);
+        assert!(!tool.approval.required);
+        assert!(tool.runtime_policy.mutates_session);
+        assert!(!tool.supports_parallel_tool_calls);
+        assert_eq!(
+            tool.execution_target,
+            ToolExecutionTarget::RuntimeControl(ToolRuntimeControl::UpdatePlan)
+        );
+        assert_eq!(tool.input_schema["properties"]["plan"]["minItems"], 1);
+        assert_eq!(
+            tool.input_schema["properties"]["plan"]["items"]["properties"]["status"]["enum"],
+            json!(["pending", "in_progress", "completed"])
+        );
+    }
 
     #[test]
     fn tool_search_is_a_registered_runtime_control_tool() {

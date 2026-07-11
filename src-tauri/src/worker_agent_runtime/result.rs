@@ -170,8 +170,38 @@ pub(super) fn append_runtime_events_to_sink(
     events: &[AgentRuntimeEventEnvelope],
 ) {
     if let Some(trace_sink) = trace_sink {
+        let mut projection_events =
+            match trace_sink.load_runtime_events(&context.session_id, &context.run_id) {
+                Ok(existing) => existing,
+                Err(error) => {
+                    eprintln!(
+                        "canonical timeline history load failed for run {}: {}",
+                        context.run_id, error
+                    );
+                    Vec::new()
+                }
+            };
         for event in events {
             let _ = trace_sink.append_trace_event(&context.session_id, &context.run_id, event);
+            projection_events.push(event.clone());
+            match crate::agent_loop_runtime_protocol::project_timeline_patch(
+                &context.session_id,
+                &context.run_id,
+                &projection_events,
+            ) {
+                Ok(Some(patch)) => {
+                    let _ = trace_sink.append_timeline_patch(
+                        &context.session_id,
+                        &context.run_id,
+                        &patch,
+                    );
+                }
+                Ok(None) => {}
+                Err(error) => eprintln!(
+                    "canonical timeline patch projection failed for run {} event {}: {}",
+                    context.run_id, event.event_id, error
+                ),
+            }
         }
     }
 }

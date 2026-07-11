@@ -1,3 +1,4 @@
+use crate::worker_tool_registry::UPDATE_PLAN_METHOD;
 use crate::worker_tool_registry::{
     ToolApprovalMetadata, ToolCancellationMode, ToolExecutionTarget, ToolExposure,
     ToolRegistryEntry, ToolRuntimePolicy, DEFAULT_TOOL_SEARCH_LIMIT, MAX_TOOL_SEARCH_LIMIT,
@@ -69,8 +70,9 @@ impl NativeToolRouter {
                     ));
                 }
             }
-            self.entries
-                .retain(|entry| selected_tool_ids.contains(&entry.tool_id));
+            self.entries.retain(|entry| {
+                selected_tool_ids.contains(&entry.tool_id) || entry.method == UPDATE_PLAN_METHOD
+            });
         }
 
         if approval_policy == "never" {

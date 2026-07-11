@@ -274,13 +274,11 @@ impl LocalThreadStore {
             return Ok(None);
         };
         let runtime_events = runtime_events_from_thread_items(&items, session_id, run_id);
-        let turn_items = turn_items_from_thread_items(&items, session_id, run_id);
-        Ok(Some(AgentRunRuntimeState {
-            session_id: session_id.to_string(),
-            run_id: run_id.to_string(),
+        Ok(Some(AgentRunRuntimeState::from_runtime_events(
+            session_id,
+            run_id,
             runtime_events,
-            turn_items,
-        }))
+        )?))
     }
 
     pub fn list_agent_runs_from_threads(

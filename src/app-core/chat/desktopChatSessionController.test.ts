@@ -1,6 +1,20 @@
 import { describe, expect, test, vi } from "vitest";
-import { createDesktopChatSessionController } from "./desktopChatSessionController";
+import {
+  createDesktopChatSessionController as createControllerUnderTest,
+  type DesktopChatSessionControllerOptions,
+} from "./desktopChatSessionController";
 import { sessionKeyForChat } from "./nativeChat";
+
+function createDesktopChatSessionController(options: DesktopChatSessionControllerOptions) {
+  return createControllerUnderTest({
+    ...options,
+    api: {
+      listAgentRuns: vi.fn(async () => ({ runs: [] })),
+      getAgentRunRuntimeState: vi.fn(async () => null),
+      ...options.api,
+    },
+  });
+}
 
 describe("desktop chat session controller", () => {
   test("loads sessions and attaches the first active chat through gateway-compatible contracts", async () => {
@@ -20,7 +34,7 @@ describe("desktop chat session controller", () => {
     await expect(controller.loadSessions()).resolves.toBe(1);
 
     expect(controller.state.activeSessionKey).toBe("websocket:chat-1");
-    expect(controller.state.messages.get("websocket:chat-1")).toMatchObject([{ content: "loaded websocket:chat-1" }]);
+    expect(controller.state.chatRuns.turnsBySession.get("websocket:chat-1")).toEqual([]);
     expect(sent).toEqual([{ type: "attach", chat_id: "chat-1" }]);
   });
 
@@ -31,25 +45,52 @@ describe("desktop chat session controller", () => {
       runs: [{ runId: "run-1", startedAt: "2026-07-03T01:00:00Z" }],
     }));
     const getAgentRunRuntimeState = vi.fn(async () => ({
-      sessionId: "websocket:chat-1",
-      runId: "run-1",
       runtimeEvents: [],
-      turnItems: [{
-        itemId: "call-read",
+      timeline: {
+        schemaVersion: "tinybot.timeline.v1",
         sessionId: "websocket:chat-1",
-        turnId: "run-1",
-        kind: "tool_call",
-        status: "completed",
-        createdAt: "2026-07-03T01:00:01Z",
-        title: "read_file",
-        summary: "README contents",
-        payload: {
-          toolCallId: "call-read",
-          toolName: "read_file",
-          argsPreview: "{\"path\":\"README.md\"}",
-          resultPreview: "README contents",
-        },
-      }],
+        runId: "run-1",
+        snapshotRevision: 2,
+        items: [
+          {
+            schemaVersion: "tinybot.turn_item.v1",
+            itemId: "m-user",
+            sessionId: "websocket:chat-1",
+            runId: "run-1",
+            turnId: "run-1",
+            sequence: 1,
+            revision: 1,
+            kind: "user_message",
+            status: "completed",
+            createdAt: "2026-07-03T01:00:00Z",
+            data: { type: "user_message", messageId: "m-user", content: "Read README" },
+          },
+          {
+            schemaVersion: "tinybot.turn_item.v1",
+            itemId: "call-read",
+            sessionId: "websocket:chat-1",
+            runId: "run-1",
+            turnId: "run-1",
+            sequence: 2,
+            revision: 1,
+            kind: "tool_call",
+            status: "completed",
+            createdAt: "2026-07-03T01:00:01Z",
+            title: "read_file",
+            summary: "README contents",
+            data: {
+              type: "tool_call",
+              toolCallId: "call-read",
+              name: "read_file",
+              status: "completed",
+              args: { path: "README.md" },
+              result: { summary: "README contents" },
+              detailId: "tool:call-read",
+              timing: {},
+            },
+          },
+        ],
+      },
     }));
     const controller = createDesktopChatSessionController({
       api: {
@@ -80,14 +121,75 @@ describe("desktop chat session controller", () => {
         }),
       })],
     });
-    expect(controller.state.messages.get("websocket:chat-1")?.flatMap((message) => message.toolActivities ?? [])).toEqual([
-      expect.objectContaining({
-        id: "call-read",
-        name: "read_file",
-        responseText: "README contents",
-      }),
-    ]);
     expect(sent).toEqual([{ type: "attach", chat_id: "chat-1" }]);
+  });
+
+  test("reloads the authoritative snapshot when a live patch skips a revision", async () => {
+    const sessionId = "websocket:chat-gap";
+    const runId = "run-gap";
+    const userItem = {
+      schemaVersion: "tinybot.turn_item.v1",
+      itemId: "user-gap",
+      sessionId,
+      runId,
+      turnId: runId,
+      sequence: 1,
+      revision: 1,
+      kind: "user_message",
+      status: "completed",
+      createdAt: "2026-07-11T00:00:00Z",
+      data: { type: "user_message", messageId: "user-gap", content: "Recover the gap" },
+    };
+    const assistantItem = {
+      schemaVersion: "tinybot.turn_item.v1",
+      itemId: "assistant-gap",
+      sessionId,
+      runId,
+      turnId: runId,
+      sequence: 2,
+      revision: 2,
+      kind: "assistant_message",
+      status: "completed",
+      createdAt: "2026-07-11T00:00:01Z",
+      updatedAt: "2026-07-11T00:00:02Z",
+      data: { type: "assistant_message", messageId: "assistant-gap", content: "Recovered" },
+    };
+    const getAgentRunRuntimeState = vi.fn()
+      .mockResolvedValueOnce({
+        runtimeEvents: [],
+        timeline: { schemaVersion: "tinybot.timeline.v1", sessionId, runId, snapshotRevision: 1, items: [userItem] },
+      })
+      .mockResolvedValue({
+        runtimeEvents: [],
+        timeline: { schemaVersion: "tinybot.timeline.v1", sessionId, runId, snapshotRevision: 3, items: [userItem, assistantItem] },
+      });
+    const controller = createDesktopChatSessionController({
+      api: {
+        listSessions: vi.fn(async () => ({
+          items: [{ key: sessionId, chat_id: "chat-gap", title: "Gap", updated_at: "2026-07-11T00:00:00Z" }],
+        })),
+        loadMessages: vi.fn(async () => ({ messages: [] })),
+        listAgentRuns: vi.fn(async () => ({ runs: [{ runId }] })),
+        getAgentRunRuntimeState,
+      },
+      sendSocketMessage: vi.fn(),
+    });
+    await controller.loadSessions();
+
+    const recovered = await controller.applyTimelinePatch(sessionId, {
+      schemaVersion: "tinybot.timeline_patch.v1",
+      sessionId,
+      runId,
+      snapshotRevision: 3,
+      item: assistantItem,
+    });
+
+    expect(getAgentRunRuntimeState).toHaveBeenCalledTimes(2);
+    expect(recovered?.runRevisions).toEqual({ [runId]: 3 });
+    expect(recovered?.turns[0]).toMatchObject({
+      status: "completed",
+      finalMessage: { id: "assistant-gap", text: "Recovered" },
+    });
   });
 
   test("replays delegated trace events when selecting a persisted native session", async () => {
@@ -224,7 +326,7 @@ describe("desktop chat session controller", () => {
     expect(controller.state.activeChatId).toBe("chat-7e9e");
     expect(controller.state.sessions.map((session) => session.title)).toEqual(["你好", "New session"]);
     expect(controller.state.sessions.filter((session) => session.title === "New session")).toHaveLength(1);
-    expect(controller.state.messages.get("7e9e439b4487")).toMatchObject([{ content: "loaded 7e9e439b4487" }]);
+    expect(controller.state.chatRuns.turnsBySession.get("7e9e439b4487")).toEqual([]);
     expect(sent).toContainEqual({ type: "attach", chat_id: "chat-7e9e" });
   });
 
@@ -263,7 +365,7 @@ describe("desktop chat session controller", () => {
     expect(controller.state.activeSessionKey).toBe("websocket:chat-2");
     expect(controller.state.activeChatId).toBe("chat-2");
     expect(controller.state.messages.has("websocket:chat-1")).toBe(false);
-    expect(controller.state.messages.get("websocket:chat-2")).toMatchObject([{ content: "loaded websocket:chat-2" }]);
+    expect(controller.state.chatRuns.turnsBySession.get("websocket:chat-2")).toEqual([]);
     expect(sent).toEqual([
       { type: "attach", chat_id: "chat-1" },
       { type: "attach", chat_id: "chat-2" },
@@ -341,7 +443,7 @@ describe("desktop chat session controller", () => {
     });
   });
 
-  test("queues a new chat before sending pending content without changing WebSocket payload semantics", async () => {
+  test("preserves one client event id while a new chat is created and the message is sent", async () => {
     const sent: unknown[] = [];
     const controller = createDesktopChatSessionController({
       api: {
@@ -352,11 +454,13 @@ describe("desktop chat session controller", () => {
       },
       sendSocketMessage: (message) => sent.push(message),
       now: () => "2026-05-31T08:00:00.000Z",
+      createClientEventId: () => "client-message-1",
     });
 
     expect(controller.submitMessage("  hello desktop  ")).toEqual({
       status: "creating",
       pendingContent: "hello desktop",
+      clientEventId: "client-message-1",
     });
     expect(sent).toEqual([{ type: "new_chat" }]);
 
@@ -376,7 +480,13 @@ describe("desktop chat session controller", () => {
     ]);
     expect(sent).toEqual([
       { type: "new_chat" },
-      { type: "message", chat_id: "chat-2", content: "hello desktop", use_persistent_rag: true },
+      {
+        type: "message",
+        chat_id: "chat-2",
+        client_event_id: "client-message-1",
+        content: "hello desktop",
+        use_persistent_rag: true,
+      },
     ]);
   });
 
@@ -389,11 +499,13 @@ describe("desktop chat session controller", () => {
       },
       sendSocketMessage: (message) => sent.push(message),
       now: () => "2026-06-22T05:30:00.000Z",
+      createClientEventId: () => "client-live-question",
     });
 
     expect(controller.submitMessage("  live question  ")).toEqual({
       status: "creating",
       pendingContent: "live question",
+      clientEventId: "client-live-question",
     });
 
     await expect(controller.handleGatewayEvent({ kind: "chat.created", chatId: "chat-live", raw: {} })).resolves.toEqual({
@@ -414,7 +526,13 @@ describe("desktop chat session controller", () => {
     ]);
     expect(sent).toEqual([
       { type: "new_chat" },
-      { type: "message", chat_id: "chat-live", content: "live question", use_persistent_rag: true },
+      {
+        type: "message",
+        chat_id: "chat-live",
+        client_event_id: "client-live-question",
+        content: "live question",
+        use_persistent_rag: true,
+      },
     ]);
   });
 
@@ -446,7 +564,7 @@ describe("desktop chat session controller", () => {
     expect(controller.state.activeSessionKey).toBe(sessionKeyForChat("chat-live"));
     expect(controller.state.activeChatId).toBe("chat-live");
     expect(controller.state.messages.get(sessionKeyForChat("chat-live"))).toEqual([]);
-    expect(controller.state.error).toContain("Gateway bootstrap failed: Failed to fetch");
+    expect(controller.state.error).toBe("");
     expect(sent).toEqual([
       { type: "attach", chat_id: "chat-old" },
       { type: "new_chat" },
@@ -466,6 +584,7 @@ describe("desktop chat session controller", () => {
       },
       sendSocketMessage: (message) => sent.push(message),
       now: () => "2026-05-31T08:00:00.000Z",
+      createClientEventId: () => "client-active-question",
     });
 
     await controller.handleGatewayEvent({ kind: "attached", chatId: "chat-3", raw: {} });
@@ -474,19 +593,26 @@ describe("desktop chat session controller", () => {
       status: "sent",
       chatId: "chat-3",
       content: "question",
+      clientEventId: "client-active-question",
     });
     expect(controller.interruptActiveChat()).toBe(true);
     expect(controller.state.messages.get(sessionKeyForChat("chat-3"))).toMatchObject([
-      { role: "assistant", content: "persisted" },
       { role: "user", content: "question" },
     ]);
     expect(sent).toEqual([
-      { type: "message", chat_id: "chat-3", content: "question", use_persistent_rag: false, model: "deepseek-reasoner" },
+      {
+        type: "message",
+        chat_id: "chat-3",
+        client_event_id: "client-active-question",
+        content: "question",
+        use_persistent_rag: false,
+        model: "deepseek-reasoner",
+      },
       { type: "interrupt", chat_id: "chat-3" },
     ]);
   });
 
-  test("loads attached native messages through the existing session key", async () => {
+  test("reloads the canonical timeline through the existing session key", async () => {
     const loadMessages = vi.fn(async (sessionKey: string) => ({
       messages: [{ role: "assistant", content: `loaded ${sessionKey}`, message_id: "m1" }],
     }));
@@ -505,10 +631,8 @@ describe("desktop chat session controller", () => {
 
     await controller.handleGatewayEvent({ kind: "attached", chatId: "chat-native", raw: {} });
 
-    expect(loadMessages).toHaveBeenCalledWith("websocket:chat-native");
-    expect(controller.state.messages.get("websocket:chat-native")).toMatchObject([
-      { content: "loaded websocket:chat-native" },
-    ]);
+    expect(loadMessages).not.toHaveBeenCalled();
+    expect(controller.state.chatRuns.turnsBySession.get("websocket:chat-native")).toEqual([]);
     expect(controller.state.messages.has("WebSocket:chat-native")).toBe(false);
   });
 });

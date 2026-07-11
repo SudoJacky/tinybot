@@ -326,6 +326,9 @@ pub(super) async fn maybe_approval_resume_result(
     let final_content = string_field(&approval, "finalContent")
         .or_else(|| string_field(&approval, "final_content"))
         .unwrap_or_else(|| "Approved tool completed.".to_string());
+    let tool_call_id = string_field(&approval, "toolCallId")
+        .filter(|tool_call_id| tool_call_id != &continuation.approval_id)
+        .unwrap_or_else(|| format!("{}:tool", continuation.approval_id));
     let events = vec![
         approval_decision_event(context, &continuation),
         event(
@@ -333,7 +336,7 @@ pub(super) async fn maybe_approval_resume_result(
             serde_json::json!({
                 "runId": context.run_id,
                 "sessionId": context.session_id,
-                "toolCallId": string_field(&approval, "toolCallId").unwrap_or(continuation.approval_id.clone()),
+                "toolCallId": tool_call_id,
                 "toolName": string_field(&approval, "toolName").unwrap_or_else(|| "approval".to_string()),
                 "content": string_field(&approval, "toolResult").unwrap_or_else(|| "approved".to_string()),
             }),
@@ -355,6 +358,8 @@ pub(super) async fn maybe_approval_resume_result(
             }),
         ),
     ];
+    let runtime_events = continuation_runtime_events(services, context, &events)?;
+    append_runtime_events_to_sink(context, services.trace_sink.as_ref(), &runtime_events);
     Ok(Some(serde_json::json!({
         "runtime": "rust",
         "runId": context.run_id,
@@ -375,6 +380,7 @@ pub(super) async fn maybe_approval_resume_result(
             "guidance": continuation.guidance,
         },
         "events": events,
+        "runtimeEvents": runtime_events,
     })))
 }
 
@@ -544,7 +550,7 @@ async fn approved_tool_continuation_result(
             "stopReason": "final_response",
         }),
     ));
-    let runtime_events = continuation_runtime_events(context, &events);
+    let runtime_events = continuation_runtime_events(services, context, &events)?;
     append_runtime_events_to_sink(context, services.trace_sink.as_ref(), &runtime_events);
     Ok(serde_json::json!({
         "runtime": "rust",
@@ -569,14 +575,30 @@ async fn approved_tool_continuation_result(
 }
 
 fn continuation_runtime_events(
+    services: &NativeAgentRuntimeServices,
     context: &NativeAgentRunContext,
     events: &[NativeAgentEvent],
-) -> Vec<AgentRuntimeEventEnvelope> {
-    let mut appender = AgentRuntimeEventAppender::new_with_trace_context(
-        &context.session_id,
-        context.trace_context.clone(),
-    );
-    events
+) -> Result<Vec<AgentRuntimeEventEnvelope>, String> {
+    let existing = services
+        .trace_sink
+        .as_ref()
+        .map(|sink| sink.load_runtime_events(&context.session_id, &context.run_id))
+        .transpose()?
+        .unwrap_or_default();
+    let mut appender = if existing.is_empty() {
+        AgentRuntimeEventAppender::new_with_trace_context(
+            &context.session_id,
+            context.trace_context.clone(),
+        )
+    } else {
+        AgentRuntimeEventAppender::from_existing_events_with_thread_id(
+            &context.session_id,
+            &context.run_id,
+            context.thread_id.clone(),
+            &existing,
+        )
+    };
+    Ok(events
         .iter()
         .map(|event| {
             appender.append_legacy_native_event(
@@ -586,7 +608,7 @@ fn continuation_runtime_events(
                 event.payload.clone(),
             )
         })
-        .collect()
+        .collect())
 }
 
 fn approved_tool_cleanup_timeout_result(

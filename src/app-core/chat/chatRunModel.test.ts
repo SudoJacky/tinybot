@@ -14,6 +14,33 @@ import {
 } from "./chatRunModel";
 import type { NativeChatMessage } from "./nativeChat";
 
+function canonicalRuntimeState(
+  runId: string,
+  items: Array<Record<string, unknown>>,
+  sessionId = "WebSocket:chat-1",
+): unknown {
+  return {
+    runtimeEvents: [],
+    timeline: {
+      schemaVersion: "tinybot.timeline.v1",
+      sessionId,
+      runId,
+      snapshotRevision: items.length,
+      items: items.map((item, index) => ({
+        schemaVersion: "tinybot.turn_item.v1",
+        itemId: `${runId}:item:${index + 1}`,
+        sessionId,
+        runId,
+        turnId: runId,
+        sequence: index + 1,
+        revision: 1,
+        createdAt: `2026-07-03T01:00:0${index}Z`,
+        ...item,
+      })),
+    },
+  };
+}
+
 describe("chat run model", () => {
   test("converts legacy messages into turns with separate process steps and final answer", () => {
     const messages: NativeChatMessage[] = [
@@ -75,11 +102,14 @@ describe("chat run model", () => {
   });
 
   test("projects backend turn items into restored chat turns before legacy adapters are removed", () => {
-    const runtimeState = normalizeAgentRunRuntimeStatePayload({
-      sessionId: "WebSocket:chat-1",
-      runId: "run-1",
-      runtimeEvents: [],
-      turnItems: [
+    const runtimeState = normalizeAgentRunRuntimeStatePayload(canonicalRuntimeState("run-1", [
+        {
+          itemId: "user-1",
+          kind: "user_message",
+          status: "completed",
+          createdAt: "2026-07-03T01:00:00Z",
+          data: { type: "user_message", messageId: "user-1", content: "Check the README" },
+        },
         {
           itemId: "reasoning-1",
           sessionId: "WebSocket:chat-1",
@@ -88,6 +118,7 @@ describe("chat run model", () => {
           status: "completed",
           createdAt: "2026-07-03T01:00:01Z",
           summary: "Need to inspect files.",
+          data: { type: "reasoning", summary: "Need to inspect files." },
         },
         {
           itemId: "call-read",
@@ -99,38 +130,36 @@ describe("chat run model", () => {
           updatedAt: "2026-07-03T01:00:03Z",
           title: "read_file",
           summary: "README contents",
-          payload: {
+          data: {
+            type: "tool_call",
             toolCallId: "call-read",
-            toolName: "read_file",
-            argsPreview: "{\"path\":\"README.md\"}",
-            resultPreview: "README contents",
+            name: "read_file",
+            status: "completed",
+            args: { path: "README.md" },
+            result: { summary: "README contents" },
+            detailId: "tool:call-read",
+            timing: {},
           },
         },
         {
           itemId: "approval-1",
           sessionId: "WebSocket:chat-1",
           turnId: "run-1",
-          kind: "approval_request",
+          kind: "approval",
           status: "waiting",
           createdAt: "2026-07-03T01:00:04Z",
           title: "Run command?",
-          payload: {
+          data: {
+            type: "approval",
             approvalId: "approval-1",
             toolCallId: "call-shell",
+            status: "waiting",
             reason: "Needs command approval",
           },
         },
-      ],
-    });
+      ]));
 
-    expect(runtimeState).not.toBeNull();
-    const turns = backendRuntimeStatesToTurns("WebSocket:chat-1", [runtimeState!], [{
-      role: "user",
-      content: "Check the README",
-      reasoningContent: "",
-      timestamp: "2026-07-03T01:00:00Z",
-      messageId: "user-1",
-    }]);
+    const turns = backendRuntimeStatesToTurns("WebSocket:chat-1", [runtimeState]);
 
     expect(turns).toHaveLength(1);
     expect(turns[0]).toMatchObject({
@@ -155,11 +184,7 @@ describe("chat run model", () => {
   });
 
   test("restores runtime-only blocked turns with their original user prompt", () => {
-    const runtimeState = normalizeAgentRunRuntimeStatePayload({
-      sessionId: "WebSocket:chat-1",
-      runId: "run-approval",
-      runtimeEvents: [],
-      turnItems: [
+    const runtimeState = normalizeAgentRunRuntimeStatePayload(canonicalRuntimeState("run-approval", [
         {
           itemId: "run-approval:user",
           sessionId: "WebSocket:chat-1",
@@ -167,7 +192,8 @@ describe("chat run model", () => {
           kind: "user_message",
           status: "completed",
           createdAt: "2026-07-03T01:00:00Z",
-          payload: {
+          data: {
+            type: "user_message",
             messageId: "user-approval",
             content: "Write the config file",
           },
@@ -176,20 +202,20 @@ describe("chat run model", () => {
           itemId: "approval-1",
           sessionId: "WebSocket:chat-1",
           turnId: "run-approval",
-          kind: "approval_request",
+          kind: "approval",
           status: "waiting",
           createdAt: "2026-07-03T01:00:04Z",
           title: "Allow file write?",
-          payload: {
+          data: {
+            type: "approval",
             approvalId: "approval-1",
+            status: "waiting",
             reason: "Needs file write approval",
           },
         },
-      ],
-    });
+      ]));
 
-    expect(runtimeState).not.toBeNull();
-    const turns = backendRuntimeStatesToTurns("WebSocket:chat-1", [runtimeState!], []);
+    const turns = backendRuntimeStatesToTurns("WebSocket:chat-1", [runtimeState]);
 
     expect(turns).toHaveLength(1);
     expect(turns[0]).toMatchObject({
@@ -202,11 +228,7 @@ describe("chat run model", () => {
   });
 
   test("restores runtime-only completed assistant messages without legacy final messages", () => {
-    const runtimeState = normalizeAgentRunRuntimeStatePayload({
-      sessionId: "WebSocket:chat-1",
-      runId: "run-completed",
-      runtimeEvents: [],
-      turnItems: [
+    const runtimeState = normalizeAgentRunRuntimeStatePayload(canonicalRuntimeState("run-completed", [
         {
           itemId: "run-completed:user",
           sessionId: "WebSocket:chat-1",
@@ -214,7 +236,8 @@ describe("chat run model", () => {
           kind: "user_message",
           status: "completed",
           createdAt: "2026-07-03T01:00:00Z",
-          payload: {
+          data: {
+            type: "user_message",
             messageId: "user-completed",
             content: "Say hello",
           },
@@ -226,16 +249,15 @@ describe("chat run model", () => {
           kind: "assistant_message",
           status: "completed",
           createdAt: "2026-07-03T01:00:01Z",
-          payload: {
+          data: {
+            type: "assistant_message",
             messageId: "assistant-completed",
             content: "Hello",
           },
         },
-      ],
-    });
+      ]));
 
-    expect(runtimeState).not.toBeNull();
-    const turns = backendRuntimeStatesToTurns("WebSocket:chat-1", [runtimeState!], []);
+    const turns = backendRuntimeStatesToTurns("WebSocket:chat-1", [runtimeState]);
 
     expect(turns).toHaveLength(1);
     expect(turns[0]).toMatchObject({
@@ -250,36 +272,26 @@ describe("chat run model", () => {
   });
 
   test("orders restored runtime states by numeric millisecond timestamps", () => {
-    const early = normalizeAgentRunRuntimeStatePayload({
-      sessionId: "WebSocket:chat-1",
-      runId: "z-run-early",
-      turnItems: [{
+    const early = normalizeAgentRunRuntimeStatePayload(canonicalRuntimeState("z-run-early", [{
         itemId: "z-run-early:user",
         sessionId: "WebSocket:chat-1",
         turnId: "z-run-early",
         kind: "user_message",
         status: "completed",
         createdAt: "1782961828408",
-        payload: { content: "first restored prompt" },
-      }],
-    });
-    const late = normalizeAgentRunRuntimeStatePayload({
-      sessionId: "WebSocket:chat-1",
-      runId: "a-run-late",
-      turnItems: [{
+        data: { type: "user_message", messageId: "user-early", content: "first restored prompt" },
+      }]));
+    const late = normalizeAgentRunRuntimeStatePayload(canonicalRuntimeState("a-run-late", [{
         itemId: "a-run-late:user",
         sessionId: "WebSocket:chat-1",
         turnId: "a-run-late",
         kind: "user_message",
         status: "completed",
         createdAt: "1782961829408",
-        payload: { content: "second restored prompt" },
-      }],
-    });
+        data: { type: "user_message", messageId: "user-late", content: "second restored prompt" },
+      }]));
 
-    expect(early).not.toBeNull();
-    expect(late).not.toBeNull();
-    const turns = backendRuntimeStatesToTurns("WebSocket:chat-1", [late!, early!], []);
+    const turns = backendRuntimeStatesToTurns("WebSocket:chat-1", [late, early]);
 
     expect(turns.map((turn) => turn.id)).toEqual(["z-run-early", "a-run-late"]);
     expect(turns.map((turn) => turn.userMessage.text)).toEqual(["first restored prompt", "second restored prompt"]);

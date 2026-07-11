@@ -246,10 +246,39 @@ impl AgentRunTracePage {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentRunRuntimeState {
-    pub session_id: String,
-    pub run_id: String,
     pub runtime_events: Vec<crate::agent_loop_runtime_protocol::AgentRuntimeEventEnvelope>,
-    pub turn_items: Vec<crate::agent_loop_runtime_protocol::AgentTurnItem>,
+    pub timeline: crate::agent_loop_runtime_protocol::AgentTimelineSnapshot,
+}
+
+impl AgentRunRuntimeState {
+    pub fn from_runtime_events(
+        session_id: &str,
+        run_id: &str,
+        runtime_events: Vec<crate::agent_loop_runtime_protocol::AgentRuntimeEventEnvelope>,
+    ) -> Result<Self, WorkerProtocolError> {
+        let timeline = crate::agent_loop_runtime_protocol::project_timeline_snapshot(
+            session_id,
+            run_id,
+            &runtime_events,
+        )
+        .map_err(|reason| {
+            WorkerProtocolError::new(
+                WorkerProtocolErrorCode::InvalidProtocol,
+                "failed to project canonical agent timeline",
+                serde_json::json!({
+                    "sessionId": session_id,
+                    "runId": run_id,
+                    "reason": reason,
+                }),
+                false,
+                WorkerProtocolErrorSource::RustCore,
+            )
+        })?;
+        Ok(Self {
+            runtime_events,
+            timeline,
+        })
+    }
 }
 
 fn final_content_preview(record: &AgentRunRecord) -> Option<String> {

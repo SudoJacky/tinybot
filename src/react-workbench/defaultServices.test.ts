@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => {
     sessions: {
       list: vi.fn(),
       messages: vi.fn(),
+      agentRuns: vi.fn(),
+      agentRunRuntimeState: vi.fn(),
       delete: vi.fn(async () => ({ deleted: true })),
       patch: vi.fn(async () => ({})),
     },
@@ -96,6 +98,34 @@ function agentEvent({
   };
 }
 
+function canonicalRuntimeState(
+  runId: string,
+  items: Array<Record<string, unknown>>,
+  sessionId = "websocket:chat-1",
+): unknown {
+  return {
+    runtimeEvents: [],
+    timeline: {
+      schemaVersion: "tinybot.timeline.v1",
+      sessionId,
+      runId,
+      snapshotRevision: items.length,
+      items: items.map((item, index) => ({
+        schemaVersion: "tinybot.turn_item.v1",
+        itemId: `${runId}:item:${index + 1}`,
+        sessionId,
+        runId,
+        turnId: runId,
+        sequence: index + 1,
+        revision: 1,
+        status: "completed",
+        createdAt: `2026-07-04T12:00:0${index}.000Z`,
+        ...item,
+      })),
+    },
+  };
+}
+
 describe("default desktop app services", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -103,12 +133,13 @@ describe("default desktop app services", () => {
       items: [{ key: "websocket:chat-1", chat_id: "chat-1", title: "Live chat" }],
     });
     mocks.gatewayApi.sessions.messages.mockResolvedValue({ messages: [] });
+    mocks.gatewayApi.sessions.agentRuns.mockResolvedValue({ runs: [] });
+    mocks.gatewayApi.sessions.agentRunRuntimeState.mockResolvedValue(null);
   });
 
-  test("does not reload persisted messages over an active structured live stream", async () => {
+  test("does not infer canonical timeline rows from raw structured events", async () => {
     const services = createDesktopAppServices();
     await services.sessionStore.list();
-    expect(mocks.gatewayApi.sessions.messages).toHaveBeenCalledTimes(1);
 
     const socket = mocks.openGatewaySocket.mock.results[0]?.value;
     socket.handlers.onEvent({
@@ -127,18 +158,14 @@ describe("default desktop app services", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    await expect(services.chatStore.load("websocket:chat-1")).resolves.toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        id: "assistant-live",
-        role: "assistant",
-        status: "streaming",
-        text: "live",
-      }),
-    ]));
-    expect(mocks.gatewayApi.sessions.messages).toHaveBeenCalledTimes(1);
+    await expect(services.chatStore.load("websocket:chat-1")).resolves.toMatchObject({
+      source: "canonical",
+      turns: [],
+    });
+    expect(mocks.gatewayApi.sessions.messages).not.toHaveBeenCalled();
   });
 
-  test("notifies subscribers with updated usage from standalone usage frames", async () => {
+  test("keeps standalone usage frames out of canonical timeline state", async () => {
     const services = createDesktopAppServices();
     await services.sessionStore.list();
     const events: Array<{ type: string; message?: unknown }> = [];
@@ -187,107 +214,85 @@ describe("default desktop app services", () => {
 
     expect(events).toContainEqual(expect.objectContaining({
       type: "usage",
-      message: expect.objectContaining({
-        id: "assistant-live",
-        usage: expect.objectContaining({
-          completionTokens: 97,
-          contextWindowRemainingTokens: 127995,
-          contextWindowTokens: 128000,
-          contextWindowUsedTokens: 172,
-          estimatedContextTokens: 5,
-          promptTokens: 10,
-          totalTokens: 172,
-        }),
-      }),
     }));
+    expect(events.find((event) => event.type === "usage")?.message).toBeUndefined();
     expect(otherSessionEvents).not.toContainEqual(expect.objectContaining({ type: "usage" }));
-    expect(mocks.gatewayApi.sessions.messages).toHaveBeenCalledTimes(1);
+    expect(mocks.gatewayApi.sessions.messages).not.toHaveBeenCalled();
   });
 
-  test("maps live structured reasoning deltas to current chat thinking text", async () => {
+  test("loads reasoning from the canonical runtime snapshot", async () => {
+    mocks.gatewayApi.sessions.agentRuns.mockResolvedValue({ runs: [{ runId: "run-live" }] });
+    mocks.gatewayApi.sessions.agentRunRuntimeState.mockResolvedValue(canonicalRuntimeState("run-live", [
+      {
+        itemId: "user-live",
+        kind: "user_message",
+        data: { type: "user_message", messageId: "user-live", content: "Inspect context" },
+      },
+      {
+        itemId: "reasoning-live",
+        kind: "reasoning",
+        status: "running",
+        summary: "I am checking context.",
+        data: { type: "reasoning", summary: "I am checking context." },
+      },
+    ]));
     const services = createDesktopAppServices();
     await services.sessionStore.list();
 
-    const socket = mocks.openGatewaySocket.mock.results[0]?.value;
-    socket.handlers.onEvent({
-      kind: "agent.event",
-      chatId: "chat-1",
-      raw: agentEvent({
-        eventId: "event-reasoning-delta",
-        eventType: "reasoning.delta",
-        payload: {
-          message_id: "assistant-live",
+    await expect(services.chatStore.load("websocket:chat-1")).resolves.toMatchObject({
+      turns: [expect.objectContaining({
+        id: "run-live",
+        steps: [expect.objectContaining({
+          id: "reasoning-live",
+          kind: "reasoning",
           summary: "I am checking context.",
-          text: "I am checking context.",
-          visibility: "hidden",
-        },
-        sequence: 1,
-      }),
+          status: "running",
+        })],
+      })],
     });
-    await Promise.resolve();
-    await Promise.resolve();
-
-    await expect(services.chatStore.load("websocket:chat-1")).resolves.toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        id: "assistant-live",
-        reasoningText: "I am checking context.",
-        role: "assistant",
-        status: "streaming",
-      }),
-    ]));
   });
 
-  test("preserves detailed tool activity fields for React chat messages", async () => {
-    mocks.gatewayApi.sessions.messages.mockResolvedValue({
-      messages: [{
-        content: "Tool completed.",
-        message_id: "assistant-tool",
-        role: "assistant",
-        timestamp: "2026-07-04T12:00:00.000Z",
-        toolActivities: [{
-          approvalId: "approval-1",
-          approvalStatus: "approval_required",
-          argsText: "{\"path\":\"src/main.ts\"}",
-          childRunId: "child-run-1",
-          delegateId: "delegate-1",
-          delegateTask: "Review implementation",
-          delegateTitle: "Code reviewer",
-          delegateType: "review",
-          finalOutput: "Reviewed implementation.",
-          id: "tool-1",
-          kind: "result",
+  test("preserves canonical tool activity detail", async () => {
+    mocks.gatewayApi.sessions.agentRuns.mockResolvedValue({ runs: [{ runId: "run-tool" }] });
+    mocks.gatewayApi.sessions.agentRunRuntimeState.mockResolvedValue(canonicalRuntimeState("run-tool", [
+      {
+        itemId: "user-tool",
+        kind: "user_message",
+        data: { type: "user_message", messageId: "user-tool", content: "Read a file" },
+      },
+      {
+        itemId: "tool-1",
+        kind: "tool_call",
+        title: "workspace.read_file",
+        summary: "file contents",
+        data: {
+          type: "tool_call",
+          toolCallId: "tool-1",
           name: "workspace.read_file",
-          parentRunId: "parent-run-1",
-          parentTurnId: "parent-turn-1",
-          responseText: "file contents",
-          sessionKey: "websocket:chat-1",
           status: "completed",
-          traceRef: "trace-1",
-        }],
-      }],
-    });
+          args: { path: "src/main.ts" },
+          result: { summary: "file contents" },
+          detailId: "tool:tool-1",
+          timing: {},
+        },
+      },
+    ]));
     const services = createDesktopAppServices();
 
-    await expect(services.chatStore.load("websocket:chat-1")).resolves.toEqual([
-      expect.objectContaining({
-        toolCalls: [expect.objectContaining({
-          approvalId: "approval-1",
-          approvalStatus: "approval_required",
-          argsText: "{\"path\":\"src/main.ts\"}",
-          childRunId: "child-run-1",
-          delegateId: "delegate-1",
-          delegateTask: "Review implementation",
-          delegateTitle: "Code reviewer",
-          delegateType: "review",
-          finalOutput: "Reviewed implementation.",
-          parentRunId: "parent-run-1",
-          parentTurnId: "parent-turn-1",
-          responseText: "file contents",
-          sessionKey: "websocket:chat-1",
-          traceRef: "trace-1",
+    await expect(services.chatStore.load("websocket:chat-1")).resolves.toMatchObject({
+      turns: [expect.objectContaining({
+        steps: [expect.objectContaining({
+          id: "tool-1",
+          kind: "tool_call",
+          toolCall: expect.objectContaining({
+            argsPreview: "{\"path\":\"src/main.ts\"}",
+            id: "tool-1",
+            name: "workspace.read_file",
+            resultPreview: "file contents",
+          }),
         })],
-      }),
-    ]);
+      })],
+    });
   });
 
   test("resolves approval actions through the gateway approval routes", async () => {
@@ -459,6 +464,7 @@ describe("default desktop app services", () => {
       {
         type: "message",
         chat_id: "chat-created-from-empty",
+        client_event_id: expect.any(String),
         content: "inspect remote pull requests",
         use_persistent_rag: true,
       },
@@ -466,9 +472,10 @@ describe("default desktop app services", () => {
     await expect(services.sessionStore.list()).resolves.toEqual([
       expect.objectContaining({ id: "websocket:chat-created-from-empty" }),
     ]);
-    await expect(services.chatStore.load("websocket:chat-created-from-empty")).resolves.toEqual([
-      expect.objectContaining({ role: "user", text: "inspect remote pull requests" }),
-    ]);
+    await expect(services.chatStore.load("websocket:chat-created-from-empty")).resolves.toMatchObject({
+      source: "canonical",
+      turns: [],
+    });
   });
 
   test("leaves automatic title persistence to the backend for existing sessions", async () => {

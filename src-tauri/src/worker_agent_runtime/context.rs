@@ -312,7 +312,15 @@ fn initial_agent_messages(spec: &Value) -> Vec<Value> {
             .and_then(Value::as_str)
             .unwrap_or_default();
         if !content.trim().is_empty() {
-            return vec![serde_json::json!({ "role": role, "content": content })];
+            let mut message = serde_json::json!({ "role": role, "content": content });
+            if let Some(client_event_id) = input
+                .get("clientEventId")
+                .or_else(|| input.get("client_event_id"))
+                .and_then(Value::as_str)
+            {
+                message["clientEventId"] = Value::String(client_event_id.to_string());
+            }
+            return vec![message];
         }
     }
     Vec::new()

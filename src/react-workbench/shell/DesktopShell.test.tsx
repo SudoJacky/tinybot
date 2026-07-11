@@ -9,6 +9,7 @@ import { buildAgentDefaultsSettings } from "../../app-core/settings/agentDefault
 import { buildProviderModelsSettings } from "../../app-core/settings/providerModelsSettings";
 import type { AppServices, SessionSummary } from "../services";
 import type { ReactChatMessage } from "../chat/messageActions";
+import { timelineFromReactMessages } from "../chat/testTimelineFixtures";
 
 afterEach(() => cleanup());
 
@@ -34,7 +35,7 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
       archive: vi.fn(async () => undefined),
     },
     chatStore: {
-      load: vi.fn(async () => options.messages ?? []),
+      load: vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, options.messages ?? [])),
       send: vi.fn(async () => undefined),
       stop: vi.fn(async () => undefined),
       resolveApproval: vi.fn(async () => undefined),

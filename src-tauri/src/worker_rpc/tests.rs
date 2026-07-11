@@ -5274,7 +5274,7 @@ fn dispatches_thread_agent_registry_for_parent_and_child_threads() {
         .as_array()
         .unwrap()
         .iter()
-        .any(|item| item["kind"] == "approval_request"));
+        .any(|item| item["kind"] == "approval"));
     assert_eq!(
         result["agents"][1]["pendingApproval"]["approvalId"],
         "approval-child-1"
@@ -7564,11 +7564,11 @@ fn dispatches_agent_run_store_round_trip_requests() {
         "run-1"
     );
     assert_eq!(
-        runtime_state.result.as_ref().unwrap()["turnItems"][0]["kind"],
+        runtime_state.result.as_ref().unwrap()["timeline"]["items"][0]["kind"],
         "tool_call"
     );
     assert_eq!(
-        runtime_state.result.as_ref().unwrap()["turnItems"][1]["kind"],
+        runtime_state.result.as_ref().unwrap()["timeline"]["items"][1]["kind"],
         "assistant_message"
     );
     assert_eq!(completed.result.as_ref().unwrap()["status"], "completed");
@@ -7733,8 +7733,8 @@ fn dispatches_agent_run_trace_and_runtime_state_from_thread_items() {
         "agent.awaiting_approval"
     );
     assert_eq!(
-        runtime_state.result.as_ref().unwrap()["turnItems"][0]["kind"],
-        "approval_request"
+        runtime_state.result.as_ref().unwrap()["timeline"]["items"][0]["kind"],
+        "approval"
     );
 
     let status = router.dispatch(&WorkerRequest::new(
@@ -7750,7 +7750,7 @@ fn dispatches_agent_run_trace_and_runtime_state_from_thread_items() {
     );
     assert_eq!(
         status.result.as_ref().unwrap()["turnItems"][0]["kind"],
-        "approval_request"
+        "approval"
     );
 
     let read = router.dispatch(&WorkerRequest::new(
@@ -7766,7 +7766,7 @@ fn dispatches_agent_run_trace_and_runtime_state_from_thread_items() {
     );
     assert_eq!(
         read.result.as_ref().unwrap()["turnItems"][0]["kind"],
-        "approval_request"
+        "approval"
     );
 }
 
@@ -7939,11 +7939,11 @@ fn dispatches_agent_run_reads_legacy_session_backed_runs() {
     assert_eq!(get.result.as_ref().unwrap()["status"], "completed");
     assert_eq!(runtime_state.error, None);
     assert_eq!(
-        runtime_state.result.as_ref().unwrap()["turnItems"][0]["kind"],
+        runtime_state.result.as_ref().unwrap()["timeline"]["items"][0]["kind"],
         "assistant_message"
     );
     assert_eq!(
-        runtime_state.result.as_ref().unwrap()["turnItems"][0]["payload"]["content"],
+        runtime_state.result.as_ref().unwrap()["timeline"]["items"][0]["data"]["content"],
         "Legacy final response"
     );
 }
@@ -8041,7 +8041,7 @@ fn dispatches_thread_status_includes_active_child_activity() {
     );
     assert_eq!(
         status.result.as_ref().unwrap()["childActivities"][0]["turnItems"][0]["kind"],
-        "approval_request"
+        "approval"
     );
 
     let read = router.dispatch(&WorkerRequest::new(
@@ -8061,7 +8061,7 @@ fn dispatches_thread_status_includes_active_child_activity() {
     );
     assert_eq!(
         read.result.as_ref().unwrap()["childActivities"][0]["turnItems"][0]["kind"],
-        "approval_request"
+        "approval"
     );
 
     let events = router.dispatch(&WorkerRequest::new(
@@ -8081,7 +8081,7 @@ fn dispatches_thread_status_includes_active_child_activity() {
     );
     assert_eq!(
         events.result.as_ref().unwrap()["childActivities"][0]["turnItems"][0]["kind"],
-        "approval_request"
+        "approval"
     );
     assert_eq!(
         events.result.as_ref().unwrap()["events"][2]["type"],
@@ -8093,7 +8093,7 @@ fn dispatches_thread_status_includes_active_child_activity() {
     );
     assert_eq!(
         events.result.as_ref().unwrap()["events"][2]["childActivity"]["turnItems"][0]["kind"],
-        "approval_request"
+        "approval"
     );
 }
 
@@ -8716,7 +8716,14 @@ fn dispatches_session_task_progress_upsert_request() {
             "session_id": "session-1",
             "plan_id": "plan-1",
             "content": "first progress",
-            "progress": { "completed": 0, "total": 2 }
+            "progress": {
+                "completed": 0,
+                "total": 2,
+                "steps": [
+                    { "step": "Inspect session", "status": "in_progress" },
+                    { "step": "Finish session", "status": "pending" }
+                ]
+            }
         }),
     ));
     let second = router.dispatch(&WorkerRequest::new(
@@ -8727,7 +8734,14 @@ fn dispatches_session_task_progress_upsert_request() {
             "session_id": "session-1",
             "plan_id": "plan-1",
             "content": "updated progress",
-            "progress": { "completed": 1, "total": 2 }
+            "progress": {
+                "completed": 1,
+                "total": 2,
+                "steps": [
+                    { "step": "Inspect session", "status": "completed" },
+                    { "step": "Finish session", "status": "in_progress" }
+                ]
+            }
         }),
     ));
 

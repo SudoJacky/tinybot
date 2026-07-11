@@ -45,8 +45,9 @@ pub use self::context_contributors::{
 pub use self::hooks::{AgentHook, AgentHookDecision, AgentHookInvocation, AgentHookStage};
 pub(crate) use self::instructions::{ComposedInstructions, InstructionComposer};
 pub use self::items::{
-    AgentAssistantMessage, AgentContentPart, AgentInstructionMessage, AgentInstructionRole,
-    AgentItem, AgentItemHistory, AgentMessage, AgentMessageContent, AgentPlanProgressItem,
+    validate_and_normalize_plan_steps, AgentAssistantMessage, AgentContentPart,
+    AgentInstructionMessage, AgentInstructionRole, AgentItem, AgentItemHistory, AgentMessage,
+    AgentMessageContent, AgentPlanProgressItem, AgentPlanStep, AgentPlanStepStatus,
     AgentReasoningItem, AgentToolCallItem, AgentToolResultItem, AgentUsageItem,
 };
 use self::provider::{
@@ -386,12 +387,29 @@ pub trait NativeAgentCancellation: Send + Sync {
 }
 
 pub trait NativeAgentTraceSink: Send + Sync {
+    fn load_runtime_events(
+        &self,
+        _session_id: &str,
+        _run_id: &str,
+    ) -> Result<Vec<AgentRuntimeEventEnvelope>, String> {
+        Ok(Vec::new())
+    }
+
     fn append_trace_event(
         &self,
         session_id: &str,
         run_id: &str,
         event: &AgentRuntimeEventEnvelope,
     ) -> Result<(), String>;
+
+    fn append_timeline_patch(
+        &self,
+        _session_id: &str,
+        _run_id: &str,
+        _patch: &crate::agent_loop_runtime_protocol::AgentTimelinePatch,
+    ) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 #[derive(Clone)]

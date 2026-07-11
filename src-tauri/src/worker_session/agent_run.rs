@@ -118,15 +118,11 @@ impl WorkerSessionRpc {
             .enumerate()
             .filter_map(|(index, event)| runtime_event_from_trace_value(&record, index, event))
             .collect::<Vec<_>>();
-        let turn_items = crate::agent_loop_runtime_protocol::project_turn_items_from_trace_events(
-            &runtime_events,
-        );
-        Ok(AgentRunRuntimeState {
-            session_id: record.session_id,
-            run_id: record.run_id,
+        AgentRunRuntimeState::from_runtime_events(
+            &record.session_id,
+            &record.run_id,
             runtime_events,
-            turn_items,
-        })
+        )
     }
 
     pub fn append_agent_run_trace_event(

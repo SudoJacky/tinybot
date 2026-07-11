@@ -687,8 +687,32 @@ remain ignored.
 ### Deferred tool discovery and checkpoints
 
 The native agent provider initially receives the capability-allowed model tools plus the runtime
-control tool `tool_search`. Deferred tools are not included until the model searches for them in the
+control tools `update_plan` and `tool_search`. `update_plan` remains available when `selectedTools`
+limits ordinary tools. Deferred tools are not included until the model searches for them in the
 current run.
+
+`update_plan` tracks the execution checklist for non-trivial work. Every call replaces the complete
+plan snapshot for the current run:
+
+```json
+{
+  "explanation": "The repository inspection changed the implementation order.",
+  "plan": [
+    { "step": "Inspect the timeline model", "status": "completed" },
+    { "step": "Implement plan updates", "status": "in_progress" },
+    { "step": "Run acceptance tests", "status": "pending" }
+  ]
+}
+```
+
+Statuses are `pending`, `in_progress`, and `completed`. An incomplete plan must have exactly one
+`in_progress` step; a completed plan has none. Empty, duplicate, oversized, unknown, or inconsistent
+input returns an explicit tool error to the model so it can correct the snapshot without terminating
+the turn. A valid update returns `Plan updated` to the model and emits one
+`agent.plan.progress` item keyed by `<runId>:plan`; later calls revise that item instead of adding
+rows. Derived `completed`, `total`, and `currentStep` values are validated against `steps`. The event
+and its canonical timeline patch use the normal trace persistence path, so live delivery and reload
+project the same plan item.
 
 The catalog is the deterministic projection of registered tool contributors. Workspace tools,
 generic MCP dispatch, and per-server MCP discovery all enter through this registry; feature-specific
@@ -810,6 +834,72 @@ checkpoint and returns `stopReason: "form_cancelled"` with an observable resolut
 | `worker_session_branch` | `{ input: { body: unknown } }` | branch result |
 | `worker_session_clear` | `{ input: { key: string } }` | clear result |
 | `worker_session_task_progress` | `{ input: { key: string, body: unknown } }` | task progress result |
+
+`worker_agent_run_runtime_state` returns raw runtime events for diagnostics and one canonical
+timeline snapshot for product rendering. The former `turnItems` response field is not part of the
+contract.
+
+```json
+{
+  "runtimeEvents": [],
+  "timeline": {
+    "schemaVersion": "tinybot.timeline.v1",
+    "sessionId": "websocket:chat-1",
+    "runId": "run-1",
+    "snapshotRevision": 2,
+    "items": [
+      {
+        "schemaVersion": "tinybot.turn_item.v1",
+        "itemId": "message-1",
+        "sessionId": "websocket:chat-1",
+        "runId": "run-1",
+        "turnId": "run-1",
+        "sequence": 4,
+        "revision": 2,
+        "kind": "assistant_message",
+        "status": "completed",
+        "createdAt": "2026-07-11T00:00:00Z",
+        "updatedAt": "2026-07-11T00:00:01Z",
+        "data": {
+          "type": "assistant_message",
+          "messageId": "message-1",
+          "content": "Done"
+        }
+      }
+    ]
+  }
+}
+```
+
+`item.sequence` is the source runtime-event position and never changes for an existing item.
+`item.revision` advances for each mutation of that item. `snapshotRevision` counts canonical
+timeline mutations only; diagnostic runtime events that do not produce an item do not advance it.
+This makes live patch revisions contiguous while preserving source ordering.
+
+Canonical `user_message` data also carries optional `clientEventId`. The desktop sends this ID in
+the WebSocket message frame, the native transport preserves it in the Agent input, and the runtime
+echoes it in the canonical user item. It is a reconciliation identity and does not replace the
+durable `messageId`.
+
+Product-facing canonical item data includes the following lifecycle details:
+
+- `form`: `formId`, `fieldIds`, `status`, optional `action`, submitted `values`, and validation
+  `errors`. The canonical item owns lifecycle/result state; the Agent UI form registry remains the
+  authority for interactive field definitions.
+- `plan_progress`: optional `explanation`, the complete typed `steps` snapshot, and backend-derived
+  `completed`, `total`, and optional `currentStep`.
+- `context_compaction`: `droppedItemCount` plus optional `estimatedTokensBefore` and
+  `estimatedTokensAfter`.
+- `file_reference`: stable `id`, `path`, optional `mimeType`, and `referenceKind`. `parentItemId`
+  associates the reference with its owning Tool, Form, or Subagent item.
+- `error`: `code`, `message`, and `cancelled`. An error with `parentItemId` is scoped to its owner;
+  errors without a parent remain terminal timeline rows.
+
+The desktop loads Subagent traces and artifact content through
+`worker_background_trace_get_delegate_trace` and `worker_background_trace_get_artifact`. Timeline
+paths are metadata only and are never used directly as browser image URLs. Raster previews accept
+only backend-returned base64 `data:image` content for PNG, JPEG, GIF, or WebP; SVG and arbitrary
+URLs remain inert text/metadata.
 
 Key response shapes used by the lower-level session RPC:
 
@@ -1612,6 +1702,7 @@ Additional methods:
 
 The Rust backend can emit live events through Tauri. Dotted worker event names are normalized for frontend listeners elsewhere, but the native contract inventories these source event names:
 
+- `agent.timeline.patch`
 - `agent.delta`
 - `agent.reasoning_delta`
 - `agent.tool_call.delta`
@@ -1658,8 +1749,29 @@ Runtime event `itemId` is derived from the same typed item ID, so live delivery,
 and replay refer to one semantic item. Unknown or malformed internally constructed semantic events
 fail at the projection boundary instead of being persisted as an incomplete item.
 
-`session.task_progress.upsert` persists the same `plan_progress` item under `_agent_item` in its
-compatibility progress message. User message content parts of type `file`, `input_file`,
+`agent.timeline.patch` is the product-facing live update and is produced by the same projector as
+the runtime-state snapshot:
+
+```json
+{
+  "schemaVersion": "tinybot.timeline_patch.v1",
+  "sessionId": "websocket:chat-1",
+  "runId": "run-1",
+  "snapshotRevision": 3,
+  "item": {}
+}
+```
+
+The frontend applies patches by run ID and item ID. A revision gap triggers an authoritative
+snapshot reload and reapplication of the received patch. If the reload still cannot close the gap,
+the error remains visible. Identity/schema mismatches and terminal-state regressions are rejected;
+lower item revisions are ignored with a diagnostic. Raw events remain available for traces but are
+not a second Chat state source.
+
+`session.task_progress.upsert` requires the same complete `steps` snapshot and persists the resulting
+`plan_progress` item under `_agent_item` in its compatibility progress message. Counter-only payloads
+are rejected; provided counters and current-step values must match the backend-derived values. User
+message content parts of type `file`, `input_file`,
 `image_url`, or `input_image` emit one `agent.file.reference` event per reference; image references
 use `referenceKind: "image"` and file references use `referenceKind: "file"`.
 

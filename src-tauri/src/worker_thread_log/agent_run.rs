@@ -3,8 +3,7 @@ use super::{
     AgentRunRecoveryEntry, AgentRunRecoveryReport, WorkerThreadLogRpc,
 };
 use crate::agent_loop_runtime_protocol::{
-    project_turn_items_from_trace_events, AgentRuntimeEventEnvelope,
-    LegacyNativeAgentEventEnvelopeInput,
+    AgentRuntimeEventEnvelope, LegacyNativeAgentEventEnvelopeInput,
 };
 use crate::worker_capability::WorkerCapability;
 use crate::worker_protocol::{
@@ -202,13 +201,11 @@ impl WorkerThreadLogRpc {
             .enumerate()
             .filter_map(|(index, event)| runtime_event_from_trace_value(&record, index, event))
             .collect::<Vec<_>>();
-        let turn_items = project_turn_items_from_trace_events(&runtime_events);
-        Ok(Some(AgentRunRuntimeState {
-            session_id: session_id.to_string(),
-            run_id: run_id.to_string(),
+        Ok(Some(AgentRunRuntimeState::from_runtime_events(
+            session_id,
+            run_id,
             runtime_events,
-            turn_items,
-        }))
+        )?))
     }
 
     pub fn set_agent_run_checkpoint(

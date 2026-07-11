@@ -182,6 +182,7 @@ pub fn webui_route_inventory_entry(method: &str, path: &str) -> Option<NativeRou
 }
 
 pub const NATIVE_AGENT_EVENT_NAMES: &[&str] = &[
+    "agent.timeline.patch",
     "agent.delta",
     "agent.reasoning_delta",
     "agent.tool_call.delta",
@@ -193,6 +194,7 @@ pub const NATIVE_AGENT_EVENT_NAMES: &[&str] = &[
     "agent.awaiting_form",
     "agent.awaiting_approval",
     "agent.memory_reference",
+    "agent.plan.progress",
     "agent.task_progress",
     "agent.browser_frame",
     "agent.delegate.started",

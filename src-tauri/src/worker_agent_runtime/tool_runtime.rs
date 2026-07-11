@@ -17,8 +17,11 @@ use super::{
 };
 use crate::agent_loop_runtime_protocol::AgentRuntimePhase;
 use crate::worker_tool_registry::{ToolApprovalMetadata, ToolCancellationMode};
-use crate::worker_tool_registry::{REQUEST_USER_INPUT_METHOD, TOOL_SEARCH_METHOD};
+use crate::worker_tool_registry::{
+    REQUEST_USER_INPUT_METHOD, TOOL_SEARCH_METHOD, UPDATE_PLAN_METHOD,
+};
 use futures_util::FutureExt;
+use serde::Deserialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::panic::AssertUnwindSafe;
@@ -31,6 +34,14 @@ use tokio_util::sync::CancellationToken;
 pub(super) enum NativeAgentToolExecutionOutcome {
     Continue,
     Finished(Value),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UpdatePlanArgs {
+    #[serde(default)]
+    explanation: Option<String>,
+    plan: Vec<super::AgentPlanStep>,
 }
 
 pub(super) enum OwnedToolCallResult {
@@ -427,6 +438,37 @@ pub(super) async fn execute_tool_calls_for_iteration(
 
     if tool_calls
         .iter()
+        .any(|tool_call| tool_call.name == UPDATE_PLAN_METHOD)
+    {
+        if tool_calls.len() != 1 {
+            let tool_call = tool_calls
+                .iter()
+                .find(|tool_call| tool_call.name == UPDATE_PLAN_METHOD)
+                .expect("update_plan presence was checked");
+            return tool_error_result(
+                services,
+                context,
+                state,
+                iteration,
+                tool_call,
+                "update_plan must be the only tool call in its provider response".to_string(),
+            );
+        }
+        let tool_call = tool_calls
+            .into_iter()
+            .next()
+            .expect("single update_plan call should exist");
+        let tool_call = match prepare_special_tool_call(context, state, tool_call.clone()) {
+            Ok(tool_call) => tool_call,
+            Err(error) => {
+                return tool_error_result(services, context, state, iteration, &tool_call, error);
+            }
+        };
+        return execute_update_plan(services, context, state, iteration, tool_call);
+    }
+
+    if tool_calls
+        .iter()
         .any(|tool_call| tool_call.name == REQUEST_USER_INPUT_METHOD)
     {
         if tool_calls.len() != 1 {
@@ -780,6 +822,164 @@ fn execute_tool_search(
         }),
     );
     NativeAgentToolExecutionOutcome::Continue
+}
+
+fn execute_update_plan(
+    services: &NativeAgentRuntimeServices,
+    context: &NativeAgentRunContext,
+    state: &mut NativeAgentRunState,
+    iteration: i64,
+    tool_call: NativeAgentToolCall,
+) -> NativeAgentToolExecutionOutcome {
+    context.metrics().increment("tool.started");
+    let tool_started_at = std::time::Instant::now();
+    let mut plan = match parse_update_plan_args(&tool_call.arguments_json) {
+        Ok(plan) => plan,
+        Err(error) => {
+            context
+                .metrics()
+                .record_duration("tool.durationMs", tool_started_at.elapsed());
+            context.metrics().increment("tool.failed");
+            return recoverable_update_plan_error(
+                services, context, state, iteration, tool_call, error,
+            );
+        }
+    };
+    let derived = super::validate_and_normalize_plan_steps(&mut plan.plan)
+        .expect("update_plan arguments were validated before execution");
+    let completed = derived.completed;
+    let total = derived.total;
+    let current_step = derived.current_step;
+    let summary = plan
+        .explanation
+        .clone()
+        .or_else(|| current_step.clone())
+        .unwrap_or_else(|| "Plan completed".to_string());
+    let plan_id = format!("{}:plan", context.run_id);
+
+    state.tools_used.push(tool_call.name.clone());
+    state.transition_phase(
+        AgentRuntimePhase::ToolRunning,
+        iteration,
+        "agent.plan.progress",
+    );
+    state.emit_event(
+        "agent.plan.progress",
+        serde_json::json!({
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "iteration": iteration,
+            "planId": plan_id,
+            "explanation": plan.explanation,
+            "steps": plan.plan,
+            "summary": summary,
+            "completed": completed,
+            "total": total,
+            "currentStep": current_step,
+        }),
+    );
+
+    let result = super::NativeAgentToolResult::generic_success(
+        &tool_call,
+        Value::String("Plan updated".to_string()),
+    );
+    let observation_content = tool_observation_content(&result);
+    state
+        .messages
+        .push(tool_observation_message(&tool_call, &observation_content));
+    state
+        .completed_tool_results
+        .push(completed_tool_result_entry(&tool_call, &result));
+    context
+        .metrics()
+        .record_duration("tool.durationMs", tool_started_at.elapsed());
+    context.metrics().increment("tool.completed");
+
+    let after_invocation = AgentHookInvocation::tool(
+        AgentHookStage::AfterToolUse,
+        context.trace_context.clone(),
+        tool_call.id.clone(),
+        tool_call.name.clone(),
+        None,
+        Some("completed".to_string()),
+    );
+    let after_evaluation = match context.evaluate_hook(after_invocation.clone()) {
+        Ok(evaluation) => evaluation,
+        Err(error) => {
+            return tool_error_result(services, context, state, iteration, &tool_call, error);
+        }
+    };
+    state.emit_hook_evaluation(&after_invocation, &after_evaluation);
+    state.transition_phase(
+        AgentRuntimePhase::Planning,
+        iteration,
+        "agent.plan.progress",
+    );
+    save_phase_checkpoint(
+        services,
+        context,
+        state.phase.as_str(),
+        state.active_checkpoint_payload("plan_updated"),
+    );
+    NativeAgentToolExecutionOutcome::Continue
+}
+
+fn recoverable_update_plan_error(
+    services: &NativeAgentRuntimeServices,
+    context: &NativeAgentRunContext,
+    state: &mut NativeAgentRunState,
+    iteration: i64,
+    tool_call: NativeAgentToolCall,
+    error: String,
+) -> NativeAgentToolExecutionOutcome {
+    state.tools_used.push(tool_call.name.clone());
+    let result = super::NativeAgentToolResult::generic_error(&tool_call, error);
+    record_tool_success(context, state, iteration, tool_call.clone(), result);
+    let after_invocation = AgentHookInvocation::tool(
+        AgentHookStage::AfterToolUse,
+        context.trace_context.clone(),
+        tool_call.id.clone(),
+        tool_call.name.clone(),
+        None,
+        Some("failed".to_string()),
+    );
+    let after_evaluation = match context.evaluate_hook(after_invocation.clone()) {
+        Ok(evaluation) => evaluation,
+        Err(error) => {
+            return tool_error_result(services, context, state, iteration, &tool_call, error);
+        }
+    };
+    state.emit_hook_evaluation(&after_invocation, &after_evaluation);
+    state.clear_pending_tool_calls();
+    state.transition_phase(AgentRuntimePhase::Planning, iteration, "agent.tool.result");
+    save_phase_checkpoint(
+        services,
+        context,
+        state.phase.as_str(),
+        state.active_checkpoint_payload("plan_rejected"),
+    );
+    NativeAgentToolExecutionOutcome::Continue
+}
+
+fn parse_update_plan_args(arguments_json: &str) -> Result<UpdatePlanArgs, String> {
+    let mut args = serde_json::from_str::<UpdatePlanArgs>(arguments_json)
+        .map_err(|error| format!("invalid update_plan arguments: {error}"))?;
+    if let Some(explanation) = args.explanation.as_mut() {
+        *explanation = explanation.trim().to_string();
+        if explanation.is_empty() {
+            return Err("invalid update_plan arguments: explanation must not be empty".to_string());
+        }
+        if explanation.chars().count() > 1024 {
+            return Err(
+                "invalid update_plan arguments: explanation must not exceed 1024 characters"
+                    .to_string(),
+            );
+        }
+    }
+
+    super::validate_and_normalize_plan_steps(&mut args.plan)
+        .map_err(|error| format!("invalid update_plan arguments: {error}"))?;
+    Ok(args)
 }
 
 async fn execute_sequential_tool_batch(
@@ -1930,5 +2130,51 @@ fn emit_pending_tool_hook_evaluations(
 ) {
     for (invocation, evaluation) in context.drain_hook_evaluations() {
         state.emit_hook_evaluation(&invocation, &evaluation);
+    }
+}
+
+#[cfg(test)]
+mod update_plan_tests {
+    use super::*;
+
+    #[test]
+    fn update_plan_arguments_are_trimmed_and_typed() {
+        let args = parse_update_plan_args(
+            r#"{"explanation":"  Adjusted order  ","plan":[{"step":"  Inspect code  ","status":"in_progress"},{"step":"Run tests","status":"pending"}]}"#,
+        )
+        .expect("valid update_plan arguments should parse");
+
+        assert_eq!(args.explanation.as_deref(), Some("Adjusted order"));
+        assert_eq!(args.plan[0].step, "Inspect code");
+        assert_eq!(
+            args.plan[0].status,
+            super::super::AgentPlanStepStatus::InProgress
+        );
+    }
+
+    #[test]
+    fn update_plan_rejects_invalid_execution_state() {
+        for (arguments, expected) in [
+            (
+                r#"{"plan":[{"step":"One","status":"pending"}]}"#,
+                "exactly one in_progress",
+            ),
+            (
+                r#"{"plan":[{"step":"One","status":"in_progress"},{"step":"Two","status":"in_progress"}]}"#,
+                "at most one step",
+            ),
+            (
+                r#"{"plan":[{"step":"One","status":"in_progress"},{"step":"One","status":"pending"}]}"#,
+                "duplicate step",
+            ),
+            (r#"{"plan":[],"ignored":true}"#, "unknown field"),
+        ] {
+            let error = parse_update_plan_args(arguments)
+                .expect_err("invalid update_plan arguments should fail visibly");
+            assert!(
+                error.contains(expected),
+                "expected `{expected}` in `{error}`"
+            );
+        }
     }
 }

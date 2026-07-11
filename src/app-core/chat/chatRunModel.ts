@@ -176,7 +176,78 @@ export type ApprovalState = {
   toolCallId?: string;
 };
 
+export type LoadedArtifactDetail = {
+  id: string;
+  imageDataUrl?: string;
+  mimeType?: string;
+  textContent?: string;
+  title: string;
+};
+
+export function projectLoadedArtifactDetail(
+  reference: ArtifactRef,
+  payload: unknown,
+): LoadedArtifactDetail {
+  const root = recordValue(payload);
+  const artifact = recordValue(root.artifact ?? payload);
+  if (!Object.keys(artifact).length) {
+    throw new Error(`Artifact payload is invalid for ${reference.id}.`);
+  }
+  const id = stringValue(artifact.artifactId ?? artifact.artifact_id ?? artifact.id) || reference.id;
+  if (id !== reference.id) {
+    throw new Error(`Artifact ${id} does not match ${reference.id}.`);
+  }
+  const content = stringValue(artifact.content ?? artifact.preview);
+  const mimeType = stringValue(artifact.mimeType ?? artifact.mime_type) || reference.mimeType;
+  const imageDataUrl = safeRasterImageDataUrl(content);
+  return {
+    id,
+    ...(imageDataUrl ? { imageDataUrl } : {}),
+    ...(mimeType ? { mimeType } : {}),
+    ...(!imageDataUrl && content ? { textContent: safeArtifactText(content) } : {}),
+    title: stringValue(artifact.title) || reference.title,
+  };
+}
+
+function safeRasterImageDataUrl(value: string): string | undefined {
+  return /^data:image\/(?:png|jpeg|gif|webp);base64,[a-z0-9+/=]+$/i.test(value)
+    ? value
+    : undefined;
+}
+
+export type FormState = {
+  action?: string;
+  errors?: Record<string, string>;
+  fieldIds: string[];
+  formId: string;
+  values?: unknown;
+};
+
+export type PlanState = {
+  completed: number;
+  currentStep?: string;
+  explanation?: string;
+  steps: Array<{
+    status: "pending" | "in_progress" | "completed";
+    step: string;
+  }>;
+  total: number;
+};
+
+export type CompactionState = {
+  droppedItemCount: number;
+  estimatedTokensAfter?: number;
+  estimatedTokensBefore?: number;
+};
+
+export type ScopedErrorState = {
+  cancelled: boolean;
+  code: string;
+  message: string;
+};
+
 export type ChatMessage = {
+  clientEventId?: string;
   id: string;
   references?: NativeChatReference[];
   role: "user" | "assistant";
@@ -194,6 +265,8 @@ export type ChatStepKind =
   | "artifact"
   | "browser"
   | "form"
+  | "plan"
+  | "compaction"
   | "memory"
   | "error";
 
@@ -201,14 +274,18 @@ export type ChatStep = {
   agentContext: AgentContext;
   approval?: ApprovalState;
   artifacts?: ArtifactRef[];
+  compaction?: CompactionState;
   completedAt?: string;
   delegate?: DelegatedAgentState;
   error?: unknown;
+  form?: FormState;
   id: string;
   kind: ChatStepKind;
   messageId?: string;
   parentStepId?: string;
+  plan?: PlanState;
   references?: NativeChatReference[];
+  scopedErrors?: ScopedErrorState[];
   sequence: number;
   startedAt?: string;
   status: ChatStepStatus;
@@ -262,24 +339,77 @@ export type AgentEventEnvelope = {
   turn_id: string;
 };
 
+export type CanonicalTurnItemKind =
+  | "user_message"
+  | "assistant_message"
+  | "reasoning"
+  | "tool_call"
+  | "approval"
+  | "form"
+  | "subagent_lifecycle"
+  | "subagent_message"
+  | "plan_progress"
+  | "context_compaction"
+  | "usage"
+  | "file_reference"
+  | "error"
+  | "system_notice";
+
+export type CanonicalTurnItemData = Record<string, unknown> & (
+  | { type: "user_message"; messageId?: string | null; clientEventId?: string | null; content: string }
+  | { type: "assistant_message"; messageId?: string | null; content: string }
+  | { type: "reasoning"; summary: string }
+  | { type: "tool_call"; toolCallId: string; name: string; status: string; args: unknown; result: unknown; detailId?: string | null; timing: unknown }
+  | { type: "approval"; approvalId: string; toolCallId?: string | null; status: string; reason?: string | null; decision?: string | null; scope?: string | null; guidance?: string | null; detailId?: string | null }
+  | { type: "form"; formId: string; status: string; title?: string | null; action?: string | null; fieldIds: string[]; values: unknown; errors?: Record<string, string> | null; detailId?: string | null }
+  | { type: "subagent_lifecycle"; agentId: string; action: string; status: string; message?: string | null; childRunId?: string | null; traceRef?: string | null }
+  | { type: "subagent_message"; agentId: string; messageId: string; content: string; visibility: string }
+  | { type: "plan_progress"; id: string; explanation?: string | null; steps: Array<{ step: string; status: "pending" | "in_progress" | "completed" }>; summary: string; completed: number; total: number; currentStep?: string | null }
+  | { type: "context_compaction"; id: string; summary: string; droppedItemCount: number; estimatedTokensBefore?: number | null; estimatedTokensAfter?: number | null }
+  | { type: "usage"; id?: string | null; inputTokens?: number | null; outputTokens?: number | null; totalTokens?: number | null; providerPayload: unknown }
+  | { type: "file_reference"; id: string; path: string; mimeType?: string | null; referenceKind: string }
+  | { type: "error"; id?: string | null; code: string; message: string; cancelled: boolean }
+  | { type: "system_notice"; message: string; detail: unknown }
+);
+
 export type BackendAgentTurnItem = {
+  schemaVersion: "tinybot.turn_item.v1";
   itemId: string;
   sessionId: string;
+  threadId?: string;
+  runId: string;
   turnId: string;
-  kind: string;
+  parentItemId?: string;
+  sequence: number;
+  revision: number;
+  kind: CanonicalTurnItemKind;
   status: string;
   createdAt: string;
   updatedAt?: string;
   title?: string;
   summary?: string;
-  payload?: Record<string, unknown>;
+  data: CanonicalTurnItemData;
+};
+
+export type BackendAgentTimelineSnapshot = {
+  schemaVersion: "tinybot.timeline.v1";
+  sessionId: string;
+  runId: string;
+  snapshotRevision: number;
+  items: BackendAgentTurnItem[];
 };
 
 export type BackendAgentRunRuntimeState = {
+  runtimeEvents?: unknown[];
+  timeline: BackendAgentTimelineSnapshot;
+};
+
+export type BackendAgentTimelinePatch = {
+  schemaVersion: "tinybot.timeline_patch.v1";
   sessionId: string;
   runId: string;
-  runtimeEvents?: unknown[];
-  turnItems: BackendAgentTurnItem[];
+  snapshotRevision: number;
+  item: BackendAgentTurnItem;
 };
 
 export type ChatInspectorPanel = {
@@ -390,63 +520,143 @@ export function legacyMessagesToTurns(sessionKey: string, messages: NativeChatMe
   return turns;
 }
 
-export function normalizeAgentRunRuntimeStatePayload(payload: unknown): BackendAgentRunRuntimeState | null {
+export function normalizeAgentRunRuntimeStatePayload(payload: unknown): BackendAgentRunRuntimeState {
   const value = recordValue(payload);
-  const sessionId = stringValue(value.sessionId ?? value.session_id);
-  const runId = stringValue(value.runId ?? value.run_id);
-  const rawTurnItems = Array.isArray(value.turnItems)
-    ? value.turnItems
-    : Array.isArray(value.turn_items)
-      ? value.turn_items
-      : [];
-  if (!sessionId || !runId) {
-    return null;
-  }
-  const turnItems = rawTurnItems
-    .filter(isRecord)
-    .map((item): BackendAgentTurnItem => {
-      const itemId = stringValue(item.itemId ?? item.item_id) || stableId("item", runId, stringValue(item.kind), rawTurnItems.indexOf(item));
-      return {
-        itemId,
-        sessionId: stringValue(item.sessionId ?? item.session_id) || sessionId,
-        turnId: stringValue(item.turnId ?? item.turn_id) || runId,
-        kind: stringValue(item.kind),
-        status: stringValue(item.status),
-        createdAt: stringValue(item.createdAt ?? item.created_at),
-        updatedAt: stringValue(item.updatedAt ?? item.updated_at),
-        title: stringValue(item.title),
-        summary: safeArtifactText(stringValue(item.summary)),
-        payload: recordValue(item.payload),
-      };
-    });
+  const timeline = normalizeAgentTimelineSnapshotPayload(value.timeline);
   return {
+    runtimeEvents: Array.isArray(value.runtimeEvents) ? value.runtimeEvents : Array.isArray(value.runtime_events) ? value.runtime_events : [],
+    timeline,
+  };
+}
+
+export function normalizeAgentTimelineSnapshotPayload(payload: unknown): BackendAgentTimelineSnapshot {
+  const timeline = recordValue(payload);
+  if (stringValue(timeline.schemaVersion) !== "tinybot.timeline.v1") {
+    throw new Error(`Unsupported canonical timeline schema: ${stringValue(timeline.schemaVersion) || "missing"}`);
+  }
+  const sessionId = requiredCanonicalString(timeline, "sessionId");
+  const runId = requiredCanonicalString(timeline, "runId");
+  const snapshotRevision = requiredCanonicalNumber(timeline, "snapshotRevision");
+  if (!Array.isArray(timeline.items)) {
+    throw new Error(`Canonical timeline ${runId} is missing items`);
+  }
+  const seenItemIds = new Set<string>();
+  let previousSequence = -1;
+  const items = timeline.items.map((raw, index) => {
+    if (!isRecord(raw)) {
+      throw new Error(`Canonical timeline ${runId} item ${index} is not an object`);
+    }
+    const item = normalizeCanonicalTurnItem(raw, sessionId, runId);
+    if (seenItemIds.has(item.itemId)) {
+      throw new Error(`Canonical timeline ${runId} contains duplicate item ${item.itemId}`);
+    }
+    if (item.sequence < previousSequence) {
+      throw new Error(`Canonical timeline ${runId} item ${item.itemId} has non-monotonic sequence ${item.sequence}`);
+    }
+    seenItemIds.add(item.itemId);
+    previousSequence = item.sequence;
+    return item;
+  });
+  return {
+    schemaVersion: "tinybot.timeline.v1",
     sessionId,
     runId,
-    runtimeEvents: Array.isArray(value.runtimeEvents) ? value.runtimeEvents : Array.isArray(value.runtime_events) ? value.runtime_events : [],
-    turnItems,
+    snapshotRevision,
+    items,
   };
+}
+
+export function normalizeAgentTimelinePatchPayload(payload: unknown): BackendAgentTimelinePatch {
+  const value = recordValue(payload);
+  if (stringValue(value.schemaVersion) !== "tinybot.timeline_patch.v1") {
+    throw new Error(`Unsupported canonical timeline patch schema: ${stringValue(value.schemaVersion) || "missing"}`);
+  }
+  const sessionId = requiredCanonicalString(value, "sessionId");
+  const runId = requiredCanonicalString(value, "runId");
+  if (!isRecord(value.item)) {
+    throw new Error(`Canonical timeline patch ${sessionId}/${runId} is missing item`);
+  }
+  return {
+    schemaVersion: "tinybot.timeline_patch.v1",
+    sessionId,
+    runId,
+    snapshotRevision: requiredCanonicalNumber(value, "snapshotRevision"),
+    item: normalizeCanonicalTurnItem(value.item, sessionId, runId),
+  };
+}
+
+const CANONICAL_ITEM_KINDS = new Set<CanonicalTurnItemKind>([
+  "user_message", "assistant_message", "reasoning", "tool_call", "approval", "form",
+  "subagent_lifecycle", "subagent_message", "plan_progress", "context_compaction", "usage",
+  "file_reference", "error", "system_notice",
+]);
+
+function normalizeCanonicalTurnItem(
+  raw: Record<string, unknown>,
+  sessionId: string,
+  runId: string,
+): BackendAgentTurnItem {
+  if (stringValue(raw.schemaVersion) !== "tinybot.turn_item.v1") {
+    throw new Error(`Unsupported canonical item schema for ${stringValue(raw.itemId) || "unknown item"}`);
+  }
+  const itemId = requiredCanonicalString(raw, "itemId");
+  const itemSessionId = requiredCanonicalString(raw, "sessionId");
+  const itemRunId = requiredCanonicalString(raw, "runId");
+  if (itemSessionId !== sessionId || itemRunId !== runId) {
+    throw new Error(`Canonical item ${itemId} identity does not match timeline ${sessionId}/${runId}`);
+  }
+  const kind = stringValue(raw.kind) as CanonicalTurnItemKind;
+  if (!CANONICAL_ITEM_KINDS.has(kind)) {
+    throw new Error(`Canonical item ${itemId} has unsupported kind ${kind || "missing"}`);
+  }
+  const data = recordValue(raw.data);
+  if (stringValue(data.type) !== kind) {
+    throw new Error(`Canonical item ${itemId} kind/data mismatch: ${kind}/${stringValue(data.type) || "missing"}`);
+  }
+  return {
+    schemaVersion: "tinybot.turn_item.v1",
+    itemId,
+    sessionId: itemSessionId,
+    ...(stringValue(raw.threadId) ? { threadId: stringValue(raw.threadId) } : {}),
+    runId: itemRunId,
+    turnId: requiredCanonicalString(raw, "turnId"),
+    ...(stringValue(raw.parentItemId) ? { parentItemId: stringValue(raw.parentItemId) } : {}),
+    sequence: requiredCanonicalNumber(raw, "sequence"),
+    revision: requiredCanonicalNumber(raw, "revision"),
+    kind,
+    status: requiredCanonicalString(raw, "status"),
+    createdAt: requiredCanonicalString(raw, "createdAt"),
+    ...(stringValue(raw.updatedAt) ? { updatedAt: stringValue(raw.updatedAt) } : {}),
+    ...(stringValue(raw.title) ? { title: stringValue(raw.title) } : {}),
+    ...(stringValue(raw.summary) ? { summary: safeArtifactText(stringValue(raw.summary)) } : {}),
+    data: data as CanonicalTurnItemData,
+  };
+}
+
+function requiredCanonicalString(value: Record<string, unknown>, key: string): string {
+  const result = stringValue(value[key]);
+  if (!result) {
+    throw new Error(`Canonical timeline field ${key} is required`);
+  }
+  return result;
+}
+
+function requiredCanonicalNumber(value: Record<string, unknown>, key: string): number {
+  const result = numberValue(value[key]);
+  if (result === undefined || !Number.isInteger(result) || result < 0) {
+    throw new Error(`Canonical timeline field ${key} must be a non-negative integer`);
+  }
+  return result;
 }
 
 export function backendRuntimeStatesToTurns(
   sessionKey: string,
   runtimeStates: BackendAgentRunRuntimeState[],
-  legacyMessages: NativeChatMessage[] = [],
 ): ChatTurn[] {
-  const legacyTurns = legacyMessagesToTurns(sessionKey, legacyMessages);
   const statesWithItems = runtimeStates
-    .filter((state) => state.sessionId === sessionKey && state.turnItems.length > 0)
+    .filter((state) => state.timeline.sessionId === sessionKey && state.timeline.items.length > 0)
     .sort(compareRuntimeStatesByStart);
-  if (!statesWithItems.length) {
-    return legacyTurns;
-  }
-  const legacyOffset = Math.max(0, legacyTurns.length - statesWithItems.length);
-  const backendTurns = statesWithItems.map((runtimeState, index) =>
-    runtimeStateToTurn(sessionKey, runtimeState, legacyTurns[legacyOffset + index]),
-  );
-  return [
-    ...legacyTurns.slice(0, legacyOffset),
-    ...backendTurns,
-  ];
+  return statesWithItems.map((runtimeState) => runtimeStateToTurn(sessionKey, runtimeState));
 }
 
 export function applyBackendRuntimeStates(
@@ -454,13 +664,9 @@ export function applyBackendRuntimeStates(
   sessionKey: string,
   runtimeStates: BackendAgentRunRuntimeState[],
 ): boolean {
-  const legacyMessages = state.legacyMessagesBySession.get(sessionKey) ?? [];
-  const turns = backendRuntimeStatesToTurns(sessionKey, runtimeStates, legacyMessages);
-  if (turns.length === legacyMessagesToTurns(sessionKey, legacyMessages).length && !runtimeStates.some((runtimeState) => runtimeState.turnItems.length)) {
-    return false;
-  }
+  const turns = backendRuntimeStatesToTurns(sessionKey, runtimeStates);
   state.turnsBySession.set(sessionKey, turns);
-  return runtimeStates.some((runtimeState) => runtimeState.turnItems.length > 0);
+  return runtimeStates.some((runtimeState) => runtimeState.timeline.items.length > 0);
 }
 
 export function reduceAgentEvent(state: ChatRunState, event: AgentEventEnvelope): ChatRunState {
@@ -685,11 +891,11 @@ export function reduceAgentEvent(state: ChatRunState, event: AgentEventEnvelope)
 
 function compareRuntimeStatesByStart(left: BackendAgentRunRuntimeState, right: BackendAgentRunRuntimeState): number {
   return compareRuntimeTimestamps(runtimeStateStart(left), runtimeStateStart(right))
-    || left.runId.localeCompare(right.runId);
+    || left.timeline.runId.localeCompare(right.timeline.runId);
 }
 
 function runtimeStateStart(state: BackendAgentRunRuntimeState): string {
-  return state.turnItems
+  return state.timeline.items
     .map((item) => item.createdAt)
     .filter(Boolean)
     .sort(compareRuntimeTimestamps)[0] || "";
@@ -698,37 +904,35 @@ function runtimeStateStart(state: BackendAgentRunRuntimeState): string {
 function runtimeStateToTurn(
   sessionKey: string,
   runtimeState: BackendAgentRunRuntimeState,
-  legacyTurn: ChatTurn | undefined,
 ): ChatTurn {
-  const startedAt = runtimeStateStart(runtimeState) || legacyTurn?.startedAt || new Date().toISOString();
-  const updatedAt = runtimeState.turnItems
+  const startedAt = runtimeStateStart(runtimeState) || new Date().toISOString();
+  const updatedAt = runtimeState.timeline.items
     .map((item) => item.updatedAt || item.createdAt)
     .filter(Boolean)
     .sort(compareRuntimeTimestamps);
-  const lastUpdatedAt = updatedAt[updatedAt.length - 1] || legacyTurn?.updatedAt || startedAt;
+  const lastUpdatedAt = updatedAt[updatedAt.length - 1] || startedAt;
   const turn: ChatTurn = {
-    id: runtimeState.runId,
+    id: runtimeState.timeline.runId,
     sessionKey,
-    userMessage: legacyTurn?.userMessage ?? {
-      id: stableId("user", runtimeState.runId),
+    userMessage: {
+      id: stableId("user", runtimeState.timeline.runId),
       role: "user",
       text: "",
       timestamp: startedAt,
     },
-    userMessageId: legacyTurn?.userMessageId ?? stableId("user", runtimeState.runId),
-    status: legacyTurn?.status ?? "running",
+    userMessageId: stableId("user", runtimeState.timeline.runId),
+    status: "running",
     steps: [],
     startedAt,
     updatedAt: lastUpdatedAt,
   };
 
-  for (const [index, item] of runtimeState.turnItems.entries()) {
-    applyTurnItemToTurn(turn, item, index + 1);
+  for (const item of runtimeState.timeline.items) {
+    applyTurnItemToTurn(turn, item);
   }
-  if (!turn.finalMessage && legacyTurn?.finalMessage) {
-    turn.finalMessage = legacyTurn.finalMessage;
-  }
-  turn.status = statusForTurnItems(runtimeState.turnItems, turn.status);
+  attachScopedErrors(turn, runtimeState.timeline.items);
+  attachFileReferences(turn, runtimeState.timeline.items);
+  turn.status = statusForTurnItems(runtimeState.timeline.items, turn.status);
   if (turn.status === "completed" || turn.status === "failed" || turn.status === "interrupted") {
     turn.completedAt = turn.completedAt ?? lastUpdatedAt;
   }
@@ -758,13 +962,15 @@ function runtimeTimestampMillis(value: string): number {
   return Date.parse(trimmed);
 }
 
-function applyTurnItemToTurn(turn: ChatTurn, item: BackendAgentTurnItem, sequence: number): void {
-  const payload = item.payload ?? {};
+function applyTurnItemToTurn(turn: ChatTurn, item: BackendAgentTurnItem): void {
+  const payload = item.data;
+  const sequence = item.sequence;
   const status = itemStatusToStepStatus(item.status);
   if (item.kind === "user_message") {
     const messageId = stringValue(payload.messageId ?? payload.message_id) || turn.userMessage.id;
     const text = stringValue(payload.content ?? payload.text ?? item.summary);
     turn.userMessage = {
+      ...(stringValue(payload.clientEventId) ? { clientEventId: stringValue(payload.clientEventId) } : {}),
       id: messageId,
       role: "user",
       text: text || turn.userMessage.text,
@@ -814,7 +1020,7 @@ function applyTurnItemToTurn(turn: ChatTurn, item: BackendAgentTurnItem, sequenc
     }));
     return;
   }
-  if (item.kind === "approval_request") {
+  if (item.kind === "approval") {
     turn.steps.push(runtimeStep(item, sequence, {
       approval: approvalFromRuntimeItem(item),
       kind: "approval",
@@ -824,8 +1030,20 @@ function applyTurnItemToTurn(turn: ChatTurn, item: BackendAgentTurnItem, sequenc
     }));
     return;
   }
-  if (item.kind === "form_request") {
+  if (item.kind === "form") {
+    const errors = recordValue(payload.errors);
     turn.steps.push(runtimeStep(item, sequence, {
+      form: {
+        ...(stringValue(payload.action) ? { action: stringValue(payload.action) } : {}),
+        ...(Object.keys(errors).length > 0
+          ? { errors: Object.fromEntries(Object.entries(errors).map(([key, value]) => [key, stringValue(value)])) }
+          : {}),
+        fieldIds: Array.isArray(payload.fieldIds)
+          ? payload.fieldIds.map(stringValue).filter(Boolean)
+          : [],
+        formId: requiredCanonicalString(payload, "formId"),
+        ...(payload.values !== undefined && payload.values !== null ? { values: payload.values } : {}),
+      },
       kind: "form",
       status: status === "completed" ? "completed" : "blocked",
       summary: safeArtifactText(stringValue(payload.summary ?? payload.title ?? item.summary)),
@@ -833,13 +1051,105 @@ function applyTurnItemToTurn(turn: ChatTurn, item: BackendAgentTurnItem, sequenc
     }));
     return;
   }
-  if (item.kind === "subagent_activity") {
+  if (item.kind === "subagent_lifecycle") {
     const delegate = delegateFromRuntimeItem(item);
     turn.steps.push(runtimeStep(item, sequence, {
       delegate,
       kind: "delegate",
       status: delegate.status,
       title: delegate.title,
+    }));
+    return;
+  }
+  if (item.kind === "subagent_message") {
+    if (stringValue(payload.visibility) === "user") {
+      turn.steps.push(runtimeStep(item, sequence, {
+        kind: "message",
+        status,
+        summary: safeArtifactText(stringValue(payload.content)),
+        title: item.title || "Subagent update",
+      }));
+    }
+    return;
+  }
+  if (item.kind === "plan_progress") {
+    if (!Array.isArray(payload.steps) || payload.steps.length === 0) {
+      throw new Error(`Canonical plan ${item.itemId} must contain at least one step`);
+    }
+    const steps = payload.steps.map((rawStep, index) => {
+      if (!isRecord(rawStep)) {
+        throw new Error(`Canonical plan ${item.itemId} step ${index} is not an object`);
+      }
+      const step = requiredCanonicalString(rawStep, "step");
+      const planStatus = requiredCanonicalString(rawStep, "status");
+      if (planStatus !== "pending" && planStatus !== "in_progress" && planStatus !== "completed") {
+        throw new Error(`Canonical plan ${item.itemId} step ${index} has invalid status ${planStatus}`);
+      }
+      return { status: planStatus as PlanState["steps"][number]["status"], step };
+    });
+    const completed = steps.filter((step) => step.status === "completed").length;
+    const total = steps.length;
+    if (numberValue(payload.completed) !== completed || numberValue(payload.total) !== total) {
+      throw new Error(`Canonical plan ${item.itemId} progress counters do not match its steps`);
+    }
+    const currentStep = steps.find((step) => step.status === "in_progress")?.step;
+    if (stringValue(payload.currentStep) !== (currentStep ?? "")) {
+      throw new Error(`Canonical plan ${item.itemId} currentStep does not match its steps`);
+    }
+    turn.steps.push(runtimeStep(item, sequence, {
+      kind: "plan",
+      plan: {
+        completed,
+        ...(currentStep ? { currentStep } : {}),
+        ...(stringValue(payload.explanation) ? { explanation: safeArtifactText(stringValue(payload.explanation)) } : {}),
+        steps,
+        total,
+      },
+      status,
+      summary: safeArtifactText(stringValue(payload.summary ?? item.summary)),
+      title: item.title || `Plan ${completed}/${total}`,
+    }));
+    return;
+  }
+  if (item.kind === "context_compaction") {
+    turn.steps.push(runtimeStep(item, sequence, {
+      compaction: {
+        droppedItemCount: numberValue(payload.droppedItemCount) ?? 0,
+        ...(numberValue(payload.estimatedTokensBefore) !== undefined
+          ? { estimatedTokensBefore: numberValue(payload.estimatedTokensBefore) }
+          : {}),
+        ...(numberValue(payload.estimatedTokensAfter) !== undefined
+          ? { estimatedTokensAfter: numberValue(payload.estimatedTokensAfter) }
+          : {}),
+      },
+      kind: "compaction",
+      status,
+      summary: safeArtifactText(stringValue(payload.summary ?? item.summary)),
+      title: item.title || "Context compacted",
+    }));
+    return;
+  }
+  if (item.kind === "usage") {
+    turn.usage = {
+      promptTokens: numberValue(payload.inputTokens),
+      completionTokens: numberValue(payload.outputTokens),
+      totalTokens: numberValue(payload.totalTokens),
+    };
+    return;
+  }
+  if (item.kind === "file_reference") {
+    return;
+  }
+  if (item.kind === "error") {
+    if (item.parentItemId) {
+      return;
+    }
+    turn.steps.push(runtimeStep(item, sequence, {
+      error: { code: payload.code, message: payload.message },
+      kind: "error",
+      status,
+      summary: safeArtifactText(stringValue(payload.message ?? item.summary)),
+      title: item.title || (Boolean(payload.cancelled) ? "Cancelled" : "Error"),
     }));
     return;
   }
@@ -852,6 +1162,63 @@ function applyTurnItemToTurn(turn: ChatTurn, item: BackendAgentTurnItem, sequenc
       title: item.title || (status === "failed" ? "Error" : "Runtime notice"),
     }));
   }
+}
+
+function attachScopedErrors(turn: ChatTurn, items: BackendAgentTurnItem[]): void {
+  for (const item of items) {
+    if (item.kind !== "error" || !item.parentItemId) {
+      continue;
+    }
+    const scopedError: ScopedErrorState = {
+      cancelled: Boolean(item.data.cancelled),
+      code: requiredCanonicalString(item.data, "code"),
+      message: requiredCanonicalString(item.data, "message"),
+    };
+    const owner = turn.steps.find((step) => step.id === item.parentItemId);
+    if (owner) {
+      owner.scopedErrors = [...(owner.scopedErrors ?? []), scopedError];
+      continue;
+    }
+    turn.steps.push(runtimeStep(item, item.sequence, {
+      error: scopedError,
+      kind: "error",
+      status: itemStatusToStepStatus(item.status),
+      summary: scopedError.message,
+      title: scopedError.cancelled ? "Cancelled" : "Error",
+    }));
+  }
+}
+
+function attachFileReferences(turn: ChatTurn, items: BackendAgentTurnItem[]): void {
+  for (const item of items) {
+    if (item.kind !== "file_reference") {
+      continue;
+    }
+    const path = requiredCanonicalString(item.data, "path");
+    const mimeType = stringValue(item.data.mimeType);
+    const artifact: ArtifactRef = {
+      id: stringValue(item.data.id) || item.itemId,
+      kind: mimeType.startsWith("image/") ? "image" : "generated_file",
+      ...(mimeType ? { mimeType } : {}),
+      title: path.split(/[\\/]/).pop() || path,
+      fetchPath: path,
+      status: item.status,
+    };
+    const owner = item.parentItemId
+      ? turn.steps.find((step) => step.id === item.parentItemId)
+      : undefined;
+    if (owner) {
+      owner.artifacts = upsertArtifact(owner.artifacts ?? [], artifact);
+      continue;
+    }
+    turn.steps.push(runtimeStep(item, item.sequence, {
+      artifacts: [artifact],
+      kind: "artifact",
+      status: itemStatusToStepStatus(item.status),
+      title: artifact.title,
+    }));
+  }
+  turn.steps.sort((left, right) => left.sequence - right.sequence || left.id.localeCompare(right.id));
 }
 
 function runtimeStep(
@@ -869,58 +1236,61 @@ function runtimeStep(
     status: patch.status,
     title: patch.title,
     ...(patch.approval ? { approval: patch.approval } : {}),
+    ...(patch.artifacts ? { artifacts: patch.artifacts } : {}),
+    ...(patch.compaction ? { compaction: patch.compaction } : {}),
     ...(patch.delegate ? { delegate: patch.delegate } : {}),
     ...(patch.error !== undefined ? { error: patch.error } : {}),
+    ...(patch.form ? { form: patch.form } : {}),
+    ...(patch.plan ? { plan: patch.plan } : {}),
+    ...(patch.scopedErrors ? { scopedErrors: patch.scopedErrors } : {}),
     ...(patch.summary ? { summary: patch.summary } : {}),
     ...(patch.toolCall ? { toolCall: patch.toolCall } : {}),
   };
 }
 
 function toolCallFromRuntimeItem(item: BackendAgentTurnItem): ToolCallState {
-  const payload = item.payload ?? {};
-  const envelope = recordValue(payload.envelope);
+  const payload = item.data;
+  const envelope = recordValue(payload.result);
   const timing = recordValue(payload.timing);
   return {
     approvalId: stringValue(payload.approvalId ?? payload.approval_id),
     approvalStatus: stringValue(payload.approvalStatus ?? payload.approval_status),
-    argsJson: payload.argsJson ?? payload.args_json ?? payload.argumentsJson,
-    argsPreview: safeArtifactText(stringValue(payload.argsPreview ?? payload.args_preview ?? payload.arguments ?? payload.argumentsJson)),
+    argsJson: payload.args,
+    argsPreview: safeArtifactPreview(payload.args),
     durationMs: numberValue(timing.durationMs ?? timing.duration_ms),
-    id: stringValue(payload.toolCallId ?? payload.tool_call_id) || item.itemId,
-    name: stringValue(payload.toolName ?? payload.tool_name ?? payload.name) || item.title || "tool",
-    resultJson: payload.resultJson ?? payload.result_json ?? envelope.structured,
-    resultPreview: safeArtifactText(stringValue(payload.resultPreview ?? payload.result_preview ?? payload.summary ?? envelope.summary ?? payload.content)),
-    resultRef: stringValue(payload.resultRef ?? payload.result_ref ?? payload.detailId),
-    stderrPreview: safeArtifactText(stringValue(payload.stderrPreview ?? payload.stderr_preview)),
+    id: stringValue(payload.toolCallId) || item.itemId,
+    name: stringValue(payload.name) || item.title || "tool",
+    resultJson: payload.result,
+    resultPreview: safeArtifactText(stringValue(item.summary ?? envelope.summary)),
+    resultRef: stringValue(payload.detailId),
   };
 }
 
 function approvalFromRuntimeItem(item: BackendAgentTurnItem): ApprovalState {
-  const payload = item.payload ?? {};
+  const payload = item.data;
   return {
     actions: Array.isArray(payload.actions) ? payload.actions.map(String) : undefined,
-    approvalId: stringValue(payload.approvalId ?? payload.approval_id) || item.itemId,
+    approvalId: stringValue(payload.approvalId) || item.itemId,
     decision: stringValue(payload.decision),
     riskLevel: stringValue(payload.riskLevel ?? payload.risk_level),
     title: item.title || stringValue(payload.title),
-    toolCallId: stringValue(payload.toolCallId ?? payload.tool_call_id),
+    toolCallId: stringValue(payload.toolCallId),
   };
 }
 
 function delegateFromRuntimeItem(item: BackendAgentTurnItem): DelegatedAgentState {
-  const payload = item.payload ?? {};
+  const payload = item.data;
   const status = itemStatusToStepStatus(item.status);
   return {
     childRunId: stringValue(payload.childRunId ?? payload.child_run_id),
     finalOutput: stringValue(payload.finalOutput ?? payload.final_output),
-    id: stringValue(payload.delegateId ?? payload.delegate_id ?? payload.subagentId ?? payload.subagent_id) || item.itemId,
+    id: stringValue(payload.agentId) || item.itemId,
     latestActivity: safeArtifactText(stringValue(payload.summary ?? payload.latestActivity ?? payload.latest_activity ?? item.summary)),
     parentToolCallId: stringValue(payload.toolCallId ?? payload.tool_call_id ?? payload.parentToolCallId ?? payload.parent_tool_call_id),
     status,
     task: stringValue(payload.task),
-    title: item.title || stringValue(payload.title ?? payload.task) || "Subagent activity",
-    toolName: stringValue(payload.toolName ?? payload.tool_name),
-    traceRef: stringValue(payload.traceRef ?? payload.trace_ref),
+    title: item.title || stringValue(payload.message) || "Subagent activity",
+    traceRef: stringValue(payload.traceRef),
     type: "subagent",
   };
 }
@@ -945,7 +1315,7 @@ function itemStatusToStepStatus(status: string): ChatStepStatus {
 }
 
 function statusForTurnItems(items: BackendAgentTurnItem[], fallback: ChatTurnStatus): ChatTurnStatus {
-  if (items.some((item) => item.kind === "approval_request" && item.status === "waiting")) {
+  if (items.some((item) => item.kind === "approval" && item.status === "waiting")) {
     return "awaiting_approval";
   }
   if (items.some((item) => item.status === "waiting")) {
@@ -1421,9 +1791,58 @@ function delegatedTraceFromPayload(value: unknown): DelegatedAgentTraceState | u
     parentRunId: stringValue(payload.parent_run_id ?? payload.parentRunId),
     parentSessionKey: stringValue(payload.parent_session_key ?? payload.parentSessionKey),
     status: statusValue(payload.status) || "running",
-    steps: traceStepArray(payload.steps),
+    steps: Array.isArray(payload.steps)
+      ? traceStepArray(payload.steps)
+      : backgroundTraceStepArray(payload.events),
     updatedAt: stringValue(payload.updated_at ?? payload.updatedAt),
   };
+}
+
+export function applyLoadedDelegatedAgentTrace(
+  delegate: DelegatedAgentState,
+  payload: unknown,
+): DelegatedAgentState {
+  const root = recordValue(payload);
+  const rawTrace = recordValue(root.trace ?? payload);
+  const trace = delegatedTraceFromPayload(rawTrace);
+  if (!trace) {
+    throw new Error(`Delegate trace payload is invalid for ${delegate.id}.`);
+  }
+  if (trace.delegateId !== delegate.id) {
+    throw new Error(`Delegate trace ${trace.delegateId} does not match ${delegate.id}.`);
+  }
+  return {
+    ...delegate,
+    finalOutput: stringValue(rawTrace.finalOutput ?? rawTrace.final_output) || delegate.finalOutput,
+    status: trace.status,
+    trace: mergeDelegatedTrace(delegate.trace, trace),
+  };
+}
+
+function backgroundTraceStepArray(value: unknown): DelegatedAgentTraceStep[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((item) => {
+    const event = recordValue(item);
+    const payload = recordValue(event.payload);
+    const eventType = stringValue(event.event_type ?? event.eventType) || "trace_event";
+    return {
+      approvalId: stringValue(payload.approvalId ?? payload.approval_id),
+      argsPreview: safeArtifactText(stringValue(payload.argsPreview ?? payload.args_preview)),
+      createdAt: stringValue(event.created_at ?? event.createdAt),
+      error: safeArtifactText(stringValue(payload.error)),
+      id: stringValue(event.event_id ?? event.eventId) || stableId("trace-event", eventType, numberValue(event.sequence)),
+      kind: eventType,
+      resultPreview: safeArtifactText(stringValue(payload.resultPreview ?? payload.result_preview)),
+      status: statusValue(payload.status) || "running",
+      summary: safeArtifactText(stringValue(payload.summary ?? payload.content ?? payload.message)),
+      title: stringValue(payload.title ?? payload.toolName ?? payload.tool_name) || eventType,
+      toolCallId: stringValue(payload.toolCallId ?? payload.tool_call_id),
+      toolName: stringValue(payload.toolName ?? payload.tool_name),
+      updatedAt: stringValue(event.created_at ?? event.createdAt),
+    };
+  });
 }
 
 function traceStepArray(value: unknown): DelegatedAgentTraceStep[] {

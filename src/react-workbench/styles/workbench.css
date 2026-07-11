@@ -2103,6 +2103,242 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
+.react-canonical-turn {
+  display: contents;
+}
+
+.react-canonical-step,
+.react-timeline-error {
+  width: min(720px, 100%);
+  margin: 2px auto;
+  border: 1px solid var(--color-hairline);
+  border-radius: 10px;
+  background: var(--color-surface-soft);
+  color: var(--color-ink);
+}
+
+.react-canonical-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 12px;
+  line-height: 1.5;
+}
+
+.react-canonical-step--button {
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.react-canonical-step--button:hover {
+  border-color: var(--color-muted);
+}
+
+.react-canonical-step--button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.react-canonical-step--button > span:last-child,
+.react-canonical-step[data-kind="form"] > div {
+  display: grid;
+  gap: 3px;
+}
+
+.react-canonical-form-summary,
+.react-subagent-detail dl {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+}
+
+.react-canonical-form-summary > div,
+.react-subagent-detail dl > div {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.4fr) 1fr;
+  gap: 10px;
+}
+
+.react-canonical-form-summary dt,
+.react-canonical-form-summary dd,
+.react-subagent-detail dt,
+.react-subagent-detail dd {
+  margin: 0;
+}
+
+.react-subagent-detail {
+  display: grid;
+  gap: 12px;
+}
+
+.react-subagent-detail ol {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.react-canonical-plan {
+  display: grid;
+  flex: 1;
+  gap: 5px;
+}
+
+.react-canonical-plan progress {
+  width: min(360px, 100%);
+  height: 6px;
+  accent-color: var(--color-accent);
+}
+
+.react-canonical-plan__heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.react-canonical-plan__heading span,
+.react-canonical-plan__explanation {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.react-canonical-plan__steps {
+  display: grid;
+  gap: 5px;
+  margin: 3px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.react-canonical-plan__steps li {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.react-canonical-plan__steps li[data-status="completed"] {
+  color: var(--color-muted);
+  text-decoration: line-through;
+}
+
+.react-canonical-plan__steps li[data-status="in_progress"] {
+  color: var(--color-accent);
+  font-weight: 650;
+}
+
+.react-canonical-tool-group {
+  display: grid;
+  gap: 6px;
+}
+
+.react-canonical-step-stack {
+  display: grid;
+  gap: 6px;
+}
+
+.react-canonical-scoped-errors {
+  width: min(720px, 100%);
+  margin: 0 auto;
+  border-left: 3px solid var(--color-error);
+  padding: 7px 10px 7px 28px;
+  color: var(--color-error);
+}
+
+.react-canonical-artifacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.react-canonical-artifacts button {
+  border: 1px solid var(--color-hairline);
+  border-radius: 7px;
+  background: var(--color-surface-card);
+  padding: 5px 8px;
+  color: var(--color-ink);
+  cursor: pointer;
+  font: inherit;
+}
+
+.react-artifact-detail {
+  display: grid;
+  gap: 12px;
+}
+
+.react-artifact-detail dl,
+.react-artifact-detail dl > div {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.react-artifact-detail dl > div {
+  grid-template-columns: 70px 1fr;
+}
+
+.react-artifact-detail dt,
+.react-artifact-detail dd {
+  margin: 0;
+}
+
+.react-artifact-detail img {
+  max-width: 100%;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+}
+
+.react-artifact-detail pre {
+  max-height: 60vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.react-canonical-step[data-kind="error"] {
+  border-color: #e5b7ad;
+  background: #fff6f3;
+  color: #8f2f21;
+}
+
+.react-canonical-step[data-kind="compaction"] {
+  display: block;
+}
+
+.react-canonical-step summary {
+  min-height: 44px;
+  cursor: pointer;
+  font-weight: 650;
+  line-height: 44px;
+}
+
+.react-canonical-step p,
+.react-canonical-step ul,
+.react-timeline-error {
+  margin: 4px 0 0;
+}
+
+.react-canonical-step__icon {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-muted);
+}
+
+.react-timeline-error {
+  padding: 12px;
+  border-color: #e5b7ad;
+  background: #fff6f3;
+  color: #8f2f21;
+}
+
 .react-agent-ui-forms {
   display: grid;
   gap: 10px;

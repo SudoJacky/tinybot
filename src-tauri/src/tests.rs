@@ -3442,17 +3442,14 @@ fn native_agent_trace_sink_updates_runtime_state_before_final_persistence() {
         .expect("runtime events should be an array")
         .iter()
         .any(|event| event["eventName"] == "agent.awaiting_approval"));
-    let approval_item = runtime_state["turnItems"]
+    let approval_item = runtime_state["timeline"]["items"]
         .as_array()
-        .expect("turn items should be an array")
+        .expect("timeline items should be an array")
         .iter()
-        .find(|item| item["kind"] == "approval_request")
-        .expect("approval request item should be restored");
+        .find(|item| item["kind"] == "approval")
+        .expect("approval item should be restored");
     assert_eq!(approval_item["status"], "waiting");
-    assert_eq!(
-        approval_item["payload"]["approvalId"],
-        "approval-trace-sink"
-    );
+    assert_eq!(approval_item["data"]["approvalId"], "approval-trace-sink");
 }
 
 #[test]
@@ -4877,11 +4874,14 @@ fn worker_agent_run_runtime_commands_use_thread_log_agent_run_store() {
     .expect("agent run runtime state should be served by thread log store");
 
     assert_eq!(runs["runs"][0]["runId"], "run-1");
-    assert_eq!(runtime_state["sessionId"], "websocket:chat-1");
-    assert_eq!(runtime_state["runId"], "run-1");
-    assert_eq!(runtime_state["turnItems"][0]["kind"], "assistant_message");
+    assert_eq!(runtime_state["timeline"]["sessionId"], "websocket:chat-1");
+    assert_eq!(runtime_state["timeline"]["runId"], "run-1");
     assert_eq!(
-        runtime_state["turnItems"][0]["payload"]["content"],
+        runtime_state["timeline"]["items"][0]["kind"],
+        "assistant_message"
+    );
+    assert_eq!(
+        runtime_state["timeline"]["items"][0]["data"]["content"],
         "Done from runtime state"
     );
 }
@@ -4957,7 +4957,14 @@ fn worker_session_write_commands_use_rust_session_store_on_rust_backend() {
         "websocket:chat-1".to_string(),
         serde_json::json!({
             "planId": "plan-1",
-            "progress": { "completed": 1, "total": 2 },
+            "progress": {
+                "completed": 1,
+                "total": 2,
+                "steps": [
+                    { "step": "Inspect session", "status": "completed" },
+                    { "step": "Finish session", "status": "in_progress" }
+                ]
+            },
             "content": "Half done"
         }),
         fixture.root.clone(),
@@ -5604,6 +5611,46 @@ fn worker_transport_websocket_inbound_result_builds_agent_run_input_request() {
         WorkerTransportWebSocketDispatchOptions::default(),
     )
     .is_none());
+}
+
+#[test]
+fn worker_transport_websocket_preserves_client_event_id_in_agent_input() {
+    let transport = native_websocket_transport_result(&WorkerTransportWebSocketDispatchInput {
+        client_id: "client-1".to_string(),
+        frame: serde_json::json!({
+            "type": "message",
+            "chat_id": "chat-1",
+            "client_event_id": "client-message-1",
+            "content": "hello"
+        }),
+        attached_chat_id: Some("chat-1".to_string()),
+        session_exists: Some(true),
+        editable_paths: None,
+        model: None,
+        max_iterations: None,
+        run_id: Some("run-client-event".to_string()),
+        stream: None,
+    })
+    .expect("message frame should produce a transport result");
+
+    let request = build_worker_transport_websocket_run_input_request(
+        test_request_correlation("client-event"),
+        &transport,
+        WorkerTransportWebSocketDispatchOptions {
+            run_id: Some("run-client-event".to_string()),
+            ..WorkerTransportWebSocketDispatchOptions::default()
+        },
+    )
+    .expect("transport result should produce an agent input");
+
+    assert_eq!(
+        request.params["input"]["input"]["clientEventId"],
+        "client-message-1"
+    );
+    assert_eq!(
+        request.params["input"]["metadata"]["clientEventId"],
+        "client-message-1"
+    );
 }
 
 #[test]

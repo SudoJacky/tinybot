@@ -8,6 +8,7 @@ import { ChatPage } from "./ChatPage";
 import type { ChatEvent, ChatStore, SessionStore, SessionSummary, SettingsStore } from "../services";
 import type { ReactChatMessage } from "./messageActions";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
+import { timelineFromReactMessages } from "./testTimelineFixtures";
 
 afterEach(() => {
   cleanup();
@@ -71,7 +72,7 @@ function createStores(options: { sessions?: SessionSummary[] } = {}): { chatStor
       archive: vi.fn(async () => undefined),
     },
     chatStore: {
-      load: vi.fn(async () => messages),
+      load: vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, messages)),
       send: vi.fn(async () => undefined),
       stop: vi.fn(async () => undefined),
       resolveApproval: vi.fn(async () => undefined),
@@ -184,7 +185,7 @@ describe("ChatPage", () => {
     stores.sessionStore.list = vi.fn()
       .mockResolvedValueOnce([])
       .mockResolvedValue([created]);
-    stores.chatStore.load = vi.fn(async () => []);
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, []));
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
@@ -217,7 +218,7 @@ describe("ChatPage", () => {
     };
     stores.sessionStore.create = vi.fn(async () => created);
     stores.sessionStore.list = vi.fn(async () => []);
-    stores.chatStore.load = vi.fn(async () => []);
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, []));
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
@@ -275,7 +276,7 @@ describe("ChatPage", () => {
         status: "idle" as const,
       },
     ]);
-    stores.chatStore.load = vi.fn(async () => []);
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, []));
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
@@ -301,7 +302,7 @@ describe("ChatPage", () => {
   it("runs the new chat recommendation from session search", async () => {
     const user = userEvent.setup();
     const stores = createStores();
-    stores.chatStore.load = vi.fn(async () => []);
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, []));
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
@@ -318,7 +319,7 @@ describe("ChatPage", () => {
 
   it("uses a raised start layout for an empty active session", async () => {
     const stores = createStores();
-    stores.chatStore.load = vi.fn(async () => []);
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, []));
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
@@ -336,7 +337,7 @@ describe("ChatPage", () => {
 
   it("cycles short empty-session suggestions with a type-delete motion hook", async () => {
     const stores = createStores();
-    stores.chatStore.load = vi.fn(async () => []);
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, []));
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
@@ -389,7 +390,7 @@ describe("ChatPage", () => {
         },
       },
     ];
-    stores.chatStore.load = vi.fn(async () => usageMessages);
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, usageMessages));
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
@@ -411,7 +412,7 @@ describe("ChatPage", () => {
     expect(indicator.textContent).toContain("0 tokens used");
   });
 
-  it("updates an existing message when a subscription event carries usage", async () => {
+  it("updates context usage from a canonical timeline subscription without reloading history", async () => {
     const stores = createStores();
     let listener: ((event: ChatEvent) => void) | undefined;
     stores.chatStore.subscribe = vi.fn((_sessionId, callback) => {
@@ -426,8 +427,16 @@ describe("ChatPage", () => {
 
     act(() => {
       listener?.({
-        type: "usage",
-        message: {
+        type: "timeline.patch",
+        timeline: timelineFromReactMessages("s1", [
+          {
+            id: "u1",
+            role: "user",
+            createdAtMs: Date.UTC(2026, 6, 4, 11, 57, 0),
+            text: "Can you help?",
+            status: "complete",
+          },
+          {
           id: "a1",
           role: "assistant",
           createdAtMs: Date.UTC(2026, 6, 4, 11, 58, 0),
@@ -441,7 +450,8 @@ describe("ChatPage", () => {
             promptTokens: 10,
             totalTokens: 107,
           },
-        },
+          },
+        ]),
       });
     });
 
@@ -452,14 +462,14 @@ describe("ChatPage", () => {
       listener?.({ type: "agent.event", eventType: "agent.turn.completed" });
     });
 
-    await waitFor(() => expect(stores.chatStore.load).toHaveBeenCalledTimes(2));
+    expect(stores.chatStore.load).toHaveBeenCalledTimes(1);
     expect(screen.getByLabelText("Context window 0% used, 100% left").textContent).toContain("107 / 128k tokens used");
   });
 
   it("rotates empty-session title and suggestion groups every eight seconds", async () => {
     vi.useFakeTimers();
     const stores = createStores();
-    stores.chatStore.load = vi.fn(async () => []);
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, []));
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
@@ -527,7 +537,7 @@ describe("ChatPage", () => {
     const userMessage = await screen.findByTestId("message-u1");
     expect(within(userMessage).queryByRole("button", { name: /branch from here/i })).toBeNull();
 
-    expect(within(screen.getByTestId("message-a1")).getByRole("button", { name: /branch from here/i })).toBeTruthy();
+    expect(within(screen.getByTestId("message-a1")).queryByRole("button", { name: /branch from here/i })).toBeNull();
     expect(within(screen.getByTestId("message-a2")).queryByRole("button", { name: /branch from here/i })).toBeNull();
     expect(screen.getByRole("button", { name: /open details for shell/i })).toBeTruthy();
   });
@@ -545,7 +555,7 @@ describe("ChatPage", () => {
         status: "complete",
       },
     ];
-    stores.chatStore.load = vi.fn(async () => reasoningOnlyMessages);
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, reasoningOnlyMessages));
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
@@ -580,7 +590,7 @@ describe("ChatPage", () => {
       reasoningText: "Inspecting the workspace.",
       status: "streaming",
     };
-    stores.chatStore.load = vi.fn(async () => [liveMessage]);
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, [liveMessage]));
     stores.chatStore.subscribe = vi.fn((_sessionId, listener) => {
       subscribed = listener;
       return () => undefined;
@@ -596,8 +606,8 @@ describe("ChatPage", () => {
 
     act(() => {
       subscribed?.({
-        type: "agent.event",
-        message: { ...liveMessage, status: "complete" },
+        type: "timeline.patch",
+        timeline: timelineFromReactMessages("s1", [{ ...liveMessage, status: "complete" }]),
       });
     });
 
@@ -622,9 +632,10 @@ describe("ChatPage", () => {
         createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
         text: "Partial body that arrived before the turn completed.",
         status: "complete",
+        turnStatus: "running",
       },
     ];
-    stores.chatStore.load = vi.fn(async () => midTurnMessages);
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, midTurnMessages));
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
@@ -664,7 +675,7 @@ describe("ChatPage", () => {
         turnStatus: "running",
       },
     ];
-    stores.chatStore.load = vi.fn(async () => turnScopedMessages);
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, turnScopedMessages));
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
@@ -683,17 +694,17 @@ describe("ChatPage", () => {
     const stores = createStores();
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
-    const toolMessage = await screen.findByTestId("message-a2");
-    const stepsToggle = within(toolMessage).getByRole("button", { name: /Agent steps, 1 step/i });
+    await screen.findByTestId("message-a2");
+    const stepsToggle = screen.getByRole("button", { name: /Agent steps, 1 step/i });
     expect(stepsToggle.getAttribute("aria-expanded")).toBe("true");
-    expect(within(toolMessage).getByRole("list", { name: "Agent steps" })).toBeTruthy();
-    expect(within(toolMessage).getByRole("button", { name: "Open details for shell" })).toBeTruthy();
-    expect(within(toolMessage).getByText("Done")).toBeTruthy();
+    expect(screen.getByRole("list", { name: "Agent steps" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open details for shell" })).toBeTruthy();
+    expect(screen.getByText("Done")).toBeTruthy();
 
     await user.click(stepsToggle);
 
     expect(stepsToggle.getAttribute("aria-expanded")).toBe("false");
-    expect(within(toolMessage).queryByRole("list", { name: "Agent steps" })).toBeNull();
+    expect(screen.queryByRole("list", { name: "Agent steps" })).toBeNull();
   });
 
   it("marks the current running agent step in the stepper", async () => {
@@ -712,13 +723,13 @@ describe("ChatPage", () => {
         ],
       },
     ];
-    stores.chatStore.load = vi.fn(async () => runningMessages);
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, runningMessages));
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
-    const message = await screen.findByTestId("message-a-running");
-    const stepper = message.querySelector(".react-agent-steps");
-    const currentStep = message.querySelector(".react-agent-step-item[aria-current='step']") as HTMLElement | null;
+    await screen.findByTestId("message-a-running");
+    const stepper = document.querySelector(".react-agent-steps");
+    const currentStep = document.querySelector(".react-agent-step-item[aria-current='step']") as HTMLElement | null;
 
     expect(stepper?.getAttribute("data-stepper")).toBe("true");
     expect(currentStep?.getAttribute("data-status")).toBe("active");
@@ -740,7 +751,7 @@ describe("ChatPage", () => {
     expect(drawer.textContent).toContain("Done");
   });
 
-  it("shows structured tool activity fields in the details drawer", async () => {
+  it("shows canonical tool arguments, result, and approval fields in the details drawer", async () => {
     const user = userEvent.setup();
     const stores = createStores();
     const detailedMessages: ReactChatMessage[] = [{
@@ -770,7 +781,7 @@ describe("ChatPage", () => {
         traceRef: "trace-1",
       } as NonNullable<ReactChatMessage["toolCalls"]>[number]],
     }];
-    stores.chatStore.load = vi.fn(async () => detailedMessages);
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, detailedMessages));
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
     await user.click(await screen.findByRole("button", { name: "Open details for workspace.read_file" }));
@@ -782,12 +793,6 @@ describe("ChatPage", () => {
     expect(drawer.textContent).toContain("file contents");
     expect(within(drawer).getByText("Approval")).toBeTruthy();
     expect(drawer.textContent).toContain("approval-1");
-    expect(within(drawer).getByText("Delegate")).toBeTruthy();
-    expect(drawer.textContent).toContain("Code reviewer");
-    expect(within(drawer).getByText("Trace")).toBeTruthy();
-    expect(drawer.textContent).toContain("trace-1");
-    expect(within(drawer).getByText("Final output")).toBeTruthy();
-    expect(drawer.textContent).toContain("Reviewed implementation.");
   });
 
   it("resolves pending approval steps from the details drawer", async () => {
@@ -810,7 +815,7 @@ describe("ChatPage", () => {
         summary: "Run npm test",
       } as NonNullable<ReactChatMessage["toolCalls"]>[number]],
     }];
-    stores.chatStore.load = vi.fn(async () => approvalMessages);
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, approvalMessages));
     (stores.chatStore as any).resolveApproval = resolveApproval;
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
@@ -845,10 +850,32 @@ describe("ChatPage", () => {
         { name: "nights", type: "number", label: "Nights", required: false, min: 1, max: 30 },
       ],
       values: { destination: "Shanghai", nights: 3 },
+      errors: { destination: "Required" },
       status: "pending",
       chat_id: "chat-1",
     };
+    const canonical = timelineFromReactMessages("s1", [{
+      id: "u-form",
+      role: "user",
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+      text: "Plan my trip",
+      status: "complete",
+    }]);
+    canonical.turns[0].steps.push({
+      agentContext: { id: "main", title: "Tinybot", type: "main" },
+      form: {
+        errors: { destination: "Required" },
+        fieldIds: ["destination", "nights"],
+        formId: "travel-preferences-1",
+      },
+      id: "travel-preferences-1",
+      kind: "form",
+      sequence: 1,
+      status: "blocked",
+      title: "Travel preferences",
+    });
     const submitAgentUiForm = vi.fn(async () => undefined);
+    stores.chatStore.load = vi.fn(async () => canonical);
     (stores.chatStore as any).listAgentUiForms = vi.fn(async () => [form]);
     (stores.chatStore as any).submitAgentUiForm = submitAgentUiForm;
     (stores.chatStore as any).cancelAgentUiForm = vi.fn(async () => undefined);
@@ -857,6 +884,9 @@ describe("ChatPage", () => {
 
     const card = await screen.findByRole("form", { name: "Travel preferences" });
     expect(card.textContent).toContain("Collect itinerary constraints before planning.");
+    expect(screen.getAllByText("Travel preferences")).toHaveLength(1);
+    expect(within(card).getByRole("alert").textContent).toBe("Required");
+    expect(within(card).getByLabelText("Destination").getAttribute("aria-invalid")).toBe("true");
 
     fireEvent.change(within(card).getByLabelText("Destination"), { target: { value: "Singapore" } });
     fireEvent.change(within(card).getByLabelText("Nights"), { target: { value: "4" } });
@@ -866,6 +896,198 @@ describe("ChatPage", () => {
       destination: "Singapore",
       nights: 4,
     });
+  });
+
+  it("renders a resolved canonical form as a read-only submission summary", async () => {
+    const stores = createStores();
+    const canonical = timelineFromReactMessages("s1", [{
+      id: "u-form-summary",
+      role: "user",
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+      text: "Plan my trip",
+      status: "complete",
+    }]);
+    canonical.turns[0].steps.push({
+      agentContext: { id: "main", title: "Tinybot", type: "main" },
+      form: {
+        action: "submit",
+        fieldIds: ["destination"],
+        formId: "travel-preferences-1",
+        values: { destination: "Singapore" },
+      },
+      id: "travel-preferences-1",
+      kind: "form",
+      sequence: 1,
+      status: "completed",
+      title: "Travel preferences",
+    });
+    stores.chatStore.load = vi.fn(async () => canonical);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    const summary = await screen.findByRole("region", { name: "Travel preferences" });
+    expect(summary.textContent).toContain("Submitted");
+    expect(summary.textContent).toContain("destination");
+    expect(summary.textContent).toContain("Singapore");
+    expect(screen.queryByRole("form", { name: "Travel preferences" })).toBeNull();
+  });
+
+  it("opens the selected canonical subagent trace in the details drawer", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    const canonical = timelineFromReactMessages("s1", [{
+      id: "u-subagent",
+      role: "user",
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+      text: "Inspect the repository",
+      status: "complete",
+    }]);
+    canonical.turns[0].steps.push({
+      agentContext: { id: "main", title: "Tinybot", type: "main" },
+      delegate: {
+        id: "delegate-42",
+        latestActivity: "Reading source files",
+        status: "running",
+        title: "Research agent",
+        traceRef: "trace-delegate-42",
+        type: "subagent",
+      },
+      id: "delegate-42",
+      kind: "delegate",
+      sequence: 1,
+      status: "running",
+      title: "Research agent",
+    });
+    const loadDelegateTrace = vi.fn(async () => ({
+      trace: {
+        delegateId: "delegate-42",
+        status: "running",
+        events: [{
+          event_id: "trace-step-1",
+          event_type: "child.tool.completed",
+          created_at: "2026-07-04T12:01:01Z",
+          payload: { status: "completed", title: "Inspect repository" },
+        }],
+      },
+    }));
+    stores.chatStore.load = vi.fn(async () => canonical);
+    (stores.chatStore as any).loadDelegateTrace = loadDelegateTrace;
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    await user.click(await screen.findByRole("button", { name: "Open details for Research agent" }));
+    expect(loadDelegateTrace).toHaveBeenCalledWith({
+      delegateId: "delegate-42",
+      sessionKey: "s1",
+      traceRef: "trace-delegate-42",
+    });
+    const drawer = await screen.findByLabelText("Details drawer");
+    await waitFor(() => expect(drawer.textContent).toContain("Inspect repository"));
+    expect(drawer.textContent).toContain("delegate-42");
+  });
+
+  it("renders canonical plan progress and expandable compaction token details", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    const canonical = timelineFromReactMessages("s1", [{
+      id: "u-plan",
+      role: "user",
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+      text: "Implement the timeline",
+      status: "complete",
+    }]);
+    canonical.turns[0].steps.push(
+      {
+        agentContext: { id: "main", title: "Tinybot", type: "main" },
+        id: "plan-1",
+        kind: "plan",
+        plan: {
+          completed: 1,
+          currentStep: "Render progress",
+          explanation: "Implementation order updated",
+          steps: [
+            { step: "Inspect model", status: "completed" },
+            { step: "Render progress", status: "in_progress" },
+            { step: "Run tests", status: "pending" },
+          ],
+          total: 3,
+        },
+        sequence: 1,
+        status: "running",
+        summary: "Canonical timeline rollout",
+        title: "Plan 1/3",
+      },
+      {
+        agentContext: { id: "main", title: "Tinybot", type: "main" },
+        compaction: { droppedItemCount: 12, estimatedTokensAfter: 4200, estimatedTokensBefore: 12000 },
+        id: "compaction-1",
+        kind: "compaction",
+        sequence: 2,
+        status: "completed",
+        summary: "compact",
+        title: "Context compacted",
+      },
+    );
+    stores.chatStore.load = vi.fn(async () => canonical);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    const progress = await screen.findByRole("progressbar", { name: "Plan 1/3" });
+    expect(progress.getAttribute("aria-valuenow")).toBe("1");
+    expect(progress.getAttribute("aria-valuemax")).toBe("3");
+    expect(screen.getByText("Implementation order updated")).toBeTruthy();
+    expect(screen.getByText("Inspect model").closest("li")?.getAttribute("data-status")).toBe("completed");
+    expect(screen.getByText("Render progress")).toBeTruthy();
+    expect(screen.getByText("Run tests").closest("li")?.getAttribute("data-status")).toBe("pending");
+    await user.click(screen.getByText("Context compacted"));
+    const compaction = screen.getByText("Before: 12,000 tokens").closest("details");
+    expect(compaction?.textContent).toContain("After: 4,200 tokens");
+    expect(compaction?.textContent).toContain("Dropped items: 12");
+  });
+
+  it("loads owner-associated image references through the artifact API before previewing", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    const canonical = timelineFromReactMessages("s1", [{
+      id: "u-artifact",
+      role: "user",
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+      text: "Create a chart",
+      status: "complete",
+    }, {
+      id: "a-artifact",
+      role: "assistant",
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 1),
+      text: "Chart complete",
+      status: "complete",
+      toolCalls: [{ id: "tool-chart", name: "chart.render", status: "complete", summary: "Chart rendered" }],
+    }]);
+    canonical.turns[0].steps[0].artifacts = [{
+      fetchPath: "output/chart.png",
+      id: "image-1",
+      kind: "image",
+      mimeType: "image/png",
+      status: "completed",
+      title: "chart.png",
+    }];
+    const loadArtifact = vi.fn(async () => ({
+      artifact: {
+        artifactId: "image-1",
+        content: "data:image/png;base64,aGVsbG8=",
+        mimeType: "image/png",
+        title: "chart.png",
+      },
+    }));
+    stores.chatStore.load = vi.fn(async () => canonical);
+    (stores.chatStore as any).loadArtifact = loadArtifact;
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    await user.click(await screen.findByRole("button", { name: "Preview chart.png" }));
+    expect(loadArtifact).toHaveBeenCalledWith({ artifactId: "image-1", sessionKey: "s1" });
+    const drawer = await screen.findByLabelText("Details drawer");
+    const image = await within(drawer).findByRole("img", { name: "chart.png" });
+    expect(image.getAttribute("src")).toBe("data:image/png;base64,aGVsbG8=");
   });
 
   it("places message action buttons under each message on the role side", async () => {
@@ -933,7 +1155,7 @@ describe("ChatPage", () => {
         status: "complete",
       },
     ];
-    stores.chatStore.load = vi.fn(async () => markdownMessages);
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, markdownMessages));
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
@@ -947,7 +1169,7 @@ describe("ChatPage", () => {
   it("limits rich Markdown rendering to assistant answer text", async () => {
     const user = userEvent.setup();
     const stores = createStores();
-    stores.chatStore.load = vi.fn(async () => [
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, [
       {
         id: "u-markdown",
         role: "user",
@@ -963,7 +1185,7 @@ describe("ChatPage", () => {
         reasoningText: "**keep reasoning syntax literal**",
         status: "complete",
       },
-    ] satisfies ReactChatMessage[]);
+    ] satisfies ReactChatMessage[]));
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
@@ -991,7 +1213,7 @@ describe("ChatPage", () => {
         status: "complete",
       },
     ];
-    stores.chatStore.load = vi.fn(async () => copyMessages);
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, copyMessages));
     const writeText = vi.fn(async () => undefined);
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
@@ -1033,9 +1255,10 @@ describe("ChatPage", () => {
         createdAtMs: Date.UTC(2026, 6, 4, 11, 58, 0),
         text: "Yes.",
         status: "complete",
+        turnStatus: "completed",
       },
     ];
-    stores.chatStore.load = vi.fn(async (sessionId) => (sessionId === "s2" ? branchMessages : sourceMessages));
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, sessionId === "s2" ? branchMessages : sourceMessages));
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
@@ -1070,12 +1293,13 @@ describe("ChatPage", () => {
         createdAtMs: Date.UTC(2026, 6, 4, 11, 58, 0),
         text: "Yes.",
         status: "complete",
+        turnStatus: "running",
       },
     ];
     stores.sessionStore.list = vi.fn()
       .mockResolvedValueOnce([runningSession])
       .mockResolvedValueOnce([completedSession]);
-    stores.chatStore.load = vi.fn(async () => assistantMessages);
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, assistantMessages));
     stores.chatStore.subscribe = vi.fn((_sessionId, listener) => {
       subscribed = listener;
       return () => undefined;
@@ -1086,7 +1310,10 @@ describe("ChatPage", () => {
     const assistantMessage = await screen.findByTestId("message-a1");
     expect(within(assistantMessage).queryByRole("button", { name: "Branch from here" })).toBeNull();
 
-    subscribed?.({ type: "agent.event", eventType: "agent.turn.completed" });
+    subscribed?.({
+      type: "timeline.patch",
+      timeline: timelineFromReactMessages("s1", [{ ...assistantMessages[0], turnStatus: "completed" }]),
+    });
 
     await waitFor(() => expect(within(assistantMessage).getByRole("button", { name: "Branch from here" })).toBeTruthy());
   });
@@ -1401,10 +1628,9 @@ describe("ChatPage", () => {
       text: "Hello immediately",
       status: "complete",
     }];
-    stores.chatStore.load = vi.fn(async () => (
-      sent
-        ? optimisticMessages
-        : []
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(
+      sessionId,
+      sent ? optimisticMessages : [],
     ));
     stores.chatStore.subscribe = vi.fn((_sessionId, listener) => {
       subscribed = listener;
@@ -1412,7 +1638,7 @@ describe("ChatPage", () => {
     });
     stores.chatStore.send = vi.fn(async () => {
       sent = true;
-      subscribed?.({ type: "message-sent" });
+      subscribed?.({ type: "message-sent", message: optimisticMessages[0] });
     });
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
@@ -1422,6 +1648,49 @@ describe("ChatPage", () => {
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
     expect((await screen.findByTestId("message-local-user")).textContent).toContain("Hello immediately");
+  });
+
+  it("reconciles an optimistic message only by the canonical client event id", async () => {
+    const user = userEvent.setup();
+    let subscribed: ((event: ChatEvent) => void) | undefined;
+    const stores = createStores();
+    const optimisticMessage: ReactChatMessage = {
+      id: "client-message-1",
+      role: "user",
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+      text: "  Normalize this prompt  ",
+      status: "complete",
+    };
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, []));
+    stores.chatStore.subscribe = vi.fn((_sessionId, listener) => {
+      subscribed = listener;
+      return () => undefined;
+    });
+    stores.chatStore.send = vi.fn(async () => {
+      subscribed?.({ type: "message-sent", message: optimisticMessage });
+    });
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+    const input = await screen.findByRole("textbox", { name: /message/i });
+    await user.type(input, "Normalize this prompt");
+    await user.click(screen.getByRole("button", { name: /send message/i }));
+    expect(await screen.findByTestId("message-client-message-1")).toBeTruthy();
+
+    const canonical = timelineFromReactMessages("s1", [{
+      id: "durable-user-1",
+      role: "user",
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 1),
+      text: "Normalize this prompt",
+      status: "complete",
+    }]);
+    canonical.turns[0].userMessage = {
+      ...canonical.turns[0].userMessage,
+      clientEventId: "client-message-1",
+    } as typeof canonical.turns[0]["userMessage"];
+    subscribed?.({ type: "timeline.patch", timeline: canonical });
+
+    await waitFor(() => expect(screen.queryByTestId("message-client-message-1")).toBeNull());
+    expect(screen.getByTestId("message-durable-user-1").textContent).toContain("Normalize this prompt");
   });
 
   it("preserves the optimistic first message while a pending session is being created", async () => {
@@ -1445,7 +1714,7 @@ describe("ChatPage", () => {
       .mockResolvedValueOnce([])
       .mockResolvedValue([pendingSession]);
     stores.sessionStore.create = vi.fn(async () => pendingSession);
-    stores.chatStore.load = vi.fn(async () => []);
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, []));
     stores.chatStore.subscribe = vi.fn((_sessionId, listener) => {
       subscribed = listener;
       return () => undefined;
@@ -1486,7 +1755,7 @@ describe("ChatPage", () => {
         }],
       },
     ];
-    stores.chatStore.load = vi.fn(async () => streamingMessages);
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, streamingMessages));
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
@@ -1522,7 +1791,7 @@ describe("ChatPage", () => {
       .mockResolvedValueOnce([pendingSession])
       .mockResolvedValueOnce([realSession]);
     stores.sessionStore.create = vi.fn(async () => pendingSession);
-    stores.chatStore.load = vi.fn(async () => []);
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, []));
     stores.chatStore.subscribe = vi.fn((_sessionId, listener) => {
       subscribed = listener;
       return () => undefined;

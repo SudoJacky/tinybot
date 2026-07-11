@@ -32,6 +32,7 @@ fn test_registry_without_approval(methods: &[&str]) -> Vec<ToolRegistryEntry> {
 #[derive(Default)]
 struct RecordingTraceSink {
     events: Arc<Mutex<Vec<AgentRuntimeEventEnvelope>>>,
+    timeline_patches: Arc<Mutex<Vec<crate::agent_loop_runtime_protocol::AgentTimelinePatch>>>,
 }
 
 struct SystemPromptWorkspace {
@@ -60,6 +61,18 @@ impl Drop for SystemPromptWorkspace {
 }
 
 impl NativeAgentTraceSink for RecordingTraceSink {
+    fn load_runtime_events(
+        &self,
+        _session_id: &str,
+        _run_id: &str,
+    ) -> Result<Vec<AgentRuntimeEventEnvelope>, String> {
+        Ok(self
+            .events
+            .lock()
+            .expect("trace sink lock should not be poisoned")
+            .clone())
+    }
+
     fn append_trace_event(
         &self,
         _session_id: &str,
@@ -72,12 +85,26 @@ impl NativeAgentTraceSink for RecordingTraceSink {
             .push(event.clone());
         Ok(())
     }
+
+    fn append_timeline_patch(
+        &self,
+        _session_id: &str,
+        _run_id: &str,
+        patch: &crate::agent_loop_runtime_protocol::AgentTimelinePatch,
+    ) -> Result<(), String> {
+        self.timeline_patches
+            .lock()
+            .expect("timeline patch sink lock should not be poisoned")
+            .push(patch.clone());
+        Ok(())
+    }
 }
 
 #[test]
 fn trace_sink_receives_waiting_boundary_before_runtime_returns() {
     let sink = Arc::new(RecordingTraceSink::default());
     let events = sink.events.clone();
+    let timeline_patches = sink.timeline_patches.clone();
     let services = NativeAgentRuntimeServices::default().with_trace_sink(sink);
 
     let result = run_native_agent_turn_with_services(
@@ -99,6 +126,15 @@ fn trace_sink_receives_waiting_boundary_before_runtime_returns() {
         .lock()
         .expect("trace sink lock should not be poisoned")
         .clone();
+    let timeline_patches = timeline_patches
+        .lock()
+        .expect("timeline patch sink lock should not be poisoned")
+        .clone();
+    assert!(timeline_patches.iter().any(|patch| {
+        patch.run_id == "run-sink-waiting"
+            && patch.item.kind == crate::agent_loop_runtime_protocol::AgentTurnItemKind::Approval
+            && patch.item.status == crate::agent_loop_runtime_protocol::AgentTurnItemStatus::Waiting
+    }));
 
     assert_eq!(result["stopReason"], "awaiting_approval");
     assert!(recorded.iter().any(|event| {
@@ -1933,7 +1969,7 @@ fn chat_completion_request_enables_parallel_tool_calls_only_when_explicitly_requ
 }
 
 #[test]
-fn chat_completion_request_only_exposes_tool_search_when_no_registry_tools_are_available() {
+fn chat_completion_request_exposes_core_controls_when_no_capability_tools_are_available() {
     let mut context = NativeAgentRunContext::from_spec(
         json!({
             "runtime": "rust",
@@ -1953,8 +1989,9 @@ fn chat_completion_request_only_exposes_tool_search_when_no_registry_tools_are_a
     let request = agent_chat_completion_request(&context)
         .expect("request without available model tools should still be built");
 
-    assert_eq!(request["tools"].as_array().map(Vec::len), Some(1));
-    assert_eq!(request["tools"][0]["function"]["name"], "tool_search");
+    assert_eq!(request["tools"].as_array().map(Vec::len), Some(2));
+    assert_eq!(request["tools"][0]["function"]["name"], "update_plan");
+    assert_eq!(request["tools"][1]["function"]["name"], "tool_search");
     assert_eq!(request["tool_choice"], "auto");
 }
 
@@ -2255,8 +2292,12 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
 
     assert_eq!(result["stopReason"], "final_response");
     assert_eq!(captured.len(), 3);
-    assert_eq!(captured[0].len(), 1);
-    assert_eq!(captured[0][0]["function"]["name"], "workspace_read_file");
+    assert_eq!(captured[0].len(), 2);
+    assert_eq!(captured[0][0]["function"]["name"], "update_plan");
+    assert_eq!(captured[0][1]["function"]["name"], "workspace_read_file");
+    assert!(captured[1]
+        .iter()
+        .any(|tool| tool["function"]["name"] == "update_plan"));
     assert!(activated[0].is_empty());
     assert_eq!(activated[1], ["workspace.apply_patch"]);
     assert!(captured[2].iter().all(|tool| !matches!(
@@ -2418,6 +2459,35 @@ fn runs_fixture_streaming_final_answer_with_frontend_events() {
         "final_response"
     );
     assert!(result["events"][3]["payload"].get("finalContent").is_none());
+}
+
+#[test]
+fn turn_started_preserves_client_event_id_for_canonical_reconciliation() {
+    let result = run_native_agent_turn(json!({
+        "runtime": "rust",
+        "runId": "run-client-event",
+        "sessionId": "websocket:chat-client-event",
+        "input": {
+            "role": "user",
+            "content": "hello",
+            "clientEventId": "client-message-1"
+        },
+        "config": fixture_provider_config("fixture answer")
+    }))
+    .expect("fixture provider run should succeed");
+
+    let turn_started = result["runtimeEvents"]
+        .as_array()
+        .expect("runtime events should be present")
+        .iter()
+        .find(|event| event["eventName"] == "agent.turn.started")
+        .expect("turn started should be present");
+
+    assert_eq!(
+        turn_started["payload"]["userMessage"]["clientEventId"],
+        "client-message-1"
+    );
+    assert_eq!(turn_started["payload"]["clientEventId"], "client-message-1");
 }
 
 #[test]
@@ -4645,10 +4715,7 @@ fn subagent_tools_share_manager_state_without_copying_child_transcript_to_parent
     assert_eq!(link_event["payload"]["sourceToolCallId"], "call-spawn");
     assert_eq!(link_event["payload"]["agentItem"]["type"], "subagent");
     assert_eq!(link_event["payload"]["agentItem"]["agentId"], "delegate-1");
-    assert_eq!(
-        link_event["payload"]["agentItem"]["id"],
-        "delegate-1:linked:call-spawn"
-    );
+    assert_eq!(link_event["payload"]["agentItem"]["id"], "delegate-1");
     assert_eq!(
         result["messages"],
         json!([{ "role": "assistant", "content": "Subagent lifecycle handled." }])
@@ -6044,6 +6111,379 @@ fn saves_and_restores_approval_checkpoint_before_resume() {
     );
     assert_eq!(resumed["restoredCheckpoint"]["phase"], "awaiting_approval");
     assert!(services.restore_checkpoint("websocket:chat-approval")["checkpoint"].is_null());
+}
+
+#[test]
+fn live_patches_equal_reloaded_snapshot_after_approval_continuation() {
+    let sink = Arc::new(RecordingTraceSink::default());
+    let events = sink.events.clone();
+    let patches = sink.timeline_patches.clone();
+    let services = NativeAgentRuntimeServices::default().with_trace_sink(sink);
+    let session_id = "websocket:chat-live-reload";
+    let run_id = "run-live-reload";
+
+    run_native_agent_turn_with_services(
+        &services,
+        json!({
+            "runtime": "rust",
+            "runId": run_id,
+            "sessionId": session_id,
+            "input": {
+                "role": "user",
+                "content": "Approve and continue",
+                "clientEventId": "client-live-reload"
+            },
+            "metadata": {
+                "clientEventId": "client-live-reload",
+                "fakeAwaitingApproval": {
+                    "approvalId": "approval-live-reload",
+                    "toolName": "workspace.write_file"
+                }
+            }
+        }),
+    )
+    .expect("approval fixture should wait");
+
+    run_native_agent_turn_with_services(
+        &services,
+        json!({
+            "runtime": "rust",
+            "runId": run_id,
+            "sessionId": session_id,
+            "metadata": {
+                "agentContinuation": {
+                    "kind": "approval",
+                    "approvalId": "approval-live-reload",
+                    "decision": "approved",
+                    "scope": "once"
+                },
+                "finalContent": "Continuation complete."
+            }
+        }),
+    )
+    .expect("approval continuation should complete");
+
+    let recorded_events = events
+        .lock()
+        .expect("trace events lock should not be poisoned")
+        .clone();
+    let reloaded = crate::agent_loop_runtime_protocol::project_timeline_snapshot(
+        session_id,
+        run_id,
+        &recorded_events,
+    )
+    .expect("recorded events should reload into a canonical snapshot");
+    let recorded_patches = patches
+        .lock()
+        .expect("timeline patches lock should not be poisoned")
+        .clone();
+    let mut live_items = std::collections::BTreeMap::new();
+    for patch in &recorded_patches {
+        live_items.insert(patch.item.item_id.clone(), patch.item.clone());
+    }
+    let mut live_items = live_items.into_values().collect::<Vec<_>>();
+    live_items.sort_by_key(|item| item.sequence);
+
+    assert_eq!(
+        recorded_patches.last().map(|patch| patch.snapshot_revision),
+        Some(reloaded.snapshot_revision)
+    );
+    assert_eq!(live_items, reloaded.items);
+    let approval = reloaded
+        .items
+        .iter()
+        .find(|item| item.kind == crate::agent_loop_runtime_protocol::AgentTurnItemKind::Approval)
+        .expect("approval item should be present");
+    assert_eq!(approval.revision, 2);
+    assert_eq!(
+        approval.status,
+        crate::agent_loop_runtime_protocol::AgentTurnItemStatus::Completed
+    );
+}
+
+#[test]
+fn native_run_projects_core_canonical_timeline_equally_live_and_after_reload() {
+    struct AcceptanceProvider {
+        calls: AtomicUsize,
+    }
+
+    impl NativeAgentProvider for AcceptanceProvider {
+        fn complete(
+            &self,
+            context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            match self.calls.fetch_add(1, Ordering::SeqCst) {
+                0 => Ok(NativeAgentProviderResponse {
+                    final_content: String::new(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![NativeAgentToolCall {
+                        id: "acceptance-plan-start".to_string(),
+                        name: "update_plan".to_string(),
+                        arguments_json: serde_json::to_string(&json!({
+                            "plan": [
+                                { "step": "Inspect referenced inputs", "status": "in_progress" },
+                                { "step": "Report findings", "status": "pending" }
+                            ]
+                        }))
+                        .expect("initial plan arguments should serialize"),
+                        result: Value::Null,
+                    }],
+                }),
+                1 => {
+                    assert!(context.messages.iter().any(|message| {
+                        message["role"] == "tool"
+                            && message["tool_call_id"] == "acceptance-plan-start"
+                            && message["content"] == "Plan updated"
+                    }));
+                    Ok(NativeAgentProviderResponse {
+                        final_content: String::new(),
+                        reasoning_delta: Some("Inspect the referenced inputs".to_string()),
+                        usage: Some(json!({
+                            "input_tokens": 20,
+                            "output_tokens": 4,
+                            "total_tokens": 24
+                        })),
+                        tool_calls: vec![NativeAgentToolCall {
+                            id: "acceptance-read".to_string(),
+                            name: "workspace.read_file".to_string(),
+                            arguments_json: r#"{"path":"README.md"}"#.to_string(),
+                            result: json!({ "content": "README body" }),
+                        }],
+                    })
+                }
+                2 => Ok(NativeAgentProviderResponse {
+                    final_content: String::new(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![NativeAgentToolCall {
+                        id: "acceptance-plan-complete".to_string(),
+                        name: "update_plan".to_string(),
+                        arguments_json: serde_json::to_string(&json!({
+                            "explanation": "Inspection and reporting are complete.",
+                            "plan": [
+                                { "step": "Inspect referenced inputs", "status": "completed" },
+                                { "step": "Report findings", "status": "completed" }
+                            ]
+                        }))
+                        .expect("completed plan arguments should serialize"),
+                        result: Value::Null,
+                    }],
+                }),
+                _ => Ok(NativeAgentProviderResponse {
+                    final_content: "Core acceptance complete.".to_string(),
+                    reasoning_delta: None,
+                    usage: Some(json!({
+                        "input_tokens": 32,
+                        "output_tokens": 8,
+                        "total_tokens": 40
+                    })),
+                    tool_calls: Vec::new(),
+                }),
+            }
+        }
+    }
+
+    let sink = Arc::new(RecordingTraceSink::default());
+    let events = sink.events.clone();
+    let patches = sink.timeline_patches.clone();
+    let services = NativeAgentRuntimeServices::new(
+        Arc::new(AcceptanceProvider {
+            calls: AtomicUsize::new(0),
+        }),
+        Arc::new(FakeNativeAgentToolDispatcher),
+        Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(InMemoryNativeAgentCancellation::default()),
+    )
+    .with_trace_sink(sink);
+    let session_id = "websocket:chat-canonical-acceptance";
+    let run_id = "run-canonical-acceptance";
+
+    let result = run_native_agent_turn_with_services(
+        &services,
+        json!({
+            "runtime": "rust",
+            "runId": run_id,
+            "sessionId": session_id,
+            "maxIterations": 4,
+            "metadata": { "clientEventId": "client-canonical-acceptance" },
+            "messages": [{
+                "id": "user-canonical-acceptance",
+                "role": "user",
+                "content": [
+                    { "type": "text", "text": "Inspect these inputs" },
+                    { "type": "file", "path": "README.md", "mime_type": "text/markdown" },
+                    { "type": "image_url", "image_url": { "url": "data:image/png;base64,aGVsbG8=", "detail": "low" } }
+                ]
+            }]
+        }),
+    )
+    .expect("native canonical acceptance run should complete");
+
+    assert_eq!(result["stopReason"], "final_response");
+    let recorded_events = events
+        .lock()
+        .expect("trace events lock should not be poisoned")
+        .clone();
+    let reloaded = crate::agent_loop_runtime_protocol::project_timeline_snapshot(
+        session_id,
+        run_id,
+        &recorded_events,
+    )
+    .expect("native acceptance events should reload into one canonical snapshot");
+    let recorded_patches = patches
+        .lock()
+        .expect("timeline patches lock should not be poisoned")
+        .clone();
+    let mut live_items = std::collections::BTreeMap::new();
+    for patch in &recorded_patches {
+        live_items.insert(patch.item.item_id.clone(), patch.item.clone());
+    }
+    let mut live_items = live_items.into_values().collect::<Vec<_>>();
+    live_items.sort_by_key(|item| item.sequence);
+
+    assert_eq!(live_items, reloaded.items);
+    assert_eq!(
+        recorded_patches.last().map(|patch| patch.snapshot_revision),
+        Some(reloaded.snapshot_revision)
+    );
+    let items =
+        serde_json::to_value(&reloaded.items).expect("canonical acceptance items should serialize");
+    let items = items
+        .as_array()
+        .expect("canonical items should be an array");
+    let user = items
+        .iter()
+        .find(|item| item["kind"] == "user_message")
+        .expect("canonical user item should exist");
+    assert_eq!(user["data"]["content"], "Inspect these inputs");
+    assert_eq!(user["data"]["clientEventId"], "client-canonical-acceptance");
+    assert_eq!(
+        items
+            .iter()
+            .filter(|item| item["kind"] == "file_reference")
+            .count(),
+        2
+    );
+    assert!(items.iter().any(|item| {
+        item["kind"] == "reasoning" && item["data"]["summary"] == "Inspect the referenced inputs"
+    }));
+    assert!(items.iter().any(|item| {
+        item["kind"] == "tool_call"
+            && item["status"] == "completed"
+            && item["data"]["toolCallId"] == "acceptance-read"
+    }));
+    let plan = items
+        .iter()
+        .find(|item| item["kind"] == "plan_progress")
+        .expect("canonical plan item should exist");
+    assert_eq!(plan["itemId"], format!("{run_id}:plan"));
+    assert_eq!(plan["revision"], 2);
+    assert_eq!(plan["status"], "completed");
+    assert_eq!(plan["data"]["completed"], 2);
+    assert_eq!(plan["data"]["total"], 2);
+    assert_eq!(plan["data"]["steps"][1]["step"], "Report findings");
+    assert_eq!(
+        plan["data"]["explanation"],
+        "Inspection and reporting are complete."
+    );
+    assert!(items
+        .iter()
+        .any(|item| { item["kind"] == "usage" && item["data"]["totalTokens"] == 40 }));
+    assert!(items.iter().any(|item| {
+        item["kind"] == "assistant_message"
+            && item["status"] == "completed"
+            && item["data"]["content"] == "Core acceptance complete."
+    }));
+}
+
+#[test]
+fn invalid_update_plan_returns_a_tool_error_that_the_model_can_correct() {
+    struct RecoveringPlanProvider {
+        calls: AtomicUsize,
+    }
+
+    impl NativeAgentProvider for RecoveringPlanProvider {
+        fn complete(
+            &self,
+            context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            match self.calls.fetch_add(1, Ordering::SeqCst) {
+                0 => Ok(NativeAgentProviderResponse {
+                    final_content: String::new(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![NativeAgentToolCall {
+                        id: "plan-invalid".to_string(),
+                        name: "update_plan".to_string(),
+                        arguments_json: r#"{"plan":[{"step":"Inspect","status":"pending"}]}"#
+                            .to_string(),
+                        result: Value::Null,
+                    }],
+                }),
+                1 => {
+                    assert!(context.messages.iter().any(|message| {
+                        message["role"] == "tool"
+                            && message["tool_call_id"] == "plan-invalid"
+                            && message["content"]
+                                .as_str()
+                                .is_some_and(|content| content.contains("exactly one in_progress"))
+                    }));
+                    Ok(NativeAgentProviderResponse {
+                        final_content: String::new(),
+                        reasoning_delta: None,
+                        usage: None,
+                        tool_calls: vec![NativeAgentToolCall {
+                            id: "plan-corrected".to_string(),
+                            name: "update_plan".to_string(),
+                            arguments_json: r#"{"plan":[{"step":"Inspect","status":"completed"}]}"#
+                                .to_string(),
+                            result: Value::Null,
+                        }],
+                    })
+                }
+                _ => Ok(NativeAgentProviderResponse {
+                    final_content: "Plan corrected.".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: Vec::new(),
+                }),
+            }
+        }
+    }
+
+    let services = NativeAgentRuntimeServices::new(
+        Arc::new(RecoveringPlanProvider {
+            calls: AtomicUsize::new(0),
+        }),
+        Arc::new(FakeNativeAgentToolDispatcher),
+        Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(InMemoryNativeAgentCancellation::default()),
+    );
+    let result = run_native_agent_turn_with_services(
+        &services,
+        json!({
+            "runtime": "rust",
+            "runId": "run-plan-correction",
+            "sessionId": "session-plan-correction",
+            "maxIterations": 3,
+            "messages": [{ "role": "user", "content": "Use a plan" }]
+        }),
+    )
+    .expect("the provider should correct an invalid plan and complete");
+
+    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(result["finalContent"], "Plan corrected.");
+    assert!(!result["runtimeEvents"]
+        .as_array()
+        .expect("runtime events should be an array")
+        .iter()
+        .any(|event| event["eventName"] == "agent.error"));
+    assert!(result["runtimeEvents"]
+        .as_array()
+        .expect("runtime events should be an array")
+        .iter()
+        .any(|event| event["eventName"] == "agent.plan.progress"));
 }
 
 #[test]

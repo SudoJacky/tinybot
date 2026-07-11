@@ -1,4 +1,4 @@
-use crate::agent_loop_runtime_protocol::AgentRuntimeEventEnvelope;
+use crate::agent_loop_runtime_protocol::{AgentRuntimeEventEnvelope, AgentTimelinePatch};
 use crate::worker_agent_runtime::NativeAgentTraceSink;
 use crate::worker_protocol::WorkerRequest;
 use crate::worker_request_id::next_worker_request_correlation;
@@ -24,6 +24,35 @@ impl NativeAgentRunTraceSink {
 }
 
 impl NativeAgentTraceSink for NativeAgentRunTraceSink {
+    fn load_runtime_events(
+        &self,
+        session_id: &str,
+        run_id: &str,
+    ) -> Result<Vec<AgentRuntimeEventEnvelope>, String> {
+        let generated = next_worker_request_correlation();
+        let value = call_rust_state_service(
+            self.workspace_root.clone(),
+            self.config_snapshot.clone(),
+            WorkerRequest::new(
+                generated.id("agent-run-runtime-state"),
+                generated.trace_id("agent-run-runtime-state"),
+                "agent_run.runtime_state",
+                serde_json::json!({
+                    "session_id": session_id,
+                    "run_id": run_id,
+                }),
+            ),
+            "native agent run runtime state",
+        )?;
+        serde_json::from_value(
+            value
+                .get("runtimeEvents")
+                .cloned()
+                .ok_or_else(|| "agent run runtime state is missing runtimeEvents".to_string())?,
+        )
+        .map_err(|error| format!("invalid persisted runtime events: {error}"))
+    }
+
     fn append_trace_event(
         &self,
         session_id: &str,
@@ -77,6 +106,22 @@ struct CompositeNativeAgentTraceSink {
 }
 
 impl NativeAgentTraceSink for CompositeNativeAgentTraceSink {
+    fn load_runtime_events(
+        &self,
+        session_id: &str,
+        run_id: &str,
+    ) -> Result<Vec<AgentRuntimeEventEnvelope>, String> {
+        let mut first_empty = None;
+        for sink in &self.sinks {
+            match sink.load_runtime_events(session_id, run_id) {
+                Ok(events) if !events.is_empty() => return Ok(events),
+                Ok(events) => first_empty.get_or_insert(events),
+                Err(error) => return Err(error),
+            };
+        }
+        Ok(first_empty.unwrap_or_default())
+    }
+
     fn append_trace_event(
         &self,
         session_id: &str,
@@ -86,6 +131,21 @@ impl NativeAgentTraceSink for CompositeNativeAgentTraceSink {
         let mut first_error = None;
         for sink in &self.sinks {
             if let Err(error) = sink.append_trace_event(session_id, run_id, event) {
+                first_error.get_or_insert(error);
+            }
+        }
+        first_error.map_or(Ok(()), Err)
+    }
+
+    fn append_timeline_patch(
+        &self,
+        session_id: &str,
+        run_id: &str,
+        patch: &AgentTimelinePatch,
+    ) -> Result<(), String> {
+        let mut first_error = None;
+        for sink in &self.sinks {
+            if let Err(error) = sink.append_timeline_patch(session_id, run_id, patch) {
                 first_error.get_or_insert(error);
             }
         }
@@ -120,6 +180,17 @@ impl<R: Runtime + 'static> NativeAgentTraceSink for DesktopAgentEventSink<R> {
         self.app
             .emit(&event_name, payload)
             .map_err(|error| format!("native agent frontend event emit failed: {error}"))
+    }
+
+    fn append_timeline_patch(
+        &self,
+        _session_id: &str,
+        _run_id: &str,
+        patch: &AgentTimelinePatch,
+    ) -> Result<(), String> {
+        self.app
+            .emit(&tauri_safe_event_name("agent.timeline.patch"), patch)
+            .map_err(|error| format!("canonical agent timeline patch emit failed: {error}"))
     }
 }
 

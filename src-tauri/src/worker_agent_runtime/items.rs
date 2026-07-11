@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeSet;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -13,6 +14,7 @@ pub enum AgentItem {
     UserInput(AgentUserInputItem),
     PlanProgress(AgentPlanProgressItem),
     Subagent(AgentSubagentItem),
+    SubagentMessage(AgentSubagentMessageItem),
     ContextCompaction(AgentContextCompactionItem),
     Error(AgentErrorItem),
     Usage(AgentUsageItem),
@@ -106,15 +108,93 @@ pub struct AgentUserInputItem {
     pub action: Option<String>,
     #[serde(default)]
     pub field_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub values: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub errors: Option<Value>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentPlanStepStatus {
+    Pending,
+    InProgress,
+    Completed,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentPlanStep {
+    pub step: String,
+    pub status: AgentPlanStepStatus,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AgentPlanDerivedProgress {
+    pub completed: u32,
+    pub total: u32,
+    pub current_step: Option<String>,
+}
+
+pub fn validate_and_normalize_plan_steps(
+    steps: &mut Vec<AgentPlanStep>,
+) -> Result<AgentPlanDerivedProgress, String> {
+    if steps.is_empty() {
+        return Err("plan must contain at least one step".to_string());
+    }
+    if steps.len() > 50 {
+        return Err("plan must contain at most 50 steps".to_string());
+    }
+    let mut names = BTreeSet::new();
+    let mut in_progress = 0usize;
+    let mut completed = 0usize;
+    for step in steps.iter_mut() {
+        step.step = step.step.trim().to_string();
+        if step.step.is_empty() {
+            return Err("step text must not be empty".to_string());
+        }
+        if step.step.chars().count() > 512 {
+            return Err("step text must not exceed 512 characters".to_string());
+        }
+        if !names.insert(step.step.clone()) {
+            return Err(format!("duplicate step `{}`", step.step));
+        }
+        match step.status {
+            AgentPlanStepStatus::InProgress => in_progress += 1,
+            AgentPlanStepStatus::Completed => completed += 1,
+            AgentPlanStepStatus::Pending => {}
+        }
+    }
+    if in_progress > 1 {
+        return Err("at most one step can be in_progress".to_string());
+    }
+    if completed == steps.len() {
+        if in_progress != 0 {
+            return Err("a completed plan cannot have an in_progress step".to_string());
+        }
+    } else if in_progress != 1 {
+        return Err("an incomplete plan must have exactly one in_progress step".to_string());
+    }
+    Ok(AgentPlanDerivedProgress {
+        completed: completed as u32,
+        total: steps.len() as u32,
+        current_step: steps
+            .iter()
+            .find(|step| step.status == AgentPlanStepStatus::InProgress)
+            .map(|step| step.step.clone()),
+    })
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentPlanProgressItem {
     pub id: String,
+    pub explanation: Option<String>,
+    pub steps: Vec<AgentPlanStep>,
     pub summary: String,
     pub completed: u32,
     pub total: u32,
+    pub current_step: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -129,10 +209,21 @@ pub struct AgentSubagentItem {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AgentSubagentMessageItem {
+    pub id: String,
+    pub agent_id: String,
+    pub content: String,
+    pub visibility: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentContextCompactionItem {
     pub id: String,
     pub summary: String,
     pub dropped_item_count: usize,
+    pub estimated_tokens_before: Option<u64>,
+    pub estimated_tokens_after: Option<u64>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -373,6 +464,7 @@ impl AgentItem {
             Self::UserInput(_) => "user_input",
             Self::PlanProgress(_) => "plan_progress",
             Self::Subagent(_) => "subagent",
+            Self::SubagentMessage(_) => "subagent_message",
             Self::ContextCompaction(_) => "context_compaction",
             Self::Error(_) => "error",
             Self::Usage(_) => "usage",
