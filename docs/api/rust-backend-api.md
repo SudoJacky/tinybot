@@ -668,6 +668,9 @@ remain ignored.
 
 `NativeBackendRunSpec`:
 
+When `maxIterations` is omitted from the run spec, metadata, and agent defaults, the native runtime
+uses `200`. Explicit run or settings values still take precedence.
+
 ```json
 {
   "runId": "run-1",

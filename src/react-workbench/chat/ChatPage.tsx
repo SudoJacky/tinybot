@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useReducer, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import {
   AlertTriangle,
   Check,
@@ -10,6 +10,9 @@ import {
   FolderOpen,
   GitBranch,
   Loader2,
+  Play,
+  RefreshCw,
+  RotateCcw,
   MoreHorizontal,
   PanelRightOpen,
   Plus,
@@ -74,7 +77,10 @@ type DrawerState =
   | { kind: "tool"; title: string; toolCall: ToolCallSummary }
   | { kind: "subagent"; title: string; delegate: DelegatedAgentState; loading: boolean; error?: string }
   | { kind: "artifact"; title: string; artifact: ArtifactRef; detail?: LoadedArtifactDetail; loading: boolean; error?: string }
+  | { kind: "error"; title: string; step: ChatStep; turn: ChatTurn }
   | null;
+
+type RecoveryAction = "continue" | "retry" | "restart";
 
 type QueuedComposerInput = QueuedInput & Pick<ChatInput, "model" | "usePersistentRag">;
 
@@ -87,36 +93,11 @@ const COMPOSER_TOOLS: ComposerToolOption[] = [
   },
 ];
 
-const EMPTY_CHAT_GROUP_INTERVAL_MS = 8000;
-
-const EMPTY_CHAT_START_GROUPS = [
-  {
-    title: "想让 Tinybot 做什么？",
-    prompts: [
-      "规划一次旅行行程",
-      "比较几款产品并给出建议",
-      "整理会议记录和待办",
-      "起草一封重要邮件",
-    ],
-  },
-  {
-    title: "准备让 Tinybot 接手什么？",
-    prompts: [
-      "跟进一个复杂任务",
-      "把需求拆成执行计划",
-      "整理资料并形成简报",
-      "检查方案里的遗漏",
-    ],
-  },
-  {
-    title: "想让 Tinybot 查清什么？",
-    prompts: [
-      "查证一个关键问题",
-      "梳理一个陌生主题",
-      "找出决策需要的信息",
-      "汇总不同来源的结论",
-    ],
-  },
+const EMPTY_CHAT_PROMPTS = [
+  "规划一个任务并列出执行步骤",
+  "分析当前项目并提出改进建议",
+  "整理资料并形成一份简短摘要",
+  "检查方案中可能遗漏的问题",
 ] as const;
 
 const SESSION_DELETE_DISSOLVE_MS = 760;
@@ -178,6 +159,9 @@ export function ChatPage({
   const [agentUiForms, setAgentUiForms] = useState<AgentUiForm[]>([]);
   const [queuedInputsBySession, setQueuedInputsBySession] = useState<Map<string, QueuedComposerInput[]>>(() => new Map());
   const [queueMessage, setQueueMessage] = useState("");
+  const [composerDraft, setComposerDraft] = useState("");
+  const [recoveringTurnId, setRecoveringTurnId] = useState("");
+  const [showBackToLatest, setShowBackToLatest] = useState(false);
   const [dissolvingSessionIds, setDissolvingSessionIds] = useState<Set<string>>(() => new Set());
   const [deleteState, dispatchDelete] = useReducer(reduceSessionDeleteState, { confirmingSessionId: "" });
   const sessionsRef = useRef<SessionSummary[]>([]);
@@ -186,6 +170,10 @@ export function ChatPage({
   const deleteDissolveTimers = useRef<number[]>([]);
   const lastCreateSessionSignal = useRef(createSessionSignal);
   const draftSessionCreatePromise = useRef<Promise<SessionSummary> | null>(null);
+  const optimisticSessionTitlesRef = useRef<Map<string, string>>(new Map());
+  const conversationRef = useRef<HTMLDivElement | null>(null);
+  const conversationEndRef = useRef<HTMLDivElement | null>(null);
+  const stickToLatestRef = useRef(true);
   const resolvedSessionSidebarCollapsed = sessionSidebarCollapsed ?? localSessionSidebarCollapsed;
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId) ?? sessions[0],
@@ -198,6 +186,9 @@ export function ChatPage({
   const sessionResponding = sessionRunning && !emptyActiveSession;
   const activeQueuedInputs = activeSession ? queuedInputsBySession.get(activeSession.id) ?? [] : [];
   const activeContextUsage = useMemo(() => latestTimelineUsage(timeline?.turns ?? []), [timeline]);
+  const latestFailedTurnId = useMemo(() => (
+    [...(timeline?.turns ?? [])].reverse().find((turn) => turn.status === "failed" || turn.status === "interrupted")?.id ?? ""
+  ), [timeline]);
 
   useEffect(() => {
     sessionsRef.current = sessions;
@@ -332,6 +323,12 @@ export function ChatPage({
     onStopGenerationTargetChange?.(activeSession && sessionResponding ? activeSession.id : "");
   }, [activeSession?.id, onStopGenerationTargetChange, sessionResponding]);
 
+  useEffect(() => {
+    if (stickToLatestRef.current) {
+      conversationEndRef.current?.scrollIntoView({ block: "end" });
+    }
+  }, [timeline, optimisticMessages, agentUiForms.length]);
+
   async function handleCreateSession() {
     const created = await sessionStore.create();
     activateCreatedSession(created);
@@ -347,6 +344,7 @@ export function ChatPage({
     dispatchDelete({ type: "delete-clicked", sessionId: session.id });
     if (next.confirmedSessionId) {
       await sessionStore.delete(session.id);
+      optimisticSessionTitlesRef.current.delete(session.id);
       setDissolvingSessionIds((current) => new Set(current).add(session.id));
       const timer = window.setTimeout(() => {
         const remaining = sessionsRef.current.filter((item) => item.id !== session.id);
@@ -365,9 +363,48 @@ export function ChatPage({
 
   async function handleSessionStoreRefresh(preserveSession?: SessionSummary): Promise<SessionSummary[]> {
     const listedSessions = await sessionStore.list();
-    const nextSessions = preserveSession && !listedSessions.some((session) => session.id === preserveSession.id)
-      ? [preserveSession, ...listedSessions]
-      : listedSessions;
+    let titledSessions = listedSessions.map((session) => {
+      if (!isDefaultSessionTitle(session.title)) {
+        optimisticSessionTitlesRef.current.delete(session.id);
+        return session;
+      }
+      const optimisticTitle = optimisticSessionTitlesRef.current.get(session.id);
+      return optimisticTitle ? { ...session, title: optimisticTitle } : session;
+    });
+    const listedSessionIdsBeforeReconciliation = new Set(titledSessions.map((session) => session.id));
+    const knownSessionIds = new Set(sessionsRef.current.map((session) => session.id));
+    const missingOptimisticSessions = sessionsRef.current.filter((session) => (
+      optimisticSessionTitlesRef.current.has(session.id) && !listedSessionIdsBeforeReconciliation.has(session.id)
+    ));
+    const replacementCandidates = titledSessions.filter((session) => !knownSessionIds.has(session.id));
+    if (missingOptimisticSessions.length === 1 && replacementCandidates.length === 1) {
+      const pendingSession = missingOptimisticSessions[0];
+      const replacementSession = replacementCandidates[0];
+      const optimisticTitle = optimisticSessionTitlesRef.current.get(pendingSession.id);
+      optimisticSessionTitlesRef.current.delete(pendingSession.id);
+      if (optimisticTitle && isDefaultSessionTitle(replacementSession.title)) {
+        optimisticSessionTitlesRef.current.set(replacementSession.id, optimisticTitle);
+        titledSessions = titledSessions.map((session) => (
+          session.id === replacementSession.id ? { ...session, title: optimisticTitle } : session
+        ));
+      }
+    }
+    const listedSessionIds = new Set(titledSessions.map((session) => session.id));
+    const pendingOptimisticSessions = sessionsRef.current.filter((session) => (
+      optimisticSessionTitlesRef.current.has(session.id) && !listedSessionIds.has(session.id)
+    )).map((session) => ({
+      ...session,
+      title: optimisticSessionTitlesRef.current.get(session.id) ?? session.title,
+    }));
+    const visibleSessions = [...pendingOptimisticSessions, ...titledSessions];
+    const preserveOptimisticTitle = preserveSession && !isDefaultSessionTitle(preserveSession.title);
+    const nextSessions = preserveSession && !visibleSessions.some((session) => session.id === preserveSession.id)
+      ? [preserveSession, ...visibleSessions]
+      : visibleSessions.map((session) => (
+        preserveOptimisticTitle && session.id === preserveSession.id && isDefaultSessionTitle(session.title)
+          ? { ...session, title: preserveSession.title }
+          : session
+      ));
     sessionsRef.current = nextSessions;
     setSessions(nextSessions);
     setActiveSessionId((current) => {
@@ -396,6 +433,7 @@ export function ChatPage({
       return;
     }
     await sessionStore.rename(session.id, nextTitle);
+    optimisticSessionTitlesRef.current.delete(session.id);
     setSessions((current) => current.map((item) => item.id === session.id ? { ...item, title: nextTitle } : item));
     setHeaderMenuOpen(false);
   }
@@ -448,12 +486,59 @@ export function ChatPage({
       handleQueuedComposerResult(sendSession.id, queuedResult, options);
       return;
     }
+    const optimisticSession = isDefaultSessionTitle(sendSession.title)
+      ? { ...sendSession, title: deriveSessionTitle(queuedResult.content) }
+      : sendSession;
+    if (optimisticSession !== sendSession) {
+      optimisticSessionTitlesRef.current.set(sendSession.id, optimisticSession.title);
+      setSessions((current) => current.map((session) => session.id === sendSession.id ? optimisticSession : session));
+    }
     await chatStore.send(sendSession.id, {
       text: queuedResult.content,
       ...(options.model ? { model: options.model } : {}),
       ...(typeof options.usePersistentRag === "boolean" ? { usePersistentRag: options.usePersistentRag } : {}),
     });
-    await handleSessionStoreRefresh(sendSession);
+    await handleSessionStoreRefresh(optimisticSession);
+  }
+
+  async function handleRecoverTurn(turn: ChatTurn, action: RecoveryAction): Promise<void> {
+    if (!activeSession || recoveringTurnId) {
+      return;
+    }
+    const failedStep = failedPlanStep(turn);
+    setRecoveringTurnId(turn.id);
+    try {
+      if (action === "restart") {
+        const created = await sessionStore.create({ title: deriveSessionTitle(turn.userMessage.text) });
+        activateCreatedSession(created);
+        await chatStore.send(created.id, { text: turn.userMessage.text });
+        await handleSessionStoreRefresh(created);
+        return;
+      }
+      const text = action === "retry"
+        ? `请重新执行刚才失败的步骤${failedStep ? `“${failedStep}”` : ""}，保留已经完成的工作，然后继续完成任务。`
+        : "请从刚才中断的位置继续，沿用现有上下文和计划；先确认当前进度，再完成剩余任务。";
+      await chatStore.send(activeSession.id, { text });
+      await handleSessionStoreRefresh(activeSession);
+    } finally {
+      setRecoveringTurnId("");
+    }
+  }
+
+  function handleConversationScroll(): void {
+    const element = conversationRef.current;
+    if (!element) {
+      return;
+    }
+    const nearBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 96;
+    stickToLatestRef.current = nearBottom;
+    setShowBackToLatest(!nearBottom);
+  }
+
+  function handleBackToLatest(): void {
+    stickToLatestRef.current = true;
+    setShowBackToLatest(false);
+    conversationEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }
 
   function handleQueuedComposerResult(
@@ -688,14 +773,14 @@ export function ChatPage({
 
   const visibleAgentUiForms = agentUiForms.filter(isVisibleAgentUiForm);
   const interactiveFormIds = new Set(visibleAgentUiForms.map((form) => form.form_id));
-  const headerTitle = activeSession?.title ?? (draftNewSession ? "New Chat" : "No session selected");
+  const headerTitle = activeSession ? displaySessionTitle(activeSession.title) : draftNewSession ? "新会话" : "未选择会话";
 
   return (
     <section className="react-chat-page" aria-label="Chat" data-session-sidebar-collapsed={resolvedSessionSidebarCollapsed}>
       <aside className="react-session-list" aria-label="Sessions" data-collapsed={resolvedSessionSidebarCollapsed}>
         <div className="react-session-list__header">
           <div className="react-session-list__title-row">
-            <h2>Chats</h2>
+            <h2>会话</h2>
             <div className="react-session-list__title-actions">
               <button
                 aria-label="Search chats"
@@ -717,9 +802,9 @@ export function ChatPage({
               </button>
             </div>
           </div>
-          <button className="react-session-list__new" type="button" onClick={handleCreateSession}>
+          <button aria-label="New Chat" className="react-session-list__new" type="button" onClick={handleCreateSession}>
             <Plus aria-hidden="true" size={15} />
-            <span>New Chat</span>
+            <span>新会话</span>
           </button>
         </div>
         <div className="react-session-list__rows" aria-label="Session list rows" data-motion="animated-list">
@@ -747,8 +832,8 @@ export function ChatPage({
                     setActiveSessionId(session.id);
                   }}
                 >
-                  <span className="react-session-row__avatar" aria-hidden="true">{sessionTitleInitial(session.title)}</span>
-                  <span className="react-session-row__title">{session.title}</span>
+                  <span className="react-session-row__avatar" aria-hidden="true">{sessionTitleInitial(displaySessionTitle(session.title))}</span>
+                  <span className="react-session-row__title">{displaySessionTitle(session.title)}</span>
                   <small>{formatRelativeUpdatedTime(session.updatedAtMs, now())}</small>
                 </button>
                 <button
@@ -799,13 +884,13 @@ export function ChatPage({
             </button>
             {headerMenuOpen ? (
               <div className="react-menu" role="menu">
-                <button role="menuitem" type="button" onClick={() => activeSession && void handlePinConversation(activeSession)}>
-                  {activeSession?.pinned ? "Unpin conversation" : "Pin conversation"}
+                <button aria-label={activeSession?.pinned ? "Unpin conversation" : "Pin conversation"} role="menuitem" type="button" onClick={() => activeSession && void handlePinConversation(activeSession)}>
+                  {activeSession?.pinned ? "取消置顶" : "置顶会话"}
                 </button>
-                <button role="menuitem" type="button" onClick={() => activeSession && void handleRenameConversation(activeSession)}>Rename conversation</button>
-                <button role="menuitem" type="button" onClick={() => activeSession && void handleCopyId(activeSession)}>Copy ID</button>
-                <button role="menuitem" type="button" onClick={() => activeSession && void handleCopyMarkdown(activeSession)}>Copy Markdown</button>
-                <button role="menuitem" type="button" onClick={() => activeSession && void handleArchiveConversation(activeSession)}>Archive conversation</button>
+                <button aria-label="Rename conversation" role="menuitem" type="button" onClick={() => activeSession && void handleRenameConversation(activeSession)}>重命名会话</button>
+                <button aria-label="Copy ID" role="menuitem" type="button" onClick={() => activeSession && void handleCopyId(activeSession)}>复制 ID</button>
+                <button aria-label="Copy Markdown" role="menuitem" type="button" onClick={() => activeSession && void handleCopyMarkdown(activeSession)}>复制 Markdown</button>
+                <button aria-label="Archive conversation" role="menuitem" type="button" onClick={() => activeSession && void handleArchiveConversation(activeSession)}>归档会话</button>
                 <button disabled role="menuitem" type="button">Open side chat</button>
                 <button disabled role="menuitem" type="button">Branch <ChevronDown aria-hidden="true" size={14} /></button>
                 <button disabled role="menuitem" type="button">Open in new window</button>
@@ -814,7 +899,7 @@ export function ChatPage({
           </div>
         </header>
 
-        <div className="react-conversation-view" aria-label="Conversation" aria-live="polite">
+        <div ref={conversationRef} className="react-conversation-view" aria-label="Conversation" aria-live="polite" onScroll={handleConversationScroll}>
           {timelineError ? <p aria-live="assertive" className="react-timeline-error">{timelineError}</p> : null}
           {activeSession && timeline?.turns.length ? timeline.turns.map((turn) => (
             <CanonicalChatTurn
@@ -825,8 +910,12 @@ export function ChatPage({
               onOpenArtifact={(artifact) => void handleOpenArtifact(artifact)}
               onOpenSubagent={(delegate) => void handleOpenSubagent(delegate)}
               onOpenTool={(toolCall) => setDrawer({ kind: "tool", title: toolCall.name, toolCall })}
+              focusError={turn.id === latestFailedTurnId}
+              recovering={recoveringTurnId === turn.id}
+              onOpenError={(step) => setDrawer({ kind: "error", title: "错误详情", step, turn })}
+              onRecover={(action) => void handleRecoverTurn(turn, action)}
             />
-          )) : emptyActiveSession ? <EmptyChatStart /> : activeSession ? null : <EmptyStateText text="Select or create a session." />}
+          )) : emptyActiveSession ? <EmptyChatStart onSelectPrompt={setComposerDraft} /> : activeSession ? null : <EmptyStateText text="Select or create a session." />}
           {optimisticMessages.map((message) => (
             <MessageBubble
               key={message.id}
@@ -849,7 +938,12 @@ export function ChatPage({
               ))}
             </div>
           ) : null}
+          <div ref={conversationEndRef} aria-hidden="true" />
         </div>
+
+        {showBackToLatest ? (
+          <button className="react-back-to-latest" type="button" onClick={handleBackToLatest}>回到最新消息</button>
+        ) : null}
 
         {activeSession && activeQueuedInputs.length ? (
           <QueuedInputsPanel
@@ -862,12 +956,15 @@ export function ChatPage({
         <ClaudeStyleAiInput
           className={["react-composer", emptyActiveSession ? "react-composer--raised" : ""].filter(Boolean).join(" ")}
           disabled={!activeSession && !draftNewSession}
+          disabledReason={!sessionsLoaded ? "正在加载会话…" : !activeSession && !draftNewSession ? "请先创建或选择一个会话" : undefined}
           defaultModel={defaultComposerModel}
           contextUsage={activeContextUsage}
           models={composerModels}
           responding={sessionResponding}
-          placeholder={emptyActiveSession ? "输入任务，或粘贴/拖入文件" : "Message Tinybot"}
+          placeholder={emptyActiveSession ? "输入任务，或粘贴/拖入文件" : "输入消息给 Tinybot"}
           tools={COMPOSER_TOOLS}
+          value={composerDraft}
+          onValueChange={setComposerDraft}
           onSendMessage={(message, files, pastedContent, options) => handleComposerSend(message, files, pastedContent, options)}
           onStopResponding={() => activeSession && handleStopGeneration(activeSession)}
         />
@@ -889,8 +986,10 @@ export function ChatPage({
             />
           ) : drawer.kind === "subagent" ? (
             <SubagentDetails delegate={drawer.delegate} error={drawer.error} loading={drawer.loading} />
-          ) : (
+          ) : drawer.kind === "artifact" ? (
             <ArtifactDetails artifact={drawer.artifact} detail={drawer.detail} error={drawer.error} loading={drawer.loading} />
+          ) : (
+            <ErrorDetails step={drawer.step} turn={drawer.turn} />
           )}
         </aside>
       ) : null}
@@ -1037,52 +1136,17 @@ function SessionSearchDialog({
   );
 }
 
-function EmptyChatStart() {
-  const [groupIndex, setGroupIndex] = useState(0);
-  const group = EMPTY_CHAT_START_GROUPS[groupIndex] ?? EMPTY_CHAT_START_GROUPS[0];
-
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      setGroupIndex((current) => (current + 1) % EMPTY_CHAT_START_GROUPS.length);
-    }, EMPTY_CHAT_GROUP_INTERVAL_MS);
-    return () => window.clearInterval(interval);
-  }, []);
-
+function EmptyChatStart({ onSelectPrompt }: { onSelectPrompt: (prompt: string) => void }) {
   return (
     <section aria-label="Start a new chat" className="react-empty-chat-start" data-empty-session="true">
-      <h2>
-        <TextType
-          ariaLabel={group.title}
-          className="react-empty-chat-title-type"
-          cursorClassName="react-empty-chat-title-type__cursor"
-          deletingSpeed={22}
-          loop={false}
-          pauseDuration={6800}
-          showCursor
-          text={group.title}
-          typingSpeed={34}
-        />
-      </h2>
-      <PromptCycleText prompts={group.prompts} />
+      <h2>想让 Tinybot 做什么？</h2>
+      <p>选择一个建议，或直接在下方描述你的任务。</p>
+      <div className="react-empty-chat-prompts" aria-label="Prompt suggestions">
+        {EMPTY_CHAT_PROMPTS.map((prompt) => (
+          <button key={prompt} type="button" onClick={() => onSelectPrompt(prompt)}>{prompt}</button>
+        ))}
+      </div>
     </section>
-  );
-}
-
-function PromptCycleText({ prompts }: { prompts: readonly string[] }) {
-  return (
-    <p aria-label="Prompt suggestions" className="react-prompt-cycle" data-motion="text-type-loop">
-      <span className="react-sr-only">{`建议：${prompts.join("；")}`}</span>
-      <TextType
-        ariaHidden
-        className="react-prompt-cycle__text-type"
-        cursorClassName="react-prompt-cycle__cursor"
-        deletingSpeed={24}
-        pauseDuration={1350}
-        showCursor
-        text={prompts}
-        typingSpeed={34}
-      />
-    </p>
   );
 }
 
@@ -1461,23 +1525,35 @@ function optionValueFromString(field: AgentUiFormField, value: string): string |
 }
 
 function CanonicalChatTurn({
+  focusError,
   interactiveFormIds,
   onBranch,
+  onOpenError,
   onOpenArtifact,
+  onRecover,
   onOpenSubagent,
   onOpenTool,
+  recovering,
   turn,
 }: {
+  focusError: boolean;
   interactiveFormIds: ReadonlySet<string>;
   onBranch: (messageId: string) => void;
+  onOpenError: (step: ChatStep) => void;
   onOpenArtifact: (artifact: ArtifactRef) => void;
+  onRecover: (action: RecoveryAction) => void;
   onOpenSubagent: (delegate: DelegatedAgentState) => void;
   onOpenTool: (toolCall: ToolCallSummary) => void;
+  recovering: boolean;
   turn: ChatTurn;
 }) {
   const reasoningSteps = turn.steps.filter((step) => step.kind === "reasoning");
+  const planSteps = turn.steps.filter((step) => step.kind === "plan");
+  const errorSteps = turn.steps.filter((step) => step.kind === "error");
   const processSteps = turn.steps.filter((step) => (
     step.kind !== "reasoning"
+    && step.kind !== "plan"
+    && step.kind !== "error"
     && !(step.kind === "form" && step.form && interactiveFormIds.has(step.form.formId))
   ));
   const hasToolSteps = processSteps.some((step) => step.kind === "tool_call");
@@ -1488,6 +1564,9 @@ function CanonicalChatTurn({
         role="user"
         text={turn.userMessage.text}
       />
+      {planSteps.map((step) => (
+        <CanonicalChatStep key={step.id} onOpenArtifact={onOpenArtifact} onOpenSubagent={onOpenSubagent} onOpenTool={onOpenTool} step={step} />
+      ))}
       {groupCanonicalSteps(processSteps).map((group) => (
         Array.isArray(group) ? (
           <div className="react-canonical-tool-group" key={group.map((step) => step.id).join(":")}>
@@ -1501,6 +1580,17 @@ function CanonicalChatTurn({
         ) : (
           <CanonicalChatStep key={group.id} onOpenArtifact={onOpenArtifact} onOpenSubagent={onOpenSubagent} onOpenTool={onOpenTool} step={group} />
         )
+      ))}
+      {errorSteps.map((step, index) => (
+        <ErrorRecoveryCard
+          focusOnMount={focusError && index === errorSteps.length - 1}
+          key={step.id}
+          recovering={recovering}
+          step={step}
+          turn={turn}
+          onOpenDetails={() => onOpenError(step)}
+          onRecover={onRecover}
+        />
       ))}
       {turn.finalMessage ? (
         <CanonicalMessage
@@ -1567,7 +1657,7 @@ function CanonicalMessage({
     <article className="react-message" data-actions-placement="bottom" data-role={role} data-testid={`message-${messageId}`}>
       <div className="react-message__body">
         {reasoning.map((step) => (
-          <MessageReasoning key={step.id} streaming={step.status === "running"} text={step.summary ?? ""} />
+          <MessageReasoning durationMs={reasoningDurationMs(step)} key={step.id} streaming={step.status === "running"} text={step.summary ?? ""} />
         ))}
         {role === "assistant" ? <AssistantMarkdown streaming={streaming} text={text} /> : <PlainMessageText text={text} />}
         {references?.length ? <MessageContext references={references.map(canonicalReferenceSummary)} /> : null}
@@ -1688,34 +1778,7 @@ function CanonicalChatStep({
     );
   }
   if (step.kind === "plan" && step.plan) {
-    return (
-      <section aria-label={step.title} className="react-canonical-step" data-kind={step.kind} data-status={step.status}>
-        <span className="react-canonical-step__icon"><AgentStepIcon status={canonicalStepIconStatus(step)} /></span>
-        <div className="react-canonical-plan">
-          <div className="react-canonical-plan__heading">
-            <strong>{step.title}</strong>
-            <span>{step.plan.completed}/{step.plan.total}</span>
-          </div>
-          {step.plan.explanation ? <p className="react-canonical-plan__explanation">{step.plan.explanation}</p> : null}
-          <progress
-            aria-label={step.title}
-            aria-valuemax={step.plan.total}
-            aria-valuemin={0}
-            aria-valuenow={step.plan.completed}
-            max={Math.max(step.plan.total, 1)}
-            value={step.plan.completed}
-          />
-          <ol className="react-canonical-plan__steps">
-            {step.plan.steps.map((planStep, index) => (
-              <li data-status={planStep.status} key={`${index}:${planStep.step}`}>
-                <span aria-hidden="true">{planStep.status === "completed" ? "✓" : planStep.status === "in_progress" ? "●" : "○"}</span>
-                <span>{planStep.step}</span>
-              </li>
-            ))}
-          </ol>
-        </div>
-      </section>
-    );
+    return <CanonicalPlanCard step={step} />;
   }
   if (step.kind === "error") {
     return (
@@ -1753,6 +1816,165 @@ function CanonicalChatStep({
       </div>
     </section>
   );
+}
+
+function ErrorRecoveryCard({
+  focusOnMount,
+  onOpenDetails,
+  onRecover,
+  recovering,
+  step,
+  turn,
+}: {
+  focusOnMount: boolean;
+  onOpenDetails: () => void;
+  onRecover: (action: RecoveryAction) => void;
+  recovering: boolean;
+  step: ChatStep;
+  turn: ChatTurn;
+}) {
+  const cardRef = useRef<HTMLElement | null>(null);
+  const error = canonicalErrorInfo(step);
+  const failedStep = failedPlanStep(turn);
+  const completedSteps = completedPlanStepCount(turn);
+
+  useEffect(() => {
+    if (focusOnMount) {
+      cardRef.current?.focus();
+    }
+  }, [focusOnMount]);
+
+  return (
+    <section
+      ref={cardRef}
+      aria-label="任务执行失败"
+      className="react-error-recovery"
+      role="alert"
+      tabIndex={-1}
+    >
+      <div className="react-error-recovery__heading">
+        <AlertTriangle aria-hidden="true" size={18} />
+        <div>
+          <strong>{turn.status === "interrupted" ? "任务已取消" : "任务已中断"}</strong>
+          <p>{friendlyErrorMessage(error.code, error.message)}</p>
+        </div>
+      </div>
+      <dl className="react-error-recovery__summary">
+        {failedStep ? <div><dt>中断位置</dt><dd>{failedStep}</dd></div> : null}
+        <div><dt>计划进度</dt><dd>已完成 {completedSteps} 个步骤</dd></div>
+      </dl>
+      {completedPlanSteps(turn).length ? (
+        <div className="react-error-recovery__valid-results">
+          <strong>仍然有效的结果</strong>
+          <ul>{completedPlanSteps(turn).map((item) => <li key={item}>{item}</li>)}</ul>
+        </div>
+      ) : null}
+      <div className="react-error-recovery__actions" aria-label="错误恢复操作">
+        <button disabled={recovering} type="button" onClick={() => onRecover("continue")}><Play aria-hidden="true" size={15} />继续执行</button>
+        <button disabled={recovering} type="button" onClick={() => onRecover("retry")}><RotateCcw aria-hidden="true" size={15} />重试当前步骤</button>
+        <button disabled={recovering} type="button" onClick={() => onRecover("restart")}><RefreshCw aria-hidden="true" size={15} />重新开始</button>
+        <button type="button" onClick={onOpenDetails}>查看详情</button>
+        <button type="button" onClick={() => void writeClipboardText(formatFailureDetails(step, turn))}><Copy aria-hidden="true" size={15} />复制错误</button>
+      </div>
+    </section>
+  );
+}
+
+function CanonicalPlanCard({ step }: { step: ChatStep }) {
+  const contentId = useId();
+  const [expanded, setExpanded] = useState(step.status !== "completed");
+  const plan = step.plan;
+  const completed = plan?.steps.filter((item) => item.status === "completed").length ?? 0;
+
+  useEffect(() => {
+    if (step.status === "completed") {
+      setExpanded(false);
+    } else if (step.status === "running") {
+      setExpanded(true);
+    }
+  }, [step.status]);
+
+  if (!plan) {
+    return null;
+  }
+
+  return (
+    <section aria-label="执行计划" aria-live="polite" className="react-canonical-step" data-kind={step.kind} data-status={step.status}>
+      <span className="react-canonical-step__icon"><AgentStepIcon status={canonicalStepIconStatus(step)} /></span>
+      <div className="react-canonical-plan">
+        <button
+          aria-controls={contentId}
+          aria-expanded={expanded}
+          className="react-canonical-plan__heading"
+          type="button"
+          onClick={() => setExpanded((open) => !open)}
+        >
+          <strong>执行计划</strong>
+          <span>已完成 {completed}/{plan.total}</span>
+          {expanded ? <ChevronDown aria-hidden="true" size={15} /> : <ChevronRight aria-hidden="true" size={15} />}
+        </button>
+        <progress
+          aria-label={step.title}
+          aria-valuemax={plan.total}
+          aria-valuemin={0}
+          aria-valuenow={completed}
+          max={Math.max(plan.total, 1)}
+          value={completed}
+        />
+        {expanded ? (
+          <div className="react-canonical-plan__content" id={contentId}>
+            {plan.explanation ? <p className="react-canonical-plan__explanation">{plan.explanation}</p> : null}
+            <ol className="react-canonical-plan__steps">
+              {plan.steps.map((planStep, index) => (
+                <li data-status={planStep.status} key={`${index}:${planStep.step}`}>
+                  <span className="react-canonical-plan__step-icon"><PlanStepIcon status={planStep.status} /></span>
+                  <PlanStepLabel text={planStep.step} />
+                  <small>{formatPlanStepStatus(planStep.status)}</small>
+                </li>
+              ))}
+            </ol>
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+type PlanStepStatus = NonNullable<ChatStep["plan"]>["steps"][number]["status"];
+
+function PlanStepIcon({ status }: { status: PlanStepStatus }) {
+  switch (status) {
+    case "completed": return <Check aria-label="已完成" size={14} />;
+    case "in_progress": return <Loader2 aria-label="执行中" size={14} />;
+    case "failed": return <AlertTriangle aria-label="失败" size={14} />;
+    case "cancelled": return <X aria-label="已取消" size={14} />;
+    default: return <Circle aria-label="待执行" size={12} />;
+  }
+}
+
+function PlanStepLabel({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const canExpand = text.length > 72;
+  return (
+    <span className="react-canonical-plan__step-label">
+      <span data-expanded={expanded ? "true" : undefined}>{text}</span>
+      {canExpand ? (
+        <button aria-expanded={expanded} type="button" onClick={() => setExpanded((open) => !open)}>
+          {expanded ? "收起" : "展开"}
+        </button>
+      ) : null}
+    </span>
+  );
+}
+
+function formatPlanStepStatus(status: PlanStepStatus): string {
+  switch (status) {
+    case "completed": return "已完成";
+    case "in_progress": return "执行中";
+    case "failed": return "失败";
+    case "cancelled": return "已取消";
+    default: return "待执行";
+  }
 }
 
 function CanonicalArtifacts({ artifacts, onOpen }: { artifacts: ArtifactRef[]; onOpen: (artifact: ArtifactRef) => void }) {
@@ -1811,7 +2033,7 @@ function canonicalReferenceSummary(reference: NativeChatReference, index: number
 function toolCallSummaryFromStep(step: ChatStep, toolCall: ToolCallState): ToolCallSummary {
   return {
     id: toolCall.id,
-    name: toolCall.name,
+    name: displayToolName(toolCall.name),
     status: step.status,
     summary: toolCall.resultPreview || step.summary,
     ...(toolCall.approvalId ? { approvalId: toolCall.approvalId } : {}),
@@ -1883,9 +2105,10 @@ function MessageBubble({
   );
 }
 
-function MessageReasoning({ streaming, text }: { streaming: boolean; text: string }) {
+function MessageReasoning({ durationMs, streaming, text }: { durationMs?: number; streaming: boolean; text: string }) {
   const [expanded, setExpanded] = useState(streaming);
   const wasStreaming = useRef(streaming);
+  const contentId = useId();
 
   useEffect(() => {
     if (wasStreaming.current !== streaming) {
@@ -1895,18 +2118,19 @@ function MessageReasoning({ streaming, text }: { streaming: boolean; text: strin
   }, [streaming]);
 
   return (
-    <section className="react-message-reasoning" aria-label="Thinking">
+    <section className="react-message-reasoning" aria-label="思考过程">
       <button
+        aria-controls={contentId}
         aria-expanded={expanded}
         className="react-message-reasoning__trigger"
         type="button"
         onClick={() => setExpanded((open) => !open)}
       >
-        <span>Thinking</span>
+        <span>{streaming ? "正在思考" : formatThinkingLabel(durationMs)}</span>
         {expanded ? <ChevronDown aria-hidden="true" size={14} /> : <ChevronRight aria-hidden="true" size={14} />}
       </button>
       {expanded ? (
-        <div className="react-message-reasoning__content">
+        <div className="react-message-reasoning__content" id={contentId}>
           <PlainMessageText text={text} />
         </div>
       ) : null}
@@ -1948,15 +2172,18 @@ function AgentSteps({
   onOpenTool: (toolCall: ToolCallSummary) => void;
   toolCalls: ToolCallSummary[];
 }) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
+  const listId = useId();
   const overallStatus = resolveAgentStepsStatus(toolCalls);
-  const countLabel = `${toolCalls.length} ${toolCalls.length === 1 ? "step" : "steps"}`;
+  const countLabel = `${toolCalls.length} 个步骤`;
+  const accessibleCountLabel = `${toolCalls.length} ${toolCalls.length === 1 ? "step" : "steps"}`;
   const currentStepIndex = resolveCurrentAgentStepIndex(toolCalls);
   return (
     <section className="react-agent-steps" data-status={overallStatus} data-stepper="true">
       <button
+        aria-controls={listId}
         aria-expanded={expanded}
-        aria-label={`Agent steps, ${countLabel}`}
+        aria-label={`Agent steps, ${accessibleCountLabel}`}
         className="react-agent-steps__header"
         type="button"
         onClick={() => setExpanded((open) => !open)}
@@ -1964,13 +2191,13 @@ function AgentSteps({
         <span className="react-agent-steps__header-icon" data-status={overallStatus}>
           <AgentStepIcon status={overallStatus} />
         </span>
-        <span className="react-agent-steps__title">Agent steps</span>
+        <span className="react-agent-steps__title">执行详情</span>
         <small>{countLabel}</small>
         {expanded ? <ChevronDown aria-hidden="true" size={15} /> : <ChevronRight aria-hidden="true" size={15} />}
       </button>
 
       {expanded ? (
-        <ol aria-label="Agent steps" className="react-agent-steps__list">
+        <ol aria-label="Agent steps" className="react-agent-steps__list" id={listId}>
           {toolCalls.map((toolCall, index) => {
             const status = normalizeAgentStepStatus(toolCall.status);
             const isLast = index === toolCalls.length - 1;
@@ -2070,6 +2297,8 @@ function normalizeAgentStepStatus(status: string): AgentStepStatus {
       return "waiting";
     case "failed":
     case "error":
+    case "cancelled":
+    case "canceled":
       return "error";
     default:
       return status ? "pending" : "pending";
@@ -2077,7 +2306,31 @@ function normalizeAgentStepStatus(status: string): AgentStepStatus {
 }
 
 function formatAgentStepStatus(status: string): string {
-  return status.replace(/[_-]+/g, " ");
+  switch (normalizeAgentStepStatus(status)) {
+    case "active": return "执行中";
+    case "success": return "已完成";
+    case "waiting": return "等待确认";
+    case "error": return status.toLowerCase().includes("cancel") ? "已取消" : "失败";
+    default: return "待执行";
+  }
+}
+
+function reasoningDurationMs(step: ChatStep): number | undefined {
+  if (!step.startedAt || !step.completedAt) {
+    return undefined;
+  }
+  const duration = Date.parse(step.completedAt) - Date.parse(step.startedAt);
+  return Number.isFinite(duration) && duration >= 0 ? duration : undefined;
+}
+
+function formatThinkingLabel(durationMs?: number): string {
+  if (durationMs === undefined) {
+    return "思考过程";
+  }
+  if (durationMs < 1000) {
+    return "思考了不到 1 秒";
+  }
+  return `思考了 ${Math.max(1, Math.round(durationMs / 1000))} 秒`;
 }
 
 function PlainMessageText({ text }: { text: string }) {
@@ -2093,6 +2346,93 @@ function PlainMessageText({ text }: { text: string }) {
 
 function sessionTitleInitial(title: string): string {
   return title.trim().charAt(0).toUpperCase() || "C";
+}
+
+function displaySessionTitle(title: string): string {
+  return isDefaultSessionTitle(title) ? "新会话" : title;
+}
+
+function deriveSessionTitle(prompt: string): string {
+  const normalized = prompt.replace(/\s+/g, " ").trim();
+  return normalized.length > 28 ? `${normalized.slice(0, 28)}…` : normalized || "新会话";
+}
+
+function isDefaultSessionTitle(title: string): boolean {
+  return /^(new (chat|session)|新(建)?会话|未命名)/i.test(title.trim());
+}
+
+function failedPlanStep(turn: ChatTurn): string {
+  for (const step of turn.steps) {
+    const failed = step.plan?.steps.find((planStep) => planStep.status === "failed" || planStep.status === "in_progress");
+    if (failed) {
+      return failed.step;
+    }
+  }
+  return "";
+}
+
+function completedPlanStepCount(turn: ChatTurn): number {
+  return turn.steps.reduce((count, step) => (
+    count + (step.plan?.steps.filter((planStep) => planStep.status === "completed").length ?? 0)
+  ), 0);
+}
+
+function completedPlanSteps(turn: ChatTurn): string[] {
+  return turn.steps.flatMap((step) => (
+    step.plan?.steps.filter((planStep) => planStep.status === "completed").map((planStep) => planStep.step) ?? []
+  ));
+}
+
+function canonicalErrorInfo(step: ChatStep): { code: string; message: string } {
+  const error = step.error && typeof step.error === "object" ? step.error as Record<string, unknown> : {};
+  return {
+    code: typeof error.code === "string" && error.code ? error.code : "runtime_error",
+    message: typeof error.message === "string" && error.message ? error.message : step.summary || "任务执行失败",
+  };
+}
+
+function displayToolName(name: string): string {
+  return name === "update_plan" ? "更新执行计划" : name;
+}
+
+function friendlyErrorMessage(code: string, message: string): string {
+  if (code === "max_iterations" || message.toLowerCase().includes("max iterations")) {
+    return "执行达到迭代上限，已保留当前计划和上下文。";
+  }
+  if (code.includes("cancel") || message.toLowerCase().includes("cancel")) {
+    return "执行已取消，已完成的内容仍然保留。";
+  }
+  return message;
+}
+
+function formatFailureDetails(step: ChatStep, turn: ChatTurn): string {
+  const error = canonicalErrorInfo(step);
+  return [
+    `任务：${turn.userMessage.text}`,
+    `状态：${turn.status}`,
+    `错误代码：${error.code}`,
+    `错误信息：${error.message}`,
+    failedPlanStep(turn) ? `中断位置：${failedPlanStep(turn)}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+function ErrorDetails({ step, turn }: { step: ChatStep; turn: ChatTurn }) {
+  const error = canonicalErrorInfo(step);
+  return (
+    <div className="react-error-detail">
+      <dl>
+        <div><dt>Run ID</dt><dd><code>{turn.id}</code></dd></div>
+        <div><dt>状态</dt><dd>{turn.status}</dd></div>
+        <div><dt>停止原因</dt><dd><code>{error.code}</code></dd></div>
+        {failedPlanStep(turn) ? <div><dt>中断位置</dt><dd>{failedPlanStep(turn)}</dd></div> : null}
+        <div><dt>原始任务</dt><dd>{turn.userMessage.text}</dd></div>
+      </dl>
+      <section>
+        <h3>原始错误信息</h3>
+        <pre>{error.message}</pre>
+      </section>
+    </div>
+  );
 }
 
 function ToolCallDetails({

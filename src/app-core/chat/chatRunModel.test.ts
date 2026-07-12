@@ -271,6 +271,113 @@ describe("chat run model", () => {
     });
   });
 
+  test("reconciles stale running steps when a canonical turn fails", () => {
+    const runtimeState = normalizeAgentRunRuntimeStatePayload(canonicalRuntimeState("run-failed", [
+      {
+        itemId: "run-failed:user",
+        kind: "user_message",
+        status: "completed",
+        data: { type: "user_message", messageId: "user-failed", content: "Run the plan" },
+      },
+      {
+        itemId: "run-failed:plan",
+        kind: "plan_progress",
+        status: "running",
+        title: "Plan 0/2",
+        data: {
+          type: "plan_progress",
+          completed: 0,
+          total: 2,
+          currentStep: "Inspect inputs",
+          steps: [
+            { step: "Inspect inputs", status: "in_progress" },
+            { step: "Report findings", status: "pending" },
+          ],
+        },
+      },
+      {
+        itemId: "run-failed:tool",
+        kind: "tool_call",
+        status: "running",
+        title: "update_plan",
+        data: { type: "tool_call", toolCallId: "call-plan", name: "update_plan", status: "running" },
+      },
+      {
+        itemId: "run-failed:error",
+        kind: "error",
+        status: "failed",
+        title: "Error",
+        data: { type: "error", code: "max_iterations", message: "Iteration limit reached" },
+      },
+    ]));
+
+    const [turn] = backendRuntimeStatesToTurns("WebSocket:chat-1", [runtimeState]);
+    const plan = turn.steps.find((step) => step.kind === "plan");
+    const tool = turn.steps.find((step) => step.kind === "tool_call");
+
+    expect(turn.status).toBe("failed");
+    expect(plan).toMatchObject({
+      status: "failed",
+      plan: {
+        currentStep: undefined,
+        steps: [
+          { step: "Inspect inputs", status: "failed" },
+          { step: "Report findings", status: "cancelled" },
+        ],
+      },
+    });
+    expect(tool?.status).toBe("failed");
+    expect(turn.steps.some((step) => step.status === "running" || step.status === "pending")).toBe(false);
+  });
+
+  test("reconciles stale running steps when a canonical turn is cancelled", () => {
+    const runtimeState = normalizeAgentRunRuntimeStatePayload(canonicalRuntimeState("run-cancelled", [
+      {
+        itemId: "run-cancelled:user",
+        kind: "user_message",
+        status: "completed",
+        data: { type: "user_message", messageId: "user-cancelled", content: "Run the plan" },
+      },
+      {
+        itemId: "run-cancelled:plan",
+        kind: "plan_progress",
+        status: "running",
+        data: {
+          type: "plan_progress",
+          completed: 0,
+          total: 2,
+          currentStep: "Inspect inputs",
+          steps: [
+            { step: "Inspect inputs", status: "in_progress" },
+            { step: "Report findings", status: "pending" },
+          ],
+        },
+      },
+      {
+        itemId: "run-cancelled:tool",
+        kind: "tool_call",
+        status: "running",
+        title: "workspace.read_file",
+        data: { type: "tool_call", toolCallId: "call-read", name: "workspace.read_file", status: "running" },
+      },
+      {
+        itemId: "run-cancelled:error",
+        kind: "error",
+        status: "cancelled",
+        data: { type: "error", code: "cancelled", message: "Run cancelled", cancelled: true },
+      },
+    ]));
+
+    const [turn] = backendRuntimeStatesToTurns("WebSocket:chat-1", [runtimeState]);
+
+    expect(turn.status).toBe("interrupted");
+    expect(turn.steps.find((step) => step.kind === "plan")?.plan?.steps).toEqual([
+      { step: "Inspect inputs", status: "cancelled" },
+      { step: "Report findings", status: "cancelled" },
+    ]);
+    expect(turn.steps.some((step) => step.status === "running" || step.status === "pending")).toBe(false);
+  });
+
   test("orders restored runtime states by numeric millisecond timestamps", () => {
     const early = normalizeAgentRunRuntimeStatePayload(canonicalRuntimeState("z-run-early", [{
         itemId: "z-run-early:user",

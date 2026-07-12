@@ -5,7 +5,7 @@ use super::tool_router::NativeToolRouter;
 use super::{
     string_field, AgentHookInvocation, AgentTurnSettings, ComposedInstructions,
     NativeAgentCancellation, NativeAgentCancellationContext, NativeAgentRunContext,
-    NativeAgentRuntimeServices,
+    NativeAgentRuntimeServices, DEFAULT_NATIVE_AGENT_MAX_ITERATIONS,
 };
 use crate::agent_loop_runtime_protocol::AgentTraceContext;
 use crate::worker_capability::default_desktop_capability_policy;
@@ -49,7 +49,7 @@ impl NativeAgentRunContext {
                     })
             })
             .and_then(Value::as_i64)
-            .unwrap_or(1);
+            .unwrap_or(DEFAULT_NATIVE_AGENT_MAX_ITERATIONS);
         let stream = spec
             .get("stream")
             .or_else(|| metadata.get("stream"))

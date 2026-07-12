@@ -107,7 +107,7 @@ pub(crate) fn native_agent_max_iterations(
                 })
         })
         .and_then(serde_json::Value::as_i64)
-        .unwrap_or(1)
+        .unwrap_or(crate::worker_agent_runtime::DEFAULT_NATIVE_AGENT_MAX_ITERATIONS)
 }
 
 pub(crate) fn native_agent_current_iteration(

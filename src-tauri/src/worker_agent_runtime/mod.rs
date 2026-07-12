@@ -12,6 +12,8 @@ use serde_json::Value;
 use std::{fmt, future::Future, pin::Pin, sync::Arc};
 use tokio_util::sync::CancellationToken;
 
+pub(crate) const DEFAULT_NATIVE_AGENT_MAX_ITERATIONS: i64 = 200;
+
 mod checkpoint;
 mod context;
 mod context_contributors;

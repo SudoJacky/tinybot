@@ -211,6 +211,14 @@ fn normalizes_desktop_run_spec_inputs_for_rust_turns() {
 }
 
 #[test]
+fn defaults_native_agent_runs_to_the_desktop_iteration_limit() {
+    let context = NativeAgentRunContext::from_spec(json!({}), json!({}));
+
+    assert_eq!(context.max_iterations, DEFAULT_NATIVE_AGENT_MAX_ITERATIONS);
+    assert_eq!(context.max_iterations, 200);
+}
+
+#[test]
 fn composed_workspace_instructions_reach_provider_and_reload_user_edits() {
     struct CapturingProvider {
         requests: Arc<Mutex<Vec<Vec<Value>>>>,
@@ -6059,7 +6067,7 @@ fn saves_and_restores_approval_checkpoint_before_resume() {
     );
     assert_eq!(awaiting["checkpoint"]["phase"], "awaiting_approval");
     assert_eq!(awaiting["checkpoint"]["iteration"], 0);
-    assert_eq!(awaiting["checkpoint"]["maxIterations"], 1);
+    assert_eq!(awaiting["checkpoint"]["maxIterations"], 200);
     assert_eq!(
         awaiting["checkpoint"]["pendingToolCalls"][0]["toolCallId"],
         "approval-1"
@@ -6305,7 +6313,6 @@ fn native_run_projects_core_canonical_timeline_equally_live_and_after_reload() {
             "runtime": "rust",
             "runId": run_id,
             "sessionId": session_id,
-            "maxIterations": 4,
             "metadata": { "clientEventId": "client-canonical-acceptance" },
             "messages": [{
                 "id": "user-canonical-acceptance",
@@ -6641,7 +6648,7 @@ fn handles_approval_denial_form_submit_and_cancel_events() {
     );
     assert_eq!(awaiting_form["checkpoint"]["phase"], "awaiting_form");
     assert_eq!(awaiting_form["checkpoint"]["iteration"], 0);
-    assert_eq!(awaiting_form["checkpoint"]["maxIterations"], 1);
+    assert_eq!(awaiting_form["checkpoint"]["maxIterations"], 200);
     assert!(awaiting_form["checkpoint"]["pendingToolCalls"]
         .as_array()
         .expect("form pending tool calls should be an array")

@@ -875,6 +875,7 @@ button:disabled {
 }
 
 .react-chat-surface {
+  position: relative;
   display: grid;
   grid-template-rows: 56px minmax(0, 1fr) auto;
   min-width: 0;
@@ -956,6 +957,52 @@ button:disabled {
   font-size: 30px;
   font-weight: 650;
   line-height: 1.18;
+}
+
+.react-empty-chat-start > p {
+  margin: 0;
+  font-size: 14px;
+}
+
+.react-empty-chat-prompts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: min(620px, 100%);
+  margin-top: 4px;
+}
+
+.react-empty-chat-prompts button {
+  min-height: 44px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 10px;
+  background: var(--color-surface-card);
+  padding: 10px 12px;
+  color: var(--color-body);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--motion-duration-fast), background var(--motion-duration-fast);
+}
+
+.react-empty-chat-prompts button:hover,
+.react-empty-chat-prompts button:focus-visible {
+  border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-hairline));
+  background: color-mix(in srgb, var(--color-primary) 6%, #fff);
+}
+
+.react-back-to-latest {
+  position: absolute;
+  right: 24px;
+  bottom: 112px;
+  z-index: 4;
+  min-height: 36px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 999px;
+  background: #fff;
+  padding: 0 14px;
+  box-shadow: 0 6px 20px rgb(20 20 19 / 12%);
+  color: var(--color-body);
+  cursor: pointer;
 }
 
 .react-prompt-cycle {
@@ -1656,6 +1703,12 @@ button:disabled {
   align-items: center;
 }
 
+.claude-ai-input__notice[role="status"] {
+  border-color: var(--color-hairline);
+  background: var(--color-surface-soft);
+  color: var(--color-muted);
+}
+
 .claude-ai-input__toolbar {
   justify-content: space-between;
   gap: 10px;
@@ -2192,10 +2245,15 @@ button:disabled {
 }
 
 .react-canonical-plan__heading {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 18px;
   align-items: baseline;
-  justify-content: space-between;
   gap: 12px;
+  width: 100%;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .react-canonical-plan__heading span,
@@ -2214,9 +2272,48 @@ button:disabled {
 
 .react-canonical-plan__steps li {
   display: grid;
-  grid-template-columns: 16px 1fr;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
   gap: 6px;
   align-items: baseline;
+}
+
+.react-canonical-plan__content {
+  display: grid;
+  gap: 5px;
+}
+
+.react-canonical-plan__steps li small {
+  color: var(--color-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.react-canonical-plan__step-icon {
+  display: inline-grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+}
+
+.react-canonical-plan__step-label {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.react-canonical-plan__step-label > span:not([data-expanded="true"]) {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.react-canonical-plan__step-label button {
+  width: fit-content;
+  padding: 0;
+  color: var(--color-primary);
+  font-size: 11px;
+  cursor: pointer;
 }
 
 .react-canonical-plan__steps li[data-status="completed"] {
@@ -2229,9 +2326,137 @@ button:disabled {
   font-weight: 650;
 }
 
+.react-canonical-plan__steps li[data-status="in_progress"] .react-canonical-plan__step-icon svg {
+  animation: react-spin 1s linear infinite;
+}
+
+.react-canonical-plan__steps li[data-status="failed"] {
+  color: var(--color-error);
+  font-weight: 650;
+}
+
+.react-canonical-plan__steps li[data-status="cancelled"] {
+  color: var(--color-muted);
+}
+
 .react-canonical-tool-group {
   display: grid;
   gap: 6px;
+  width: min(720px, 100%);
+  margin: 0 auto;
+}
+
+.react-error-recovery {
+  display: grid;
+  gap: 12px;
+  width: min(760px, 100%);
+  margin: 4px auto;
+  border: 1px solid color-mix(in srgb, var(--color-error) 34%, var(--color-hairline));
+  border-left: 4px solid var(--color-error);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-error) 5%, #fff);
+  padding: 14px 16px;
+  color: var(--color-body);
+}
+
+.react-error-recovery:focus {
+  outline: 2px solid color-mix(in srgb, var(--color-error) 60%, transparent);
+  outline-offset: 3px;
+}
+
+.react-error-recovery__heading {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 9px;
+  color: var(--color-error);
+}
+
+.react-error-recovery__heading p {
+  margin: 3px 0 0;
+  color: var(--color-body);
+}
+
+.react-error-recovery__summary,
+.react-error-detail dl {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.react-error-recovery__summary > div,
+.react-error-detail dl > div {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.react-error-recovery dt,
+.react-error-recovery dd,
+.react-error-detail dt,
+.react-error-detail dd {
+  margin: 0;
+}
+
+.react-error-recovery dt,
+.react-error-detail dt {
+  color: var(--color-muted);
+}
+
+.react-error-recovery__valid-results {
+  display: grid;
+  gap: 5px;
+  border-radius: 8px;
+  background: rgb(255 255 255 / 68%);
+  padding: 9px 10px;
+}
+
+.react-error-recovery__valid-results ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.react-error-recovery__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.react-error-recovery__actions button {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+  padding: 0 10px;
+  color: var(--color-body);
+  cursor: pointer;
+}
+
+.react-error-recovery__actions button:first-child {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.react-error-recovery__actions button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.react-error-detail {
+  display: grid;
+  gap: 16px;
+  margin-top: 14px;
+}
+
+.react-error-detail pre {
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--color-surface-soft);
+  padding: 10px;
+  white-space: pre-wrap;
 }
 
 .react-canonical-step-stack {
@@ -3605,6 +3830,10 @@ button:disabled {
 
   .react-empty-chat-start h2 {
     font-size: 24px;
+  }
+
+  .react-empty-chat-prompts {
+    grid-template-columns: 1fr;
   }
 
   .react-prompt-cycle {

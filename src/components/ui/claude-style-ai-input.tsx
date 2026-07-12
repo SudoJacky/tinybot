@@ -67,6 +67,7 @@ export interface ClaudeStyleAiInputProps {
     options: ComposerSendOptions,
   ) => void | Promise<void>;
   disabled?: boolean;
+  disabledReason?: string;
   placeholder?: string;
   maxFiles?: number;
   maxFileSize?: number;
@@ -78,6 +79,8 @@ export interface ClaudeStyleAiInputProps {
   tools?: ComposerToolOption[];
   responding?: boolean;
   onStopResponding?: () => void | Promise<void>;
+  value?: string;
+  onValueChange?: (value: string) => void;
 }
 
 const MAX_FILES = 10;
@@ -99,15 +102,18 @@ export function ClaudeStyleAiInput({
   contextUsage,
   defaultModel,
   disabled = false,
+  disabledReason,
   maxFileSize = MAX_FILE_SIZE,
   maxFiles = MAX_FILES,
   models = EMPTY_MODELS,
   onModelChange,
   onSendMessage,
   onStopResponding,
+  onValueChange,
   placeholder = "Message Tinybot",
   responding = false,
   tools = EMPTY_TOOLS,
+  value,
 }: ClaudeStyleAiInputProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -122,13 +128,19 @@ export function ClaudeStyleAiInput({
   const [enabledToolIds, setEnabledToolIds] = useState<string[]>(() => tools.filter((tool) => tool.enabled).map((tool) => tool.id));
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
+  const currentMessage = value ?? message;
   const selectedModel = useMemo(
     () => models.find((model) => model.id === selectedModelId) ?? models[0],
     [models, selectedModelId],
   );
   const contextUsageView = useMemo(() => buildContextUsageView(contextUsage), [contextUsage]);
   const enabledToolIdSet = useMemo(() => new Set(enabledToolIds), [enabledToolIds]);
-  const canSend = !disabled && !sending && Boolean(message.trim() || files.length || pastedContent.length);
+  const canSend = !disabled && !sending && Boolean(currentMessage.trim() || files.length || pastedContent.length);
+
+  function updateMessage(nextMessage: string): void {
+    setMessage(nextMessage);
+    onValueChange?.(nextMessage);
+  }
 
   useEffect(() => {
     const nextModelId = defaultModel || models[0]?.id || "";
@@ -170,11 +182,11 @@ export function ClaudeStyleAiInput({
     setError("");
     try {
       const usesKnowledgeRag = tools.some((tool) => tool.id === "knowledge-rag");
-      await onSendMessage?.(message.trim(), files, pastedContent, {
+      await onSendMessage?.(currentMessage.trim(), files, pastedContent, {
         ...(selectedModel?.id ? { model: selectedModel.id } : {}),
         ...(usesKnowledgeRag ? { usePersistentRag: enabledToolIdSet.has("knowledge-rag") } : {}),
       });
-      setMessage("");
+      updateMessage("");
       setFiles([]);
       setPastedContent([]);
     } catch {
@@ -312,6 +324,18 @@ export function ClaudeStyleAiInput({
           <span>{error}</span>
         </div>
       ) : null}
+      {!error && disabled && disabledReason ? (
+        <div className="claude-ai-input__notice" role="status">
+          <AlertCircle aria-hidden="true" size={15} />
+          <span>{disabledReason}</span>
+        </div>
+      ) : null}
+      {!error && !disabled && responding ? (
+        <div className="claude-ai-input__notice" role="status">
+          <AlertCircle aria-hidden="true" size={15} />
+          <span>任务执行中；此时发送的新消息会排队，并在当前步骤结束后送达。</span>
+        </div>
+      ) : null}
 
       {files.length || pastedContent.length ? (
         <div className="claude-ai-input__attachments" aria-label="Composer attachments">
@@ -350,8 +374,8 @@ export function ClaudeStyleAiInput({
           disabled={disabled || sending}
           placeholder={placeholder}
           rows={2}
-          value={message}
-          onChange={(event) => setMessage(event.currentTarget.value)}
+          value={currentMessage}
+          onChange={(event) => updateMessage(event.currentTarget.value)}
           onKeyDown={handleTextareaKeyDown}
           onPaste={handlePaste}
         />
@@ -475,7 +499,7 @@ export function ClaudeStyleAiInput({
               aria-label="Send message"
               className="claude-ai-input__send"
               disabled={!canSend}
-              title="Send message"
+              title={canSend ? "Send message" : disabledReason || "输入内容后发送"}
               type="submit"
             >
               <ArrowUp aria-hidden="true" size={18} />

@@ -3745,7 +3745,7 @@ fn worker_rust_agent_restore_and_cancel_use_native_runtime_state() {
     assert_eq!(restored["checkpoint"]["phase"], "awaiting_approval");
     assert_eq!(restored["checkpoint"]["schemaVersion"], 1);
     assert_eq!(restored["checkpoint"]["iteration"], 0);
-    assert_eq!(restored["checkpoint"]["maxIterations"], 1);
+    assert_eq!(restored["checkpoint"]["maxIterations"], 200);
     assert_eq!(
         restored["checkpoint"]["pendingToolCalls"]
             .as_array()

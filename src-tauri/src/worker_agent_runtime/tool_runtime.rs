@@ -883,13 +883,6 @@ fn execute_update_plan(
         &tool_call,
         Value::String("Plan updated".to_string()),
     );
-    let observation_content = tool_observation_content(&result);
-    state
-        .messages
-        .push(tool_observation_message(&tool_call, &observation_content));
-    state
-        .completed_tool_results
-        .push(completed_tool_result_entry(&tool_call, &result));
     context
         .metrics()
         .record_duration("tool.durationMs", tool_started_at.elapsed());
@@ -910,11 +903,9 @@ fn execute_update_plan(
         }
     };
     state.emit_hook_evaluation(&after_invocation, &after_evaluation);
-    state.transition_phase(
-        AgentRuntimePhase::Planning,
-        iteration,
-        "agent.plan.progress",
-    );
+    record_tool_success(context, state, iteration, tool_call, result);
+    state.clear_pending_tool_calls();
+    state.transition_phase(AgentRuntimePhase::Planning, iteration, "agent.tool.result");
     save_phase_checkpoint(
         services,
         context,

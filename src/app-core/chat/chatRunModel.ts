@@ -228,7 +228,7 @@ export type PlanState = {
   currentStep?: string;
   explanation?: string;
   steps: Array<{
-    status: "pending" | "in_progress" | "completed";
+    status: "pending" | "in_progress" | "completed" | "failed" | "cancelled";
     step: string;
   }>;
   total: number;
@@ -933,6 +933,7 @@ function runtimeStateToTurn(
   attachScopedErrors(turn, runtimeState.timeline.items);
   attachFileReferences(turn, runtimeState.timeline.items);
   turn.status = statusForTurnItems(runtimeState.timeline.items, turn.status);
+  reconcileTerminalStepStatuses(turn);
   if (turn.status === "completed" || turn.status === "failed" || turn.status === "interrupted") {
     turn.completedAt = turn.completedAt ?? lastUpdatedAt;
   }
@@ -1315,17 +1316,17 @@ function itemStatusToStepStatus(status: string): ChatStepStatus {
 }
 
 function statusForTurnItems(items: BackendAgentTurnItem[], fallback: ChatTurnStatus): ChatTurnStatus {
-  if (items.some((item) => item.kind === "approval" && item.status === "waiting")) {
-    return "awaiting_approval";
-  }
-  if (items.some((item) => item.status === "waiting")) {
-    return "awaiting_user";
-  }
   if (items.some((item) => item.status === "failed")) {
     return "failed";
   }
   if (items.some((item) => item.status === "cancelled")) {
     return "interrupted";
+  }
+  if (items.some((item) => item.kind === "approval" && item.status === "waiting")) {
+    return "awaiting_approval";
+  }
+  if (items.some((item) => item.status === "waiting")) {
+    return "awaiting_user";
   }
   if (items.some((item) => item.kind === "assistant_message" && item.status === "completed")) {
     return "completed";
@@ -1334,6 +1335,34 @@ function statusForTurnItems(items: BackendAgentTurnItem[], fallback: ChatTurnSta
     return "running";
   }
   return fallback;
+}
+
+function reconcileTerminalStepStatuses(turn: ChatTurn): void {
+  if (turn.status !== "completed" && turn.status !== "failed" && turn.status !== "interrupted") {
+    return;
+  }
+
+  for (const step of turn.steps) {
+    if (step.plan) {
+      step.plan.steps = step.plan.steps.map((planStep) => {
+        if (planStep.status === "completed" || planStep.status === "failed" || planStep.status === "cancelled") {
+          return planStep;
+        }
+        if (turn.status === "failed") {
+          return { ...planStep, status: planStep.status === "in_progress" ? "failed" : "cancelled" };
+        }
+        return { ...planStep, status: "cancelled" };
+      });
+      step.plan.currentStep = undefined;
+    }
+    if (step.status === "pending" || step.status === "running" || step.status === "blocked") {
+      step.status = turn.status === "completed"
+        ? "completed"
+        : turn.status === "failed"
+          ? "failed"
+          : "cancelled";
+    }
+  }
 }
 
 function isDelegatedRunEventType(eventType: string): boolean {
