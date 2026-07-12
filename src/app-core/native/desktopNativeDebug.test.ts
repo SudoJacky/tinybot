@@ -17,6 +17,17 @@ describe("desktop native debug logger", () => {
     vi.restoreAllMocks();
   });
 
+  test("is disabled by default outside explicit opt-in", () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+
+    logDesktopNativeDebug("nativeWebSocket.agentEvent.received", {
+      eventName: "agent.delta",
+    });
+
+    expect(window.__tinybotNativeDebug).toBeUndefined();
+    expect(info).not.toHaveBeenCalled();
+  });
+
   test("stores sanitized native debug entries behind the localStorage switch", () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
     window.localStorage.setItem("tinybot.desktop.nativeDebug", "on");

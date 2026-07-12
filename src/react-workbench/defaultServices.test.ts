@@ -106,12 +106,12 @@ function canonicalRuntimeState(
   return {
     runtimeEvents: [],
     timeline: {
-      schemaVersion: "tinybot.timeline.v1",
+      schemaVersion: "tinybot.timeline.v2",
       sessionId,
       runId,
       snapshotRevision: items.length,
       items: items.map((item, index) => ({
-        schemaVersion: "tinybot.turn_item.v1",
+        schemaVersion: "tinybot.turn_item.v2",
         itemId: `${runId}:item:${index + 1}`,
         sessionId,
         runId,
@@ -233,7 +233,7 @@ describe("default desktop app services", () => {
         kind: "reasoning",
         status: "running",
         summary: "I am checking context.",
-        data: { type: "reasoning", summary: "I am checking context." },
+        data: { type: "reasoning", modelCallId: "call-live", summary: "I am checking context." },
       },
     ]));
     const services = createDesktopAppServices();
@@ -425,12 +425,25 @@ describe("default desktop app services", () => {
     const events: unknown[] = [];
     services.chatStore.subscribe("websocket:chat-1", (event) => events.push(event));
 
-    await services.chatStore.send("websocket:chat-1", { text: "你好", usePersistentRag: true });
+    await services.chatStore.send("websocket:chat-1", {
+      references: [{
+        detail: "TinyOS file selection",
+        evidenceId: "item-1",
+        kind: "reference",
+        sourceLine: 3,
+        sourcePath: "src/main.ts",
+        title: "src/main.ts · L3",
+        type: "tinyos.file",
+      }],
+      text: "你好",
+      usePersistentRag: true,
+    });
 
     expect(events).toContainEqual(expect.objectContaining({
       message: expect.objectContaining({
         role: "user",
         text: "你好",
+        contextReferences: [expect.objectContaining({ id: "item-1", sourcePath: "src/main.ts" })],
       }),
       type: "message-sent",
     }));

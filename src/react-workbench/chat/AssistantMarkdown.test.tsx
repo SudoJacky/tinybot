@@ -18,16 +18,16 @@ afterEach(() => {
 });
 
 describe("AssistantMarkdown", () => {
-  it("repairs incomplete Markdown and animates only while streaming", async () => {
+  it("repairs incomplete Markdown without per-token animation", async () => {
     const { container, rerender } = render(<AssistantMarkdown streaming text="Checking **the current state" />);
 
     expect(container.querySelector("strong")?.textContent).toBe("the current state");
-    expect(container.querySelector("[data-sd-animate]")).toBeTruthy();
+    expect(container.querySelector("[data-sd-animate]")).toBeNull();
 
     rerender(<AssistantMarkdown streaming={false} text="Checking **the current state**" />);
 
     expect(container.querySelector("strong")?.textContent).toBe("the current state");
-    await waitFor(() => expect(container.querySelector("[data-sd-animate]")).toBeNull());
+    expect(container.querySelector("[data-sd-animate]")).toBeNull();
   });
 
   it("renders common technical Markdown and CJK-adjacent emphasis", async () => {

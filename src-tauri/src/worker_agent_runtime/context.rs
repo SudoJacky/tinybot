@@ -320,6 +320,9 @@ fn initial_agent_messages(spec: &Value) -> Vec<Value> {
             {
                 message["clientEventId"] = Value::String(client_event_id.to_string());
             }
+            if let Some(references) = input.get("references").filter(|value| value.is_array()) {
+                message["references"] = references.clone();
+            }
             return vec![message];
         }
     }

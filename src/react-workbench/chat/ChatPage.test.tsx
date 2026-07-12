@@ -148,6 +148,42 @@ describe("ChatPage", () => {
     expect(getComputedStyle(chat).fontSize).toBe("13px");
   });
 
+  it("keeps expanded execution timelines at max-content height inside the conversation grid", async () => {
+    mountWorkbenchCss();
+    const stores = createStores();
+    const timeline = timelineFromReactMessages("s1", [{
+      id: "u-layout",
+      role: "user" as const,
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+      text: "Inspect layout",
+      status: "complete" as const,
+    }]);
+    const turn = timeline.turns[0];
+    turn.steps = [{
+      agentContext: { id: "main", title: "Tinybot", type: "main" },
+      id: "commentary-layout",
+      kind: "message",
+      messagePhase: "commentary",
+      modelCallId: "call-layout",
+      sequence: 1,
+      status: "completed",
+      summary: "Inspecting layout.",
+      title: "Progress update",
+    }];
+    turn.executionItems = turn.steps;
+    stores.chatStore.load = vi.fn(async () => timeline);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    await screen.findByRole("button", { name: /Execution details Running · 1 item/ });
+    const executionTimeline = document.querySelector<HTMLElement>(".react-execution-timeline")!;
+    const executionContent = document.querySelector<HTMLElement>(".react-execution-timeline__content")!;
+    expect(getComputedStyle(executionTimeline).height).toBe("max-content");
+    expect(getComputedStyle(executionTimeline).borderTopWidth).toBe("0px");
+    expect(getComputedStyle(executionTimeline).marginLeft).toBe("0px");
+    expect(getComputedStyle(executionContent).paddingLeft).toBe("0px");
+  });
+
   it("renders the React chat layout without legacy header actions", async () => {
     const stores = createStores();
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
@@ -161,6 +197,183 @@ describe("ChatPage", () => {
     expect(screen.getByRole("button", { name: "Tools" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /delete session/i })).toBeNull();
     expect(screen.queryByText(/Agent · rust/i)).toBeNull();
+  });
+
+  it("opens and closes the Live Canvas from the Chat header with focus restoration", async () => {
+    mountWorkbenchCss();
+    const user = userEvent.setup();
+    const stores = createStores();
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const openButton = await screen.findByRole("button", { name: /^Open Live Canvas/ });
+    expect(openButton.getAttribute("aria-expanded")).toBe("false");
+    expect(getComputedStyle(openButton).minWidth).toBe("44px");
+    expect(screen.queryByLabelText("Live Canvas")).toBeNull();
+
+    await user.click(openButton);
+
+    const canvas = screen.getByLabelText("Live Canvas");
+    const canvasHeading = within(canvas).getByRole("heading", { name: "TinyOS" });
+    expect(openButton.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector(".react-chat-page")?.getAttribute("data-live-canvas-open")).toBe("true");
+    expect(within(canvas).getByRole("article", { name: "Terminal window" })).toBeTruthy();
+    expect(within(canvas).getByText("Live follow")).toBeTruthy();
+    expect(document.activeElement).toBe(canvasHeading);
+
+    const closeButton = within(canvas).getByRole("button", { name: "Close Live Canvas panel" });
+    expect(getComputedStyle(closeButton).minWidth).toBe("44px");
+    await user.click(closeButton);
+
+    const restoredButton = screen.getByRole("button", { name: /^Open Live Canvas/ });
+    expect(screen.queryByLabelText("Live Canvas")).toBeNull();
+    expect(document.activeElement).toBe(restoredButton);
+  });
+
+  it("attaches a TinyOS file range as a visible composer chip and structured chat reference", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    const timeline = timelineFromReactMessages("s1", [{
+      id: "u-tinyos-reference",
+      role: "user" as const,
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+      text: "Inspect this file",
+      status: "complete" as const,
+    }]);
+    timeline.turns[0].steps = [{
+      agentContext: { id: "main", title: "Tinybot", type: "main" },
+      id: "file-reference",
+      kind: "tool_call",
+      sequence: 1,
+      status: "completed",
+      title: "workspace.read_file",
+      toolCall: {
+        argsJson: { path: "src/main.ts", revision: "rev-1" },
+        id: "file-reference",
+        name: "workspace.read_file",
+        resultPreview: "const value = 1;\nexport { value };",
+      },
+    }];
+    timeline.turns[0].executionItems = timeline.turns[0].steps;
+    stores.chatStore.load = vi.fn(async () => timeline);
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    await user.click(await screen.findByRole("button", { name: /^Open Live Canvas/ }));
+    const filesWindow = screen.getByLabelText("Files window");
+    await user.click(within(filesWindow).getByRole("button", { name: "const value = 1;" }));
+    await user.click(within(filesWindow).getByRole("button", { name: "Attach src/main.ts · L1" }));
+
+    const attachments = screen.getByLabelText("Composer attachments");
+    expect(within(attachments).getByText("src/main.ts · L1")).toBeTruthy();
+    await user.type(screen.getByRole("textbox", { name: "Message" }), "Explain this line");
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+
+    await waitFor(() => expect(stores.chatStore.send).toHaveBeenCalledWith("s1", expect.objectContaining({
+      references: [expect.objectContaining({
+        evidenceId: "file-reference",
+        sourceLine: 1,
+        sourcePath: "src/main.ts",
+        sourceText: "const value = 1;",
+        title: "src/main.ts · L1",
+        type: "tinyos.file",
+      })],
+      text: "Explain this line",
+    })));
+    expect(screen.queryByText("src/main.ts · L1")).toBeNull();
+  });
+
+  it("opens exact timeline items in history and returns to the latest live frame", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    let listener: ((event: ChatEvent) => void) | undefined;
+    stores.chatStore.subscribe = vi.fn((_sessionId, nextListener) => {
+      listener = nextListener;
+      return () => undefined;
+    });
+    const timeline = timelineFromReactMessages("s1", [{
+      id: "u-live-canvas",
+      role: "user" as const,
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+      text: "Inspect the project",
+      status: "complete" as const,
+    }]);
+    const turn = timeline.turns[0];
+    turn.status = "running";
+    turn.steps = [
+      {
+        agentContext: { id: "main", title: "Tinybot", type: "main" },
+        id: "canvas-file",
+        kind: "tool_call",
+        sequence: 1,
+        status: "completed",
+        title: "workspace.read_file",
+        toolCall: {
+          argsJson: { path: "src/main.ts" },
+          id: "canvas-file-call",
+          name: "workspace.read_file",
+          resultPreview: "export const ready = true;",
+        },
+      },
+      {
+        agentContext: { id: "main", title: "Tinybot", type: "main" },
+        id: "canvas-plan",
+        kind: "plan",
+        plan: {
+          completed: 1,
+          currentStep: "Verify output",
+          steps: [
+            { status: "completed", step: "Inspect files" },
+            { status: "in_progress", step: "Verify output" },
+          ],
+          total: 2,
+        },
+        sequence: 2,
+        status: "running",
+        title: "Execution plan",
+      },
+    ];
+    turn.executionItems = turn.steps;
+    stores.chatStore.load = vi.fn(async () => timeline);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    await user.click(await screen.findByRole("button", { name: /^Open Live Canvas/ }));
+    let canvas = screen.getByLabelText("Live Canvas");
+    expect(within(canvas).getByText("Live follow")).toBeTruthy();
+    expect(within(canvas).getByRole("heading", { name: "Execution plan" })).toBeTruthy();
+    expect(within(canvas).getByText("Verify output")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Open details for workspace.read_file" }));
+    canvas = screen.getByLabelText("Live Canvas");
+    expect(within(canvas).getByText("History")).toBeTruthy();
+    expect(within(canvas).getByRole("article", { name: "Files window" })).toBeTruthy();
+    expect(within(canvas).getAllByText("workspace.read_file").length).toBeGreaterThan(0);
+    expect(within(canvas).getAllByText("src/main.ts").length).toBeGreaterThan(0);
+    expect(within(canvas).getByText("export const ready = true;")).toBeTruthy();
+
+    const memoryStep = {
+      agentContext: { id: "main", title: "Tinybot", type: "main" } as const,
+      id: "canvas-memory",
+      kind: "memory" as const,
+      sequence: 3,
+      status: "running" as const,
+      summary: "Searching saved project decisions",
+      title: "memory.search",
+      toolCall: { argsJson: { query: "Live Canvas" }, id: "canvas-memory-call", name: "memory.search" },
+    };
+    const nextSteps = [...turn.steps, memoryStep];
+    const nextTimeline = {
+      ...timeline,
+      turns: [{ ...turn, executionItems: nextSteps, steps: nextSteps }],
+    };
+    act(() => listener?.({ timeline: nextTimeline, type: "agent_timeline_updated" } as ChatEvent));
+    expect(within(canvas).getByText("History")).toBeTruthy();
+    expect(within(canvas).getAllByText("src/main.ts").length).toBeGreaterThan(0);
+
+    await user.click(within(canvas).getByRole("button", { name: "Return to live" }));
+    expect(within(canvas).getByText("Live follow")).toBeTruthy();
+    expect(within(canvas).getByRole("article", { name: "Memory window" })).toBeTruthy();
+    expect(within(canvas).getAllByText("memory.search").length).toBeGreaterThan(0);
+    expect(within(canvas).getByRole("heading", { name: "TinyOS" })).toBeTruthy();
   });
 
   it("collapses and expands the session sidebar without losing session access", async () => {
@@ -1112,6 +1325,48 @@ describe("ChatPage", () => {
     expect(compaction?.textContent).toContain("Dropped items: 12");
   });
 
+  it("coalesces multiple running timeline patches into one animation-frame commit", async () => {
+    const stores = createStores();
+    let listener: ((event: ChatEvent) => void) | undefined;
+    let frame: FrameRequestCallback | undefined;
+    const requestFrame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frame = callback;
+      return 7;
+    });
+    stores.chatStore.subscribe = vi.fn((_sessionId, callback) => {
+      listener = callback;
+      return () => undefined;
+    });
+    const streamingTimeline = (text: string) => timelineFromReactMessages("s1", [{
+      id: "u-stream-frame",
+      role: "user" as const,
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+      text: "Stream",
+      status: "complete" as const,
+    }, {
+      id: "a-stream-frame",
+      role: "assistant" as const,
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 1),
+      text,
+      status: "streaming" as const,
+      turnStatus: "running" as const,
+    }]);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+    expect(await screen.findByText("Yes.")).toBeTruthy();
+
+    act(() => {
+      listener?.({ type: "timeline.patch", timeline: streamingTimeline("A") });
+      listener?.({ type: "timeline.patch", timeline: streamingTimeline("AB") });
+    });
+
+    expect(requestFrame).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("AB")).toBeNull();
+    act(() => frame?.(0));
+    expect(await screen.findByText("AB")).toBeTruthy();
+    requestFrame.mockRestore();
+  });
+
   it("renders Plan first, collapses execution details, and exposes failure recovery", async () => {
     const user = userEvent.setup();
     const stores = createStores();
@@ -1139,6 +1394,253 @@ describe("ChatPage", () => {
 
     await user.click(within(error).getByRole("button", { name: "查看详情" }));
     expect(screen.getByLabelText("Details drawer").textContent).toContain("max_iterations");
+  });
+
+  it("renders canonical execution items chronologically and restores completed turns folded", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    const timeline = timelineFromReactMessages("s1", [{
+      id: "u-interleaved",
+      role: "user" as const,
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+      text: "Inspect and verify",
+      status: "complete" as const,
+    }]);
+    const turn = timeline.turns[0];
+    turn.status = "completed";
+    turn.completedAt = new Date(Date.UTC(2026, 6, 4, 12, 1, 8)).toISOString();
+    turn.steps = [
+      {
+        agentContext: { id: "main", title: "Tinybot", type: "main" },
+        id: "reasoning-0",
+        kind: "reasoning",
+        modelCallId: "call-0",
+        sequence: 1,
+        status: "completed",
+        summary: "Inspect the first file.",
+        title: "Thinking complete",
+      },
+      {
+        agentContext: { id: "main", title: "Tinybot", type: "main" },
+        id: "commentary-0",
+        kind: "message",
+        messageId: "commentary-0",
+        messagePhase: "commentary",
+        modelCallId: "call-0",
+        sequence: 2,
+        status: "completed",
+        summary: "I found the first file.",
+        title: "Progress update",
+      },
+      {
+        agentContext: { id: "main", title: "Tinybot", type: "main" },
+        id: "tool-1",
+        kind: "tool_call",
+        sequence: 3,
+        status: "completed",
+        title: "workspace.read_file",
+        toolCall: { id: "tool-1", name: "workspace.read_file", resultPreview: "Loaded" },
+      },
+      {
+        agentContext: { id: "main", title: "Tinybot", type: "main" },
+        id: "commentary-1",
+        kind: "message",
+        messageId: "commentary-1",
+        messagePhase: "commentary",
+        modelCallId: "call-1",
+        sequence: 4,
+        status: "completed",
+        summary: "Now I will verify it.",
+        title: "Progress update",
+      },
+    ];
+    turn.executionItems = turn.steps;
+    turn.finalAnswer = {
+      id: "final-1",
+      role: "assistant",
+      text: "Verification passed.",
+      timestamp: turn.completedAt,
+    };
+    stores.chatStore.load = vi.fn(async () => timeline);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    const toggle = await screen.findByRole("button", { name: /Execution details Completed · 4 items/ });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByText("Verification passed.")).toBeTruthy();
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    const orderedItems = document.querySelectorAll(".react-execution-timeline__item");
+    expect([...orderedItems].map((item) => item.getAttribute("data-kind"))).toEqual([
+      "reasoning",
+      "message",
+      "tool_call",
+      "message",
+    ]);
+    const toolItem = [...orderedItems].find((item) => item.getAttribute("data-kind") === "tool_call")!;
+    expect(toolItem.querySelector(".react-agent-steps__header")).toBeNull();
+    expect(toolItem.querySelector(".react-agent-step")).not.toBeNull();
+    expect(screen.getByText("I found the first file.")).toBeTruthy();
+    expect(screen.getByText("Now I will verify it.")).toBeTruthy();
+  });
+
+  it("auto-folds untouched execution on final answer and preserves explicit user-open intent", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    let listener: ((event: ChatEvent) => void) | undefined;
+    const timelineFor = (completed: boolean, totalTokens?: number) => {
+      const timeline = timelineFromReactMessages("s1", [{
+        id: "u-live-timeline",
+        role: "user" as const,
+        createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+        text: "Inspect live",
+        status: "complete" as const,
+      }]);
+      const turn = timeline.turns[0];
+      turn.status = completed ? "completed" : "running";
+      turn.steps = [{
+        agentContext: { id: "main", title: "Tinybot", type: "main" },
+        id: "commentary-live",
+        kind: "message",
+        messageId: "commentary-live",
+        messagePhase: "commentary",
+        modelCallId: "call-live",
+        sequence: 1,
+        status: "completed",
+        summary: "Inspecting the workspace.",
+        title: "Progress update",
+      }];
+      turn.executionItems = turn.steps;
+      if (completed) {
+        turn.completedAt = new Date(Date.UTC(2026, 6, 4, 12, 1, 2)).toISOString();
+        turn.finalAnswer = {
+          id: "final-live",
+          role: "assistant",
+          text: "Inspection complete.",
+          timestamp: turn.completedAt,
+        };
+      }
+      if (totalTokens) {
+        turn.usage = { totalTokens };
+      }
+      return timeline;
+    };
+    stores.chatStore.load = vi.fn(async () => timelineFor(false));
+    stores.chatStore.subscribe = vi.fn((_sessionId, callback) => {
+      listener = callback;
+      return () => undefined;
+    });
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    let toggle = await screen.findByRole("button", { name: /Execution details Running · 1 item/ });
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    const conversation = document.querySelector<HTMLElement>(".react-conversation-view")!;
+    const executionTimeline = document.querySelector<HTMLElement>(".react-execution-timeline")!;
+    Object.defineProperties(conversation, {
+      clientHeight: { configurable: true, value: 500 },
+      scrollHeight: { configurable: true, value: 2_000 },
+      scrollTop: { configurable: true, value: 800, writable: true },
+    });
+    const timelineRect = vi.spyOn(executionTimeline, "getBoundingClientRect").mockImplementation(() => ({
+      bottom: toggle.getAttribute("aria-expanded") === "true" ? 400 : 50,
+      height: toggle.getAttribute("aria-expanded") === "true" ? 400 : 50,
+      left: 0,
+      right: 760,
+      top: 0,
+      width: 760,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    }));
+    const conversationRect = vi.spyOn(conversation, "getBoundingClientRect").mockImplementation(() => ({
+      bottom: 600,
+      height: 500,
+      left: 0,
+      right: 1_000,
+      top: 100,
+      width: 1_000,
+      x: 0,
+      y: 100,
+      toJSON: () => ({}),
+    }));
+    let animationFrame: FrameRequestCallback | undefined;
+    const requestFrame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      animationFrame = callback;
+      return 1;
+    });
+    act(() => listener?.({ type: "timeline.patch", timeline: timelineFor(true) }));
+    toggle = await screen.findByRole("button", { name: /Execution details Completed · 1 item/ });
+    await waitFor(() => expect(toggle.getAttribute("aria-expanded")).toBe("false"));
+    act(() => animationFrame?.(0));
+    expect(conversation.scrollTop).toBe(450);
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    act(() => listener?.({ type: "timeline.patch", timeline: timelineFor(true, 42) }));
+    await waitFor(() => expect(toggle.getAttribute("aria-expanded")).toBe("true"));
+    requestFrame.mockRestore();
+    conversationRect.mockRestore();
+    timelineRect.mockRestore();
+  });
+
+  it("does not reopen explicitly closed execution when the final answer arrives", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    let listener: ((event: ChatEvent) => void) | undefined;
+    const timeline = timelineFromReactMessages("s1", [{
+      id: "u-user-closed",
+      role: "user" as const,
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+      text: "Keep closed",
+      status: "complete" as const,
+    }]);
+    const turn = timeline.turns[0];
+    turn.steps = [{
+      agentContext: { id: "main", title: "Tinybot", type: "main" },
+      id: "commentary-user-closed",
+      kind: "message",
+      messagePhase: "commentary",
+      modelCallId: "call-user-closed",
+      sequence: 1,
+      status: "completed",
+      summary: "Working.",
+      title: "Progress update",
+    }];
+    turn.executionItems = turn.steps;
+    stores.chatStore.load = vi.fn(async () => timeline);
+    stores.chatStore.subscribe = vi.fn((_sessionId, callback) => {
+      listener = callback;
+      return () => undefined;
+    });
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    const toggle = await screen.findByRole("button", { name: /Execution details Running · 1 item/ });
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    turn.status = "completed";
+    turn.finalAnswer = {
+      id: "final-user-closed",
+      role: "assistant",
+      text: "Done.",
+      timestamp: new Date(Date.UTC(2026, 6, 4, 12, 1, 2)).toISOString(),
+    };
+    act(() => listener?.({ type: "timeline.patch", timeline: { ...timeline, turns: [{ ...turn }] } }));
+    await waitFor(() => expect(toggle.getAttribute("aria-expanded")).toBe("false"));
+  });
+
+  it("keeps abnormal canonical execution expanded with recovery controls visible", async () => {
+    const stores = createStores();
+    const timeline = failedPlanTimeline();
+    timeline.turns[0].executionItems = timeline.turns[0].steps;
+    stores.chatStore.load = vi.fn(async () => timeline);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    const toggle = await screen.findByRole("button", { name: /Execution details Failed · 3 items/ });
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    const error = screen.getByRole("alert", { name: "任务执行失败" });
+    expect(within(error).getByRole("button", { name: "继续执行" })).toBeTruthy();
   });
 
   it.each([

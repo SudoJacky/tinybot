@@ -2142,6 +2142,23 @@ describe("gateway WebSocket client", () => {
       model: "deepseek-reasoner",
       use_persistent_rag: true,
     });
+    expect(createGatewaySocketMessage.message("chat-1", "explain", true, undefined, "client-1", [{
+      detail: "TinyOS file selection",
+      evidenceId: "item-1",
+      kind: "reference",
+      sourceLine: 3,
+      sourcePath: "src/main.ts",
+      sourceText: "const value = 1;",
+      title: "src/main.ts · L3",
+      type: "tinyos.file",
+    }])).toEqual({
+      type: "message",
+      chat_id: "chat-1",
+      client_event_id: "client-1",
+      content: "explain",
+      references: [expect.objectContaining({ evidenceId: "item-1", type: "tinyos.file" })],
+      use_persistent_rag: true,
+    });
     expect(createGatewaySocketMessage.interrupt("chat-1")).toEqual({
       type: "interrupt",
       chat_id: "chat-1",

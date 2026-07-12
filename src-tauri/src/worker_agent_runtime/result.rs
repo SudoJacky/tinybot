@@ -170,26 +170,71 @@ pub(super) fn append_runtime_events_to_sink(
     events: &[AgentRuntimeEventEnvelope],
 ) {
     if let Some(trace_sink) = trace_sink {
-        let mut projection_events =
-            match trace_sink.load_runtime_events(&context.session_id, &context.run_id) {
-                Ok(existing) => existing,
+        let existing = match trace_sink.load_runtime_events(&context.session_id, &context.run_id) {
+            Ok(existing) => existing,
+            Err(error) => {
+                eprintln!(
+                    "canonical timeline history load failed for run {}: {}",
+                    context.run_id, error
+                );
+                Vec::new()
+            }
+        };
+        let mut projector =
+            match crate::agent_loop_runtime_protocol::AgentTimelineProjector::from_events(
+                &context.session_id,
+                &context.run_id,
+                &existing,
+            ) {
+                Ok(projector) => projector,
                 Err(error) => {
                     eprintln!(
-                        "canonical timeline history load failed for run {}: {}",
+                        "canonical timeline history projection failed for run {}: {}",
                         context.run_id, error
                     );
-                    Vec::new()
+                    return;
                 }
             };
         for event in events {
             let _ = trace_sink.append_trace_event(&context.session_id, &context.run_id, event);
-            projection_events.push(event.clone());
-            match crate::agent_loop_runtime_protocol::project_timeline_patch(
-                &context.session_id,
-                &context.run_id,
-                &projection_events,
-            ) {
+            match projector.apply_event(event) {
                 Ok(Some(patch)) => {
+                    if let crate::agent_loop_runtime_protocol::AgentTurnItemData::AssistantMessage {
+                        model_call_id,
+                        phase,
+                        ..
+                    } = &patch.item.data
+                    {
+                        if *phase
+                            != crate::agent_loop_runtime_protocol::AgentAssistantMessagePhase::Unknown
+                        {
+                            let classification_source = event
+                                .payload
+                                .get("classificationSource")
+                                .and_then(Value::as_str)
+                                .unwrap_or_else(|| {
+                                    if event.event_name == "agent.message.phase" {
+                                        "provider"
+                                    } else {
+                                        "runtime_projection"
+                                    }
+                                });
+                            eprintln!(
+                                "agent assistant phase classified: {}",
+                                serde_json::json!({
+                                    "sessionId": context.session_id,
+                                    "runId": context.run_id,
+                                    "turnId": patch.item.turn_id,
+                                    "modelCallId": model_call_id,
+                                    "itemId": patch.item.item_id,
+                                    "phase": phase,
+                                    "source": classification_source,
+                                    "sequence": patch.item.sequence,
+                                    "revision": patch.item.revision,
+                                })
+                            );
+                        }
+                    }
                     let _ = trace_sink.append_timeline_patch(
                         &context.session_id,
                         &context.run_id,

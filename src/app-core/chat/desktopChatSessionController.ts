@@ -10,6 +10,7 @@ import {
   sessionKeyForChat,
   sessionKeyForChatState,
   type NativeBackgroundTraceEvent,
+  type NativeChatReference,
   type NativeChatState,
 } from "./nativeChat";
 import {
@@ -62,7 +63,7 @@ export interface DesktopChatSessionController {
   startNewChat(): void;
   deleteSession(sessionKey: string): Promise<ChatDeleteSessionResult>;
   patchSession(sessionKey: string, body: unknown): Promise<boolean>;
-  submitMessage(content: string, usePersistentRag?: boolean, model?: string): ChatSubmitResult;
+  submitMessage(content: string, usePersistentRag?: boolean, model?: string, references?: NativeChatReference[]): ChatSubmitResult;
   interruptActiveChat(): boolean;
   handleGatewayEvent(event: NormalizedGatewayEvent): Promise<ChatGatewayEventResult>;
   loadMessagesForChat(chatId: string): Promise<boolean>;
@@ -83,7 +84,7 @@ export function createDesktopChatSessionController({
   const loadedTimelineSessions = new Set<string>();
   const loadingTimelineSessions = new Set<string>();
   const bufferedTimelinePatches = new Map<string, unknown[]>();
-  let pendingMessage: { clientEventId: string; content: string; model?: string; usePersistentRag: boolean } | null = null;
+  let pendingMessage: { clientEventId: string; content: string; model?: string; references?: NativeChatReference[]; usePersistentRag: boolean } | null = null;
 
   async function loadSessions(): Promise<number> {
     logDesktopNativeDebug("session.load.start", summarizeSessionState());
@@ -349,7 +350,7 @@ export function createDesktopChatSessionController({
     return true;
   }
 
-  function submitMessage(content: string, usePersistentRag = true, model?: string): ChatSubmitResult {
+  function submitMessage(content: string, usePersistentRag = true, model?: string, references?: NativeChatReference[]): ChatSubmitResult {
     const trimmed = content.trim();
     if (!trimmed) {
       logDesktopNativeDebug("session.message.empty", summarizeSessionState());
@@ -358,7 +359,7 @@ export function createDesktopChatSessionController({
     const clientEventId = createClientEventId();
 
     if (!state.activeChatId) {
-      pendingMessage = { clientEventId, content: trimmed, model, usePersistentRag };
+      pendingMessage = { clientEventId, content: trimmed, model, references, usePersistentRag };
       startNewChat();
       logDesktopNativeDebug("session.message.queued", {
         ...summarizeSessionState(),
@@ -369,7 +370,7 @@ export function createDesktopChatSessionController({
       return { status: "creating", pendingContent: trimmed, clientEventId };
     }
 
-    sendActiveChatMessage(trimmed, usePersistentRag, model, clientEventId);
+    sendActiveChatMessage(trimmed, usePersistentRag, model, clientEventId, references);
     logDesktopNativeDebug("session.message.sent", {
       ...summarizeSessionState(),
       content: summarizeDebugText(trimmed),
@@ -409,9 +410,9 @@ export function createDesktopChatSessionController({
       }
       result.reloadedSessions = true;
       if (pendingMessage) {
-        const { clientEventId, content, model, usePersistentRag } = pendingMessage;
+        const { clientEventId, content, model, references, usePersistentRag } = pendingMessage;
         pendingMessage = null;
-        sendActiveChatMessage(content, usePersistentRag, model, clientEventId);
+        sendActiveChatMessage(content, usePersistentRag, model, clientEventId, references);
         logDesktopNativeDebug("session.message.queued.sent", {
           ...summarizeSessionState(),
           content: summarizeDebugText(content),
@@ -491,14 +492,16 @@ export function createDesktopChatSessionController({
     usePersistentRag = true,
     model?: string,
     clientEventId?: string,
+    references?: NativeChatReference[],
   ): void {
-    appendUserMessage(state, content, now());
+    appendUserMessage(state, content, now(), references);
     sendSocketMessage(createGatewaySocketMessage.message(
       state.activeChatId,
       content,
       usePersistentRag,
       model,
       clientEventId,
+      references,
     ));
   }
 

@@ -6,7 +6,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const DEFAULT_AGENT_MODEL: &str = "deepseek-v4-pro";
 const DEFAULT_PROVIDER_TIMEOUT_MS: u64 = 120_000;
@@ -42,6 +42,7 @@ pub struct NativeProviderProfile {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum NativeProviderStreamEvent {
+    MessagePhase(String),
     ContentDelta(String),
     ReasoningDelta(String),
 }
@@ -412,6 +413,11 @@ fn aggregate_chat_completion_sse_with_observer(
                 .get("model")
                 .and_then(Value::as_str)
                 .map(str::to_string);
+        }
+        if let Some(phase) = stream_message_phase(&chunk) {
+            if let Some(observer) = observer.as_deref_mut() {
+                observer(NativeProviderStreamEvent::MessagePhase(phase.to_string()));
+            }
         }
         if let Some(delta) = chunk
             .pointer("/choices/0/delta/content")
@@ -857,11 +863,18 @@ async fn complete_openai_chat_stream(
     {
         match chunk {
             Ok(chunk) => {
+                let metrics = crate::runtime::observability::global_agent_runtime_metrics();
+                metrics.increment("provider.stream.chunk.received");
                 if cancellation_requested(&cancellation) {
                     return Err(provider_cancelled_error());
                 }
                 if let Some(observer) = observer.as_deref_mut() {
+                    let observer_started_at = Instant::now();
                     observe_stream_chunk(&chunk, observer);
+                    metrics.record_duration(
+                        "provider.stream.observer.durationMs",
+                        observer_started_at.elapsed(),
+                    );
                 }
                 if cancellation_requested(&cancellation) {
                     return Err(provider_cancelled_error());
@@ -1080,6 +1093,9 @@ fn push_sse_json(body: &mut String, value: &Value) {
 }
 
 fn observe_stream_chunk(chunk: &Value, observer: &mut dyn FnMut(NativeProviderStreamEvent)) {
+    if let Some(phase) = stream_message_phase(chunk) {
+        observer(NativeProviderStreamEvent::MessagePhase(phase.to_string()));
+    }
     if let Some(delta) = chunk
         .pointer("/choices/0/delta/content")
         .and_then(Value::as_str)
@@ -1095,6 +1111,20 @@ fn observe_stream_chunk(chunk: &Value, observer: &mut dyn FnMut(NativeProviderSt
     {
         observer(NativeProviderStreamEvent::ReasoningDelta(delta.to_string()));
     }
+}
+
+fn stream_message_phase(chunk: &Value) -> Option<&str> {
+    chunk
+        .get("phase")
+        .or_else(|| chunk.get("message_phase"))
+        .or_else(|| chunk.get("messagePhase"))
+        .or_else(|| chunk.pointer("/choices/0/delta/phase"))
+        .or_else(|| chunk.pointer("/choices/0/delta/message_phase"))
+        .or_else(|| chunk.pointer("/choices/0/delta/messagePhase"))
+        .or_else(|| chunk.pointer("/choices/0/message/phase"))
+        .or_else(|| chunk.pointer("/choices/0/message/message_phase"))
+        .or_else(|| chunk.pointer("/choices/0/message/messagePhase"))
+        .and_then(Value::as_str)
 }
 
 fn chat_route_response(status: u16, body: Value, stream: bool) -> Value {
@@ -1486,6 +1516,20 @@ mod tests {
     use std::sync::{mpsc, Arc};
     use std::thread;
     use std::time::Duration;
+
+    #[test]
+    fn stream_message_phase_recognizes_provider_phase_fields() {
+        assert_eq!(
+            stream_message_phase(&json!({ "phase": "commentary" })),
+            Some("commentary")
+        );
+        assert_eq!(
+            stream_message_phase(&json!({
+                "choices": [{ "delta": { "messagePhase": "final_answer" } }]
+            })),
+            Some("final_answer")
+        );
+    }
 
     #[test]
     fn provider_catalog_masks_secret_presence() {

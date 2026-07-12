@@ -3664,7 +3664,7 @@ fn worker_run_agent_omits_large_raw_tool_trace_from_persisted_run_record() {
     let serialized = run.to_string();
 
     assert!(
-        serialized.len() < 24_000,
+        serialized.len() < 25_000,
         "run record was {} bytes",
         serialized.len()
     );
@@ -5650,6 +5650,55 @@ fn worker_transport_websocket_preserves_client_event_id_in_agent_input() {
     assert_eq!(
         request.params["input"]["metadata"]["clientEventId"],
         "client-message-1"
+    );
+}
+
+#[test]
+fn worker_transport_websocket_preserves_tinyos_context_references() {
+    let references = serde_json::json!([{
+        "kind": "reference",
+        "title": "src/main.ts · L2–3",
+        "detail": "TinyOS file selection",
+        "type": "tinyos.file",
+        "sourcePath": "src/main.ts",
+        "sourceLine": 2,
+        "sourceText": "let value = 1;\nreturn value;",
+        "evidenceId": "item-file-1",
+        "scope": "turn-1"
+    }]);
+    let transport = native_websocket_transport_result(&WorkerTransportWebSocketDispatchInput {
+        client_id: "client-1".to_string(),
+        frame: serde_json::json!({
+            "type": "message",
+            "chat_id": "chat-1",
+            "content": "Explain the attached selection",
+            "references": references.clone()
+        }),
+        attached_chat_id: Some("chat-1".to_string()),
+        session_exists: Some(true),
+        editable_paths: None,
+        model: None,
+        max_iterations: None,
+        run_id: Some("run-tinyos-reference".to_string()),
+        stream: None,
+    })
+    .expect("TinyOS message frame should produce a transport result");
+
+    assert_eq!(transport["inbound"]["metadata"]["references"], references);
+    let request = build_worker_transport_websocket_run_input_request(
+        test_request_correlation("tinyos-reference"),
+        &transport,
+        WorkerTransportWebSocketDispatchOptions {
+            run_id: Some("run-tinyos-reference".to_string()),
+            ..WorkerTransportWebSocketDispatchOptions::default()
+        },
+    )
+    .expect("TinyOS references should produce an agent input");
+
+    assert_eq!(request.params["input"]["input"]["references"], references);
+    assert_eq!(
+        request.params["input"]["metadata"]["references"],
+        references
     );
 }
 

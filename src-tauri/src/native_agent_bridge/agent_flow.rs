@@ -60,14 +60,25 @@ pub(crate) async fn run_agent_with_services(
             live_trace_sink,
         ))
     };
-    let mut result = run_native_agent_turn_with_workspace_and_instructions_async(
+    let run_result = run_native_agent_turn_with_workspace_and_instructions_async(
         &services,
         runtime_spec,
         config_snapshot.clone(),
         &workspace_root,
         instructions,
     )
-    .await?;
+    .await;
+    let flush_result = services.flush_trace_sink();
+    let mut result = match (run_result, flush_result) {
+        (Ok(result), Ok(())) => result,
+        (Err(run_error), Ok(())) => return Err(run_error),
+        (Ok(_), Err(flush_error)) => return Err(flush_error),
+        (Err(run_error), Err(flush_error)) => {
+            return Err(format!(
+            "native agent run failed: {run_error}; trace persistence flush failed: {flush_error}"
+        ))
+        }
+    };
     persist_native_agent_run_record(
         persistence_spec.clone(),
         &mut result,

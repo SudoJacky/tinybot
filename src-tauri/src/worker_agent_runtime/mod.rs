@@ -200,6 +200,7 @@ pub struct NativeAgentProviderResponse {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum NativeAgentProviderStreamEvent {
+    MessagePhase(crate::agent_loop_runtime_protocol::AgentAssistantMessagePhase),
     ContentDelta(String),
     ReasoningDelta(String),
 }
@@ -404,12 +405,28 @@ pub trait NativeAgentTraceSink: Send + Sync {
         event: &AgentRuntimeEventEnvelope,
     ) -> Result<(), String>;
 
+    fn append_trace_events(
+        &self,
+        session_id: &str,
+        run_id: &str,
+        events: &[AgentRuntimeEventEnvelope],
+    ) -> Result<(), String> {
+        for event in events {
+            self.append_trace_event(session_id, run_id, event)?;
+        }
+        Ok(())
+    }
+
     fn append_timeline_patch(
         &self,
         _session_id: &str,
         _run_id: &str,
         _patch: &crate::agent_loop_runtime_protocol::AgentTimelinePatch,
     ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn flush(&self) -> Result<(), String> {
         Ok(())
     }
 }
@@ -479,6 +496,12 @@ impl NativeAgentRuntimeServices {
     pub fn with_trace_sink(mut self, trace_sink: Arc<dyn NativeAgentTraceSink>) -> Self {
         self.trace_sink = Some(trace_sink);
         self
+    }
+
+    pub(crate) fn flush_trace_sink(&self) -> Result<(), String> {
+        self.trace_sink
+            .as_ref()
+            .map_or(Ok(()), |trace_sink| trace_sink.flush())
     }
 
     pub fn with_hook(mut self, hook: Arc<dyn AgentHook>) -> Self {

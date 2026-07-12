@@ -2,6 +2,7 @@ import type { ReactChatMessage } from "./chat/messageActions";
 import type { ChatTimelineSnapshot } from "../app-core/chat/agentTimelineModel";
 import type { AgentUiForm } from "../app-core/agent-ui/agentUiEvents";
 import type { AgentDefaultsSettingsData } from "../app-core/settings/agentDefaultsSettings";
+import type { NativeChatReference } from "../app-core/chat/nativeChat";
 import type {
   ProviderModelFetchInput,
   ProviderModelFetchResult,
@@ -21,6 +22,7 @@ export type SessionSummary = {
 export type ChatInput = {
   text: string;
   model?: string;
+  references?: NativeChatReference[];
   usePersistentRag?: boolean;
 };
 

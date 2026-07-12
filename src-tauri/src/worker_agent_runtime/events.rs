@@ -62,6 +62,15 @@ pub(super) fn runtime_event_item_id(event_name: &str, payload: &Value) -> Option
         return Some(item_id);
     }
     match event_name {
+        "agent.delta"
+        | "agent.message.phase"
+        | "agent.message.classified"
+        | "agent.message.completed" => string_field(payload, "messageId")
+            .or_else(|| string_field(payload, "message_id"))
+            .or_else(|| string_field(payload, "modelCallId").map(|id| format!("assistant:{id}"))),
+        "agent.reasoning_delta" => string_field(payload, "reasoningId")
+            .or_else(|| string_field(payload, "reasoning_id"))
+            .or_else(|| string_field(payload, "modelCallId").map(|id| format!("reasoning:{id}"))),
         "agent.tool_call.delta" | "agent.tool.start" | "agent.tool.result" | "agent.tool.debug" => {
             string_field(payload, "toolCallId")
                 .or_else(|| string_field(payload, "tool_call_id"))
@@ -83,6 +92,9 @@ pub(super) fn runtime_event_item_id(event_name: &str, payload: &Value) -> Option
 pub(super) fn runtime_event_source(event_name: &str) -> AgentRuntimeEventSource {
     match event_name {
         "agent.delta"
+        | "agent.message.phase"
+        | "agent.message.classified"
+        | "agent.message.completed"
         | "agent.reasoning_delta"
         | "agent.usage"
         | "agent.provider.requested"

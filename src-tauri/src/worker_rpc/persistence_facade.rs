@@ -493,6 +493,19 @@ impl WorkerRpcRouter {
                 )?;
                 serde_json::to_value(record).map_err(serialization_error)
             }
+            "agent_run.append_trace_batch" => {
+                let params: AgentRunAppendTraceBatchParams = parse_params(request)?;
+                self.require_compatibility_persistence_authority(
+                    &params.session_id,
+                    "agent_run.append_trace_batch",
+                )?;
+                let record = self.thread_log.append_agent_run_trace_events(
+                    &params.session_id,
+                    &params.run_id,
+                    params.events,
+                )?;
+                serde_json::to_value(record).map_err(serialization_error)
+            }
             "agent_run.set_checkpoint" => {
                 let params: AgentRunCheckpointParams = parse_params(request)?;
                 self.require_compatibility_persistence_authority(

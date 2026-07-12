@@ -479,10 +479,17 @@ boundary. Persisted tool envelopes apply the same config-secret redaction used b
     "mcp.server.stop.completed": 1,
     "process.start.completed": 1,
     "process.stop.completed": 1,
-    "recovery.orphaned_runs.interrupted": 1
+    "recovery.orphaned_runs.interrupted": 1,
+    "provider.stream.chunk.received": 120,
+    "live.timeline_patch.emit.completed": 120,
+    "persistence.batch.completed": 8,
+    "persistence.events.written": 120
   },
   "durations": {
     "turn.durationMs": { "count": 1, "totalMs": 20, "maxMs": 20, "averageMs": 20.0 },
+    "provider.stream.observer.durationMs": { "count": 120, "totalMs": 24, "maxMs": 2, "averageMs": 0.2 },
+    "timeline.patch.projection.durationMs": { "count": 120, "totalMs": 12, "maxMs": 1, "averageMs": 0.1 },
+    "persistence.batch.durationMs": { "count": 8, "totalMs": 32, "maxMs": 6, "averageMs": 4.0 },
     "provider.durationMs": { "count": 1, "totalMs": 8, "maxMs": 8, "averageMs": 8.0 },
     "approval.wait.durationMs": { "count": 1, "totalMs": 12, "maxMs": 12, "averageMs": 12.0 },
     "cancellation.cleanup.durationMs": { "count": 1, "totalMs": 4, "maxMs": 4, "averageMs": 4.0 },
@@ -846,13 +853,13 @@ contract.
 {
   "runtimeEvents": [],
   "timeline": {
-    "schemaVersion": "tinybot.timeline.v1",
+    "schemaVersion": "tinybot.timeline.v2",
     "sessionId": "websocket:chat-1",
     "runId": "run-1",
     "snapshotRevision": 2,
     "items": [
       {
-        "schemaVersion": "tinybot.turn_item.v1",
+        "schemaVersion": "tinybot.turn_item.v2",
         "itemId": "message-1",
         "sessionId": "websocket:chat-1",
         "runId": "run-1",
@@ -866,6 +873,8 @@ contract.
         "data": {
           "type": "assistant_message",
           "messageId": "message-1",
+          "modelCallId": "provider-attempt-2",
+          "phase": "final_answer",
           "content": "Done"
         }
       }
@@ -879,10 +888,61 @@ contract.
 timeline mutations only; diagnostic runtime events that do not produce an item do not advance it.
 This makes live patch revisions contiguous while preserving source ordering.
 
+Timeline v2 scopes assistant-message and reasoning identities to one provider/model call rather than
+to the entire turn. Provider item IDs are retained when available; otherwise the runtime derives a
+stable ID from the provider attempt or iteration. Deltas only coalesce into the matching model-call
+item, so commentary and reasoning that occurred before or between Tool calls remain separate ordered
+items after live updates and reload.
+
+`assistant_message.data.phase` is `unknown`, `commentary`, or `final_answer`. A provider-supplied
+phase is used immediately. For providers without phases, a model response followed by Tool calls is
+classified as `commentary`; a terminal response without Tool calls is classified as
+`final_answer`. Only `unknown` may transition to a classified phase. Reclassifying commentary as a
+final answer, changing a classified phase, or emitting Tool, Plan, Reasoning, Approval, Form, or
+Subagent work after the final answer is a protocol error and fails visibly. Plan completion is not a
+final-answer signal.
+
+Only user-visible reasoning summaries are projected. Hidden or debug provider reasoning is retained
+for diagnostics where applicable but is excluded from the product-facing canonical timeline.
+
 Canonical `user_message` data also carries optional `clientEventId`. The desktop sends this ID in
 the WebSocket message frame, the native transport preserves it in the Agent input, and the runtime
 echoes it in the canonical user item. It is a reconciliation identity and does not replace the
 durable `messageId`.
+
+WebSocket `message` frames may also carry an optional `references` array for structured user-attached
+context. TinyOS uses the existing canonical reference shape rather than embedding selected file or
+terminal evidence into the visible message text:
+
+```json
+{
+  "type": "message",
+  "chat_id": "chat-1",
+  "client_event_id": "client-message-1",
+  "content": "Explain this selection",
+  "references": [
+    {
+      "kind": "reference",
+      "title": "src/main.ts · L2–3",
+      "detail": "TinyOS file selection",
+      "type": "tinyos.file",
+      "sourcePath": "src/main.ts",
+      "sourceLine": 2,
+      "sourceText": "let value = 1;\nreturn value;",
+      "evidenceId": "item-file-1",
+      "scope": "turn-1"
+    }
+  ]
+}
+```
+
+The native WebSocket transport preserves `references` in both run metadata and Agent user input.
+The thread runtime persists them on the canonical `user_message`, so reloads keep the same visible
+reference chips. Immediately before a provider request, references whose `type` starts with
+`tinyos.` are appended to the provider-only user content inside an explicit untrusted-evidence
+block; the stored and user-visible message content remains unchanged. Provider injection accepts at
+most 16 TinyOS references and 64 KiB of serialized reference data per message. Exceeding either
+limit fails the provider request visibly rather than dropping context.
 
 Product-facing canonical item data includes the following lifecycle details:
 
@@ -966,6 +1026,15 @@ Native agent lifecycle persistence is fail-fast: a terminal-run lookup or run-st
 returns a command error before the provider is called, and a run-record write failure returns a
 command error instead of embedding a failed `runPersistence` diagnostic in an otherwise successful
 result.
+
+For direct-session native runs with a live desktop sink, runtime trace deltas are emitted to the
+frontend before durable persistence. Durable events enter a bounded ordered queue and ordinary
+`agent.delta` / `agent.reasoning_delta` events are appended through
+`agent_run.append_trace_batch`. Tool, approval, form, error, cancellation, and terminal boundaries
+flush the pending batch, and the run command waits for the queue to drain before final run-record
+persistence. Queue failure or flush failure fails the command explicitly; events are never silently
+dropped. Active canonical timeline patches are projected incrementally, while reload continues to
+reconstruct the authoritative snapshot from durable events.
 Thread-owned commands such as `worker_submit_thread_turn`, `worker_resolve_thread_approval`, and
 `worker_submit_thread_form` update the thread timeline explicitly through `thread.start_turn` and
 `thread.apply_op`. Their runtime events, run state, resumable checkpoint, approvals/forms, and final
@@ -1556,7 +1625,7 @@ External callers should usually prefer the Tauri commands above.
 
 | Namespace | Methods |
 | --- | --- |
-| `agent_run` | `append_trace`, `clear_checkpoint`, `get`, `get_checkpoint`, `list`, `list_trace`, `mark_cancelled`, `mark_completed`, `mark_failed`, `runtime_state`, `set_checkpoint`, `upsert` |
+| `agent_run` | `append_trace`, `append_trace_batch`, `clear_checkpoint`, `get`, `get_checkpoint`, `list`, `list_trace`, `mark_cancelled`, `mark_completed`, `mark_failed`, `runtime_state`, `set_checkpoint`, `upsert` |
 | `approval` | `list_pending`, `request`, `resolve` |
 | `config` | `apply_operations`, `apply_patch_result`, `get`, `snapshot_public` |
 | `diagnostics` | `append` |
@@ -1757,7 +1826,7 @@ the runtime-state snapshot:
 
 ```json
 {
-  "schemaVersion": "tinybot.timeline_patch.v1",
+  "schemaVersion": "tinybot.timeline_patch.v2",
   "sessionId": "websocket:chat-1",
   "runId": "run-1",
   "snapshotRevision": 3,
@@ -1767,7 +1836,8 @@ the runtime-state snapshot:
 
 The frontend applies patches by run ID and item ID. A revision gap triggers an authoritative
 snapshot reload and reapplication of the received patch. If the reload still cannot close the gap,
-the error remains visible. Identity/schema mismatches and terminal-state regressions are rejected;
+the error remains visible. Identity/schema mismatches, invalid assistant-phase transitions,
+post-final work, and terminal-state regressions are rejected;
 lower item revisions are ignored with a diagnostic. Raw events remain available for traces but are
 not a second Chat state source.
 

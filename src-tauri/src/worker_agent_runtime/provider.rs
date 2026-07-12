@@ -28,6 +28,11 @@ impl NativeAgentProvider for RustNativeAgentProvider {
         let provider_config = agent_provider_config(context);
         let mut provider_observer =
             |event: crate::native_provider_runtime::NativeProviderStreamEvent| match event {
+                crate::native_provider_runtime::NativeProviderStreamEvent::MessagePhase(phase) => {
+                    observer(NativeAgentProviderStreamEvent::MessagePhase(
+                        parse_message_phase(&phase),
+                    ));
+                }
                 crate::native_provider_runtime::NativeProviderStreamEvent::ContentDelta(delta) => {
                     observer(NativeAgentProviderStreamEvent::ContentDelta(delta));
                 }
@@ -42,6 +47,7 @@ impl NativeAgentProvider for RustNativeAgentProvider {
             &request,
             &mut provider_observer,
         )?;
+        emit_completion_phase(&completion, observer);
         provider_response_from_completion(context, completion)
     }
 
@@ -65,6 +71,11 @@ impl NativeAgentProvider for RustNativeAgentProvider {
             });
             let mut provider_observer =
                 |event: crate::native_provider_runtime::NativeProviderStreamEvent| match event {
+                    crate::native_provider_runtime::NativeProviderStreamEvent::MessagePhase(
+                        phase,
+                    ) => observer(NativeAgentProviderStreamEvent::MessagePhase(
+                        parse_message_phase(&phase),
+                    )),
                     crate::native_provider_runtime::NativeProviderStreamEvent::ContentDelta(
                         delta,
                     ) => observer(NativeAgentProviderStreamEvent::ContentDelta(delta)),
@@ -86,9 +97,39 @@ impl NativeAgentProvider for RustNativeAgentProvider {
                         error.message(),
                     )
                 })?;
+            emit_completion_phase(&completion, observer);
             provider_response_from_completion(context, completion)
                 .map_err(NativeAgentProviderFailure::provider)
         })
+    }
+}
+
+fn parse_message_phase(
+    phase: &str,
+) -> crate::agent_loop_runtime_protocol::AgentAssistantMessagePhase {
+    match phase {
+        "commentary" => crate::agent_loop_runtime_protocol::AgentAssistantMessagePhase::Commentary,
+        "final_answer" => {
+            crate::agent_loop_runtime_protocol::AgentAssistantMessagePhase::FinalAnswer
+        }
+        "unknown" => crate::agent_loop_runtime_protocol::AgentAssistantMessagePhase::Unknown,
+        other => panic!("provider emitted unsupported assistant message phase `{other}`"),
+    }
+}
+
+fn emit_completion_phase(
+    completion: &Value,
+    observer: &mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
+) {
+    if let Some(phase) = completion
+        .pointer("/choices/0/message/phase")
+        .or_else(|| completion.pointer("/choices/0/message/message_phase"))
+        .or_else(|| completion.pointer("/choices/0/message/messagePhase"))
+        .and_then(Value::as_str)
+    {
+        observer(NativeAgentProviderStreamEvent::MessagePhase(
+            parse_message_phase(phase),
+        ));
     }
 }
 

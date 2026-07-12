@@ -138,13 +138,7 @@ export function summarizeDebugText(value: string | undefined): { length: number;
 
 function isDesktopNativeDebugEnabled(): boolean {
   const storageValue = readDebugStorageValue();
-  if (/^(0|false|off)$/i.test(storageValue)) {
-    return false;
-  }
-  if (/^(1|true|on)$/i.test(storageValue)) {
-    return true;
-  }
-  return !isTestRuntime();
+  return /^(1|true|on)$/i.test(storageValue);
 }
 
 function readDebugStorageValue(): string {
@@ -158,13 +152,6 @@ function readDebugStorageValue(): string {
   } catch {
     return "";
   }
-}
-
-function isTestRuntime(): boolean {
-  const processLike = globalThis as typeof globalThis & {
-    process?: { env?: Record<string, string | undefined> };
-  };
-  return processLike.process?.env?.VITEST === "true" || processLike.process?.env?.NODE_ENV === "test";
 }
 
 function readMonotonicNow(): number {

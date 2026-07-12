@@ -2,6 +2,7 @@ import type { NativeChatMessage, NativeChatReference } from "./nativeChat";
 
 export type ChatTurnStatus = "pending" | "running" | "awaiting_approval" | "awaiting_user" | "completed" | "failed" | "interrupted";
 export type ChatStepStatus = "pending" | "running" | "blocked" | "completed" | "failed" | "cancelled";
+export type AssistantMessagePhase = "unknown" | "commentary" | "final_answer";
 export type AgentContextType = "main" | "spawn" | "subagent" | "cowork" | "team";
 export type ArtifactKind =
   | "terminal_output"
@@ -282,6 +283,8 @@ export type ChatStep = {
   id: string;
   kind: ChatStepKind;
   messageId?: string;
+  messagePhase?: AssistantMessagePhase;
+  modelCallId?: string;
   parentStepId?: string;
   plan?: PlanState;
   references?: NativeChatReference[];
@@ -295,7 +298,10 @@ export type ChatStep = {
 };
 
 export type ChatTurn = {
+  canonicalItems?: BackendAgentTurnItem[];
   completedAt?: string;
+  executionItems?: ChatStep[];
+  finalAnswer?: ChatMessage;
   finalMessage?: ChatMessage;
   id: string;
   sessionKey: string;
@@ -356,9 +362,9 @@ export type CanonicalTurnItemKind =
   | "system_notice";
 
 export type CanonicalTurnItemData = Record<string, unknown> & (
-  | { type: "user_message"; messageId?: string | null; clientEventId?: string | null; content: string }
-  | { type: "assistant_message"; messageId?: string | null; content: string }
-  | { type: "reasoning"; summary: string }
+  | { type: "user_message"; messageId?: string | null; clientEventId?: string | null; content: string; references?: unknown }
+  | { type: "assistant_message"; messageId?: string | null; modelCallId: string; phase: AssistantMessagePhase; content: string }
+  | { type: "reasoning"; modelCallId: string; summary: string }
   | { type: "tool_call"; toolCallId: string; name: string; status: string; args: unknown; result: unknown; detailId?: string | null; timing: unknown }
   | { type: "approval"; approvalId: string; toolCallId?: string | null; status: string; reason?: string | null; decision?: string | null; scope?: string | null; guidance?: string | null; detailId?: string | null }
   | { type: "form"; formId: string; status: string; title?: string | null; action?: string | null; fieldIds: string[]; values: unknown; errors?: Record<string, string> | null; detailId?: string | null }
@@ -373,7 +379,7 @@ export type CanonicalTurnItemData = Record<string, unknown> & (
 );
 
 export type BackendAgentTurnItem = {
-  schemaVersion: "tinybot.turn_item.v1";
+  schemaVersion: "tinybot.turn_item.v2";
   itemId: string;
   sessionId: string;
   threadId?: string;
@@ -392,7 +398,7 @@ export type BackendAgentTurnItem = {
 };
 
 export type BackendAgentTimelineSnapshot = {
-  schemaVersion: "tinybot.timeline.v1";
+  schemaVersion: "tinybot.timeline.v2";
   sessionId: string;
   runId: string;
   snapshotRevision: number;
@@ -405,7 +411,7 @@ export type BackendAgentRunRuntimeState = {
 };
 
 export type BackendAgentTimelinePatch = {
-  schemaVersion: "tinybot.timeline_patch.v1";
+  schemaVersion: "tinybot.timeline_patch.v2";
   sessionId: string;
   runId: string;
   snapshotRevision: number;
@@ -531,7 +537,7 @@ export function normalizeAgentRunRuntimeStatePayload(payload: unknown): BackendA
 
 export function normalizeAgentTimelineSnapshotPayload(payload: unknown): BackendAgentTimelineSnapshot {
   const timeline = recordValue(payload);
-  if (stringValue(timeline.schemaVersion) !== "tinybot.timeline.v1") {
+  if (stringValue(timeline.schemaVersion) !== "tinybot.timeline.v2") {
     throw new Error(`Unsupported canonical timeline schema: ${stringValue(timeline.schemaVersion) || "missing"}`);
   }
   const sessionId = requiredCanonicalString(timeline, "sessionId");
@@ -557,8 +563,9 @@ export function normalizeAgentTimelineSnapshotPayload(payload: unknown): Backend
     previousSequence = item.sequence;
     return item;
   });
+  validateCanonicalFinalAnswerBoundary(items, runId);
   return {
-    schemaVersion: "tinybot.timeline.v1",
+    schemaVersion: "tinybot.timeline.v2",
     sessionId,
     runId,
     snapshotRevision,
@@ -568,7 +575,7 @@ export function normalizeAgentTimelineSnapshotPayload(payload: unknown): Backend
 
 export function normalizeAgentTimelinePatchPayload(payload: unknown): BackendAgentTimelinePatch {
   const value = recordValue(payload);
-  if (stringValue(value.schemaVersion) !== "tinybot.timeline_patch.v1") {
+  if (stringValue(value.schemaVersion) !== "tinybot.timeline_patch.v2") {
     throw new Error(`Unsupported canonical timeline patch schema: ${stringValue(value.schemaVersion) || "missing"}`);
   }
   const sessionId = requiredCanonicalString(value, "sessionId");
@@ -577,7 +584,7 @@ export function normalizeAgentTimelinePatchPayload(payload: unknown): BackendAge
     throw new Error(`Canonical timeline patch ${sessionId}/${runId} is missing item`);
   }
   return {
-    schemaVersion: "tinybot.timeline_patch.v1",
+    schemaVersion: "tinybot.timeline_patch.v2",
     sessionId,
     runId,
     snapshotRevision: requiredCanonicalNumber(value, "snapshotRevision"),
@@ -596,7 +603,7 @@ function normalizeCanonicalTurnItem(
   sessionId: string,
   runId: string,
 ): BackendAgentTurnItem {
-  if (stringValue(raw.schemaVersion) !== "tinybot.turn_item.v1") {
+  if (stringValue(raw.schemaVersion) !== "tinybot.turn_item.v2") {
     throw new Error(`Unsupported canonical item schema for ${stringValue(raw.itemId) || "unknown item"}`);
   }
   const itemId = requiredCanonicalString(raw, "itemId");
@@ -613,8 +620,15 @@ function normalizeCanonicalTurnItem(
   if (stringValue(data.type) !== kind) {
     throw new Error(`Canonical item ${itemId} kind/data mismatch: ${kind}/${stringValue(data.type) || "missing"}`);
   }
+  if (kind === "assistant_message") {
+    requiredCanonicalString(data, "modelCallId");
+    assistantMessagePhase(data.phase, itemId);
+  }
+  if (kind === "reasoning") {
+    requiredCanonicalString(data, "modelCallId");
+  }
   return {
-    schemaVersion: "tinybot.turn_item.v1",
+    schemaVersion: "tinybot.turn_item.v2",
     itemId,
     sessionId: itemSessionId,
     ...(stringValue(raw.threadId) ? { threadId: stringValue(raw.threadId) } : {}),
@@ -631,6 +645,37 @@ function normalizeCanonicalTurnItem(
     ...(stringValue(raw.summary) ? { summary: safeArtifactText(stringValue(raw.summary)) } : {}),
     data: data as CanonicalTurnItemData,
   };
+}
+
+function assistantMessagePhase(value: unknown, itemId: string): AssistantMessagePhase {
+  const phase = stringValue(value);
+  if (phase === "unknown" || phase === "commentary" || phase === "final_answer") {
+    return phase;
+  }
+  throw new Error(`Canonical assistant item ${itemId} has invalid phase ${phase || "missing"}`);
+}
+
+function validateCanonicalFinalAnswerBoundary(items: BackendAgentTurnItem[], runId: string): void {
+  const finalItem = items.find((item) => (
+    item.kind === "assistant_message" && stringValue(item.data.phase) === "final_answer"
+  ));
+  if (!finalItem) {
+    return;
+  }
+  const invalid = items.find((item) => item.sequence > finalItem.sequence && (
+    item.kind === "assistant_message"
+      || item.kind === "reasoning"
+      || item.kind === "tool_call"
+      || item.kind === "approval"
+      || item.kind === "form"
+      || item.kind === "subagent_lifecycle"
+      || item.kind === "subagent_message"
+      || item.kind === "plan_progress"
+      || item.kind === "context_compaction"
+  ));
+  if (invalid) {
+    throw new Error(`Canonical timeline ${runId} item ${invalid.itemId} appears after final answer ${finalItem.itemId}`);
+  }
 }
 
 function requiredCanonicalString(value: Record<string, unknown>, key: string): string {
@@ -681,6 +726,7 @@ export function reduceAgentEvent(state: ChatRunState, event: AgentEventEnvelope)
     const payloadMessage = recordValue(event.payload.user_message);
     turn.userMessage = {
       id: stringValue(event.payload.user_message_id) || stringValue(payloadMessage.id) || turn.userMessage.id,
+      references: normalizeReferences(payloadMessage.references ?? payloadMessage.contextReferences ?? payloadMessage.context_references),
       role: "user",
       text: stringValue(payloadMessage.text ?? payloadMessage.content) || turn.userMessage.text,
       timestamp: event.created_at,
@@ -912,6 +958,7 @@ function runtimeStateToTurn(
     .sort(compareRuntimeTimestamps);
   const lastUpdatedAt = updatedAt[updatedAt.length - 1] || startedAt;
   const turn: ChatTurn = {
+    canonicalItems: [...runtimeState.timeline.items],
     id: runtimeState.timeline.runId,
     sessionKey,
     userMessage: {
@@ -932,6 +979,7 @@ function runtimeStateToTurn(
   }
   attachScopedErrors(turn, runtimeState.timeline.items);
   attachFileReferences(turn, runtimeState.timeline.items);
+  turn.executionItems = turn.steps;
   turn.status = statusForTurnItems(runtimeState.timeline.items, turn.status);
   reconcileTerminalStepStatuses(turn);
   if (turn.status === "completed" || turn.status === "failed" || turn.status === "interrupted") {
@@ -973,6 +1021,7 @@ function applyTurnItemToTurn(turn: ChatTurn, item: BackendAgentTurnItem): void {
     turn.userMessage = {
       ...(stringValue(payload.clientEventId) ? { clientEventId: stringValue(payload.clientEventId) } : {}),
       id: messageId,
+      references: normalizeReferences(payload.references ?? payload.contextReferences ?? payload.context_references),
       role: "user",
       text: text || turn.userMessage.text,
       timestamp: item.createdAt || turn.userMessage.timestamp,
@@ -983,8 +1032,10 @@ function applyTurnItemToTurn(turn: ChatTurn, item: BackendAgentTurnItem): void {
   if (item.kind === "assistant_message") {
     const text = safeArtifactText(stringValue(payload.content ?? payload.text ?? payload.finalContent ?? item.summary));
     const messageId = stringValue(payload.messageId ?? payload.message_id) || item.itemId;
-    if (status === "completed") {
-      turn.finalMessage = {
+    const phase = assistantMessagePhase(payload.phase, item.itemId);
+    const modelCallId = requiredCanonicalString(payload, "modelCallId");
+    if (phase === "final_answer") {
+      turn.finalAnswer = {
         id: messageId,
         role: "assistant",
         text,
@@ -995,9 +1046,12 @@ function applyTurnItemToTurn(turn: ChatTurn, item: BackendAgentTurnItem): void {
     if (text) {
       turn.steps.push(runtimeStep(item, sequence, {
         kind: "message",
+        messageId,
+        messagePhase: phase,
+        modelCallId,
         status,
         summary: text,
-        title: item.title || "Assistant message",
+        title: item.title || (phase === "commentary" ? "Progress update" : "Assistant message"),
       }));
     }
     return;
@@ -1005,6 +1059,7 @@ function applyTurnItemToTurn(turn: ChatTurn, item: BackendAgentTurnItem): void {
   if (item.kind === "reasoning") {
     turn.steps.push(runtimeStep(item, sequence, {
       kind: "reasoning",
+      modelCallId: requiredCanonicalString(payload, "modelCallId"),
       status,
       summary: safeArtifactText(stringValue(payload.content ?? payload.summary ?? item.summary)),
       title: item.title || (status === "completed" ? "Thinking complete" : "Thinking"),
@@ -1242,6 +1297,9 @@ function runtimeStep(
     ...(patch.delegate ? { delegate: patch.delegate } : {}),
     ...(patch.error !== undefined ? { error: patch.error } : {}),
     ...(patch.form ? { form: patch.form } : {}),
+    ...(patch.messageId ? { messageId: patch.messageId } : {}),
+    ...(patch.messagePhase ? { messagePhase: patch.messagePhase } : {}),
+    ...(patch.modelCallId ? { modelCallId: patch.modelCallId } : {}),
     ...(patch.plan ? { plan: patch.plan } : {}),
     ...(patch.scopedErrors ? { scopedErrors: patch.scopedErrors } : {}),
     ...(patch.summary ? { summary: patch.summary } : {}),
@@ -1328,7 +1386,11 @@ function statusForTurnItems(items: BackendAgentTurnItem[], fallback: ChatTurnSta
   if (items.some((item) => item.status === "waiting")) {
     return "awaiting_user";
   }
-  if (items.some((item) => item.kind === "assistant_message" && item.status === "completed")) {
+  if (items.some((item) => (
+    item.kind === "assistant_message"
+      && stringValue(item.data.phase) === "final_answer"
+      && item.status === "completed"
+  ))) {
     return "completed";
   }
   if (items.some((item) => item.status === "running" || item.status === "queued")) {
@@ -1382,32 +1444,34 @@ function isDelegatedRunEventType(eventType: string): boolean {
 
 export function turnsToConversationMessages(turns: ChatTurn[]): ChatMessageProjection[] {
   return turns.flatMap((turn) => {
+    const finalAnswer = turn.finalAnswer ?? turn.finalMessage;
+    const executionItems = turn.executionItems ?? turn.steps;
     const messages: ChatMessageProjection[] = [{
       author: "You",
       body: [turn.userMessage.text],
       messageId: turn.userMessage.id,
-      references: [],
+      references: conversationReferences(turn.userMessage.references),
       time: turn.userMessage.timestamp,
       tone: "user",
       toolActivities: [],
       turnId: turn.id,
       turnStatus: turn.status,
     }];
-    for (const step of turn.steps) {
-      if (turn.finalMessage && step.kind === "message") {
+    for (const step of executionItems) {
+      if (!turn.finalAnswer && turn.finalMessage && step.kind === "message") {
         continue;
       }
       messages.push(stepToConversationMessage(step, turn));
     }
-    if (turn.finalMessage) {
+    if (finalAnswer) {
       messages.push({
         author: "Tinybot",
-        body: [turn.finalMessage.text],
+        body: [finalAnswer.text],
         copyable: true,
-        messageId: turn.finalMessage.id,
-        references: conversationReferences(turn.finalMessage.references),
+        messageId: finalAnswer.id,
+        references: conversationReferences(finalAnswer.references),
         reasoningContent: "",
-        time: turn.finalMessage.timestamp,
+        time: finalAnswer.timestamp,
         tone: "assistant",
         toolActivities: [],
         turnId: turn.id,
@@ -2073,10 +2137,28 @@ function normalizeReferences(value: unknown): NativeChatReference[] | undefined 
   }
   return value.map((item) => {
     const row = recordValue(item);
+    const evidenceId = stringValue(row.evidenceId ?? row.evidence_id);
+    const noteId = stringValue(row.noteId ?? row.note_id);
+    const rawLine = numberValue(row.rawLine ?? row.raw_line);
+    const rawPath = stringValue(row.rawPath ?? row.raw_path);
+    const scope = stringValue(row.scope);
+    const sourceLine = numberValue(row.sourceLine ?? row.source_line);
+    const sourcePath = stringValue(row.sourcePath ?? row.source_path);
+    const sourceText = stringValue(row.sourceText ?? row.source_text);
+    const type = stringValue(row.type);
     return {
       detail: stringValue(row.detail ?? row.content ?? row.summary ?? row.url),
+      ...(evidenceId ? { evidenceId } : {}),
       kind: "reference",
+      ...(noteId ? { noteId } : {}),
+      ...(rawLine !== undefined ? { rawLine } : {}),
+      ...(rawPath ? { rawPath } : {}),
+      ...(scope ? { scope } : {}),
+      ...(sourceLine !== undefined ? { sourceLine } : {}),
+      ...(sourcePath ? { sourcePath } : {}),
+      ...(sourceText ? { sourceText } : {}),
       title: stringValue(row.title ?? row.name ?? row.id) || "Reference",
+      ...(type ? { type } : {}),
     };
   });
 }
