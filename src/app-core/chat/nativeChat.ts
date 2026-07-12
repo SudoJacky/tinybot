@@ -507,13 +507,14 @@ export function activateSession(state: NativeChatState, sessionKey: string, chat
   }
 }
 
-export function appendUserMessage(state: NativeChatState, content: string, timestamp = new Date().toISOString()) {
+export function appendUserMessage(state: NativeChatState, content: string, timestamp = new Date().toISOString(), references?: NativeChatReference[]) {
   if (!state.activeSessionKey) {
     return;
   }
   ensureMessageBucket(state, state.activeSessionKey).push({
     role: "user",
     content,
+    ...(references?.length ? { references } : {}),
     reasoningContent: "",
     timestamp,
     messageId: "",

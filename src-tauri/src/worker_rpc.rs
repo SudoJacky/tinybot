@@ -1052,6 +1052,15 @@ struct AgentRunAppendTraceParams {
 }
 
 #[derive(Deserialize)]
+struct AgentRunAppendTraceBatchParams {
+    #[serde(alias = "sessionId")]
+    session_id: String,
+    #[serde(alias = "runId")]
+    run_id: String,
+    events: Vec<Value>,
+}
+
+#[derive(Deserialize)]
 struct AgentRunCheckpointParams {
     #[serde(alias = "sessionId")]
     session_id: String,

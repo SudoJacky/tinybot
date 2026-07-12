@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useReducer, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useReducer, useRef, useState, type CSSProperties } from "react";
 import {
   AlertTriangle,
   Check,
@@ -14,6 +14,7 @@ import {
   RefreshCw,
   RotateCcw,
   MoreHorizontal,
+  PanelRightClose,
   PanelRightOpen,
   Plus,
   Search,
@@ -33,6 +34,7 @@ import {
 import type { QueuedInput } from "../../app-core/chat/chatUiProjection";
 import {
   ClaudeStyleAiInput,
+  type ComposerContextReference,
   type ComposerSendOptions,
   type ComposerToolOption,
   type FileWithPreview,
@@ -44,8 +46,10 @@ import { formatRelativeUpdatedTime } from "../lib/relativeTime";
 import type { ApprovalAction, ChatEvent, ChatInput, ChatModelOption, ChatStore, SessionStore, SessionSummary, SettingsStore } from "../services";
 import { reduceSessionDeleteState } from "../sessions/sessionDeleteState";
 import { canBranchFromMessage, canCopyMessage, type ContextReferenceSummary, type ReactChatMessage, type ToolCallSummary } from "./messageActions";
-import type { AgentUiForm, AgentUiFormField } from "../../app-core/agent-ui/agentUiEvents";
+import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
+import { AgentUiFormCard } from "./AgentUiFormCard";
 import { AssistantMarkdown } from "./AssistantMarkdown";
+import { clampTinyOsWidth, LiveCanvas, type LiveCanvasEntry, type LiveCanvasMode } from "./LiveCanvas";
 import {
   applyLoadedDelegatedAgentTrace,
   projectLoadedArtifactDetail,
@@ -59,6 +63,7 @@ import {
 } from "../../app-core/chat/chatRunModel";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
 import type { NativeChatReference } from "../../app-core/chat/nativeChat";
+import type { TinyOsContextReference } from "../../app-core/chat/tinyOsUiState";
 
 export type ChatPageProps = {
   chatStore: ChatStore;
@@ -80,9 +85,51 @@ type DrawerState =
   | { kind: "error"; title: string; step: ChatStep; turn: ChatTurn }
   | null;
 
+type LiveCanvasState = {
+  mode: LiveCanvasMode;
+  selection?: { itemId: string; turnId: string };
+  visibility: "closed" | "open";
+};
+
+type LiveCanvasAction =
+  | { type: "close" }
+  | { type: "return_live" }
+  | { type: "select"; itemId: string; turnId: string }
+  | { type: "toggle" };
+
+const INITIAL_LIVE_CANVAS_STATE: LiveCanvasState = {
+  mode: "live_follow",
+  visibility: "closed",
+};
+
+function reduceLiveCanvasState(state: LiveCanvasState, action: LiveCanvasAction): LiveCanvasState {
+  switch (action.type) {
+    case "close":
+      return state.visibility === "closed" ? state : { ...state, visibility: "closed" };
+    case "return_live":
+      return { mode: "live_follow", visibility: "open" };
+    case "select":
+      return { mode: "history", selection: { itemId: action.itemId, turnId: action.turnId }, visibility: "open" };
+    case "toggle":
+      return state.visibility === "open"
+        ? { ...state, visibility: "closed" }
+        : { mode: "live_follow", visibility: "open" };
+  }
+}
+
 type RecoveryAction = "continue" | "retry" | "restart";
 
-type QueuedComposerInput = QueuedInput & Pick<ChatInput, "model" | "usePersistentRag">;
+type QueuedComposerInput = QueuedInput & Pick<ChatInput, "model" | "references" | "usePersistentRag">;
+
+function shouldFrameBatchTimeline(timeline: ChatTimelineSnapshot): boolean {
+  return timeline.turns[timeline.turns.length - 1]?.status === "running";
+}
+
+function readStoredTinyOsWidth(): number {
+  if (typeof window === "undefined") return 480;
+  const stored = Number(window.localStorage.getItem(TINYOS_WIDTH_STORAGE_KEY));
+  return Number.isFinite(stored) && stored > 0 ? clampTinyOsWidth(stored) : 480;
+}
 
 const COMPOSER_TOOLS: ComposerToolOption[] = [
   {
@@ -102,6 +149,7 @@ const EMPTY_CHAT_PROMPTS = [
 
 const SESSION_DELETE_DISSOLVE_MS = 760;
 const SESSION_DELETE_PARTICLE_COUNT = 220;
+const TINYOS_WIDTH_STORAGE_KEY = "tinybot.ui.tinyos.width";
 
 type SessionDeleteParticle = {
   id: number;
@@ -155,11 +203,14 @@ export function ChatPage({
   const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
   const [localSessionSidebarCollapsed, setLocalSessionSidebarCollapsed] = useState(false);
   const [drawer, setDrawer] = useState<DrawerState>(null);
+  const [liveCanvas, dispatchLiveCanvas] = useReducer(reduceLiveCanvasState, INITIAL_LIVE_CANVAS_STATE);
+  const [tinyOsWidth, setTinyOsWidth] = useState(readStoredTinyOsWidth);
   const [resolvingApprovalId, setResolvingApprovalId] = useState("");
   const [agentUiForms, setAgentUiForms] = useState<AgentUiForm[]>([]);
   const [queuedInputsBySession, setQueuedInputsBySession] = useState<Map<string, QueuedComposerInput[]>>(() => new Map());
   const [queueMessage, setQueueMessage] = useState("");
   const [composerDraft, setComposerDraft] = useState("");
+  const [tinyOsContextReferences, setTinyOsContextReferences] = useState<TinyOsContextReference[]>([]);
   const [recoveringTurnId, setRecoveringTurnId] = useState("");
   const [showBackToLatest, setShowBackToLatest] = useState(false);
   const [dissolvingSessionIds, setDissolvingSessionIds] = useState<Set<string>>(() => new Set());
@@ -173,6 +224,9 @@ export function ChatPage({
   const optimisticSessionTitlesRef = useRef<Map<string, string>>(new Map());
   const conversationRef = useRef<HTMLDivElement | null>(null);
   const conversationEndRef = useRef<HTMLDivElement | null>(null);
+  const liveCanvasHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  const liveCanvasToggleRef = useRef<HTMLButtonElement | null>(null);
+  const liveCanvasWasOpenRef = useRef(false);
   const stickToLatestRef = useRef(true);
   const resolvedSessionSidebarCollapsed = sessionSidebarCollapsed ?? localSessionSidebarCollapsed;
   const activeSession = useMemo(
@@ -189,10 +243,51 @@ export function ChatPage({
   const latestFailedTurnId = useMemo(() => (
     [...(timeline?.turns ?? [])].reverse().find((turn) => turn.status === "failed" || turn.status === "interrupted")?.id ?? ""
   ), [timeline]);
+  const liveCanvasOpen = liveCanvas.visibility === "open";
+  const liveCanvasEntries = useMemo<LiveCanvasEntry[]>(() => (
+    (timelineLoaded ? timeline?.turns ?? [] : []).flatMap((turn) => (
+      (turn.executionItems ?? turn.steps).map((step) => ({ step, turnId: turn.id }))
+    ))
+  ), [timeline, timelineLoaded]);
+  const latestLiveCanvasEntry = liveCanvasEntries[liveCanvasEntries.length - 1];
+  const latestLiveCanvasAttention = useMemo(() => [...liveCanvasEntries].reverse().find(({ step }) => (
+    step.kind === "error"
+      || step.status === "failed"
+      || step.status === "cancelled"
+      || ((step.kind === "approval" || step.kind === "form") && step.status !== "completed")
+  )), [liveCanvasEntries]);
+  const selectedLiveCanvasEntry = liveCanvas.mode === "live_follow"
+    ? latestLiveCanvasEntry
+    : liveCanvasEntries.find((entry) => entry.turnId === liveCanvas.selection?.turnId && entry.step.id === liveCanvas.selection.itemId);
+
+  const openLiveCanvasItem = (turnId: string, step: ChatStep) => {
+    dispatchLiveCanvas({ type: "select", itemId: step.id, turnId });
+  };
+
+  const handleAttachTinyOsContext = (reference: TinyOsContextReference) => {
+    const id = tinyOsContextReferenceId(reference);
+    setTinyOsContextReferences((current) => [
+      ...current.filter((candidate) => tinyOsContextReferenceId(candidate) !== id),
+      reference,
+    ]);
+  };
+
+  useEffect(() => {
+    if (liveCanvasOpen && !liveCanvasWasOpenRef.current) {
+      liveCanvasHeadingRef.current?.focus();
+    } else if (!liveCanvasOpen && liveCanvasWasOpenRef.current) {
+      liveCanvasToggleRef.current?.focus();
+    }
+    liveCanvasWasOpenRef.current = liveCanvasOpen;
+  }, [liveCanvasOpen]);
 
   useEffect(() => {
     sessionsRef.current = sessions;
   }, [sessions]);
+
+  useEffect(() => {
+    setTinyOsContextReferences([]);
+  }, [activeSession?.id]);
 
   useEffect(() => {
     return () => {
@@ -252,15 +347,43 @@ export function ChatPage({
         setAgentUiForms(nextForms);
       }
     });
+    let pendingStreamingTimeline: ChatTimelineSnapshot | null = null;
+    let streamingFrame: number | null = null;
+    const applyTimeline = (nextTimeline: ChatTimelineSnapshot) => {
+      setTimeline(nextTimeline);
+      setTimelineError("");
+      setOptimisticMessages((current) => current.filter((message) => !nextTimeline.turns.some((turn) => (
+        turn.userMessage.clientEventId === message.id
+      ))));
+    };
+    const scheduleStreamingTimeline = (nextTimeline: ChatTimelineSnapshot) => {
+      pendingStreamingTimeline = nextTimeline;
+      if (streamingFrame !== null) {
+        return;
+      }
+      streamingFrame = window.requestAnimationFrame(() => {
+        streamingFrame = null;
+        const pending = pendingStreamingTimeline;
+        pendingStreamingTimeline = null;
+        if (pending && !cancelled) {
+          applyTimeline(pending);
+        }
+      });
+    };
     void loadTimeline();
     void loadAgentUiForms();
     const unsubscribe = chatStore.subscribe(activeSessionId, (event) => {
       if (event.timeline) {
-        setTimeline(event.timeline);
-        setTimelineError("");
-        setOptimisticMessages((current) => current.filter((message) => !event.timeline!.turns.some((turn) => (
-          turn.userMessage.clientEventId === message.id
-        ))));
+        if (shouldFrameBatchTimeline(event.timeline)) {
+          scheduleStreamingTimeline(event.timeline);
+        } else {
+          if (streamingFrame !== null) {
+            window.cancelAnimationFrame(streamingFrame);
+            streamingFrame = null;
+            pendingStreamingTimeline = null;
+          }
+          applyTimeline(event.timeline);
+        }
         return;
       }
       if (event.error) {
@@ -290,6 +413,9 @@ export function ChatPage({
     });
     return () => {
       cancelled = true;
+      if (streamingFrame !== null) {
+        window.cancelAnimationFrame(streamingFrame);
+      }
       unsubscribe();
     };
   }, [activeSessionId, chatStore]);
@@ -470,7 +596,12 @@ export function ChatPage({
     pastedContent: PastedContent[],
     options: ComposerSendOptions,
   ) {
-    const text = formatComposerMessage(message, files, pastedContent);
+    const references = tinyOsContextReferences.map(nativeReferenceFromTinyOs);
+    const text = formatComposerMessage(
+      message || (references.length ? "Use the attached TinyOS context." : ""),
+      files,
+      pastedContent,
+    );
     const sendSession = activeSession ?? await createSessionForDraft();
     if (!text || !sendSession) {
       return;
@@ -483,7 +614,7 @@ export function ChatPage({
       queuedInputs: activeQueuedInputs,
     });
     if (queuedResult.kind !== "send_message") {
-      handleQueuedComposerResult(sendSession.id, queuedResult, options);
+      handleQueuedComposerResult(sendSession.id, queuedResult, options, references);
       return;
     }
     const optimisticSession = isDefaultSessionTitle(sendSession.title)
@@ -496,6 +627,7 @@ export function ChatPage({
     await chatStore.send(sendSession.id, {
       text: queuedResult.content,
       ...(options.model ? { model: options.model } : {}),
+      ...(references.length ? { references } : {}),
       ...(typeof options.usePersistentRag === "boolean" ? { usePersistentRag: options.usePersistentRag } : {}),
     });
     await handleSessionStoreRefresh(optimisticSession);
@@ -545,6 +677,7 @@ export function ChatPage({
     sessionId: string,
     result: Exclude<SubmitComposerTextResult, { kind: "send_message" }>,
     options: ComposerSendOptions,
+    references: NativeChatReference[],
   ) {
     if (result.kind === "queue_limit_reached") {
       setQueueMessage("Already have 5 queued messages. Wait for processing or delete one before sending more.");
@@ -559,6 +692,7 @@ export function ChatPage({
       next.set(sessionId, [...(next.get(sessionId) ?? []), {
         ...result.input,
         ...(options.model ? { model: options.model } : {}),
+        ...(references.length ? { references } : {}),
         ...(typeof options.usePersistentRag === "boolean" ? { usePersistentRag: options.usePersistentRag } : {}),
       }]);
       return next;
@@ -675,16 +809,16 @@ export function ChatPage({
     });
   }
 
-  async function handleResolveApproval(toolCall: ToolCallSummary, action: ApprovalAction) {
-    if (!activeSession || !toolCall.approvalId) {
+  async function handleResolveApproval(approvalId: string, action: ApprovalAction) {
+    if (!activeSession || !approvalId) {
       return;
     }
     const sessionId = activeSession.id;
-    setResolvingApprovalId(toolCall.approvalId);
+    setResolvingApprovalId(approvalId);
     try {
       await chatStore.resolveApproval(sessionId, {
         action,
-        approvalId: toolCall.approvalId,
+        approvalId,
       });
       await handleSessionStoreRefresh();
       setTimeline(await chatStore.load(sessionId));
@@ -776,7 +910,13 @@ export function ChatPage({
   const headerTitle = activeSession ? displaySessionTitle(activeSession.title) : draftNewSession ? "新会话" : "未选择会话";
 
   return (
-    <section className="react-chat-page" aria-label="Chat" data-session-sidebar-collapsed={resolvedSessionSidebarCollapsed}>
+    <section
+      className="react-chat-page"
+      aria-label="Chat"
+      data-live-canvas-open={liveCanvasOpen ? "true" : undefined}
+      data-session-sidebar-collapsed={resolvedSessionSidebarCollapsed}
+      style={{ "--tinyos-width": `${tinyOsWidth}px` } as CSSProperties}
+    >
       <aside className="react-session-list" aria-label="Sessions" data-collapsed={resolvedSessionSidebarCollapsed}>
         <div className="react-session-list__header">
           <div className="react-session-list__title-row">
@@ -875,6 +1015,28 @@ export function ChatPage({
           <h1>{headerTitle}</h1>
           <div className="react-chat-header__actions">
             <button
+              ref={liveCanvasToggleRef}
+              aria-controls="tinybot-live-canvas"
+              aria-expanded={liveCanvasOpen}
+              aria-label={liveCanvasOpen
+                ? "Close Live Canvas"
+                : latestLiveCanvasAttention
+                  ? "Open Live Canvas, attention required"
+                  : liveCanvasEntries.length
+                    ? "Open Live Canvas, Agent activity available"
+                    : "Open Live Canvas"}
+              className="react-live-canvas-toggle"
+              data-active={liveCanvasOpen ? "true" : undefined}
+              data-attention={latestLiveCanvasAttention ? "true" : undefined}
+              data-has-activity={liveCanvasEntries.length ? "true" : undefined}
+              title={liveCanvasOpen ? "Close Live Canvas" : "Open Live Canvas"}
+              type="button"
+              onClick={() => dispatchLiveCanvas({ type: "toggle" })}
+            >
+              {liveCanvasOpen ? <PanelRightClose aria-hidden="true" size={18} /> : <PanelRightOpen aria-hidden="true" size={18} />}
+              {!liveCanvasOpen && liveCanvasEntries.length ? <span aria-hidden="true" className="react-live-canvas-toggle__status" /> : null}
+            </button>
+            <button
               aria-label="Open conversation menu"
               title="Open conversation menu"
               type="button"
@@ -908,6 +1070,7 @@ export function ChatPage({
               turn={turn}
               onBranch={(messageId) => void handleBranchFromMessage(activeSession, messageId)}
               onOpenArtifact={(artifact) => void handleOpenArtifact(artifact)}
+              onOpenLiveCanvas={(step) => openLiveCanvasItem(turn.id, step)}
               onOpenSubagent={(delegate) => void handleOpenSubagent(delegate)}
               onOpenTool={(toolCall) => setDrawer({ kind: "tool", title: toolCall.name, toolCall })}
               focusError={turn.id === latestFailedTurnId}
@@ -955,6 +1118,7 @@ export function ChatPage({
         {queueMessage ? <p className="react-queued-inputs__message">{queueMessage}</p> : null}
         <ClaudeStyleAiInput
           className={["react-composer", emptyActiveSession ? "react-composer--raised" : ""].filter(Boolean).join(" ")}
+          contextReferences={tinyOsContextReferences.map(composerReferenceFromTinyOs)}
           disabled={!activeSession && !draftNewSession}
           disabledReason={!sessionsLoaded ? "正在加载会话…" : !activeSession && !draftNewSession ? "请先创建或选择一个会话" : undefined}
           defaultModel={defaultComposerModel}
@@ -964,11 +1128,37 @@ export function ChatPage({
           placeholder={emptyActiveSession ? "输入任务，或粘贴/拖入文件" : "输入消息给 Tinybot"}
           tools={COMPOSER_TOOLS}
           value={composerDraft}
+          onClearContextReferences={() => setTinyOsContextReferences([])}
+          onRemoveContextReference={(id) => setTinyOsContextReferences((current) => current.filter((reference) => tinyOsContextReferenceId(reference) !== id))}
           onValueChange={setComposerDraft}
           onSendMessage={(message, files, pastedContent, options) => handleComposerSend(message, files, pastedContent, options)}
           onStopResponding={() => activeSession && handleStopGeneration(activeSession)}
         />
       </main>
+
+      {liveCanvasOpen ? (
+        <LiveCanvas
+          agentUiForms={visibleAgentUiForms}
+          entries={liveCanvasEntries}
+          headingRef={liveCanvasHeadingRef}
+          mode={liveCanvas.mode}
+          resolvingApprovalId={resolvingApprovalId}
+          selection={selectedLiveCanvasEntry}
+          widthPx={tinyOsWidth}
+          onAttachContext={handleAttachTinyOsContext}
+          onCancelForm={(form) => void handleCancelAgentUiForm(form)}
+          onClose={() => dispatchLiveCanvas({ type: "close" })}
+          onOpenArtifact={(artifact) => void handleOpenArtifact(artifact)}
+          onResolveApproval={(approvalId, action) => void handleResolveApproval(approvalId, action)}
+          onReturnToLive={() => dispatchLiveCanvas({ type: "return_live" })}
+          onSelectEntry={(entry) => openLiveCanvasItem(entry.turnId, entry.step)}
+          onSubmitForm={(form, values) => void handleSubmitAgentUiForm(form, values)}
+          onWidthChange={(widthPx) => {
+            setTinyOsWidth(widthPx);
+            window.localStorage.setItem(TINYOS_WIDTH_STORAGE_KEY, String(widthPx));
+          }}
+        />
+      ) : null}
 
       {drawer ? (
         <aside className="react-right-drawer" aria-label="Details drawer" data-motion="fade-content" data-state="open">
@@ -982,7 +1172,7 @@ export function ChatPage({
             <ToolCallDetails
               resolvingApprovalId={resolvingApprovalId}
               toolCall={drawer.toolCall}
-              onResolveApproval={(toolCall, action) => void handleResolveApproval(toolCall, action)}
+              onResolveApproval={(toolCall, action) => toolCall.approvalId && void handleResolveApproval(toolCall.approvalId, action)}
             />
           ) : drawer.kind === "subagent" ? (
             <SubagentDetails delegate={drawer.delegate} error={drawer.error} loading={drawer.loading} />
@@ -1213,7 +1403,52 @@ function toChatInput(input: QueuedComposerInput): ChatInput {
   return {
     text: input.content,
     ...(input.model ? { model: input.model } : {}),
+    ...(input.references?.length ? { references: input.references } : {}),
     ...(typeof input.usePersistentRag === "boolean" ? { usePersistentRag: input.usePersistentRag } : {}),
+  };
+}
+
+function tinyOsContextReferenceId(reference: TinyOsContextReference): string {
+  return [
+    reference.kind,
+    reference.turnId,
+    reference.sourceItemId,
+    reference.startLine ?? "",
+    reference.endLine ?? "",
+  ].join(":");
+}
+
+function tinyOsReferenceLabel(reference: TinyOsContextReference): string {
+  const lineRange = reference.startLine
+    ? `L${reference.startLine}${reference.endLine && reference.endLine !== reference.startLine ? `–${reference.endLine}` : ""}`
+    : "selection";
+  return reference.kind === "file" ? `${reference.path} · ${lineRange}` : `${reference.command} · ${lineRange}`;
+}
+
+function composerReferenceFromTinyOs(reference: TinyOsContextReference): ComposerContextReference {
+  return {
+    detail: reference.kind === "file" ? "TinyOS file selection" : "TinyOS terminal output",
+    id: tinyOsContextReferenceId(reference),
+    kind: reference.kind,
+    label: tinyOsReferenceLabel(reference),
+  };
+}
+
+function nativeReferenceFromTinyOs(reference: TinyOsContextReference): NativeChatReference {
+  return {
+    detail: reference.kind === "file" ? "TinyOS file selection" : "TinyOS terminal output selection",
+    evidenceId: reference.sourceItemId,
+    kind: "reference",
+    scope: reference.turnId,
+    sourceLine: reference.startLine,
+    sourceText: reference.selectedText,
+    title: tinyOsReferenceLabel(reference),
+    type: reference.kind === "file" ? "tinyos.file" : "tinyos.terminal",
+    ...(reference.kind === "file" ? {
+      rawLine: reference.startLine,
+      rawPath: reference.path,
+      sourcePath: reference.path,
+    } : {}),
   };
 }
 
@@ -1305,231 +1540,13 @@ function queuedInputStatusLabel(input: QueuedInput): string {
   }
 }
 
-function AgentUiFormCard({
-  form,
-  onCancel,
-  onSubmit,
-}: {
-  form: AgentUiForm;
-  onCancel: () => void;
-  onSubmit: (values: Record<string, unknown>) => void;
-}) {
-  const [values, setValues] = useState<Record<string, unknown>>(() => initialAgentUiFormValues(form));
-
-  useEffect(() => {
-    setValues(initialAgentUiFormValues(form));
-  }, [form]);
-
-  function updateValue(field: AgentUiFormField, value: unknown) {
-    setValues((current) => ({ ...current, [field.name]: value }));
-  }
-
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    onSubmit(normalizeAgentUiFormValues(form, values));
-  }
-
-  return (
-    <form aria-label={form.title || form.form_id} className="react-agent-ui-form-card" onSubmit={handleSubmit}>
-      <div className="react-agent-ui-form-card__header">
-        <h2>{form.title || "Agent form"}</h2>
-        {form.description ? <p>{form.description}</p> : null}
-      </div>
-      <div className="react-agent-ui-form-card__fields">
-        {form.fields.map((field) => (
-          <AgentUiFormFieldControl
-            error={form.errors?.[field.name]}
-            field={field}
-            key={field.name}
-            value={values[field.name]}
-            onChange={(value) => updateValue(field, value)}
-          />
-        ))}
-      </div>
-      <div className="react-agent-ui-form-card__actions">
-        <button type="submit">{form.submit_label || "Submit"}</button>
-        <button type="button" onClick={onCancel}>{form.cancel_label || "Cancel"}</button>
-      </div>
-    </form>
-  );
-}
-
-function AgentUiFormFieldControl({
-  error,
-  field,
-  onChange,
-  value,
-}: {
-  error?: string;
-  field: AgentUiFormField;
-  onChange: (value: unknown) => void;
-  value: unknown;
-}) {
-  const id = `agent-ui-form-${field.name}`;
-  const errorId = `${id}-error`;
-  const stringValue = value === undefined || value === null ? "" : String(value);
-  return (
-    <div className="react-agent-ui-form-field">
-      <label htmlFor={id}>{field.label}</label>
-      {renderAgentUiFormInput(field, id, stringValue, value, onChange, error ? errorId : undefined)}
-      {field.help ? <small>{field.help}</small> : null}
-      {error ? <small className="react-agent-ui-form-field__error" id={errorId} role="alert">{error}</small> : null}
-    </div>
-  );
-}
-
-function renderAgentUiFormInput(
-  field: AgentUiFormField,
-  id: string,
-  stringValue: string,
-  value: unknown,
-  onChange: (value: unknown) => void,
-  errorId?: string,
-): ReactNode {
-  if (field.type === "textarea") {
-    return (
-      <textarea
-        aria-describedby={errorId}
-        aria-invalid={Boolean(errorId)}
-        id={id}
-        maxLength={field.max_length}
-        minLength={field.min_length}
-        placeholder={field.placeholder}
-        required={field.required}
-        value={stringValue}
-        onChange={(event) => onChange(event.currentTarget.value)}
-      />
-    );
-  }
-  if (field.type === "select") {
-    return (
-      <select aria-describedby={errorId} aria-invalid={Boolean(errorId)} id={id} required={field.required} value={stringValue} onChange={(event) => onChange(optionValueFromString(field, event.currentTarget.value))}>
-        <option value="">Select...</option>
-        {(field.options ?? []).map((option) => (
-          <option key={String(option.value)} value={String(option.value)}>{option.label}</option>
-        ))}
-      </select>
-    );
-  }
-  if (field.type === "multiselect") {
-    const selected = Array.isArray(value) ? value.map(String) : [];
-    return (
-      <select
-        aria-describedby={errorId}
-        aria-invalid={Boolean(errorId)}
-        id={id}
-        multiple
-        required={field.required}
-        value={selected}
-        onChange={(event) => onChange(Array.from(event.currentTarget.selectedOptions).map((option) => optionValueFromString(field, option.value)))}
-      >
-        {(field.options ?? []).map((option) => (
-          <option key={String(option.value)} value={String(option.value)}>{option.label}</option>
-        ))}
-      </select>
-    );
-  }
-  if (field.type === "radio") {
-    return (
-      <span aria-describedby={errorId} aria-invalid={Boolean(errorId)} className="react-agent-ui-form-field__choices">
-        {(field.options ?? []).map((option) => (
-          <label key={String(option.value)}>
-            <input
-              checked={stringValue === String(option.value)}
-              name={field.name}
-              required={field.required}
-              type="radio"
-              value={String(option.value)}
-              onChange={(event) => onChange(optionValueFromString(field, event.currentTarget.value))}
-            />
-            <span>{option.label}</span>
-          </label>
-        ))}
-      </span>
-    );
-  }
-  if (field.type === "checkbox") {
-    return (
-      <input
-        aria-describedby={errorId}
-        aria-invalid={Boolean(errorId)}
-        checked={value === true}
-        id={id}
-        type="checkbox"
-        onChange={(event) => onChange(event.currentTarget.checked)}
-      />
-    );
-  }
-  return (
-    <input
-      aria-describedby={errorId}
-      aria-invalid={Boolean(errorId)}
-      id={id}
-      max={field.max}
-      maxLength={field.max_length}
-      min={field.min}
-      minLength={field.min_length}
-      pattern={field.pattern}
-      placeholder={field.placeholder}
-      required={field.required}
-      type={inputTypeForAgentUiField(field)}
-      value={stringValue}
-      onChange={(event) => onChange(field.type === "number" ? event.currentTarget.valueAsNumber : event.currentTarget.value)}
-    />
-  );
-}
-
-function inputTypeForAgentUiField(field: AgentUiFormField): string {
-  switch (field.type) {
-    case "date":
-    case "time":
-      return field.type;
-    case "datetime":
-      return "datetime-local";
-    case "number":
-      return "number";
-    default:
-      return "text";
-  }
-}
-
-function initialAgentUiFormValues(form: AgentUiForm): Record<string, unknown> {
-  const values: Record<string, unknown> = {};
-  for (const field of form.fields) {
-    if (field.default !== undefined) {
-      values[field.name] = field.default;
-    }
-  }
-  return {
-    ...values,
-    ...(form.initial_values ?? {}),
-    ...(form.values ?? {}),
-  };
-}
-
-function normalizeAgentUiFormValues(form: AgentUiForm, values: Record<string, unknown>): Record<string, unknown> {
-  const normalized: Record<string, unknown> = {};
-  for (const field of form.fields) {
-    const value = values[field.name];
-    if (field.type === "number") {
-      normalized[field.name] = typeof value === "number" && Number.isFinite(value) ? value : undefined;
-      continue;
-    }
-    normalized[field.name] = value;
-  }
-  return normalized;
-}
-
-function optionValueFromString(field: AgentUiFormField, value: string): string | number | boolean {
-  return field.options?.find((option) => String(option.value) === value)?.value ?? value;
-}
-
 function CanonicalChatTurn({
   focusError,
   interactiveFormIds,
   onBranch,
   onOpenError,
   onOpenArtifact,
+  onOpenLiveCanvas,
   onRecover,
   onOpenSubagent,
   onOpenTool,
@@ -1541,22 +1558,25 @@ function CanonicalChatTurn({
   onBranch: (messageId: string) => void;
   onOpenError: (step: ChatStep) => void;
   onOpenArtifact: (artifact: ArtifactRef) => void;
+  onOpenLiveCanvas: (step: ChatStep) => void;
   onRecover: (action: RecoveryAction) => void;
   onOpenSubagent: (delegate: DelegatedAgentState) => void;
   onOpenTool: (toolCall: ToolCallSummary) => void;
   recovering: boolean;
   turn: ChatTurn;
 }) {
+  const executionItems = turn.executionItems ?? turn.steps;
+  const finalAnswer = turn.finalAnswer ?? turn.finalMessage;
+  const hasToolSteps = executionItems.some((step) => step.kind === "tool_call");
   const reasoningSteps = turn.steps.filter((step) => step.kind === "reasoning");
   const planSteps = turn.steps.filter((step) => step.kind === "plan");
   const errorSteps = turn.steps.filter((step) => step.kind === "error");
-  const processSteps = turn.steps.filter((step) => (
+  const legacyProcessSteps = turn.steps.filter((step) => (
     step.kind !== "reasoning"
     && step.kind !== "plan"
     && step.kind !== "error"
     && !(step.kind === "form" && step.form && interactiveFormIds.has(step.form.formId))
   ));
-  const hasToolSteps = processSteps.some((step) => step.kind === "tool_call");
   return (
     <section aria-label="Chat turn" className="react-canonical-turn" data-status={turn.status}>
       <CanonicalMessage
@@ -1564,46 +1584,60 @@ function CanonicalChatTurn({
         role="user"
         text={turn.userMessage.text}
       />
-      {planSteps.map((step) => (
-        <CanonicalChatStep key={step.id} onOpenArtifact={onOpenArtifact} onOpenSubagent={onOpenSubagent} onOpenTool={onOpenTool} step={step} />
-      ))}
-      {groupCanonicalSteps(processSteps).map((group) => (
-        Array.isArray(group) ? (
-          <div className="react-canonical-tool-group" key={group.map((step) => step.id).join(":")}>
-            <AgentSteps
-              onOpenTool={onOpenTool}
-              toolCalls={group.map((step) => toolCallSummaryFromStep(step, step.toolCall!))}
-            />
-            <CanonicalArtifacts artifacts={group.flatMap((step) => step.artifacts ?? [])} onOpen={onOpenArtifact} />
-            <CanonicalScopedErrors errors={group.flatMap((step) => step.scopedErrors ?? [])} />
-          </div>
-        ) : (
-          <CanonicalChatStep key={group.id} onOpenArtifact={onOpenArtifact} onOpenSubagent={onOpenSubagent} onOpenTool={onOpenTool} step={group} />
-        )
-      ))}
-      {errorSteps.map((step, index) => (
-        <ErrorRecoveryCard
-          focusOnMount={focusError && index === errorSteps.length - 1}
-          key={step.id}
-          recovering={recovering}
-          step={step}
-          turn={turn}
-          onOpenDetails={() => onOpenError(step)}
+      {turn.executionItems && executionItems.length ? (
+        <ExecutionTimeline
+          executionItems={executionItems}
+          focusError={focusError}
+          onOpenArtifact={onOpenArtifact}
+          onOpenError={onOpenError}
+          onOpenLiveCanvas={onOpenLiveCanvas}
+          onOpenSubagent={onOpenSubagent}
+          onOpenTool={onOpenTool}
           onRecover={onRecover}
+          recovering={recovering}
+          turn={turn}
         />
-      ))}
-      {turn.finalMessage ? (
+      ) : !turn.executionItems ? (
+        <>
+          {planSteps.map((step) => (
+            <CanonicalChatStep key={step.id} onOpenArtifact={onOpenArtifact} onOpenSubagent={onOpenSubagent} onOpenTool={onOpenTool} step={step} />
+          ))}
+          {groupCanonicalSteps(legacyProcessSteps).map((group) => (
+            Array.isArray(group) ? (
+              <div className="react-canonical-tool-group" key={group.map((step) => step.id).join(":")}>
+                <AgentSteps onOpenTool={onOpenTool} toolCalls={group.map((step) => toolCallSummaryFromStep(step, step.toolCall!))} />
+                <CanonicalArtifacts artifacts={group.flatMap((step) => step.artifacts ?? [])} onOpen={onOpenArtifact} />
+                <CanonicalScopedErrors errors={group.flatMap((step) => step.scopedErrors ?? [])} />
+              </div>
+            ) : (
+              <CanonicalChatStep key={group.id} onOpenArtifact={onOpenArtifact} onOpenSubagent={onOpenSubagent} onOpenTool={onOpenTool} step={group} />
+            )
+          ))}
+          {errorSteps.map((step, index) => (
+            <ErrorRecoveryCard
+              focusOnMount={focusError && index === errorSteps.length - 1}
+              key={step.id}
+              recovering={recovering}
+              step={step}
+              turn={turn}
+              onOpenDetails={() => onOpenError(step)}
+              onRecover={onRecover}
+            />
+          ))}
+        </>
+      ) : null}
+      {finalAnswer ? (
         <CanonicalMessage
           allowActions={turn.status === "completed"}
-          messageId={turn.finalMessage.id}
-          reasoning={reasoningSteps}
-          references={turn.finalMessage.references}
+          messageId={finalAnswer.id}
+          reasoning={turn.executionItems ? [] : reasoningSteps}
+          references={finalAnswer.references}
           role="assistant"
           streaming={turn.status === "running"}
-          text={turn.finalMessage.text}
-          onBranch={turn.status === "completed" && !hasToolSteps ? () => onBranch(turn.finalMessage!.id) : undefined}
+          text={finalAnswer.text}
+          onBranch={turn.status === "completed" && !hasToolSteps ? () => onBranch(finalAnswer.id) : undefined}
         />
-      ) : reasoningSteps.length ? (
+      ) : !turn.executionItems && reasoningSteps.length ? (
         <CanonicalMessage
           allowActions={false}
           messageId={reasoningSteps[reasoningSteps.length - 1]?.messageId || reasoningSteps[reasoningSteps.length - 1]?.id || turn.id}
@@ -1632,6 +1666,174 @@ function groupCanonicalSteps(steps: ChatStep[]): Array<ChatStep | ChatStep[]> {
     }
   }
   return groups;
+}
+
+type ExecutionFoldIntent = "untouched" | "user_open" | "user_closed";
+
+function ExecutionTimeline({
+  executionItems,
+  focusError,
+  onOpenArtifact,
+  onOpenError,
+  onOpenLiveCanvas,
+  onOpenSubagent,
+  onOpenTool,
+  onRecover,
+  recovering,
+  turn,
+}: {
+  executionItems: ChatStep[];
+  focusError: boolean;
+  onOpenArtifact: (artifact: ArtifactRef) => void;
+  onOpenError: (step: ChatStep) => void;
+  onOpenLiveCanvas: (step: ChatStep) => void;
+  onOpenSubagent: (delegate: DelegatedAgentState) => void;
+  onOpenTool: (toolCall: ToolCallSummary) => void;
+  onRecover: (action: RecoveryAction) => void;
+  recovering: boolean;
+  turn: ChatTurn;
+}) {
+  const contentId = useId();
+  const timelineRef = useRef<HTMLElement | null>(null);
+  const abnormal = executionItems.some((step) => step.status === "failed" || step.status === "cancelled" || step.status === "blocked")
+    || turn.status === "failed"
+    || turn.status === "interrupted"
+    || turn.status === "awaiting_approval"
+    || turn.status === "awaiting_user";
+  const hasFinalAnswer = Boolean(turn.finalAnswer ?? turn.finalMessage);
+  const [foldIntent, setFoldIntent] = useState<ExecutionFoldIntent>("untouched");
+  const [open, setOpen] = useState(() => abnormal || !hasFinalAnswer);
+  const errorItems = executionItems.filter((step) => step.kind === "error");
+
+  useEffect(() => {
+    if (foldIntent !== "untouched") {
+      return;
+    }
+    const nextOpen = abnormal || !hasFinalAnswer;
+    setOpen((currentOpen) => {
+      if (currentOpen === nextOpen) {
+        return currentOpen;
+      }
+      if (currentOpen && !nextOpen) {
+        const timeline = timelineRef.current;
+        const scroller = timeline?.closest<HTMLElement>(".react-conversation-view");
+        const heightBefore = timeline?.getBoundingClientRect().height ?? 0;
+        const timelineTop = timeline?.getBoundingClientRect().top ?? 0;
+        const scrollerTop = scroller?.getBoundingClientRect().top ?? 0;
+        const userIsReadingHistory = Boolean(scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight >= 96);
+        requestAnimationFrame(() => {
+          if (!timeline || !scroller || !userIsReadingHistory || timelineTop >= scrollerTop) {
+            return;
+          }
+          const collapsedBy = Math.max(0, heightBefore - timeline.getBoundingClientRect().height);
+          scroller.scrollTop = Math.max(0, scroller.scrollTop - collapsedBy);
+        });
+      }
+      return nextOpen;
+    });
+  }, [abnormal, foldIntent, hasFinalAnswer]);
+
+  const summary = executionTimelineSummary(turn, executionItems, abnormal);
+  return (
+    <section className="react-execution-timeline" data-abnormal={abnormal ? "true" : undefined} ref={timelineRef}>
+      <button
+        aria-controls={contentId}
+        aria-expanded={open}
+        className="react-execution-timeline__trigger"
+        type="button"
+        onClick={() => {
+          setOpen((currentOpen) => {
+            setFoldIntent(currentOpen ? "user_closed" : "user_open");
+            return !currentOpen;
+          });
+        }}
+      >
+        <span className="react-execution-timeline__status"><AgentStepIcon status={abnormal ? "error" : hasFinalAnswer ? "success" : "active"} /></span>
+        <span className="react-execution-timeline__heading">
+          <strong>Execution details</strong>
+          <small aria-live="polite">{summary}</small>
+        </span>
+        <ChevronDown aria-hidden="true" className="react-execution-timeline__chevron" size={18} />
+      </button>
+      <div className="react-execution-timeline__content" hidden={!open} id={contentId}>
+        {executionItems.map((step) => (
+          <div className="react-execution-timeline__item" data-kind={step.kind} data-status={step.status} key={step.id}>
+            {step.kind === "tool_call" || step.kind === "approval" ? null : (
+              <button
+                aria-label={`View ${step.title} in Live Canvas`}
+                className="react-execution-timeline__canvas-button"
+                title="View in Live Canvas"
+                type="button"
+                onClick={() => onOpenLiveCanvas(step)}
+              >
+                <PanelRightOpen aria-hidden="true" size={15} />
+              </button>
+            )}
+            {step.kind === "error" ? (
+              <ErrorRecoveryCard
+                focusOnMount={focusError && step.id === errorItems[errorItems.length - 1]?.id}
+                recovering={recovering}
+                step={step}
+                turn={turn}
+                onOpenDetails={() => onOpenError(step)}
+                onRecover={onRecover}
+              />
+            ) : (
+              <CanonicalChatStep
+                onOpenArtifact={onOpenArtifact}
+                onOpenLiveCanvas={onOpenLiveCanvas}
+                onOpenSubagent={onOpenSubagent}
+                onOpenTool={onOpenTool}
+                step={step}
+              />
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function executionTimelineSummary(turn: ChatTurn, items: ChatStep[], abnormal: boolean): string {
+  const plan = [...items].reverse().find((step) => step.plan)?.plan;
+  const durationMs = turn.completedAt
+    ? Math.max(0, Date.parse(turn.completedAt) - Date.parse(turn.startedAt))
+    : undefined;
+  const parts = [executionStatusLabel(turn.status), `${items.length} ${items.length === 1 ? "item" : "items"}`];
+  if (plan) {
+    parts.push(`plan ${plan.completed}/${plan.total}`);
+  }
+  if (durationMs !== undefined && Number.isFinite(durationMs)) {
+    parts.push(formatExecutionDuration(durationMs));
+  }
+  if (abnormal) {
+    const blocked = items.find((step) => step.status === "failed" || step.status === "cancelled" || step.status === "blocked");
+    parts.push(blocked?.title || "attention required");
+  }
+  return parts.join(" · ");
+}
+
+function executionStatusLabel(status: ChatTurn["status"]): string {
+  switch (status) {
+    case "completed": return "Completed";
+    case "failed": return "Failed";
+    case "interrupted": return "Interrupted";
+    case "awaiting_approval": return "Awaiting approval";
+    case "awaiting_user": return "Awaiting input";
+    default: return "Running";
+  }
+}
+
+function formatExecutionDuration(durationMs: number): string {
+  if (durationMs < 1_000) {
+    return `${Math.round(durationMs)}ms`;
+  }
+  if (durationMs < 60_000) {
+    return `${Math.round(durationMs / 1_000)}s`;
+  }
+  const minutes = Math.floor(durationMs / 60_000);
+  const seconds = Math.round((durationMs % 60_000) / 1_000);
+  return `${minutes}m ${seconds}s`;
 }
 
 function CanonicalMessage({
@@ -1681,11 +1883,13 @@ function CanonicalMessage({
 
 function CanonicalChatStep({
   onOpenArtifact,
+  onOpenLiveCanvas,
   onOpenSubagent,
   onOpenTool,
   step,
 }: {
   onOpenArtifact: (artifact: ArtifactRef) => void;
+  onOpenLiveCanvas?: (step: ChatStep) => void;
   onOpenSubagent: (delegate: DelegatedAgentState) => void;
   onOpenTool: (toolCall: ToolCallSummary) => void;
   step: ChatStep;
@@ -1705,13 +1909,14 @@ function CanonicalChatStep({
     );
   }
   if (step.kind === "tool_call" && step.toolCall) {
-    return <AgentSteps onOpenTool={onOpenTool} toolCalls={[toolCallSummaryFromStep(step, step.toolCall)]} />;
+    return <AgentSteps flat onOpenTool={onOpenLiveCanvas ? () => onOpenLiveCanvas(step) : onOpenTool} toolCalls={[toolCallSummaryFromStep(step, step.toolCall)]} />;
   }
   if (step.kind === "approval" && step.approval) {
     const approval = step.approval;
     return (
       <AgentSteps
-        onOpenTool={onOpenTool}
+        flat
+        onOpenTool={onOpenLiveCanvas ? () => onOpenLiveCanvas(step) : onOpenTool}
         toolCalls={[{
           id: step.id,
           name: step.title,
@@ -2166,9 +2371,11 @@ function formatMessageForCopy(message: ReactChatMessage): string {
 type AgentStepStatus = "pending" | "active" | "success" | "waiting" | "error";
 
 function AgentSteps({
+  flat = false,
   onOpenTool,
   toolCalls,
 }: {
+  flat?: boolean;
   onOpenTool: (toolCall: ToolCallSummary) => void;
   toolCalls: ToolCallSummary[];
 }) {
@@ -2179,24 +2386,26 @@ function AgentSteps({
   const accessibleCountLabel = `${toolCalls.length} ${toolCalls.length === 1 ? "step" : "steps"}`;
   const currentStepIndex = resolveCurrentAgentStepIndex(toolCalls);
   return (
-    <section className="react-agent-steps" data-status={overallStatus} data-stepper="true">
-      <button
-        aria-controls={listId}
-        aria-expanded={expanded}
-        aria-label={`Agent steps, ${accessibleCountLabel}`}
-        className="react-agent-steps__header"
-        type="button"
-        onClick={() => setExpanded((open) => !open)}
-      >
-        <span className="react-agent-steps__header-icon" data-status={overallStatus}>
-          <AgentStepIcon status={overallStatus} />
-        </span>
-        <span className="react-agent-steps__title">执行详情</span>
-        <small>{countLabel}</small>
-        {expanded ? <ChevronDown aria-hidden="true" size={15} /> : <ChevronRight aria-hidden="true" size={15} />}
-      </button>
+    <section className="react-agent-steps" data-flat={flat ? "true" : undefined} data-status={overallStatus} data-stepper="true">
+      {!flat ? (
+        <button
+          aria-controls={listId}
+          aria-expanded={expanded}
+          aria-label={`Agent steps, ${accessibleCountLabel}`}
+          className="react-agent-steps__header"
+          type="button"
+          onClick={() => setExpanded((open) => !open)}
+        >
+          <span className="react-agent-steps__header-icon" data-status={overallStatus}>
+            <AgentStepIcon status={overallStatus} />
+          </span>
+          <span className="react-agent-steps__title">执行详情</span>
+          <small>{countLabel}</small>
+          {expanded ? <ChevronDown aria-hidden="true" size={15} /> : <ChevronRight aria-hidden="true" size={15} />}
+        </button>
+      ) : null}
 
-      {expanded ? (
+      {flat || expanded ? (
         <ol aria-label="Agent steps" className="react-agent-steps__list" id={listId}>
           {toolCalls.map((toolCall, index) => {
             const status = normalizeAgentStepStatus(toolCall.status);

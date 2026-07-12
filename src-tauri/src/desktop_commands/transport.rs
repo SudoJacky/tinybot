@@ -330,6 +330,12 @@ pub(crate) fn native_websocket_transport_result(
             serde_json::Value::String(client_event_id.to_string()),
         );
     }
+    if let Some(references) = frame.get("references") {
+        if !references.is_array() {
+            return None;
+        }
+        metadata.insert("references".to_string(), references.clone());
+    }
 
     Some(serde_json::json!({
         "kind": "message",
@@ -378,6 +384,10 @@ pub(crate) fn build_worker_transport_websocket_run_input_request(
     let client_event_id = json_string_field(&metadata, "clientEventId")
         .or_else(|| json_string_field(&metadata, "client_event_id"))
         .map(str::to_string);
+    let references = metadata
+        .get("references")
+        .filter(|value| value.is_array())
+        .cloned();
     let mut input = serde_json::json!({
         "runId": run_id,
         "sessionId": session_id,
@@ -392,6 +402,9 @@ pub(crate) fn build_worker_transport_websocket_run_input_request(
     });
     if let Some(client_event_id) = client_event_id {
         input["input"]["clientEventId"] = serde_json::Value::String(client_event_id);
+    }
+    if let Some(references) = references {
+        input["input"]["references"] = references;
     }
     if let Some(model) = options.model {
         input["model"] = serde_json::Value::String(model);

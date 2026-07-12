@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { createDesktopChatSessionController } from "../app-core/chat/desktopChatSessionController";
-import { sessionKeyForChat, sessionKeyForChatState, type NativeChatSession } from "../app-core/chat/nativeChat";
+import { sessionKeyForChat, sessionKeyForChatState, type NativeChatReference, type NativeChatSession } from "../app-core/chat/nativeChat";
 import { submitDesktopApprovalAction } from "../app-core/agent-ui/desktopApprovalActions";
 import {
   AGENT_UI_FORM_STATUSES,
@@ -324,7 +324,7 @@ export function createDesktopAppServices(): AppServices {
             await controller.selectSession(session.key, session.chatId);
           }
         }
-        const result = controller.submitMessage(input.text, input.usePersistentRag ?? true, input.model);
+        const result = controller.submitMessage(input.text, input.usePersistentRag ?? true, input.model, input.references);
         const optimisticText = result.status === "sent"
           ? result.content
           : result.status === "creating"
@@ -332,7 +332,7 @@ export function createDesktopAppServices(): AppServices {
             : "";
         const optimisticMessage = result.status === "empty"
           ? undefined
-          : createOptimisticUserMessage(result.clientEventId, optimisticText);
+          : createOptimisticUserMessage(result.clientEventId, optimisticText, input.references);
         notifySession(sessionId, {
           type: "message-sent",
           ...(optimisticMessage ? { message: optimisticMessage } : {}),
@@ -544,13 +544,23 @@ function mapSession(session: NativeChatSession, responding: boolean, fallbackPay
   };
 }
 
-function createOptimisticUserMessage(clientEventId: string, text: string): ReactChatMessage {
+function createOptimisticUserMessage(clientEventId: string, text: string, references: NativeChatReference[] = []): ReactChatMessage {
   return {
     id: clientEventId,
     role: "user",
     createdAtMs: Date.now(),
     text,
     status: "complete",
+    ...(references.length ? {
+      contextReferences: references.map((reference, index) => ({
+        detail: reference.detail,
+        id: reference.evidenceId || `reference-${index}`,
+        kind: reference.kind,
+        sourceLine: reference.sourceLine,
+        sourcePath: reference.sourcePath,
+        title: reference.title,
+      })),
+    } : {}),
   };
 }
 

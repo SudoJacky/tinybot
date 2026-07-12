@@ -422,6 +422,8 @@ async fn run_native_agent_turn_with_instructions_async(
         let provider_context = context_with_projected_messages(&context, projection.messages);
         let estimated_context_tokens = estimate_context_tokens_for_request(&provider_context);
         let provider_attempt_id = format!("{}:provider:{}", context.run_id, iteration + 1);
+        let assistant_message_id = format!("{}:assistant:{iteration}", context.run_id);
+        let reasoning_item_id = format!("{}:reasoning:{iteration}", context.run_id);
         let before_provider_invocation = AgentHookInvocation::provider(
             AgentHookStage::BeforeProviderRequest,
             context.trace_context.clone(),
@@ -449,6 +451,8 @@ async fn run_native_agent_turn_with_instructions_async(
         let provider_started_at = Instant::now();
         let mut provider_streamed_content = false;
         let mut provider_streamed_reasoning = false;
+        let mut provider_message_phase =
+            crate::agent_loop_runtime_protocol::AgentAssistantMessagePhase::Unknown;
         let mut provider_observer_cancelled = false;
         let provider_response = {
             let mut stream_observer = |event: NativeAgentProviderStreamEvent| {
@@ -457,6 +461,20 @@ async fn run_native_agent_turn_with_instructions_async(
                     return;
                 }
                 match event {
+                    NativeAgentProviderStreamEvent::MessagePhase(phase) => {
+                        provider_message_phase = phase;
+                        state.emit_event(
+                            "agent.message.phase",
+                            serde_json::json!({
+                                "runId": context.run_id,
+                                "sessionId": context.session_id,
+                                "iteration": iteration,
+                                "modelCallId": provider_attempt_id,
+                                "messageId": assistant_message_id,
+                                "messagePhase": phase,
+                            }),
+                        );
+                    }
                     NativeAgentProviderStreamEvent::ContentDelta(delta) => {
                         if delta.is_empty() {
                             return;
@@ -473,6 +491,9 @@ async fn run_native_agent_turn_with_instructions_async(
                                 "runId": context.run_id,
                                 "sessionId": context.session_id,
                                 "iteration": iteration,
+                                "modelCallId": provider_attempt_id,
+                                "messageId": assistant_message_id,
+                                "messagePhase": provider_message_phase,
                                 "delta": delta,
                             }),
                         );
@@ -493,6 +514,8 @@ async fn run_native_agent_turn_with_instructions_async(
                                 "runId": context.run_id,
                                 "sessionId": context.session_id,
                                 "iteration": iteration,
+                                "modelCallId": provider_attempt_id,
+                                "reasoningId": reasoning_item_id,
                                 "delta": delta,
                             }),
                         );
@@ -549,7 +572,7 @@ async fn run_native_agent_turn_with_instructions_async(
         let after_provider_invocation = AgentHookInvocation::provider(
             AgentHookStage::AfterProviderResponse,
             context.trace_context.clone(),
-            provider_attempt_id,
+            provider_attempt_id.clone(),
             Some(provider_outcome.to_string()),
         );
         let after_provider_evaluation = context.evaluate_hook(after_provider_invocation.clone())?;
@@ -584,6 +607,28 @@ async fn run_native_agent_turn_with_instructions_async(
                 ));
             }
         };
+        let provider_phase_conflict = match provider_message_phase {
+            crate::agent_loop_runtime_protocol::AgentAssistantMessagePhase::FinalAnswer
+                if !provider_response.tool_calls.is_empty() =>
+            {
+                Some("provider emitted final_answer phase together with tool calls")
+            }
+            crate::agent_loop_runtime_protocol::AgentAssistantMessagePhase::Commentary
+                if provider_response.tool_calls.is_empty() =>
+            {
+                Some("provider emitted commentary phase for a terminal response without tool calls")
+            }
+            _ => None,
+        };
+        if let Some(message) = provider_phase_conflict {
+            return Ok(provider_failure_result(
+                services,
+                &context,
+                &mut state,
+                iteration,
+                NativeAgentProviderFailure::provider(message),
+            ));
+        }
         if run_context_is_cancelled(&context) && provider_response.tool_calls.is_empty() {
             state.transition_phase(AgentRuntimePhase::Cancelled, iteration, "agent.cancelled");
             return Ok(cancelled_run_result(
@@ -614,6 +659,8 @@ async fn run_native_agent_turn_with_instructions_async(
                     "runId": context.run_id,
                     "sessionId": context.session_id,
                     "iteration": iteration,
+                    "modelCallId": provider_attempt_id,
+                    "reasoningId": reasoning_item_id,
                     "delta": reasoning_delta,
                 }),
             );
@@ -629,12 +676,34 @@ async fn run_native_agent_turn_with_instructions_async(
                     "runId": context.run_id,
                     "sessionId": context.session_id,
                     "iteration": iteration,
+                    "modelCallId": provider_attempt_id,
+                    "messageId": assistant_message_id,
+                    "messagePhase": provider_message_phase,
                     "delta": provider_response.final_content,
                 }),
             );
         }
 
         if !provider_response.tool_calls.is_empty() {
+            if provider_streamed_content || !provider_response.final_content.is_empty() {
+                state.emit_event(
+                    "agent.message.classified",
+                    serde_json::json!({
+                        "runId": context.run_id,
+                        "sessionId": context.session_id,
+                        "iteration": iteration,
+                        "modelCallId": provider_attempt_id,
+                        "messageId": assistant_message_id,
+                        "messagePhase": "commentary",
+                        "classificationSource": if provider_message_phase == crate::agent_loop_runtime_protocol::AgentAssistantMessagePhase::Commentary {
+                            "provider"
+                        } else {
+                            "completion_fallback"
+                        },
+                        "content": provider_response.final_content,
+                    }),
+                );
+            }
             let outcome = execute_tool_calls_for_iteration(
                 services,
                 &mut context,
@@ -695,7 +764,14 @@ async fn run_native_agent_turn_with_instructions_async(
                 "runId": context.run_id,
                 "sessionId": context.session_id,
                 "iteration": iteration,
-                "messageId": format!("{}:assistant", context.run_id),
+                "modelCallId": provider_attempt_id,
+                "messageId": assistant_message_id,
+                "messagePhase": "final_answer",
+                "classificationSource": if provider_message_phase == crate::agent_loop_runtime_protocol::AgentAssistantMessagePhase::FinalAnswer {
+                    "provider"
+                } else {
+                    "completion_fallback"
+                },
                 "content": final_content.clone(),
             }),
         );

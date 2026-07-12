@@ -1984,15 +1984,19 @@ fn agent_run_persistence_does_not_write_legacy_session_store() {
     let append_trace = router.dispatch(&WorkerRequest::new(
         "req-agent-log-only-trace",
         "trace-agent-log-only",
-        "agent_run.append_trace",
+        "agent_run.append_trace_batch",
         json!({
             "session_id": "session-agent-log-only",
             "run_id": "run-agent-log-only",
-            "event": {
-                "eventId": "trace-delta",
+            "events": [{
+                "eventId": "trace-delta-1",
                 "eventName": "agent.delta",
-                "payload": { "delta": "hello" }
-            }
+                "payload": { "delta": "hel" }
+            }, {
+                "eventId": "trace-delta-2",
+                "eventName": "agent.delta",
+                "payload": { "delta": "lo" }
+            }]
         }),
     ));
     let completed = router.dispatch(&WorkerRequest::new(
@@ -2021,10 +2025,12 @@ fn agent_run_persistence_does_not_write_legacy_session_store() {
     assert_eq!(completed.error, None);
     assert_eq!(get.error, None);
     assert_eq!(get.result.as_ref().unwrap()["status"], "completed");
-    assert_eq!(
-        get.result.as_ref().unwrap()["traceEvents"][0]["eventName"],
-        "agent.delta"
-    );
+    let trace_events = get.result.as_ref().unwrap()["traceEvents"]
+        .as_array()
+        .expect("trace events should be an array");
+    assert_eq!(trace_events.len(), 2);
+    assert_eq!(trace_events[0]["eventId"], "trace-delta-1");
+    assert_eq!(trace_events[1]["eventId"], "trace-delta-2");
     assert!(!fixture
         .root
         .join("sessions")

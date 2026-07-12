@@ -22,12 +22,12 @@ function canonicalRuntimeState(
   return {
     runtimeEvents: [],
     timeline: {
-      schemaVersion: "tinybot.timeline.v1",
+      schemaVersion: "tinybot.timeline.v2",
       sessionId,
       runId,
       snapshotRevision: items.length,
       items: items.map((item, index) => ({
-        schemaVersion: "tinybot.turn_item.v1",
+        schemaVersion: "tinybot.turn_item.v2",
         itemId: `${runId}:item:${index + 1}`,
         sessionId,
         runId,
@@ -108,7 +108,21 @@ describe("chat run model", () => {
           kind: "user_message",
           status: "completed",
           createdAt: "2026-07-03T01:00:00Z",
-          data: { type: "user_message", messageId: "user-1", content: "Check the README" },
+          data: {
+            type: "user_message",
+            messageId: "user-1",
+            content: "Check the README",
+            references: [{
+              detail: "TinyOS file selection",
+              evidenceId: "item-file-1",
+              kind: "reference",
+              sourceLine: 2,
+              sourcePath: "README.md",
+              sourceText: "# Tinybot",
+              title: "README.md · L2",
+              type: "tinyos.file",
+            }],
+          },
         },
         {
           itemId: "reasoning-1",
@@ -118,7 +132,7 @@ describe("chat run model", () => {
           status: "completed",
           createdAt: "2026-07-03T01:00:01Z",
           summary: "Need to inspect files.",
-          data: { type: "reasoning", summary: "Need to inspect files." },
+          data: { type: "reasoning", modelCallId: "call-0", summary: "Need to inspect files." },
         },
         {
           itemId: "call-read",
@@ -165,7 +179,10 @@ describe("chat run model", () => {
     expect(turns[0]).toMatchObject({
       id: "run-1",
       status: "awaiting_approval",
-      userMessage: { text: "Check the README" },
+      userMessage: {
+        references: [expect.objectContaining({ evidenceId: "item-file-1", sourcePath: "README.md" })],
+        text: "Check the README",
+      },
     });
     expect(turns[0].steps.map((step) => [step.kind, step.title, step.status])).toEqual([
       ["reasoning", "Thinking complete", "completed"],
@@ -181,6 +198,9 @@ describe("chat run model", () => {
       approvalId: "approval-1",
       toolCallId: "call-shell",
     });
+    expect(turnsToConversationMessages(turns)[0].references).toEqual([
+      expect.objectContaining({ detail: "TinyOS file selection", title: "README.md · L2" }),
+    ]);
   });
 
   test("restores runtime-only blocked turns with their original user prompt", () => {
@@ -252,6 +272,8 @@ describe("chat run model", () => {
           data: {
             type: "assistant_message",
             messageId: "assistant-completed",
+            modelCallId: "call-0",
+            phase: "final_answer",
             content: "Hello",
           },
         },
@@ -264,7 +286,7 @@ describe("chat run model", () => {
       id: "run-completed",
       status: "completed",
       userMessage: { text: "Say hello" },
-      finalMessage: {
+      finalAnswer: {
         id: "assistant-completed",
         text: "Hello",
       },

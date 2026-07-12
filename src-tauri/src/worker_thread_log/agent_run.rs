@@ -54,8 +54,20 @@ impl WorkerThreadLogRpc {
         run_id: &str,
         event: Value,
     ) -> Result<AgentRunRecord, WorkerProtocolError> {
+        self.append_agent_run_trace_events(session_id, run_id, vec![event])
+    }
+
+    pub fn append_agent_run_trace_events(
+        &self,
+        session_id: &str,
+        run_id: &str,
+        events: Vec<Value>,
+    ) -> Result<AgentRunRecord, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         validate_agent_run_key(session_id, run_id)?;
+        if events.is_empty() {
+            return Err(empty_agent_run_trace_batch_error(session_id, run_id));
+        }
         let mut record = self
             .get_agent_run_record(session_id, run_id)?
             .ok_or_else(|| unknown_agent_run_error(session_id, run_id))?;
@@ -63,20 +75,26 @@ impl WorkerThreadLogRpc {
         let state = self.ensure_agent_run_thread(session_id, &timestamp)?;
         let path = PathBuf::from(state.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
-        self.recorder.append_item(
-            &path,
-            timestamp.clone(),
-            value_event(
-                "agent_run_trace",
-                serde_json::json!({
-                    "sessionId": session_id,
-                    "runId": run_id,
-                    "event": event,
-                }),
-            ),
-        )?;
-        upsert_trace_event(&mut record.trace_events, event.clone());
-        apply_agent_status_snapshot(&mut record, &event);
+        let items = events
+            .iter()
+            .cloned()
+            .map(|event| {
+                value_event(
+                    "agent_run_trace",
+                    serde_json::json!({
+                        "sessionId": session_id,
+                        "runId": run_id,
+                        "event": event,
+                    }),
+                )
+            })
+            .collect();
+        self.recorder
+            .append_items(&path, timestamp.clone(), items)?;
+        for event in events {
+            upsert_trace_event(&mut record.trace_events, event.clone());
+            apply_agent_status_snapshot(&mut record, &event);
+        }
         record.updated_at = timestamp.clone();
         Ok(record)
     }
@@ -1023,6 +1041,19 @@ fn unknown_agent_run_error(session_id: &str, run_id: &str) -> WorkerProtocolErro
     WorkerProtocolError::new(
         WorkerProtocolErrorCode::InvalidProtocol,
         "agent run not found",
+        serde_json::json!({
+            "session_id": session_id,
+            "run_id": run_id,
+        }),
+        false,
+        WorkerProtocolErrorSource::RustCore,
+    )
+}
+
+fn empty_agent_run_trace_batch_error(session_id: &str, run_id: &str) -> WorkerProtocolError {
+    WorkerProtocolError::new(
+        WorkerProtocolErrorCode::InvalidProtocol,
+        "agent run trace batch must contain at least one event",
         serde_json::json!({
             "session_id": session_id,
             "run_id": run_id,

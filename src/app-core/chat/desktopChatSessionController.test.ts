@@ -47,13 +47,13 @@ describe("desktop chat session controller", () => {
     const getAgentRunRuntimeState = vi.fn(async () => ({
       runtimeEvents: [],
       timeline: {
-        schemaVersion: "tinybot.timeline.v1",
+        schemaVersion: "tinybot.timeline.v2",
         sessionId: "websocket:chat-1",
         runId: "run-1",
         snapshotRevision: 2,
         items: [
           {
-            schemaVersion: "tinybot.turn_item.v1",
+            schemaVersion: "tinybot.turn_item.v2",
             itemId: "m-user",
             sessionId: "websocket:chat-1",
             runId: "run-1",
@@ -66,7 +66,7 @@ describe("desktop chat session controller", () => {
             data: { type: "user_message", messageId: "m-user", content: "Read README" },
           },
           {
-            schemaVersion: "tinybot.turn_item.v1",
+            schemaVersion: "tinybot.turn_item.v2",
             itemId: "call-read",
             sessionId: "websocket:chat-1",
             runId: "run-1",
@@ -128,7 +128,7 @@ describe("desktop chat session controller", () => {
     const sessionId = "websocket:chat-gap";
     const runId = "run-gap";
     const userItem = {
-      schemaVersion: "tinybot.turn_item.v1",
+      schemaVersion: "tinybot.turn_item.v2",
       itemId: "user-gap",
       sessionId,
       runId,
@@ -141,7 +141,7 @@ describe("desktop chat session controller", () => {
       data: { type: "user_message", messageId: "user-gap", content: "Recover the gap" },
     };
     const assistantItem = {
-      schemaVersion: "tinybot.turn_item.v1",
+      schemaVersion: "tinybot.turn_item.v2",
       itemId: "assistant-gap",
       sessionId,
       runId,
@@ -152,16 +152,16 @@ describe("desktop chat session controller", () => {
       status: "completed",
       createdAt: "2026-07-11T00:00:01Z",
       updatedAt: "2026-07-11T00:00:02Z",
-      data: { type: "assistant_message", messageId: "assistant-gap", content: "Recovered" },
+      data: { type: "assistant_message", messageId: "assistant-gap", modelCallId: "call-gap", phase: "final_answer", content: "Recovered" },
     };
     const getAgentRunRuntimeState = vi.fn()
       .mockResolvedValueOnce({
         runtimeEvents: [],
-        timeline: { schemaVersion: "tinybot.timeline.v1", sessionId, runId, snapshotRevision: 1, items: [userItem] },
+        timeline: { schemaVersion: "tinybot.timeline.v2", sessionId, runId, snapshotRevision: 1, items: [userItem] },
       })
       .mockResolvedValue({
         runtimeEvents: [],
-        timeline: { schemaVersion: "tinybot.timeline.v1", sessionId, runId, snapshotRevision: 3, items: [userItem, assistantItem] },
+        timeline: { schemaVersion: "tinybot.timeline.v2", sessionId, runId, snapshotRevision: 3, items: [userItem, assistantItem] },
       });
     const controller = createDesktopChatSessionController({
       api: {
@@ -177,7 +177,7 @@ describe("desktop chat session controller", () => {
     await controller.loadSessions();
 
     const recovered = await controller.applyTimelinePatch(sessionId, {
-      schemaVersion: "tinybot.timeline_patch.v1",
+      schemaVersion: "tinybot.timeline_patch.v2",
       sessionId,
       runId,
       snapshotRevision: 3,
@@ -188,7 +188,7 @@ describe("desktop chat session controller", () => {
     expect(recovered?.runRevisions).toEqual({ [runId]: 3 });
     expect(recovered?.turns[0]).toMatchObject({
       status: "completed",
-      finalMessage: { id: "assistant-gap", text: "Recovered" },
+      finalAnswer: { id: "assistant-gap", text: "Recovered" },
     });
   });
 
@@ -445,6 +445,16 @@ describe("desktop chat session controller", () => {
 
   test("preserves one client event id while a new chat is created and the message is sent", async () => {
     const sent: unknown[] = [];
+    const references = [{
+      detail: "TinyOS file selection",
+      evidenceId: "item-1",
+      kind: "reference" as const,
+      sourceLine: 3,
+      sourcePath: "src/main.ts",
+      sourceText: "const value = 1;",
+      title: "src/main.ts · L3",
+      type: "tinyos.file",
+    }];
     const controller = createDesktopChatSessionController({
       api: {
         listSessions: vi.fn(async () => ({
@@ -457,7 +467,7 @@ describe("desktop chat session controller", () => {
       createClientEventId: () => "client-message-1",
     });
 
-    expect(controller.submitMessage("  hello desktop  ")).toEqual({
+    expect(controller.submitMessage("  hello desktop  ", true, undefined, references)).toEqual({
       status: "creating",
       pendingContent: "hello desktop",
       clientEventId: "client-message-1",
@@ -475,6 +485,7 @@ describe("desktop chat session controller", () => {
       {
         role: "user",
         content: "hello desktop",
+        references,
         timestamp: "2026-05-31T08:00:00.000Z",
       },
     ]);
@@ -485,6 +496,7 @@ describe("desktop chat session controller", () => {
         chat_id: "chat-2",
         client_event_id: "client-message-1",
         content: "hello desktop",
+        references,
         use_persistent_rag: true,
       },
     ]);

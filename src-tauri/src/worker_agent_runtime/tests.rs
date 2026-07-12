@@ -5107,9 +5107,13 @@ fn rejects_unpermitted_native_tool_with_structured_error_result() {
         .contains("not permitted"));
     assert_eq!(
         event_names(&result),
-        vec!["agent.tool_call.delta", "agent.error"]
+        vec![
+            "agent.message.classified",
+            "agent.tool_call.delta",
+            "agent.error"
+        ]
     );
-    assert_eq!(result["events"][1]["payload"]["toolName"], "shell.exec");
+    assert_eq!(result["events"][2]["payload"]["toolName"], "shell.exec");
 }
 
 #[test]
@@ -5292,7 +5296,11 @@ fn cancellation_before_tool_dispatch_stops_without_dispatching_tool() {
         .is_empty());
     assert_eq!(
         event_names(&result),
-        vec!["agent.tool_call.delta", "agent.cancelled"]
+        vec![
+            "agent.message.classified",
+            "agent.tool_call.delta",
+            "agent.cancelled"
+        ]
     );
     let cancelled_event = result["events"]
         .as_array()
@@ -5511,6 +5519,7 @@ fn cancellation_after_tool_result_preserves_completed_tool_state() {
     assert_eq!(
         event_names(&result),
         vec![
+            "agent.message.classified",
             "agent.tool_call.delta",
             "agent.tool.start",
             "agent.tool.result",
@@ -6222,7 +6231,7 @@ fn native_run_projects_core_canonical_timeline_equally_live_and_after_reload() {
         ) -> Result<NativeAgentProviderResponse, String> {
             match self.calls.fetch_add(1, Ordering::SeqCst) {
                 0 => Ok(NativeAgentProviderResponse {
-                    final_content: String::new(),
+                    final_content: "I will create the execution plan.".to_string(),
                     reasoning_delta: None,
                     usage: None,
                     tool_calls: vec![NativeAgentToolCall {
@@ -6245,7 +6254,8 @@ fn native_run_projects_core_canonical_timeline_equally_live_and_after_reload() {
                             && message["content"] == "Plan updated"
                     }));
                     Ok(NativeAgentProviderResponse {
-                        final_content: String::new(),
+                        final_content: "The plan is ready; now I will inspect the file."
+                            .to_string(),
                         reasoning_delta: Some("Inspect the referenced inputs".to_string()),
                         usage: Some(json!({
                             "input_tokens": 20,
@@ -6261,7 +6271,7 @@ fn native_run_projects_core_canonical_timeline_equally_live_and_after_reload() {
                     })
                 }
                 2 => Ok(NativeAgentProviderResponse {
-                    final_content: String::new(),
+                    final_content: "The plan is complete; I will summarize the result.".to_string(),
                     reasoning_delta: None,
                     usage: None,
                     tool_calls: vec![NativeAgentToolCall {
@@ -6400,8 +6410,41 @@ fn native_run_projects_core_canonical_timeline_equally_live_and_after_reload() {
     assert!(items.iter().any(|item| {
         item["kind"] == "assistant_message"
             && item["status"] == "completed"
+            && item["data"]["phase"] == "final_answer"
             && item["data"]["content"] == "Core acceptance complete."
     }));
+    let assistant_items = items
+        .iter()
+        .filter(|item| item["kind"] == "assistant_message")
+        .collect::<Vec<_>>();
+    assert_eq!(assistant_items.len(), 4);
+    assert_eq!(
+        assistant_items
+            .iter()
+            .filter(|item| item["data"]["phase"] == "commentary")
+            .count(),
+        3
+    );
+    assert_eq!(
+        assistant_items
+            .iter()
+            .filter(|item| item["data"]["phase"] == "final_answer")
+            .count(),
+        1,
+        "completing update_plan must not classify commentary as a final answer"
+    );
+    let final_sequence = items
+        .iter()
+        .find(|item| item["kind"] == "assistant_message" && item["data"]["phase"] == "final_answer")
+        .and_then(|item| item["sequence"].as_u64())
+        .expect("final assistant item should have a sequence");
+    assert!(
+        final_sequence
+            > plan["sequence"]
+                .as_u64()
+                .expect("plan should have a sequence"),
+        "the final answer must follow completed plan progress"
+    );
 }
 
 #[test]

@@ -110,7 +110,7 @@ function applyPatchToSession(session: SessionTimelineState, patch: BackendAgentT
       );
     }
     session.runs.set(patch.runId, {
-      schemaVersion: "tinybot.timeline.v1",
+      schemaVersion: "tinybot.timeline.v2",
       sessionId: patch.sessionId,
       runId: patch.runId,
       snapshotRevision: 1,
@@ -164,8 +164,20 @@ function applyPatchToSession(session: SessionTimelineState, patch: BackendAgentT
     throw new Error(`Canonical timeline mutation ${patch.snapshotRevision} did not advance item ${patch.item.itemId} revision ${current.revision}`);
   }
   assertMonotonicStatus(current, patch.item);
+  assertMonotonicAssistantPhase(current, patch.item);
   run.items = run.items.map((item, itemIndex) => itemIndex === index ? patch.item : item);
   run.snapshotRevision = patch.snapshotRevision;
+}
+
+function assertMonotonicAssistantPhase(current: BackendAgentTurnItem, incoming: BackendAgentTurnItem): void {
+  if (current.kind !== "assistant_message" || incoming.kind !== "assistant_message") {
+    return;
+  }
+  const currentPhase = String(current.data.phase);
+  const incomingPhase = String(incoming.data.phase);
+  if (currentPhase !== incomingPhase && currentPhase !== "unknown") {
+    throw new Error(`Canonical assistant item ${current.itemId} cannot transition phase from ${currentPhase} to ${incomingPhase}`);
+  }
 }
 
 function assertMonotonicStatus(current: BackendAgentTurnItem, incoming: BackendAgentTurnItem): void {

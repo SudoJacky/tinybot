@@ -13,12 +13,13 @@ use super::{
     NativeAgentToolCall, NativeAgentTraceSink,
 };
 use crate::agent_loop_runtime_protocol::{
-    project_timeline_patch, AgentRunEmitter, AgentRuntimeEventAppendInput,
-    AgentRuntimeEventEnvelope, AgentRuntimeEventSource, AgentRuntimeEventVisibility,
-    AgentRuntimePhase,
+    AgentRunEmitter, AgentRuntimeEventAppendInput, AgentRuntimeEventEnvelope,
+    AgentRuntimeEventSource, AgentRuntimeEventVisibility, AgentRuntimePhase,
+    AgentTimelineProjector,
 };
 use serde_json::Value;
 use std::sync::Arc;
+use std::time::Instant;
 
 #[derive(Clone)]
 pub(super) struct NativeAgentRunState {
@@ -31,6 +32,7 @@ pub(super) struct NativeAgentRunState {
     pub(super) completed_tool_results: Vec<Value>,
     pub(super) messages: Vec<Value>,
     emitter: AgentRunEmitter,
+    timeline_projector: AgentTimelineProjector,
     usage: Vec<Value>,
     pub(super) tools_used: Vec<String>,
     stop_reason: Option<String>,
@@ -56,6 +58,7 @@ impl NativeAgentRunState {
                 &context.session_id,
                 context.trace_context.clone(),
             ),
+            timeline_projector: AgentTimelineProjector::new(&context.session_id, &context.run_id),
             usage: Vec::new(),
             tools_used: Vec::new(),
             stop_reason: None,
@@ -64,7 +67,7 @@ impl NativeAgentRunState {
         }
     }
 
-    fn append_trace_event(&self, event: &AgentRuntimeEventEnvelope) {
+    fn append_trace_event(&mut self, event: &AgentRuntimeEventEnvelope) {
         if let Some(trace_sink) = self.trace_sink.as_ref() {
             if let Err(error) = trace_sink.append_trace_event(&self.session_id, &self.run_id, event)
             {
@@ -75,7 +78,13 @@ impl NativeAgentRunState {
                     self.run_id, event.event_id, error
                 );
             }
-            match project_timeline_patch(&self.session_id, &self.run_id, self.emitter.events()) {
+            let projection_started_at = Instant::now();
+            let projection = self.timeline_projector.apply_event(event);
+            crate::runtime::observability::global_agent_runtime_metrics().record_duration(
+                "timeline.patch.projection.durationMs",
+                projection_started_at.elapsed(),
+            );
+            match projection {
                 Ok(Some(patch)) => {
                     if let Err(error) =
                         trace_sink.append_timeline_patch(&self.session_id, &self.run_id, &patch)
@@ -118,6 +127,11 @@ impl NativeAgentRunState {
                 context.thread_id.clone(),
                 &existing,
             );
+            state.timeline_projector = AgentTimelineProjector::from_events(
+                &context.session_id,
+                &context.run_id,
+                &existing,
+            )?;
         }
         Ok(state)
     }
@@ -304,6 +318,12 @@ impl NativeAgentRunState {
             .as_ref()
             .map(|message| user_reference_payloads(context, message, &message_id))
             .unwrap_or_default();
+        let references = current
+            .as_ref()
+            .and_then(|message| message.get("references"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
         let client_event_id = current
             .as_ref()
             .and_then(|message| string_field(message, "clientEventId"))
@@ -319,6 +339,7 @@ impl NativeAgentRunState {
             Some(message_id),
             client_event_id,
             content,
+            references,
         );
         self.append_trace_event(&event);
         for payload in reference_payloads {

@@ -16,6 +16,7 @@ import {
   Plus,
   SlidersHorizontal,
   Square,
+  TerminalSquare,
   Video,
   X,
 } from "lucide-react";
@@ -58,8 +59,16 @@ export interface ComposerSendOptions {
   usePersistentRag?: boolean;
 }
 
+export interface ComposerContextReference {
+  detail: string;
+  id: string;
+  kind: "file" | "terminal" | "reference";
+  label: string;
+}
+
 export interface ClaudeStyleAiInputProps {
   className?: string;
+  contextReferences?: ComposerContextReference[];
   onSendMessage?: (
     message: string,
     files: FileWithPreview[],
@@ -75,6 +84,8 @@ export interface ClaudeStyleAiInputProps {
   models?: ModelOption[];
   defaultModel?: string;
   onModelChange?: (modelId: string) => void;
+  onClearContextReferences?: () => void;
+  onRemoveContextReference?: (id: string) => void;
   contextUsage?: TokenUsage;
   tools?: ComposerToolOption[];
   responding?: boolean;
@@ -99,6 +110,7 @@ function nextInputId(prefix: string): string {
 export function ClaudeStyleAiInput({
   acceptedFileTypes = [],
   className,
+  contextReferences = [],
   contextUsage,
   defaultModel,
   disabled = false,
@@ -107,6 +119,8 @@ export function ClaudeStyleAiInput({
   maxFiles = MAX_FILES,
   models = EMPTY_MODELS,
   onModelChange,
+  onClearContextReferences,
+  onRemoveContextReference,
   onSendMessage,
   onStopResponding,
   onValueChange,
@@ -135,7 +149,7 @@ export function ClaudeStyleAiInput({
   );
   const contextUsageView = useMemo(() => buildContextUsageView(contextUsage), [contextUsage]);
   const enabledToolIdSet = useMemo(() => new Set(enabledToolIds), [enabledToolIds]);
-  const canSend = !disabled && !sending && Boolean(currentMessage.trim() || files.length || pastedContent.length);
+  const canSend = !disabled && !sending && Boolean(currentMessage.trim() || files.length || pastedContent.length || contextReferences.length);
 
   function updateMessage(nextMessage: string): void {
     setMessage(nextMessage);
@@ -189,6 +203,7 @@ export function ClaudeStyleAiInput({
       updateMessage("");
       setFiles([]);
       setPastedContent([]);
+      onClearContextReferences?.();
     } catch {
       setError("Message could not be sent.");
     } finally {
@@ -337,8 +352,18 @@ export function ClaudeStyleAiInput({
         </div>
       ) : null}
 
-      {files.length || pastedContent.length ? (
+      {files.length || pastedContent.length || contextReferences.length ? (
         <div className="claude-ai-input__attachments" aria-label="Composer attachments">
+          {contextReferences.map((reference) => (
+            <AttachmentChip
+              detail={reference.detail}
+              icon={reference.kind === "terminal" ? <TerminalSquare aria-hidden="true" size={16} /> : <FileText aria-hidden="true" size={16} />}
+              key={reference.id}
+              label={reference.label}
+              onRemove={() => onRemoveContextReference?.(reference.id)}
+              removeLabel={`Remove ${reference.label}`}
+            />
+          ))}
           {pastedContent.map((item) => (
             <AttachmentChip
               detail={`${item.wordCount} words`}

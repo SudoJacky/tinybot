@@ -6,7 +6,7 @@ const runId = "run-1";
 
 function item(overrides: Record<string, unknown> = {}) {
   return {
-    schemaVersion: "tinybot.turn_item.v1",
+    schemaVersion: "tinybot.turn_item.v2",
     itemId: "assistant-1",
     sessionId,
     runId,
@@ -16,7 +16,7 @@ function item(overrides: Record<string, unknown> = {}) {
     kind: "assistant_message",
     status: "running",
     createdAt: "2026-07-11T00:00:00Z",
-    data: { type: "assistant_message", messageId: "assistant-1", content: "hel" },
+    data: { type: "assistant_message", messageId: "assistant-1", modelCallId: "call-1", phase: "unknown", content: "hel" },
     ...overrides,
   };
 }
@@ -28,7 +28,7 @@ function runtimeState(
   return {
     runtimeEvents: [],
     timeline: {
-      schemaVersion: "tinybot.timeline.v1",
+      schemaVersion: "tinybot.timeline.v2",
       sessionId,
       runId,
       snapshotRevision,
@@ -39,7 +39,7 @@ function runtimeState(
 
 function patch(snapshotRevision: number, itemOverrides: Record<string, unknown> = {}) {
   return {
-    schemaVersion: "tinybot.timeline_patch.v1",
+    schemaVersion: "tinybot.timeline_patch.v2",
     sessionId,
     runId,
     snapshotRevision,
@@ -56,15 +56,97 @@ describe("canonical agent timeline model", () => {
       revision: 2,
       status: "completed",
       updatedAt: "2026-07-11T00:00:01Z",
-      data: { type: "assistant_message", messageId: "assistant-1", content: "hello" },
+      data: { type: "assistant_message", messageId: "assistant-1", modelCallId: "call-1", phase: "final_answer", content: "hello" },
     }));
 
     expect(snapshot.runRevisions).toEqual({ [runId]: 2 });
     expect(snapshot.turns[0]).toMatchObject({
       id: runId,
       status: "completed",
-      finalMessage: { id: "assistant-1", text: "hello" },
+      finalAnswer: { id: "assistant-1", text: "hello" },
     });
+  });
+
+  test("preserves reasoning, commentary, tools, and the terminal answer in canonical order", () => {
+    const model = createAgentTimelineModel();
+    const canonicalItems = [
+      item({
+        itemId: "reasoning-call-0",
+        sequence: 1,
+        kind: "reasoning",
+        status: "completed",
+        data: { type: "reasoning", modelCallId: "call-0", summary: "Inspect first" },
+      }),
+      item({
+        itemId: "message-call-0",
+        sequence: 2,
+        status: "completed",
+        data: {
+          type: "assistant_message",
+          messageId: "message-call-0",
+          modelCallId: "call-0",
+          phase: "commentary",
+          content: "I found the first file.",
+        },
+      }),
+      item({
+        itemId: "tool-1",
+        sequence: 3,
+        kind: "tool_call",
+        status: "completed",
+        data: {
+          type: "tool_call",
+          toolCallId: "tool-1",
+          name: "workspace.read_file",
+          status: "completed",
+          args: { path: "README.md" },
+          result: { ok: true },
+          timing: {},
+        },
+      }),
+      item({
+        itemId: "message-call-1",
+        sequence: 4,
+        status: "completed",
+        data: {
+          type: "assistant_message",
+          messageId: "message-call-1",
+          modelCallId: "call-1",
+          phase: "commentary",
+          content: "Now I will verify it.",
+        },
+      }),
+      item({
+        itemId: "message-call-2",
+        sequence: 5,
+        status: "completed",
+        data: {
+          type: "assistant_message",
+          messageId: "message-call-2",
+          modelCallId: "call-2",
+          phase: "final_answer",
+          content: "Verification passed.",
+        },
+      }),
+    ];
+
+    const snapshot = model.load(sessionId, [runtimeState(5, canonicalItems)]);
+    const turn = snapshot.turns[0];
+
+    expect(turn.canonicalItems?.map((entry) => entry.itemId)).toEqual([
+      "reasoning-call-0",
+      "message-call-0",
+      "tool-1",
+      "message-call-1",
+      "message-call-2",
+    ]);
+    expect(turn.executionItems?.map((entry) => [entry.id, entry.messagePhase])).toEqual([
+      ["reasoning-call-0", undefined],
+      ["message-call-0", "commentary"],
+      ["tool-1", undefined],
+      ["message-call-1", "commentary"],
+    ]);
+    expect(turn.finalAnswer).toMatchObject({ id: "message-call-2", text: "Verification passed." });
   });
 
   test("projects one form lifecycle with validation errors and submitted values", () => {
@@ -263,12 +345,41 @@ describe("canonical agent timeline model", () => {
       .toThrow("patch gap");
 
     expect(() => model.applyPatch(sessionId, patch(1, {
-      data: { type: "assistant_message", messageId: "assistant-1", content: "conflict" },
+      data: { type: "assistant_message", messageId: "assistant-1", modelCallId: "call-1", phase: "unknown", content: "conflict" },
     }))).toThrow("equal-revision conflict");
 
     model.applyPatch(sessionId, patch(2, { revision: 2, status: "completed" }));
     expect(() => model.applyPatch(sessionId, patch(3, { revision: 3, status: "running" })))
       .toThrow("cannot transition from completed to running");
+  });
+
+  test("allows unknown assistant phase classification once and rejects reclassification", () => {
+    const model = createAgentTimelineModel();
+    model.load(sessionId, [runtimeState()]);
+
+    model.applyPatch(sessionId, patch(2, {
+      revision: 2,
+      status: "completed",
+      data: {
+        type: "assistant_message",
+        messageId: "assistant-1",
+        modelCallId: "call-1",
+        phase: "commentary",
+        content: "I will inspect the workspace.",
+      },
+    }));
+
+    expect(() => model.applyPatch(sessionId, patch(3, {
+      revision: 3,
+      status: "completed",
+      data: {
+        type: "assistant_message",
+        messageId: "assistant-1",
+        modelCallId: "call-1",
+        phase: "final_answer",
+        content: "Done.",
+      },
+    }))).toThrow("cannot transition phase from commentary to final_answer");
   });
 
   test("ignores a lower item revision but advances the run cursor with a diagnostic", () => {
@@ -301,7 +412,7 @@ describe("canonical agent timeline model", () => {
       data: Record<string, unknown>,
       extra: Record<string, unknown> = {},
     ) => ({
-      schemaVersion: "tinybot.turn_item.v1",
+      schemaVersion: "tinybot.turn_item.v2",
       itemId,
       sessionId,
       runId,
@@ -323,10 +434,12 @@ describe("canonical agent timeline model", () => {
       }),
       canonicalItem("reasoning-1", 2, 1, "reasoning", "running", {
         type: "reasoning",
+        modelCallId: "call-0",
         summary: "Inspecting",
       }),
       canonicalItem("reasoning-1", 2, 2, "reasoning", "completed", {
         type: "reasoning",
+        modelCallId: "call-0",
         summary: "Inspection complete",
       }),
       canonicalItem("tool-1", 4, 1, "tool_call", "running", {
@@ -403,6 +516,8 @@ describe("canonical agent timeline model", () => {
       canonicalItem("assistant-1", 12, 1, "assistant_message", "completed", {
         type: "assistant_message",
         messageId: "assistant-1",
+        modelCallId: "call-1",
+        phase: "final_answer",
         content: "Acceptance complete",
       }),
     ];
@@ -412,7 +527,7 @@ describe("canonical agent timeline model", () => {
     let live = liveModel.snapshot(sessionId);
     mutations.forEach((mutation, index) => {
       live = liveModel.applyPatch(sessionId, {
-        schemaVersion: "tinybot.timeline_patch.v1",
+        schemaVersion: "tinybot.timeline_patch.v2",
         sessionId,
         runId,
         snapshotRevision: index + 1,
@@ -434,7 +549,7 @@ describe("canonical agent timeline model", () => {
       id: runId,
       status: "completed",
       userMessage: { clientEventId: "client-message-1", id: "user-1" },
-      finalMessage: { id: "assistant-1", text: "Acceptance complete" },
+      finalAnswer: { id: "assistant-1", text: "Acceptance complete" },
       usage: { promptTokens: 100, completionTokens: 25, totalTokens: 125 },
     });
     expect(live.turns[0].steps.map((step) => [step.id, step.status])).toEqual([

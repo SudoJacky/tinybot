@@ -430,7 +430,7 @@ mod tests {
             runtime_state.timeline.items[0].kind,
             AgentTurnItemKind::ToolCall
         );
-        assert_eq!(runtime_state.timeline.schema_version, "tinybot.timeline.v1");
+        assert_eq!(runtime_state.timeline.schema_version, "tinybot.timeline.v2");
         assert_eq!(runtime_state.timeline.snapshot_revision, 2);
         assert_eq!(runtime_state.timeline.items[0].item_id, "call-legacy");
         assert_eq!(

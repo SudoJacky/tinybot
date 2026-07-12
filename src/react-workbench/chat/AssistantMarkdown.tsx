@@ -4,7 +4,6 @@ import { code } from "@streamdown/code";
 import { memo, type ComponentProps } from "react";
 import {
   Streamdown,
-  type AnimateOptions,
   type Components,
   type ControlsConfig,
   type LinkSafetyConfig,
@@ -12,14 +11,6 @@ import {
   type UrlTransform,
 } from "streamdown";
 import "streamdown/styles.css";
-
-const ASSISTANT_MARKDOWN_ANIMATION = {
-  animation: "fadeIn",
-  duration: 140,
-  easing: "ease-out",
-  sep: "word",
-  stagger: 0,
-} satisfies AnimateOptions;
 
 const ASSISTANT_MARKDOWN_CONTROLS = {
   code: { copy: true, download: false },
@@ -99,12 +90,12 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
   }
   return (
     <Streamdown
-      animated={ASSISTANT_MARKDOWN_ANIMATION}
+      animated={false}
       className="react-message-markdown"
       components={ASSISTANT_MARKDOWN_COMPONENTS}
       controls={ASSISTANT_MARKDOWN_CONTROLS}
       disallowedElements={DISALLOWED_ASSISTANT_ELEMENTS}
-      isAnimating={streaming}
+      isAnimating={false}
       key={streaming ? "streaming" : "complete"}
       lineNumbers={false}
       linkSafety={ASSISTANT_MARKDOWN_LINK_SAFETY}
