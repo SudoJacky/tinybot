@@ -5713,6 +5713,39 @@ fn worker_transport_websocket_maps_correlated_interrupt_command() {
 }
 
 #[test]
+fn worker_transport_websocket_maps_correlated_approval_command() {
+    let transport = native_websocket_transport_result(&WorkerTransportWebSocketDispatchInput {
+        client_id: "client-1".to_string(),
+        frame: serde_json::json!({
+            "type": "command",
+            "chat_id": "chat-1",
+            "session_id": "websocket:chat-1",
+            "command_id": "command-approval-1",
+            "command_kind": "approval.resolve",
+            "run_id": "run-approval-1",
+            "approval_id": "approval-1",
+            "approved": true,
+            "scope": "session"
+        }),
+        attached_chat_id: Some("chat-1".to_string()),
+        session_exists: Some(true),
+        editable_paths: None,
+        model: None,
+        max_iterations: None,
+        run_id: Some("run-approval-1".to_string()),
+        stream: None,
+    })
+    .expect("approval command frame should produce a transport result");
+
+    assert_eq!(transport["kind"], "command");
+    assert_eq!(transport["commandKind"], "approval.resolve");
+    assert_eq!(transport["commandId"], "command-approval-1");
+    assert_eq!(transport["approvalId"], "approval-1");
+    assert_eq!(transport["approved"], true);
+    assert_eq!(transport["scope"], "session");
+}
+
+#[test]
 fn worker_transport_interrupt_persists_distinct_canonical_command_acknowledgement() {
     let fixture = WorkspaceFixture::new();
     let record = serde_json::json!({
@@ -5810,6 +5843,88 @@ fn worker_transport_interrupt_persists_distinct_canonical_command_acknowledgemen
         acknowledgement["data"]["detail"]["commandStatus"],
         "acknowledged"
     );
+}
+
+#[test]
+fn worker_transport_approval_command_persists_ack_and_correlated_decision() {
+    let fixture = WorkspaceFixture::new();
+    let first_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let restarted_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let session_id = "websocket:chat-command-approval";
+    let run_id = "run-command-approval";
+
+    worker_run_agent_with_options(
+        &first_runtime,
+        serde_json::json!({
+            "runtime": "rust",
+            "runId": run_id,
+            "sessionId": session_id,
+            "metadata": {
+                "fakeAwaitingApproval": {
+                    "approvalId": "approval-command-1",
+                    "toolName": "workspace.write_file"
+                }
+            }
+        }),
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(10),
+    )
+    .expect("Rust runtime should create an approval checkpoint");
+
+    let dispatched = worker_transport_dispatch_websocket_message_with_options(
+        &restarted_runtime,
+        WorkerTransportWebSocketDispatchInput {
+            client_id: "client-command-approval".to_string(),
+            frame: serde_json::json!({
+                "type": "command",
+                "chat_id": "chat-command-approval",
+                "session_id": session_id,
+                "command_id": "command-approval-resolve-1",
+                "command_kind": "approval.resolve",
+                "run_id": run_id,
+                "approval_id": "approval-command-1",
+                "approved": false,
+                "scope": "once",
+                "source": { "surface": "tinyos", "control": "inspector-approval" }
+            }),
+            attached_chat_id: Some("chat-command-approval".to_string()),
+            session_exists: Some(true),
+            editable_paths: None,
+            model: None,
+            max_iterations: None,
+            run_id: Some(run_id.to_string()),
+            stream: None,
+        },
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(10),
+    )
+    .expect("approval command should be acknowledged and resolved");
+    let runtime_state = worker_agent_run_runtime_state_with_options(
+        &restarted_runtime,
+        session_id.to_string(),
+        run_id.to_string(),
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(10),
+    )
+    .expect("canonical runtime state should include the approval decision");
+
+    assert_eq!(dispatched["command"]["ok"], true);
+    assert_eq!(dispatched["command"]["status"], "denied");
+    let items = runtime_state["timeline"]["items"]
+        .as_array()
+        .expect("canonical timeline items should exist");
+    assert!(items.iter().any(|item| {
+        item["kind"] == "system_notice"
+            && item["data"]["detail"]["commandId"] == "command-approval-resolve-1"
+    }));
+    let decision = items
+        .iter()
+        .find(|item| item["kind"] == "approval" && item["data"]["decision"] == "denied")
+        .expect("canonical approval decision should exist");
+    assert_eq!(decision["data"]["commandId"], "command-approval-resolve-1");
 }
 
 #[test]

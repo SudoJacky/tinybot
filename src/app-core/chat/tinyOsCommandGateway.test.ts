@@ -4,6 +4,7 @@ import {
   canonicalTinyOsCommandAcknowledgement,
   canonicalTinyOsCommandCompletion,
   createTinyOsAgentCancelCommand,
+  createTinyOsApprovalResolveCommand,
   isTinyOsCommandInFlight,
   isTinyOsCommandPending,
   reduceTinyOsCommandLifecycle,
@@ -19,6 +20,22 @@ const command = createTinyOsAgentCancelCommand({
 });
 
 describe("TinyOS command lifecycle", () => {
+  test("creates a correlated approval resolution command", () => {
+    expect(createTinyOsApprovalResolveCommand({
+      action: "approveSession",
+      approvalId: "approval-1",
+      commandId: "command-approval-1",
+      issuedAt: "2026-07-13T00:00:00Z",
+      runId: "run-1",
+      sessionId: "websocket:chat-1",
+      source: { control: "inspector-approval", surface: "tinyos" },
+    })).toMatchObject({
+      approval: { approvalId: "approval-1", approved: true, scope: "session" },
+      commandId: "command-approval-1",
+      kind: "approval.resolve",
+    });
+  });
+
   test("keeps a command pending after transport acceptance until canonical acknowledgement", () => {
     let state: TinyOsCommandLifecycle = { stage: "idle" };
     state = reduceTinyOsCommandLifecycle(state, { command, nowMs: 10, type: "dispatch" });
@@ -76,6 +93,18 @@ describe("TinyOS command lifecycle", () => {
       { commandId: "command-1", type: "ack_timeout" },
     );
     expect(timedOut).toMatchObject({ stage: "timed_out" });
+
+    const rejectedAfterAcknowledgement = reduceTinyOsCommandLifecycle(
+      {
+        acknowledgement: { itemId: "ack-1", revision: 1 },
+        acknowledgedAtMs: 20,
+        command,
+        dispatchedAtMs: 10,
+        stage: "acknowledged",
+      },
+      { commandId: "command-1", error: "continuation failed", type: "rejected" },
+    );
+    expect(rejectedAfterAcknowledgement).toMatchObject({ error: "continuation failed", stage: "rejected" });
   });
 
   test("distinguishes canonical acknowledgement from operation completion", () => {
@@ -109,7 +138,7 @@ describe("TinyOS command lifecycle", () => {
         status: "cancelled",
         turnId: "run-1",
       }],
-    } as ChatTurn;
+    } as unknown as ChatTurn;
     expect(canonicalTinyOsCommandAcknowledgement([turn], "command-1")).toEqual({
       itemId: "run-1:command-ack:command-1",
       revision: 1,
@@ -120,5 +149,34 @@ describe("TinyOS command lifecycle", () => {
       status: "cancelled",
     });
     expect(canonicalTinyOsCommandAcknowledgement([turn], "command-other")).toBeUndefined();
+  });
+
+  test("recognizes a correlated approval decision as command completion", () => {
+    const turn = {
+      canonicalItems: [{
+        createdAt: "2026-07-13T00:00:01Z",
+        data: {
+          approvalId: "approval-1",
+          commandId: "command-approval-1",
+          decision: "approved",
+          status: "completed",
+          type: "approval",
+        },
+        itemId: "run-1:approval:approval-1",
+        kind: "approval",
+        revision: 2,
+        runId: "run-1",
+        schemaVersion: "tinybot.turn_item.v2",
+        sequence: 6,
+        sessionId: "websocket:chat-1",
+        status: "completed",
+        turnId: "run-1",
+      }],
+    } as unknown as ChatTurn;
+    expect(canonicalTinyOsCommandCompletion([turn], "command-approval-1")).toEqual({
+      itemId: "run-1:approval:approval-1",
+      revision: 2,
+      status: "completed",
+    });
   });
 });

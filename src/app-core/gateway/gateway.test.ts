@@ -2222,6 +2222,26 @@ describe("gateway WebSocket client", () => {
       thread_id: "thread-1",
       turn_id: "turn-1",
     });
+    expect(createGatewaySocketMessage.command("chat-1", {
+      schemaVersion: "tinybot.command.v1",
+      commandId: "command-approval-1",
+      issuedAt: "2026-07-13T00:00:00Z",
+      kind: "approval.resolve",
+      source: { control: "inspector-approval", surface: "tinyos" },
+      target: { runId: "run-1", sessionId: "websocket:chat-1" },
+      approval: { approvalId: "approval-1", approved: true, scope: "session" },
+    })).toEqual({
+      type: "command",
+      chat_id: "chat-1",
+      command_id: "command-approval-1",
+      command_kind: "approval.resolve",
+      run_id: "run-1",
+      session_id: "websocket:chat-1",
+      source: { control: "inspector-approval", surface: "tinyos" },
+      approval_id: "approval-1",
+      approved: true,
+      scope: "session",
+    });
   });
 
   test("queues outbound messages until the socket is open", () => {

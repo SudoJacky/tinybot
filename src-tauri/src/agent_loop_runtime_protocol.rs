@@ -275,6 +275,8 @@ pub enum AgentTurnItemData {
     },
     Approval {
         approval_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        command_id: Option<String>,
         tool_call_id: Option<String>,
         status: String,
         reason: Option<String>,
@@ -1620,6 +1622,7 @@ fn projected_item_data(
                     &["id", "approvalId", "approval_id"],
                     kind,
                 ),
+                command_id: item_string(payload, &["commandId", "command_id"]),
                 tool_call_id: item_string(source, &["toolCallId", "tool_call_id"]),
                 status: item_string(source, &["status"]).unwrap_or_else(|| "waiting".to_string()),
                 reason: item_string(source, &["reason"])
@@ -1743,6 +1746,7 @@ fn legacy_item_data(
         },
         AgentTurnItemKind::Approval => AgentTurnItemData::Approval {
             approval_id: required_item_string(payload, &["approvalId", "approval_id", "id"], kind),
+            command_id: item_string(payload, &["commandId", "command_id"]),
             tool_call_id: item_string(payload, &["toolCallId", "tool_call_id"]),
             status: item_string(payload, &["status"]).unwrap_or_else(|| "waiting".to_string()),
             reason: item_string(payload, &["reason", "summary", "content"]),

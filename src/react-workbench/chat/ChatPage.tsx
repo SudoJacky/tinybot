@@ -70,6 +70,7 @@ import {
   canonicalTinyOsCommandAcknowledgement,
   canonicalTinyOsCommandCompletion,
   createTinyOsAgentCancelCommand,
+  createTinyOsApprovalResolveCommand,
   isTinyOsCommandInFlight,
   reduceTinyOsCommandLifecycle,
   type TinyOsCommandLifecycle,
@@ -404,6 +405,18 @@ export function ChatPage({
     }, Math.max(0, TINYOS_COMMAND_ACK_TIMEOUT_MS - elapsed));
     return () => window.clearTimeout(timer);
   }, [commandLifecycle, now]);
+
+  useEffect(() => {
+    if (commandLifecycle.stage === "idle" || commandLifecycle.command.kind !== "approval.resolve") return;
+    if (commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out") {
+      setResolvingApprovalId("");
+      setTimelineError(`Approval failed: ${commandLifecycle.error}`);
+      return;
+    }
+    if (commandLifecycle.stage === "completed") {
+      setResolvingApprovalId("");
+    }
+  }, [commandLifecycle]);
 
   useEffect(() => {
     return () => {
@@ -966,33 +979,37 @@ export function ChatPage({
     });
   }
 
-  async function handleResolveApproval(approvalId: string, action: ApprovalAction) {
+  async function handleResolveApproval(approvalId: string, action: ApprovalAction, surface: "chat" | "tinyos") {
     if (!activeSession || !approvalId) {
       return;
     }
-    const sessionId = activeSession.id;
+    if (isTinyOsCommandInFlight(commandLifecycle)) {
+      return;
+    }
+    if (!activeRun) {
+      setTimelineError("Cannot resolve approval: canonical active run is not available.");
+      return;
+    }
+    const command = createTinyOsApprovalResolveCommand({
+      action,
+      approvalId,
+      runId: activeRun.id,
+      sessionId: activeSession.id,
+      source: { control: surface === "tinyos" ? "inspector-approval" : "tool-approval", surface },
+      threadId: activeRun.canonicalItems?.find((item) => item.threadId)?.threadId,
+      turnId: activeRun.id,
+    });
     setResolvingApprovalId(approvalId);
     setTimelineError("");
-    let approvalError = "";
+    dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
     try {
-      await chatStore.resolveApproval(sessionId, {
-        action,
-        approvalId,
-      });
+      await chatStore.dispatchCommand(command);
     } catch (error) {
-      approvalError = `Approval failed: ${error instanceof Error ? error.message : String(error)}`;
-      setTimelineError(approvalError);
-    } finally {
-      try {
-        await handleSessionStoreRefresh();
-        setTimeline(await chatStore.load(sessionId));
-      } catch (error) {
-        if (!approvalError) {
-          setTimelineError(`Could not refresh approval state: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      } finally {
-        setResolvingApprovalId("");
-      }
+      dispatchCommandLifecycle({
+        commandId: command.commandId,
+        error: error instanceof Error ? error.message : String(error),
+        type: "rejected",
+      });
     }
   }
 
@@ -1339,7 +1356,7 @@ export function ChatPage({
           onClose={() => dispatchLiveCanvas({ type: "close" })}
           onExpandedChange={() => dispatchLiveCanvas({ type: "expand_toggle" })}
           onOpenArtifact={(artifact) => void handleOpenArtifact(artifact)}
-          onResolveApproval={(approvalId, action) => void handleResolveApproval(approvalId, action)}
+          onResolveApproval={(approvalId, action) => void handleResolveApproval(approvalId, action, "tinyos")}
           onReturnToLive={() => dispatchLiveCanvas({ type: "return_live" })}
           onSelectEntry={(entry) => openLiveCanvasItem(entry.turnId, entry.step)}
           onSubmitForm={(form, values) => void handleSubmitAgentUiForm(form, values)}
@@ -1362,7 +1379,7 @@ export function ChatPage({
             <ToolCallDetails
               resolvingApprovalId={resolvingApprovalId}
               toolCall={drawer.toolCall}
-              onResolveApproval={(toolCall, action) => toolCall.approvalId && void handleResolveApproval(toolCall.approvalId, action)}
+              onResolveApproval={(toolCall, action) => toolCall.approvalId && void handleResolveApproval(toolCall.approvalId, action, "chat")}
             />
           ) : drawer.kind === "subagent" ? (
             <SubagentDetails delegate={drawer.delegate} error={drawer.error} loading={drawer.loading} />
@@ -1615,17 +1632,19 @@ function tinyOsContextReferenceId(reference: TinyOsContextReference): string {
 }
 
 function tinyOsCommandLifecycleLabel(lifecycle: TinyOsCommandLifecycle): string {
+  const cancellation = lifecycle.stage === "idle" || lifecycle.command.kind === "agent.cancel";
+  const operation = cancellation ? "Cancel" : "Approval";
   switch (lifecycle.stage) {
     case "idle":
       return "";
     case "sending":
-      return "Sending cancel command…";
+      return `Sending ${operation.toLowerCase()} command…`;
     case "waiting_for_canonical":
-      return "Cancel delivered. Waiting for runtime confirmation…";
+      return `${operation} delivered. Waiting for runtime confirmation…`;
     case "acknowledged":
-      return `Cancel acknowledged by canonical item ${lifecycle.acknowledgement.itemId}. Waiting for cancellation to complete.`;
+      return `${operation} acknowledged by canonical item ${lifecycle.acknowledgement.itemId}. Waiting for completion.`;
     case "completed":
-      return `Cancellation ${lifecycle.completion.status} at canonical item ${lifecycle.completion.itemId}.`;
+      return `${cancellation ? "Cancellation" : "Approval"} ${lifecycle.completion.status} at canonical item ${lifecycle.completion.itemId}.`;
     case "rejected":
     case "timed_out":
       return lifecycle.error;

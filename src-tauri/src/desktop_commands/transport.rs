@@ -1,8 +1,13 @@
+use crate::agent_loop_runtime_protocol::AgentRuntimeEventAppender;
 use crate::desktop_commands::agent::worker_run_agent_with_live_trace_sink_async;
-use crate::native_agent_bridge::desktop_agent_event_sink;
+use crate::native_agent_bridge::{
+    desktop_agent_event_sink, native_agent_trace_sink, native_session_checkpoint,
+    pending_approvals_from_checkpoint, resolve_approval_body_with_services,
+};
 use crate::worker_agent_runtime::NativeAgentTraceSink;
 use crate::worker_protocol::WorkerRequest;
 use crate::worker_request_id::{next_worker_request_correlation, WorkerRequestCorrelation};
+use crate::worker_thread_log::now_thread_timestamp;
 use crate::{
     call_rust_state_service, experimental_worker_config_snapshot, native_backend_workspace_root,
     SharedGateway,
@@ -299,6 +304,20 @@ async fn worker_transport_dispatch_websocket_message_with_live_trace_sink_async(
             "command": cancellation,
         }));
     }
+    if transport_result
+        .get("kind")
+        .and_then(serde_json::Value::as_str)
+        == Some("command")
+    {
+        return dispatch_tinyos_approval_command(
+            shared,
+            transport_result,
+            workspace_root,
+            config_snapshot,
+            live_trace_sink,
+        )
+        .await;
+    }
     let dispatch_options = WorkerTransportWebSocketDispatchOptions {
         model: input.model,
         max_iterations: input.max_iterations,
@@ -381,6 +400,40 @@ pub(crate) fn native_websocket_transport_result(
             "frames": [],
         }));
     }
+    if json_string_field(frame, "type") == Some("command") {
+        let chat_id = json_string_field(frame, "chat_id")
+            .or_else(|| json_string_field(frame, "chatId"))
+            .or(input.attached_chat_id.as_deref())?;
+        let command_id = json_string_field(frame, "command_id")
+            .or_else(|| json_string_field(frame, "commandId"))?;
+        let command_kind = json_string_field(frame, "command_kind")
+            .or_else(|| json_string_field(frame, "commandKind"))?;
+        let run_id = json_string_field(frame, "run_id")
+            .or_else(|| json_string_field(frame, "runId"))
+            .or(input.run_id.as_deref())?;
+        let session_id = json_string_field(frame, "session_id")
+            .or_else(|| json_string_field(frame, "sessionId"))
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("websocket:{chat_id}"));
+        let approval_id = json_string_field(frame, "approval_id")
+            .or_else(|| json_string_field(frame, "approvalId"))?;
+        return Some(serde_json::json!({
+            "kind": "command",
+            "chatId": chat_id,
+            "sessionId": session_id,
+            "commandId": command_id,
+            "commandKind": command_kind,
+            "runId": run_id,
+            "turnId": json_string_field(frame, "turn_id").or_else(|| json_string_field(frame, "turnId")),
+            "threadId": json_string_field(frame, "thread_id").or_else(|| json_string_field(frame, "threadId")),
+            "source": frame.get("source").cloned().unwrap_or(serde_json::Value::Null),
+            "approvalId": approval_id,
+            "approved": frame.get("approved").and_then(serde_json::Value::as_bool),
+            "scope": json_string_field(frame, "scope").unwrap_or("once"),
+            "guidance": frame.get("guidance").cloned().unwrap_or(serde_json::Value::Null),
+            "frames": [],
+        }));
+    }
     if json_string_field(frame, "type") != Some("message") {
         return None;
     }
@@ -435,6 +488,161 @@ pub(crate) fn native_websocket_transport_result(
             "session_key": session_id,
         }
     }))
+}
+
+async fn dispatch_tinyos_approval_command(
+    shared: &SharedGateway,
+    mut transport: serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
+) -> Result<serde_json::Value, String> {
+    if transport
+        .get("commandKind")
+        .and_then(serde_json::Value::as_str)
+        != Some("approval.resolve")
+    {
+        return Err(format!(
+            "unsupported TinyOS command kind: {}",
+            transport
+                .get("commandKind")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("missing")
+        ));
+    }
+    let session_id = required_transport_string(&transport, "sessionId")?;
+    let run_id = required_transport_string(&transport, "runId")?;
+    let command_id = required_transport_string(&transport, "commandId")?;
+    let approval_id = required_transport_string(&transport, "approvalId")?;
+    let checkpoint = native_session_checkpoint(
+        &session_id,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+        "TinyOS approval command checkpoint lookup",
+    )?
+    .ok_or_else(|| format!("pending approval not found: {approval_id}"))?;
+    let checkpoint_run_id = checkpoint
+        .get("runId")
+        .or_else(|| checkpoint.get("run_id"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    if checkpoint_run_id != run_id {
+        return Err(format!(
+            "approval command targets stale run `{run_id}`; pending run is `{checkpoint_run_id}`"
+        ));
+    }
+    if !pending_approvals_from_checkpoint(Some(&checkpoint))
+        .iter()
+        .any(|approval| {
+            approval.get("id").and_then(serde_json::Value::as_str) == Some(&approval_id)
+        })
+    {
+        return Err(format!("pending approval not found: {approval_id}"));
+    }
+    let approved = transport
+        .get("approved")
+        .and_then(serde_json::Value::as_bool)
+        .ok_or_else(|| "approval.resolve command is missing approved".to_string())?;
+    let scope = transport
+        .get("scope")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("once");
+    if !matches!(scope, "once" | "session") {
+        return Err(format!("unsupported approval scope: {scope}"));
+    }
+
+    persist_tinyos_command_acknowledgement(
+        workspace_root.clone(),
+        config_snapshot.clone(),
+        &session_id,
+        &run_id,
+        &command_id,
+        &transport,
+    )?;
+    if let Some(sink) = live_trace_sink.as_ref() {
+        let thread_id = transport
+            .get("threadId")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
+        let mut appender =
+            AgentRuntimeEventAppender::new_with_thread_id(&session_id, &run_id, thread_id);
+        let event = appender.append_legacy_native_event(
+            "agent.command.acknowledged",
+            Some(format!("{run_id}:command-ack:{command_id}")),
+            now_thread_timestamp(),
+            serde_json::json!({
+                "chatId": transport.get("chatId").cloned().unwrap_or(serde_json::Value::Null),
+                "commandId": &command_id,
+                "commandKind": "approval.resolve",
+                "commandStatus": "acknowledged",
+                "runId": &run_id,
+                "sessionId": &session_id,
+            }),
+        );
+        sink.append_trace_event(&session_id, &run_id, &event)?;
+    }
+
+    let mut body = serde_json::json!({
+        "session_key": &session_id,
+        "scope": scope,
+        "commandId": &command_id,
+    });
+    if let Some(guidance) = transport
+        .get("guidance")
+        .and_then(serde_json::Value::as_str)
+    {
+        body["guidance"] = serde_json::Value::String(guidance.to_string());
+    }
+    let base_services = {
+        let runtime = crate::lock_runtime(shared);
+        runtime.native_agent_runtime.clone()
+    };
+    let services = base_services.with_trace_sink(native_agent_trace_sink(
+        workspace_root.clone(),
+        config_snapshot.clone(),
+        live_trace_sink,
+    ));
+    let resolution = resolve_approval_body_with_services(
+        services,
+        approval_id,
+        &body,
+        approved,
+        workspace_root,
+        config_snapshot,
+    )
+    .await?;
+    if resolution.get("ok").and_then(serde_json::Value::as_bool) == Some(false) {
+        return Err(resolution
+            .get("error")
+            .and_then(|error| error.get("message"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("approval resolution failed")
+            .to_string());
+    }
+    transport["frames"] = serde_json::json!([
+        {
+            "event": "command_accepted",
+            "chat_id": transport.get("chatId").cloned().unwrap_or(serde_json::Value::Null),
+            "command_id": &command_id,
+            "run_id": &run_id,
+        },
+        {
+            "event": "command_canonical_updated",
+            "chat_id": transport.get("chatId").cloned().unwrap_or(serde_json::Value::Null),
+            "command_id": &command_id,
+            "run_id": &run_id,
+        }
+    ]);
+    Ok(serde_json::json!({ "transport": transport, "command": resolution }))
+}
+
+fn required_transport_string(value: &serde_json::Value, key: &str) -> Result<String, String> {
+    value
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| format!("TinyOS command is missing {key}"))
 }
 
 fn persist_tinyos_command_acknowledgement(

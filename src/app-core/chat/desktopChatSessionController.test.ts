@@ -615,6 +615,15 @@ describe("desktop chat session controller", () => {
       source: { control: "stop-response", surface: "chat" },
       target: { runId: "run-1", sessionId: "websocket:chat-3" },
     })).toBe(true);
+    expect(controller.dispatchCommand({
+      schemaVersion: "tinybot.command.v1",
+      commandId: "command-approval-1",
+      issuedAt: "2026-05-31T08:00:02.000Z",
+      kind: "approval.resolve",
+      source: { control: "inspector-approval", surface: "tinyos" },
+      target: { runId: "run-1", sessionId: "websocket:chat-3" },
+      approval: { approvalId: "approval-1", approved: true, scope: "once" },
+    })).toBe(true);
     expect(controller.state.messages.get(sessionKeyForChat("chat-3"))).toMatchObject([
       { role: "user", content: "question" },
     ]);
@@ -635,6 +644,18 @@ describe("desktop chat session controller", () => {
         run_id: "run-1",
         session_id: "websocket:chat-3",
         source: { control: "stop-response", surface: "chat" },
+      },
+      {
+        type: "command",
+        chat_id: "chat-3",
+        command_id: "command-approval-1",
+        command_kind: "approval.resolve",
+        run_id: "run-1",
+        session_id: "websocket:chat-3",
+        source: { control: "inspector-approval", surface: "tinyos" },
+        approval_id: "approval-1",
+        approved: true,
+        scope: "once",
       },
     ]);
   });

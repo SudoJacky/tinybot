@@ -21,7 +21,27 @@ export type TinyOsAgentCancelCommand = {
   };
 };
 
-export type TinyOsCommand = TinyOsAgentCancelCommand;
+export type TinyOsApprovalResolveCommand = {
+  schemaVersion: "tinybot.command.v1";
+  commandId: string;
+  issuedAt: string;
+  kind: "approval.resolve";
+  source: TinyOsCommandSource;
+  target: {
+    runId: string;
+    sessionId: string;
+    threadId?: string;
+    turnId?: string;
+  };
+  approval: {
+    approvalId: string;
+    approved: boolean;
+    scope: "once" | "session";
+    guidance?: string;
+  };
+};
+
+export type TinyOsCommand = TinyOsAgentCancelCommand | TinyOsApprovalResolveCommand;
 
 export type TinyOsCommandAcknowledgement = {
   itemId: string;
@@ -75,6 +95,40 @@ export function createTinyOsAgentCancelCommand(input: {
   };
 }
 
+export function createTinyOsApprovalResolveCommand(input: {
+  action: "approveOnce" | "approveSession" | "deny";
+  approvalId: string;
+  commandId?: string;
+  guidance?: string;
+  issuedAt?: string;
+  runId: string;
+  sessionId: string;
+  source: TinyOsCommandSource;
+  threadId?: string;
+  turnId?: string;
+}): TinyOsApprovalResolveCommand {
+  const guidance = input.guidance?.trim();
+  return {
+    schemaVersion: "tinybot.command.v1",
+    commandId: input.commandId ?? createTinyOsCommandId(),
+    issuedAt: input.issuedAt ?? new Date().toISOString(),
+    kind: "approval.resolve",
+    source: input.source,
+    target: {
+      runId: input.runId,
+      sessionId: input.sessionId,
+      ...(input.threadId ? { threadId: input.threadId } : {}),
+      ...(input.turnId ? { turnId: input.turnId } : {}),
+    },
+    approval: {
+      approvalId: input.approvalId,
+      approved: input.action !== "deny",
+      scope: input.action === "approveSession" ? "session" : "once",
+      ...(guidance ? { guidance } : {}),
+    },
+  };
+}
+
 export function reduceTinyOsCommandLifecycle(
   state: TinyOsCommandLifecycle,
   action: TinyOsCommandLifecycleAction,
@@ -96,6 +150,9 @@ export function reduceTinyOsCommandLifecycle(
       stage: "completed",
     };
   }
+  if (action.type === "rejected") {
+    return { command: state.command, dispatchedAtMs: state.dispatchedAtMs, error: action.error, stage: "rejected" };
+  }
   if (state.stage === "acknowledged") return state;
   if (action.type === "transport_accepted") {
     return {
@@ -113,9 +170,6 @@ export function reduceTinyOsCommandLifecycle(
       dispatchedAtMs: state.dispatchedAtMs,
       stage: "acknowledged",
     };
-  }
-  if (action.type === "rejected") {
-    return { command: state.command, dispatchedAtMs: state.dispatchedAtMs, error: action.error, stage: "rejected" };
   }
   return {
     command: state.command,

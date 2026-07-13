@@ -35,6 +35,7 @@ const AGENT_EVENT_NAMES: DesktopNativeWebSocketAgentEventName[] = [
   "agent.usage",
   "agent.awaiting_form",
   "agent.awaiting_approval",
+  "agent.command.acknowledged",
   "agent.memory_reference",
   "agent.task_progress",
   "agent.delegate.started",
@@ -165,7 +166,7 @@ class DesktopNativeWebSocket extends EventTarget {
     const frameType = stringValue(frame.type);
     const chatId = stringValue(frame.chat_id) || stringValue(frame.chatId) || this.attachedChatId || "";
     const commandId = stringValue(frame.command_id) || stringValue(frame.commandId);
-    const commandRunId = frameType === "interrupt"
+    const commandRunId = frameType === "interrupt" || frameType === "command"
       ? stringValue(frame.run_id) || stringValue(frame.runId) || this.activeRunIdForChat(chatId)
       : "";
     this.maybeEmitApprovalResolvedFrame(frame);
@@ -363,6 +364,16 @@ class DesktopNativeWebSocket extends EventTarget {
         ...record,
         event: stringValue(record.event) || eventName,
       });
+      return;
+    }
+    if (eventName === "agent.command.acknowledged") {
+      const commandId = stringValue(record.commandId) || stringValue(record.command_id);
+      const chatId = stringValue(record.chatId) || stringValue(record.chat_id) || this.attachedChatId || "";
+      const runId = stringValue(record.runId) || stringValue(record.run_id);
+      if (commandId) {
+        this.emitJson({ event: "command_accepted", chat_id: chatId, command_id: commandId, run_id: runId });
+        this.emitJson({ event: "command_canonical_updated", chat_id: chatId, command_id: commandId, run_id: runId });
+      }
       return;
     }
     const runId = stringValue(record.runId) || stringValue(record.run_id);

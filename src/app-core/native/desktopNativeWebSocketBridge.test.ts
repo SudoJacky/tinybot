@@ -4,6 +4,64 @@ import type { NativeTransportApi, NativeTransportWebSocketDispatchRequest } from
 import { toDesktopNativeTauriEventName } from "./desktopNativeTauriEvents";
 
 describe("desktop native WebSocket bridge", () => {
+  test("publishes TinyOS command acceptance before native approval continuation completes", async () => {
+    const handlers = new Map<string, (payload: unknown) => void>();
+    const dispatch = deferred<unknown>();
+    const nativeTransport: NativeTransportApi = {
+      gatewayFrame: vi.fn(),
+      websocketMessage: vi.fn(),
+      dispatchWebsocketMessage: vi.fn(async () => dispatch.promise),
+      dispatchChannelInbound: vi.fn(),
+      startChannels: vi.fn(),
+      channelStatus: vi.fn(),
+      stopChannels: vi.fn(),
+    };
+    const socket = createDesktopNativeWebSocket({
+      url: "/ws",
+      nativeTransport,
+      listenToAgentEvent: (eventName, handler) => {
+        handlers.set(eventName, handler);
+      },
+    });
+    const events: Array<Record<string, unknown>> = [];
+    socket.addEventListener("message", (event) => {
+      events.push(JSON.parse(String((event as MessageEvent).data)) as Record<string, unknown>);
+    });
+
+    await flushMicrotasks();
+    socket.send(JSON.stringify({
+      type: "command",
+      chat_id: "chat-native",
+      command_id: "command-approval-1",
+      command_kind: "approval.resolve",
+      run_id: "run-1",
+      approval_id: "approval-1",
+      approved: true,
+      scope: "once",
+    }));
+    await flushMicrotasks();
+    handlers.get(toDesktopNativeTauriEventName("agent.command.acknowledged"))?.({
+      chatId: "chat-native",
+      commandId: "command-approval-1",
+      runId: "run-1",
+    });
+
+    expect(events).toContainEqual({
+      event: "command_accepted",
+      chat_id: "chat-native",
+      command_id: "command-approval-1",
+      run_id: "run-1",
+    });
+    expect(events).toContainEqual({
+      event: "command_canonical_updated",
+      chat_id: "chat-native",
+      command_id: "command-approval-1",
+      run_id: "run-1",
+    });
+    expect(nativeTransport.dispatchWebsocketMessage).toHaveBeenCalledTimes(1);
+    socket.close();
+  });
+
   test("projects TS worker stream events into structured agent WebSocket frames", async () => {
     const handlers = new Map<string, (payload: unknown) => void>();
     const unlisteners: Array<() => void> = [];

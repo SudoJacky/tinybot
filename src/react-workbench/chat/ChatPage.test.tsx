@@ -1098,13 +1098,14 @@ describe("ChatPage", () => {
   it("resolves pending approval steps from the details drawer", async () => {
     const user = userEvent.setup();
     const stores = createStores();
-    const resolveApproval = vi.fn(async () => undefined);
+    const dispatchCommand = vi.fn(async () => undefined);
     const approvalMessages: ReactChatMessage[] = [{
       id: "a-approval",
       role: "assistant",
       createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
       text: "Waiting for approval.",
       status: "complete",
+      turnStatus: "running",
       toolCalls: [{
         approvalId: "approval-1",
         approvalStatus: "approval_required",
@@ -1116,7 +1117,7 @@ describe("ChatPage", () => {
       } as NonNullable<ReactChatMessage["toolCalls"]>[number]],
     }];
     stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, approvalMessages));
-    (stores.chatStore as any).resolveApproval = resolveApproval;
+    stores.chatStore.dispatchCommand = dispatchCommand;
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
@@ -1130,10 +1131,12 @@ describe("ChatPage", () => {
 
     await user.click(within(drawer).getByRole("button", { name: "Allow for session" }));
 
-    expect(resolveApproval).toHaveBeenCalledWith("s1", {
-      action: "approveSession",
-      approvalId: "approval-1",
-    });
+    expect(dispatchCommand).toHaveBeenCalledWith(expect.objectContaining({
+      approval: { approvalId: "approval-1", approved: true, scope: "session" },
+      kind: "approval.resolve",
+      source: { control: "tool-approval", surface: "chat" },
+      target: expect.objectContaining({ runId: "turn:a-approval", sessionId: "s1" }),
+    }));
   });
 
   it("submits active agent-ui forms from the chat page", async () => {

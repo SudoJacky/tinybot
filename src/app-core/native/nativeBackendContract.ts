@@ -105,6 +105,7 @@ export const NATIVE_BACKEND_AGENT_EVENT_NAMES = [
   "agent.phase.changed",
   "agent.guidance",
   "agent.approval.decision",
+  "agent.command.acknowledged",
   "agent.form.resolution",
   "agent.message.completed",
   "agent.awaiting_form",
@@ -145,6 +146,7 @@ export const NATIVE_BACKEND_RUNTIME_EVENT_VISIBILITY = {
   "agent.phase.changed": "debug",
   "agent.guidance": "status",
   "agent.approval.decision": "websocket-visible",
+  "agent.command.acknowledged": "websocket-visible",
   "agent.form.resolution": "websocket-visible",
   "agent.message.completed": "user-visible",
 } as const satisfies Partial<Record<NativeBackendEventName, NativeBackendRuntimeEventVisibility>>;

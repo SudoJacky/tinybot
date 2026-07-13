@@ -387,10 +387,13 @@ export function createDesktopChatSessionController({
       logDesktopNativeDebug("session.interrupt.skipped", summarizeSessionState());
       return false;
     }
-    sendSocketMessage(createGatewaySocketMessage.interrupt(state.activeChatId, command));
-    logDesktopNativeDebug("session.interrupt.request", {
+    sendSocketMessage(command.kind === "agent.cancel"
+      ? createGatewaySocketMessage.interrupt(state.activeChatId, command)
+      : createGatewaySocketMessage.command(state.activeChatId, command));
+    logDesktopNativeDebug("session.command.request", {
       ...summarizeSessionState(),
       commandId: command.commandId,
+      commandKind: command.kind,
       runId: command.target.runId,
       sourceControl: command.source.control,
       sourceSurface: command.source.surface,
