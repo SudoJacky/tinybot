@@ -4656,7 +4656,6 @@ button.tinyos-overlay-backdrop {
   width: min(760px, 100%);
   margin: 4px auto;
   border: 1px solid color-mix(in srgb, var(--color-error) 34%, var(--color-hairline));
-  border-left: 4px solid var(--color-error);
   border-radius: 10px;
   background: color-mix(in srgb, var(--color-error) 5%, #fff);
   padding: 14px 16px;
@@ -4771,7 +4770,6 @@ button.tinyos-overlay-backdrop {
 .react-canonical-scoped-errors {
   width: min(720px, 100%);
   margin: 0 auto;
-  border-left: 3px solid var(--color-error);
   padding: 7px 10px 7px 28px;
   color: var(--color-error);
 }

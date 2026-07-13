@@ -1776,6 +1776,13 @@ describe("ChatPage", () => {
     );
   });
 
+  it("does not use colored left accent strips on error cards", () => {
+    const css = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
+
+    expect(css).not.toMatch(/\.react-error-recovery\s*{[^}]*border-left:/s);
+    expect(css).not.toMatch(/\.react-canonical-scoped-errors\s*{[^}]*border-left:/s);
+  });
+
   it("uses sans-serif assistant prose and modern monospace code", () => {
     const css = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
 
