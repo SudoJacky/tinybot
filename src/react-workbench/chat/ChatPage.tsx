@@ -972,15 +972,27 @@ export function ChatPage({
     }
     const sessionId = activeSession.id;
     setResolvingApprovalId(approvalId);
+    setTimelineError("");
+    let approvalError = "";
     try {
       await chatStore.resolveApproval(sessionId, {
         action,
         approvalId,
       });
-      await handleSessionStoreRefresh();
-      setTimeline(await chatStore.load(sessionId));
+    } catch (error) {
+      approvalError = `Approval failed: ${error instanceof Error ? error.message : String(error)}`;
+      setTimelineError(approvalError);
     } finally {
-      setResolvingApprovalId("");
+      try {
+        await handleSessionStoreRefresh();
+        setTimeline(await chatStore.load(sessionId));
+      } catch (error) {
+        if (!approvalError) {
+          setTimelineError(`Could not refresh approval state: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      } finally {
+        setResolvingApprovalId("");
+      }
     }
   }
 

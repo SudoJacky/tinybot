@@ -105,6 +105,10 @@ export async function submitDesktopApprovalAction(options: SubmitDesktopApproval
           ...(guidance ? { guidance } : {}),
         },
       });
+      const resumeError = nativeResumeError(result);
+      if (resumeError) {
+        throw resumeError;
+      }
       options.onNativeResumeSucceeded?.(context, result);
       return result;
     } catch (error) {
@@ -170,4 +174,13 @@ function stringValue(value: unknown): string {
 
 function guidanceValue(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function nativeResumeError(result: unknown): Error | null {
+  if (!isRecord(result) || result.ok !== false) {
+    return null;
+  }
+  const error = isRecord(result.error) ? result.error : {};
+  const message = stringValue(error.message) || stringValue(result.status) || "Native approval resume failed";
+  return new Error(message);
 }

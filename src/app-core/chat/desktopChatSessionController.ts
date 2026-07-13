@@ -69,6 +69,7 @@ export interface DesktopChatSessionController {
   handleGatewayEvent(event: NormalizedGatewayEvent): Promise<ChatGatewayEventResult>;
   loadMessagesForChat(chatId: string): Promise<boolean>;
   loadTimeline(sessionKey: string): Promise<ChatTimelineSnapshot>;
+  reloadTimeline(sessionKey: string): Promise<ChatTimelineSnapshot>;
   applyTimelinePatch(sessionKey: string, payload: unknown): Promise<ChatTimelineSnapshot | null>;
   loadDelegateTrace(selection: { sessionKey: string; delegateId?: string; traceRef?: string }): Promise<unknown>;
   loadArtifact(selection: { sessionKey: string; delegateId?: string; traceRef?: string; artifactId: string }): Promise<unknown>;
@@ -397,6 +398,12 @@ export function createDesktopChatSessionController({
     return true;
   }
 
+  async function reloadTimeline(sessionKey: string): Promise<ChatTimelineSnapshot> {
+    sessionKey = canonicalSessionKey(sessionKey) || sessionKey;
+    loadedTimelineSessions.delete(sessionKey);
+    return loadTimeline(sessionKey);
+  }
+
   async function handleGatewayEvent(event: NormalizedGatewayEvent): Promise<ChatGatewayEventResult> {
     const result: ChatGatewayEventResult = {
       pendingMessageSent: false,
@@ -524,6 +531,7 @@ export function createDesktopChatSessionController({
     handleGatewayEvent,
     loadMessagesForChat,
     loadTimeline,
+    reloadTimeline,
     applyTimelinePatch,
     loadDelegateTrace,
     loadArtifact,

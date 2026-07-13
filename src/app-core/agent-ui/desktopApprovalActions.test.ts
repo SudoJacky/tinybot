@@ -118,6 +118,40 @@ describe("desktop approval actions", () => {
     });
   });
 
+  test("treats a structured native rejection as a failed resume and falls back", async () => {
+    const nativeResult = {
+      ok: false,
+      status: "not_found",
+      error: { message: "pending approval not found" },
+    };
+    const invoke = vi.fn(async () => nativeResult);
+    const gatewayResult = { ok: true, status: "approved" };
+    const gatewayTools = {
+      approveApproval: vi.fn(async () => gatewayResult),
+      denyApproval: vi.fn(async () => ({})),
+    };
+    const onNativeResumeFailed = vi.fn();
+
+    await expect(submitDesktopApprovalAction({
+      action: "approveOnce",
+      approvalId: "approval-1",
+      gatewayTools,
+      invoke,
+      onNativeResumeFailed,
+      preferNativeWorkerResume: true,
+      sessionKey: "websocket:chat-1",
+    })).resolves.toBe(gatewayResult);
+
+    expect(onNativeResumeFailed).toHaveBeenCalledWith(expect.objectContaining({
+      message: "pending approval not found",
+    }));
+    expect(gatewayTools.approveApproval).toHaveBeenCalledWith("approval-1", {
+      session_key: "websocket:chat-1",
+      scope: "once",
+      auto_retry: true,
+    });
+  });
+
   test("passes denial guidance through native resume and gateway fallback", async () => {
     const error = new Error("native command unavailable");
     const invoke = vi.fn(async () => {

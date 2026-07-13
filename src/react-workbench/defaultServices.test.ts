@@ -346,6 +346,7 @@ describe("default desktop app services", () => {
       guidance: "Use a read-only command.",
       session_key: "websocket:chat-1",
     });
+    expect(mocks.gatewayApi.sessions.agentRuns).toHaveBeenCalledTimes(3);
   });
 
   test("tracks agent-ui forms and submits or cancels them through the gateway", async () => {

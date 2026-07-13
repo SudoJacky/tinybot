@@ -387,15 +387,19 @@ export function createDesktopAppServices(): AppServices {
       },
       async resolveApproval(sessionId, input) {
         await initialize();
-        await submitDesktopApprovalAction({
-          action: input.action,
-          approvalId: input.approvalId,
-          gatewayTools: gatewayApi.tools,
-          ...(input.guidance ? { guidance: input.guidance } : {}),
-          invoke,
-          preferNativeWorkerResume: nativeMode,
-          sessionKey: sessionId,
-        });
+        try {
+          await submitDesktopApprovalAction({
+            action: input.action,
+            approvalId: input.approvalId,
+            gatewayTools: gatewayApi.tools,
+            ...(input.guidance ? { guidance: input.guidance } : {}),
+            invoke,
+            preferNativeWorkerResume: nativeMode,
+            sessionKey: sessionId,
+          });
+        } finally {
+          await controller.reloadTimeline(sessionId);
+        }
         await controller.loadSessions();
         notifySession(sessionId, { type: "approval-resolved" });
       },
