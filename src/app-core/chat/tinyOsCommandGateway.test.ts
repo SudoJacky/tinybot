@@ -9,7 +9,13 @@ import {
   createTinyOsApprovalResolveCommand,
   createTinyOsFormCancelCommand,
   createTinyOsFormSubmitCommand,
+  createTinyOsBrowserInteractCommand,
+  createTinyOsFileDeleteCommand,
+  createTinyOsFileMoveCommand,
+  createTinyOsFileSaveCommand,
   createTinyOsOperationRetryCommand,
+  createTinyOsTerminalCancelCommand,
+  createTinyOsTerminalExecuteCommand,
   isTinyOsCommandInFlight,
   isTinyOsCommandPending,
   reduceTinyOsCommandLifecycle,
@@ -143,6 +149,75 @@ describe("TinyOS command lifecycle", () => {
       },
       target: { runId: "run-request-1", sessionId: "websocket:chat-1" },
     });
+  });
+
+  test("creates confirmed and correlated controlled-host commands", () => {
+    const source = { control: "phase-3-test", surface: "tinyos" } as const;
+    const save = createTinyOsFileSaveCommand({
+      baseRevision: "metadata:12:34",
+      commandId: "command-file-save-1",
+      content: "updated\n",
+      path: "notes/today.md",
+      sessionId: "websocket:chat-1",
+      source,
+    });
+    const move = createTinyOsFileMoveCommand({
+      baseRevision: "metadata:12:34",
+      commandId: "command-file-move-1",
+      path: "notes/today.md",
+      sessionId: "websocket:chat-1",
+      source,
+      targetPath: "notes/archive.md",
+    });
+    const remove = createTinyOsFileDeleteCommand({
+      baseRevision: "metadata:12:34",
+      commandId: "command-file-delete-1",
+      path: "notes/archive.md",
+      sessionId: "websocket:chat-1",
+      source,
+    });
+    const execute = createTinyOsTerminalExecuteCommand({
+      command: "npm test",
+      commandId: "command-terminal-1",
+      cwd: "apps/desktop",
+      sessionId: "websocket:chat-1",
+      source,
+    });
+    const cancel = createTinyOsTerminalCancelCommand({
+      commandId: "command-terminal-cancel-1",
+      runId: execute.target.runId,
+      sessionId: "websocket:chat-1",
+      source,
+    });
+    const browser = createTinyOsBrowserInteractCommand({
+      action: { type: "click", x: 12, y: 34 },
+      captureId: "capture-1",
+      commandId: "command-browser-1",
+      sessionId: "websocket:chat-1",
+      source,
+    });
+
+    expect(save).toMatchObject({ kind: "file.save", file: { confirmed: true, baseRevision: "metadata:12:34" } });
+    expect(move).toMatchObject({ kind: "file.move", file: { targetPath: "notes/archive.md" } });
+    expect(remove).toMatchObject({ kind: "file.delete", file: { confirmed: true } });
+    expect(execute).toMatchObject({
+      kind: "terminal.execute",
+      terminal: { command: "npm test", confirmed: true, cwd: "apps/desktop" },
+    });
+    expect(cancel).toMatchObject({ kind: "terminal.cancel", target: { runId: execute.target.runId } });
+    expect(browser).toMatchObject({
+      kind: "browser.interact",
+      browser: { captureId: "capture-1", confirmed: true, action: { type: "click", x: 12, y: 34 } },
+    });
+  });
+
+  test("rejects an existing-file save without a base revision", () => {
+    expect(() => createTinyOsFileSaveCommand({
+      content: "updated\n",
+      path: "notes/today.md",
+      sessionId: "websocket:chat-1",
+      source: { control: "phase-3-test", surface: "tinyos" },
+    })).toThrow("Existing file saves require a base revision.");
   });
 
   test("keeps a command pending after transport acceptance until canonical acknowledgement", () => {

@@ -140,4 +140,99 @@ describe("TinyOS Workspace Explorer", () => {
     await userEvent.click(screen.getByRole("treeitem", { name: "src" }));
     expect(files.toggleDirectory).toHaveBeenCalledWith("src");
   });
+
+  it("reviews a local draft before saving it with the loaded revision", async () => {
+    const onSaveFile = vi.fn(async () => undefined);
+    const files = controller({
+      ...treeState(),
+      activePath: "README.md",
+      documents: {
+        "README.md": {
+          status: "ready",
+          value: {
+            content: "before\n",
+            contentType: "text",
+            lineEnd: 1,
+            path: "README.md",
+            revision: "metadata:7:12",
+            sizeBytes: 7,
+            stale: false,
+          },
+        },
+      },
+      openPaths: ["README.md"],
+    });
+    render(<TinyOsFilesExplorer
+      canDirectEdit
+      canRequestChange={false}
+      canSave
+      controller={files}
+      layoutMode="workspace"
+      onAttachContext={vi.fn()}
+      onRequestExplanation={vi.fn()}
+      onRequestModification={vi.fn()}
+      onSaveFile={onSaveFile}
+    />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Edit README.md" }));
+    const draft = screen.getByRole("textbox", { name: "Editable draft of README.md" });
+    await userEvent.clear(draft);
+    await userEvent.type(draft, "after");
+    expect((screen.getByRole("button", { name: /Apply file change/ }) as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.click(screen.getByRole("button", { name: "Review changes" }));
+    expect(screen.getByRole("region", { name: "File change review" })).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: /Apply file change/ }));
+
+    expect(onSaveFile).toHaveBeenCalledWith({
+      baseRevision: "metadata:7:12",
+      content: "after",
+      createOnly: false,
+      path: "README.md",
+    });
+    expect(files.refreshFile).toHaveBeenCalledWith("README.md");
+  });
+
+  it("keeps a rejected draft visible for conflict recovery", async () => {
+    const onSaveFile = vi.fn(async () => { throw new Error("version conflict"); });
+    const files = controller({
+      ...treeState(),
+      activePath: "README.md",
+      documents: {
+        "README.md": {
+          status: "ready",
+          value: {
+            content: "before\n",
+            contentType: "text",
+            lineEnd: 1,
+            path: "README.md",
+            revision: "metadata:7:12",
+            sizeBytes: 7,
+            stale: false,
+          },
+        },
+      },
+      openPaths: ["README.md"],
+    });
+    render(<TinyOsFilesExplorer
+      canDirectEdit
+      canRequestChange={false}
+      canSave
+      controller={files}
+      layoutMode="workspace"
+      onAttachContext={vi.fn()}
+      onRequestExplanation={vi.fn()}
+      onRequestModification={vi.fn()}
+      onSaveFile={onSaveFile}
+    />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Edit README.md" }));
+    const draft = screen.getByRole("textbox", { name: "Editable draft of README.md" });
+    await userEvent.clear(draft);
+    await userEvent.type(draft, "keep this draft");
+    await userEvent.click(screen.getByRole("button", { name: "Review changes" }));
+    await userEvent.click(screen.getByRole("button", { name: /Apply file change/ }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("version conflict");
+    expect((screen.getByRole("textbox", { name: "Editable draft of README.md" }) as HTMLTextAreaElement).value).toBe("keep this draft");
+  });
 });

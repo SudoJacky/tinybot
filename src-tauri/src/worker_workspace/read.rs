@@ -608,7 +608,7 @@ fn directory_listing_revision(path: &str, entries: &[WorkspaceDirectoryPageEntry
     format!("sha256:{:x}", hasher.finalize())
 }
 
-fn file_metadata_revision(metadata: &std::fs::Metadata) -> String {
+pub(super) fn file_metadata_revision(metadata: &std::fs::Metadata) -> String {
     let modified_nanos = metadata
         .modified()
         .ok()

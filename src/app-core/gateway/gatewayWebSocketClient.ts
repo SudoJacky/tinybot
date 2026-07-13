@@ -1,7 +1,7 @@
 import { DEFAULT_GATEWAY_CONFIG, type GatewayConfig } from "./gatewayConfig";
 import { logDesktopNativeChatDebug, summarizeDebugText } from "../native/desktopNativeChatDebug";
 import type { NativeChatReference } from "../chat/nativeChat";
-import type { TinyOsAgentCancelCommand, TinyOsAgentRequestChangeCommand, TinyOsAgentRunControlCommand, TinyOsApprovalResolveCommand, TinyOsFormCancelCommand, TinyOsFormSubmitCommand, TinyOsOperationRetryCommand } from "../chat/tinyOsCommandGateway";
+import type { TinyOsAgentCancelCommand, TinyOsCommand } from "../chat/tinyOsCommandGateway";
 
 export const createGatewaySocketMessage = {
   newChat: () => ({ type: "new_chat" as const }),
@@ -26,7 +26,7 @@ export const createGatewaySocketMessage = {
     ...(command.target.turnId ? { turn_id: command.target.turnId } : {}),
     source: command.source,
   }),
-  command: (chatId: string, command: TinyOsAgentRequestChangeCommand | TinyOsAgentRunControlCommand | TinyOsApprovalResolveCommand | TinyOsFormCancelCommand | TinyOsFormSubmitCommand | TinyOsOperationRetryCommand) => {
+  command: (chatId: string, command: Exclude<TinyOsCommand, TinyOsAgentCancelCommand>) => {
     const envelope = {
       type: "command" as const,
       chat_id: chatId,
@@ -35,7 +35,7 @@ export const createGatewaySocketMessage = {
       run_id: command.target.runId,
       session_id: command.target.sessionId,
       ...(command.target.threadId ? { thread_id: command.target.threadId } : {}),
-      ...(command.target.turnId ? { turn_id: command.target.turnId } : {}),
+      ...("turnId" in command.target && command.target.turnId ? { turn_id: command.target.turnId } : {}),
       source: command.source,
     };
     if (command.kind === "approval.resolve") return {
@@ -56,6 +56,40 @@ export const createGatewaySocketMessage = {
       instruction: command.request.instruction,
       ...(command.request.observedRunId ? { observed_run_id: command.request.observedRunId } : {}),
       references: command.request.references,
+    };
+    if (command.kind === "file.save") return {
+      ...envelope,
+      path: command.file.path,
+      content: command.file.content,
+      create_only: command.file.createOnly,
+      confirmed: command.file.confirmed,
+      ...(command.file.baseRevision ? { base_revision: command.file.baseRevision } : {}),
+    };
+    if (command.kind === "file.move") return {
+      ...envelope,
+      path: command.file.path,
+      target_path: command.file.targetPath,
+      base_revision: command.file.baseRevision,
+      confirmed: command.file.confirmed,
+    };
+    if (command.kind === "file.delete") return {
+      ...envelope,
+      path: command.file.path,
+      base_revision: command.file.baseRevision,
+      confirmed: command.file.confirmed,
+    };
+    if (command.kind === "terminal.execute") return {
+      ...envelope,
+      command: command.terminal.command,
+      confirmed: command.terminal.confirmed,
+      ...(command.terminal.cwd ? { cwd: command.terminal.cwd } : {}),
+    };
+    if (command.kind === "terminal.cancel") return envelope;
+    if (command.kind === "browser.interact") return {
+      ...envelope,
+      action: command.browser.action,
+      capture_id: command.browser.captureId,
+      confirmed: command.browser.confirmed,
     };
     if (command.kind !== "form.submit" && command.kind !== "form.cancel") {
       throw new Error(`Unsupported TinyOS command kind: ${command.kind}`);

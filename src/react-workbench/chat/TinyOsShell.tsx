@@ -78,23 +78,41 @@ const APP_LABELS: Record<TinyOsAppId, string> = {
 
 const APP_ORDER: TinyOsAppId[] = ["files", "terminal", "browser", "plan", "memory", "subagents", "artifacts", "inspector"];
 const tinyOsSessionUiState = new Map<string, ReturnType<typeof createTinyOsUiState>>();
+type TinyOsFileSaveInput = { baseRevision?: string; content: string; createOnly: boolean; path: string };
+type TinyOsFileMoveInput = { baseRevision: string; path: string; targetPath: string };
+type TinyOsFileDeleteInput = { baseRevision: string; path: string };
+type TinyOsTerminalExecuteInput = { command: string; cwd?: string };
 
 export function TinyOsShell({
   agentUiForms,
+  canCancelTerminal = false,
+  canDirectEdit = false,
+  canExecuteTerminal = false,
   canRequestChange,
   canRetryRun,
+  canSaveFile = false,
   filesController,
   history = false,
   onCancelForm,
   onAttachContext,
   onOpenArtifact,
   onAgentRequest,
+  onCancelTerminal = async () => undefined,
+  onDeleteFile = async () => undefined,
+  onExecuteTerminal = async () => undefined,
+  onMoveFile = async () => undefined,
   onResolveApproval,
   onRetryOperation,
   onSelectEntry,
   onSubmitForm,
+  onSaveFile = async () => undefined,
   resolvingApprovalId,
   requestChangeUnavailableReason,
+  directEditUnavailableReason,
+  saveFileUnavailableReason,
+  terminalCancelUnavailableReason,
+  terminalExecuteUnavailableReason,
+  runningTerminalRunId,
   sessionKey,
   submittingFormId,
   snapshot,
@@ -102,20 +120,34 @@ export function TinyOsShell({
   workspaceKey,
 }: {
   agentUiForms: AgentUiForm[];
+  canCancelTerminal?: boolean;
+  canDirectEdit?: boolean;
+  canExecuteTerminal?: boolean;
   canRequestChange: boolean;
   canRetryRun: boolean;
+  canSaveFile?: boolean;
   filesController?: TinyOsFilesController;
   history?: boolean;
   onCancelForm: (form: AgentUiForm) => void;
   onAttachContext: (reference: TinyOsContextReference) => void;
   onOpenArtifact: (artifact: ArtifactRef) => void;
   onAgentRequest: (reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent) => void;
+  onCancelTerminal?: () => Promise<void>;
+  onDeleteFile?: (input: TinyOsFileDeleteInput) => Promise<void>;
+  onExecuteTerminal?: (input: TinyOsTerminalExecuteInput) => Promise<void>;
+  onMoveFile?: (input: TinyOsFileMoveInput) => Promise<void>;
   onResolveApproval: (approvalId: string, action: ApprovalAction) => void;
   onRetryOperation: (entry: TinyOsTimelineEntry) => void;
   onSelectEntry: (entry: TinyOsTimelineEntry) => void;
   onSubmitForm: (form: AgentUiForm, values: Record<string, unknown>) => void;
+  onSaveFile?: (input: TinyOsFileSaveInput) => Promise<void>;
   resolvingApprovalId: string;
   requestChangeUnavailableReason?: string;
+  directEditUnavailableReason?: string;
+  saveFileUnavailableReason?: string;
+  terminalCancelUnavailableReason?: string;
+  terminalExecuteUnavailableReason?: string;
+  runningTerminalRunId?: string;
   sessionKey?: string;
   submittingFormId?: string;
   snapshot: TinyOsDesktopSnapshot;
@@ -123,9 +155,16 @@ export function TinyOsShell({
   workspaceKey: string;
 }) {
   const desktopRef = useRef<HTMLElement>(null);
-  const appWindows = useMemo(() => filesController && !snapshot.windows.some(({ appId }) => appId === "files")
-    ? [{ appId: "files", entries: [], id: "tinyos-window-files", sourceItemIds: [], title: "Files" } satisfies TinyOsWindow, ...snapshot.windows]
-    : snapshot.windows, [filesController, snapshot.windows]);
+  const appWindows = useMemo(() => {
+    const windows = [...snapshot.windows];
+    if (filesController && !windows.some(({ appId }) => appId === "files")) {
+      windows.unshift({ appId: "files", entries: [], id: "tinyos-window-files", sourceItemIds: [], title: "Files" });
+    }
+    if (sessionKey && !windows.some(({ appId }) => appId === "terminal")) {
+      windows.push({ appId: "terminal", entries: [], id: "tinyos-window-terminal", sourceItemIds: [], title: "Terminal" });
+    }
+    return windows;
+  }, [filesController, sessionKey, snapshot.windows]);
   const initialAppIds = appWindows.map((window) => window.appId);
   const seenFileOperations = useRef(new Set<string>());
   const revealedCursorItemId = useRef<string | undefined>(undefined);
@@ -298,7 +337,11 @@ export function TinyOsShell({
           <TinyOsAppWindow
             active={uiState.focusedAppId === window.appId}
             activeTabId={uiState.activeTabs[window.appId]}
+            canCancelTerminal={canCancelTerminal && !history}
+            canDirectEdit={canDirectEdit && !history}
+            canExecuteTerminal={canExecuteTerminal && !history}
             canRequestChange={canRequestChange}
+            canSaveFile={canSaveFile && !history}
             key={window.id}
             layout={uiState.windowLayout[window.appId]}
             zIndex={uiState.zOrder.indexOf(window.appId) + 2}
@@ -312,10 +355,20 @@ export function TinyOsShell({
             onMinimize={() => minimizeApp(window.appId)}
             onOpenArtifact={onOpenArtifact}
             onAgentRequest={onAgentRequest}
+            onCancelTerminal={onCancelTerminal}
+            onDeleteFile={onDeleteFile}
+            onExecuteTerminal={onExecuteTerminal}
+            onMoveFile={onMoveFile}
+            onSaveFile={onSaveFile}
             onSetRect={(rect) => dispatchUi({ appId: window.appId, rect, type: "set_rect" })}
             onSnap={(edge) => dispatchUi({ appId: window.appId, edge, type: "snap" })}
             onTabChange={(tabId) => dispatchUi({ appId: window.appId, tabId, type: "set_active_tab" })}
             requestChangeUnavailableReason={requestChangeUnavailableReason}
+            directEditUnavailableReason={history ? "Direct host actions are disabled while viewing History." : directEditUnavailableReason}
+            saveFileUnavailableReason={history ? "Direct host actions are disabled while viewing History." : saveFileUnavailableReason}
+            terminalCancelUnavailableReason={history ? "Direct host actions are disabled while viewing History." : terminalCancelUnavailableReason}
+            terminalExecuteUnavailableReason={history ? "Direct host actions are disabled while viewing History." : terminalExecuteUnavailableReason}
+            runningTerminalRunId={runningTerminalRunId}
           />
         ))}
 
@@ -373,7 +426,12 @@ function TinyOsDesktopEmpty() {
 function TinyOsAppWindow({
   active,
   activeTabId,
+  canCancelTerminal,
+  canDirectEdit,
+  canExecuteTerminal,
   canRequestChange,
+  canSaveFile,
+  directEditUnavailableReason,
   filesController,
   layout,
   layoutMode,
@@ -384,16 +442,30 @@ function TinyOsAppWindow({
   onMinimize,
   onOpenArtifact,
   onAgentRequest,
+  onCancelTerminal,
+  onDeleteFile,
+  onExecuteTerminal,
+  onMoveFile,
+  onSaveFile,
   onSetRect,
   onSnap,
   onTabChange,
   requestChangeUnavailableReason,
+  runningTerminalRunId,
+  saveFileUnavailableReason,
+  terminalCancelUnavailableReason,
+  terminalExecuteUnavailableReason,
   window,
   zIndex,
 }: {
   active: boolean;
   activeTabId?: string;
+  canCancelTerminal: boolean;
+  canDirectEdit: boolean;
+  canExecuteTerminal: boolean;
   canRequestChange: boolean;
+  canSaveFile: boolean;
+  directEditUnavailableReason?: string;
   filesController?: TinyOsFilesController;
   layout?: TinyOsWindowRect & { maximized: boolean };
   layoutMode: TinyOsLayoutMode;
@@ -404,10 +476,19 @@ function TinyOsAppWindow({
   onMinimize: () => void;
   onOpenArtifact: (artifact: ArtifactRef) => void;
   onAgentRequest: (reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent) => void;
+  onCancelTerminal: () => Promise<void>;
+  onDeleteFile: (input: TinyOsFileDeleteInput) => Promise<void>;
+  onExecuteTerminal: (input: TinyOsTerminalExecuteInput) => Promise<void>;
+  onMoveFile: (input: TinyOsFileMoveInput) => Promise<void>;
+  onSaveFile: (input: TinyOsFileSaveInput) => Promise<void>;
   onSetRect: (rect: TinyOsWindowRect) => void;
   onSnap: (edge: "left" | "right") => void;
   onTabChange: (tabId: string) => void;
   requestChangeUnavailableReason?: string;
+  runningTerminalRunId?: string;
+  saveFileUnavailableReason?: string;
+  terminalCancelUnavailableReason?: string;
+  terminalExecuteUnavailableReason?: string;
   window: TinyOsWindow;
   zIndex: number;
 }) {
@@ -533,15 +614,29 @@ function TinyOsAppWindow({
       <div className="tinyos-window__content">
         <TinyOsAppContent
           activeTabId={activeTabId}
+          canCancelTerminal={canCancelTerminal}
+          canDirectEdit={canDirectEdit}
+          canExecuteTerminal={canExecuteTerminal}
           canRequestChange={canRequestChange}
+          canSaveFile={canSaveFile}
+          directEditUnavailableReason={directEditUnavailableReason}
           filesController={filesController}
           layoutMode={layoutMode}
           window={window}
           onAttachContext={onAttachContext}
           onOpenArtifact={onOpenArtifact}
           onAgentRequest={onAgentRequest}
+          onCancelTerminal={onCancelTerminal}
+          onDeleteFile={onDeleteFile}
+          onExecuteTerminal={onExecuteTerminal}
+          onMoveFile={onMoveFile}
+          onSaveFile={onSaveFile}
           onTabChange={onTabChange}
           requestChangeUnavailableReason={requestChangeUnavailableReason}
+          runningTerminalRunId={runningTerminalRunId}
+          saveFileUnavailableReason={saveFileUnavailableReason}
+          terminalCancelUnavailableReason={terminalCancelUnavailableReason}
+          terminalExecuteUnavailableReason={terminalExecuteUnavailableReason}
         />
       </div>
       <div
@@ -557,14 +652,39 @@ function TinyOsAppWindow({
   );
 }
 
-function TinyOsAppContent({ activeTabId, canRequestChange, filesController, layoutMode, window, onAgentRequest, onAttachContext, onOpenArtifact, onTabChange, requestChangeUnavailableReason }: { activeTabId?: string; canRequestChange: boolean; filesController?: TinyOsFilesController; layoutMode: TinyOsLayoutMode; window: TinyOsWindow; onAgentRequest: (reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent) => void; onAttachContext: (reference: TinyOsContextReference) => void; onOpenArtifact: (artifact: ArtifactRef) => void; onTabChange: (tabId: string) => void; requestChangeUnavailableReason?: string }) {
+function TinyOsAppContent({ activeTabId, canCancelTerminal, canDirectEdit, canExecuteTerminal, canRequestChange, canSaveFile, directEditUnavailableReason, filesController, layoutMode, window, onAgentRequest, onAttachContext, onCancelTerminal, onDeleteFile, onExecuteTerminal, onMoveFile, onOpenArtifact, onSaveFile, onTabChange, requestChangeUnavailableReason, runningTerminalRunId, saveFileUnavailableReason, terminalCancelUnavailableReason, terminalExecuteUnavailableReason }: {
+  activeTabId?: string;
+  canCancelTerminal: boolean;
+  canDirectEdit: boolean;
+  canExecuteTerminal: boolean;
+  canRequestChange: boolean;
+  canSaveFile: boolean;
+  directEditUnavailableReason?: string;
+  filesController?: TinyOsFilesController;
+  layoutMode: TinyOsLayoutMode;
+  onAgentRequest: (reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent) => void;
+  onAttachContext: (reference: TinyOsContextReference) => void;
+  onCancelTerminal: () => Promise<void>;
+  onDeleteFile: (input: TinyOsFileDeleteInput) => Promise<void>;
+  onExecuteTerminal: (input: TinyOsTerminalExecuteInput) => Promise<void>;
+  onMoveFile: (input: TinyOsFileMoveInput) => Promise<void>;
+  onOpenArtifact: (artifact: ArtifactRef) => void;
+  onSaveFile: (input: TinyOsFileSaveInput) => Promise<void>;
+  onTabChange: (tabId: string) => void;
+  requestChangeUnavailableReason?: string;
+  runningTerminalRunId?: string;
+  saveFileUnavailableReason?: string;
+  terminalCancelUnavailableReason?: string;
+  terminalExecuteUnavailableReason?: string;
+  window: TinyOsWindow;
+}) {
   switch (window.appId) {
     case "files": return filesController?.queryAvailable || !window.entries.length
       ? filesController
-        ? <TinyOsFilesExplorer canRequestChange={canRequestChange} controller={filesController} layoutMode={layoutMode} onAttachContext={onAttachContext} onRequestExplanation={(reference) => onAgentRequest(reference, "explain")} onRequestModification={(reference) => onAgentRequest(reference, "modify")} requestChangeUnavailableReason={requestChangeUnavailableReason} />
+        ? <TinyOsFilesExplorer canDirectEdit={canDirectEdit} canRequestChange={canRequestChange} canSave={canSaveFile} controller={filesController} directEditUnavailableReason={directEditUnavailableReason} layoutMode={layoutMode} onAttachContext={onAttachContext} onDeleteFile={onDeleteFile} onMoveFile={onMoveFile} onRequestExplanation={(reference) => onAgentRequest(reference, "explain")} onRequestModification={(reference) => onAgentRequest(reference, "modify")} onSaveFile={onSaveFile} requestChangeUnavailableReason={requestChangeUnavailableReason} saveUnavailableReason={saveFileUnavailableReason} />
         : <EmptyCopy text="Workspace Explorer is unavailable." />
       : <TinyOsFiles activeTabId={activeTabId} canRequestChange={canRequestChange} window={window} onAgentRequest={onAgentRequest} onAttachContext={onAttachContext} onTabChange={onTabChange} requestChangeUnavailableReason={requestChangeUnavailableReason} />;
-    case "terminal": return <TinyOsTerminal activeTabId={activeTabId} canRequestChange={canRequestChange} window={window} onAgentRequest={onAgentRequest} onAttachContext={onAttachContext} onTabChange={onTabChange} requestChangeUnavailableReason={requestChangeUnavailableReason} />;
+    case "terminal": return <div className="tinyos-terminal-host"><TinyOsTerminalHostControls canCancel={canCancelTerminal} canExecute={canExecuteTerminal} cancelUnavailableReason={terminalCancelUnavailableReason} executeUnavailableReason={terminalExecuteUnavailableReason} onCancel={onCancelTerminal} onExecute={onExecuteTerminal} runningRunId={runningTerminalRunId} />{window.entries.length ? <TinyOsTerminal activeTabId={activeTabId} canRequestChange={canRequestChange} window={window} onAgentRequest={onAgentRequest} onAttachContext={onAttachContext} onTabChange={onTabChange} requestChangeUnavailableReason={requestChangeUnavailableReason} /> : <EmptyCopy text="Run a reviewed command to create canonical terminal output." />}</div>;
     case "browser": return <TinyOsBrowser window={window} onOpenArtifact={onOpenArtifact} />;
     case "plan": return <TinyOsPlan canRequestChange={canRequestChange} entry={[...window.entries].reverse().find(({ step }) => Boolean(step.plan)) ?? window.entries[window.entries.length - 1]} onAgentRequest={onAgentRequest} requestChangeUnavailableReason={requestChangeUnavailableReason} />;
     case "memory": return <TinyOsMemory window={window} />;
@@ -625,6 +745,42 @@ function TinyOsFiles({ activeTabId, canRequestChange, onAgentRequest, onAttachCo
         <footer className="tinyos-files__status"><span>{fileLanguage(active.path)}</span><span>UTF-8</span>{selectedReference ? <button type="button" onClick={() => onAttachContext(selectedReference)}><Paperclip aria-hidden="true" size={11} />Attach {active.path} · L{selectionStart}{selectionEnd !== selectionStart ? `–${selectionEnd}` : ""}</button> : null}{selectedReference ? <button disabled={!canRequestChange} title={canRequestChange ? "Ask Agent to explain this selection" : requestChangeUnavailableReason} type="button" onClick={() => onAgentRequest(selectedReference, "explain")}><MessageCircleQuestion aria-hidden="true" size={11} />Explain</button> : null}{selectedReference ? <button disabled={!canRequestChange} title={canRequestChange ? "Ask Agent to modify this selection" : requestChangeUnavailableReason} type="button" onClick={() => onAgentRequest(selectedReference, "modify")}><PencilLine aria-hidden="true" size={11} />Modify</button> : null}<span>Canonical item {active.entry.step.sequence + 1}</span></footer>
       </section>
     </div>
+  );
+}
+
+function TinyOsTerminalHostControls({ canCancel, canExecute, cancelUnavailableReason, executeUnavailableReason, onCancel, onExecute, runningRunId }: {
+  canCancel: boolean;
+  canExecute: boolean;
+  cancelUnavailableReason?: string;
+  executeUnavailableReason?: string;
+  onCancel: () => Promise<void>;
+  onExecute: (input: TinyOsTerminalExecuteInput) => Promise<void>;
+  runningRunId?: string;
+}) {
+  const [command, setCommand] = useState("");
+  const [cwd, setCwd] = useState(".");
+  const [reviewed, setReviewed] = useState(false);
+  const [error, setError] = useState("");
+  return (
+    <form className="tinyos-terminal-command" onSubmit={(event) => {
+      event.preventDefault();
+      if (!reviewed || !canExecute || !command.trim()) return;
+      setError("");
+      void onExecute({ command: command.trim(), ...(cwd.trim() ? { cwd: cwd.trim() } : {}) }).then(() => {
+        setCommand("");
+        setReviewed(false);
+      }).catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
+    }}>
+      <label><span>Command</span><input aria-label="TinyOS terminal command" disabled={!canExecute || Boolean(runningRunId)} placeholder="Enter a workspace command" value={command} onChange={(event) => { setCommand(event.currentTarget.value); setReviewed(false); }} /></label>
+      <label><span>cwd</span><input aria-label="TinyOS terminal working directory" disabled={!canExecute || Boolean(runningRunId)} value={cwd} onChange={(event) => { setCwd(event.currentTarget.value); setReviewed(false); }} /></label>
+      <div>
+        <button disabled={!canExecute || !command.trim() || Boolean(runningRunId)} title={canExecute ? "Review the exact command and execution boundary" : executeUnavailableReason} type="button" onClick={() => setReviewed(true)}>Review command</button>
+        <button disabled={!canExecute || !reviewed || !command.trim() || Boolean(runningRunId)} title="Execute read-only with network denied" type="submit"><Play aria-hidden="true" size={12} />Run command</button>
+        <button disabled={!canCancel || !runningRunId} title={canCancel ? "Interrupt the correlated TinyOS terminal process" : cancelUnavailableReason} type="button" onClick={() => { setError(""); void onCancel().catch((reason) => setError(reason instanceof Error ? reason.message : String(reason))); }}><Pause aria-hidden="true" size={12} />Cancel process</button>
+      </div>
+      {reviewed ? <p role="status"><ShieldCheck aria-hidden="true" size={12} />Read-only sandbox · network denied · cwd {cwd || "."}</p> : null}
+      {error ? <p role="alert">{error}</p> : null}
+    </form>
   );
 }
 
@@ -717,8 +873,8 @@ function TinyOsBrowser({ window, onOpenArtifact }: { window: TinyOsWindow; onOpe
   const capture = artifacts.find((artifact) => artifact.kind === "browser_snapshot");
   const image = capture?.preview && safeRasterDataUrl(capture.preview) ? capture.preview : undefined;
   return (
-    <div className="tinyos-browser">
-      <div className="tinyos-browser__bar"><span /><span /><span /><Globe2 aria-hidden="true" size={13} /><strong>{browserLocation(latest.step)}</strong></div>
+    <div className="tinyos-browser" data-truth={image ? "real_capture" : "structured"}>
+      <div className="tinyos-browser__bar"><span /><span /><span /><Globe2 aria-hidden="true" size={13} /><strong>{browserLocation(latest.step)}</strong><b>{image ? "Real capture" : "Structured simulation"}</b></div>
       {image ? <button type="button" onClick={() => capture && onOpenArtifact(capture)}><img alt={capture?.title || "Browser capture"} src={image} /></button> : <div className="tinyos-browser__page"><Globe2 aria-hidden="true" size={28} /><strong>{latest.step.title}</strong><p>{latest.step.summary || "No real browser capture is attached. This is a structured browser view."}</p></div>}
     </div>
   );

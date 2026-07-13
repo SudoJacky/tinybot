@@ -128,13 +128,89 @@ export type TinyOsAgentRequestChangeCommand = {
   };
 };
 
+export type TinyOsFileSaveCommand = {
+  schemaVersion: "tinybot.command.v1";
+  commandId: string;
+  issuedAt: string;
+  kind: "file.save";
+  source: TinyOsCommandSource;
+  target: { runId: string; sessionId: string; threadId?: string };
+  file: {
+    baseRevision?: string;
+    confirmed: true;
+    content: string;
+    createOnly: boolean;
+    path: string;
+  };
+};
+
+export type TinyOsFileMoveCommand = {
+  schemaVersion: "tinybot.command.v1";
+  commandId: string;
+  issuedAt: string;
+  kind: "file.move";
+  source: TinyOsCommandSource;
+  target: { runId: string; sessionId: string; threadId?: string };
+  file: { baseRevision: string; confirmed: true; path: string; targetPath: string };
+};
+
+export type TinyOsFileDeleteCommand = {
+  schemaVersion: "tinybot.command.v1";
+  commandId: string;
+  issuedAt: string;
+  kind: "file.delete";
+  source: TinyOsCommandSource;
+  target: { runId: string; sessionId: string; threadId?: string };
+  file: { baseRevision: string; confirmed: true; path: string };
+};
+
+export type TinyOsTerminalExecuteCommand = {
+  schemaVersion: "tinybot.command.v1";
+  commandId: string;
+  issuedAt: string;
+  kind: "terminal.execute";
+  source: TinyOsCommandSource;
+  target: { runId: string; sessionId: string; threadId?: string };
+  terminal: { command: string; confirmed: true; cwd?: string };
+};
+
+export type TinyOsTerminalCancelCommand = {
+  schemaVersion: "tinybot.command.v1";
+  commandId: string;
+  issuedAt: string;
+  kind: "terminal.cancel";
+  source: TinyOsCommandSource;
+  target: { runId: string; sessionId: string; threadId?: string };
+};
+
+export type TinyOsBrowserAction =
+  | { type: "click"; x: number; y: number }
+  | { type: "navigate"; url: string }
+  | { type: "type"; text: string };
+
+export type TinyOsBrowserInteractCommand = {
+  schemaVersion: "tinybot.command.v1";
+  commandId: string;
+  issuedAt: string;
+  kind: "browser.interact";
+  source: TinyOsCommandSource;
+  target: { runId: string; sessionId: string; threadId?: string };
+  browser: { action: TinyOsBrowserAction; captureId: string; confirmed: true };
+};
+
 export type TinyOsCommand = TinyOsAgentCancelCommand
   | TinyOsAgentRunControlCommand
   | TinyOsApprovalResolveCommand
   | TinyOsFormSubmitCommand
   | TinyOsFormCancelCommand
   | TinyOsOperationRetryCommand
-  | TinyOsAgentRequestChangeCommand;
+  | TinyOsAgentRequestChangeCommand
+  | TinyOsFileSaveCommand
+  | TinyOsFileMoveCommand
+  | TinyOsFileDeleteCommand
+  | TinyOsTerminalExecuteCommand
+  | TinyOsTerminalCancelCommand
+  | TinyOsBrowserInteractCommand;
 
 export type TinyOsCommandAcknowledgement = {
   itemId: string;
@@ -366,6 +442,157 @@ export function createTinyOsAgentRequestChangeCommand(input: {
   };
 }
 
+export function createTinyOsFileSaveCommand(input: {
+  baseRevision?: string;
+  commandId?: string;
+  content: string;
+  createOnly?: boolean;
+  issuedAt?: string;
+  path: string;
+  sessionId: string;
+  source: TinyOsCommandSource;
+  threadId?: string;
+}): TinyOsFileSaveCommand {
+  const path = requiredHostText(input.path, "File path");
+  if (!input.createOnly && !input.baseRevision) throw new Error("Existing file saves require a base revision.");
+  return {
+    schemaVersion: "tinybot.command.v1",
+    commandId: input.commandId ?? createTinyOsCommandId(),
+    issuedAt: input.issuedAt ?? new Date().toISOString(),
+    kind: "file.save",
+    source: input.source,
+    target: hostCommandTarget("file", input.sessionId, input.threadId),
+    file: {
+      ...(input.baseRevision ? { baseRevision: input.baseRevision } : {}),
+      confirmed: true,
+      content: input.content,
+      createOnly: Boolean(input.createOnly),
+      path,
+    },
+  };
+}
+
+export function createTinyOsFileMoveCommand(input: {
+  baseRevision: string;
+  commandId?: string;
+  issuedAt?: string;
+  path: string;
+  sessionId: string;
+  source: TinyOsCommandSource;
+  targetPath: string;
+  threadId?: string;
+}): TinyOsFileMoveCommand {
+  return {
+    schemaVersion: "tinybot.command.v1",
+    commandId: input.commandId ?? createTinyOsCommandId(),
+    issuedAt: input.issuedAt ?? new Date().toISOString(),
+    kind: "file.move",
+    source: input.source,
+    target: hostCommandTarget("file", input.sessionId, input.threadId),
+    file: {
+      baseRevision: requiredHostText(input.baseRevision, "File base revision"),
+      confirmed: true,
+      path: requiredHostText(input.path, "Source file path"),
+      targetPath: requiredHostText(input.targetPath, "Target file path"),
+    },
+  };
+}
+
+export function createTinyOsFileDeleteCommand(input: {
+  baseRevision: string;
+  commandId?: string;
+  issuedAt?: string;
+  path: string;
+  sessionId: string;
+  source: TinyOsCommandSource;
+  threadId?: string;
+}): TinyOsFileDeleteCommand {
+  return {
+    schemaVersion: "tinybot.command.v1",
+    commandId: input.commandId ?? createTinyOsCommandId(),
+    issuedAt: input.issuedAt ?? new Date().toISOString(),
+    kind: "file.delete",
+    source: input.source,
+    target: hostCommandTarget("file", input.sessionId, input.threadId),
+    file: {
+      baseRevision: requiredHostText(input.baseRevision, "File base revision"),
+      confirmed: true,
+      path: requiredHostText(input.path, "File path"),
+    },
+  };
+}
+
+export function createTinyOsTerminalExecuteCommand(input: {
+  command: string;
+  commandId?: string;
+  cwd?: string;
+  issuedAt?: string;
+  sessionId: string;
+  source: TinyOsCommandSource;
+  threadId?: string;
+}): TinyOsTerminalExecuteCommand {
+  const cwd = input.cwd?.trim();
+  return {
+    schemaVersion: "tinybot.command.v1",
+    commandId: input.commandId ?? createTinyOsCommandId(),
+    issuedAt: input.issuedAt ?? new Date().toISOString(),
+    kind: "terminal.execute",
+    source: input.source,
+    target: hostCommandTarget("terminal", input.sessionId, input.threadId),
+    terminal: {
+      command: requiredHostText(input.command, "Terminal command"),
+      confirmed: true,
+      ...(cwd ? { cwd } : {}),
+    },
+  };
+}
+
+export function createTinyOsTerminalCancelCommand(input: {
+  commandId?: string;
+  issuedAt?: string;
+  runId: string;
+  sessionId: string;
+  source: TinyOsCommandSource;
+  threadId?: string;
+}): TinyOsTerminalCancelCommand {
+  return {
+    schemaVersion: "tinybot.command.v1",
+    commandId: input.commandId ?? createTinyOsCommandId(),
+    issuedAt: input.issuedAt ?? new Date().toISOString(),
+    kind: "terminal.cancel",
+    source: input.source,
+    target: {
+      runId: requiredHostText(input.runId, "Terminal run id"),
+      sessionId: input.sessionId,
+      ...(input.threadId ? { threadId: input.threadId } : {}),
+    },
+  };
+}
+
+export function createTinyOsBrowserInteractCommand(input: {
+  action: TinyOsBrowserAction;
+  captureId: string;
+  commandId?: string;
+  issuedAt?: string;
+  sessionId: string;
+  source: TinyOsCommandSource;
+  threadId?: string;
+}): TinyOsBrowserInteractCommand {
+  return {
+    schemaVersion: "tinybot.command.v1",
+    commandId: input.commandId ?? createTinyOsCommandId(),
+    issuedAt: input.issuedAt ?? new Date().toISOString(),
+    kind: "browser.interact",
+    source: input.source,
+    target: hostCommandTarget("browser", input.sessionId, input.threadId),
+    browser: {
+      action: { ...input.action },
+      captureId: requiredHostText(input.captureId, "Browser capture id"),
+      confirmed: true,
+    },
+  };
+}
+
 export function reduceTinyOsCommandLifecycle(
   state: TinyOsCommandLifecycle,
   action: TinyOsCommandLifecycleAction,
@@ -496,6 +723,20 @@ function createTinyOsRetryRunId(): string {
 
 function createTinyOsFollowupRunId(kind: string): string {
   return `tinyos-${kind}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function hostCommandTarget(kind: "browser" | "file" | "terminal", sessionId: string, threadId?: string) {
+  return {
+    runId: `tinyos-host-${kind}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
+    sessionId,
+    ...(threadId ? { threadId } : {}),
+  };
+}
+
+function requiredHostText(value: string, label: string): string {
+  const normalized = value.trim();
+  if (!normalized) throw new Error(`${label} is required.`);
+  return normalized;
 }
 
 function recordValue(value: unknown): Record<string, unknown> {

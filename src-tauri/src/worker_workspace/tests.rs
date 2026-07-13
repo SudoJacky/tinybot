@@ -42,6 +42,65 @@ mod tests {
     }
 
     #[test]
+    fn controlled_file_changes_require_the_current_revision() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("notes/today.md", "before\n");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_write_policy());
+        let original = rpc
+            .read_file_chunk("notes/today.md", None)
+            .expect("file should read");
+
+        rpc.write_file_with_base_revision(
+            "notes/today.md",
+            "after\n",
+            Some(&original.revision),
+            false,
+        )
+        .expect("matching revision should save");
+        let stale_error = rpc
+            .write_file_with_base_revision(
+                "notes/today.md",
+                "stale overwrite\n",
+                Some(&original.revision),
+                false,
+            )
+            .expect_err("stale revision must fail closed");
+
+        assert_eq!(stale_error.message, "version conflict");
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("notes/today.md"))
+                .expect("saved file should read"),
+            "after\n"
+        );
+    }
+
+    #[test]
+    fn controlled_file_move_and_delete_preserve_revision_guards() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("notes/today.md", "current\n");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_write_policy());
+        let original = rpc
+            .read_file_chunk("notes/today.md", None)
+            .expect("file should read");
+
+        let moved = rpc
+            .move_file_with_base_revision("notes/today.md", "archive/today.md", &original.revision)
+            .expect("matching revision should move");
+        let moved_revision = rpc
+            .read_file_chunk("archive/today.md", None)
+            .expect("moved file should read")
+            .revision;
+        let deleted = rpc
+            .delete_file_with_base_revision("archive/today.md", &moved_revision)
+            .expect("matching revision should delete");
+
+        assert_eq!(moved.source_path, "notes/today.md");
+        assert_eq!(moved.target_path, "archive/today.md");
+        assert!(deleted.deleted);
+        assert!(!fixture.root.join("archive/today.md").exists());
+    }
+
+    #[test]
     fn list_files_returns_workspace_relative_paths() {
         let fixture = WorkspaceFixture::new();
         fixture.write("AGENTS.md", "agents");

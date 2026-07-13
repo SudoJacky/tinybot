@@ -2359,6 +2359,54 @@ describe("gateway WebSocket client", () => {
         type: "tinyos.file",
       }],
     });
+    expect(createGatewaySocketMessage.command("chat-1", {
+      schemaVersion: "tinybot.command.v1",
+      commandId: "command-file-save-1",
+      issuedAt: "2026-07-13T00:00:00Z",
+      kind: "file.save",
+      source: { control: "files-editor", surface: "tinyos" },
+      target: { runId: "tinyos-host-file-1", sessionId: "websocket:chat-1" },
+      file: {
+        baseRevision: "metadata:12:34",
+        confirmed: true,
+        content: "updated\n",
+        createOnly: false,
+        path: "notes/today.md",
+      },
+    })).toEqual({
+      type: "command",
+      chat_id: "chat-1",
+      command_id: "command-file-save-1",
+      command_kind: "file.save",
+      run_id: "tinyos-host-file-1",
+      session_id: "websocket:chat-1",
+      source: { control: "files-editor", surface: "tinyos" },
+      path: "notes/today.md",
+      content: "updated\n",
+      create_only: false,
+      confirmed: true,
+      base_revision: "metadata:12:34",
+    });
+    expect(createGatewaySocketMessage.command("chat-1", {
+      schemaVersion: "tinybot.command.v1",
+      commandId: "command-terminal-1",
+      issuedAt: "2026-07-13T00:00:00Z",
+      kind: "terminal.execute",
+      source: { control: "terminal-command", surface: "tinyos" },
+      target: { runId: "tinyos-host-terminal-1", sessionId: "websocket:chat-1" },
+      terminal: { command: "npm test", confirmed: true, cwd: "apps/desktop" },
+    })).toEqual({
+      type: "command",
+      chat_id: "chat-1",
+      command_id: "command-terminal-1",
+      command_kind: "terminal.execute",
+      run_id: "tinyos-host-terminal-1",
+      session_id: "websocket:chat-1",
+      source: { control: "terminal-command", surface: "tinyos" },
+      command: "npm test",
+      confirmed: true,
+      cwd: "apps/desktop",
+    });
   });
 
   test("queues outbound messages until the socket is open", () => {

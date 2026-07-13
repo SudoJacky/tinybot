@@ -992,12 +992,49 @@ the references on the new canonical `user_message`, emits the correlated command
 and completes at the new run's terminal canonical item. Requests issued from a History view still
 create this new live run and never mutate the historical snapshot.
 
+TinyOS controlled-host actions use the same `tinybot.command.v1` gateway and dedicated
+`tinyos-host-*` run identities. They are never inferred from local window state:
+
+- `file.save` carries `path`, `content`, `create_only`, `confirmed`, and, for an existing file,
+  `base_revision`;
+- `file.move` carries source `path`, `target_path`, `base_revision`, and `confirmed`;
+- `file.delete` carries `path`, `base_revision`, and `confirmed`;
+- `terminal.execute` carries the exact `command`, optional workspace-relative `cwd`, and
+  `confirmed`;
+- `terminal.cancel` targets the running `tinyos-host-terminal-*` run;
+- `browser.interact` defines the correlated `capture_id` and typed action contract, but currently
+  fails closed because the desktop has no real browser interaction backend.
+
+File changes are workspace-bound and revision guarded. The frontend keeps edits as local drafts,
+shows the before/after content before enabling save, and submits the revision returned by the
+workspace read. A changed source, an existing create target, an existing move target, or an invalid
+path returns a visible error; Rust does not overwrite, move, or delete on conflict. Successful and
+failed attempts are persisted as canonical host-operation runs with command acknowledgement, Tool
+start, and Tool result or error events.
+
+`terminal.execute` uses the shared Rust process manager with a read-only sandbox, denied network,
+and a working directory restricted to the configured workspace. Output is streamed through
+canonical Tool updates, retained in a bounded tail, and sanitized against configured secrets and
+common secret-assignment markers before persistence. Cancellation interrupts the process correlated
+to the host run and records a canonical cancelled terminal outcome. On capability evaluation after
+a restart, a persisted active `tinyos-host-*` run without a matching live terminal process is
+marked failed with an explicit interrupted-recovery event instead of remaining active indefinitely.
+
+TinyOS browser surfaces label backend raster evidence as `Real capture` and all other projections as
+`Structured simulation`. `browser.realCapture` and `browser.interact` remain unavailable with
+`reasonCode: "backend_unavailable"`; clients must not convert structured browser metadata into a
+claim of real capture or successful host interaction.
+
 `GET /api/sessions/{key}/effective-capabilities` and the native
 `worker_session_effective_capabilities` command return `tinybot.effective_capabilities.v1` decisions.
 Unavailable decisions include both `reasonCode` and a user-facing `reason`; the response identifies
 the evaluated run used for the decision when present. Retry is available only when that latest run
 is failed and no active run supersedes it. `files.requestChange` is available when workspace read
 access is granted, the workspace root is available, and no run is active.
+`files.directEdit`, `files.save`, and `terminal.execute` additionally require their corresponding
+desktop capability, an available workspace, and no active run. `terminal.cancel` is available only
+for a running `tinyos-host-terminal-*` run. The generic Agent cancel control remains unavailable for
+host-operation runs so the owning TinyOS application remains the single control surface.
 `agent.pause` is available for a running run; `agent.resume` is available only when the evaluated
 run has `status: "waiting"` and `phase: "paused"`.
 

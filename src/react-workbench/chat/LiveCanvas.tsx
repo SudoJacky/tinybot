@@ -21,11 +21,15 @@ let tinyOsBootedInRuntime = false;
 
 export function LiveCanvas({
   agentUiForms,
+  canCancelTerminal = false,
+  canDirectEdit = false,
+  canExecuteTerminal = false,
   canCancelRun,
   canPauseRun,
   canRequestChange,
   canResumeRun,
   canRetryRun,
+  canSaveFile = false,
   cancelUnavailableReason,
   pauseUnavailableReason,
   commandLifecycle,
@@ -42,27 +46,41 @@ export function LiveCanvas({
   onExpandedChange,
   onOpenArtifact,
   onAgentRequest,
+  onCancelTerminal = async () => undefined,
+  onDeleteFile = async () => undefined,
+  onExecuteTerminal = async () => undefined,
+  onMoveFile = async () => undefined,
   onResolveApproval,
   onRetryOperation,
   onReturnToLive,
   onResumeRun,
   onSelectEntry,
   onSubmitForm,
+  onSaveFile = async () => undefined,
   onWidthChange,
   resolvingApprovalId,
   requestChangeUnavailableReason,
+  directEditUnavailableReason,
   resumeUnavailableReason,
+  runningTerminalRunId,
+  saveFileUnavailableReason,
+  terminalCancelUnavailableReason,
+  terminalExecuteUnavailableReason,
   selection,
   sessionKey,
   widthPx,
   workspaceKey = "desktop-workspace",
 }: {
   agentUiForms: AgentUiForm[];
+  canCancelTerminal?: boolean;
+  canDirectEdit?: boolean;
+  canExecuteTerminal?: boolean;
   canCancelRun: boolean;
   canPauseRun: boolean;
   canRequestChange: boolean;
   canResumeRun: boolean;
   canRetryRun: boolean;
+  canSaveFile?: boolean;
   cancelUnavailableReason?: string;
   pauseUnavailableReason?: string;
   commandLifecycle: TinyOsCommandLifecycle;
@@ -79,16 +97,26 @@ export function LiveCanvas({
   onExpandedChange?: () => void;
   onOpenArtifact: (artifact: ArtifactRef) => void;
   onAgentRequest: (reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent, fromHistory: boolean) => void;
+  onCancelTerminal?: () => Promise<void>;
+  onDeleteFile?: (input: { baseRevision: string; path: string }) => Promise<void>;
+  onExecuteTerminal?: (input: { command: string; cwd?: string }) => Promise<void>;
+  onMoveFile?: (input: { baseRevision: string; path: string; targetPath: string }) => Promise<void>;
   onResolveApproval: (approvalId: string, action: ApprovalAction) => void;
   onRetryOperation: (entry: LiveCanvasEntry) => void;
   onReturnToLive: () => void;
   onResumeRun: () => void;
   onSelectEntry: (entry: LiveCanvasEntry) => void;
   onSubmitForm: (form: AgentUiForm, values: Record<string, unknown>) => void;
+  onSaveFile?: (input: { baseRevision?: string; content: string; createOnly: boolean; path: string }) => Promise<void>;
   onWidthChange: (widthPx: number) => void;
   resolvingApprovalId: string;
   requestChangeUnavailableReason?: string;
+  directEditUnavailableReason?: string;
   resumeUnavailableReason?: string;
+  runningTerminalRunId?: string;
+  saveFileUnavailableReason?: string;
+  terminalCancelUnavailableReason?: string;
+  terminalExecuteUnavailableReason?: string;
   selection?: LiveCanvasEntry;
   sessionKey?: string;
   widthPx: number;
@@ -102,32 +130,8 @@ export function LiveCanvas({
   const actionableDialog = Boolean(snapshot.dialog && mode === "live_follow");
   const commandPending = isTinyOsCommandInFlight(commandLifecycle);
   const commandKind = commandLifecycle.stage === "idle" ? "" : commandLifecycle.command.kind;
-  const commandLabel = commandKind === "approval.resolve"
-    ? "Approval"
-    : commandKind === "form.submit"
-      ? "Form submission"
-      : commandKind === "form.cancel"
-        ? "Form cancellation"
-        : commandKind === "operation.retry"
-          ? "Retry"
-          : commandKind === "agent.request_change"
-            ? "Agent request"
-            : commandKind === "agent.pause"
-              ? "Pause"
-              : commandKind === "agent.resume" ? "Resume" : "Cancellation";
-  const commandAction = commandKind === "approval.resolve"
-    ? "approval"
-    : commandKind === "form.submit"
-      ? "form submission"
-      : commandKind === "form.cancel"
-        ? "form cancellation"
-        : commandKind === "operation.retry"
-          ? "retry"
-          : commandKind === "agent.request_change"
-            ? "agent request"
-            : commandKind === "agent.pause"
-              ? "pause"
-              : commandKind === "agent.resume" ? "resume" : "cancel";
+  const commandLabel = tinyOsLifecycleCommandLabel(commandKind);
+  const commandAction = commandLabel.toLocaleLowerCase();
   const submittingFormId = commandLifecycle.stage !== "idle"
     && (commandLifecycle.command.kind === "form.submit" || commandLifecycle.command.kind === "form.cancel")
     && isTinyOsCommandInFlight(commandLifecycle)
@@ -291,8 +295,13 @@ export function LiveCanvas({
       <TinyOsShell
         key={sessionKey}
         agentUiForms={agentUiForms}
+        canCancelTerminal={canCancelTerminal}
+        canDirectEdit={canDirectEdit}
+        canExecuteTerminal={canExecuteTerminal}
         canRequestChange={canRequestChange}
         canRetryRun={canRetryRun}
+        canSaveFile={canSaveFile}
+        directEditUnavailableReason={directEditUnavailableReason}
         filesController={filesController}
         history={mode === "history"}
         onAttachContext={onAttachContext}
@@ -305,11 +314,20 @@ export function LiveCanvas({
         onCancelForm={onCancelForm}
         onOpenArtifact={onOpenArtifact}
         onAgentRequest={(reference, intent) => onAgentRequest(reference, intent, mode === "history")}
+        onCancelTerminal={onCancelTerminal}
+        onDeleteFile={onDeleteFile}
+        onExecuteTerminal={onExecuteTerminal}
+        onMoveFile={onMoveFile}
         onResolveApproval={onResolveApproval}
         onRetryOperation={onRetryOperation}
         onSelectEntry={onSelectEntry}
         onSubmitForm={onSubmitForm}
+        onSaveFile={onSaveFile}
         requestChangeUnavailableReason={requestChangeUnavailableReason}
+        runningTerminalRunId={runningTerminalRunId}
+        saveFileUnavailableReason={saveFileUnavailableReason}
+        terminalCancelUnavailableReason={terminalCancelUnavailableReason}
+        terminalExecuteUnavailableReason={terminalExecuteUnavailableReason}
       />
 
       {booting ? (
@@ -337,4 +355,23 @@ function prefersReducedMotion(): boolean {
   return typeof window !== "undefined"
     && typeof window.matchMedia === "function"
     && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function tinyOsLifecycleCommandLabel(commandKind: string): string {
+  switch (commandKind) {
+    case "approval.resolve": return "Approval";
+    case "form.submit": return "Form submission";
+    case "form.cancel": return "Form cancellation";
+    case "operation.retry": return "Retry";
+    case "agent.request_change": return "Agent request";
+    case "agent.pause": return "Pause";
+    case "agent.resume": return "Resume";
+    case "file.save": return "File save";
+    case "file.move": return "File move";
+    case "file.delete": return "File deletion";
+    case "terminal.execute": return "Terminal execution";
+    case "terminal.cancel": return "Terminal cancellation";
+    case "browser.interact": return "Browser interaction";
+    default: return "Cancellation";
+  }
 }

@@ -74,12 +74,18 @@ import {
   createTinyOsAgentRequestChangeCommand,
   createTinyOsAgentRunControlCommand,
   createTinyOsApprovalResolveCommand,
+  createTinyOsFileDeleteCommand,
+  createTinyOsFileMoveCommand,
+  createTinyOsFileSaveCommand,
   createTinyOsFormCancelCommand,
   createTinyOsFormSubmitCommand,
   createTinyOsOperationRetryCommand,
+  createTinyOsTerminalCancelCommand,
+  createTinyOsTerminalExecuteCommand,
   isTinyOsCommandInFlight,
   reduceTinyOsCommandLifecycle,
   type TinyOsCommandLifecycle,
+  type TinyOsCommand,
 } from "../../app-core/chat/tinyOsCommandGateway";
 import {
   unavailableTinyOsEffectiveCapabilities,
@@ -327,6 +333,21 @@ export function ChatPage({
   const requestChangeUnavailableReason = cancelInFlight
     ? "Another Agent command is in flight."
     : requestChangeCapability.reason || "Agent requests are unavailable for this session.";
+  const directEditCapability = tinyOsCapabilities.capabilities.files.directEdit;
+  const saveFileCapability = tinyOsCapabilities.capabilities.files.save;
+  const terminalExecuteCapability = tinyOsCapabilities.capabilities.terminal.execute;
+  const terminalCancelCapability = tinyOsCapabilities.capabilities.terminal.cancel;
+  const canDirectEdit = Boolean(activeSession && directEditCapability.available && !cancelInFlight);
+  const canSaveFile = Boolean(activeSession && saveFileCapability.available && !cancelInFlight);
+  const canExecuteTerminal = Boolean(activeSession && terminalExecuteCapability.available && !cancelInFlight);
+  const canCancelTerminal = Boolean(activeSession && terminalCancelCapability.available);
+  const directEditUnavailableReason = cancelInFlight ? "Another TinyOS command is in flight." : directEditCapability.reason;
+  const saveFileUnavailableReason = cancelInFlight ? "Another TinyOS command is in flight." : saveFileCapability.reason;
+  const terminalExecuteUnavailableReason = cancelInFlight ? "Another TinyOS command is in flight." : terminalExecuteCapability.reason;
+  const terminalCancelUnavailableReason = terminalCancelCapability.reason;
+  const runningTerminalRunId = [...(timeline?.turns ?? [])].reverse().find((turn) => (
+    turn.id.startsWith("tinyos-host-terminal-") && (turn.status === "running" || turn.status === "pending")
+  ))?.id;
   const submittingFormId = commandLifecycle.stage !== "idle"
     && (commandLifecycle.command.kind === "form.submit" || commandLifecycle.command.kind === "form.cancel")
     && isTinyOsCommandInFlight(commandLifecycle)
@@ -395,6 +416,72 @@ export function ChatPage({
         type: "rejected",
       });
     }
+  }
+
+  async function dispatchTinyOsHostCommand(command: TinyOsCommand, allowDuringTerminalExecution = false): Promise<void> {
+    if (!activeSession) throw new Error("Select a session before dispatching a TinyOS host operation.");
+    const terminalExecutionInFlight = commandLifecycle.stage !== "idle"
+      && commandLifecycle.command.kind === "terminal.execute"
+      && commandLifecycle.stage === "acknowledged";
+    if (isTinyOsCommandInFlight(commandLifecycle) && !(allowDuringTerminalExecution && terminalExecutionInFlight)) {
+      throw new Error("Another TinyOS command is already in flight.");
+    }
+    setTimelineError("");
+    dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
+    try {
+      await chatStore.dispatchCommand(command);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      dispatchCommandLifecycle({ commandId: command.commandId, error: message, type: "rejected" });
+      throw new Error(message);
+    }
+  }
+
+  async function handleSaveTinyOsFile(input: { baseRevision?: string; content: string; createOnly: boolean; path: string }): Promise<void> {
+    if (!activeSession || !saveFileCapability.available) throw new Error(saveFileUnavailableReason || "File saving is unavailable.");
+    await dispatchTinyOsHostCommand(createTinyOsFileSaveCommand({
+      ...input,
+      sessionId: activeSession.id,
+      source: { control: input.createOnly ? "files-create" : "files-save", surface: "tinyos" },
+    }));
+  }
+
+  async function handleMoveTinyOsFile(input: { baseRevision: string; path: string; targetPath: string }): Promise<void> {
+    if (!activeSession || !saveFileCapability.available) throw new Error(saveFileUnavailableReason || "File moving is unavailable.");
+    await dispatchTinyOsHostCommand(createTinyOsFileMoveCommand({
+      ...input,
+      sessionId: activeSession.id,
+      source: { control: "files-move", surface: "tinyos" },
+    }));
+  }
+
+  async function handleDeleteTinyOsFile(input: { baseRevision: string; path: string }): Promise<void> {
+    if (!activeSession || !saveFileCapability.available) throw new Error(saveFileUnavailableReason || "File deletion is unavailable.");
+    await dispatchTinyOsHostCommand(createTinyOsFileDeleteCommand({
+      ...input,
+      sessionId: activeSession.id,
+      source: { control: "files-delete", surface: "tinyos" },
+    }));
+  }
+
+  async function handleExecuteTinyOsTerminal(input: { command: string; cwd?: string }): Promise<void> {
+    if (!activeSession || !terminalExecuteCapability.available) throw new Error(terminalExecuteUnavailableReason || "Terminal execution is unavailable.");
+    await dispatchTinyOsHostCommand(createTinyOsTerminalExecuteCommand({
+      ...input,
+      sessionId: activeSession.id,
+      source: { control: "terminal-execute", surface: "tinyos" },
+    }));
+  }
+
+  async function handleCancelTinyOsTerminal(): Promise<void> {
+    if (!activeSession || !runningTerminalRunId || !terminalCancelCapability.available) {
+      throw new Error(terminalCancelUnavailableReason || "Terminal cancellation is unavailable.");
+    }
+    await dispatchTinyOsHostCommand(createTinyOsTerminalCancelCommand({
+      runId: runningTerminalRunId,
+      sessionId: activeSession.id,
+      source: { control: "terminal-cancel", surface: "tinyos" },
+    }), true);
   }
 
   useEffect(() => {
@@ -511,6 +598,11 @@ export function ChatPage({
     if ((commandLifecycle.command.kind === "form.submit" || commandLifecycle.command.kind === "form.cancel")
       && (commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out")) {
       setTimelineError(`Form ${commandLifecycle.command.kind === "form.cancel" ? "cancellation" : "submission"} failed: ${commandLifecycle.error}`);
+      return;
+    }
+    if (["file.save", "file.move", "file.delete", "terminal.execute", "terminal.cancel", "browser.interact"].includes(commandLifecycle.command.kind)
+      && (commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out")) {
+      setTimelineError(`TinyOS host operation failed: ${commandLifecycle.error}`);
     }
   }, [commandLifecycle]);
 
@@ -1572,6 +1664,9 @@ export function ChatPage({
       {liveCanvasOpen ? (
         <LiveCanvas
           agentUiForms={visibleAgentUiForms}
+          canCancelTerminal={canCancelTerminal}
+          canDirectEdit={canDirectEdit}
+          canExecuteTerminal={canExecuteTerminal}
           entries={liveCanvasEntries}
           expanded={liveCanvas.surface === "expanded"}
           headingRef={liveCanvasHeadingRef}
@@ -1587,6 +1682,7 @@ export function ChatPage({
             && tinyOsCapabilities.evaluatedRunId === latestFailedTurnId
             && tinyOsCapabilities.capabilities.agent.retry.available
           )}
+          canSaveFile={canSaveFile}
           cancelUnavailableReason={activeRun && !canCancelRun ? cancelUnavailableReason : undefined}
           pauseUnavailableReason={activeRun && !canPauseRun ? pauseUnavailableReason : undefined}
           commandLifecycle={commandLifecycle}
@@ -1595,6 +1691,7 @@ export function ChatPage({
           sessionKey={`${tinyOsUiScope}:${activeSession?.id ?? "draft"}`}
           widthPx={tinyOsWidth}
           filesController={tinyOsFiles}
+          directEditUnavailableReason={directEditUnavailableReason}
           onAttachContext={handleAttachTinyOsContext}
           onCancelForm={(form) => void handleCancelAgentUiForm(form, "tinyos")}
           onCancelRun={() => activeSession && void handleStopGeneration(activeSession, "tinyos")}
@@ -1603,6 +1700,10 @@ export function ChatPage({
           onExpandedChange={() => dispatchLiveCanvas({ type: "expand_toggle" })}
           onOpenArtifact={(artifact) => void handleOpenArtifact(artifact)}
           onAgentRequest={(reference, intent, fromHistory) => void handleTinyOsAgentRequest(reference, intent, fromHistory)}
+          onCancelTerminal={handleCancelTinyOsTerminal}
+          onDeleteFile={handleDeleteTinyOsFile}
+          onExecuteTerminal={handleExecuteTinyOsTerminal}
+          onMoveFile={handleMoveTinyOsFile}
           onResolveApproval={(approvalId, action) => void handleResolveApproval(approvalId, action, "tinyos")}
           onRetryOperation={(entry) => {
             const turn = timeline?.turns.find((candidate) => candidate.id === entry.turnId);
@@ -1612,7 +1713,12 @@ export function ChatPage({
           onResumeRun={() => void handleAgentRunControl("agent.resume", "tinyos")}
           onSelectEntry={(entry) => openLiveCanvasItem(entry.turnId, entry.step)}
           onSubmitForm={(form, values) => void handleSubmitAgentUiForm(form, values, "tinyos")}
+          onSaveFile={handleSaveTinyOsFile}
           requestChangeUnavailableReason={requestChangeUnavailableReason}
+          runningTerminalRunId={runningTerminalRunId}
+          saveFileUnavailableReason={saveFileUnavailableReason}
+          terminalCancelUnavailableReason={terminalCancelUnavailableReason}
+          terminalExecuteUnavailableReason={terminalExecuteUnavailableReason}
           resumeUnavailableReason={activeRun && !canResumeRun ? resumeUnavailableReason : undefined}
           onWidthChange={(widthPx) => {
             setTinyOsWidth(widthPx);
@@ -1887,19 +1993,22 @@ function tinyOsContextReferenceId(reference: TinyOsContextReference): string {
 
 function tinyOsCommandLifecycleLabel(lifecycle: TinyOsCommandLifecycle): string {
   const commandKind = lifecycle.stage === "idle" ? "agent.cancel" : lifecycle.command.kind;
-  const operation = commandKind === "agent.cancel"
-    ? "Cancel"
-    : commandKind === "agent.pause"
-      ? "Pause"
-      : commandKind === "agent.resume"
-        ? "Resume"
-    : commandKind === "approval.resolve"
-      ? "Approval"
-      : commandKind === "form.cancel"
-        ? "Form cancellation"
-        : commandKind === "operation.retry"
-          ? "Retry"
-          : commandKind === "agent.request_change" ? "Agent request" : "Form submission";
+  const operation = ({
+    "agent.cancel": "Cancel",
+    "agent.pause": "Pause",
+    "agent.request_change": "Agent request",
+    "agent.resume": "Resume",
+    "approval.resolve": "Approval",
+    "browser.interact": "Browser interaction",
+    "file.delete": "File deletion",
+    "file.move": "File move",
+    "file.save": "File save",
+    "form.cancel": "Form cancellation",
+    "form.submit": "Form submission",
+    "operation.retry": "Retry",
+    "terminal.cancel": "Terminal cancellation",
+    "terminal.execute": "Terminal execution",
+  } satisfies Record<TinyOsCommand["kind"], string>)[commandKind];
   const completionOperation = commandKind === "agent.cancel" ? "Cancellation" : operation;
   switch (lifecycle.stage) {
     case "idle":

@@ -6227,3 +6227,140 @@ button.tinyos-overlay-backdrop {
     display: none;
   }
 }
+
+.tinyos-workspace-explorer__create,
+.tinyos-file-move,
+.tinyos-terminal-command {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--color-hairline);
+  background: color-mix(in srgb, var(--color-surface-soft) 88%, transparent);
+}
+
+.tinyos-workspace-explorer__create input,
+.tinyos-file-move input,
+.tinyos-terminal-command input,
+.tinyos-file-editor textarea {
+  min-width: 0;
+  border: 1px solid var(--color-hairline);
+  border-radius: 6px;
+  background: var(--color-canvas);
+  color: inherit;
+}
+
+.tinyos-workspace-explorer__create input,
+.tinyos-file-move input,
+.tinyos-terminal-command input {
+  flex: 1;
+  padding: 5px 7px;
+}
+
+.tinyos-file-editor {
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  gap: 8px;
+  padding: 8px;
+}
+
+.tinyos-file-editor textarea {
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  padding: 10px;
+  font: 12px/1.55 var(--font-code);
+}
+
+.tinyos-file-editor__diff {
+  min-height: 0;
+  border: 1px solid var(--color-hairline);
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.tinyos-file-editor__diff header,
+.tinyos-file-editor__actions,
+.tinyos-terminal-command > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px;
+}
+
+.tinyos-file-editor__diff header {
+  padding: 6px 8px;
+  background: var(--color-surface-soft);
+}
+
+.tinyos-file-editor__diff > div {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.tinyos-file-editor__diff pre {
+  min-width: 0;
+  margin: 0;
+  padding: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.tinyos-file-editor__diff pre[data-side="before"] {
+  background: color-mix(in srgb, var(--color-error) 8%, transparent);
+}
+
+.tinyos-file-editor__diff pre[data-side="after"] {
+  background: color-mix(in srgb, var(--color-success) 8%, transparent);
+}
+
+.tinyos-danger-action,
+.tinyos-file-mutation-error {
+  color: var(--color-error);
+}
+
+.tinyos-file-mutation-error {
+  margin: 0;
+  padding: 6px 9px;
+}
+
+.tinyos-terminal-host {
+  display: flex;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+}
+
+.tinyos-terminal-command {
+  flex-wrap: wrap;
+}
+
+.tinyos-terminal-command label {
+  display: flex;
+  min-width: 150px;
+  flex: 1;
+  align-items: center;
+  gap: 5px;
+}
+
+.tinyos-terminal-command p {
+  width: 100%;
+  margin: 0;
+  font-size: 11px;
+}
+
+.tinyos-browser__bar b {
+  margin-left: auto;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 2px 6px;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.tinyos-browser[data-truth="real_capture"] .tinyos-browser__bar b {
+  color: var(--color-warning);
+}

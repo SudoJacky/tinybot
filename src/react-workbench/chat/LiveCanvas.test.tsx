@@ -179,6 +179,27 @@ describe("LiveCanvas TinyOS", () => {
     expect(within(shelf).getByText("shell.exec")).toBeTruthy();
   });
 
+  it("requires terminal command review and exposes the execution boundary", async () => {
+    const onExecuteTerminal = vi.fn(async () => undefined);
+    render(<LiveCanvas {...canvasProps([], {
+      canExecuteTerminal: true,
+      onExecuteTerminal,
+      sessionKey: "websocket:chat-1",
+    })} />);
+
+    const terminal = document.querySelector<HTMLElement>("[data-app='terminal']");
+    expect(terminal).toBeTruthy();
+    const command = within(terminal!).getByRole("textbox", { name: "TinyOS terminal command" });
+    await userEvent.type(command, "npm test");
+    expect((within(terminal!).getByRole("button", { name: /Run command/ }) as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.click(within(terminal!).getByRole("button", { name: "Review command" }));
+    expect(within(terminal!).getByRole("status").textContent).toContain("Read-only sandbox");
+    expect(within(terminal!).getByRole("status").textContent).toContain("network denied");
+    await userEvent.click(within(terminal!).getByRole("button", { name: /Run command/ }));
+
+    expect(onExecuteTerminal).toHaveBeenCalledWith({ command: "npm test", cwd: "." });
+  });
+
   it("reconstructs a historical desktop and returns to live", async () => {
     const user = userEvent.setup();
     const onReturnToLive = vi.fn();

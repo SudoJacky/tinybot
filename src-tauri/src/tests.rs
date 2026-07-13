@@ -5807,6 +5807,180 @@ fn worker_transport_websocket_maps_correlated_form_cancel_command() {
 }
 
 #[test]
+fn worker_transport_websocket_maps_controlled_host_commands() {
+    let file = native_websocket_transport_result(&WorkerTransportWebSocketDispatchInput {
+        client_id: "client-1".to_string(),
+        frame: serde_json::json!({
+            "type": "command",
+            "chat_id": "chat-1",
+            "session_id": "websocket:chat-1",
+            "command_id": "command-file-save-1",
+            "command_kind": "file.save",
+            "run_id": "tinyos-host-file-1",
+            "path": "notes/today.md",
+            "content": "updated\n",
+            "base_revision": "metadata:12:34",
+            "create_only": false,
+            "confirmed": true
+        }),
+        attached_chat_id: Some("chat-1".to_string()),
+        session_exists: Some(true),
+        editable_paths: None,
+        model: None,
+        max_iterations: None,
+        run_id: Some("tinyos-host-file-1".to_string()),
+        stream: None,
+    })
+    .expect("file command frame should produce a transport result");
+    let browser = native_websocket_transport_result(&WorkerTransportWebSocketDispatchInput {
+        client_id: "client-1".to_string(),
+        frame: serde_json::json!({
+            "type": "command",
+            "chat_id": "chat-1",
+            "session_id": "websocket:chat-1",
+            "command_id": "command-browser-1",
+            "command_kind": "browser.interact",
+            "run_id": "tinyos-host-browser-1",
+            "capture_id": "capture-1",
+            "action": { "type": "click", "x": 12, "y": 34 },
+            "confirmed": true
+        }),
+        attached_chat_id: Some("chat-1".to_string()),
+        session_exists: Some(true),
+        editable_paths: None,
+        model: None,
+        max_iterations: None,
+        run_id: Some("tinyos-host-browser-1".to_string()),
+        stream: None,
+    })
+    .expect("browser command frame should produce a transport result");
+
+    assert_eq!(file["commandKind"], "file.save");
+    assert_eq!(file["path"], "notes/today.md");
+    assert_eq!(file["baseRevision"], "metadata:12:34");
+    assert_eq!(file["confirmed"], true);
+    assert_eq!(browser["commandKind"], "browser.interact");
+    assert_eq!(browser["captureId"], "capture-1");
+    assert_eq!(browser["action"]["type"], "click");
+}
+
+#[test]
+fn worker_transport_dispatches_a_revision_guarded_file_command_and_rejects_fake_browser_control() {
+    let fixture = WorkspaceFixture::new();
+    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let session_id = "websocket:chat-host-file";
+    let run_id = "tinyos-host-file-test";
+    let dispatched = worker_transport_dispatch_websocket_message_with_options(
+        &shared,
+        WorkerTransportWebSocketDispatchInput {
+            client_id: "client-host-file".to_string(),
+            frame: serde_json::json!({
+                "type": "command",
+                "chat_id": "chat-host-file",
+                "session_id": session_id,
+                "command_id": "command-file-create-1",
+                "command_kind": "file.save",
+                "run_id": run_id,
+                "path": "notes/created.md",
+                "content": "created through TinyOS\n",
+                "create_only": true,
+                "confirmed": true
+            }),
+            attached_chat_id: Some("chat-host-file".to_string()),
+            session_exists: Some(true),
+            editable_paths: None,
+            model: None,
+            max_iterations: None,
+            run_id: Some(run_id.to_string()),
+            stream: None,
+        },
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(100),
+    )
+    .expect("confirmed file command should dispatch");
+    let state = worker_agent_run_runtime_state_with_options(
+        &shared,
+        session_id.to_string(),
+        run_id.to_string(),
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(10),
+    )
+    .expect("host file run should be persisted");
+    let runs = worker_agent_runs_list_with_options(
+        &shared,
+        session_id.to_string(),
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(10),
+    )
+    .expect("host file run list should be readable");
+
+    assert_eq!(dispatched["transport"]["commandKind"], "file.save");
+    assert_eq!(dispatched["operation"]["path"], "notes/created.md");
+    assert_eq!(runs["runs"][0]["status"], "completed");
+    assert!(state["runtimeEvents"]
+        .as_array()
+        .expect("host file runtime events should exist")
+        .iter()
+        .any(|event| event["eventName"] == "agent.tool.result"));
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("notes/created.md"))
+            .expect("created file should read"),
+        "created through TinyOS\n"
+    );
+
+    let browser_error = worker_transport_dispatch_websocket_message_with_options(
+        &shared,
+        WorkerTransportWebSocketDispatchInput {
+            client_id: "client-host-browser".to_string(),
+            frame: serde_json::json!({
+                "type": "command",
+                "chat_id": "chat-host-file",
+                "session_id": session_id,
+                "command_id": "command-browser-1",
+                "command_kind": "browser.interact",
+                "run_id": "tinyos-host-browser-test",
+                "capture_id": "capture-1",
+                "action": { "type": "click", "x": 12, "y": 34 },
+                "confirmed": true
+            }),
+            attached_chat_id: Some("chat-host-file".to_string()),
+            session_exists: Some(true),
+            editable_paths: None,
+            model: None,
+            max_iterations: None,
+            run_id: Some("tinyos-host-browser-test".to_string()),
+            stream: None,
+        },
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(100),
+    )
+    .expect_err("browser control must fail closed without a real backend");
+    assert!(browser_error.contains("no real browser"), "{browser_error}");
+}
+
+#[test]
+fn tinyos_terminal_output_is_bounded_and_sanitized() {
+    let secret = "tiny-secret-value";
+    let text = format!(
+        "{}\nAPI_KEY=visible-secret\nconfigured={secret}\n",
+        "x".repeat(12_000)
+    );
+    let sanitized = crate::desktop_commands::transport::sanitize_tinyos_host_text(
+        &text,
+        &serde_json::json!({ "provider": { "api_key": secret } }),
+    );
+
+    assert!(sanitized.chars().count() <= 10_000);
+    assert!(!sanitized.contains(secret));
+    assert!(!sanitized.contains("visible-secret"));
+    assert!(sanitized.contains("API_KEY=[REDACTED]"));
+}
+
+#[test]
 fn worker_transport_websocket_maps_correlated_operation_retry_command() {
     let transport = native_websocket_transport_result(&WorkerTransportWebSocketDispatchInput {
         client_id: "client-1".to_string(),
@@ -6651,6 +6825,48 @@ fn tinyos_effective_capabilities_are_backend_authored_and_run_scoped() {
     assert_eq!(
         failed["capabilities"]["files"]["requestChange"]["available"],
         true
+    );
+    assert_eq!(
+        failed["capabilities"]["files"]["directEdit"]["available"],
+        true
+    );
+    assert_eq!(failed["capabilities"]["files"]["save"]["available"], true);
+    assert_eq!(
+        failed["capabilities"]["terminal"]["execute"]["available"],
+        true
+    );
+    assert_eq!(
+        failed["capabilities"]["browser"]["structured"]["available"],
+        true
+    );
+    assert_eq!(
+        failed["capabilities"]["browser"]["realCapture"]["available"],
+        false
+    );
+    assert_eq!(
+        failed["capabilities"]["browser"]["interact"]["available"],
+        false
+    );
+
+    let terminal = crate::desktop_commands::session::build_worker_session_effective_capabilities(
+        "websocket:chat-1",
+        &serde_json::json!({
+            "runs": [{ "runId": "tinyos-host-terminal-1", "status": "running" }]
+        }),
+        true,
+        &policy,
+    );
+    assert_eq!(
+        terminal["capabilities"]["agent"]["cancel"]["available"],
+        false
+    );
+    assert_eq!(
+        terminal["capabilities"]["terminal"]["cancel"]["available"],
+        true
+    );
+    assert_eq!(
+        terminal["capabilities"]["terminal"]["execute"]["available"],
+        false
     );
 }
 

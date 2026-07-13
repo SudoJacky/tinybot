@@ -117,6 +117,13 @@ pub struct WorkspaceWriteResult {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct WorkspaceMoveResult {
+    pub source_path: String,
+    pub target_path: String,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct WorkspacePatchApplyResult {
     pub changed_files: Vec<WorkspacePatchFileChange>,
     pub files_changed: usize,
