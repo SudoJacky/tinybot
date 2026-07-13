@@ -68,8 +68,9 @@ import { useTinyOsFilesController } from "./useTinyOsFilesController";
 import {
   TINYOS_COMMAND_ACK_TIMEOUT_MS,
   canonicalTinyOsCommandAcknowledgement,
+  canonicalTinyOsCommandCompletion,
   createTinyOsAgentCancelCommand,
-  isTinyOsCommandPending,
+  isTinyOsCommandInFlight,
   reduceTinyOsCommandLifecycle,
   type TinyOsCommandLifecycle,
 } from "../../app-core/chat/tinyOsCommandGateway";
@@ -286,7 +287,7 @@ export function ChatPage({
   const cancelUnavailableReason = !capabilityTargetsActiveRun
     ? "Effective capabilities are stale for the current Agent run."
     : cancelCapability.reason || "Cancellation is unavailable for this Agent run.";
-  const cancelPending = isTinyOsCommandPending(commandLifecycle);
+  const cancelInFlight = isTinyOsCommandInFlight(commandLifecycle);
   const activeQueuedInputs = activeSession ? queuedInputsBySession.get(activeSession.id) ?? [] : [];
   const activeContextUsage = useMemo(() => latestTimelineUsage(timeline?.turns ?? []), [timeline]);
   const latestFailedTurnId = useMemo(() => (
@@ -367,7 +368,21 @@ export function ChatPage({
   }, [activeSession?.id]);
 
   useEffect(() => {
-    if (!timeline || commandLifecycle.stage === "idle") return;
+    if (!timeline || commandLifecycle.stage === "idle" || commandLifecycle.stage === "completed") return;
+    if (commandLifecycle.stage === "acknowledged") {
+      const completion = canonicalTinyOsCommandCompletion(
+        timeline.turns,
+        commandLifecycle.command.commandId,
+      );
+      if (!completion) return;
+      dispatchCommandLifecycle({
+        commandId: commandLifecycle.command.commandId,
+        completion,
+        nowMs: now(),
+        type: "operation_completed",
+      });
+      return;
+    }
     const acknowledgement = canonicalTinyOsCommandAcknowledgement(
       timeline.turns,
       commandLifecycle.command.commandId,
@@ -481,6 +496,10 @@ export function ChatPage({
       }
       if (event.commandId && event.type === "command.accepted") {
         dispatchCommandLifecycle({ commandId: event.commandId, nowMs: now(), type: "transport_accepted" });
+        return;
+      }
+      if (event.commandId && event.type === "command.canonical-updated") {
+        void loadTimeline();
         return;
       }
       if (event.commandId && event.type === "error") {
@@ -851,7 +870,7 @@ export function ChatPage({
   }
 
   async function handleStopGeneration(session: SessionSummary, surface: "chat" | "tinyos") {
-    if (cancelPending) return;
+    if (cancelInFlight) return;
     if (!canCancelRun) {
       setTimelineError(`Cannot cancel: ${cancelUnavailableReason}`);
       return;
@@ -1592,7 +1611,9 @@ function tinyOsCommandLifecycleLabel(lifecycle: TinyOsCommandLifecycle): string 
     case "waiting_for_canonical":
       return "Cancel delivered. Waiting for runtime confirmation…";
     case "acknowledged":
-      return `Cancellation confirmed by canonical item ${lifecycle.acknowledgement.itemId}.`;
+      return `Cancel acknowledged by canonical item ${lifecycle.acknowledgement.itemId}. Waiting for cancellation to complete.`;
+    case "completed":
+      return `Cancellation ${lifecycle.completion.status} at canonical item ${lifecycle.completion.itemId}.`;
     case "rejected":
     case "timed_out":
       return lifecycle.error;

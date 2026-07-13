@@ -949,6 +949,23 @@ block; the stored and user-visible message content remains unchanged. Provider i
 most 16 TinyOS references and 64 KiB of serialized reference data per message. Exceeding either
 limit fails the provider request visibly rather than dropping context.
 
+TinyOS Agent controls use a versioned command envelope. The native `interrupt` frame carries
+`command_id`, `command_kind`, `session_id`, `run_id`, optional turn/thread correlation, and the
+source surface/control. Before cancellation is handed to the runtime, Rust appends a distinct
+`agent.command.acknowledged` trace event to the target run. Canonical projection exposes it as a
+completed `system_notice` whose `data.detail` includes `commandId`, `commandKind`, and
+`commandStatus: "acknowledged"`.
+
+The transport response emits `command_accepted` and then `command_canonical_updated`. The latter is
+an invalidation hint only: clients reload the canonical runtime state and verify the correlated
+system notice. The eventual `agent.cancelled` item remains a separate operation-completion item and
+retains the same `commandId`.
+
+`GET /api/sessions/{key}/effective-capabilities` and the native
+`worker_session_effective_capabilities` command return `tinybot.effective_capabilities.v1` decisions.
+Unavailable decisions include both `reasonCode` and a user-facing `reason`; the response identifies
+the active run used for the decision when present.
+
 Product-facing canonical item data includes the following lifecycle details:
 
 - `form`: `formId`, `fieldIds`, `status`, optional `action`, submitted `values`, and validation
@@ -1812,6 +1829,7 @@ The Rust backend can emit live events through Tauri. Dotted worker event names a
 - `agent.delegate.interrupted`
 - `agent.delegate.closed`
 - `heartbeat.delivery`
+- `agent.command.acknowledged`
 - `agent.cancelled`
 - `agent.done`
 - `agent.error`

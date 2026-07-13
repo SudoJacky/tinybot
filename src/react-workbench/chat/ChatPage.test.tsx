@@ -2309,6 +2309,10 @@ describe("ChatPage", () => {
     act(() => subscribed?.({ commandId: command.commandId, type: "command.accepted" }));
 
     expect(screen.getByText(/Waiting for runtime confirmation/)).toBeTruthy();
+
+    act(() => subscribed?.({ commandId: command.commandId, type: "command.canonical-updated" }));
+
+    await waitFor(() => expect(stores.chatStore.load).toHaveBeenCalledTimes(2));
   });
 
   it("renders the optimistic user message immediately after send", async () => {
@@ -2674,7 +2678,7 @@ describe("ChatPage", () => {
 
     const stop = await screen.findByRole("button", { name: /Stop generation unavailable/ });
     expect((stop as HTMLButtonElement).disabled).toBe(true);
-    expect(stop.getAttribute("title")).toBe("Not supported.");
+    await waitFor(() => expect(stop.getAttribute("title")).toBe("Not supported."));
     expect(stores.chatStore.dispatchCommand).not.toHaveBeenCalled();
   });
 

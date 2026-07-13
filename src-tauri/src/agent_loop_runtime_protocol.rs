@@ -71,9 +71,10 @@ impl AgentRuntimePhase {
             event_name if event_name.starts_with("agent.delegate.") => Self::AwaitingSubagent,
             "agent.checkpoint" => Self::Planning,
             "agent.usage" => Self::CallingModel,
-            "agent.message.classified" | "agent.message.completed" | "agent.done" => {
-                Self::Completed
-            }
+            "agent.message.classified"
+            | "agent.message.completed"
+            | "agent.command.acknowledged"
+            | "agent.done" => Self::Completed,
             "agent.error" => Self::Failed,
             "agent.cancelled" => Self::Cancelled,
             _ => Self::Planning,
@@ -118,7 +119,7 @@ impl AgentTurnItemKind {
             "agent.awaiting_approval" | "agent.approval.decision" => Some(Self::Approval),
             "agent.awaiting_form" | "agent.form.resolution" => Some(Self::Form),
             "agent.error" | "agent.cancelled" => Some(Self::Error),
-            "agent.checkpoint" => Some(Self::SystemNotice),
+            "agent.checkpoint" | "agent.command.acknowledged" => Some(Self::SystemNotice),
             _ if event_name.starts_with("agent.delegate.") => Some(Self::SubagentLifecycle),
             _ => None,
         }
@@ -1885,6 +1886,7 @@ fn projected_item_status(event: &AgentRuntimeEventEnvelope) -> AgentTurnItemStat
         "agent.message.classified"
         | "agent.message.completed"
         | "agent.done"
+        | "agent.command.acknowledged"
         | "agent.tool.result"
         | "agent.approval.decision"
         | "agent.form.resolution" => AgentTurnItemStatus::Completed,

@@ -1336,7 +1336,10 @@ describe("desktop native WebSocket bridge", () => {
             kind: "interrupt",
             chatId: "chat-native",
             sessionId: "websocket:chat-native",
-            frames: [{ event: "command_accepted", chat_id: "chat-native", command_id: "command-1" }],
+            frames: [
+              { event: "command_accepted", chat_id: "chat-native", command_id: "command-1" },
+              { event: "command_canonical_updated", chat_id: "chat-native", command_id: "command-1" },
+            ],
           },
         };
       }
@@ -1381,6 +1384,11 @@ describe("desktop native WebSocket bridge", () => {
     });
     expect(events).toContainEqual({
       event: "command_accepted",
+      chat_id: "chat-native",
+      command_id: "command-1",
+    });
+    expect(events).toContainEqual({
+      event: "command_canonical_updated",
       chat_id: "chat-native",
       command_id: "command-1",
     });

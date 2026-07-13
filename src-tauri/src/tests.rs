@@ -5713,6 +5713,106 @@ fn worker_transport_websocket_maps_correlated_interrupt_command() {
 }
 
 #[test]
+fn worker_transport_interrupt_persists_distinct_canonical_command_acknowledgement() {
+    let fixture = WorkspaceFixture::new();
+    let record = serde_json::json!({
+        "sessionId": "websocket:chat-command-ack",
+        "runId": "run-command-ack",
+        "status": "running",
+        "phase": "calling_model",
+        "startedAt": "2026-07-13T01:00:00Z",
+        "updatedAt": "2026-07-13T01:00:00Z",
+        "completedAt": null,
+        "stopReason": null,
+        "model": "test-model",
+        "provider": "test",
+        "maxIterations": 4,
+        "currentIteration": 1,
+        "conversationMessageIds": [],
+        "traceMessages": [],
+        "traceEvents": [],
+        "completedToolResults": [],
+        "pendingToolCalls": [],
+        "checkpoint": null,
+        "artifacts": [],
+        "usage": [],
+        "error": null
+    });
+    call_rust_state_service(
+        fixture.root.clone(),
+        serde_json::json!({}),
+        WorkerRequest::new(
+            "req-seed-command-ack-run",
+            "trace-seed-command-ack-run",
+            "agent_run.upsert",
+            serde_json::json!({ "record": record }),
+        ),
+        "command acknowledgement run seed",
+    )
+    .expect("running Agent record should seed");
+    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+    let dispatched = worker_transport_dispatch_websocket_message_with_options(
+        &shared,
+        WorkerTransportWebSocketDispatchInput {
+            client_id: "client-command-ack".to_string(),
+            frame: serde_json::json!({
+                "type": "interrupt",
+                "chat_id": "chat-command-ack",
+                "session_id": "websocket:chat-command-ack",
+                "command_id": "command-cancel-ack",
+                "command_kind": "agent.cancel",
+                "run_id": "run-command-ack",
+                "turn_id": "run-command-ack",
+                "source": { "surface": "tinyos", "control": "system-bar-cancel" }
+            }),
+            attached_chat_id: Some("chat-command-ack".to_string()),
+            session_exists: Some(true),
+            editable_paths: None,
+            model: None,
+            max_iterations: None,
+            run_id: Some("run-command-ack".to_string()),
+            stream: None,
+        },
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(10),
+    )
+    .expect("interrupt command should be accepted and acknowledged");
+    let runtime_state = worker_agent_run_runtime_state_with_options(
+        &shared,
+        "websocket:chat-command-ack".to_string(),
+        "run-command-ack".to_string(),
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(10),
+    )
+    .expect("canonical runtime state should include command acknowledgement");
+
+    assert_eq!(
+        dispatched["transport"]["frames"][0]["event"],
+        "command_accepted"
+    );
+    assert_eq!(
+        dispatched["transport"]["frames"][1]["event"],
+        "command_canonical_updated"
+    );
+    let acknowledgement = runtime_state["timeline"]["items"]
+        .as_array()
+        .and_then(|items| items.iter().find(|item| item["kind"] == "system_notice"))
+        .expect("canonical command acknowledgement item should exist");
+    assert_eq!(acknowledgement["status"], "completed");
+    assert_eq!(
+        acknowledgement["data"]["detail"]["commandId"],
+        "command-cancel-ack"
+    );
+    assert_eq!(
+        acknowledgement["data"]["detail"]["commandStatus"],
+        "acknowledged"
+    );
+}
+
+#[test]
 fn tinyos_effective_capabilities_are_backend_authored_and_run_scoped() {
     let policy = default_desktop_capability_policy();
     let running = crate::desktop_commands::session::build_worker_session_effective_capabilities(

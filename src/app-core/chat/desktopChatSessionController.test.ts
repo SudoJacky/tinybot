@@ -631,7 +631,10 @@ describe("desktop chat session controller", () => {
         type: "interrupt",
         chat_id: "chat-3",
         command_id: "command-stop-1",
+        command_kind: "agent.cancel",
         run_id: "run-1",
+        session_id: "websocket:chat-3",
+        source: { control: "stop-response", surface: "chat" },
       },
     ]);
   });

@@ -2,7 +2,9 @@ import { describe, expect, test } from "vitest";
 import type { ChatTurn } from "./chatRunModel";
 import {
   canonicalTinyOsCommandAcknowledgement,
+  canonicalTinyOsCommandCompletion,
   createTinyOsAgentCancelCommand,
+  isTinyOsCommandInFlight,
   isTinyOsCommandPending,
   reduceTinyOsCommandLifecycle,
   type TinyOsCommandLifecycle,
@@ -27,16 +29,26 @@ describe("TinyOS command lifecycle", () => {
     expect(isTinyOsCommandPending(state)).toBe(true);
 
     state = reduceTinyOsCommandLifecycle(state, {
-      acknowledgement: { itemId: "run-1:error:cancelled", revision: 7 },
+      acknowledgement: { itemId: "run-1:command-ack:command-1", revision: 1 },
       commandId: "command-1",
       nowMs: 30,
       type: "canonical_acknowledged",
     });
     expect(state).toMatchObject({
-      acknowledgement: { itemId: "run-1:error:cancelled", revision: 7 },
+      acknowledgement: { itemId: "run-1:command-ack:command-1", revision: 1 },
       stage: "acknowledged",
     });
     expect(isTinyOsCommandPending(state)).toBe(false);
+    expect(isTinyOsCommandInFlight(state)).toBe(true);
+
+    state = reduceTinyOsCommandLifecycle(state, {
+      commandId: "command-1",
+      completion: { itemId: "run-1:error:cancelled", revision: 7, status: "cancelled" },
+      nowMs: 40,
+      type: "operation_completed",
+    });
+    expect(state).toMatchObject({ completion: { status: "cancelled" }, stage: "completed" });
+    expect(isTinyOsCommandInFlight(state)).toBe(false);
   });
 
   test("ignores acknowledgements for a different correlation id", () => {
@@ -66,9 +78,25 @@ describe("TinyOS command lifecycle", () => {
     expect(timedOut).toMatchObject({ stage: "timed_out" });
   });
 
-  test("finds the correlated canonical item rather than matching cancellation by status", () => {
+  test("distinguishes canonical acknowledgement from operation completion", () => {
     const turn = {
       canonicalItems: [{
+        createdAt: "2026-07-13T00:00:00Z",
+        data: {
+          detail: { commandId: "command-1", commandStatus: "acknowledged" },
+          message: "Agent command acknowledged",
+          type: "system_notice",
+        },
+        itemId: "run-1:command-ack:command-1",
+        kind: "system_notice",
+        revision: 1,
+        runId: "run-1",
+        schemaVersion: "tinybot.turn_item.v2",
+        sequence: 5,
+        sessionId: "websocket:chat-1",
+        status: "completed",
+        turnId: "run-1",
+      }, {
         createdAt: "2026-07-13T00:00:01Z",
         data: { cancelled: true, code: "cancelled", commandId: "command-1", message: "cancelled", type: "error" },
         itemId: "run-1:error:cancelled",
@@ -83,8 +111,13 @@ describe("TinyOS command lifecycle", () => {
       }],
     } as ChatTurn;
     expect(canonicalTinyOsCommandAcknowledgement([turn], "command-1")).toEqual({
+      itemId: "run-1:command-ack:command-1",
+      revision: 1,
+    });
+    expect(canonicalTinyOsCommandCompletion([turn], "command-1")).toEqual({
       itemId: "run-1:error:cancelled",
       revision: 7,
+      status: "cancelled",
     });
     expect(canonicalTinyOsCommandAcknowledgement([turn], "command-other")).toBeUndefined();
   });

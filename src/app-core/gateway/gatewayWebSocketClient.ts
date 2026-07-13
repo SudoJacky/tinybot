@@ -1,6 +1,7 @@
 import { DEFAULT_GATEWAY_CONFIG, type GatewayConfig } from "./gatewayConfig";
 import { logDesktopNativeChatDebug, summarizeDebugText } from "../native/desktopNativeChatDebug";
 import type { NativeChatReference } from "../chat/nativeChat";
+import type { TinyOsAgentCancelCommand } from "../chat/tinyOsCommandGateway";
 
 export const createGatewaySocketMessage = {
   newChat: () => ({ type: "new_chat" as const }),
@@ -14,11 +15,16 @@ export const createGatewaySocketMessage = {
     ...(typeof usePersistentRag === "boolean" ? { use_persistent_rag: usePersistentRag } : {}),
     ...(model ? { model } : {}),
   }),
-  interrupt: (chatId: string, commandId: string, runId: string) => ({
+  interrupt: (chatId: string, command: TinyOsAgentCancelCommand) => ({
     type: "interrupt" as const,
     chat_id: chatId,
-    command_id: commandId,
-    run_id: runId,
+    command_id: command.commandId,
+    command_kind: command.kind,
+    run_id: command.target.runId,
+    session_id: command.target.sessionId,
+    ...(command.target.threadId ? { thread_id: command.target.threadId } : {}),
+    ...(command.target.turnId ? { turn_id: command.target.turnId } : {}),
+    source: command.source,
   }),
 };
 
@@ -33,6 +39,7 @@ export type NormalizedGatewayEvent =
   | { kind: "agent-ui.event"; eventType: string; raw: Record<string, unknown> }
   | { kind: "interrupted"; chatId?: string; cancelled: boolean; raw: Record<string, unknown> }
   | { kind: "command.accepted"; chatId?: string; commandId: string; raw: Record<string, unknown> }
+  | { kind: "command.canonical-updated"; chatId?: string; commandId: string; raw: Record<string, unknown> }
   | { kind: "error"; commandId?: string; message: string; raw: Record<string, unknown> }
   | { kind: "unknown"; event?: string; raw: Record<string, unknown> };
 
@@ -87,6 +94,13 @@ export function normalizeGatewayFrame(frame: unknown): NormalizedGatewayEvent {
     case "command_accepted":
       return {
         kind: "command.accepted",
+        chatId: optionalString(raw.chat_id),
+        commandId: stringValue(raw.command_id ?? raw.commandId),
+        raw,
+      };
+    case "command_canonical_updated":
+      return {
+        kind: "command.canonical-updated",
         chatId: optionalString(raw.chat_id),
         commandId: stringValue(raw.command_id ?? raw.commandId),
         raw,

@@ -7,7 +7,7 @@ import type { ArtifactRef, ChatStep } from "../../app-core/chat/chatRunModel";
 import type { ApprovalAction } from "../services";
 import { TinyOsShell } from "./TinyOsShell";
 import type { TinyOsFilesController } from "./useTinyOsFilesController";
-import { isTinyOsCommandPending, type TinyOsCommandLifecycle } from "../../app-core/chat/tinyOsCommandGateway";
+import { isTinyOsCommandInFlight, type TinyOsCommandLifecycle } from "../../app-core/chat/tinyOsCommandGateway";
 
 export type LiveCanvasMode = "live_follow" | "history";
 export type LiveCanvasEntry = TinyOsTimelineEntry;
@@ -78,7 +78,7 @@ export function LiveCanvas({
     turnId: mode === "history" ? selection?.turnId : undefined,
   }), [entries, mode, selection?.step.id, selection?.turnId]);
   const actionableDialog = Boolean(snapshot.dialog && mode === "live_follow");
-  const cancelPending = isTinyOsCommandPending(commandLifecycle);
+  const cancelPending = isTinyOsCommandInFlight(commandLifecycle);
   const skipBoot = Boolean(snapshot.dialog) || prefersReducedMotion();
   const [booting, setBooting] = useState(() => !tinyOsBootedInRuntime && !skipBoot);
   const dragRef = useRef<{ pointerId: number; startWidth: number; startX: number } | undefined>(undefined);
@@ -167,7 +167,8 @@ export function LiveCanvas({
           {snapshot.dialog || snapshot.notifications.length ? <span className="tinyos-attention" title="TinyOS notifications"><Bell aria-hidden="true" size={13} />{actionableDialog ? "Action needed" : snapshot.dialog ? "Historical request" : snapshot.notifications.length}</span> : null}
           {commandLifecycle.stage === "sending" ? <span>Sending cancel…</span> : null}
           {commandLifecycle.stage === "waiting_for_canonical" ? <span>Awaiting runtime</span> : null}
-          {commandLifecycle.stage === "acknowledged" ? <span>Cancel confirmed</span> : null}
+          {commandLifecycle.stage === "acknowledged" ? <span>Command acknowledged</span> : null}
+          {commandLifecycle.stage === "completed" ? <span>Cancellation complete</span> : null}
           {commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out" ? <span className="tinyos-attention">Cancel issue</span> : null}
           {cancelUnavailableReason && commandLifecycle.stage === "idle" ? <span className="tinyos-attention">{cancelUnavailableReason}</span> : null}
         </div>

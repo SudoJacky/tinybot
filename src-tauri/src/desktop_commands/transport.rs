@@ -3,7 +3,10 @@ use crate::native_agent_bridge::desktop_agent_event_sink;
 use crate::worker_agent_runtime::NativeAgentTraceSink;
 use crate::worker_protocol::WorkerRequest;
 use crate::worker_request_id::{next_worker_request_correlation, WorkerRequestCorrelation};
-use crate::{experimental_worker_config_snapshot, native_backend_workspace_root, SharedGateway};
+use crate::{
+    call_rust_state_service, experimental_worker_config_snapshot, native_backend_workspace_root,
+    SharedGateway,
+};
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tauri::{Runtime, State};
@@ -259,17 +262,38 @@ async fn worker_transport_dispatch_websocket_message_with_live_trace_sink_async(
             .and_then(serde_json::Value::as_str)
             .map(str::to_string)
             .ok_or_else(|| "native websocket interrupt is missing commandId".to_string())?;
+        let session_id = transport_result
+            .get("sessionId")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| "native websocket interrupt is missing sessionId".to_string())?;
+        persist_tinyos_command_acknowledgement(
+            workspace_root,
+            config_snapshot,
+            &session_id,
+            &run_id,
+            &command_id,
+            &transport_result,
+        )?;
         let services = {
             let runtime = crate::lock_runtime(shared);
             runtime.native_agent_runtime.clone()
         };
         let cancellation = services.cancel_with_command_id(&run_id, Some(&command_id));
-        transport_result["frames"] = serde_json::json!([{
-            "event": "command_accepted",
-            "chat_id": transport_result.get("chatId").cloned().unwrap_or(serde_json::Value::Null),
-            "command_id": command_id,
-            "run_id": run_id,
-        }]);
+        transport_result["frames"] = serde_json::json!([
+            {
+                "event": "command_accepted",
+                "chat_id": transport_result.get("chatId").cloned().unwrap_or(serde_json::Value::Null),
+                "command_id": command_id,
+                "run_id": run_id,
+            },
+            {
+                "event": "command_canonical_updated",
+                "chat_id": transport_result.get("chatId").cloned().unwrap_or(serde_json::Value::Null),
+                "command_id": command_id,
+                "run_id": run_id,
+            }
+        ]);
         return Ok(serde_json::json!({
             "transport": transport_result,
             "command": cancellation,
@@ -337,12 +361,23 @@ pub(crate) fn native_websocket_transport_result(
         let run_id = json_string_field(frame, "run_id")
             .or_else(|| json_string_field(frame, "runId"))
             .or(input.run_id.as_deref())?;
+        let session_id = json_string_field(frame, "session_id")
+            .or_else(|| json_string_field(frame, "sessionId"))
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("websocket:{chat_id}"));
+        let command_kind = json_string_field(frame, "command_kind")
+            .or_else(|| json_string_field(frame, "commandKind"))
+            .unwrap_or("agent.cancel");
         return Some(serde_json::json!({
             "kind": "interrupt",
             "chatId": chat_id,
-            "sessionId": format!("websocket:{chat_id}"),
+            "sessionId": session_id,
             "commandId": command_id,
+            "commandKind": command_kind,
             "runId": run_id,
+            "turnId": json_string_field(frame, "turn_id").or_else(|| json_string_field(frame, "turnId")),
+            "threadId": json_string_field(frame, "thread_id").or_else(|| json_string_field(frame, "threadId")),
+            "source": frame.get("source").cloned().unwrap_or(serde_json::Value::Null),
             "frames": [],
         }));
     }
@@ -400,6 +435,50 @@ pub(crate) fn native_websocket_transport_result(
             "session_key": session_id,
         }
     }))
+}
+
+fn persist_tinyos_command_acknowledgement(
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    session_id: &str,
+    run_id: &str,
+    command_id: &str,
+    transport: &serde_json::Value,
+) -> Result<(), String> {
+    let request_id = next_worker_request_correlation();
+    call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("tinyos-command-acknowledge"),
+            request_id.trace_id("tinyos-command-acknowledge"),
+            "agent_run.append_trace",
+            serde_json::json!({
+                "session_id": session_id,
+                "run_id": run_id,
+                "event": {
+                    "eventId": format!("{run_id}:command-ack:{command_id}"),
+                    "itemId": format!("{run_id}:command-ack:{command_id}"),
+                    "eventName": "agent.command.acknowledged",
+                    "payload": {
+                        "commandId": command_id,
+                        "commandKind": transport.get("commandKind").cloned().unwrap_or(serde_json::Value::Null),
+                        "commandStatus": "acknowledged",
+                        "message": "Agent command acknowledged",
+                        "source": transport.get("source").cloned().unwrap_or(serde_json::Value::Null),
+                        "target": {
+                            "sessionId": session_id,
+                            "runId": run_id,
+                            "turnId": transport.get("turnId").cloned().unwrap_or(serde_json::Value::Null),
+                            "threadId": transport.get("threadId").cloned().unwrap_or(serde_json::Value::Null),
+                        }
+                    }
+                }
+            }),
+        ),
+        "TinyOS command acknowledgement append",
+    )?;
+    Ok(())
 }
 
 pub(crate) fn build_worker_transport_websocket_run_input_request(

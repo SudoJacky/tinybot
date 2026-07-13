@@ -28,11 +28,16 @@ export type TinyOsCommandAcknowledgement = {
   revision: number;
 };
 
+export type TinyOsCommandCompletion = TinyOsCommandAcknowledgement & {
+  status: "completed" | "failed" | "cancelled";
+};
+
 export type TinyOsCommandLifecycle =
   | { stage: "idle" }
   | { command: TinyOsCommand; dispatchedAtMs: number; stage: "sending" }
   | { command: TinyOsCommand; dispatchedAtMs: number; transportAcceptedAtMs: number; stage: "waiting_for_canonical" }
   | { acknowledgement: TinyOsCommandAcknowledgement; command: TinyOsCommand; acknowledgedAtMs: number; dispatchedAtMs: number; stage: "acknowledged" }
+  | { acknowledgement: TinyOsCommandAcknowledgement; command: TinyOsCommand; completedAtMs: number; completion: TinyOsCommandCompletion; dispatchedAtMs: number; stage: "completed" }
   | { command: TinyOsCommand; dispatchedAtMs: number; error: string; stage: "rejected" }
   | { command: TinyOsCommand; dispatchedAtMs: number; error: string; stage: "timed_out" };
 
@@ -40,6 +45,7 @@ export type TinyOsCommandLifecycleAction =
   | { command: TinyOsCommand; nowMs: number; type: "dispatch" }
   | { commandId: string; nowMs: number; type: "transport_accepted" }
   | { acknowledgement: TinyOsCommandAcknowledgement; commandId: string; nowMs: number; type: "canonical_acknowledged" }
+  | { commandId: string; completion: TinyOsCommandCompletion; nowMs: number; type: "operation_completed" }
   | { commandId: string; error: string; type: "rejected" }
   | { commandId: string; type: "ack_timeout" }
   | { type: "reset" };
@@ -78,7 +84,19 @@ export function reduceTinyOsCommandLifecycle(
     return { command: action.command, dispatchedAtMs: action.nowMs, stage: "sending" };
   }
   if (state.stage === "idle" || state.command.commandId !== action.commandId) return state;
-  if (state.stage === "acknowledged" || state.stage === "rejected" || state.stage === "timed_out") return state;
+  if (state.stage === "completed" || state.stage === "rejected" || state.stage === "timed_out") return state;
+  if (action.type === "operation_completed") {
+    if (state.stage !== "acknowledged") return state;
+    return {
+      acknowledgement: state.acknowledgement,
+      command: state.command,
+      completedAtMs: action.nowMs,
+      completion: action.completion,
+      dispatchedAtMs: state.dispatchedAtMs,
+      stage: "completed",
+    };
+  }
+  if (state.stage === "acknowledged") return state;
   if (action.type === "transport_accepted") {
     return {
       command: state.command,
@@ -116,7 +134,8 @@ export function canonicalTinyOsCommandAcknowledgement(
       const directCommandId = stringValue(item.data.commandId ?? item.data.command_id);
       const detail = recordValue(item.data.detail);
       const detailCommandId = stringValue(detail.commandId ?? detail.command_id);
-      if (directCommandId === commandId || detailCommandId === commandId) {
+      const commandStatus = stringValue(detail.commandStatus ?? detail.command_status);
+      if ((directCommandId === commandId || detailCommandId === commandId) && commandStatus === "acknowledged") {
         return { itemId: item.itemId, revision: item.revision };
       }
     }
@@ -124,8 +143,29 @@ export function canonicalTinyOsCommandAcknowledgement(
   return undefined;
 }
 
+export function canonicalTinyOsCommandCompletion(
+  turns: ChatTurn[],
+  commandId: string,
+): TinyOsCommandCompletion | undefined {
+  for (const turn of turns) {
+    for (const item of turn.canonicalItems ?? []) {
+      const detail = recordValue(item.data.detail);
+      const itemCommandId = stringValue(item.data.commandId ?? item.data.command_id)
+        || stringValue(detail.commandId ?? detail.command_id);
+      if (itemCommandId !== commandId || stringValue(detail.commandStatus ?? detail.command_status) === "acknowledged") continue;
+      const status = item.status === "cancelled" ? "cancelled" : item.status === "failed" ? "failed" : "completed";
+      return { itemId: item.itemId, revision: item.revision, status };
+    }
+  }
+  return undefined;
+}
+
 export function isTinyOsCommandPending(state: TinyOsCommandLifecycle): boolean {
   return state.stage === "sending" || state.stage === "waiting_for_canonical";
+}
+
+export function isTinyOsCommandInFlight(state: TinyOsCommandLifecycle): boolean {
+  return isTinyOsCommandPending(state) || state.stage === "acknowledged";
 }
 
 function createTinyOsCommandId(): string {

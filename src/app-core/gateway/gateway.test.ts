@@ -2199,11 +2199,28 @@ describe("gateway WebSocket client", () => {
       references: [expect.objectContaining({ evidenceId: "item-1", type: "tinyos.file" })],
       use_persistent_rag: true,
     });
-    expect(createGatewaySocketMessage.interrupt("chat-1", "command-1", "run-1")).toEqual({
+    expect(createGatewaySocketMessage.interrupt("chat-1", {
+      schemaVersion: "tinybot.command.v1",
+      commandId: "command-1",
+      issuedAt: "2026-07-13T00:00:00Z",
+      kind: "agent.cancel",
+      source: { control: "stop-response", surface: "chat" },
+      target: {
+        runId: "run-1",
+        sessionId: "websocket:chat-1",
+        threadId: "thread-1",
+        turnId: "turn-1",
+      },
+    })).toEqual({
       type: "interrupt",
       chat_id: "chat-1",
       command_id: "command-1",
+      command_kind: "agent.cancel",
       run_id: "run-1",
+      session_id: "websocket:chat-1",
+      source: { control: "stop-response", surface: "chat" },
+      thread_id: "thread-1",
+      turn_id: "turn-1",
     });
   });
 
@@ -2235,6 +2252,11 @@ describe("gateway WebSocket client", () => {
     });
     expect(normalizeGatewayFrame({ event: "command_accepted", chat_id: "chat-1", command_id: "command-1" })).toMatchObject({
       kind: "command.accepted",
+      chatId: "chat-1",
+      commandId: "command-1",
+    });
+    expect(normalizeGatewayFrame({ event: "command_canonical_updated", chat_id: "chat-1", command_id: "command-1" })).toMatchObject({
+      kind: "command.canonical-updated",
       chatId: "chat-1",
       commandId: "command-1",
     });

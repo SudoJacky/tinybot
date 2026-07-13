@@ -477,6 +477,28 @@ describe("default desktop app services", () => {
     }));
   });
 
+  test("forwards canonical command invalidation without treating it as acknowledgement", async () => {
+    const services = createDesktopAppServices();
+    await services.sessionStore.list();
+    const events: ChatEvent[] = [];
+    services.chatStore.subscribe("websocket:chat-1", (event) => events.push(event));
+
+    const socket = mocks.openGatewaySocket.mock.results[0]?.value;
+    socket.handlers.onEvent({
+      kind: "command.canonical-updated",
+      chatId: "chat-1",
+      commandId: "command-1",
+      raw: { event: "command_canonical_updated" },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(events).toContainEqual({
+      commandId: "command-1",
+      type: "command.canonical-updated",
+    });
+  });
+
   test("publishes the typed cancel command before a shortcut stop dispatch", async () => {
     mocks.gatewayApi.sessions.agentRuns.mockResolvedValue({ runs: [{ runId: "run-cancel" }] });
     mocks.gatewayApi.sessions.agentRunRuntimeState.mockResolvedValue(canonicalRuntimeState("run-cancel", [
