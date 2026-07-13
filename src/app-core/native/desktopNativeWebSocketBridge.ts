@@ -35,6 +35,7 @@ const AGENT_EVENT_NAMES: DesktopNativeWebSocketAgentEventName[] = [
   "agent.usage",
   "agent.awaiting_form",
   "agent.awaiting_approval",
+  "agent.command.acknowledged",
   "agent.memory_reference",
   "agent.task_progress",
   "agent.delegate.started",
@@ -162,12 +163,18 @@ class DesktopNativeWebSocket extends EventTarget {
     const sessionExists = await this.resolveAttachSessionExists(frame);
     const model = stringValue(frame.model);
     const run = optimisticRunForFrame(frame);
+    const frameType = stringValue(frame.type);
+    const chatId = stringValue(frame.chat_id) || stringValue(frame.chatId) || this.attachedChatId || "";
+    const commandId = stringValue(frame.command_id) || stringValue(frame.commandId);
+    const commandRunId = frameType === "interrupt" || frameType === "command"
+      ? stringValue(frame.run_id) || stringValue(frame.runId) || this.activeRunIdForChat(chatId)
+      : "";
     this.maybeEmitApprovalResolvedFrame(frame);
     logDesktopNativeDebug("nativeWebSocket.dispatchFrame", {
       chatId: stringValue(frame.chat_id),
       hasRun: Boolean(run),
       model: model || "",
-      type: stringValue(frame.type),
+      type: frameType,
     });
     const request: NativeTransportWebSocketDispatchRequest = {
       clientId: this.clientId,
@@ -176,7 +183,7 @@ class DesktopNativeWebSocket extends EventTarget {
       ...(sessionExists !== undefined ? { sessionExists } : {}),
       ...(this.editablePaths ? { editablePaths: this.editablePaths } : {}),
       ...(model ? { model } : {}),
-      ...(run ? { runId: run.runId } : {}),
+      ...(run ? { runId: run.runId } : commandRunId ? { runId: commandRunId } : {}),
     };
     if (run) {
       this.lastUserMessageByChat.set(run.chatId, stringValue(frame.content));
@@ -191,12 +198,17 @@ class DesktopNativeWebSocket extends EventTarget {
       }
       const message = error instanceof Error ? error.message : String(error);
       logDesktopNativeDebug("nativeWebSocket.dispatchFrame.failed", {
-        chatId: run?.chatId || stringValue(frame.chat_id),
+        chatId: run?.chatId || chatId,
+        commandId: commandId || "",
         error: message,
-        runId: run?.runId || "",
-        type: stringValue(frame.type),
+        runId: run?.runId || commandRunId,
+        type: frameType,
       });
-      this.emitJson({ event: "error", message });
+      if (commandId) {
+        this.emitJson({ event: "error", command_id: commandId, chat_id: chatId, message });
+      } else {
+        this.emitJson({ event: "error", message });
+      }
     }
   }
 
@@ -352,6 +364,16 @@ class DesktopNativeWebSocket extends EventTarget {
         ...record,
         event: stringValue(record.event) || eventName,
       });
+      return;
+    }
+    if (eventName === "agent.command.acknowledged") {
+      const commandId = stringValue(record.commandId) || stringValue(record.command_id);
+      const chatId = stringValue(record.chatId) || stringValue(record.chat_id) || this.attachedChatId || "";
+      const runId = stringValue(record.runId) || stringValue(record.run_id);
+      if (commandId) {
+        this.emitJson({ event: "command_accepted", chat_id: chatId, command_id: commandId, run_id: runId });
+        this.emitJson({ event: "command_canonical_updated", chat_id: chatId, command_id: commandId, run_id: runId });
+      }
       return;
     }
     const runId = stringValue(record.runId) || stringValue(record.run_id);
@@ -603,13 +625,16 @@ class DesktopNativeWebSocket extends EventTarget {
     }
     if (eventName === "agent.cancelled") {
       run.streamed = true;
+      const commandId = stringValue(payload.commandId) || stringValue(payload.command_id);
       this.emitJson({
         event: "interrupted",
         chat_id: run.chatId,
         cancelled: payload.cancelled !== false,
+        ...(commandId ? { command_id: commandId } : {}),
       });
       this.emitAgentEventFrame(run, runId, "agent.turn.interrupted", {
         cancelled: payload.cancelled !== false,
+        ...(commandId ? { command_id: commandId } : {}),
       });
       this.activeRuns.delete(runId);
       this.completedStreamedRunIds.add(runId);

@@ -283,7 +283,7 @@ pub(super) async fn maybe_approval_resume_result(
                     guidance,
                     checkpoint,
                 )
-                .await,
+                .await?,
             ));
         }
         services
@@ -308,6 +308,8 @@ pub(super) async fn maybe_approval_resume_result(
                 }),
             ),
         ];
+        let runtime_events = continuation_runtime_events(services, context, &events)?;
+        append_runtime_events_to_sink(context, services.trace_sink.as_ref(), &runtime_events);
         return Ok(Some(serde_json::json!({
             "runtime": "rust",
             "runId": context.run_id,
@@ -318,6 +320,7 @@ pub(super) async fn maybe_approval_resume_result(
             "toolsUsed": [],
             "error": message,
             "events": events,
+            "runtimeEvents": runtime_events,
         })));
     }
     services
@@ -441,6 +444,7 @@ async fn approved_tool_continuation_result(
         }
         OwnedToolCallResult::Cancelled => {
             return Ok(cancelled_result(
+                services,
                 &context.run_id,
                 &context.session_id,
                 checkpoint,
@@ -496,6 +500,7 @@ async fn approved_tool_continuation_result(
             biased;
             _ = cancellation.cancelled() => {
                 return Ok(cancelled_result(
+                    services,
                     &context.run_id,
                     &context.session_id,
                     checkpoint,
@@ -510,6 +515,7 @@ async fn approved_tool_continuation_result(
         Ok(response) => response,
         Err(error) if error.kind() == NativeAgentProviderFailureKind::Cancelled => {
             return Ok(cancelled_result(
+                services,
                 &context.run_id,
                 &context.session_id,
                 checkpoint,
@@ -699,7 +705,7 @@ async fn approval_denied_guidance_result(
     continuation: &ApprovalContinuationData,
     guidance: String,
     checkpoint: Option<Value>,
-) -> Value {
+) -> Result<Value, String> {
     services
         .checkpoints
         .clear_for_run(&context.session_id, &context.run_id);
@@ -756,18 +762,19 @@ async fn approval_denied_guidance_result(
         tokio::select! {
             biased;
             _ = cancellation.cancelled() => {
-                return cancelled_result(
+                return Ok(cancelled_result(
+                    services,
                     &context.run_id,
                     &context.session_id,
                     checkpoint.unwrap_or(Value::Null),
-                );
+                ));
             }
             result = &mut provider_call => result,
         }
     } else {
         provider_call.await
     };
-    match provider_response {
+    let mut result = match provider_response {
         Ok(provider_response) => {
             let final_content = provider_response.final_content;
             if let Some(usage) = provider_response.usage {
@@ -813,11 +820,12 @@ async fn approval_denied_guidance_result(
                     "scope": approval_scope_str(&continuation.scope),
                     "guidance": guidance,
                 },
-                "events": events,
+                "events": events.clone(),
             })
         }
         Err(error) if error.kind() == NativeAgentProviderFailureKind::Cancelled => {
             cancelled_result(
+                services,
                 &context.run_id,
                 &context.session_id,
                 checkpoint.unwrap_or(Value::Null),
@@ -847,10 +855,15 @@ async fn approval_denied_guidance_result(
                 "completedToolResults": [completed_result],
                 "restoredCheckpoint": checkpoint,
                 "error": message,
-                "events": events,
+                "events": events.clone(),
             })
         }
-    }
+    };
+    let runtime_events = continuation_runtime_events(services, context, &events)?;
+    append_runtime_events_to_sink(context, services.trace_sink.as_ref(), &runtime_events);
+    result["runtimeEvents"] = serde_json::to_value(runtime_events)
+        .map_err(|error| format!("failed to serialize denied approval runtime events: {error}"))?;
+    Ok(result)
 }
 
 fn approval_resume_tool_call(
@@ -891,22 +904,28 @@ fn approval_decision_event(
     context: &NativeAgentRunContext,
     continuation: &ApprovalContinuationData,
 ) -> NativeAgentEvent {
-    event(
-        "agent.approval.decision",
-        serde_json::json!({
-            "runId": context.run_id,
-            "sessionId": context.session_id,
-            "approvalId": continuation.approval_id,
-            "detailId": format!("approval:{}", continuation.approval_id),
-            "status": "completed",
-            "decision": match continuation.decision {
-                AgentApprovalDecision::Approved => "approved",
-                AgentApprovalDecision::Denied => "denied",
-            },
-            "scope": approval_scope_str(&continuation.scope),
-            "guidance": continuation.guidance,
-        }),
-    )
+    let mut payload = serde_json::json!({
+        "runId": context.run_id,
+        "sessionId": context.session_id,
+        "approvalId": continuation.approval_id,
+        "detailId": format!("approval:{}", continuation.approval_id),
+        "status": "completed",
+        "decision": match continuation.decision {
+            AgentApprovalDecision::Approved => "approved",
+            AgentApprovalDecision::Denied => "denied",
+        },
+        "scope": approval_scope_str(&continuation.scope),
+        "guidance": continuation.guidance,
+    });
+    if let Some(command_id) = context
+        .metadata
+        .get("commandId")
+        .or_else(|| context.metadata.get("command_id"))
+        .and_then(serde_json::Value::as_str)
+    {
+        payload["commandId"] = serde_json::Value::String(command_id.to_string());
+    }
+    event("agent.approval.decision", payload)
 }
 
 fn approval_scope_str(scope: &AgentApprovalScope) -> &'static str {
@@ -1093,6 +1112,8 @@ pub(super) fn maybe_form_submit_result(
                 }),
             ),
         ];
+        let runtime_events = continuation_runtime_events(services, context, &events)?;
+        append_runtime_events_to_sink(context, services.trace_sink.as_ref(), &runtime_events);
         return Ok(Some(serde_json::json!({
             "runtime": "rust",
             "runId": context.run_id,
@@ -1103,6 +1124,7 @@ pub(super) fn maybe_form_submit_result(
             "toolsUsed": [],
             "error": message,
             "events": events,
+            "runtimeEvents": runtime_events,
             "restoredCheckpoint": checkpoint,
         })));
     }
@@ -1131,6 +1153,8 @@ pub(super) fn maybe_form_submit_result(
             }),
         ),
     ];
+    let runtime_events = continuation_runtime_events(services, context, &events)?;
+    append_runtime_events_to_sink(context, services.trace_sink.as_ref(), &runtime_events);
     Ok(Some(serde_json::json!({
         "runtime": "rust",
         "runId": context.run_id,
@@ -1150,6 +1174,7 @@ pub(super) fn maybe_form_submit_result(
             "values": continuation.values,
         },
         "events": events,
+        "runtimeEvents": runtime_events,
     })))
 }
 
@@ -1157,21 +1182,27 @@ fn form_resolution_event(
     context: &NativeAgentRunContext,
     continuation: &FormContinuationData,
 ) -> NativeAgentEvent {
-    event(
-        "agent.form.resolution",
-        serde_json::json!({
-            "runId": context.run_id,
-            "sessionId": context.session_id,
-            "formId": continuation.form_id,
-            "detailId": format!("form:{}", continuation.form_id),
-            "status": "completed",
-            "action": match continuation.action {
-                AgentFormAction::Submit => "submit",
-                AgentFormAction::Cancel => "cancel",
-            },
-            "values": continuation.values.clone(),
-        }),
-    )
+    let mut payload = serde_json::json!({
+        "runId": context.run_id,
+        "sessionId": context.session_id,
+        "formId": continuation.form_id,
+        "detailId": format!("form:{}", continuation.form_id),
+        "status": "completed",
+        "action": match continuation.action {
+            AgentFormAction::Submit => "submit",
+            AgentFormAction::Cancel => "cancel",
+        },
+        "values": continuation.values.clone(),
+    });
+    if let Some(command_id) = context
+        .metadata
+        .get("commandId")
+        .or_else(|| context.metadata.get("command_id"))
+        .and_then(serde_json::Value::as_str)
+    {
+        payload["commandId"] = serde_json::Value::String(command_id.to_string());
+    }
+    event("agent.form.resolution", payload)
 }
 
 #[derive(Clone, Debug)]

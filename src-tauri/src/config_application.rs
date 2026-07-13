@@ -235,7 +235,8 @@ pub(crate) fn experimental_worker_default_config_snapshot() -> Value {
                     "apiBase": "https://api.deepseek.com",
                     "models": ["deepseek-v4-pro", "deepseek-v4-flash"],
                     "defaultModel": "deepseek-v4-pro",
-                    "supportsModelDiscovery": true
+                    "supportsModelDiscovery": true,
+                    "capabilities": ["reasoning"]
                 }
             }
         },

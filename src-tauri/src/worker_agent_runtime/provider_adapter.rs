@@ -209,18 +209,22 @@ fn require_provider_capability(
     config_snapshot: &Value,
     capability: &str,
 ) -> Result<(), String> {
-    let provider = settings.provider.as_deref().unwrap_or("auto");
-    let provider_config = config_snapshot
-        .get("providers")
-        .and_then(|providers| providers.get(provider));
-    let supported = provider_config
-        .and_then(|provider| provider.get("capabilities"))
-        .is_some_and(|capabilities| capability_enabled(capabilities, capability));
+    let profile = crate::native_provider_runtime::resolve_provider_profile(
+        config_snapshot,
+        settings.provider.as_deref(),
+        None,
+    )
+    .ok_or_else(|| {
+        let provider = settings.provider.as_deref().unwrap_or("active profile");
+        format!("provider `{provider}` is not configured")
+    })?;
+    let supported = capability_enabled(&profile.capabilities, capability);
     if supported {
         Ok(())
     } else {
         Err(format!(
-            "provider `{provider}` does not declare support for `{capability}`"
+            "provider `{}` does not declare support for `{capability}`",
+            profile.provider_id
         ))
     }
 }

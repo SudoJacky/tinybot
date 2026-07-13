@@ -74,6 +74,23 @@ impl WorkerRpcRouter {
                 )?)
                 .map_err(serialization_error)
             }
+            "workspace.list_dir_page" => {
+                let params: ListDirPageParams = parse_params(request)?;
+                serde_json::to_value(self.workspace.list_dir_page(
+                    &params.path,
+                    params.cursor.as_deref(),
+                    params.name_query.as_deref(),
+                )?)
+                .map_err(serialization_error)
+            }
+            "workspace.read_file_chunk" => {
+                let params: ReadFileChunkParams = parse_params(request)?;
+                serde_json::to_value(
+                    self.workspace
+                        .read_file_chunk(&params.path, params.cursor.as_deref())?,
+                )
+                .map_err(serialization_error)
+            }
             "workspace.delete_file" => {
                 let params: DeleteFileParams = parse_params(request)?;
                 if !request.is_trusted_internal() {

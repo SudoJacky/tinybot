@@ -211,6 +211,75 @@ fn normalizes_desktop_run_spec_inputs_for_rust_turns() {
 }
 
 #[test]
+fn resolves_profile_based_provider_for_reasoning_turns() {
+    let context = NativeAgentRunContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }),
+        json!({
+            "agents": {
+                "defaults": {
+                    "activeProfile": "deepseek-default",
+                    "model": "deepseek-v4-pro",
+                    "reasoningEffort": "medium"
+                }
+            },
+            "providers": {
+                "profiles": {
+                    "deepseek-default": {
+                        "provider": "deepseek",
+                        "enabled": true,
+                        "apiBase": "https://api.deepseek.com",
+                        "models": ["deepseek-v4-pro"]
+                    }
+                }
+            }
+        }),
+    );
+
+    let request = agent_chat_completion_request(&context)
+        .expect("profile-based provider should declare built-in reasoning support");
+
+    assert_eq!(context.provider.as_deref(), Some("deepseek"));
+    assert_eq!(context.settings.provider.as_deref(), Some("deepseek"));
+    assert_eq!(request["reasoning_effort"], "medium");
+}
+
+#[test]
+fn profile_capabilities_override_built_in_provider_defaults() {
+    let context = NativeAgentRunContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }),
+        json!({
+            "agents": {
+                "defaults": {
+                    "activeProfile": "deepseek-default",
+                    "model": "deepseek-v4-pro",
+                    "reasoningEffort": "medium"
+                }
+            },
+            "providers": {
+                "profiles": {
+                    "deepseek-default": {
+                        "provider": "deepseek",
+                        "capabilities": { "reasoning": false }
+                    }
+                }
+            }
+        }),
+    );
+
+    let error = agent_chat_completion_request(&context)
+        .expect_err("explicit profile capabilities should override catalog defaults");
+
+    assert!(error.contains("deepseek"));
+    assert!(error.contains("reasoning"));
+}
+
+#[test]
 fn defaults_native_agent_runs_to_the_desktop_iteration_limit() {
     let context = NativeAgentRunContext::from_spec(json!({}), json!({}));
 
@@ -2151,12 +2220,18 @@ fn typed_turn_settings_report_unsupported_provider_features() {
     let unsupported = NativeAgentRunContext::from_spec(
         json!({
             "runtime": "rust",
-            "provider": "fixture",
             "model": "fixture-model",
             "serviceTier": "priority",
             "messages": [{ "role": "user", "content": "hello" }]
         }),
-        json!({ "providers": { "fixture": {} } }),
+        json!({
+            "agents": { "defaults": { "activeProfile": "fixture-default" } },
+            "providers": {
+                "profiles": {
+                    "fixture-default": { "provider": "fixture" }
+                }
+            }
+        }),
     );
 
     let error = agent_chat_completion_request(&unsupported)
@@ -2171,7 +2246,6 @@ fn typed_turn_settings_encode_declared_provider_features() {
     let context = NativeAgentRunContext::from_spec(
         json!({
             "runtime": "rust",
-            "provider": "fixture",
             "model": "fixture-model",
             "serviceTier": "priority",
             "reasoning": { "effort": "high" },
@@ -2187,12 +2261,16 @@ fn typed_turn_settings_encode_declared_provider_features() {
             "messages": [{ "role": "user", "content": "hello" }]
         }),
         json!({
+            "agents": { "defaults": { "activeProfile": "fixture-default" } },
             "providers": {
-                "fixture": {
-                    "capabilities": {
-                        "serviceTier": true,
-                        "reasoning": true,
-                        "structuredOutput": true
+                "profiles": {
+                    "fixture-default": {
+                        "provider": "fixture",
+                        "capabilities": {
+                            "serviceTier": true,
+                            "reasoning": true,
+                            "structuredOutput": true
+                        }
                     }
                 }
             }
@@ -6636,7 +6714,7 @@ fn handles_approval_denial_form_submit_and_cancel_events() {
         }),
     )
     .expect("form cancellation should return error result");
-    let cancelled = services.cancel("run-cancel");
+    let cancelled = services.cancel_with_command_id("run-cancel", Some("command-cancel-1"));
     let cancel_result = run_native_agent_turn_with_services(
         &services,
         json!({
@@ -6729,7 +6807,15 @@ fn handles_approval_denial_form_submit_and_cancel_events() {
     assert_eq!(cancelled["error"], "cancelled");
     assert_eq!(cancelled["events"][0]["eventName"], "agent.cancelled");
     assert_eq!(cancelled["events"][0]["payload"]["stopReason"], "cancelled");
+    assert_eq!(
+        cancelled["events"][0]["payload"]["commandId"],
+        "command-cancel-1"
+    );
     assert_eq!(cancel_result["stopReason"], "cancelled");
+    assert_eq!(
+        cancel_result["events"][0]["payload"]["commandId"],
+        "command-cancel-1"
+    );
     assert_eq!(
         cancel_result["events"][0]["payload"]["agentItem"]["cancelled"],
         true
@@ -7269,6 +7355,142 @@ fn async_provider_is_not_called_when_run_was_cancelled_before_request() {
 
         assert_eq!(result["stopReason"], "cancelled");
         assert_eq!(calls.load(Ordering::SeqCst), 0);
+    });
+}
+
+#[test]
+fn async_provider_run_pauses_at_safe_boundary_and_resumes_same_run() {
+    struct BoundaryProvider {
+        release: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+        started: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+    }
+
+    impl NativeAgentProvider for BoundaryProvider {
+        fn complete(
+            &self,
+            _context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            panic!("async provider path should not call blocking completion");
+        }
+
+        fn complete_streaming_async<'a>(
+            self: Arc<Self>,
+            _context: &'a NativeAgentRunContext,
+            _observer: &'a mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = Result<NativeAgentProviderResponse, NativeAgentProviderFailure>,
+                    > + Send
+                    + 'a,
+            >,
+        > {
+            let started = self
+                .started
+                .lock()
+                .expect("provider start signal lock should not be poisoned")
+                .take();
+            let release = self
+                .release
+                .lock()
+                .expect("provider release signal lock should not be poisoned")
+                .take();
+            Box::pin(async move {
+                if let Some(started) = started {
+                    started.send(()).expect("provider start signal should send");
+                }
+                release
+                    .expect("provider release signal should exist")
+                    .await
+                    .expect("provider release signal should send");
+                Ok(NativeAgentProviderResponse {
+                    final_content: "done after resume".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: Vec::new(),
+                })
+            })
+        }
+    }
+
+    tauri::async_runtime::block_on(async {
+        let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
+        let (release_sender, release_receiver) = tokio::sync::oneshot::channel();
+        let trace_sink = Arc::new(RecordingTraceSink::default());
+        let recorded_events = trace_sink.events.clone();
+        let services = NativeAgentRuntimeServices::new(
+            Arc::new(BoundaryProvider {
+                release: Mutex::new(Some(release_receiver)),
+                started: Mutex::new(Some(started_sender)),
+            }),
+            Arc::new(FakeNativeAgentToolDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        )
+        .with_trace_sink(trace_sink);
+        let run_services = services.clone();
+        let run_task = tauri::async_runtime::spawn(async move {
+            run_native_agent_turn_with_config_async(
+                &run_services,
+                json!({
+                    "runtime": "rust",
+                    "runId": "run-safe-boundary-pause",
+                    "sessionId": "websocket:chat-safe-boundary-pause",
+                    "messages": [{ "role": "user", "content": "pause safely" }]
+                }),
+                json!({}),
+            )
+            .await
+        });
+        started_receiver
+            .await
+            .expect("provider should enter its request");
+
+        services
+            .task_runtime()
+            .request_pause("run-safe-boundary-pause", "command-pause-1")
+            .expect("pause request should be accepted");
+        release_sender
+            .send(())
+            .expect("provider release should send");
+        for _ in 0..200 {
+            if services
+                .task_runtime()
+                .status("run-safe-boundary-pause")
+                .is_some_and(|status| status.phase == "paused")
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        let paused_status = services
+            .task_runtime()
+            .status("run-safe-boundary-pause")
+            .expect("paused run status should exist");
+        assert_eq!(paused_status.phase, "paused");
+        assert!(paused_status.active);
+
+        services
+            .task_runtime()
+            .request_resume("run-safe-boundary-pause", "command-resume-1")
+            .expect("resume request should be accepted");
+        let result = run_task
+            .await
+            .expect("owned run task should join")
+            .expect("resumed run should complete");
+        let events = recorded_events
+            .lock()
+            .expect("recorded events lock should not be poisoned")
+            .clone();
+
+        assert_eq!(result["runId"], "run-safe-boundary-pause");
+        assert_eq!(result["finalContent"], "done after resume");
+        assert!(events.iter().any(|event| {
+            event.event_name == "agent.paused" && event.payload["commandId"] == "command-pause-1"
+        }));
+        assert!(events.iter().any(|event| {
+            event.event_name == "agent.resumed" && event.payload["commandId"] == "command-resume-1"
+        }));
     });
 }
 

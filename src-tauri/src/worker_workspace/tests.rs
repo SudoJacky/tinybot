@@ -42,6 +42,65 @@ mod tests {
     }
 
     #[test]
+    fn controlled_file_changes_require_the_current_revision() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("notes/today.md", "before\n");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_write_policy());
+        let original = rpc
+            .read_file_chunk("notes/today.md", None)
+            .expect("file should read");
+
+        rpc.write_file_with_base_revision(
+            "notes/today.md",
+            "after\n",
+            Some(&original.revision),
+            false,
+        )
+        .expect("matching revision should save");
+        let stale_error = rpc
+            .write_file_with_base_revision(
+                "notes/today.md",
+                "stale overwrite\n",
+                Some(&original.revision),
+                false,
+            )
+            .expect_err("stale revision must fail closed");
+
+        assert_eq!(stale_error.message, "version conflict");
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("notes/today.md"))
+                .expect("saved file should read"),
+            "after\n"
+        );
+    }
+
+    #[test]
+    fn controlled_file_move_and_delete_preserve_revision_guards() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("notes/today.md", "current\n");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_write_policy());
+        let original = rpc
+            .read_file_chunk("notes/today.md", None)
+            .expect("file should read");
+
+        let moved = rpc
+            .move_file_with_base_revision("notes/today.md", "archive/today.md", &original.revision)
+            .expect("matching revision should move");
+        let moved_revision = rpc
+            .read_file_chunk("archive/today.md", None)
+            .expect("moved file should read")
+            .revision;
+        let deleted = rpc
+            .delete_file_with_base_revision("archive/today.md", &moved_revision)
+            .expect("matching revision should delete");
+
+        assert_eq!(moved.source_path, "notes/today.md");
+        assert_eq!(moved.target_path, "archive/today.md");
+        assert!(deleted.deleted);
+        assert!(!fixture.root.join("archive/today.md").exists());
+    }
+
+    #[test]
     fn list_files_returns_workspace_relative_paths() {
         let fixture = WorkspaceFixture::new();
         fixture.write("AGENTS.md", "agents");
@@ -429,6 +488,91 @@ mod tests {
             paths,
             vec!["src/components/", "src/components/button.ts", "src/main.ts"]
         );
+    }
+
+    #[test]
+    fn list_dir_page_orders_directories_first_filters_and_pages() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("zeta.txt", "zeta");
+        fixture.write("src/main.ts", "main");
+        for index in 0..205 {
+            fixture.write(&format!("items/file-{index:03}.txt"), "item");
+        }
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy());
+
+        let root = rpc
+            .list_dir_page(".", None, None)
+            .expect("root directory should list");
+        assert_eq!(root.entries[0].kind, "dir");
+        assert_eq!(root.entries[0].path, "items/");
+        assert_eq!(root.entries[1].path, "src/");
+        assert_eq!(root.entries[2].path, "zeta.txt");
+
+        let first = rpc
+            .list_dir_page("items", None, Some("file-"))
+            .expect("filtered directory should list");
+        assert_eq!(first.entries.len(), 200);
+        let second = rpc
+            .list_dir_page("items", first.next_cursor.as_deref(), Some("file-"))
+            .expect("second directory page should list");
+        assert_eq!(second.entries.len(), 5);
+        assert!(second.next_cursor.is_none());
+        assert_eq!(first.listing_revision, second.listing_revision);
+    }
+
+    #[test]
+    fn list_dir_page_rejects_cursor_after_listing_changes() {
+        let fixture = WorkspaceFixture::new();
+        for index in 0..201 {
+            fixture.write(&format!("items/file-{index:03}.txt"), "item");
+        }
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy());
+        let first = rpc
+            .list_dir_page("items", None, None)
+            .expect("first directory page should list");
+        fixture.write("items/new-file.txt", "new");
+
+        let error = rpc
+            .list_dir_page("items", first.next_cursor.as_deref(), None)
+            .expect_err("changed directory should invalidate the cursor");
+
+        assert_eq!(error.details["query_code"], "listing_changed");
+        assert!(error.retryable);
+    }
+
+    #[test]
+    fn read_file_chunk_returns_text_binary_and_revision_bound_continuation() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("small.txt", "first\nsecond\n");
+        std::fs::write(fixture.root.join("binary.dat"), [0_u8, 159, 146, 150])
+            .expect("binary fixture should write");
+        let large = format!("{}\n{}", "a".repeat(800_000), "b".repeat(400_000));
+        fixture.write("large.txt", &large);
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy());
+
+        let small = rpc
+            .read_file_chunk("small.txt", None)
+            .expect("small text should read");
+        assert_eq!(small.content_type, "text");
+        assert_eq!(small.content.as_deref(), Some("first\nsecond\n"));
+        assert!(small.next_cursor.is_none());
+
+        let binary = rpc
+            .read_file_chunk("binary.dat", None)
+            .expect("binary metadata should read");
+        assert_eq!(binary.content_type, "binary");
+        assert!(binary.content.is_none());
+
+        let first = rpc
+            .read_file_chunk("large.txt", None)
+            .expect("large text should return a chunk");
+        assert_eq!(first.content_type, "text");
+        assert!(first.next_cursor.is_some());
+        fixture.write("large.txt", "changed");
+        let error = rpc
+            .read_file_chunk("large.txt", first.next_cursor.as_deref())
+            .expect_err("changed file should invalidate the cursor");
+        assert_eq!(error.details["query_code"], "source_changed");
     }
 
     #[test]

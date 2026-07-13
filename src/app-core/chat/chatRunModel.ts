@@ -67,10 +67,12 @@ export interface ChatReferenceProjection {
   rawPath?: string;
   scope?: string;
   sourceLine?: number;
+  sourceEndLine?: number;
   sourcePath?: string;
   sourceText?: string;
   title: string;
   type?: string;
+  revision?: string;
 }
 
 export interface ChatToolActivityProjection {
@@ -374,7 +376,7 @@ export type CanonicalTurnItemData = Record<string, unknown> & (
   | { type: "context_compaction"; id: string; summary: string; droppedItemCount: number; estimatedTokensBefore?: number | null; estimatedTokensAfter?: number | null }
   | { type: "usage"; id?: string | null; inputTokens?: number | null; outputTokens?: number | null; totalTokens?: number | null; providerPayload: unknown }
   | { type: "file_reference"; id: string; path: string; mimeType?: string | null; referenceKind: string }
-  | { type: "error"; id?: string | null; code: string; message: string; cancelled: boolean }
+  | { type: "error"; id?: string | null; code: string; message: string; commandId?: string | null; cancelled: boolean }
   | { type: "system_notice"; message: string; detail: unknown }
 );
 
@@ -2172,11 +2174,13 @@ function conversationReferences(references?: NativeChatReference[]): ChatMessage
     rawLine: reference.rawLine,
     rawPath: reference.rawPath,
     scope: reference.scope,
+    sourceEndLine: reference.sourceEndLine,
     sourceLine: reference.sourceLine,
     sourcePath: reference.sourcePath,
     sourceText: reference.sourceText,
     title: reference.title,
     type: reference.type,
+    revision: reference.revision,
   }));
 }
 

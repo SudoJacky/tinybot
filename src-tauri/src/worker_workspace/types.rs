@@ -54,11 +54,40 @@ pub struct WorkspaceDirectoryEntry {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct WorkspaceDirectoryPageEntry {
+    pub path: String,
+    pub kind: String,
+    pub size_bytes: Option<u64>,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct WorkspaceDirectoryListing {
     pub path: String,
     pub entries: Vec<WorkspaceDirectoryEntry>,
     pub total_entries: usize,
     pub truncated: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct WorkspaceDirectoryPage {
+    pub path: String,
+    pub listing_revision: String,
+    pub entries: Vec<WorkspaceDirectoryPageEntry>,
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct WorkspaceFileChunk {
+    pub path: String,
+    pub content_type: String,
+    pub revision: String,
+    pub size_bytes: u64,
+    pub updated_at: Option<String>,
+    pub content: Option<String>,
+    pub line_start: Option<usize>,
+    pub line_end: Option<usize>,
+    pub next_cursor: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -84,6 +113,13 @@ pub struct WorkspaceSkillsList {
 pub struct WorkspaceWriteResult {
     pub path: String,
     pub bytes_written: u64,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct WorkspaceMoveResult {
+    pub source_path: String,
+    pub target_path: String,
     pub updated_at: Option<String>,
 }
 

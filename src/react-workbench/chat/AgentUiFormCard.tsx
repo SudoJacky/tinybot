@@ -5,10 +5,12 @@ export function AgentUiFormCard({
   form,
   onCancel,
   onSubmit,
+  submitting = form.submitting === true,
 }: {
   form: AgentUiForm;
   onCancel: () => void;
   onSubmit: (values: Record<string, unknown>) => void;
+  submitting?: boolean;
 }) {
   const [values, setValues] = useState<Record<string, unknown>>(() => initialAgentUiFormValues(form));
 
@@ -43,8 +45,8 @@ export function AgentUiFormCard({
         ))}
       </div>
       <div className="react-agent-ui-form-card__actions">
-        <button disabled={form.submitting} type="submit">{form.submit_label || "Submit"}</button>
-        <button disabled={form.submitting} type="button" onClick={onCancel}>{form.cancel_label || "Cancel"}</button>
+        <button disabled={submitting} type="submit">{form.submit_label || "Submit"}</button>
+        <button disabled={submitting} type="button" onClick={onCancel}>{form.cancel_label || "Cancel"}</button>
       </div>
     </form>
   );

@@ -24,6 +24,7 @@ pub struct NativeProviderCatalogEntry {
     pub supports_model_discovery: bool,
     pub curated_model_ids: &'static [&'static str],
     pub model_prefixes: &'static [&'static str],
+    pub capabilities: &'static [&'static str],
     pub backend: &'static str,
 }
 
@@ -36,6 +37,7 @@ pub struct NativeProviderProfile {
     pub api_key_configured: bool,
     pub models: Vec<String>,
     pub supports_model_discovery: bool,
+    pub capabilities: Value,
     pub request_timeout_ms: u64,
     pub stream_idle_timeout_ms: u64,
 }
@@ -142,6 +144,7 @@ const PROVIDER_CATALOG: &[NativeProviderCatalogEntry] = &[
         &["OPENAI_BASE_URL"],
         &["gpt-4.1"],
         &["gpt", "o1", "o3", "o4"],
+        &[],
     ),
     catalog_entry(
         "deepseek",
@@ -153,6 +156,7 @@ const PROVIDER_CATALOG: &[NativeProviderCatalogEntry] = &[
         &["DEEPSEEK_BASE_URL"],
         &["deepseek-v4-pro", "deepseek-v4-flash"],
         &["deepseek"],
+        &["reasoning"],
     ),
     catalog_entry_with_discovery(
         "dashscope",
@@ -165,6 +169,7 @@ const PROVIDER_CATALOG: &[NativeProviderCatalogEntry] = &[
         true,
         &["qwen-plus", "qwen-max", "qwen-turbo"],
         &["qwen"],
+        &[],
     ),
 ];
 
@@ -178,6 +183,7 @@ const fn catalog_entry(
     api_base_env_vars: &'static [&'static str],
     curated_model_ids: &'static [&'static str],
     model_prefixes: &'static [&'static str],
+    capabilities: &'static [&'static str],
 ) -> NativeProviderCatalogEntry {
     catalog_entry_with_discovery(
         id,
@@ -190,6 +196,7 @@ const fn catalog_entry(
         true,
         curated_model_ids,
         model_prefixes,
+        capabilities,
     )
 }
 
@@ -204,6 +211,7 @@ const fn catalog_entry_with_discovery(
     supports_model_discovery: bool,
     curated_model_ids: &'static [&'static str],
     model_prefixes: &'static [&'static str],
+    capabilities: &'static [&'static str],
 ) -> NativeProviderCatalogEntry {
     NativeProviderCatalogEntry {
         id,
@@ -216,6 +224,7 @@ const fn catalog_entry_with_discovery(
         supports_model_discovery,
         curated_model_ids,
         model_prefixes,
+        capabilities,
         backend: "openai",
     }
 }
@@ -231,6 +240,7 @@ pub fn provider_catalog_body(config: &Value) -> Value {
                 "display_name": entry.display_name,
                 "aliases": entry.aliases,
                 "categories": entry.categories,
+                "capabilities": entry.capabilities,
                 "defaultApiBase": entry.default_api_base,
                 "default_api_base": entry.default_api_base,
                 "apiKeyEnvVars": entry.api_key_env_vars,
@@ -1323,6 +1333,19 @@ pub fn resolve_provider_profile(
                 .map(|entry| entry.supports_model_discovery)
                 .unwrap_or(true)
         }),
+        capabilities: provider_config
+            .and_then(|provider| provider.get("capabilities"))
+            .cloned()
+            .unwrap_or_else(|| {
+                Value::Array(
+                    catalog
+                        .map(|entry| entry.capabilities)
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|capability| Value::String((*capability).to_string()))
+                        .collect(),
+                )
+            }),
         request_timeout_ms,
         stream_idle_timeout_ms,
     })
@@ -1563,6 +1586,13 @@ mod tests {
         assert!(!provider_ids.contains(&"openrouter"));
         assert!(!provider_ids.contains(&"ollama"));
         assert!(!provider_ids.contains(&"custom"));
+        let deepseek = body["providers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["id"] == "deepseek")
+            .unwrap();
+        assert_eq!(deepseek["capabilities"], json!(["reasoning"]));
     }
 
     #[test]
@@ -1598,7 +1628,6 @@ mod tests {
         let config = json!({
             "agents": {
                 "defaults": {
-                    "provider": "openai",
                     "model": "gpt-4.1",
                     "activeProfile": "work"
                 }

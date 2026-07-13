@@ -130,6 +130,17 @@ impl NativeAgentCancellationContext {
             tokio::time::sleep(std::time::Duration::from_millis(5)).await;
         }
     }
+
+    fn begin_pause(&self) -> Option<String> {
+        self.task_runtime.begin_pause(&self.run_id)
+    }
+
+    async fn wait_for_resume(&self) -> Result<String, String> {
+        self.task_runtime
+            .wait_for_resume(&self.run_id)
+            .await
+            .map_err(|error| error.to_string())
+    }
 }
 
 impl fmt::Debug for NativeAgentCancellationContext {
@@ -386,6 +397,13 @@ pub trait NativeAgentCheckpointStore: Send + Sync {
 
 pub trait NativeAgentCancellation: Send + Sync {
     fn cancel(&self, run_id: &str);
+    fn cancel_with_command_id(&self, run_id: &str, command_id: &str) {
+        let _ = command_id;
+        self.cancel(run_id);
+    }
+    fn command_id(&self, _run_id: &str) -> Option<String> {
+        None
+    }
     fn is_cancelled(&self, run_id: &str) -> bool;
 }
 
@@ -504,6 +522,17 @@ impl NativeAgentRuntimeServices {
             .map_or(Ok(()), |trace_sink| trace_sink.flush())
     }
 
+    pub(crate) fn load_runtime_events(
+        &self,
+        session_id: &str,
+        run_id: &str,
+    ) -> Result<Vec<AgentRuntimeEventEnvelope>, String> {
+        self.trace_sink.as_ref().map_or_else(
+            || Ok(Vec::new()),
+            |trace_sink| trace_sink.load_runtime_events(session_id, run_id),
+        )
+    }
+
     pub fn with_hook(mut self, hook: Arc<dyn AgentHook>) -> Self {
         self.hooks = self.hooks.with_hook(hook);
         self
@@ -582,7 +611,16 @@ impl NativeAgentRuntimeServices {
     }
 
     pub fn cancel(&self, run_id: &str) -> Value {
-        self.cancellations.cancel(run_id);
+        self.cancel_with_command_id(run_id, None)
+    }
+
+    pub fn cancel_with_command_id(&self, run_id: &str, command_id: Option<&str>) -> Value {
+        if let Some(command_id) = command_id.filter(|value| !value.trim().is_empty()) {
+            self.cancellations
+                .cancel_with_command_id(run_id, command_id);
+        } else {
+            self.cancellations.cancel(run_id);
+        }
         let task = self
             .task_runtime
             .request_cancel(run_id, AgentCancelReason::UserRequested);
@@ -592,6 +630,7 @@ impl NativeAgentRuntimeServices {
             "cancelled": true,
             "finalContent": "",
             "stopReason": "cancelled",
+            "commandId": command_id,
             "error": "cancelled",
             "messages": [],
             "toolsUsed": [],
@@ -599,6 +638,7 @@ impl NativeAgentRuntimeServices {
             "events": [event_value("agent.cancelled", serde_json::json!({
                 "runId": run_id,
                 "cancelled": true,
+                "commandId": command_id,
                 "stopReason": "cancelled",
                 "error": "cancelled",
             }))],

@@ -489,6 +489,7 @@ function RouteSurface({
           now={now}
           sessionStore={services.sessionStore}
           settingsStore={services.settingsStore}
+          workspaceStore={services.workspaceStore}
           sessionSidebarCollapsed={sessionSidebarCollapsed}
           onOpenFiles={() => onNavigate("files")}
           onOpenSettings={() => onNavigate("settings")}

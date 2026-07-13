@@ -89,6 +89,8 @@ export interface ClaudeStyleAiInputProps {
   contextUsage?: TokenUsage;
   tools?: ComposerToolOption[];
   responding?: boolean;
+  canStopResponding?: boolean;
+  stopUnavailableReason?: string;
   onStopResponding?: () => void | Promise<void>;
   value?: string;
   onValueChange?: (value: string) => void;
@@ -109,6 +111,7 @@ function nextInputId(prefix: string): string {
 
 export function ClaudeStyleAiInput({
   acceptedFileTypes = [],
+  canStopResponding = true,
   className,
   contextReferences = [],
   contextUsage,
@@ -126,6 +129,7 @@ export function ClaudeStyleAiInput({
   onValueChange,
   placeholder = "Message Tinybot",
   responding = false,
+  stopUnavailableReason,
   tools = EMPTY_TOOLS,
   value,
 }: ClaudeStyleAiInputProps) {
@@ -510,10 +514,10 @@ export function ClaudeStyleAiInput({
 
           {responding ? (
             <button
-              aria-label="Stop generation"
+              aria-label={canStopResponding ? "Stop generation" : `Stop generation unavailable: ${stopUnavailableReason || "unsupported"}`}
               className="claude-ai-input__send"
-              disabled={disabled}
-              title="Stop generation"
+              disabled={disabled || !canStopResponding}
+              title={canStopResponding ? "Stop generation" : stopUnavailableReason || "Stopping is unavailable"}
               type="button"
               onClick={() => void handleStopResponding()}
             >

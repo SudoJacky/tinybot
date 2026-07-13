@@ -33,6 +33,7 @@ pub enum AgentRuntimePhase {
     AwaitingApproval,
     AwaitingForm,
     AwaitingSubagent,
+    Paused,
     Finalizing,
     Completed,
     Failed,
@@ -53,6 +54,7 @@ impl AgentRuntimePhase {
             Self::AwaitingApproval => "awaiting_approval",
             Self::AwaitingForm => "awaiting_form",
             Self::AwaitingSubagent => "awaiting_subagent",
+            Self::Paused => "paused",
             Self::Finalizing => "finalizing",
             Self::Completed => "completed",
             Self::Failed => "failed",
@@ -68,12 +70,15 @@ impl AgentRuntimePhase {
             "agent.tool.start" | "agent.tool.result" => Self::ToolRunning,
             "agent.awaiting_approval" | "agent.approval.decision" => Self::AwaitingApproval,
             "agent.awaiting_form" | "agent.form.resolution" => Self::AwaitingForm,
+            "agent.paused" => Self::Paused,
+            "agent.resumed" => Self::Planning,
             event_name if event_name.starts_with("agent.delegate.") => Self::AwaitingSubagent,
             "agent.checkpoint" => Self::Planning,
             "agent.usage" => Self::CallingModel,
-            "agent.message.classified" | "agent.message.completed" | "agent.done" => {
-                Self::Completed
-            }
+            "agent.message.classified"
+            | "agent.message.completed"
+            | "agent.command.acknowledged"
+            | "agent.done" => Self::Completed,
             "agent.error" => Self::Failed,
             "agent.cancelled" => Self::Cancelled,
             _ => Self::Planning,
@@ -118,7 +123,10 @@ impl AgentTurnItemKind {
             "agent.awaiting_approval" | "agent.approval.decision" => Some(Self::Approval),
             "agent.awaiting_form" | "agent.form.resolution" => Some(Self::Form),
             "agent.error" | "agent.cancelled" => Some(Self::Error),
-            "agent.checkpoint" => Some(Self::SystemNotice),
+            "agent.checkpoint"
+            | "agent.command.acknowledged"
+            | "agent.paused"
+            | "agent.resumed" => Some(Self::SystemNotice),
             _ if event_name.starts_with("agent.delegate.") => Some(Self::SubagentLifecycle),
             _ => None,
         }
@@ -274,6 +282,8 @@ pub enum AgentTurnItemData {
     },
     Approval {
         approval_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        command_id: Option<String>,
         tool_call_id: Option<String>,
         status: String,
         reason: Option<String>,
@@ -284,6 +294,8 @@ pub enum AgentTurnItemData {
     },
     Form {
         form_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        command_id: Option<String>,
         status: String,
         title: Option<String>,
         action: Option<String>,
@@ -339,6 +351,8 @@ pub enum AgentTurnItemData {
         id: Option<String>,
         code: String,
         message: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        command_id: Option<String>,
         cancelled: bool,
     },
     SystemNotice {
@@ -1617,6 +1631,7 @@ fn projected_item_data(
                     &["id", "approvalId", "approval_id"],
                     kind,
                 ),
+                command_id: item_string(payload, &["commandId", "command_id"]),
                 tool_call_id: item_string(source, &["toolCallId", "tool_call_id"]),
                 status: item_string(source, &["status"]).unwrap_or_else(|| "waiting".to_string()),
                 reason: item_string(source, &["reason"])
@@ -1631,6 +1646,8 @@ fn projected_item_data(
             let source = typed_item.unwrap_or(payload);
             AgentTurnItemData::Form {
                 form_id: required_item_string(source, &["id", "formId", "form_id"], kind),
+                command_id: item_string(source, &["commandId", "command_id"])
+                    .or_else(|| item_string(payload, &["commandId", "command_id"])),
                 status: item_string(source, &["status"]).unwrap_or_else(|| "waiting".to_string()),
                 title: item_string(payload, &["title"]),
                 action: item_string(source, &["action"]),
@@ -1740,6 +1757,7 @@ fn legacy_item_data(
         },
         AgentTurnItemKind::Approval => AgentTurnItemData::Approval {
             approval_id: required_item_string(payload, &["approvalId", "approval_id", "id"], kind),
+            command_id: item_string(payload, &["commandId", "command_id"]),
             tool_call_id: item_string(payload, &["toolCallId", "tool_call_id"]),
             status: item_string(payload, &["status"]).unwrap_or_else(|| "waiting".to_string()),
             reason: item_string(payload, &["reason", "summary", "content"]),
@@ -1828,6 +1846,7 @@ fn legacy_item_data(
                 .unwrap_or_else(|| event.event_name.trim_start_matches("agent.").to_string()),
             message: item_string(payload, &["message", "error"])
                 .unwrap_or_else(|| event.event_name.clone()),
+            command_id: item_string(payload, &["commandId", "command_id"]),
             cancelled: event.event_name == "agent.cancelled"
                 || payload
                     .get("cancelled")
@@ -1882,6 +1901,9 @@ fn projected_item_status(event: &AgentRuntimeEventEnvelope) -> AgentTurnItemStat
         "agent.message.classified"
         | "agent.message.completed"
         | "agent.done"
+        | "agent.command.acknowledged"
+        | "agent.paused"
+        | "agent.resumed"
         | "agent.tool.result"
         | "agent.approval.decision"
         | "agent.form.resolution" => AgentTurnItemStatus::Completed,
@@ -1894,7 +1916,8 @@ fn projected_item_status(event: &AgentRuntimeEventEnvelope) -> AgentTurnItemStat
             AgentRuntimePhase::Cancelled => AgentTurnItemStatus::Cancelled,
             AgentRuntimePhase::AwaitingApproval
             | AgentRuntimePhase::AwaitingForm
-            | AgentRuntimePhase::AwaitingSubagent => AgentTurnItemStatus::Waiting,
+            | AgentRuntimePhase::AwaitingSubagent
+            | AgentRuntimePhase::Paused => AgentTurnItemStatus::Waiting,
             _ => AgentTurnItemStatus::Running,
         },
     }

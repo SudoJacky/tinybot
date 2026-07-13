@@ -11,9 +11,9 @@ use crate::desktop_commands::knowledge::{
 use crate::desktop_commands::session::{
     worker_session_branch_with_options, worker_session_clear_temporary_files_with_options,
     worker_session_clear_with_options, worker_session_delete_with_options,
-    worker_session_messages_with_options, worker_session_patch_with_options,
-    worker_session_temporary_files_with_options, worker_session_upload_temporary_file_with_options,
-    worker_sessions_list_with_options,
+    worker_session_effective_capabilities_with_options, worker_session_messages_with_options,
+    worker_session_patch_with_options, worker_session_temporary_files_with_options,
+    worker_session_upload_temporary_file_with_options, worker_sessions_list_with_options,
 };
 use crate::desktop_commands::skills::{
     worker_skills_create_with_options, worker_skills_delete_with_options,
@@ -21,6 +21,7 @@ use crate::desktop_commands::skills::{
     worker_skills_update_with_options, worker_skills_validate_with_options,
 };
 use crate::desktop_commands::workspace::{
+    worker_workspace_directory_with_options, worker_workspace_file_chunk_with_options,
     worker_workspace_file_with_options, worker_workspace_files_with_options,
     worker_workspace_put_file_with_options,
 };
@@ -411,6 +412,32 @@ async fn worker_webui_rust_route_with_options(
             config_snapshot.clone(),
             timeout,
         )),
+        ("GET", "/api/workspace/directory") => Some(worker_workspace_directory_with_options(
+            shared,
+            query
+                .get("path")
+                .cloned()
+                .unwrap_or_else(|| ".".to_string()),
+            query.get("cursor").cloned(),
+            query
+                .get("nameQuery")
+                .or_else(|| query.get("name_query"))
+                .cloned(),
+            workspace_root.clone(),
+            config_snapshot.clone(),
+            timeout,
+        )),
+        ("GET", "/api/workspace/read") => Some(worker_workspace_file_chunk_with_options(
+            shared,
+            query
+                .get("path")
+                .cloned()
+                .unwrap_or_else(|| ".".to_string()),
+            query.get("cursor").cloned(),
+            workspace_root.clone(),
+            config_snapshot.clone(),
+            timeout,
+        )),
         ("GET", "/v1/knowledge/documents") => Some(worker_knowledge_documents_with_options(
             shared,
             WorkerKnowledgeDocumentsInput {
@@ -541,6 +568,17 @@ async fn worker_webui_rust_dynamic_route(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Option<Result<serde_json::Value, String>> {
+    if let Some(key) = webui_session_route_key(path, "/effective-capabilities") {
+        if method == "GET" {
+            return Some(worker_session_effective_capabilities_with_options(
+                shared,
+                key,
+                workspace_root,
+                config_snapshot,
+                timeout,
+            ));
+        }
+    }
     if let Some(key) = webui_session_route_key(path, "/messages") {
         if method == "GET" {
             return Some(worker_session_messages_with_options(

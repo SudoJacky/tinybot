@@ -9,5 +9,7 @@ export function createDesktopNativeWorkspaceApi(options: { invoke?: TauriInvoke 
     files: () => invoke("worker_workspace_files"),
     file: (path: string) => invoke("worker_workspace_file", { input: { path } }),
     putFile: (path: string, body: unknown) => invoke("worker_workspace_put_file", { input: { path, body } }),
+    directory: (request) => invoke("worker_workspace_directory", { input: request }),
+    fileChunk: (request) => invoke("worker_workspace_file_chunk", { input: request }),
   };
 }

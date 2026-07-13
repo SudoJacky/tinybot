@@ -41,12 +41,18 @@ pub(super) fn error_result(
     })
 }
 
-pub(super) fn cancelled_result(run_id: &str, session_id: &str, checkpoint: Value) -> Value {
+pub(super) fn cancelled_result(
+    services: &NativeAgentRuntimeServices,
+    run_id: &str,
+    session_id: &str,
+    checkpoint: Value,
+) -> Value {
     let events = vec![event(
         "agent.cancelled",
         serde_json::json!({
             "runId": run_id,
             "sessionId": session_id,
+            "commandId": services.cancellations.command_id(run_id),
             "cancelled": true,
             "stopReason": "cancelled",
             "error": "cancelled",
@@ -100,6 +106,7 @@ pub(super) fn cancelled_run_result(
                 "runId": context.run_id,
                 "sessionId": context.session_id,
                 "iteration": iteration,
+                "commandId": services.cancellations.command_id(&context.run_id),
                 "cancelled": true,
                 "stopReason": "cancelled",
                 "error": "cancelled",

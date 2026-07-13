@@ -179,6 +179,7 @@ impl NativeAgentRunState {
             AgentRuntimePhase::AwaitingApproval
                 | AgentRuntimePhase::AwaitingForm
                 | AgentRuntimePhase::AwaitingSubagent
+                | AgentRuntimePhase::Paused
         );
         let event = self.emitter.emit(AgentRuntimeEventAppendInput {
             parent_turn_id: None,
@@ -345,6 +346,41 @@ impl NativeAgentRunState {
         for payload in reference_payloads {
             self.emit_event("agent.file.reference", payload);
         }
+    }
+
+    pub(super) fn emit_tinyos_command_acknowledgement(
+        &mut self,
+        context: &NativeAgentRunContext,
+    ) -> Result<(), String> {
+        let Some(command) = context.metadata.get("_tinyosCommand") else {
+            return Ok(());
+        };
+        let command_id = string_field(command, "commandId")
+            .ok_or_else(|| "TinyOS runtime command metadata is missing commandId".to_string())?;
+        let command_kind = string_field(command, "commandKind")
+            .ok_or_else(|| "TinyOS runtime command metadata is missing commandKind".to_string())?;
+        let event = self.emitter.emit(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: Some(format!("{}:command-ack:{}", self.run_id, command_id)),
+            event_name: "agent.command.acknowledged".to_string(),
+            phase: self.phase.clone(),
+            timestamp: runtime_event_timestamp(),
+            source: AgentRuntimeEventSource::RustBackend,
+            visibility: AgentRuntimeEventVisibility::User,
+            payload: serde_json::json!({
+                "commandId": command_id,
+                "commandKind": command_kind,
+                "commandStatus": "acknowledged",
+                "message": "Agent command acknowledged",
+                "operation": command.get("operation").cloned().unwrap_or(Value::Null),
+                "runId": self.run_id,
+                "sessionId": self.session_id,
+                "source": command.get("source").cloned().unwrap_or(Value::Null),
+                "target": command.get("target").cloned().unwrap_or(Value::Null),
+            }),
+        });
+        self.append_trace_event(&event);
+        Ok(())
     }
 
     pub(super) fn runtime_events(&self) -> Vec<AgentRuntimeEventEnvelope> {

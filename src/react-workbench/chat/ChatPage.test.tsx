@@ -8,6 +8,8 @@ import { ChatPage } from "./ChatPage";
 import type { ChatEvent, ChatStore, SessionStore, SessionSummary, SettingsStore } from "../services";
 import type { ReactChatMessage } from "./messageActions";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
+import { createTinyOsAgentCancelCommand } from "../../app-core/chat/tinyOsCommandGateway";
+import type { TinyOsEffectiveCapabilities } from "../../app-core/chat/tinyOsCapabilities";
 import { timelineFromReactMessages } from "./testTimelineFixtures";
 
 afterEach(() => {
@@ -21,6 +23,21 @@ function mountWorkbenchCss(): void {
   style.dataset.testStyle = "workbench";
   style.textContent = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
   document.head.append(style);
+}
+
+function effectiveCapabilities(sessionId: string, cancelAvailable = true): TinyOsEffectiveCapabilities {
+  const unavailable = { available: false, reasonCode: "runtime_unsupported", reason: "Not supported." };
+  const available = { available: true };
+  return {
+    schemaVersion: "tinybot.effective_capabilities.v1",
+    sessionId,
+    capabilities: {
+      agent: { pause: unavailable, resume: unavailable, cancel: cancelAvailable ? available : unavailable, retry: unavailable },
+      files: { read: available, requestChange: unavailable, directEdit: unavailable, save: unavailable },
+      terminal: { inspect: available, execute: unavailable, cancel: unavailable },
+      browser: { structured: available, realCapture: unavailable, interact: unavailable },
+    },
+  };
 }
 
 function createStores(options: { sessions?: SessionSummary[] } = {}): { chatStore: ChatStore; sessionStore: SessionStore } {
@@ -73,8 +90,10 @@ function createStores(options: { sessions?: SessionSummary[] } = {}): { chatStor
     },
     chatStore: {
       load: vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, messages)),
+      loadTinyOsCapabilities: vi.fn(async (sessionId) => effectiveCapabilities(sessionId)),
       send: vi.fn(async () => undefined),
       stop: vi.fn(async () => undefined),
+      dispatchCommand: vi.fn(async () => undefined),
       resolveApproval: vi.fn(async () => undefined),
       listAgentUiForms: vi.fn(async () => []),
       submitAgentUiForm: vi.fn(async () => undefined),
@@ -271,10 +290,12 @@ describe("ChatPage", () => {
       references: [expect.objectContaining({
         evidenceId: "file-reference",
         sourceLine: 1,
+        sourceEndLine: 1,
         sourcePath: "src/main.ts",
         sourceText: "const value = 1;",
         title: "src/main.ts · L1",
         type: "tinyos.file",
+        revision: "rev-1",
       })],
       text: "Explain this line",
     })));
@@ -1077,13 +1098,14 @@ describe("ChatPage", () => {
   it("resolves pending approval steps from the details drawer", async () => {
     const user = userEvent.setup();
     const stores = createStores();
-    const resolveApproval = vi.fn(async () => undefined);
+    const dispatchCommand = vi.fn(async () => undefined);
     const approvalMessages: ReactChatMessage[] = [{
       id: "a-approval",
       role: "assistant",
       createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
       text: "Waiting for approval.",
       status: "complete",
+      turnStatus: "running",
       toolCalls: [{
         approvalId: "approval-1",
         approvalStatus: "approval_required",
@@ -1095,7 +1117,7 @@ describe("ChatPage", () => {
       } as NonNullable<ReactChatMessage["toolCalls"]>[number]],
     }];
     stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, approvalMessages));
-    (stores.chatStore as any).resolveApproval = resolveApproval;
+    stores.chatStore.dispatchCommand = dispatchCommand;
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
@@ -1109,10 +1131,12 @@ describe("ChatPage", () => {
 
     await user.click(within(drawer).getByRole("button", { name: "Allow for session" }));
 
-    expect(resolveApproval).toHaveBeenCalledWith("s1", {
-      action: "approveSession",
-      approvalId: "approval-1",
-    });
+    expect(dispatchCommand).toHaveBeenCalledWith(expect.objectContaining({
+      approval: { approvalId: "approval-1", approved: true, scope: "session" },
+      kind: "approval.resolve",
+      source: { control: "tool-approval", surface: "chat" },
+      target: expect.objectContaining({ runId: "turn:a-approval", sessionId: "s1" }),
+    }));
   });
 
   it("submits active agent-ui forms from the chat page", async () => {
@@ -1124,7 +1148,7 @@ describe("ChatPage", () => {
       description: "Collect itinerary constraints before planning.",
       submit_label: "Save preferences",
       cancel_label: "Skip",
-      correlation: { chat_id: "chat-1" },
+      correlation: { chat_id: "chat-1", run_id: "run-1", session_id: "s1" },
       fields: [
         { name: "destination", type: "text", label: "Destination", required: true },
         { name: "nights", type: "number", label: "Nights", required: false, min: 1, max: 30 },
@@ -1141,6 +1165,8 @@ describe("ChatPage", () => {
       text: "Plan my trip",
       status: "complete",
     }]);
+    canonical.turns[0].id = "run-1";
+    canonical.turns[0].status = "awaiting_user";
     canonical.turns[0].steps.push({
       agentContext: { id: "main", title: "Tinybot", type: "main" },
       form: {
@@ -1154,10 +1180,8 @@ describe("ChatPage", () => {
       status: "blocked",
       title: "Travel preferences",
     });
-    const submitAgentUiForm = vi.fn(async () => undefined);
     stores.chatStore.load = vi.fn(async () => canonical);
     (stores.chatStore as any).listAgentUiForms = vi.fn(async () => [form]);
-    (stores.chatStore as any).submitAgentUiForm = submitAgentUiForm;
     (stores.chatStore as any).cancelAgentUiForm = vi.fn(async () => undefined);
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
@@ -1172,10 +1196,66 @@ describe("ChatPage", () => {
     fireEvent.change(within(card).getByLabelText("Nights"), { target: { value: "4" } });
     await user.click(within(card).getByRole("button", { name: "Save preferences" }));
 
-    expect(submitAgentUiForm).toHaveBeenCalledWith("travel-preferences-1", {
-      destination: "Singapore",
-      nights: 4,
+    expect(stores.chatStore.dispatchCommand).toHaveBeenCalledWith(expect.objectContaining({
+      form: {
+        formId: "travel-preferences-1",
+        values: { destination: "Singapore", nights: 4 },
+      },
+      kind: "form.submit",
+      source: { control: "chat-form", surface: "chat" },
+      target: expect.objectContaining({ runId: "run-1", sessionId: "s1" }),
+    }));
+    expect(within(card).getByRole("button", { name: "Save preferences" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("cancels active agent-ui forms through the TinyOS command gateway", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    const form: AgentUiForm = {
+      form_id: "travel-preferences-1",
+      title: "Travel preferences",
+      submit_label: "Save preferences",
+      cancel_label: "Skip",
+      correlation: { chat_id: "chat-1", run_id: "run-1", session_id: "s1" },
+      fields: [{ name: "destination", type: "text", label: "Destination", required: true }],
+      values: { destination: "Shanghai" },
+      status: "pending",
+      chat_id: "chat-1",
+    };
+    const canonical = timelineFromReactMessages("s1", [{
+      id: "u-form-cancel",
+      role: "user",
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+      text: "Plan my trip",
+      status: "complete",
+    }]);
+    canonical.turns[0].id = "run-1";
+    canonical.turns[0].status = "awaiting_user";
+    canonical.turns[0].steps.push({
+      agentContext: { id: "main", title: "Tinybot", type: "main" },
+      form: { fieldIds: ["destination"], formId: "travel-preferences-1" },
+      id: "travel-preferences-1",
+      kind: "form",
+      sequence: 1,
+      status: "blocked",
+      title: "Travel preferences",
     });
+    stores.chatStore.load = vi.fn(async () => canonical);
+    (stores.chatStore as any).listAgentUiForms = vi.fn(async () => [form]);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    const card = await screen.findByRole("form", { name: "Travel preferences" });
+    await user.click(within(card).getByRole("button", { name: "Skip" }));
+
+    expect(stores.chatStore.dispatchCommand).toHaveBeenCalledWith(expect.objectContaining({
+      form: { formId: "travel-preferences-1" },
+      kind: "form.cancel",
+      source: { control: "chat-form", surface: "chat" },
+      target: expect.objectContaining({ runId: "run-1", sessionId: "s1" }),
+    }));
+    expect(within(card).getByRole("button", { name: "Skip" }).hasAttribute("disabled")).toBe(true);
+    expect(stores.chatStore.cancelAgentUiForm).not.toHaveBeenCalled();
   });
 
   it("renders a resolved canonical form as a read-only submission summary", async () => {
@@ -1643,10 +1723,7 @@ describe("ChatPage", () => {
     expect(within(error).getByRole("button", { name: "继续执行" })).toBeTruthy();
   });
 
-  it.each([
-    ["继续执行", "请从刚才中断的位置继续，沿用现有上下文和计划；先确认当前进度，再完成剩余任务。"],
-    ["重试当前步骤", "请重新执行刚才失败的步骤“Read project files”，保留已经完成的工作，然后继续完成任务。"],
-  ])("sends a contextual recovery prompt for %s", async (action, expectedText) => {
+  it("sends a contextual recovery prompt for continue", async () => {
     const user = userEvent.setup();
     const stores = createStores();
     stores.chatStore.load = vi.fn(async () => failedPlanTimeline());
@@ -1654,9 +1731,34 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
     const error = await screen.findByRole("alert", { name: "任务执行失败" });
-    await user.click(within(error).getByRole("button", { name: action }));
+    await user.click(within(error).getByRole("button", { name: "继续执行" }));
 
-    expect(stores.chatStore.send).toHaveBeenCalledWith("s1", { text: expectedText });
+    expect(stores.chatStore.send).toHaveBeenCalledWith("s1", {
+      text: "请从刚才中断的位置继续，沿用现有上下文和计划；先确认当前进度，再完成剩余任务。",
+    });
+  });
+
+  it("dispatches retry as a correlated TinyOS command instead of a synthetic chat prompt", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    const timeline = failedPlanTimeline();
+    const capabilities = effectiveCapabilities("s1");
+    capabilities.evaluatedRunId = timeline.turns[0].id;
+    capabilities.capabilities.agent.retry = { available: true };
+    stores.chatStore.load = vi.fn(async () => timeline);
+    stores.chatStore.loadTinyOsCapabilities = vi.fn(async () => capabilities);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    const error = await screen.findByRole("alert", { name: "任务执行失败" });
+    await user.click(within(error).getByRole("button", { name: "重试当前步骤" }));
+
+    expect(stores.chatStore.dispatchCommand).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "operation.retry",
+      operation: { itemId: "error-failed-plan", turnId: timeline.turns[0].id },
+      target: expect.objectContaining({ sessionId: "s1" }),
+    }));
+    expect(stores.chatStore.send).not.toHaveBeenCalled();
   });
 
   it("restarts a failed task in a new titled session", async () => {
@@ -1750,6 +1852,13 @@ describe("ChatPage", () => {
     expect(css).toMatch(
       /\.react-message\[data-role="user"\] \.react-message__body\s*{[^}]*border:\s*1px solid var\(--color-hairline\);[^}]*border-radius:\s*8px;[^}]*background:\s*var\(--color-surface-card\);[^}]*padding:\s*12px 14px;/s,
     );
+  });
+
+  it("does not use colored left accent strips on error cards", () => {
+    const css = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
+
+    expect(css).not.toMatch(/\.react-error-recovery\s*{[^}]*border-left:/s);
+    expect(css).not.toMatch(/\.react-canonical-scoped-errors\s*{[^}]*border-left:/s);
   });
 
   it("uses sans-serif assistant prose and modern monospace code", () => {
@@ -2216,6 +2325,9 @@ describe("ChatPage", () => {
     };
     const idleSession = { ...runningSession, status: "idle" as const };
     const stores = createStores({ sessions: [runningSession] });
+    const runningTimeline = await stores.chatStore.load("s1");
+    runningTimeline.turns[runningTimeline.turns.length - 1].status = "running";
+    vi.mocked(stores.chatStore.load).mockResolvedValue(runningTimeline);
     stores.sessionStore.list = vi.fn()
       .mockResolvedValueOnce([runningSession])
       .mockResolvedValueOnce([idleSession])
@@ -2228,7 +2340,11 @@ describe("ChatPage", () => {
     await user.type(input, "resume second{enter}");
     await user.click(screen.getByRole("button", { name: "Stop generation" }));
 
-    expect(stores.chatStore.stop).toHaveBeenCalledWith("s1");
+    expect(stores.chatStore.dispatchCommand).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "agent.cancel",
+      source: { control: "stop-response", surface: "chat" },
+      target: expect.objectContaining({ sessionId: "s1" }),
+    }));
     await waitFor(() => expect(screen.getByLabelText("Queued inputs").textContent).toContain("Paused"));
     expect(stores.chatStore.send).not.toHaveBeenCalled();
 
@@ -2242,6 +2358,49 @@ describe("ChatPage", () => {
     expect(queuedInputs.textContent).not.toContain("resume first");
     expect(queuedInputs.textContent).toContain("resume second");
     expect(queuedInputs.textContent).toContain("Paused");
+  });
+
+  it("shares command lifecycle state for cancellation dispatched outside ChatPage", async () => {
+    const user = userEvent.setup();
+    let subscribed: ((event: ChatEvent) => void) | undefined;
+    const runningSession = {
+      id: "s1",
+      chatId: "chat-1",
+      title: "Planning notes",
+      updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+      status: "running" as const,
+    };
+    const stores = createStores({ sessions: [runningSession] });
+    stores.chatStore.subscribe = vi.fn((_sessionId, listener) => {
+      subscribed = listener;
+      return () => undefined;
+    });
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const input = await screen.findByRole("textbox", { name: /message/i });
+    await user.type(input, "keep this queued{enter}");
+    const command = createTinyOsAgentCancelCommand({
+      commandId: "command-shortcut-1",
+      issuedAt: "2026-07-04T12:00:00.000Z",
+      runId: "run-1",
+      sessionId: "s1",
+      source: { control: "keyboard-shortcut", surface: "chat" },
+      turnId: "run-1",
+    });
+
+    act(() => subscribed?.({ command, type: "command.dispatched" }));
+
+    expect(screen.getByText(/Sending cancel command/)).toBeTruthy();
+    expect(screen.getByLabelText("Queued inputs").textContent).toContain("Paused");
+
+    act(() => subscribed?.({ commandId: command.commandId, type: "command.accepted" }));
+
+    expect(screen.getByText(/Waiting for runtime confirmation/)).toBeTruthy();
+
+    act(() => subscribed?.({ commandId: command.commandId, type: "command.canonical-updated" }));
+
+    await waitFor(() => expect(stores.chatStore.load).toHaveBeenCalledTimes(2));
   });
 
   it("renders the optimistic user message immediately after send", async () => {
@@ -2574,11 +2733,71 @@ describe("ChatPage", () => {
         status: "running",
       }],
     });
+    const runningTimeline = await stores.chatStore.load("s1");
+    runningTimeline.turns[runningTimeline.turns.length - 1].status = "running";
+    vi.mocked(stores.chatStore.load).mockResolvedValue(runningTimeline);
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     await user.click(await screen.findByRole("button", { name: "Stop generation" }));
 
-    expect(stores.chatStore.stop).toHaveBeenCalledWith("s1");
+    expect(stores.chatStore.dispatchCommand).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "agent.cancel",
+      source: { control: "stop-response", surface: "chat" },
+      target: expect.objectContaining({ sessionId: "s1" }),
+    }));
+  });
+
+  it("dispatches pause from Chat through the correlated run controller", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Planning notes",
+        updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+        status: "running",
+      }],
+    });
+    const runningTimeline = await stores.chatStore.load("s1");
+    const run = runningTimeline.turns[runningTimeline.turns.length - 1];
+    run.status = "running";
+    vi.mocked(stores.chatStore.load).mockResolvedValue(runningTimeline);
+    const capabilities = effectiveCapabilities("s1");
+    capabilities.evaluatedRunId = run.id;
+    capabilities.capabilities.agent.pause = { available: true };
+    vi.mocked(stores.chatStore.loadTinyOsCapabilities).mockResolvedValue(capabilities);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    await user.click(await screen.findByRole("button", { name: "Pause" }));
+    expect(stores.chatStore.dispatchCommand).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "agent.pause",
+      source: { control: "chat-pause", surface: "chat" },
+      target: expect.objectContaining({ runId: run.id, sessionId: "s1" }),
+    }));
+  });
+
+  it("disables cancellation with the backend-authored unavailable reason", async () => {
+    const stores = createStores({
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Planning notes",
+        updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+        status: "running",
+      }],
+    });
+    const runningTimeline = await stores.chatStore.load("s1");
+    runningTimeline.turns[runningTimeline.turns.length - 1].status = "running";
+    vi.mocked(stores.chatStore.load).mockResolvedValue(runningTimeline);
+    vi.mocked(stores.chatStore.loadTinyOsCapabilities).mockResolvedValue(effectiveCapabilities("s1", false));
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const stop = await screen.findByRole("button", { name: /Stop generation unavailable/ });
+    expect((stop as HTMLButtonElement).disabled).toBe(true);
+    await waitFor(() => expect(stop.getAttribute("title")).toBe("Not supported."));
+    expect(stores.chatStore.dispatchCommand).not.toHaveBeenCalled();
   });
 
   it("closes the composer tools menu when another composer area is clicked", async () => {

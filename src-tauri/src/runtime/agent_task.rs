@@ -56,6 +56,7 @@ pub(crate) struct AgentTaskStatus {
     pub(crate) active: bool,
     pub(crate) cancellation_requested: bool,
     pub(crate) cancellation_reason: Option<String>,
+    pub(crate) pause_requested: bool,
     pub(crate) checkpoint_ref: Option<String>,
     pub(crate) terminal_outcome: Option<String>,
     pub(crate) late_results_ignored: usize,
@@ -69,6 +70,14 @@ pub(crate) struct CancelOutcome {
     pub(crate) reason: String,
     pub(crate) active_task_removed: bool,
     pub(crate) cleanup_pending: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PauseOutcome {
+    pub(crate) run_id: String,
+    pub(crate) state: String,
+    pub(crate) command_id: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -127,10 +136,25 @@ struct OwnedRunTask {
     request: StartAgentRun,
     generation: u64,
     cancellation: CancellationToken,
+    pause: Arc<AgentPauseControl>,
     completion: Arc<AgentTaskCompletion>,
     execution: OwnedExecutionHandle,
     prior_waiting_phase: Option<String>,
     prior_checkpoint_ref: Option<String>,
+}
+
+#[derive(Default)]
+struct AgentPauseControl {
+    state: Mutex<AgentPauseState>,
+    changed: Notify,
+}
+
+#[derive(Default)]
+struct AgentPauseState {
+    requested: bool,
+    paused: bool,
+    pause_command_id: Option<String>,
+    resume_command_id: Option<String>,
 }
 
 #[derive(Clone)]
@@ -453,6 +477,199 @@ impl AgentTaskRuntime {
             generation,
             completion: task.completion,
         })
+    }
+
+    pub(crate) fn request_pause(
+        &self,
+        run_id: &str,
+        command_id: &str,
+    ) -> Result<PauseOutcome, AgentTaskError> {
+        let run_id = run_id.trim();
+        let command_id = command_id.trim();
+        if command_id.is_empty() {
+            return Err(AgentTaskError::new(
+                "agent pause command ID must not be empty",
+            ));
+        }
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .expect("agent task runtime state lock should not be poisoned");
+        let pause = state
+            .active
+            .get(run_id)
+            .map(|task| task.pause.clone())
+            .ok_or_else(|| {
+                AgentTaskError::new(format!("active agent run `{run_id}` was not found"))
+            })?;
+        let status = state.statuses.get_mut(run_id).ok_or_else(|| {
+            AgentTaskError::new(format!("agent run `{run_id}` status disappeared"))
+        })?;
+        if !status.active {
+            return Err(AgentTaskError::new(format!(
+                "agent run `{run_id}` completed before pause could be requested"
+            )));
+        }
+        if status.cancellation_requested {
+            return Err(AgentTaskError::new(format!(
+                "agent run `{run_id}` is already cancelling"
+            )));
+        }
+        let mut pause_state = pause
+            .state
+            .lock()
+            .expect("agent pause state lock should not be poisoned");
+        if pause_state.requested {
+            return Err(AgentTaskError::new(format!(
+                "agent run `{run_id}` already has a pending pause"
+            )));
+        }
+        pause_state.requested = true;
+        pause_state.pause_command_id = Some(command_id.to_string());
+        pause_state.resume_command_id = None;
+        status.phase = "pause_requested".to_string();
+        status.pause_requested = true;
+        Ok(PauseOutcome {
+            run_id: run_id.to_string(),
+            state: "pause_requested".to_string(),
+            command_id: command_id.to_string(),
+        })
+    }
+
+    pub(crate) fn request_resume(
+        &self,
+        run_id: &str,
+        command_id: &str,
+    ) -> Result<PauseOutcome, AgentTaskError> {
+        let run_id = run_id.trim();
+        let command_id = command_id.trim();
+        if command_id.is_empty() {
+            return Err(AgentTaskError::new(
+                "agent resume command ID must not be empty",
+            ));
+        }
+        let pause = {
+            let state = self
+                .inner
+                .state
+                .lock()
+                .expect("agent task runtime state lock should not be poisoned");
+            state
+                .active
+                .get(run_id)
+                .map(|task| task.pause.clone())
+                .ok_or_else(|| {
+                    AgentTaskError::new(format!("paused agent run `{run_id}` was not found"))
+                })?
+        };
+        {
+            let mut pause_state = pause
+                .state
+                .lock()
+                .expect("agent pause state lock should not be poisoned");
+            if !pause_state.requested || !pause_state.paused {
+                return Err(AgentTaskError::new(format!(
+                    "agent run `{run_id}` has not reached a paused boundary"
+                )));
+            }
+            pause_state.requested = false;
+            pause_state.resume_command_id = Some(command_id.to_string());
+        }
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .expect("agent task runtime state lock should not be poisoned");
+        let status = state.statuses.get_mut(run_id).ok_or_else(|| {
+            AgentTaskError::new(format!("agent run `{run_id}` status disappeared"))
+        })?;
+        status.phase = "resuming".to_string();
+        status.pause_requested = false;
+        pause.changed.notify_waiters();
+        Ok(PauseOutcome {
+            run_id: run_id.to_string(),
+            state: "resume_requested".to_string(),
+            command_id: command_id.to_string(),
+        })
+    }
+
+    pub(crate) fn begin_pause(&self, run_id: &str) -> Option<String> {
+        let pause = self
+            .inner
+            .state
+            .lock()
+            .expect("agent task runtime state lock should not be poisoned")
+            .active
+            .get(run_id)
+            .map(|task| task.pause.clone())?;
+        let command_id = {
+            let mut pause_state = pause
+                .state
+                .lock()
+                .expect("agent pause state lock should not be poisoned");
+            if !pause_state.requested || pause_state.paused {
+                return None;
+            }
+            pause_state.paused = true;
+            pause_state.pause_command_id.clone()?
+        };
+        if let Some(status) = self
+            .inner
+            .state
+            .lock()
+            .expect("agent task runtime state lock should not be poisoned")
+            .statuses
+            .get_mut(run_id)
+        {
+            status.phase = "paused".to_string();
+            status.pause_requested = true;
+        }
+        Some(command_id)
+    }
+
+    pub(crate) async fn wait_for_resume(&self, run_id: &str) -> Result<String, AgentTaskError> {
+        let pause = self
+            .inner
+            .state
+            .lock()
+            .expect("agent task runtime state lock should not be poisoned")
+            .active
+            .get(run_id)
+            .map(|task| task.pause.clone())
+            .ok_or_else(|| {
+                AgentTaskError::new(format!("paused agent run `{run_id}` was not found"))
+            })?;
+        loop {
+            let changed = pause.changed.notified();
+            if let Some(command_id) = {
+                let mut pause_state = pause
+                    .state
+                    .lock()
+                    .expect("agent pause state lock should not be poisoned");
+                if pause_state.requested {
+                    None
+                } else {
+                    pause_state.paused = false;
+                    pause_state.pause_command_id = None;
+                    pause_state.resume_command_id.take()
+                }
+            } {
+                if let Some(status) = self
+                    .inner
+                    .state
+                    .lock()
+                    .expect("agent task runtime state lock should not be poisoned")
+                    .statuses
+                    .get_mut(run_id)
+                {
+                    status.phase = "running".to_string();
+                    status.pause_requested = false;
+                }
+                return Ok(command_id);
+            }
+            changed.await;
+        }
     }
 
     pub(crate) fn request_cancel(&self, run_id: &str, reason: AgentCancelReason) -> CancelOutcome {
@@ -835,6 +1052,7 @@ fn register_owned_task(
         request: request.clone(),
         generation,
         cancellation: CancellationToken::new(),
+        pause: Arc::new(AgentPauseControl::default()),
         completion: Arc::new(AgentTaskCompletion::new()),
         execution,
         prior_waiting_phase,
@@ -850,6 +1068,7 @@ fn register_owned_task(
             active: true,
             cancellation_requested: false,
             cancellation_reason: None,
+            pause_requested: false,
             checkpoint_ref: None,
             terminal_outcome: None,
             late_results_ignored: prior_late_results,
@@ -1190,6 +1409,80 @@ mod tests {
             .expect("completed status should remain");
         assert_eq!(completed.generation, 2);
         assert_eq!(completed.terminal_outcome.as_deref(), Some("completed"));
+    }
+
+    #[test]
+    fn cooperative_pause_and_resume_continue_the_same_active_run() {
+        tauri::async_runtime::block_on(async {
+            let runtime = AgentTaskRuntime::new();
+            let operation_runtime = runtime.clone();
+            let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
+            let (paused_sender, paused_receiver) = tokio::sync::oneshot::channel();
+            let handle = runtime
+                .start_async(request("run-pause"), async move {
+                    started_sender.send(()).expect("async start should send");
+                    loop {
+                        if let Some(command_id) = operation_runtime.begin_pause("run-pause") {
+                            paused_sender
+                                .send(command_id)
+                                .expect("pause boundary should send");
+                            break;
+                        }
+                        tokio::task::yield_now().await;
+                    }
+                    let resume_command_id = operation_runtime
+                        .wait_for_resume("run-pause")
+                        .await
+                        .expect("paused run should resume");
+                    Ok(serde_json::json!({
+                        "runtime": "rust",
+                        "runId": "run-pause",
+                        "sessionId": "session:run-pause",
+                        "stopReason": "final_response",
+                        "finalContent": resume_command_id,
+                    }))
+                })
+                .expect("pausable run should start");
+            started_receiver
+                .await
+                .expect("async run should enter operation");
+
+            let pause = runtime
+                .request_pause("run-pause", "command-pause")
+                .expect("pause request should be accepted");
+            assert_eq!(pause.state, "pause_requested");
+            assert_eq!(
+                paused_receiver
+                    .await
+                    .expect("run should reach pause boundary"),
+                "command-pause"
+            );
+            assert_eq!(
+                runtime
+                    .status("run-pause")
+                    .expect("status should exist")
+                    .phase,
+                "paused"
+            );
+
+            let resume = runtime
+                .request_resume("run-pause", "command-resume")
+                .expect("resume request should be accepted");
+            assert_eq!(resume.state, "resume_requested");
+            let result = handle.wait_async().await.expect("run should finish");
+
+            assert_eq!(result["runId"], "run-pause");
+            assert_eq!(result["finalContent"], "command-resume");
+            assert_eq!(runtime.active_count(), 0);
+            assert_eq!(
+                runtime
+                    .status("run-pause")
+                    .expect("completed status should remain")
+                    .terminal_outcome
+                    .as_deref(),
+                Some("completed")
+            );
+        });
     }
 
     #[test]

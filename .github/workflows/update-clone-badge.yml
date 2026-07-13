@@ -1,0 +1,104 @@
+name: Update GitHub Clone Count
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: update-github-clone-count
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Update clone count gist
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.SECRET_TOKEN }}
+      GIST_ID: ${{ secrets.GIST_ID }}
+
+    steps:
+      - name: Validate configuration
+        shell: bash
+        run: |
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::Repository secret SECRET_TOKEN is not configured."
+            exit 1
+          fi
+          if [ -z "${GIST_ID:-}" ]; then
+            echo "::error::Repository secret GIST_ID is not configured."
+            exit 1
+          fi
+
+      - name: Fetch current and previous clone data
+        shell: bash
+        run: |
+          gh api \
+            --method GET \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "repos/${GITHUB_REPOSITORY}/traffic/clones" \
+            > clone-current.json
+
+          gh api \
+            --method GET \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "gists/${GIST_ID}" \
+            --jq '.files["clone.json"].content' \
+            > clone-previous.json
+
+      - name: Merge clone history
+        shell: python
+        run: |
+          import json
+          import os
+
+          with open("clone-current.json", encoding="utf-8") as current_file:
+              current = json.load(current_file)
+          with open("clone-previous.json", encoding="utf-8") as previous_file:
+              previous = json.load(previous_file)
+
+          clones_by_timestamp = {
+              item["timestamp"]: item
+              for item in previous.get("clones", [])
+          }
+          clones_by_timestamp.update({
+              item["timestamp"]: item
+              for item in current.get("clones", [])
+          })
+          clones = [clones_by_timestamp[key] for key in sorted(clones_by_timestamp)]
+          merged = {
+              "count": sum(int(item["count"]) for item in clones),
+              "uniques": sum(int(item["uniques"]) for item in clones),
+              "clones": clones,
+          }
+
+          payload = {
+              "description": f"{os.environ['GITHUB_REPOSITORY']} clone statistics",
+              "files": {
+                  "clone.json": {
+                      "content": json.dumps(merged, ensure_ascii=False, indent=2) + "\n",
+                  },
+              },
+          }
+          with open("gist-update.json", "w", encoding="utf-8") as payload_file:
+              json.dump(payload, payload_file, ensure_ascii=False)
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write(f"Updated cumulative clone count to **{merged['count']}**.\n")
+
+      - name: Update clone count gist
+        shell: bash
+        run: |
+          gh api \
+            --method PATCH \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "gists/${GIST_ID}" \
+            --input gist-update.json \
+            > /dev/null

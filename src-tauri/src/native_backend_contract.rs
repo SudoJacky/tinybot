@@ -110,6 +110,7 @@ pub const NATIVE_TAURI_COMMANDS: &[&str] = &[
     "worker_workspace_put_file",
     "worker_sessions_list",
     "worker_session_messages",
+    "worker_session_effective_capabilities",
     "worker_session_temporary_files",
     "worker_session_upload_temporary_file",
     "worker_session_clear_temporary_files",
@@ -404,6 +405,13 @@ const WEBUI_ROUTE_INVENTORY: &[NativeRouteInventoryEntry] = &[
         "/api/sessions/{key}/messages",
         "sessions",
         "native session store",
+    ),
+    rust_webui(
+        "get_effective_capabilities",
+        "GET",
+        "/api/sessions/{key}/effective-capabilities",
+        "sessions",
+        "native per-session effective capabilities",
     ),
     rust_webui(
         "branch_session",

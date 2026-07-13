@@ -217,7 +217,7 @@ a schema v1 default config with:
 - `schemaVersion: 1`
 - `agents.defaults.activeProfile: "deepseek-default"`
 - `agents.defaults.model: "deepseek-v4-pro"`
-- `providers.profiles.deepseek-default` with DeepSeek V4 models
+- `providers.profiles.deepseek-default` with DeepSeek V4 models and the built-in `reasoning` capability
 - `gateway.host: "127.0.0.1"` and `gateway.port: 18790`
 
 Existing files are never overwritten by this initialization path, including invalid JSON or non-object
@@ -530,16 +530,19 @@ maximum completion tokens, context-window strategy, reasoning options, service t
 working directory, approval policy, permission profile, selected tools, and parallel-tool policy.
 Invalid values fail request construction rather than being reread differently by later stages.
 
-Optional provider features must be declared explicitly under the selected provider:
+Optional provider features must be declared explicitly on the selected provider profile:
 
 ```json
 {
   "providers": {
-    "fixture": {
-      "capabilities": {
-        "serviceTier": true,
-        "reasoning": true,
-        "structuredOutput": true
+    "profiles": {
+      "fixture-default": {
+        "provider": "fixture",
+        "capabilities": {
+          "serviceTier": true,
+          "reasoning": true,
+          "structuredOutput": true
+        }
       }
     }
   }
@@ -548,7 +551,9 @@ Optional provider features must be declared explicitly under the selected provid
 
 `capabilities` may instead be an array containing `service_tier`, `reasoning`, and/or
 `structured_output` (camel-case spellings are also accepted). A requested undeclared feature fails
-with the provider ID and missing capability. Declared settings map to Chat Completions fields as
+with the resolved provider ID and missing capability. Built-in profile capabilities fall back to the
+provider catalog when the profile omits the field; an explicit profile value overrides that default.
+Declared settings map to Chat Completions fields as
 follows: service tier to `service_tier`, reasoning effort to `reasoning_effort`, reasoning summary
 configuration to `reasoning`, and output schemas to `response_format.type = "json_schema"`.
 
@@ -943,6 +948,95 @@ reference chips. Immediately before a provider request, references whose `type` 
 block; the stored and user-visible message content remains unchanged. Provider injection accepts at
 most 16 TinyOS references and 64 KiB of serialized reference data per message. Exceeding either
 limit fails the provider request visibly rather than dropping context.
+
+TinyOS Agent controls use a versioned command envelope. The native `interrupt` frame carries
+`command_id`, `command_kind`, `session_id`, `run_id`, optional turn/thread correlation, and the
+source surface/control. Before cancellation is handed to the runtime, Rust appends a distinct
+`agent.command.acknowledged` trace event to the target run. Canonical projection exposes it as a
+completed `system_notice` whose `data.detail` includes `commandId`, `commandKind`, and
+`commandStatus: "acknowledged"`.
+
+The transport response emits `command_accepted` and then `command_canonical_updated`. The latter is
+an invalidation hint only: clients reload the canonical runtime state and verify the correlated
+system notice. The eventual `agent.cancelled` item remains a separate operation-completion item and
+retains the same `commandId`.
+
+`agent.pause` and `agent.resume` use the native `command` frame and target the same active `run_id`.
+Pause is cooperative: the runtime records `pause_requested`, then enters canonical `paused` state at
+the next safe boundary before a provider call or after a provider response and before Tool execution.
+The same owned run remains active while paused. Resume unblocks that run and restores its previous
+runtime phase. Correlated `agent.paused` and `agent.resumed` system notices are operation-completion
+items distinct from their command acknowledgements. Cancellation remains available while paused.
+
+Approval resolution and Agent UI form actions use the same envelope on a native `command` frame.
+`approval.resolve` carries the approval decision and scope; `form.submit` carries `form_id` and
+validated `values`; `form.cancel` carries only `form_id`. Rust validates the pending checkpoint and
+target run before persisting acknowledgement. Form submission and cancellation complete through a
+separate correlated `agent.form.resolution` item, while the compatibility Agent UI event is emitted
+only after runtime completion.
+
+`operation.retry` also uses the native `command` frame, but separates the new target `run_id` from
+the failed source identified by `source_turn_id` and `item_id`. Rust rejects reused target IDs,
+stale/non-failed source runs, and non-failed source items before starting provider work. A valid
+retry hydrates the existing session history into a new run, emits its correlated
+`agent.command.acknowledged` item before the provider call, and uses the new run's terminal canonical
+item as operation completion.
+
+`agent.request_change` starts a new correlated run for an Agent follow-up grounded in structured
+TinyOS evidence. Files explanation/modification uses bounded `tinyos.file` references, Terminal
+explanation/follow-up uses bounded `tinyos.terminal` references with canonical item identity, and
+Plan adjustment uses a `tinyos.plan` snapshot plus canonical identity. Rust requires a non-empty
+instruction and 1–16 validated references, enforces the 64 KiB serialized reference limit, and
+rejects stale observed-run state or any active run before provider work. A valid request persists
+the references on the new canonical `user_message`, emits the correlated command acknowledgement,
+and completes at the new run's terminal canonical item. Requests issued from a History view still
+create this new live run and never mutate the historical snapshot.
+
+TinyOS controlled-host actions use the same `tinybot.command.v1` gateway and dedicated
+`tinyos-host-*` run identities. They are never inferred from local window state:
+
+- `file.save` carries `path`, `content`, `create_only`, `confirmed`, and, for an existing file,
+  `base_revision`;
+- `file.move` carries source `path`, `target_path`, `base_revision`, and `confirmed`;
+- `file.delete` carries `path`, `base_revision`, and `confirmed`;
+- `terminal.execute` carries the exact `command`, optional workspace-relative `cwd`, and
+  `confirmed`;
+- `terminal.cancel` targets the running `tinyos-host-terminal-*` run;
+- `browser.interact` defines the correlated `capture_id` and typed action contract, but currently
+  fails closed because the desktop has no real browser interaction backend.
+
+File changes are workspace-bound and revision guarded. The frontend keeps edits as local drafts,
+shows the before/after content before enabling save, and submits the revision returned by the
+workspace read. A changed source, an existing create target, an existing move target, or an invalid
+path returns a visible error; Rust does not overwrite, move, or delete on conflict. Successful and
+failed attempts are persisted as canonical host-operation runs with command acknowledgement, Tool
+start, and Tool result or error events.
+
+`terminal.execute` uses the shared Rust process manager with a read-only sandbox, denied network,
+and a working directory restricted to the configured workspace. Output is streamed through
+canonical Tool updates, retained in a bounded tail, and sanitized against configured secrets and
+common secret-assignment markers before persistence. Cancellation interrupts the process correlated
+to the host run and records a canonical cancelled terminal outcome. On capability evaluation after
+a restart, a persisted active `tinyos-host-*` run without a matching live terminal process is
+marked failed with an explicit interrupted-recovery event instead of remaining active indefinitely.
+
+TinyOS browser surfaces label backend raster evidence as `Real capture` and all other projections as
+`Structured simulation`. `browser.realCapture` and `browser.interact` remain unavailable with
+`reasonCode: "backend_unavailable"`; clients must not convert structured browser metadata into a
+claim of real capture or successful host interaction.
+
+`GET /api/sessions/{key}/effective-capabilities` and the native
+`worker_session_effective_capabilities` command return `tinybot.effective_capabilities.v1` decisions.
+Unavailable decisions include both `reasonCode` and a user-facing `reason`; the response identifies
+the evaluated run used for the decision when present. Retry is available only when that latest run
+is failed and no active run supersedes it. `files.requestChange` is available when workspace read
+access is granted, the workspace root is available, and no run is active.
+`files.directEdit`, `files.save`, and `terminal.execute` additionally require their corresponding
+desktop capability, an available workspace, and no active run. `terminal.cancel` is available only
+for a running `tinyos-host-terminal-*` run. The generic Agent cancel control remains unavailable for
+host-operation runs so the owning TinyOS application remains the single control surface.
+`agent.pause` is available for a running run; `agent.resume` is available only when the evaluated
+run has `status: "waiting"` and `phase: "paused"`.
 
 Product-facing canonical item data includes the following lifecycle details:
 
@@ -1807,6 +1901,7 @@ The Rust backend can emit live events through Tauri. Dotted worker event names a
 - `agent.delegate.interrupted`
 - `agent.delegate.closed`
 - `heartbeat.delivery`
+- `agent.command.acknowledged`
 - `agent.cancelled`
 - `agent.done`
 - `agent.error`

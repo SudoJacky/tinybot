@@ -20,6 +20,7 @@ import {
 } from "./agentTimelineModel";
 import { createGatewaySocketMessage, type NormalizedGatewayEvent } from "../gateway/gatewayWebSocketClient";
 import { logDesktopNativeDebug, summarizeDebugText } from "../native/desktopNativeChatDebug";
+import type { TinyOsCommand } from "./tinyOsCommandGateway";
 
 export interface DesktopChatSessionControllerApi {
   listSessions(): Promise<unknown>;
@@ -64,10 +65,11 @@ export interface DesktopChatSessionController {
   deleteSession(sessionKey: string): Promise<ChatDeleteSessionResult>;
   patchSession(sessionKey: string, body: unknown): Promise<boolean>;
   submitMessage(content: string, usePersistentRag?: boolean, model?: string, references?: NativeChatReference[]): ChatSubmitResult;
-  interruptActiveChat(): boolean;
+  dispatchCommand(command: TinyOsCommand): boolean;
   handleGatewayEvent(event: NormalizedGatewayEvent): Promise<ChatGatewayEventResult>;
   loadMessagesForChat(chatId: string): Promise<boolean>;
   loadTimeline(sessionKey: string): Promise<ChatTimelineSnapshot>;
+  reloadTimeline(sessionKey: string): Promise<ChatTimelineSnapshot>;
   applyTimelinePatch(sessionKey: string, payload: unknown): Promise<ChatTimelineSnapshot | null>;
   loadDelegateTrace(selection: { sessionKey: string; delegateId?: string; traceRef?: string }): Promise<unknown>;
   loadArtifact(selection: { sessionKey: string; delegateId?: string; traceRef?: string; artifactId: string }): Promise<unknown>;
@@ -380,14 +382,29 @@ export function createDesktopChatSessionController({
     return { status: "sent", chatId: state.activeChatId, content: trimmed, clientEventId };
   }
 
-  function interruptActiveChat(): boolean {
-    if (!state.activeChatId) {
+  function dispatchCommand(command: TinyOsCommand): boolean {
+    if (!state.activeChatId || state.activeSessionKey !== command.target.sessionId) {
       logDesktopNativeDebug("session.interrupt.skipped", summarizeSessionState());
       return false;
     }
-    sendSocketMessage(createGatewaySocketMessage.interrupt(state.activeChatId));
-    logDesktopNativeDebug("session.interrupt.request", summarizeSessionState());
+    sendSocketMessage(command.kind === "agent.cancel"
+      ? createGatewaySocketMessage.interrupt(state.activeChatId, command)
+      : createGatewaySocketMessage.command(state.activeChatId, command));
+    logDesktopNativeDebug("session.command.request", {
+      ...summarizeSessionState(),
+      commandId: command.commandId,
+      commandKind: command.kind,
+      runId: command.target.runId,
+      sourceControl: command.source.control,
+      sourceSurface: command.source.surface,
+    });
     return true;
+  }
+
+  async function reloadTimeline(sessionKey: string): Promise<ChatTimelineSnapshot> {
+    sessionKey = canonicalSessionKey(sessionKey) || sessionKey;
+    loadedTimelineSessions.delete(sessionKey);
+    return loadTimeline(sessionKey);
   }
 
   async function handleGatewayEvent(event: NormalizedGatewayEvent): Promise<ChatGatewayEventResult> {
@@ -513,10 +530,11 @@ export function createDesktopChatSessionController({
     deleteSession,
     patchSession,
     submitMessage,
-    interruptActiveChat,
+    dispatchCommand,
     handleGatewayEvent,
     loadMessagesForChat,
     loadTimeline,
+    reloadTimeline,
     applyTimelinePatch,
     loadDelegateTrace,
     loadArtifact,

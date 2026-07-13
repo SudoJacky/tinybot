@@ -119,7 +119,8 @@ use crate::desktop_commands::session::{
     worker_agent_runs_list, worker_agent_runs_list_with_options, worker_session_branch,
     worker_session_branch_with_options, worker_session_clear, worker_session_clear_temporary_files,
     worker_session_clear_temporary_files_with_options, worker_session_clear_with_options,
-    worker_session_delete, worker_session_delete_with_options, worker_session_messages,
+    worker_session_delete, worker_session_delete_with_options,
+    worker_session_effective_capabilities, worker_session_messages,
     worker_session_messages_with_options, worker_session_patch, worker_session_patch_with_options,
     worker_session_task_progress, worker_session_task_progress_with_options,
     worker_session_temporary_files, worker_session_temporary_files_with_options,
@@ -164,7 +165,8 @@ use crate::desktop_commands::webui::{
     WorkerCoworkRouteInput, WorkerWebuiRouteInput,
 };
 use crate::desktop_commands::workspace::{
-    worker_workspace_file, worker_workspace_file_with_options, worker_workspace_files,
+    worker_workspace_directory, worker_workspace_file, worker_workspace_file_chunk,
+    worker_workspace_file_with_options, worker_workspace_files,
     worker_workspace_files_with_options, worker_workspace_put_file,
     worker_workspace_put_file_with_options,
 };
@@ -566,10 +568,13 @@ pub fn run() {
             worker_workspace_files,
             worker_workspace_file,
             worker_workspace_put_file,
+            worker_workspace_directory,
+            worker_workspace_file_chunk,
             worker_sessions_list,
             worker_session_messages,
             worker_agent_runs_list,
             worker_agent_run_runtime_state,
+            worker_session_effective_capabilities,
             worker_session_temporary_files,
             worker_session_upload_temporary_file,
             worker_session_clear_temporary_files,

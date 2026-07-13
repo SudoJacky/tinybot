@@ -774,6 +774,36 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
+  test("prefers backend-authored native session effective capabilities", async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeWebui = {
+      route: vi.fn(async () => {
+        throw new Error("native WebUI effective capabilities route should not be used");
+      }),
+    };
+    const nativeSessions = {
+      list: vi.fn(),
+      messages: vi.fn(),
+      effectiveCapabilities: vi.fn(async (key: string) => ({
+        schemaVersion: "tinybot.effective_capabilities.v1",
+        sessionId: key,
+      })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeSessions,
+      nativeWebui,
+    });
+
+    await expect(client.sessions.effectiveCapabilities("websocket:chat-1")).resolves.toMatchObject({
+      sessionId: "websocket:chat-1",
+    });
+    expect(nativeSessions.effectiveCapabilities).toHaveBeenCalledWith("websocket:chat-1");
+    expect(nativeWebui.route).not.toHaveBeenCalled();
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   test("prefers native Rust session state mutations when both native paths are available", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
     const nativeWebui = {
@@ -1238,6 +1268,8 @@ describe("gateway HTTP client", () => {
       files: vi.fn(async () => ({ items: [{ path: "docs/readme.md" }] })),
       file: vi.fn(async (path: string) => ({ path, content: "# Readme\n" })),
       putFile: vi.fn(async (path: string, body: unknown) => ({ path, saved: true, body })),
+      directory: vi.fn(async (request: { path: string }) => ({ result: { path: request.path, entries: [] } })),
+      fileChunk: vi.fn(async (request: { path: string }) => ({ result: { path: request.path, content_type: "text" } })),
     };
     const client = createGatewayApiClient({
       config: DEFAULT_GATEWAY_CONFIG,
@@ -1264,12 +1296,20 @@ describe("gateway HTTP client", () => {
         expected_updated_at: null,
       },
     });
+    await expect(client.workspace.directory({ path: "src" })).resolves.toEqual({
+      result: { path: "src", entries: [] },
+    });
+    await expect(client.workspace.fileChunk({ path: "src/main.ts" })).resolves.toEqual({
+      result: { path: "src/main.ts", content_type: "text" },
+    });
     expect(nativeWorkspace.files).toHaveBeenCalledTimes(1);
     expect(nativeWorkspace.file).toHaveBeenCalledWith("docs/readme.md");
     expect(nativeWorkspace.putFile).toHaveBeenCalledWith("docs/readme.md", {
       content: "# Readme\n",
       expected_updated_at: null,
     });
+    expect(nativeWorkspace.directory).toHaveBeenCalledWith({ path: "src" });
+    expect(nativeWorkspace.fileChunk).toHaveBeenCalledWith({ path: "src/main.ts" });
     expect(nativeWebui.route).not.toHaveBeenCalled();
     expect(fetchFn).not.toHaveBeenCalled();
   });
@@ -2159,9 +2199,213 @@ describe("gateway WebSocket client", () => {
       references: [expect.objectContaining({ evidenceId: "item-1", type: "tinyos.file" })],
       use_persistent_rag: true,
     });
-    expect(createGatewaySocketMessage.interrupt("chat-1")).toEqual({
+    expect(createGatewaySocketMessage.interrupt("chat-1", {
+      schemaVersion: "tinybot.command.v1",
+      commandId: "command-1",
+      issuedAt: "2026-07-13T00:00:00Z",
+      kind: "agent.cancel",
+      source: { control: "stop-response", surface: "chat" },
+      target: {
+        runId: "run-1",
+        sessionId: "websocket:chat-1",
+        threadId: "thread-1",
+        turnId: "turn-1",
+      },
+    })).toEqual({
       type: "interrupt",
       chat_id: "chat-1",
+      command_id: "command-1",
+      command_kind: "agent.cancel",
+      run_id: "run-1",
+      session_id: "websocket:chat-1",
+      source: { control: "stop-response", surface: "chat" },
+      thread_id: "thread-1",
+      turn_id: "turn-1",
+    });
+    expect(createGatewaySocketMessage.command("chat-1", {
+      schemaVersion: "tinybot.command.v1",
+      commandId: "command-pause-1",
+      issuedAt: "2026-07-13T00:00:00Z",
+      kind: "agent.pause",
+      source: { control: "system-bar-pause", surface: "tinyos" },
+      target: { runId: "run-1", sessionId: "websocket:chat-1", turnId: "run-1" },
+    })).toEqual({
+      type: "command",
+      chat_id: "chat-1",
+      command_id: "command-pause-1",
+      command_kind: "agent.pause",
+      run_id: "run-1",
+      session_id: "websocket:chat-1",
+      source: { control: "system-bar-pause", surface: "tinyos" },
+      turn_id: "run-1",
+    });
+    expect(createGatewaySocketMessage.command("chat-1", {
+      schemaVersion: "tinybot.command.v1",
+      commandId: "command-approval-1",
+      issuedAt: "2026-07-13T00:00:00Z",
+      kind: "approval.resolve",
+      source: { control: "inspector-approval", surface: "tinyos" },
+      target: { runId: "run-1", sessionId: "websocket:chat-1" },
+      approval: { approvalId: "approval-1", approved: true, scope: "session" },
+    })).toEqual({
+      type: "command",
+      chat_id: "chat-1",
+      command_id: "command-approval-1",
+      command_kind: "approval.resolve",
+      run_id: "run-1",
+      session_id: "websocket:chat-1",
+      source: { control: "inspector-approval", surface: "tinyos" },
+      approval_id: "approval-1",
+      approved: true,
+      scope: "session",
+    });
+    expect(createGatewaySocketMessage.command("chat-1", {
+      schemaVersion: "tinybot.command.v1",
+      commandId: "command-form-1",
+      issuedAt: "2026-07-13T00:00:00Z",
+      kind: "form.submit",
+      source: { control: "system-form", surface: "tinyos" },
+      target: { runId: "run-1", sessionId: "websocket:chat-1", turnId: "run-1" },
+      form: { formId: "travel-preferences-1", values: { destination: "Singapore" } },
+    })).toEqual({
+      type: "command",
+      chat_id: "chat-1",
+      command_id: "command-form-1",
+      command_kind: "form.submit",
+      run_id: "run-1",
+      session_id: "websocket:chat-1",
+      turn_id: "run-1",
+      source: { control: "system-form", surface: "tinyos" },
+      form_id: "travel-preferences-1",
+      values: { destination: "Singapore" },
+    });
+    expect(createGatewaySocketMessage.command("chat-1", {
+      schemaVersion: "tinybot.command.v1",
+      commandId: "command-form-cancel-1",
+      issuedAt: "2026-07-13T00:00:00Z",
+      kind: "form.cancel",
+      source: { control: "chat-form", surface: "chat" },
+      target: { runId: "run-1", sessionId: "websocket:chat-1", turnId: "run-1" },
+      form: { formId: "travel-preferences-1" },
+    })).toEqual({
+      type: "command",
+      chat_id: "chat-1",
+      command_id: "command-form-cancel-1",
+      command_kind: "form.cancel",
+      run_id: "run-1",
+      session_id: "websocket:chat-1",
+      turn_id: "run-1",
+      source: { control: "chat-form", surface: "chat" },
+      form_id: "travel-preferences-1",
+    });
+    expect(createGatewaySocketMessage.command("chat-1", {
+      schemaVersion: "tinybot.command.v1",
+      commandId: "command-retry-1",
+      issuedAt: "2026-07-13T00:00:00Z",
+      kind: "operation.retry",
+      source: { control: "operation-shelf", surface: "tinyos" },
+      target: { runId: "run-retry-1", sessionId: "websocket:chat-1" },
+      operation: { itemId: "run-failed:error", turnId: "run-failed" },
+    })).toEqual({
+      type: "command",
+      chat_id: "chat-1",
+      command_id: "command-retry-1",
+      command_kind: "operation.retry",
+      run_id: "run-retry-1",
+      session_id: "websocket:chat-1",
+      source: { control: "operation-shelf", surface: "tinyos" },
+      source_turn_id: "run-failed",
+      item_id: "run-failed:error",
+    });
+    expect(createGatewaySocketMessage.command("chat-1", {
+      schemaVersion: "tinybot.command.v1",
+      commandId: "command-request-1",
+      issuedAt: "2026-07-13T00:00:00Z",
+      kind: "agent.request_change",
+      source: { control: "files-explain-selection", surface: "tinyos" },
+      target: { runId: "run-request-1", sessionId: "websocket:chat-1" },
+      request: {
+        instruction: "Explain this selection.",
+        observedRunId: "run-completed-1",
+        references: [{
+          detail: "TinyOS file selection",
+          kind: "reference",
+          sourceEndLine: 3,
+          sourceLine: 2,
+          sourcePath: "src/main.ts",
+          sourceText: "return value;",
+          title: "src/main.ts · L2–3",
+          type: "tinyos.file",
+        }],
+      },
+    })).toEqual({
+      type: "command",
+      chat_id: "chat-1",
+      command_id: "command-request-1",
+      command_kind: "agent.request_change",
+      run_id: "run-request-1",
+      session_id: "websocket:chat-1",
+      source: { control: "files-explain-selection", surface: "tinyos" },
+      instruction: "Explain this selection.",
+      observed_run_id: "run-completed-1",
+      references: [{
+        detail: "TinyOS file selection",
+        kind: "reference",
+        sourceEndLine: 3,
+        sourceLine: 2,
+        sourcePath: "src/main.ts",
+        sourceText: "return value;",
+        title: "src/main.ts · L2–3",
+        type: "tinyos.file",
+      }],
+    });
+    expect(createGatewaySocketMessage.command("chat-1", {
+      schemaVersion: "tinybot.command.v1",
+      commandId: "command-file-save-1",
+      issuedAt: "2026-07-13T00:00:00Z",
+      kind: "file.save",
+      source: { control: "files-editor", surface: "tinyos" },
+      target: { runId: "tinyos-host-file-1", sessionId: "websocket:chat-1" },
+      file: {
+        baseRevision: "metadata:12:34",
+        confirmed: true,
+        content: "updated\n",
+        createOnly: false,
+        path: "notes/today.md",
+      },
+    })).toEqual({
+      type: "command",
+      chat_id: "chat-1",
+      command_id: "command-file-save-1",
+      command_kind: "file.save",
+      run_id: "tinyos-host-file-1",
+      session_id: "websocket:chat-1",
+      source: { control: "files-editor", surface: "tinyos" },
+      path: "notes/today.md",
+      content: "updated\n",
+      create_only: false,
+      confirmed: true,
+      base_revision: "metadata:12:34",
+    });
+    expect(createGatewaySocketMessage.command("chat-1", {
+      schemaVersion: "tinybot.command.v1",
+      commandId: "command-terminal-1",
+      issuedAt: "2026-07-13T00:00:00Z",
+      kind: "terminal.execute",
+      source: { control: "terminal-command", surface: "tinyos" },
+      target: { runId: "tinyos-host-terminal-1", sessionId: "websocket:chat-1" },
+      terminal: { command: "npm test", confirmed: true, cwd: "apps/desktop" },
+    })).toEqual({
+      type: "command",
+      chat_id: "chat-1",
+      command_id: "command-terminal-1",
+      command_kind: "terminal.execute",
+      run_id: "tinyos-host-terminal-1",
+      session_id: "websocket:chat-1",
+      source: { control: "terminal-command", surface: "tinyos" },
+      command: "npm test",
+      confirmed: true,
+      cwd: "apps/desktop",
     });
   });
 
@@ -2190,6 +2434,21 @@ describe("gateway WebSocket client", () => {
     expect(normalizeGatewayFrame({ event: "attached", chat_id: "chat-1" })).toMatchObject({
       kind: "attached",
       chatId: "chat-1",
+    });
+    expect(normalizeGatewayFrame({ event: "command_accepted", chat_id: "chat-1", command_id: "command-1" })).toMatchObject({
+      kind: "command.accepted",
+      chatId: "chat-1",
+      commandId: "command-1",
+    });
+    expect(normalizeGatewayFrame({ event: "command_canonical_updated", chat_id: "chat-1", command_id: "command-1" })).toMatchObject({
+      kind: "command.canonical-updated",
+      chatId: "chat-1",
+      commandId: "command-1",
+    });
+    expect(normalizeGatewayFrame({ event: "error", command_id: "command-1", message: "not active" })).toMatchObject({
+      kind: "error",
+      commandId: "command-1",
+      message: "not active",
     });
     expect(normalizeGatewayFrame({ event: "delta", text: "hi", message_id: "m1" })).toMatchObject({
       kind: "unknown",

@@ -1,6 +1,7 @@
 import { DEFAULT_GATEWAY_CONFIG, type GatewayConfig } from "./gatewayConfig";
 import { logDesktopNativeChatDebug, summarizeDebugText } from "../native/desktopNativeChatDebug";
 import type { NativeChatReference } from "../chat/nativeChat";
+import type { TinyOsAgentCancelCommand, TinyOsCommand } from "../chat/tinyOsCommandGateway";
 
 export const createGatewaySocketMessage = {
   newChat: () => ({ type: "new_chat" as const }),
@@ -14,7 +15,94 @@ export const createGatewaySocketMessage = {
     ...(typeof usePersistentRag === "boolean" ? { use_persistent_rag: usePersistentRag } : {}),
     ...(model ? { model } : {}),
   }),
-  interrupt: (chatId: string) => ({ type: "interrupt" as const, chat_id: chatId }),
+  interrupt: (chatId: string, command: TinyOsAgentCancelCommand) => ({
+    type: "interrupt" as const,
+    chat_id: chatId,
+    command_id: command.commandId,
+    command_kind: command.kind,
+    run_id: command.target.runId,
+    session_id: command.target.sessionId,
+    ...(command.target.threadId ? { thread_id: command.target.threadId } : {}),
+    ...(command.target.turnId ? { turn_id: command.target.turnId } : {}),
+    source: command.source,
+  }),
+  command: (chatId: string, command: Exclude<TinyOsCommand, TinyOsAgentCancelCommand>) => {
+    const envelope = {
+      type: "command" as const,
+      chat_id: chatId,
+      command_id: command.commandId,
+      command_kind: command.kind,
+      run_id: command.target.runId,
+      session_id: command.target.sessionId,
+      ...(command.target.threadId ? { thread_id: command.target.threadId } : {}),
+      ...("turnId" in command.target && command.target.turnId ? { turn_id: command.target.turnId } : {}),
+      source: command.source,
+    };
+    if (command.kind === "approval.resolve") return {
+      ...envelope,
+      approval_id: command.approval.approvalId,
+      approved: command.approval.approved,
+      scope: command.approval.scope,
+      ...(command.approval.guidance ? { guidance: command.approval.guidance } : {}),
+    };
+    if (command.kind === "operation.retry") return {
+      ...envelope,
+      source_turn_id: command.operation.turnId,
+      item_id: command.operation.itemId,
+    };
+    if (command.kind === "agent.pause" || command.kind === "agent.resume") return envelope;
+    if (command.kind === "agent.request_change") return {
+      ...envelope,
+      instruction: command.request.instruction,
+      ...(command.request.observedRunId ? { observed_run_id: command.request.observedRunId } : {}),
+      references: command.request.references,
+    };
+    if (command.kind === "file.save") return {
+      ...envelope,
+      path: command.file.path,
+      content: command.file.content,
+      create_only: command.file.createOnly,
+      confirmed: command.file.confirmed,
+      ...(command.file.baseRevision ? { base_revision: command.file.baseRevision } : {}),
+    };
+    if (command.kind === "file.move") return {
+      ...envelope,
+      path: command.file.path,
+      target_path: command.file.targetPath,
+      base_revision: command.file.baseRevision,
+      confirmed: command.file.confirmed,
+    };
+    if (command.kind === "file.delete") return {
+      ...envelope,
+      path: command.file.path,
+      base_revision: command.file.baseRevision,
+      confirmed: command.file.confirmed,
+    };
+    if (command.kind === "terminal.execute") return {
+      ...envelope,
+      command: command.terminal.command,
+      confirmed: command.terminal.confirmed,
+      ...(command.terminal.cwd ? { cwd: command.terminal.cwd } : {}),
+    };
+    if (command.kind === "terminal.cancel") return envelope;
+    if (command.kind === "browser.interact") return {
+      ...envelope,
+      action: command.browser.action,
+      capture_id: command.browser.captureId,
+      confirmed: command.browser.confirmed,
+    };
+    if (command.kind !== "form.submit" && command.kind !== "form.cancel") {
+      throw new Error(`Unsupported TinyOS command kind: ${command.kind}`);
+    }
+    const formEnvelope = {
+      ...envelope,
+      form_id: command.form.formId,
+    };
+    return command.kind === "form.submit" ? {
+      ...formEnvelope,
+      values: command.form.values,
+    } : formEnvelope;
+  },
 };
 
 export type NormalizedGatewayEvent =
@@ -27,7 +115,9 @@ export type NormalizedGatewayEvent =
   | { kind: "agent-ui.form"; raw: Record<string, unknown> }
   | { kind: "agent-ui.event"; eventType: string; raw: Record<string, unknown> }
   | { kind: "interrupted"; chatId?: string; cancelled: boolean; raw: Record<string, unknown> }
-  | { kind: "error"; message: string; raw: Record<string, unknown> }
+  | { kind: "command.accepted"; chatId?: string; commandId: string; raw: Record<string, unknown> }
+  | { kind: "command.canonical-updated"; chatId?: string; commandId: string; raw: Record<string, unknown> }
+  | { kind: "error"; commandId?: string; message: string; raw: Record<string, unknown> }
   | { kind: "unknown"; event?: string; raw: Record<string, unknown> };
 
 export function normalizeGatewayFrame(frame: unknown): NormalizedGatewayEvent {
@@ -78,8 +168,27 @@ export function normalizeGatewayFrame(frame: unknown): NormalizedGatewayEvent {
         cancelled: raw.cancelled === true,
         raw,
       };
+    case "command_accepted":
+      return {
+        kind: "command.accepted",
+        chatId: optionalString(raw.chat_id),
+        commandId: stringValue(raw.command_id ?? raw.commandId),
+        raw,
+      };
+    case "command_canonical_updated":
+      return {
+        kind: "command.canonical-updated",
+        chatId: optionalString(raw.chat_id),
+        commandId: stringValue(raw.command_id ?? raw.commandId),
+        raw,
+      };
     case "error":
-      return { kind: "error", message: stringValue(raw.message), raw };
+      return {
+        kind: "error",
+        ...(optionalString(raw.command_id ?? raw.commandId) ? { commandId: optionalString(raw.command_id ?? raw.commandId) } : {}),
+        message: stringValue(raw.message),
+        raw,
+      };
     default:
       return { kind: "unknown", event: optionalString(raw.event), raw };
   }

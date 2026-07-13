@@ -1,8 +1,23 @@
 import type { ReactChatMessage } from "./chat/messageActions";
 import type { ChatTimelineSnapshot } from "../app-core/chat/agentTimelineModel";
 import type { AgentUiForm } from "../app-core/agent-ui/agentUiEvents";
+import type {
+  WorkspaceDirectoryPage,
+  WorkspaceDirectoryRequest,
+  WorkspaceFileChunk,
+} from "../app-core/workspace/workspaceExplorer";
+export type {
+  WorkspaceDirectoryEntry,
+  WorkspaceDirectoryPage,
+  WorkspaceDirectoryRequest,
+  WorkspaceFileChunk,
+  WorkspaceQueryError,
+  WorkspaceQueryErrorCode,
+} from "../app-core/workspace/workspaceExplorer";
 import type { AgentDefaultsSettingsData } from "../app-core/settings/agentDefaultsSettings";
 import type { NativeChatReference } from "../app-core/chat/nativeChat";
+import type { TinyOsCommand } from "../app-core/chat/tinyOsCommandGateway";
+import type { TinyOsEffectiveCapabilities } from "../app-core/chat/tinyOsCapabilities";
 import type {
   ProviderModelFetchInput,
   ProviderModelFetchResult,
@@ -28,6 +43,8 @@ export type ChatInput = {
 
 export type ChatEvent = {
   type: string;
+  command?: TinyOsCommand;
+  commandId?: string;
   eventType?: string;
   error?: string;
   message?: ReactChatMessage;
@@ -53,8 +70,10 @@ export type SessionStore = {
 
 export type ChatStore = {
   load(sessionId: string): Promise<ChatTimelineSnapshot>;
+  loadTinyOsCapabilities(sessionId: string): Promise<TinyOsEffectiveCapabilities>;
   send(sessionId: string, input: ChatInput): Promise<void>;
   stop(sessionId: string): Promise<void>;
+  dispatchCommand(command: TinyOsCommand): Promise<void>;
   resolveApproval(sessionId: string, input: ApprovalResolutionInput): Promise<void>;
   listAgentUiForms(sessionId: string): Promise<AgentUiForm[]>;
   submitAgentUiForm(formId: string, values: Record<string, unknown>): Promise<void>;
@@ -74,6 +93,8 @@ export type WorkspaceFileSummary = {
 
 export type WorkspaceStore = {
   listFiles(): Promise<WorkspaceFileSummary[]>;
+  listDirectory(request: WorkspaceDirectoryRequest): Promise<WorkspaceDirectoryPage>;
+  readFile(request: { cursor?: string; path: string }): Promise<WorkspaceFileChunk>;
 };
 
 export type KnowledgeDocumentSummary = {
