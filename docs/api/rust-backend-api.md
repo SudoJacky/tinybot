@@ -968,10 +968,18 @@ target run before persisting acknowledgement. Form submission and cancellation c
 separate correlated `agent.form.resolution` item, while the compatibility Agent UI event is emitted
 only after runtime completion.
 
+`operation.retry` also uses the native `command` frame, but separates the new target `run_id` from
+the failed source identified by `source_turn_id` and `item_id`. Rust rejects reused target IDs,
+stale/non-failed source runs, and non-failed source items before starting provider work. A valid
+retry hydrates the existing session history into a new run, emits its correlated
+`agent.command.acknowledged` item before the provider call, and uses the new run's terminal canonical
+item as operation completion.
+
 `GET /api/sessions/{key}/effective-capabilities` and the native
 `worker_session_effective_capabilities` command return `tinybot.effective_capabilities.v1` decisions.
 Unavailable decisions include both `reasonCode` and a user-facing `reason`; the response identifies
-the active run used for the decision when present.
+the evaluated run used for the decision when present. Retry is available only when that latest run
+is failed and no active run supersedes it.
 
 Product-facing canonical item data includes the following lifecycle details:
 

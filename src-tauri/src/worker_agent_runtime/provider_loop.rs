@@ -347,6 +347,7 @@ async fn run_native_agent_turn_with_instructions_async(
         resume.apply(&context, &mut state)
     } else {
         state.emit_turn_started(&context);
+        state.emit_tinyos_command_acknowledgement(&context)?;
         0
     };
     let turn_start_invocation =

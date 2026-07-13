@@ -380,12 +380,15 @@ pub(crate) fn build_worker_session_effective_capabilities(
         .get("runs")
         .and_then(serde_json::Value::as_array)
         .and_then(|items| {
-            items.iter().rev().find(|run| {
-                matches!(
-                    run.get("status").and_then(serde_json::Value::as_str),
-                    Some("running" | "waiting")
-                )
-            })
+            items
+                .iter()
+                .find(|run| {
+                    matches!(
+                        run.get("status").and_then(serde_json::Value::as_str),
+                        Some("running" | "waiting")
+                    )
+                })
+                .or_else(|| items.first())
         });
     let evaluated_run_id = evaluated_run
         .and_then(|run| run.get("runId"))
@@ -400,6 +403,17 @@ pub(crate) fn build_worker_session_effective_capabilities(
             "Cancellation of a run waiting for user input is not supported yet.",
         ),
         _ => unavailable_capability("no_active_run", "The session has no active Agent run."),
+    };
+    let retry = match evaluated_run_status {
+        Some("failed") => available_capability(),
+        Some("running" | "waiting") => unavailable_capability(
+            "run_active",
+            "Retry is unavailable while an Agent run is active.",
+        ),
+        _ => unavailable_capability(
+            "no_failed_run",
+            "The session has no latest failed Agent run to retry.",
+        ),
     };
     let files_read = if policy.allows(&WorkerCapability::FsWorkspaceRead) && workspace_available {
         available_capability()
@@ -424,7 +438,7 @@ pub(crate) fn build_worker_session_effective_capabilities(
                 "pause": unavailable_capability("runtime_unsupported", "The Agent runtime does not support pausing a run."),
                 "resume": unavailable_capability("runtime_unsupported", "The Agent runtime does not support resuming a paused run."),
                 "cancel": cancel,
-                "retry": unavailable_capability("command_unavailable", "Retry has not been migrated to the Agent command gateway."),
+                "retry": retry,
             },
             "files": {
                 "read": files_read,

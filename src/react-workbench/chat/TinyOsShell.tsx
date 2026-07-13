@@ -77,12 +77,14 @@ const tinyOsSessionUiState = new Map<string, ReturnType<typeof createTinyOsUiSta
 
 export function TinyOsShell({
   agentUiForms,
+  canRetryRun,
   filesController,
   history = false,
   onCancelForm,
   onAttachContext,
   onOpenArtifact,
   onResolveApproval,
+  onRetryOperation,
   onSelectEntry,
   onSubmitForm,
   resolvingApprovalId,
@@ -93,12 +95,14 @@ export function TinyOsShell({
   workspaceKey,
 }: {
   agentUiForms: AgentUiForm[];
+  canRetryRun: boolean;
   filesController?: TinyOsFilesController;
   history?: boolean;
   onCancelForm: (form: AgentUiForm) => void;
   onAttachContext: (reference: TinyOsContextReference) => void;
   onOpenArtifact: (artifact: ArtifactRef) => void;
   onResolveApproval: (approvalId: string, action: ApprovalAction) => void;
+  onRetryOperation: (entry: TinyOsTimelineEntry) => void;
   onSelectEntry: (entry: TinyOsTimelineEntry) => void;
   onSubmitForm: (form: AgentUiForm, values: Record<string, unknown>) => void;
   resolvingApprovalId: string;
@@ -334,7 +338,7 @@ export function TinyOsShell({
         ) : null}
       </section>
 
-      <TinyOsOperationShelf operations={snapshot.operations} onSelectEntry={(entry) => {
+      <TinyOsOperationShelf canRetryRun={canRetryRun} operations={snapshot.operations} onRetryOperation={onRetryOperation} onSelectEntry={(entry) => {
         const sourceWindow = appWindows.find(({ sourceItemIds }) => sourceItemIds.includes(entry.step.id));
         if (sourceWindow) focusApp(sourceWindow.appId);
         onSelectEntry(entry);
@@ -831,9 +835,13 @@ function TinyOsInspector({ entries, onClose, onOpenArtifact }: { entries: TinyOs
 }
 
 function TinyOsOperationShelf({
+  canRetryRun,
+  onRetryOperation,
   onSelectEntry,
   operations,
 }: {
+  canRetryRun: boolean;
+  onRetryOperation: (entry: TinyOsTimelineEntry) => void;
   onSelectEntry: (entry: TinyOsTimelineEntry) => void;
   operations: TinyOsDesktopSnapshot["operations"];
 }) {
@@ -842,13 +850,20 @@ function TinyOsOperationShelf({
   return (
     <nav aria-label="TinyOS recent operations" className="tinyos-operation-shelf">
       {operation && Icon ? (
-        <button data-status={operation.status} type="button" onClick={() => onSelectEntry(operation.entry)}>
-          <span className="tinyos-operation-shelf__state"><Icon aria-hidden="true" size={15} /></span>
-          <span><small>Latest canonical operation</small><strong>{operation.title}</strong></span>
-          <span><small>Status</small><strong>{statusLabel(operation.status)}</strong></span>
-          <span><small>Agent</small><strong>{operation.entry.step.agentContext.title}</strong></span>
-          <span><small>Source</small><strong>Canonical events</strong></span>
-        </button>
+        <>
+          <button className="tinyos-operation-shelf__select" data-status={operation.status} type="button" onClick={() => onSelectEntry(operation.entry)}>
+            <span className="tinyos-operation-shelf__state"><Icon aria-hidden="true" size={15} /></span>
+            <span><small>Latest canonical operation</small><strong>{operation.title}</strong></span>
+            <span><small>Status</small><strong>{statusLabel(operation.status)}</strong></span>
+            <span><small>Agent</small><strong>{operation.entry.step.agentContext.title}</strong></span>
+            <span><small>Source</small><strong>Canonical events</strong></span>
+          </button>
+          {operation.status === "failed" ? (
+            <button className="tinyos-operation-shelf__retry" disabled={!canRetryRun} type="button" onClick={() => onRetryOperation(operation.entry)}>
+              <RotateCcw aria-hidden="true" size={14} />Retry
+            </button>
+          ) : null}
+        </>
       ) : <span className="tinyos-operation-shelf__empty">Visualized from canonical events</span>}
     </nav>
   );

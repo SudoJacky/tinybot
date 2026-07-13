@@ -2906,13 +2906,14 @@ button.tinyos-overlay-backdrop {
   z-index: 13;
   display: grid;
   grid-column: 2;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px;
   border-top: 1px solid rgb(82 72 58 / 11%);
   background: #faf8f3;
   padding: 7px 9px;
 }
 
-.tinyos-operation-shelf > button {
+.tinyos-operation-shelf__select {
   display: grid;
   grid-template-columns: 28px minmax(90px, 1.7fr) minmax(58px, .8fr) minmax(54px, .7fr) minmax(82px, 1fr);
   align-items: center;
@@ -2927,17 +2928,19 @@ button.tinyos-overlay-backdrop {
   cursor: pointer;
 }
 
-.tinyos-operation-shelf > button:hover,
-.tinyos-operation-shelf > button:focus-visible,
-.tinyos-operation-shelf > button[data-status="running"],
-.tinyos-operation-shelf > button[data-status="blocked"] {
+.tinyos-operation-shelf__select:hover,
+.tinyos-operation-shelf__select:focus-visible,
+.tinyos-operation-shelf__select[data-status="running"],
+.tinyos-operation-shelf__select[data-status="blocked"] {
   border-color: color-mix(in srgb, var(--color-primary) 24%, var(--color-hairline));
   background: color-mix(in srgb, var(--color-primary) 6%, #fff);
 }
 
-.tinyos-operation-shelf > button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.tinyos-operation-shelf__select:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
 .tinyos-operation-shelf__state { display: inline-grid; width: 26px; height: 26px; place-items: center; border-radius: 50%; background: #e7f6eb; color: #267b46; }
-.tinyos-operation-shelf > button > span { min-width: 0; }
+.tinyos-operation-shelf__select > span { min-width: 0; }
+.tinyos-operation-shelf__retry { display: inline-flex; align-items: center; align-self: center; gap: 5px; border: 1px solid var(--color-hairline); border-radius: 8px; background: #fffdfa; padding: 8px; color: var(--color-primary); font-size: 9px; cursor: pointer; }
+.tinyos-operation-shelf__retry:disabled { color: var(--color-muted); cursor: not-allowed; opacity: .65; }
 .tinyos-operation-shelf strong,
 .tinyos-operation-shelf small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tinyos-operation-shelf strong { margin-top: 2px; color: var(--color-ink); font-size: 8px; }
@@ -3103,12 +3106,12 @@ button.tinyos-overlay-backdrop {
     grid-column: 2;
   }
 
-  .tinyos-operation-shelf > button {
+  .tinyos-operation-shelf__select {
     grid-template-columns: 28px minmax(0, 1fr) 64px;
   }
 
-  .tinyos-operation-shelf > button > span:nth-child(4),
-  .tinyos-operation-shelf > button > span:nth-child(5) {
+  .tinyos-operation-shelf__select > span:nth-child(4),
+  .tinyos-operation-shelf__select > span:nth-child(5) {
     display: none;
   }
 }

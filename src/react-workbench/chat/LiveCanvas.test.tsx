@@ -33,6 +33,7 @@ function canvasProps(entries: LiveCanvasEntry[], overrides: Record<string, unkno
   return {
     agentUiForms: [] as AgentUiForm[],
     canCancelRun: false,
+    canRetryRun: false,
     commandLifecycle: { stage: "idle" } as const,
     entries,
     headingRef: createRef<HTMLHeadingElement>(),
@@ -43,6 +44,7 @@ function canvasProps(entries: LiveCanvasEntry[], overrides: Record<string, unkno
     onClose: vi.fn(),
     onOpenArtifact: vi.fn(),
     onResolveApproval: vi.fn(),
+    onRetryOperation: vi.fn(),
     onReturnToLive: vi.fn(),
     onSelectEntry: vi.fn(),
     onSubmitForm: vi.fn(),
@@ -79,6 +81,16 @@ describe("LiveCanvas TinyOS", () => {
     })} />);
     expect((screen.getByRole("button", { name: "Cancel command pending" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("Awaiting runtime")).toBeTruthy();
+  });
+
+  it("routes retry for the failed canonical operation through the shared callback", async () => {
+    const onRetryOperation = vi.fn();
+    const failed = entry(step({ id: "error-failed", kind: "error", status: "failed", title: "Operation failed" }), "run-failed");
+    render(<LiveCanvas {...canvasProps([failed], { canRetryRun: true, onRetryOperation })} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(onRetryOperation).toHaveBeenCalledWith(failed);
   });
 
   it("explains backend-authored cancellation denial", () => {

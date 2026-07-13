@@ -73,6 +73,7 @@ import {
   createTinyOsApprovalResolveCommand,
   createTinyOsFormCancelCommand,
   createTinyOsFormSubmitCommand,
+  createTinyOsOperationRetryCommand,
   isTinyOsCommandInFlight,
   reduceTinyOsCommandLifecycle,
   type TinyOsCommandLifecycle,
@@ -380,7 +381,7 @@ export function ChatPage({
     if (commandLifecycle.stage === "acknowledged") {
       const completion = canonicalTinyOsCommandCompletion(
         timeline.turns,
-        commandLifecycle.command.commandId,
+        commandLifecycle.command,
       );
       if (!completion) return;
       dispatchCommandLifecycle({
@@ -424,6 +425,11 @@ export function ChatPage({
       if (commandLifecycle.stage === "completed") {
         setResolvingApprovalId("");
       }
+      return;
+    }
+    if (commandLifecycle.command.kind === "operation.retry"
+      && (commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out")) {
+      setTimelineError(`Retry failed: ${commandLifecycle.error}`);
       return;
     }
     if ((commandLifecycle.command.kind === "form.submit" || commandLifecycle.command.kind === "form.cancel")
@@ -793,13 +799,51 @@ export function ChatPage({
     await handleSessionStoreRefresh(optimisticSession);
   }
 
-  async function handleRecoverTurn(turn: ChatTurn, action: RecoveryAction): Promise<void> {
-    if (!activeSession || recoveringTurnId) {
+  async function handleRecoverTurn(
+    turn: ChatTurn,
+    action: RecoveryAction,
+    retryItemId?: string,
+    surface: "chat" | "tinyos" = "chat",
+  ): Promise<void> {
+    if (!activeSession || recoveringTurnId || isTinyOsCommandInFlight(commandLifecycle)) {
       return;
     }
-    const failedStep = failedPlanStep(turn);
     setRecoveringTurnId(turn.id);
     try {
+      if (action === "retry") {
+        if (tinyOsCapabilities.sessionId !== activeSession.id
+          || tinyOsCapabilities.evaluatedRunId !== turn.id
+          || !tinyOsCapabilities.capabilities.agent.retry.available) {
+          setTimelineError(tinyOsCapabilities.capabilities.agent.retry.reason || "Retry is unavailable for this failed Agent run.");
+          return;
+        }
+        const failedItem = retryItemId
+          ? (turn.executionItems ?? turn.steps).find((step) => step.id === retryItemId && step.status === "failed")
+          : [...(turn.executionItems ?? turn.steps)].reverse().find((step) => step.status === "failed");
+        if (!failedItem) {
+          setTimelineError("Cannot retry: the failed canonical item is not available.");
+          return;
+        }
+        const command = createTinyOsOperationRetryCommand({
+          itemId: failedItem.id,
+          sessionId: activeSession.id,
+          source: { control: surface === "tinyos" ? "operation-shelf" : "error-recovery", surface },
+          threadId: turn.canonicalItems?.find((item) => item.threadId)?.threadId,
+          turnId: turn.id,
+        });
+        setTimelineError("");
+        dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
+        try {
+          await chatStore.dispatchCommand(command);
+        } catch (error) {
+          dispatchCommandLifecycle({
+            commandId: command.commandId,
+            error: error instanceof Error ? error.message : String(error),
+            type: "rejected",
+          });
+        }
+        return;
+      }
       if (action === "restart") {
         const created = await sessionStore.create({ title: deriveSessionTitle(turn.userMessage.text) });
         activateCreatedSession(created);
@@ -807,9 +851,7 @@ export function ChatPage({
         await handleSessionStoreRefresh(created);
         return;
       }
-      const text = action === "retry"
-        ? `请重新执行刚才失败的步骤${failedStep ? `“${failedStep}”` : ""}，保留已经完成的工作，然后继续完成任务。`
-        : "请从刚才中断的位置继续，沿用现有上下文和计划；先确认当前进度，再完成剩余任务。";
+      const text = "请从刚才中断的位置继续，沿用现有上下文和计划；先确认当前进度，再完成剩余任务。";
       await chatStore.send(activeSession.id, { text });
       await handleSessionStoreRefresh(activeSession);
     } finally {
@@ -1419,6 +1461,13 @@ export function ChatPage({
           headingRef={liveCanvasHeadingRef}
           mode={liveCanvas.mode}
           canCancelRun={canCancelRun}
+          canRetryRun={Boolean(
+            activeSession
+            && latestFailedTurnId
+            && tinyOsCapabilities.sessionId === activeSession.id
+            && tinyOsCapabilities.evaluatedRunId === latestFailedTurnId
+            && tinyOsCapabilities.capabilities.agent.retry.available
+          )}
           cancelUnavailableReason={activeRun && !canCancelRun ? cancelUnavailableReason : undefined}
           commandLifecycle={commandLifecycle}
           resolvingApprovalId={resolvingApprovalId}
@@ -1433,6 +1482,10 @@ export function ChatPage({
           onExpandedChange={() => dispatchLiveCanvas({ type: "expand_toggle" })}
           onOpenArtifact={(artifact) => void handleOpenArtifact(artifact)}
           onResolveApproval={(approvalId, action) => void handleResolveApproval(approvalId, action, "tinyos")}
+          onRetryOperation={(entry) => {
+            const turn = timeline?.turns.find((candidate) => candidate.id === entry.turnId);
+            if (turn) void handleRecoverTurn(turn, "retry", entry.step.id, "tinyos");
+          }}
           onReturnToLive={() => dispatchLiveCanvas({ type: "return_live" })}
           onSelectEntry={(entry) => openLiveCanvasItem(entry.turnId, entry.step)}
           onSubmitForm={(form, values) => void handleSubmitAgentUiForm(form, values, "tinyos")}
@@ -1713,7 +1766,9 @@ function tinyOsCommandLifecycleLabel(lifecycle: TinyOsCommandLifecycle): string 
     ? "Cancel"
     : commandKind === "approval.resolve"
       ? "Approval"
-      : commandKind === "form.cancel" ? "Form cancellation" : "Form submission";
+      : commandKind === "form.cancel"
+        ? "Form cancellation"
+        : commandKind === "operation.retry" ? "Retry" : "Form submission";
   const completionOperation = commandKind === "agent.cancel" ? "Cancellation" : operation;
   switch (lifecycle.stage) {
     case "idle":

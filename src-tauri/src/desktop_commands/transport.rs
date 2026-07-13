@@ -316,6 +316,7 @@ async fn worker_transport_dispatch_websocket_message_with_live_trace_sink_async(
             workspace_root,
             config_snapshot,
             live_trace_sink,
+            timeout,
         )
         .await;
     }
@@ -459,6 +460,17 @@ pub(crate) fn native_websocket_transport_result(
                     .cloned()
                     .unwrap_or(serde_json::Value::Null);
             }
+        } else if command_kind == "operation.retry" {
+            transport["sourceTurnId"] = frame
+                .get("source_turn_id")
+                .or_else(|| frame.get("sourceTurnId"))
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+            transport["itemId"] = frame
+                .get("item_id")
+                .or_else(|| frame.get("itemId"))
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
         }
         return Some(transport);
     }
@@ -524,6 +536,7 @@ async fn dispatch_tinyos_command(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
+    timeout: Duration,
 ) -> Result<serde_json::Value, String> {
     match transport
         .get("commandKind")
@@ -546,6 +559,17 @@ async fn dispatch_tinyos_command(
                 workspace_root,
                 config_snapshot,
                 live_trace_sink,
+            )
+            .await
+        }
+        Some("operation.retry") => {
+            dispatch_tinyos_retry_command(
+                shared,
+                transport,
+                workspace_root,
+                config_snapshot,
+                live_trace_sink,
+                timeout,
             )
             .await
         }
@@ -855,6 +879,178 @@ async fn dispatch_tinyos_form_command(
     }
     transport["frames"] = serde_json::Value::Array(frames);
     Ok(serde_json::json!({ "transport": transport, "command": resolution }))
+}
+
+async fn dispatch_tinyos_retry_command(
+    shared: &SharedGateway,
+    mut transport: serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let session_id = required_transport_string(&transport, "sessionId")?;
+    let retry_run_id = required_transport_string(&transport, "runId")?;
+    let command_id = required_transport_string(&transport, "commandId")?;
+    let source_turn_id = required_transport_string(&transport, "sourceTurnId")?;
+    let item_id = required_transport_string(&transport, "itemId")?;
+    if retry_run_id == source_turn_id {
+        return Err("operation.retry requires a new target runId".to_string());
+    }
+
+    let source_item = validate_tinyos_retry_source(
+        &session_id,
+        &source_turn_id,
+        &item_id,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+    )?;
+    let description = tinyos_retry_source_description(&source_item);
+    let content = format!(
+        "Retry the failed canonical operation `{description}` (source item `{item_id}` from run `{source_turn_id}`). Preserve completed work, verify the failure context, and continue the task from that operation."
+    );
+    let command_metadata = serde_json::json!({
+        "commandId": &command_id,
+        "commandKind": "operation.retry",
+        "operation": {
+            "itemId": &item_id,
+            "turnId": &source_turn_id,
+        },
+        "source": transport.get("source").cloned().unwrap_or(serde_json::Value::Null),
+        "target": {
+            "runId": &retry_run_id,
+            "sessionId": &session_id,
+            "threadId": transport.get("threadId").cloned().unwrap_or(serde_json::Value::Null),
+        },
+    });
+    let retry_transport = serde_json::json!({
+        "inbound": {
+            "channel": "websocket",
+            "chat_id": transport.get("chatId").cloned().unwrap_or(serde_json::Value::Null),
+            "content": content,
+            "metadata": { "_tinyosCommand": command_metadata },
+            "session_key": &session_id,
+        }
+    });
+    let run_request = build_worker_transport_websocket_run_input_request(
+        next_worker_request_correlation(),
+        &retry_transport,
+        WorkerTransportWebSocketDispatchOptions {
+            run_id: Some(retry_run_id.clone()),
+            stream: Some(true),
+            ..WorkerTransportWebSocketDispatchOptions::default()
+        },
+    )
+    .ok_or_else(|| "operation.retry failed to build Agent run input".to_string())?;
+    let run_spec = run_request
+        .params
+        .get("input")
+        .cloned()
+        .ok_or_else(|| "operation.retry Agent run input is missing".to_string())?;
+    let agent_result = worker_run_agent_with_live_trace_sink_async(
+        shared,
+        run_spec,
+        workspace_root,
+        config_snapshot,
+        timeout,
+        live_trace_sink,
+    )
+    .await?;
+
+    transport["frames"] = serde_json::json!([
+        {
+            "event": "command_accepted",
+            "chat_id": transport.get("chatId").cloned().unwrap_or(serde_json::Value::Null),
+            "command_id": &command_id,
+            "run_id": &retry_run_id,
+        },
+        {
+            "event": "command_canonical_updated",
+            "chat_id": transport.get("chatId").cloned().unwrap_or(serde_json::Value::Null),
+            "command_id": &command_id,
+            "run_id": &retry_run_id,
+        }
+    ]);
+    Ok(serde_json::json!({ "transport": transport, "agent": agent_result }))
+}
+
+fn validate_tinyos_retry_source(
+    session_id: &str,
+    source_turn_id: &str,
+    item_id: &str,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let request_id = next_worker_request_correlation();
+    let runs = call_rust_state_service(
+        workspace_root.clone(),
+        config_snapshot.clone(),
+        WorkerRequest::new(
+            request_id.id("tinyos-retry-run-list"),
+            request_id.trace_id("tinyos-retry-run-list"),
+            "agent_run.list",
+            serde_json::json!({ "session_id": session_id }),
+        ),
+        "TinyOS retry run lookup",
+    )?;
+    let latest_run = runs
+        .get("runs")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|runs| runs.first())
+        .ok_or_else(|| "operation.retry source run was not found".to_string())?;
+    let latest_run_id = latest_run
+        .get("runId")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    if latest_run_id != source_turn_id {
+        return Err(format!(
+            "operation.retry targets stale run `{source_turn_id}`; latest run is `{latest_run_id}`"
+        ));
+    }
+    if latest_run.get("status").and_then(serde_json::Value::as_str) != Some("failed") {
+        return Err(format!(
+            "operation.retry source run `{source_turn_id}` is not failed"
+        ));
+    }
+
+    let request_id = next_worker_request_correlation();
+    let runtime_state = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("tinyos-retry-runtime-state"),
+            request_id.trace_id("tinyos-retry-runtime-state"),
+            "agent_run.runtime_state",
+            serde_json::json!({
+                "session_id": session_id,
+                "run_id": source_turn_id,
+            }),
+        ),
+        "TinyOS retry source item lookup",
+    )?;
+    runtime_state
+        .get("timeline")
+        .and_then(|timeline| timeline.get("items"))
+        .and_then(serde_json::Value::as_array)
+        .and_then(|items| {
+            items.iter().find(|item| {
+                item.get("itemId").and_then(serde_json::Value::as_str) == Some(item_id)
+                    && item.get("status").and_then(serde_json::Value::as_str) == Some("failed")
+            })
+        })
+        .cloned()
+        .ok_or_else(|| format!("operation.retry source item `{item_id}` is not failed"))
+}
+
+fn tinyos_retry_source_description(item: &serde_json::Value) -> String {
+    let data = item.get("data").unwrap_or(&serde_json::Value::Null);
+    let value = ["title", "summary", "message"]
+        .iter()
+        .find_map(|key| data.get(key).and_then(serde_json::Value::as_str))
+        .or_else(|| item.get("kind").and_then(serde_json::Value::as_str))
+        .unwrap_or("failed operation")
+        .trim();
+    value.chars().take(500).collect()
 }
 
 fn required_transport_string(value: &serde_json::Value, key: &str) -> Result<String, String> {

@@ -76,10 +76,29 @@ export type TinyOsFormCancelCommand = {
   };
 };
 
+export type TinyOsOperationRetryCommand = {
+  schemaVersion: "tinybot.command.v1";
+  commandId: string;
+  issuedAt: string;
+  kind: "operation.retry";
+  source: TinyOsCommandSource;
+  target: {
+    runId: string;
+    sessionId: string;
+    threadId?: string;
+    turnId?: string;
+  };
+  operation: {
+    itemId: string;
+    turnId: string;
+  };
+};
+
 export type TinyOsCommand = TinyOsAgentCancelCommand
   | TinyOsApprovalResolveCommand
   | TinyOsFormSubmitCommand
-  | TinyOsFormCancelCommand;
+  | TinyOsFormCancelCommand
+  | TinyOsOperationRetryCommand;
 
 export type TinyOsCommandAcknowledgement = {
   itemId: string;
@@ -225,6 +244,34 @@ export function createTinyOsFormCancelCommand(input: {
   };
 }
 
+export function createTinyOsOperationRetryCommand(input: {
+  commandId?: string;
+  issuedAt?: string;
+  itemId: string;
+  retryRunId?: string;
+  sessionId: string;
+  source: TinyOsCommandSource;
+  threadId?: string;
+  turnId: string;
+}): TinyOsOperationRetryCommand {
+  return {
+    schemaVersion: "tinybot.command.v1",
+    commandId: input.commandId ?? createTinyOsCommandId(),
+    issuedAt: input.issuedAt ?? new Date().toISOString(),
+    kind: "operation.retry",
+    source: input.source,
+    target: {
+      runId: input.retryRunId ?? createTinyOsRetryRunId(),
+      sessionId: input.sessionId,
+      ...(input.threadId ? { threadId: input.threadId } : {}),
+    },
+    operation: {
+      itemId: input.itemId,
+      turnId: input.turnId,
+    },
+  };
+}
+
 export function reduceTinyOsCommandLifecycle(
   state: TinyOsCommandLifecycle,
   action: TinyOsCommandLifecycleAction,
@@ -295,8 +342,24 @@ export function canonicalTinyOsCommandAcknowledgement(
 
 export function canonicalTinyOsCommandCompletion(
   turns: ChatTurn[],
-  commandId: string,
+  command: TinyOsCommand | string,
 ): TinyOsCommandCompletion | undefined {
+  if (typeof command !== "string" && command.kind === "operation.retry") {
+    const turn = turns.find((candidate) => candidate.id === command.target.runId);
+    if (!turn || !["completed", "failed", "interrupted"].includes(turn.status)) return undefined;
+    const item = [...(turn.canonicalItems ?? [])].reverse().find((candidate) => {
+      const detail = recordValue(candidate.data.detail);
+      return stringValue(detail.commandStatus ?? detail.command_status) !== "acknowledged"
+        && ["completed", "failed", "cancelled"].includes(candidate.status);
+    });
+    if (!item) return undefined;
+    return {
+      itemId: item.itemId,
+      revision: item.revision,
+      status: turn.status === "completed" ? "completed" : turn.status === "failed" ? "failed" : "cancelled",
+    };
+  }
+  const commandId = typeof command === "string" ? command : command.commandId;
   for (const turn of turns) {
     for (const item of turn.canonicalItems ?? []) {
       const detail = recordValue(item.data.detail);
@@ -320,6 +383,10 @@ export function isTinyOsCommandInFlight(state: TinyOsCommandLifecycle): boolean 
 
 function createTinyOsCommandId(): string {
   return `tinyos-command-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function createTinyOsRetryRunId(): string {
+  return `tinyos-retry-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function recordValue(value: unknown): Record<string, unknown> {

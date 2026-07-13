@@ -22,6 +22,7 @@ let tinyOsBootedInRuntime = false;
 export function LiveCanvas({
   agentUiForms,
   canCancelRun,
+  canRetryRun,
   cancelUnavailableReason,
   commandLifecycle,
   entries,
@@ -36,6 +37,7 @@ export function LiveCanvas({
   onExpandedChange,
   onOpenArtifact,
   onResolveApproval,
+  onRetryOperation,
   onReturnToLive,
   onSelectEntry,
   onSubmitForm,
@@ -48,6 +50,7 @@ export function LiveCanvas({
 }: {
   agentUiForms: AgentUiForm[];
   canCancelRun: boolean;
+  canRetryRun: boolean;
   cancelUnavailableReason?: string;
   commandLifecycle: TinyOsCommandLifecycle;
   entries: LiveCanvasEntry[];
@@ -62,6 +65,7 @@ export function LiveCanvas({
   onExpandedChange?: () => void;
   onOpenArtifact: (artifact: ArtifactRef) => void;
   onResolveApproval: (approvalId: string, action: ApprovalAction) => void;
+  onRetryOperation: (entry: LiveCanvasEntry) => void;
   onReturnToLive: () => void;
   onSelectEntry: (entry: LiveCanvasEntry) => void;
   onSubmitForm: (form: AgentUiForm, values: Record<string, unknown>) => void;
@@ -84,12 +88,16 @@ export function LiveCanvas({
     ? "Approval"
     : commandKind === "form.submit"
       ? "Form submission"
-      : commandKind === "form.cancel" ? "Form cancellation" : "Cancellation";
+      : commandKind === "form.cancel"
+        ? "Form cancellation"
+        : commandKind === "operation.retry" ? "Retry" : "Cancellation";
   const commandAction = commandKind === "approval.resolve"
     ? "approval"
     : commandKind === "form.submit"
       ? "form submission"
-      : commandKind === "form.cancel" ? "form cancellation" : "cancel";
+      : commandKind === "form.cancel"
+        ? "form cancellation"
+        : commandKind === "operation.retry" ? "retry" : "cancel";
   const submittingFormId = commandLifecycle.stage !== "idle"
     && (commandLifecycle.command.kind === "form.submit" || commandLifecycle.command.kind === "form.cancel")
     && isTinyOsCommandInFlight(commandLifecycle)
@@ -229,6 +237,7 @@ export function LiveCanvas({
       <TinyOsShell
         key={sessionKey}
         agentUiForms={agentUiForms}
+        canRetryRun={canRetryRun}
         filesController={filesController}
         history={mode === "history"}
         onAttachContext={onAttachContext}
@@ -241,6 +250,7 @@ export function LiveCanvas({
         onCancelForm={onCancelForm}
         onOpenArtifact={onOpenArtifact}
         onResolveApproval={onResolveApproval}
+        onRetryOperation={onRetryOperation}
         onSelectEntry={onSelectEntry}
         onSubmitForm={onSubmitForm}
       />

@@ -1723,10 +1723,7 @@ describe("ChatPage", () => {
     expect(within(error).getByRole("button", { name: "继续执行" })).toBeTruthy();
   });
 
-  it.each([
-    ["继续执行", "请从刚才中断的位置继续，沿用现有上下文和计划；先确认当前进度，再完成剩余任务。"],
-    ["重试当前步骤", "请重新执行刚才失败的步骤“Read project files”，保留已经完成的工作，然后继续完成任务。"],
-  ])("sends a contextual recovery prompt for %s", async (action, expectedText) => {
+  it("sends a contextual recovery prompt for continue", async () => {
     const user = userEvent.setup();
     const stores = createStores();
     stores.chatStore.load = vi.fn(async () => failedPlanTimeline());
@@ -1734,9 +1731,34 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
     const error = await screen.findByRole("alert", { name: "任务执行失败" });
-    await user.click(within(error).getByRole("button", { name: action }));
+    await user.click(within(error).getByRole("button", { name: "继续执行" }));
 
-    expect(stores.chatStore.send).toHaveBeenCalledWith("s1", { text: expectedText });
+    expect(stores.chatStore.send).toHaveBeenCalledWith("s1", {
+      text: "请从刚才中断的位置继续，沿用现有上下文和计划；先确认当前进度，再完成剩余任务。",
+    });
+  });
+
+  it("dispatches retry as a correlated TinyOS command instead of a synthetic chat prompt", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    const timeline = failedPlanTimeline();
+    const capabilities = effectiveCapabilities("s1");
+    capabilities.evaluatedRunId = timeline.turns[0].id;
+    capabilities.capabilities.agent.retry = { available: true };
+    stores.chatStore.load = vi.fn(async () => timeline);
+    stores.chatStore.loadTinyOsCapabilities = vi.fn(async () => capabilities);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    const error = await screen.findByRole("alert", { name: "任务执行失败" });
+    await user.click(within(error).getByRole("button", { name: "重试当前步骤" }));
+
+    expect(stores.chatStore.dispatchCommand).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "operation.retry",
+      operation: { itemId: "error-failed-plan", turnId: timeline.turns[0].id },
+      target: expect.objectContaining({ sessionId: "s1" }),
+    }));
+    expect(stores.chatStore.send).not.toHaveBeenCalled();
   });
 
   it("restarts a failed task in a new titled session", async () => {

@@ -7,6 +7,7 @@ import {
   createTinyOsApprovalResolveCommand,
   createTinyOsFormCancelCommand,
   createTinyOsFormSubmitCommand,
+  createTinyOsOperationRetryCommand,
   isTinyOsCommandInFlight,
   isTinyOsCommandPending,
   reduceTinyOsCommandLifecycle,
@@ -69,6 +70,23 @@ describe("TinyOS command lifecycle", () => {
       commandId: "command-form-cancel-1",
       form: { formId: "travel-preferences-1" },
       kind: "form.cancel",
+    });
+  });
+
+  test("creates a retry command with separate source and target run correlation", () => {
+    expect(createTinyOsOperationRetryCommand({
+      commandId: "command-retry-1",
+      issuedAt: "2026-07-13T00:00:00Z",
+      itemId: "run-failed:error",
+      retryRunId: "run-retry-1",
+      sessionId: "websocket:chat-1",
+      source: { control: "operation-shelf", surface: "tinyos" },
+      turnId: "run-failed",
+    })).toMatchObject({
+      commandId: "command-retry-1",
+      kind: "operation.retry",
+      operation: { itemId: "run-failed:error", turnId: "run-failed" },
+      target: { runId: "run-retry-1", sessionId: "websocket:chat-1" },
     });
   });
 
@@ -243,6 +261,33 @@ describe("TinyOS command lifecycle", () => {
     expect(canonicalTinyOsCommandCompletion([turn], "command-form-1")).toEqual({
       itemId: "run-1:form:travel-preferences-1",
       revision: 2,
+      status: "completed",
+    });
+  });
+
+  test("recognizes the terminal item of the explicit retry run as completion", () => {
+    const retry = createTinyOsOperationRetryCommand({
+      commandId: "command-retry-1",
+      itemId: "run-failed:error",
+      retryRunId: "run-retry-1",
+      sessionId: "websocket:chat-1",
+      source: { control: "error-recovery", surface: "chat" },
+      turnId: "run-failed",
+    });
+    const turn = {
+      id: "run-retry-1",
+      status: "completed",
+      canonicalItems: [{
+        data: { content: "Recovered", type: "message" },
+        itemId: "run-retry-1:assistant",
+        revision: 3,
+        status: "completed",
+      }],
+    } as unknown as ChatTurn;
+
+    expect(canonicalTinyOsCommandCompletion([turn], retry)).toEqual({
+      itemId: "run-retry-1:assistant",
+      revision: 3,
       status: "completed",
     });
   });
