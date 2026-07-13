@@ -316,6 +316,12 @@ npm run tauri -- dev
 npm run tauri -- build
 ```
 
+### Windows x64 Release and Updates
+
+Windows x64 installers are published on the [GitHub Releases page](https://github.com/SudoJacky/tinybot/releases). Tinybot Desktop checks that release channel once at startup. When a newer signed release is available, it downloads and verifies the updater package, shuts down the native runtime, and installs the update automatically.
+
+The initial release is not Authenticode-signed. Windows SmartScreen may therefore show an unknown publisher warning during installation even though updater packages are cryptographically signed and verified by Tinybot.
+
 ## WebUI Usage
 
 Tinybot now runs the WebUI inside the Tauri desktop app. The Rust native backend exposes WebUI-compatible routes on the local runtime endpoint used by the desktop shell.

@@ -313,6 +313,12 @@ npm run tauri -- dev
 npm run tauri -- build
 ```
 
+### Windows x64 发布与自动更新
+
+Windows x64 安装包发布在 [GitHub Releases 页面](https://github.com/SudoJacky/tinybot/releases)。Tinybot Desktop 每次启动时会检查一次该发布渠道；发现更高版本后，会下载并验证已签名的更新包，停止原生运行时，然后自动安装更新。
+
+首版暂未进行 Authenticode 代码签名，因此安装时 Windows SmartScreen 可能提示“未知发布者”。这不影响 Tinybot 对自动更新包执行独立的加密签名校验。
+
 ## WebUI 使用
 
 Tinybot 现在在 Tauri 桌面应用中加载 WebUI。Rust 原生后端会在桌面壳使用的本地运行时端点上提供兼容 WebUI 的路由。

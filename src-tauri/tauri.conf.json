@@ -30,6 +30,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -37,5 +38,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/SudoJacky/tinybot/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY5NTI3MkE5M0ZERTlBQUUKUldTdW10NC9xWEpTK2VsU2RPWENJandkNXZ3Nm9qR0NGTmpNazdyeURaeit0Z1Q1WmtYSEtKLzEK",
+      "windows": {
+        "installMode": "quiet"
+      }
+    }
   }
 }

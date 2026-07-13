@@ -20,6 +20,7 @@ pub mod desktop_files;
 pub mod desktop_heartbeat;
 pub mod desktop_logging;
 pub mod desktop_menu;
+mod desktop_update;
 pub mod native_agent_bridge;
 pub mod native_backend_contract;
 pub mod native_provider_runtime;
@@ -487,6 +488,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(gateway_state)
         .setup(move |app| {
             install_desktop_application_menu(app)?;
@@ -541,6 +543,8 @@ pub fn run() {
             });
             drop(runtime);
             start_worker_cron_timer(&setup_state);
+            #[cfg(windows)]
+            desktop_update::spawn_startup_auto_update(app.handle().clone(), setup_state.clone());
             push_log(
                 &setup_state,
                 "Rust backend startup skipped legacy heartbeat worker",
