@@ -1208,6 +1208,56 @@ describe("ChatPage", () => {
     expect(within(card).getByRole("button", { name: "Save preferences" }).hasAttribute("disabled")).toBe(true);
   });
 
+  it("cancels active agent-ui forms through the TinyOS command gateway", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    const form: AgentUiForm = {
+      form_id: "travel-preferences-1",
+      title: "Travel preferences",
+      submit_label: "Save preferences",
+      cancel_label: "Skip",
+      correlation: { chat_id: "chat-1", run_id: "run-1", session_id: "s1" },
+      fields: [{ name: "destination", type: "text", label: "Destination", required: true }],
+      values: { destination: "Shanghai" },
+      status: "pending",
+      chat_id: "chat-1",
+    };
+    const canonical = timelineFromReactMessages("s1", [{
+      id: "u-form-cancel",
+      role: "user",
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+      text: "Plan my trip",
+      status: "complete",
+    }]);
+    canonical.turns[0].id = "run-1";
+    canonical.turns[0].status = "awaiting_user";
+    canonical.turns[0].steps.push({
+      agentContext: { id: "main", title: "Tinybot", type: "main" },
+      form: { fieldIds: ["destination"], formId: "travel-preferences-1" },
+      id: "travel-preferences-1",
+      kind: "form",
+      sequence: 1,
+      status: "blocked",
+      title: "Travel preferences",
+    });
+    stores.chatStore.load = vi.fn(async () => canonical);
+    (stores.chatStore as any).listAgentUiForms = vi.fn(async () => [form]);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    const card = await screen.findByRole("form", { name: "Travel preferences" });
+    await user.click(within(card).getByRole("button", { name: "Skip" }));
+
+    expect(stores.chatStore.dispatchCommand).toHaveBeenCalledWith(expect.objectContaining({
+      form: { formId: "travel-preferences-1" },
+      kind: "form.cancel",
+      source: { control: "chat-form", surface: "chat" },
+      target: expect.objectContaining({ runId: "run-1", sessionId: "s1" }),
+    }));
+    expect(within(card).getByRole("button", { name: "Skip" }).hasAttribute("disabled")).toBe(true);
+    expect(stores.chatStore.cancelAgentUiForm).not.toHaveBeenCalled();
+  });
+
   it("renders a resolved canonical form as a read-only submission summary", async () => {
     const stores = createStores();
     const canonical = timelineFromReactMessages("s1", [{

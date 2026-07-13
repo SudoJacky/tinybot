@@ -1,7 +1,7 @@
 import { DEFAULT_GATEWAY_CONFIG, type GatewayConfig } from "./gatewayConfig";
 import { logDesktopNativeChatDebug, summarizeDebugText } from "../native/desktopNativeChatDebug";
 import type { NativeChatReference } from "../chat/nativeChat";
-import type { TinyOsAgentCancelCommand, TinyOsApprovalResolveCommand, TinyOsFormSubmitCommand } from "../chat/tinyOsCommandGateway";
+import type { TinyOsAgentCancelCommand, TinyOsApprovalResolveCommand, TinyOsFormCancelCommand, TinyOsFormSubmitCommand } from "../chat/tinyOsCommandGateway";
 
 export const createGatewaySocketMessage = {
   newChat: () => ({ type: "new_chat" as const }),
@@ -26,7 +26,7 @@ export const createGatewaySocketMessage = {
     ...(command.target.turnId ? { turn_id: command.target.turnId } : {}),
     source: command.source,
   }),
-  command: (chatId: string, command: TinyOsApprovalResolveCommand | TinyOsFormSubmitCommand) => {
+  command: (chatId: string, command: TinyOsApprovalResolveCommand | TinyOsFormCancelCommand | TinyOsFormSubmitCommand) => {
     const envelope = {
       type: "command" as const,
       chat_id: chatId,
@@ -38,17 +38,21 @@ export const createGatewaySocketMessage = {
       ...(command.target.turnId ? { turn_id: command.target.turnId } : {}),
       source: command.source,
     };
-    return command.kind === "approval.resolve" ? {
+    if (command.kind === "approval.resolve") return {
       ...envelope,
       approval_id: command.approval.approvalId,
       approved: command.approval.approved,
       scope: command.approval.scope,
       ...(command.approval.guidance ? { guidance: command.approval.guidance } : {}),
-    } : {
+    };
+    const formEnvelope = {
       ...envelope,
       form_id: command.form.formId,
-      values: command.form.values,
     };
+    return command.kind === "form.submit" ? {
+      ...formEnvelope,
+      values: command.form.values,
+    } : formEnvelope;
   },
 };
 

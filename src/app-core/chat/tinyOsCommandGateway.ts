@@ -59,7 +59,27 @@ export type TinyOsFormSubmitCommand = {
   };
 };
 
-export type TinyOsCommand = TinyOsAgentCancelCommand | TinyOsApprovalResolveCommand | TinyOsFormSubmitCommand;
+export type TinyOsFormCancelCommand = {
+  schemaVersion: "tinybot.command.v1";
+  commandId: string;
+  issuedAt: string;
+  kind: "form.cancel";
+  source: TinyOsCommandSource;
+  target: {
+    runId: string;
+    sessionId: string;
+    threadId?: string;
+    turnId?: string;
+  };
+  form: {
+    formId: string;
+  };
+};
+
+export type TinyOsCommand = TinyOsAgentCancelCommand
+  | TinyOsApprovalResolveCommand
+  | TinyOsFormSubmitCommand
+  | TinyOsFormCancelCommand;
 
 export type TinyOsCommandAcknowledgement = {
   itemId: string;
@@ -173,6 +193,34 @@ export function createTinyOsFormSubmitCommand(input: {
     form: {
       formId: input.formId,
       values: { ...input.values },
+    },
+  };
+}
+
+export function createTinyOsFormCancelCommand(input: {
+  commandId?: string;
+  formId: string;
+  issuedAt?: string;
+  runId: string;
+  sessionId: string;
+  source: TinyOsCommandSource;
+  threadId?: string;
+  turnId?: string;
+}): TinyOsFormCancelCommand {
+  return {
+    schemaVersion: "tinybot.command.v1",
+    commandId: input.commandId ?? createTinyOsCommandId(),
+    issuedAt: input.issuedAt ?? new Date().toISOString(),
+    kind: "form.cancel",
+    source: input.source,
+    target: {
+      runId: input.runId,
+      sessionId: input.sessionId,
+      ...(input.threadId ? { threadId: input.threadId } : {}),
+      ...(input.turnId ? { turnId: input.turnId } : {}),
+    },
+    form: {
+      formId: input.formId,
     },
   };
 }

@@ -71,6 +71,7 @@ import {
   canonicalTinyOsCommandCompletion,
   createTinyOsAgentCancelCommand,
   createTinyOsApprovalResolveCommand,
+  createTinyOsFormCancelCommand,
   createTinyOsFormSubmitCommand,
   isTinyOsCommandInFlight,
   reduceTinyOsCommandLifecycle,
@@ -291,7 +292,7 @@ export function ChatPage({
     : cancelCapability.reason || "Cancellation is unavailable for this Agent run.";
   const cancelInFlight = isTinyOsCommandInFlight(commandLifecycle);
   const submittingFormId = commandLifecycle.stage !== "idle"
-    && commandLifecycle.command.kind === "form.submit"
+    && (commandLifecycle.command.kind === "form.submit" || commandLifecycle.command.kind === "form.cancel")
     && isTinyOsCommandInFlight(commandLifecycle)
     ? commandLifecycle.command.form.formId
     : "";
@@ -425,9 +426,9 @@ export function ChatPage({
       }
       return;
     }
-    if (commandLifecycle.command.kind === "form.submit"
+    if ((commandLifecycle.command.kind === "form.submit" || commandLifecycle.command.kind === "form.cancel")
       && (commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out")) {
-      setTimelineError(`Form submission failed: ${commandLifecycle.error}`);
+      setTimelineError(`Form ${commandLifecycle.command.kind === "form.cancel" ? "cancellation" : "submission"} failed: ${commandLifecycle.error}`);
     }
   }, [commandLifecycle]);
 
@@ -1117,10 +1118,38 @@ export function ChatPage({
     }
   }
 
-  async function handleCancelAgentUiForm(form: AgentUiForm) {
-    await chatStore.cancelAgentUiForm(form.form_id);
-    if (activeSession) {
-      setAgentUiForms(await chatStore.listAgentUiForms(activeSession.id));
+  async function handleCancelAgentUiForm(form: AgentUiForm, surface: "chat" | "tinyos") {
+    if (!activeSession || isTinyOsCommandInFlight(commandLifecycle)) {
+      return;
+    }
+    if (!activeRun) {
+      setTimelineError("Cannot cancel form: canonical active run is not available.");
+      return;
+    }
+    const formRunId = agentUiFormCorrelationString(form, "run_id") || form.run_id || activeRun.id;
+    if (formRunId !== activeRun.id) {
+      setTimelineError(`Cannot cancel form: request targets stale run ${formRunId}.`);
+      return;
+    }
+    const command = createTinyOsFormCancelCommand({
+      formId: form.form_id,
+      runId: activeRun.id,
+      sessionId: activeSession.id,
+      source: { control: surface === "tinyos" ? "system-form" : "chat-form", surface },
+      threadId: agentUiFormCorrelationString(form, "thread_id")
+        || activeRun.canonicalItems?.find((item) => item.threadId)?.threadId,
+      turnId: activeRun.id,
+    });
+    setTimelineError("");
+    dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
+    try {
+      await chatStore.dispatchCommand(command);
+    } catch (error) {
+      dispatchCommandLifecycle({
+        commandId: command.commandId,
+        error: error instanceof Error ? error.message : String(error),
+        type: "rejected",
+      });
     }
   }
 
@@ -1329,7 +1358,7 @@ export function ChatPage({
                   form={form}
                   key={form.form_id}
                   submitting={submittingFormId === form.form_id}
-                  onCancel={() => void handleCancelAgentUiForm(form)}
+                  onCancel={() => void handleCancelAgentUiForm(form, "chat")}
                   onSubmit={(values) => void handleSubmitAgentUiForm(form, values, "chat")}
                 />
               ))}
@@ -1398,7 +1427,7 @@ export function ChatPage({
           widthPx={tinyOsWidth}
           filesController={tinyOsFiles}
           onAttachContext={handleAttachTinyOsContext}
-          onCancelForm={(form) => void handleCancelAgentUiForm(form)}
+          onCancelForm={(form) => void handleCancelAgentUiForm(form, "tinyos")}
           onCancelRun={() => activeSession && void handleStopGeneration(activeSession, "tinyos")}
           onClose={() => dispatchLiveCanvas({ type: "close" })}
           onExpandedChange={() => dispatchLiveCanvas({ type: "expand_toggle" })}
@@ -1682,7 +1711,9 @@ function tinyOsCommandLifecycleLabel(lifecycle: TinyOsCommandLifecycle): string 
   const commandKind = lifecycle.stage === "idle" ? "agent.cancel" : lifecycle.command.kind;
   const operation = commandKind === "agent.cancel"
     ? "Cancel"
-    : commandKind === "approval.resolve" ? "Approval" : "Form submission";
+    : commandKind === "approval.resolve"
+      ? "Approval"
+      : commandKind === "form.cancel" ? "Form cancellation" : "Form submission";
   const completionOperation = commandKind === "agent.cancel" ? "Cancellation" : operation;
   switch (lifecycle.stage) {
     case "idle":

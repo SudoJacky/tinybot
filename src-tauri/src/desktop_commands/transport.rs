@@ -447,16 +447,18 @@ pub(crate) fn native_websocket_transport_result(
                 .get("guidance")
                 .cloned()
                 .unwrap_or(serde_json::Value::Null);
-        } else if command_kind == "form.submit" {
+        } else if matches!(command_kind, "form.submit" | "form.cancel") {
             transport["formId"] = frame
                 .get("form_id")
                 .or_else(|| frame.get("formId"))
                 .cloned()
                 .unwrap_or(serde_json::Value::Null);
-            transport["values"] = frame
-                .get("values")
-                .cloned()
-                .unwrap_or(serde_json::Value::Null);
+            if command_kind == "form.submit" {
+                transport["values"] = frame
+                    .get("values")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+            }
         }
         return Some(transport);
     }
@@ -537,7 +539,7 @@ async fn dispatch_tinyos_command(
             )
             .await
         }
-        Some("form.submit") => {
+        Some("form.submit" | "form.cancel") => {
             dispatch_tinyos_form_command(
                 shared,
                 transport,
@@ -707,15 +709,24 @@ async fn dispatch_tinyos_form_command(
     config_snapshot: serde_json::Value,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 ) -> Result<serde_json::Value, String> {
+    let command_kind = required_transport_string(&transport, "commandKind")?;
+    if !matches!(command_kind.as_str(), "form.submit" | "form.cancel") {
+        return Err(format!("unsupported TinyOS command kind: {command_kind}"));
+    }
+    let cancelled = command_kind == "form.cancel";
     let session_id = required_transport_string(&transport, "sessionId")?;
     let run_id = required_transport_string(&transport, "runId")?;
     let command_id = required_transport_string(&transport, "commandId")?;
     let form_id = required_transport_string(&transport, "formId")?;
-    let values = transport
-        .get("values")
-        .filter(|value| value.is_object())
-        .cloned()
-        .ok_or_else(|| "form.submit command values must be an object".to_string())?;
+    let values = if cancelled {
+        serde_json::json!({})
+    } else {
+        transport
+            .get("values")
+            .filter(|value| value.is_object())
+            .cloned()
+            .ok_or_else(|| "form.submit command values must be an object".to_string())?
+    };
     let checkpoint = native_session_checkpoint(
         &session_id,
         workspace_root.clone(),
@@ -744,7 +755,7 @@ async fn dispatch_tinyos_form_command(
         return Err(format!("pending form not found: {form_id}"));
     }
     let errors = validate_agent_ui_form_values(&checkpoint, &values);
-    if !errors.is_empty() {
+    if !cancelled && !errors.is_empty() {
         return Err(format!(
             "form validation failed for fields: {}",
             errors.keys().cloned().collect::<Vec<_>>().join(", ")
@@ -773,7 +784,7 @@ async fn dispatch_tinyos_form_command(
             serde_json::json!({
                 "chatId": transport.get("chatId").cloned().unwrap_or(serde_json::Value::Null),
                 "commandId": &command_id,
-                "commandKind": "form.submit",
+                "commandKind": &command_kind,
                 "commandStatus": "acknowledged",
                 "runId": &run_id,
                 "sessionId": &session_id,
@@ -801,21 +812,24 @@ async fn dispatch_tinyos_form_command(
         services,
         form_id,
         &body,
-        false,
+        cancelled,
         workspace_root,
         config_snapshot,
     )
     .await?;
-    if status_code != 200
-        || resolution
-            .get("submitted")
-            .and_then(serde_json::Value::as_bool)
-            != Some(true)
-    {
+    let resolved = resolution
+        .get(if cancelled { "cancelled" } else { "submitted" })
+        .and_then(serde_json::Value::as_bool)
+        == Some(true);
+    if status_code != 200 || !resolved {
         return Err(resolution
             .get("error")
             .and_then(serde_json::Value::as_str)
-            .unwrap_or("form submission failed")
+            .unwrap_or(if cancelled {
+                "form cancellation failed"
+            } else {
+                "form submission failed"
+            })
             .to_string());
     }
     let mut frames = vec![

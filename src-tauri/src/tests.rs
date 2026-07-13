@@ -5777,6 +5777,36 @@ fn worker_transport_websocket_maps_correlated_form_command() {
 }
 
 #[test]
+fn worker_transport_websocket_maps_correlated_form_cancel_command() {
+    let transport = native_websocket_transport_result(&WorkerTransportWebSocketDispatchInput {
+        client_id: "client-1".to_string(),
+        frame: serde_json::json!({
+            "type": "command",
+            "chat_id": "chat-1",
+            "session_id": "websocket:chat-1",
+            "command_id": "command-form-cancel-1",
+            "command_kind": "form.cancel",
+            "run_id": "run-form-1",
+            "form_id": "travel-preferences-1"
+        }),
+        attached_chat_id: Some("chat-1".to_string()),
+        session_exists: Some(true),
+        editable_paths: None,
+        model: None,
+        max_iterations: None,
+        run_id: Some("run-form-1".to_string()),
+        stream: None,
+    })
+    .expect("form cancel command frame should produce a transport result");
+
+    assert_eq!(transport["kind"], "command");
+    assert_eq!(transport["commandKind"], "form.cancel");
+    assert_eq!(transport["commandId"], "command-form-cancel-1");
+    assert_eq!(transport["formId"], "travel-preferences-1");
+    assert!(transport.get("values").is_none());
+}
+
+#[test]
 fn worker_transport_interrupt_persists_distinct_canonical_command_acknowledgement() {
     let fixture = WorkspaceFixture::new();
     let record = serde_json::json!({
@@ -6044,6 +6074,93 @@ fn worker_transport_form_command_persists_ack_and_correlated_resolution() {
         .expect("canonical form resolution should exist");
     assert_eq!(resolution["data"]["commandId"], "command-form-submit-1");
     assert_eq!(resolution["data"]["values"]["destination"], "Singapore");
+}
+
+#[test]
+fn worker_transport_form_cancel_command_persists_ack_and_correlated_resolution() {
+    let fixture = WorkspaceFixture::new();
+    let first_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let restarted_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let session_id = "websocket:chat-command-form-cancel";
+    let run_id = "run-command-form-cancel";
+
+    worker_run_agent_with_options(
+        &first_runtime,
+        serde_json::json!({
+            "runtime": "rust",
+            "runId": run_id,
+            "sessionId": session_id,
+            "metadata": {
+                "fakeAwaitingForm": {
+                    "formId": "travel-command-cancel-1",
+                    "title": "Travel plan",
+                    "fields": [
+                        { "name": "destination", "type": "text", "required": true }
+                    ]
+                }
+            }
+        }),
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(10),
+    )
+    .expect("Rust runtime should create a form checkpoint");
+
+    let dispatched = worker_transport_dispatch_websocket_message_with_options(
+        &restarted_runtime,
+        WorkerTransportWebSocketDispatchInput {
+            client_id: "client-command-form-cancel".to_string(),
+            frame: serde_json::json!({
+                "type": "command",
+                "chat_id": "chat-command-form-cancel",
+                "session_id": session_id,
+                "command_id": "command-form-cancel-1",
+                "command_kind": "form.cancel",
+                "run_id": run_id,
+                "form_id": "travel-command-cancel-1",
+                "source": { "surface": "chat", "control": "chat-form" }
+            }),
+            attached_chat_id: Some("chat-command-form-cancel".to_string()),
+            session_exists: Some(true),
+            editable_paths: None,
+            model: None,
+            max_iterations: None,
+            run_id: Some(run_id.to_string()),
+            stream: None,
+        },
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(10),
+    )
+    .expect("form cancel command should be acknowledged and completed");
+    let runtime_state = worker_agent_run_runtime_state_with_options(
+        &restarted_runtime,
+        session_id.to_string(),
+        run_id.to_string(),
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(10),
+    )
+    .expect("canonical runtime state should include the form cancellation");
+
+    assert_eq!(dispatched["command"]["cancelled"], true);
+    assert_eq!(
+        dispatched["transport"]["frames"][2]["agent_ui_event"]["event_type"],
+        "ui.form.cancelled"
+    );
+    let items = runtime_state["timeline"]["items"]
+        .as_array()
+        .expect("canonical timeline items should exist");
+    assert!(items.iter().any(|item| {
+        item["kind"] == "system_notice"
+            && item["data"]["detail"]["commandId"] == "command-form-cancel-1"
+            && item["data"]["detail"]["commandKind"] == "form.cancel"
+    }));
+    let resolution = items
+        .iter()
+        .find(|item| item["kind"] == "form" && item["data"]["action"] == "cancel")
+        .expect("canonical form cancellation should exist");
+    assert_eq!(resolution["data"]["commandId"], "command-form-cancel-1");
 }
 
 #[test]

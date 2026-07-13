@@ -961,6 +961,13 @@ an invalidation hint only: clients reload the canonical runtime state and verify
 system notice. The eventual `agent.cancelled` item remains a separate operation-completion item and
 retains the same `commandId`.
 
+Approval resolution and Agent UI form actions use the same envelope on a native `command` frame.
+`approval.resolve` carries the approval decision and scope; `form.submit` carries `form_id` and
+validated `values`; `form.cancel` carries only `form_id`. Rust validates the pending checkpoint and
+target run before persisting acknowledgement. Form submission and cancellation complete through a
+separate correlated `agent.form.resolution` item, while the compatibility Agent UI event is emitted
+only after runtime completion.
+
 `GET /api/sessions/{key}/effective-capabilities` and the native
 `worker_session_effective_capabilities` command return `tinybot.effective_capabilities.v1` decisions.
 Unavailable decisions include both `reasonCode` and a user-facing `reason`; the response identifies

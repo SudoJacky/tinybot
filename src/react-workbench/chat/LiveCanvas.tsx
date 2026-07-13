@@ -82,12 +82,16 @@ export function LiveCanvas({
   const commandKind = commandLifecycle.stage === "idle" ? "" : commandLifecycle.command.kind;
   const commandLabel = commandKind === "approval.resolve"
     ? "Approval"
-    : commandKind === "form.submit" ? "Form submission" : "Cancellation";
+    : commandKind === "form.submit"
+      ? "Form submission"
+      : commandKind === "form.cancel" ? "Form cancellation" : "Cancellation";
   const commandAction = commandKind === "approval.resolve"
     ? "approval"
-    : commandKind === "form.submit" ? "form submission" : "cancel";
+    : commandKind === "form.submit"
+      ? "form submission"
+      : commandKind === "form.cancel" ? "form cancellation" : "cancel";
   const submittingFormId = commandLifecycle.stage !== "idle"
-    && commandLifecycle.command.kind === "form.submit"
+    && (commandLifecycle.command.kind === "form.submit" || commandLifecycle.command.kind === "form.cancel")
     && isTinyOsCommandInFlight(commandLifecycle)
     ? commandLifecycle.command.form.formId
     : "";

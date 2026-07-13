@@ -5,6 +5,7 @@ import {
   canonicalTinyOsCommandCompletion,
   createTinyOsAgentCancelCommand,
   createTinyOsApprovalResolveCommand,
+  createTinyOsFormCancelCommand,
   createTinyOsFormSubmitCommand,
   isTinyOsCommandInFlight,
   isTinyOsCommandPending,
@@ -53,6 +54,21 @@ describe("TinyOS command lifecycle", () => {
         values: { destination: "Singapore", nights: 4 },
       },
       kind: "form.submit",
+    });
+  });
+
+  test("creates a correlated form cancellation command", () => {
+    expect(createTinyOsFormCancelCommand({
+      commandId: "command-form-cancel-1",
+      formId: "travel-preferences-1",
+      issuedAt: "2026-07-13T00:00:00Z",
+      runId: "run-1",
+      sessionId: "websocket:chat-1",
+      source: { control: "chat-form", surface: "chat" },
+    })).toMatchObject({
+      commandId: "command-form-cancel-1",
+      form: { formId: "travel-preferences-1" },
+      kind: "form.cancel",
     });
   });
 
