@@ -71,6 +71,7 @@ import {
   canonicalTinyOsCommandCompletion,
   createTinyOsAgentCancelCommand,
   createTinyOsApprovalResolveCommand,
+  createTinyOsFormSubmitCommand,
   isTinyOsCommandInFlight,
   reduceTinyOsCommandLifecycle,
   type TinyOsCommandLifecycle,
@@ -289,6 +290,11 @@ export function ChatPage({
     ? "Effective capabilities are stale for the current Agent run."
     : cancelCapability.reason || "Cancellation is unavailable for this Agent run.";
   const cancelInFlight = isTinyOsCommandInFlight(commandLifecycle);
+  const submittingFormId = commandLifecycle.stage !== "idle"
+    && commandLifecycle.command.kind === "form.submit"
+    && isTinyOsCommandInFlight(commandLifecycle)
+    ? commandLifecycle.command.form.formId
+    : "";
   const activeQueuedInputs = activeSession ? queuedInputsBySession.get(activeSession.id) ?? [] : [];
   const activeContextUsage = useMemo(() => latestTimelineUsage(timeline?.turns ?? []), [timeline]);
   const latestFailedTurnId = useMemo(() => (
@@ -407,14 +413,21 @@ export function ChatPage({
   }, [commandLifecycle, now]);
 
   useEffect(() => {
-    if (commandLifecycle.stage === "idle" || commandLifecycle.command.kind !== "approval.resolve") return;
-    if (commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out") {
-      setResolvingApprovalId("");
-      setTimelineError(`Approval failed: ${commandLifecycle.error}`);
+    if (commandLifecycle.stage === "idle") return;
+    if (commandLifecycle.command.kind === "approval.resolve") {
+      if (commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out") {
+        setResolvingApprovalId("");
+        setTimelineError(`Approval failed: ${commandLifecycle.error}`);
+        return;
+      }
+      if (commandLifecycle.stage === "completed") {
+        setResolvingApprovalId("");
+      }
       return;
     }
-    if (commandLifecycle.stage === "completed") {
-      setResolvingApprovalId("");
+    if (commandLifecycle.command.kind === "form.submit"
+      && (commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out")) {
+      setTimelineError(`Form submission failed: ${commandLifecycle.error}`);
     }
   }, [commandLifecycle]);
 
@@ -1064,10 +1077,43 @@ export function ChatPage({
     }
   }
 
-  async function handleSubmitAgentUiForm(form: AgentUiForm, values: Record<string, unknown>) {
-    await chatStore.submitAgentUiForm(form.form_id, values);
-    if (activeSession) {
-      setAgentUiForms(await chatStore.listAgentUiForms(activeSession.id));
+  async function handleSubmitAgentUiForm(
+    form: AgentUiForm,
+    values: Record<string, unknown>,
+    surface: "chat" | "tinyos",
+  ) {
+    if (!activeSession || isTinyOsCommandInFlight(commandLifecycle)) {
+      return;
+    }
+    if (!activeRun) {
+      setTimelineError("Cannot submit form: canonical active run is not available.");
+      return;
+    }
+    const formRunId = agentUiFormCorrelationString(form, "run_id") || form.run_id || activeRun.id;
+    if (formRunId !== activeRun.id) {
+      setTimelineError(`Cannot submit form: request targets stale run ${formRunId}.`);
+      return;
+    }
+    const command = createTinyOsFormSubmitCommand({
+      formId: form.form_id,
+      runId: activeRun.id,
+      sessionId: activeSession.id,
+      source: { control: surface === "tinyos" ? "system-form" : "chat-form", surface },
+      threadId: agentUiFormCorrelationString(form, "thread_id")
+        || activeRun.canonicalItems?.find((item) => item.threadId)?.threadId,
+      turnId: activeRun.id,
+      values,
+    });
+    setTimelineError("");
+    dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
+    try {
+      await chatStore.dispatchCommand(command);
+    } catch (error) {
+      dispatchCommandLifecycle({
+        commandId: command.commandId,
+        error: error instanceof Error ? error.message : String(error),
+        type: "rejected",
+      });
     }
   }
 
@@ -1282,8 +1328,9 @@ export function ChatPage({
                 <AgentUiFormCard
                   form={form}
                   key={form.form_id}
+                  submitting={submittingFormId === form.form_id}
                   onCancel={() => void handleCancelAgentUiForm(form)}
-                  onSubmit={(values) => void handleSubmitAgentUiForm(form, values)}
+                  onSubmit={(values) => void handleSubmitAgentUiForm(form, values, "chat")}
                 />
               ))}
             </div>
@@ -1359,7 +1406,7 @@ export function ChatPage({
           onResolveApproval={(approvalId, action) => void handleResolveApproval(approvalId, action, "tinyos")}
           onReturnToLive={() => dispatchLiveCanvas({ type: "return_live" })}
           onSelectEntry={(entry) => openLiveCanvasItem(entry.turnId, entry.step)}
-          onSubmitForm={(form, values) => void handleSubmitAgentUiForm(form, values)}
+          onSubmitForm={(form, values) => void handleSubmitAgentUiForm(form, values, "tinyos")}
           onWidthChange={(widthPx) => {
             setTinyOsWidth(widthPx);
             window.localStorage.setItem(TINYOS_WIDTH_STORAGE_KEY, String(widthPx));
@@ -1632,8 +1679,11 @@ function tinyOsContextReferenceId(reference: TinyOsContextReference): string {
 }
 
 function tinyOsCommandLifecycleLabel(lifecycle: TinyOsCommandLifecycle): string {
-  const cancellation = lifecycle.stage === "idle" || lifecycle.command.kind === "agent.cancel";
-  const operation = cancellation ? "Cancel" : "Approval";
+  const commandKind = lifecycle.stage === "idle" ? "agent.cancel" : lifecycle.command.kind;
+  const operation = commandKind === "agent.cancel"
+    ? "Cancel"
+    : commandKind === "approval.resolve" ? "Approval" : "Form submission";
+  const completionOperation = commandKind === "agent.cancel" ? "Cancellation" : operation;
   switch (lifecycle.stage) {
     case "idle":
       return "";
@@ -1644,11 +1694,16 @@ function tinyOsCommandLifecycleLabel(lifecycle: TinyOsCommandLifecycle): string 
     case "acknowledged":
       return `${operation} acknowledged by canonical item ${lifecycle.acknowledgement.itemId}. Waiting for completion.`;
     case "completed":
-      return `${cancellation ? "Cancellation" : "Approval"} ${lifecycle.completion.status} at canonical item ${lifecycle.completion.itemId}.`;
+      return `${completionOperation} ${lifecycle.completion.status} at canonical item ${lifecycle.completion.itemId}.`;
     case "rejected":
     case "timed_out":
       return lifecycle.error;
   }
+}
+
+function agentUiFormCorrelationString(form: AgentUiForm, key: string): string {
+  const value = form.correlation[key];
+  return typeof value === "string" ? value : "";
 }
 
 function tinyOsReferenceLabel(reference: TinyOsContextReference): string {

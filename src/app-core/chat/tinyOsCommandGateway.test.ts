@@ -5,6 +5,7 @@ import {
   canonicalTinyOsCommandCompletion,
   createTinyOsAgentCancelCommand,
   createTinyOsApprovalResolveCommand,
+  createTinyOsFormSubmitCommand,
   isTinyOsCommandInFlight,
   isTinyOsCommandPending,
   reduceTinyOsCommandLifecycle,
@@ -33,6 +34,25 @@ describe("TinyOS command lifecycle", () => {
       approval: { approvalId: "approval-1", approved: true, scope: "session" },
       commandId: "command-approval-1",
       kind: "approval.resolve",
+    });
+  });
+
+  test("creates a correlated form submission command", () => {
+    expect(createTinyOsFormSubmitCommand({
+      commandId: "command-form-1",
+      formId: "travel-preferences-1",
+      issuedAt: "2026-07-13T00:00:00Z",
+      runId: "run-1",
+      sessionId: "websocket:chat-1",
+      source: { control: "system-form", surface: "tinyos" },
+      values: { destination: "Singapore", nights: 4 },
+    })).toMatchObject({
+      commandId: "command-form-1",
+      form: {
+        formId: "travel-preferences-1",
+        values: { destination: "Singapore", nights: 4 },
+      },
+      kind: "form.submit",
     });
   });
 
@@ -175,6 +195,37 @@ describe("TinyOS command lifecycle", () => {
     } as unknown as ChatTurn;
     expect(canonicalTinyOsCommandCompletion([turn], "command-approval-1")).toEqual({
       itemId: "run-1:approval:approval-1",
+      revision: 2,
+      status: "completed",
+    });
+  });
+
+  test("recognizes a correlated form resolution as command completion", () => {
+    const turn = {
+      canonicalItems: [{
+        createdAt: "2026-07-13T00:00:01Z",
+        data: {
+          action: "submit",
+          commandId: "command-form-1",
+          fieldIds: ["destination"],
+          formId: "travel-preferences-1",
+          status: "completed",
+          type: "form",
+          values: { destination: "Singapore" },
+        },
+        itemId: "run-1:form:travel-preferences-1",
+        kind: "form",
+        revision: 2,
+        runId: "run-1",
+        schemaVersion: "tinybot.turn_item.v2",
+        sequence: 6,
+        sessionId: "websocket:chat-1",
+        status: "completed",
+        turnId: "run-1",
+      }],
+    } as unknown as ChatTurn;
+    expect(canonicalTinyOsCommandCompletion([turn], "command-form-1")).toEqual({
+      itemId: "run-1:form:travel-preferences-1",
       revision: 2,
       status: "completed",
     });

@@ -5746,6 +5746,37 @@ fn worker_transport_websocket_maps_correlated_approval_command() {
 }
 
 #[test]
+fn worker_transport_websocket_maps_correlated_form_command() {
+    let transport = native_websocket_transport_result(&WorkerTransportWebSocketDispatchInput {
+        client_id: "client-1".to_string(),
+        frame: serde_json::json!({
+            "type": "command",
+            "chat_id": "chat-1",
+            "session_id": "websocket:chat-1",
+            "command_id": "command-form-1",
+            "command_kind": "form.submit",
+            "run_id": "run-form-1",
+            "form_id": "travel-preferences-1",
+            "values": { "destination": "Singapore" }
+        }),
+        attached_chat_id: Some("chat-1".to_string()),
+        session_exists: Some(true),
+        editable_paths: None,
+        model: None,
+        max_iterations: None,
+        run_id: Some("run-form-1".to_string()),
+        stream: None,
+    })
+    .expect("form command frame should produce a transport result");
+
+    assert_eq!(transport["kind"], "command");
+    assert_eq!(transport["commandKind"], "form.submit");
+    assert_eq!(transport["commandId"], "command-form-1");
+    assert_eq!(transport["formId"], "travel-preferences-1");
+    assert_eq!(transport["values"]["destination"], "Singapore");
+}
+
+#[test]
 fn worker_transport_interrupt_persists_distinct_canonical_command_acknowledgement() {
     let fixture = WorkspaceFixture::new();
     let record = serde_json::json!({
@@ -5925,6 +5956,168 @@ fn worker_transport_approval_command_persists_ack_and_correlated_decision() {
         .find(|item| item["kind"] == "approval" && item["data"]["decision"] == "denied")
         .expect("canonical approval decision should exist");
     assert_eq!(decision["data"]["commandId"], "command-approval-resolve-1");
+}
+
+#[test]
+fn worker_transport_form_command_persists_ack_and_correlated_resolution() {
+    let fixture = WorkspaceFixture::new();
+    let first_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let restarted_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let session_id = "websocket:chat-command-form";
+    let run_id = "run-command-form";
+
+    worker_run_agent_with_options(
+        &first_runtime,
+        serde_json::json!({
+            "runtime": "rust",
+            "runId": run_id,
+            "sessionId": session_id,
+            "metadata": {
+                "fakeAwaitingForm": {
+                    "formId": "travel-command-1",
+                    "title": "Travel plan",
+                    "fields": [
+                        { "name": "destination", "type": "text", "required": true }
+                    ]
+                }
+            }
+        }),
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(10),
+    )
+    .expect("Rust runtime should create a form checkpoint");
+
+    let dispatched = worker_transport_dispatch_websocket_message_with_options(
+        &restarted_runtime,
+        WorkerTransportWebSocketDispatchInput {
+            client_id: "client-command-form".to_string(),
+            frame: serde_json::json!({
+                "type": "command",
+                "chat_id": "chat-command-form",
+                "session_id": session_id,
+                "command_id": "command-form-submit-1",
+                "command_kind": "form.submit",
+                "run_id": run_id,
+                "form_id": "travel-command-1",
+                "values": { "destination": "Singapore" },
+                "source": { "surface": "tinyos", "control": "system-form" }
+            }),
+            attached_chat_id: Some("chat-command-form".to_string()),
+            session_exists: Some(true),
+            editable_paths: None,
+            model: None,
+            max_iterations: None,
+            run_id: Some(run_id.to_string()),
+            stream: None,
+        },
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(10),
+    )
+    .expect("form command should be acknowledged and submitted");
+    let runtime_state = worker_agent_run_runtime_state_with_options(
+        &restarted_runtime,
+        session_id.to_string(),
+        run_id.to_string(),
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(10),
+    )
+    .expect("canonical runtime state should include the form resolution");
+
+    assert_eq!(dispatched["command"]["submitted"], true);
+    assert_eq!(
+        dispatched["transport"]["frames"][2]["agent_ui_event"]["event_type"],
+        "ui.form.submitted"
+    );
+    let items = runtime_state["timeline"]["items"]
+        .as_array()
+        .expect("canonical timeline items should exist");
+    assert!(items.iter().any(|item| {
+        item["kind"] == "system_notice"
+            && item["data"]["detail"]["commandId"] == "command-form-submit-1"
+    }));
+    let resolution = items
+        .iter()
+        .find(|item| item["kind"] == "form" && item["data"]["action"] == "submit")
+        .expect("canonical form resolution should exist");
+    assert_eq!(resolution["data"]["commandId"], "command-form-submit-1");
+    assert_eq!(resolution["data"]["values"]["destination"], "Singapore");
+}
+
+#[test]
+fn worker_transport_form_command_rejects_validation_before_acknowledgement() {
+    let fixture = WorkspaceFixture::new();
+    let first_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let restarted_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let session_id = "websocket:chat-command-form-invalid";
+    let run_id = "run-command-form-invalid";
+
+    worker_run_agent_with_options(
+        &first_runtime,
+        serde_json::json!({
+            "runtime": "rust",
+            "runId": run_id,
+            "sessionId": session_id,
+            "metadata": {
+                "fakeAwaitingForm": {
+                    "formId": "travel-command-invalid",
+                    "fields": [
+                        { "name": "destination", "type": "text", "required": true }
+                    ]
+                }
+            }
+        }),
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(10),
+    )
+    .expect("Rust runtime should create a form checkpoint");
+
+    let error = worker_transport_dispatch_websocket_message_with_options(
+        &restarted_runtime,
+        WorkerTransportWebSocketDispatchInput {
+            client_id: "client-command-form-invalid".to_string(),
+            frame: serde_json::json!({
+                "type": "command",
+                "chat_id": "chat-command-form-invalid",
+                "session_id": session_id,
+                "command_id": "command-form-invalid-1",
+                "command_kind": "form.submit",
+                "run_id": run_id,
+                "form_id": "travel-command-invalid",
+                "values": {}
+            }),
+            attached_chat_id: Some("chat-command-form-invalid".to_string()),
+            session_exists: Some(true),
+            editable_paths: None,
+            model: None,
+            max_iterations: None,
+            run_id: Some(run_id.to_string()),
+            stream: None,
+        },
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(10),
+    )
+    .expect_err("invalid form command should be rejected");
+    let runtime_state = worker_agent_run_runtime_state_with_options(
+        &restarted_runtime,
+        session_id.to_string(),
+        run_id.to_string(),
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(10),
+    )
+    .expect("canonical runtime state should remain available");
+
+    assert!(error.contains("form validation failed for fields: destination"));
+    assert!(!runtime_state["timeline"]["items"]
+        .as_array()
+        .expect("canonical timeline items should exist")
+        .iter()
+        .any(|item| item["data"]["detail"]["commandId"] == "command-form-invalid-1"));
 }
 
 #[test]

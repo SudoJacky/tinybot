@@ -38,6 +38,7 @@ fn agent_item_for_runtime_event(event_name: &str, payload: &Value) -> Option<Age
         "agent.awaiting_form" | "agent.form.resolution" => {
             Some(AgentItem::UserInput(AgentUserInputItem {
                 id: required_string(payload, &["formId", "form_id"], event_name),
+                command_id: optional_string(payload, &["commandId", "command_id"]),
                 status: optional_string(payload, &["status"])
                     .unwrap_or_else(|| "completed".to_string()),
                 action: optional_string(payload, &["action"]),

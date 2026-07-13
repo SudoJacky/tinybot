@@ -562,6 +562,14 @@ pub(crate) fn native_agent_ui_form_continuation_spec(
             "values": values,
         },
     });
+    if let Some(command_id) = body
+        .get("commandId")
+        .or_else(|| body.get("command_id"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+    {
+        metadata["commandId"] = serde_json::Value::String(command_id.to_string());
+    }
     copy_thread_id_to_continuation_metadata(&mut metadata, checkpoint, body);
     if let Some(final_content) = body
         .get("finalContent")
@@ -642,6 +650,16 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
         &workspace_root,
     )
     .await?;
+    services.flush_trace_sink()?;
+    let continuation_run_id = continuation_spec["runId"]
+        .as_str()
+        .unwrap_or("native-form-resolution");
+    let persisted_runtime_events =
+        services.load_runtime_events(session_key, continuation_run_id)?;
+    if !persisted_runtime_events.is_empty() {
+        continuation["runtimeEvents"] = serde_json::to_value(persisted_runtime_events)
+            .map_err(|error| format!("failed to serialize merged form runtime events: {error}"))?;
+    }
     persist_native_agent_run_record(
         continuation_spec.clone(),
         &mut continuation,

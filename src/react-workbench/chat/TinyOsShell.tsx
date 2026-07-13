@@ -87,6 +87,7 @@ export function TinyOsShell({
   onSubmitForm,
   resolvingApprovalId,
   sessionKey,
+  submittingFormId,
   snapshot,
   layoutMode,
   workspaceKey,
@@ -102,6 +103,7 @@ export function TinyOsShell({
   onSubmitForm: (form: AgentUiForm, values: Record<string, unknown>) => void;
   resolvingApprovalId: string;
   sessionKey?: string;
+  submittingFormId?: string;
   snapshot: TinyOsDesktopSnapshot;
   layoutMode: TinyOsLayoutMode;
   workspaceKey: string;
@@ -316,6 +318,7 @@ export function TinyOsShell({
             agentUiForms={agentUiForms}
             dialog={snapshot.dialog}
             resolvingApprovalId={resolvingApprovalId}
+            submittingFormId={submittingFormId}
             onCancelForm={onCancelForm}
             onResolveApproval={onResolveApproval}
             onSubmitForm={onSubmitForm}
@@ -765,6 +768,7 @@ function TinyOsSystemDialog({
   onResolveApproval,
   onSubmitForm,
   resolvingApprovalId,
+  submittingFormId,
 }: {
   agentUiForms: AgentUiForm[];
   dialog: NonNullable<TinyOsDesktopSnapshot["dialog"]>;
@@ -772,6 +776,7 @@ function TinyOsSystemDialog({
   onResolveApproval: (approvalId: string, action: ApprovalAction) => void;
   onSubmitForm: (form: AgentUiForm, values: Record<string, unknown>) => void;
   resolvingApprovalId: string;
+  submittingFormId?: string;
 }) {
   const { step } = dialog.entry;
   if (dialog.kind === "form") {
@@ -779,7 +784,7 @@ function TinyOsSystemDialog({
     return (
       <div aria-label="TinyOS input request" aria-modal="true" className="tinyos-system-dialog" role="dialog">
         <div className="tinyos-system-dialog__heading"><ShieldCheck aria-hidden="true" size={20} /><div><small>TinyOS input request</small><strong>{step.title}</strong></div></div>
-        {form ? <AgentUiFormCard form={form} onCancel={() => onCancelForm(form)} onSubmit={(values) => onSubmitForm(form, values)} /> : <EmptyCopy text="The form schema is still loading. The canonical request remains pending." />}
+        {form ? <AgentUiFormCard form={form} submitting={submittingFormId === form.form_id} onCancel={() => onCancelForm(form)} onSubmit={(values) => onSubmitForm(form, values)} /> : <EmptyCopy text="The form schema is still loading. The canonical request remains pending." />}
       </div>
     );
   }

@@ -39,4 +39,5 @@ pub(crate) use trace_sink::{
 pub(crate) use webui_continuation::{
     native_session_checkpoint, pending_approvals_from_checkpoint,
     resolve_agent_ui_form_body_with_services, resolve_approval_body_with_services,
+    validate_agent_ui_form_values,
 };

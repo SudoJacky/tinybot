@@ -2242,6 +2242,26 @@ describe("gateway WebSocket client", () => {
       approved: true,
       scope: "session",
     });
+    expect(createGatewaySocketMessage.command("chat-1", {
+      schemaVersion: "tinybot.command.v1",
+      commandId: "command-form-1",
+      issuedAt: "2026-07-13T00:00:00Z",
+      kind: "form.submit",
+      source: { control: "system-form", surface: "tinyos" },
+      target: { runId: "run-1", sessionId: "websocket:chat-1", turnId: "run-1" },
+      form: { formId: "travel-preferences-1", values: { destination: "Singapore" } },
+    })).toEqual({
+      type: "command",
+      chat_id: "chat-1",
+      command_id: "command-form-1",
+      command_kind: "form.submit",
+      run_id: "run-1",
+      session_id: "websocket:chat-1",
+      turn_id: "run-1",
+      source: { control: "system-form", surface: "tinyos" },
+      form_id: "travel-preferences-1",
+      values: { destination: "Singapore" },
+    });
   });
 
   test("queues outbound messages until the socket is open", () => {

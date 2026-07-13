@@ -2,7 +2,8 @@ use crate::agent_loop_runtime_protocol::AgentRuntimeEventAppender;
 use crate::desktop_commands::agent::worker_run_agent_with_live_trace_sink_async;
 use crate::native_agent_bridge::{
     desktop_agent_event_sink, native_agent_trace_sink, native_session_checkpoint,
-    pending_approvals_from_checkpoint, resolve_approval_body_with_services,
+    pending_approvals_from_checkpoint, resolve_agent_ui_form_body_with_services,
+    resolve_approval_body_with_services, validate_agent_ui_form_values,
 };
 use crate::worker_agent_runtime::NativeAgentTraceSink;
 use crate::worker_protocol::WorkerRequest;
@@ -309,7 +310,7 @@ async fn worker_transport_dispatch_websocket_message_with_live_trace_sink_async(
         .and_then(serde_json::Value::as_str)
         == Some("command")
     {
-        return dispatch_tinyos_approval_command(
+        return dispatch_tinyos_command(
             shared,
             transport_result,
             workspace_root,
@@ -415,9 +416,7 @@ pub(crate) fn native_websocket_transport_result(
             .or_else(|| json_string_field(frame, "sessionId"))
             .map(str::to_string)
             .unwrap_or_else(|| format!("websocket:{chat_id}"));
-        let approval_id = json_string_field(frame, "approval_id")
-            .or_else(|| json_string_field(frame, "approvalId"))?;
-        return Some(serde_json::json!({
+        let mut transport = serde_json::json!({
             "kind": "command",
             "chatId": chat_id,
             "sessionId": session_id,
@@ -427,12 +426,39 @@ pub(crate) fn native_websocket_transport_result(
             "turnId": json_string_field(frame, "turn_id").or_else(|| json_string_field(frame, "turnId")),
             "threadId": json_string_field(frame, "thread_id").or_else(|| json_string_field(frame, "threadId")),
             "source": frame.get("source").cloned().unwrap_or(serde_json::Value::Null),
-            "approvalId": approval_id,
-            "approved": frame.get("approved").and_then(serde_json::Value::as_bool),
-            "scope": json_string_field(frame, "scope").unwrap_or("once"),
-            "guidance": frame.get("guidance").cloned().unwrap_or(serde_json::Value::Null),
             "frames": [],
-        }));
+        });
+        if command_kind == "approval.resolve" {
+            transport["approvalId"] = frame
+                .get("approval_id")
+                .or_else(|| frame.get("approvalId"))
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+            transport["approved"] = frame
+                .get("approved")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+            transport["scope"] = serde_json::Value::String(
+                json_string_field(frame, "scope")
+                    .unwrap_or("once")
+                    .to_string(),
+            );
+            transport["guidance"] = frame
+                .get("guidance")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+        } else if command_kind == "form.submit" {
+            transport["formId"] = frame
+                .get("form_id")
+                .or_else(|| frame.get("formId"))
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+            transport["values"] = frame
+                .get("values")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+        }
+        return Some(transport);
     }
     if json_string_field(frame, "type") != Some("message") {
         return None;
@@ -488,6 +514,44 @@ pub(crate) fn native_websocket_transport_result(
             "session_key": session_id,
         }
     }))
+}
+
+async fn dispatch_tinyos_command(
+    shared: &SharedGateway,
+    transport: serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
+) -> Result<serde_json::Value, String> {
+    match transport
+        .get("commandKind")
+        .and_then(serde_json::Value::as_str)
+    {
+        Some("approval.resolve") => {
+            dispatch_tinyos_approval_command(
+                shared,
+                transport,
+                workspace_root,
+                config_snapshot,
+                live_trace_sink,
+            )
+            .await
+        }
+        Some("form.submit") => {
+            dispatch_tinyos_form_command(
+                shared,
+                transport,
+                workspace_root,
+                config_snapshot,
+                live_trace_sink,
+            )
+            .await
+        }
+        command_kind => Err(format!(
+            "unsupported TinyOS command kind: {}",
+            command_kind.unwrap_or("missing")
+        )),
+    }
 }
 
 async fn dispatch_tinyos_approval_command(
@@ -633,6 +697,149 @@ async fn dispatch_tinyos_approval_command(
             "run_id": &run_id,
         }
     ]);
+    Ok(serde_json::json!({ "transport": transport, "command": resolution }))
+}
+
+async fn dispatch_tinyos_form_command(
+    shared: &SharedGateway,
+    mut transport: serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
+) -> Result<serde_json::Value, String> {
+    let session_id = required_transport_string(&transport, "sessionId")?;
+    let run_id = required_transport_string(&transport, "runId")?;
+    let command_id = required_transport_string(&transport, "commandId")?;
+    let form_id = required_transport_string(&transport, "formId")?;
+    let values = transport
+        .get("values")
+        .filter(|value| value.is_object())
+        .cloned()
+        .ok_or_else(|| "form.submit command values must be an object".to_string())?;
+    let checkpoint = native_session_checkpoint(
+        &session_id,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+        "TinyOS form command checkpoint lookup",
+    )?
+    .ok_or_else(|| format!("pending form not found: {form_id}"))?;
+    let checkpoint_run_id = checkpoint
+        .get("runId")
+        .or_else(|| checkpoint.get("run_id"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    if checkpoint_run_id != run_id {
+        return Err(format!(
+            "form command targets stale run `{run_id}`; pending run is `{checkpoint_run_id}`"
+        ));
+    }
+    let checkpoint_form_id = checkpoint
+        .get("payload")
+        .and_then(|payload| payload.get("formId").or_else(|| payload.get("form_id")))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    if checkpoint.get("phase").and_then(serde_json::Value::as_str) != Some("awaiting_form")
+        || checkpoint_form_id != form_id
+    {
+        return Err(format!("pending form not found: {form_id}"));
+    }
+    let errors = validate_agent_ui_form_values(&checkpoint, &values);
+    if !errors.is_empty() {
+        return Err(format!(
+            "form validation failed for fields: {}",
+            errors.keys().cloned().collect::<Vec<_>>().join(", ")
+        ));
+    }
+
+    persist_tinyos_command_acknowledgement(
+        workspace_root.clone(),
+        config_snapshot.clone(),
+        &session_id,
+        &run_id,
+        &command_id,
+        &transport,
+    )?;
+    if let Some(sink) = live_trace_sink.as_ref() {
+        let thread_id = transport
+            .get("threadId")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
+        let mut appender =
+            AgentRuntimeEventAppender::new_with_thread_id(&session_id, &run_id, thread_id);
+        let event = appender.append_legacy_native_event(
+            "agent.command.acknowledged",
+            Some(format!("{run_id}:command-ack:{command_id}")),
+            now_thread_timestamp(),
+            serde_json::json!({
+                "chatId": transport.get("chatId").cloned().unwrap_or(serde_json::Value::Null),
+                "commandId": &command_id,
+                "commandKind": "form.submit",
+                "commandStatus": "acknowledged",
+                "runId": &run_id,
+                "sessionId": &session_id,
+            }),
+        );
+        sink.append_trace_event(&session_id, &run_id, &event)?;
+    }
+
+    let body = serde_json::json!({
+        "session_key": &session_id,
+        "commandId": &command_id,
+        "threadId": transport.get("threadId").cloned().unwrap_or(serde_json::Value::Null),
+        "values": values,
+    });
+    let base_services = {
+        let runtime = crate::lock_runtime(shared);
+        runtime.native_agent_runtime.clone()
+    };
+    let services = base_services.with_trace_sink(native_agent_trace_sink(
+        workspace_root.clone(),
+        config_snapshot.clone(),
+        live_trace_sink,
+    ));
+    let (status_code, resolution) = resolve_agent_ui_form_body_with_services(
+        services,
+        form_id,
+        &body,
+        false,
+        workspace_root,
+        config_snapshot,
+    )
+    .await?;
+    if status_code != 200
+        || resolution
+            .get("submitted")
+            .and_then(serde_json::Value::as_bool)
+            != Some(true)
+    {
+        return Err(resolution
+            .get("error")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("form submission failed")
+            .to_string());
+    }
+    let mut frames = vec![
+        serde_json::json!({
+            "event": "command_accepted",
+            "chat_id": transport.get("chatId").cloned().unwrap_or(serde_json::Value::Null),
+            "command_id": &command_id,
+            "run_id": &run_id,
+        }),
+        serde_json::json!({
+            "event": "command_canonical_updated",
+            "chat_id": transport.get("chatId").cloned().unwrap_or(serde_json::Value::Null),
+            "command_id": &command_id,
+            "run_id": &run_id,
+        }),
+    ];
+    if let Some(event) = resolution.get("event") {
+        frames.push(serde_json::json!({
+            "event": "agent_ui_event",
+            "chat_id": transport.get("chatId").cloned().unwrap_or(serde_json::Value::Null),
+            "agent_ui_event": event,
+        }));
+    }
+    transport["frames"] = serde_json::Value::Array(frames);
     Ok(serde_json::json!({ "transport": transport, "command": resolution }))
 }
 

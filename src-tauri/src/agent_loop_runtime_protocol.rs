@@ -287,6 +287,8 @@ pub enum AgentTurnItemData {
     },
     Form {
         form_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        command_id: Option<String>,
         status: String,
         title: Option<String>,
         action: Option<String>,
@@ -1637,6 +1639,8 @@ fn projected_item_data(
             let source = typed_item.unwrap_or(payload);
             AgentTurnItemData::Form {
                 form_id: required_item_string(source, &["id", "formId", "form_id"], kind),
+                command_id: item_string(source, &["commandId", "command_id"])
+                    .or_else(|| item_string(payload, &["commandId", "command_id"])),
                 status: item_string(source, &["status"]).unwrap_or_else(|| "waiting".to_string()),
                 title: item_string(payload, &["title"]),
                 action: item_string(source, &["action"]),

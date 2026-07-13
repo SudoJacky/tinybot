@@ -79,8 +79,18 @@ export function LiveCanvas({
   }), [entries, mode, selection?.step.id, selection?.turnId]);
   const actionableDialog = Boolean(snapshot.dialog && mode === "live_follow");
   const cancelPending = isTinyOsCommandInFlight(commandLifecycle);
-  const approvalCommand = commandLifecycle.stage !== "idle" && commandLifecycle.command.kind === "approval.resolve";
-  const commandLabel = approvalCommand ? "Approval" : "Cancellation";
+  const commandKind = commandLifecycle.stage === "idle" ? "" : commandLifecycle.command.kind;
+  const commandLabel = commandKind === "approval.resolve"
+    ? "Approval"
+    : commandKind === "form.submit" ? "Form submission" : "Cancellation";
+  const commandAction = commandKind === "approval.resolve"
+    ? "approval"
+    : commandKind === "form.submit" ? "form submission" : "cancel";
+  const submittingFormId = commandLifecycle.stage !== "idle"
+    && commandLifecycle.command.kind === "form.submit"
+    && isTinyOsCommandInFlight(commandLifecycle)
+    ? commandLifecycle.command.form.formId
+    : "";
   const skipBoot = Boolean(snapshot.dialog) || prefersReducedMotion();
   const [booting, setBooting] = useState(() => !tinyOsBootedInRuntime && !skipBoot);
   const dragRef = useRef<{ pointerId: number; startWidth: number; startX: number } | undefined>(undefined);
@@ -167,7 +177,7 @@ export function LiveCanvas({
           <span data-live={mode === "live_follow" ? "true" : undefined}>{mode === "live_follow" ? "Live follow" : "History"}</span>
           {snapshot.agentTitle ? <span><Bot aria-hidden="true" size={12} />{snapshot.agentTitle}</span> : null}
           {snapshot.dialog || snapshot.notifications.length ? <span className="tinyos-attention" title="TinyOS notifications"><Bell aria-hidden="true" size={13} />{actionableDialog ? "Action needed" : snapshot.dialog ? "Historical request" : snapshot.notifications.length}</span> : null}
-          {commandLifecycle.stage === "sending" ? <span>Sending {approvalCommand ? "approval" : "cancel"}…</span> : null}
+          {commandLifecycle.stage === "sending" ? <span>Sending {commandAction}…</span> : null}
           {commandLifecycle.stage === "waiting_for_canonical" ? <span>Awaiting runtime</span> : null}
           {commandLifecycle.stage === "acknowledged" ? <span>Command acknowledged</span> : null}
           {commandLifecycle.stage === "completed" ? <span>{commandLabel} complete</span> : null}
@@ -219,6 +229,7 @@ export function LiveCanvas({
         history={mode === "history"}
         onAttachContext={onAttachContext}
         resolvingApprovalId={resolvingApprovalId}
+        submittingFormId={submittingFormId}
         snapshot={snapshot}
         layoutMode={tinyOsLayoutModeForWidth(widthPx, expanded)}
         sessionKey={sessionKey}

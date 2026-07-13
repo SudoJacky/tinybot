@@ -1,7 +1,7 @@
 import { DEFAULT_GATEWAY_CONFIG, type GatewayConfig } from "./gatewayConfig";
 import { logDesktopNativeChatDebug, summarizeDebugText } from "../native/desktopNativeChatDebug";
 import type { NativeChatReference } from "../chat/nativeChat";
-import type { TinyOsAgentCancelCommand, TinyOsApprovalResolveCommand } from "../chat/tinyOsCommandGateway";
+import type { TinyOsAgentCancelCommand, TinyOsApprovalResolveCommand, TinyOsFormSubmitCommand } from "../chat/tinyOsCommandGateway";
 
 export const createGatewaySocketMessage = {
   newChat: () => ({ type: "new_chat" as const }),
@@ -26,21 +26,30 @@ export const createGatewaySocketMessage = {
     ...(command.target.turnId ? { turn_id: command.target.turnId } : {}),
     source: command.source,
   }),
-  command: (chatId: string, command: TinyOsApprovalResolveCommand) => ({
-    type: "command" as const,
-    chat_id: chatId,
-    command_id: command.commandId,
-    command_kind: command.kind,
-    run_id: command.target.runId,
-    session_id: command.target.sessionId,
-    ...(command.target.threadId ? { thread_id: command.target.threadId } : {}),
-    ...(command.target.turnId ? { turn_id: command.target.turnId } : {}),
-    source: command.source,
-    approval_id: command.approval.approvalId,
-    approved: command.approval.approved,
-    scope: command.approval.scope,
-    ...(command.approval.guidance ? { guidance: command.approval.guidance } : {}),
-  }),
+  command: (chatId: string, command: TinyOsApprovalResolveCommand | TinyOsFormSubmitCommand) => {
+    const envelope = {
+      type: "command" as const,
+      chat_id: chatId,
+      command_id: command.commandId,
+      command_kind: command.kind,
+      run_id: command.target.runId,
+      session_id: command.target.sessionId,
+      ...(command.target.threadId ? { thread_id: command.target.threadId } : {}),
+      ...(command.target.turnId ? { turn_id: command.target.turnId } : {}),
+      source: command.source,
+    };
+    return command.kind === "approval.resolve" ? {
+      ...envelope,
+      approval_id: command.approval.approvalId,
+      approved: command.approval.approved,
+      scope: command.approval.scope,
+      ...(command.approval.guidance ? { guidance: command.approval.guidance } : {}),
+    } : {
+      ...envelope,
+      form_id: command.form.formId,
+      values: command.form.values,
+    };
+  },
 };
 
 export type NormalizedGatewayEvent =

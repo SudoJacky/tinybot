@@ -1148,7 +1148,7 @@ describe("ChatPage", () => {
       description: "Collect itinerary constraints before planning.",
       submit_label: "Save preferences",
       cancel_label: "Skip",
-      correlation: { chat_id: "chat-1" },
+      correlation: { chat_id: "chat-1", run_id: "run-1", session_id: "s1" },
       fields: [
         { name: "destination", type: "text", label: "Destination", required: true },
         { name: "nights", type: "number", label: "Nights", required: false, min: 1, max: 30 },
@@ -1165,6 +1165,8 @@ describe("ChatPage", () => {
       text: "Plan my trip",
       status: "complete",
     }]);
+    canonical.turns[0].id = "run-1";
+    canonical.turns[0].status = "awaiting_user";
     canonical.turns[0].steps.push({
       agentContext: { id: "main", title: "Tinybot", type: "main" },
       form: {
@@ -1178,10 +1180,8 @@ describe("ChatPage", () => {
       status: "blocked",
       title: "Travel preferences",
     });
-    const submitAgentUiForm = vi.fn(async () => undefined);
     stores.chatStore.load = vi.fn(async () => canonical);
     (stores.chatStore as any).listAgentUiForms = vi.fn(async () => [form]);
-    (stores.chatStore as any).submitAgentUiForm = submitAgentUiForm;
     (stores.chatStore as any).cancelAgentUiForm = vi.fn(async () => undefined);
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
@@ -1196,10 +1196,16 @@ describe("ChatPage", () => {
     fireEvent.change(within(card).getByLabelText("Nights"), { target: { value: "4" } });
     await user.click(within(card).getByRole("button", { name: "Save preferences" }));
 
-    expect(submitAgentUiForm).toHaveBeenCalledWith("travel-preferences-1", {
-      destination: "Singapore",
-      nights: 4,
-    });
+    expect(stores.chatStore.dispatchCommand).toHaveBeenCalledWith(expect.objectContaining({
+      form: {
+        formId: "travel-preferences-1",
+        values: { destination: "Singapore", nights: 4 },
+      },
+      kind: "form.submit",
+      source: { control: "chat-form", surface: "chat" },
+      target: expect.objectContaining({ runId: "run-1", sessionId: "s1" }),
+    }));
+    expect(within(card).getByRole("button", { name: "Save preferences" }).hasAttribute("disabled")).toBe(true);
   });
 
   it("renders a resolved canonical form as a read-only submission summary", async () => {

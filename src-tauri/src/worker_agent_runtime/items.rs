@@ -104,6 +104,8 @@ pub struct AgentApprovalItem {
 #[serde(rename_all = "camelCase")]
 pub struct AgentUserInputItem {
     pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command_id: Option<String>,
     pub status: String,
     pub action: Option<String>,
     #[serde(default)]

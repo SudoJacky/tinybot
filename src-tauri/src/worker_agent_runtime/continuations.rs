@@ -1112,6 +1112,8 @@ pub(super) fn maybe_form_submit_result(
                 }),
             ),
         ];
+        let runtime_events = continuation_runtime_events(services, context, &events)?;
+        append_runtime_events_to_sink(context, services.trace_sink.as_ref(), &runtime_events);
         return Ok(Some(serde_json::json!({
             "runtime": "rust",
             "runId": context.run_id,
@@ -1122,6 +1124,7 @@ pub(super) fn maybe_form_submit_result(
             "toolsUsed": [],
             "error": message,
             "events": events,
+            "runtimeEvents": runtime_events,
             "restoredCheckpoint": checkpoint,
         })));
     }
@@ -1150,6 +1153,8 @@ pub(super) fn maybe_form_submit_result(
             }),
         ),
     ];
+    let runtime_events = continuation_runtime_events(services, context, &events)?;
+    append_runtime_events_to_sink(context, services.trace_sink.as_ref(), &runtime_events);
     Ok(Some(serde_json::json!({
         "runtime": "rust",
         "runId": context.run_id,
@@ -1169,6 +1174,7 @@ pub(super) fn maybe_form_submit_result(
             "values": continuation.values,
         },
         "events": events,
+        "runtimeEvents": runtime_events,
     })))
 }
 
@@ -1176,21 +1182,27 @@ fn form_resolution_event(
     context: &NativeAgentRunContext,
     continuation: &FormContinuationData,
 ) -> NativeAgentEvent {
-    event(
-        "agent.form.resolution",
-        serde_json::json!({
-            "runId": context.run_id,
-            "sessionId": context.session_id,
-            "formId": continuation.form_id,
-            "detailId": format!("form:{}", continuation.form_id),
-            "status": "completed",
-            "action": match continuation.action {
-                AgentFormAction::Submit => "submit",
-                AgentFormAction::Cancel => "cancel",
-            },
-            "values": continuation.values.clone(),
-        }),
-    )
+    let mut payload = serde_json::json!({
+        "runId": context.run_id,
+        "sessionId": context.session_id,
+        "formId": continuation.form_id,
+        "detailId": format!("form:{}", continuation.form_id),
+        "status": "completed",
+        "action": match continuation.action {
+            AgentFormAction::Submit => "submit",
+            AgentFormAction::Cancel => "cancel",
+        },
+        "values": continuation.values.clone(),
+    });
+    if let Some(command_id) = context
+        .metadata
+        .get("commandId")
+        .or_else(|| context.metadata.get("command_id"))
+        .and_then(serde_json::Value::as_str)
+    {
+        payload["commandId"] = serde_json::Value::String(command_id.to_string());
+    }
+    event("agent.form.resolution", payload)
 }
 
 #[derive(Clone, Debug)]
