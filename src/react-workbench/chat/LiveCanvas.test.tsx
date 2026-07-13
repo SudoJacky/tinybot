@@ -32,10 +32,13 @@ function entry(canvasStep: ChatStep, turnId = "turn-1"): LiveCanvasEntry {
 function canvasProps(entries: LiveCanvasEntry[], overrides: Record<string, unknown> = {}) {
   return {
     agentUiForms: [] as AgentUiForm[],
+    canCancelRun: false,
+    commandLifecycle: { stage: "idle" } as const,
     entries,
     headingRef: createRef<HTMLHeadingElement>(),
     mode: "live_follow" as const,
     onCancelForm: vi.fn(),
+    onCancelRun: vi.fn(),
     onAttachContext: vi.fn(),
     onClose: vi.fn(),
     onOpenArtifact: vi.fn(),
@@ -51,6 +54,44 @@ function canvasProps(entries: LiveCanvasEntry[], overrides: Record<string, unkno
 }
 
 describe("LiveCanvas TinyOS", () => {
+  it("exposes the shared cancel control and its pending state", async () => {
+    const onCancelRun = vi.fn();
+    const { rerender } = render(<LiveCanvas {...canvasProps([], { canCancelRun: true, onCancelRun })} />);
+    await userEvent.click(screen.getByRole("button", { name: "Cancel active Agent run" }));
+    expect(onCancelRun).toHaveBeenCalledTimes(1);
+
+    rerender(<LiveCanvas {...canvasProps([], {
+      canCancelRun: true,
+      commandLifecycle: {
+        command: {
+          schemaVersion: "tinybot.command.v1",
+          commandId: "command-1",
+          issuedAt: "2026-07-13T00:00:00Z",
+          kind: "agent.cancel",
+          source: { control: "system-bar-cancel", surface: "tinyos" },
+          target: { runId: "run-1", sessionId: "session-1" },
+        },
+        dispatchedAtMs: 1,
+        transportAcceptedAtMs: 2,
+        stage: "waiting_for_canonical",
+      },
+      onCancelRun,
+    })} />);
+    expect((screen.getByRole("button", { name: "Cancel command pending" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("Awaiting runtime")).toBeTruthy();
+  });
+
+  it("explains backend-authored cancellation denial", () => {
+    render(<LiveCanvas {...canvasProps([], {
+      cancelUnavailableReason: "The run is waiting for user input.",
+    })} />);
+
+    const cancel = screen.getByRole("button", { name: "Cancel active Agent run" });
+    expect((cancel as HTMLButtonElement).disabled).toBe(true);
+    expect(cancel.getAttribute("title")).toBe("The run is waiting for user input.");
+    expect(screen.getByText("The run is waiting for user input.")).toBeTruthy();
+  });
+
   it("renders stable Files and Terminal applications from canonical entries", () => {
     const entries = [
       entry(step({
@@ -122,6 +163,39 @@ describe("LiveCanvas TinyOS", () => {
     expect(within(dialog).getByRole("button", { name: "Approve for session" })).toBeTruthy();
     await user.click(within(dialog).getByRole("button", { name: "Approve once" }));
     expect(onResolveApproval).toHaveBeenCalledWith("approval-1", "approveOnce");
+  });
+
+  it("renders historical requests as read-only evidence", () => {
+    const onResolveApproval = vi.fn();
+    const approval = entry(step({
+      approval: { approvalId: "approval-history", riskLevel: "high" },
+      id: "approval-history",
+      kind: "approval",
+      status: "blocked",
+      title: "Historical approval",
+    }));
+
+    render(<LiveCanvas {...canvasProps([approval], { mode: "history", onResolveApproval, selection: approval })} />);
+
+    expect(screen.getByLabelText("Historical TinyOS request")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Approve once" })).toBeNull();
+    expect(onResolveApproval).not.toHaveBeenCalled();
+  });
+
+  it("exposes the expanded route-surface mode", async () => {
+    const user = userEvent.setup();
+    const onExpandedChange = vi.fn();
+    const fileEntry = entry(step({
+      id: "file-expanded",
+      toolCall: { argsJson: { path: "README.md" }, id: "file-expanded", name: "workspace.read_file" },
+    }));
+    const { rerender } = render(<LiveCanvas {...canvasProps([fileEntry], { onExpandedChange })} />);
+
+    await user.click(screen.getByRole("button", { name: "Expand TinyOS to Chat surface" }));
+    expect(onExpandedChange).toHaveBeenCalledTimes(1);
+    rerender(<LiveCanvas {...canvasProps([fileEntry], { expanded: true, onExpandedChange })} />);
+    expect(screen.getByLabelText("Live Canvas").getAttribute("data-expanded")).toBe("true");
+    expect(screen.getByRole("button", { name: "Exit expanded TinyOS" })).toBeTruthy();
   });
 
   it("submits a matching Agent UI form from TinyOS", async () => {
@@ -236,10 +310,9 @@ describe("LiveCanvas TinyOS", () => {
       endLine: 2,
       kind: "file",
       path: "src/a.ts",
+      provenance: { kind: "canonical", sourceItemId: "file-a", turnId: "turn-1" },
       selectedText: "const a = 1;\nexport { a };",
-      sourceItemId: "file-a",
       startLine: 1,
-      turnId: "turn-1",
     });
   });
 
@@ -256,22 +329,45 @@ describe("LiveCanvas TinyOS", () => {
     await user.click(within(terminal).getByRole("tab", { name: "npm test" }));
     expect(within(terminal).getByText("PASS tinyos")).toBeTruthy();
     await user.type(within(terminal).getByLabelText("Search terminal output"), "pass");
-    expect(within(terminal).getByText("1 matches")).toBeTruthy();
+    expect(within(terminal).getByText("1/1")).toBeTruthy();
     await user.selectOptions(within(terminal).getByLabelText("Terminal stream filter"), "stderr");
     await user.click(within(terminal).getByRole("button", { name: "Pause" }));
     expect(within(terminal).getByText("Follow paused")).toBeTruthy();
     await user.selectOptions(within(terminal).getByLabelText("Terminal stream filter"), "stdout");
-    await user.click(within(terminal).getByRole("button", { name: "PASS tinyos" }));
-    await user.click(within(terminal).getByRole("button", { name: "Attach output L2" }));
+    fireEvent.click(within(terminal).getByRole("button", { name: "$ npm test" }));
+    fireEvent.click(within(terminal).getByRole("button", { name: "PASS tinyos" }), { shiftKey: true });
+    await user.click(within(terminal).getByRole("button", { name: "Attach L1–2" }));
     expect(onAttachContext).toHaveBeenCalledWith({
       command: "npm test",
       endLine: 2,
       kind: "terminal",
-      selectedText: "PASS tinyos",
+      selectedText: "$ npm test\nPASS tinyos",
       sourceItemId: "shell-a",
-      startLine: 2,
+      startLine: 1,
       turnId: "turn-1",
     });
+  });
+
+  it("switches applications with keyboard shortcuts and restores session UI state", async () => {
+    const user = userEvent.setup();
+    const entries = [
+      entry(step({ id: "shortcut-file", toolCall: { argsJson: { path: "README.md" }, id: "shortcut-file", name: "workspace.read_file" } })),
+      entry(step({ id: "shortcut-shell", toolCall: { argsJson: { cmd: "npm test" }, id: "shortcut-shell", name: "shell.exec" } })),
+    ];
+    const props = canvasProps(entries, { sessionKey: "session-shortcuts", widthPx: 480 });
+    const { unmount } = render(<LiveCanvas {...props} />);
+    const canvas = screen.getByLabelText("Live Canvas");
+
+    expect(canvas.querySelector("[data-app='terminal']")).toBeTruthy();
+    fireEvent.keyDown(screen.getByLabelText("Move Terminal window"), { altKey: true, key: "1" });
+    expect(canvas.querySelector("[data-app='files']")).toBeTruthy();
+    await user.click(within(canvas).getByRole("button", { name: "Minimize Files" }));
+    unmount();
+
+    render(<LiveCanvas {...props} />);
+    const restored = screen.getByLabelText("Live Canvas");
+    expect(restored.querySelector("[data-app='terminal']")).toBeTruthy();
+    expect(within(restored).getByRole("button", { name: "Open Files" }).getAttribute("data-minimized")).toBe("true");
   });
 
   it("pins two canonical evidence items into a split Inspector", async () => {

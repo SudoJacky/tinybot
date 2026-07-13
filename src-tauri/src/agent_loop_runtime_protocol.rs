@@ -339,6 +339,8 @@ pub enum AgentTurnItemData {
         id: Option<String>,
         code: String,
         message: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        command_id: Option<String>,
         cancelled: bool,
     },
     SystemNotice {
@@ -1828,6 +1830,7 @@ fn legacy_item_data(
                 .unwrap_or_else(|| event.event_name.trim_start_matches("agent.").to_string()),
             message: item_string(payload, &["message", "error"])
                 .unwrap_or_else(|| event.event_name.clone()),
+            command_id: item_string(payload, &["commandId", "command_id"]),
             cancelled: event.event_name == "agent.cancelled"
                 || payload
                     .get("cancelled")

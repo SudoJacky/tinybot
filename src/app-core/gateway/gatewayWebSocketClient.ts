@@ -14,7 +14,12 @@ export const createGatewaySocketMessage = {
     ...(typeof usePersistentRag === "boolean" ? { use_persistent_rag: usePersistentRag } : {}),
     ...(model ? { model } : {}),
   }),
-  interrupt: (chatId: string) => ({ type: "interrupt" as const, chat_id: chatId }),
+  interrupt: (chatId: string, commandId: string, runId: string) => ({
+    type: "interrupt" as const,
+    chat_id: chatId,
+    command_id: commandId,
+    run_id: runId,
+  }),
 };
 
 export type NormalizedGatewayEvent =
@@ -27,7 +32,8 @@ export type NormalizedGatewayEvent =
   | { kind: "agent-ui.form"; raw: Record<string, unknown> }
   | { kind: "agent-ui.event"; eventType: string; raw: Record<string, unknown> }
   | { kind: "interrupted"; chatId?: string; cancelled: boolean; raw: Record<string, unknown> }
-  | { kind: "error"; message: string; raw: Record<string, unknown> }
+  | { kind: "command.accepted"; chatId?: string; commandId: string; raw: Record<string, unknown> }
+  | { kind: "error"; commandId?: string; message: string; raw: Record<string, unknown> }
   | { kind: "unknown"; event?: string; raw: Record<string, unknown> };
 
 export function normalizeGatewayFrame(frame: unknown): NormalizedGatewayEvent {
@@ -78,8 +84,20 @@ export function normalizeGatewayFrame(frame: unknown): NormalizedGatewayEvent {
         cancelled: raw.cancelled === true,
         raw,
       };
+    case "command_accepted":
+      return {
+        kind: "command.accepted",
+        chatId: optionalString(raw.chat_id),
+        commandId: stringValue(raw.command_id ?? raw.commandId),
+        raw,
+      };
     case "error":
-      return { kind: "error", message: stringValue(raw.message), raw };
+      return {
+        kind: "error",
+        ...(optionalString(raw.command_id ?? raw.commandId) ? { commandId: optionalString(raw.command_id ?? raw.commandId) } : {}),
+        message: stringValue(raw.message),
+        raw,
+      };
     default:
       return { kind: "unknown", event: optionalString(raw.event), raw };
   }

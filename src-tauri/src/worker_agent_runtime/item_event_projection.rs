@@ -138,6 +138,7 @@ fn agent_item_for_runtime_event(event_name: &str, payload: &Value) -> Option<Age
                 id: Some(format!("{run_id}:error:{code}")),
                 code,
                 message,
+                command_id: optional_string(payload, &["commandId", "command_id"]),
                 cancelled: event_name == "agent.cancelled"
                     || payload
                         .get("cancelled")

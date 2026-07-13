@@ -22,11 +22,12 @@ export type TinyOsWindowLayout = TinyOsWindowRect & {
 export type TinyOsFileReference = {
   endLine?: number;
   path: string;
+  provenance:
+    | { kind: "canonical"; sourceItemId: string; turnId: string }
+    | { kind: "workspace_read"; workspaceKey: string };
   revision?: string;
   selectedText?: string;
-  sourceItemId: string;
   startLine?: number;
-  turnId: string;
 };
 
 export type TinyOsTerminalReference = {

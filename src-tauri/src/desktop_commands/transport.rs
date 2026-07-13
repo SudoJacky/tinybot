@@ -241,9 +241,40 @@ async fn worker_transport_dispatch_websocket_message_with_live_trace_sink_async(
     timeout: Duration,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 ) -> Result<serde_json::Value, String> {
-    let Some(transport_result) = native_websocket_transport_result(&input) else {
+    let Some(mut transport_result) = native_websocket_transport_result(&input) else {
         return unsupported_rust_only_command("worker_transport_dispatch_websocket_message");
     };
+    if transport_result
+        .get("kind")
+        .and_then(serde_json::Value::as_str)
+        == Some("interrupt")
+    {
+        let run_id = transport_result
+            .get("runId")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| "native websocket interrupt is missing runId".to_string())?;
+        let command_id = transport_result
+            .get("commandId")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| "native websocket interrupt is missing commandId".to_string())?;
+        let services = {
+            let runtime = crate::lock_runtime(shared);
+            runtime.native_agent_runtime.clone()
+        };
+        let cancellation = services.cancel_with_command_id(&run_id, Some(&command_id));
+        transport_result["frames"] = serde_json::json!([{
+            "event": "command_accepted",
+            "chat_id": transport_result.get("chatId").cloned().unwrap_or(serde_json::Value::Null),
+            "command_id": command_id,
+            "run_id": run_id,
+        }]);
+        return Ok(serde_json::json!({
+            "transport": transport_result,
+            "command": cancellation,
+        }));
+    }
     let dispatch_options = WorkerTransportWebSocketDispatchOptions {
         model: input.model,
         max_iterations: input.max_iterations,
@@ -295,6 +326,24 @@ pub(crate) fn native_websocket_transport_result(
             "sessionId": session_id,
             "attachedChatId": chat_id,
             "frames": [{ "event": "chat_created", "chat_id": chat_id }],
+        }));
+    }
+    if json_string_field(frame, "type") == Some("interrupt") {
+        let chat_id = json_string_field(frame, "chat_id")
+            .or_else(|| json_string_field(frame, "chatId"))
+            .or(input.attached_chat_id.as_deref())?;
+        let command_id = json_string_field(frame, "command_id")
+            .or_else(|| json_string_field(frame, "commandId"))?;
+        let run_id = json_string_field(frame, "run_id")
+            .or_else(|| json_string_field(frame, "runId"))
+            .or(input.run_id.as_deref())?;
+        return Some(serde_json::json!({
+            "kind": "interrupt",
+            "chatId": chat_id,
+            "sessionId": format!("websocket:{chat_id}"),
+            "commandId": command_id,
+            "runId": run_id,
+            "frames": [],
         }));
     }
     if json_string_field(frame, "type") != Some("message") {

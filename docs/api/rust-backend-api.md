@@ -217,7 +217,7 @@ a schema v1 default config with:
 - `schemaVersion: 1`
 - `agents.defaults.activeProfile: "deepseek-default"`
 - `agents.defaults.model: "deepseek-v4-pro"`
-- `providers.profiles.deepseek-default` with DeepSeek V4 models
+- `providers.profiles.deepseek-default` with DeepSeek V4 models and the built-in `reasoning` capability
 - `gateway.host: "127.0.0.1"` and `gateway.port: 18790`
 
 Existing files are never overwritten by this initialization path, including invalid JSON or non-object
@@ -530,16 +530,19 @@ maximum completion tokens, context-window strategy, reasoning options, service t
 working directory, approval policy, permission profile, selected tools, and parallel-tool policy.
 Invalid values fail request construction rather than being reread differently by later stages.
 
-Optional provider features must be declared explicitly under the selected provider:
+Optional provider features must be declared explicitly on the selected provider profile:
 
 ```json
 {
   "providers": {
-    "fixture": {
-      "capabilities": {
-        "serviceTier": true,
-        "reasoning": true,
-        "structuredOutput": true
+    "profiles": {
+      "fixture-default": {
+        "provider": "fixture",
+        "capabilities": {
+          "serviceTier": true,
+          "reasoning": true,
+          "structuredOutput": true
+        }
       }
     }
   }
@@ -548,7 +551,9 @@ Optional provider features must be declared explicitly under the selected provid
 
 `capabilities` may instead be an array containing `service_tier`, `reasoning`, and/or
 `structured_output` (camel-case spellings are also accepted). A requested undeclared feature fails
-with the provider ID and missing capability. Declared settings map to Chat Completions fields as
+with the resolved provider ID and missing capability. Built-in profile capabilities fall back to the
+provider catalog when the profile omits the field; an explicit profile value overrides that default.
+Declared settings map to Chat Completions fields as
 follows: service tier to `service_tier`, reasoning effort to `reasoning_effort`, reasoning summary
 configuration to `reasoning`, and output schemas to `response_format.type = "json_schema"`.
 

@@ -441,6 +441,7 @@ async fn approved_tool_continuation_result(
         }
         OwnedToolCallResult::Cancelled => {
             return Ok(cancelled_result(
+                services,
                 &context.run_id,
                 &context.session_id,
                 checkpoint,
@@ -496,6 +497,7 @@ async fn approved_tool_continuation_result(
             biased;
             _ = cancellation.cancelled() => {
                 return Ok(cancelled_result(
+                    services,
                     &context.run_id,
                     &context.session_id,
                     checkpoint,
@@ -510,6 +512,7 @@ async fn approved_tool_continuation_result(
         Ok(response) => response,
         Err(error) if error.kind() == NativeAgentProviderFailureKind::Cancelled => {
             return Ok(cancelled_result(
+                services,
                 &context.run_id,
                 &context.session_id,
                 checkpoint,
@@ -757,6 +760,7 @@ async fn approval_denied_guidance_result(
             biased;
             _ = cancellation.cancelled() => {
                 return cancelled_result(
+                    services,
                     &context.run_id,
                     &context.session_id,
                     checkpoint.unwrap_or(Value::Null),
@@ -818,6 +822,7 @@ async fn approval_denied_guidance_result(
         }
         Err(error) if error.kind() == NativeAgentProviderFailureKind::Cancelled => {
             cancelled_result(
+                services,
                 &context.run_id,
                 &context.session_id,
                 checkpoint.unwrap_or(Value::Null),

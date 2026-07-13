@@ -211,6 +211,75 @@ fn normalizes_desktop_run_spec_inputs_for_rust_turns() {
 }
 
 #[test]
+fn resolves_profile_based_provider_for_reasoning_turns() {
+    let context = NativeAgentRunContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }),
+        json!({
+            "agents": {
+                "defaults": {
+                    "activeProfile": "deepseek-default",
+                    "model": "deepseek-v4-pro",
+                    "reasoningEffort": "medium"
+                }
+            },
+            "providers": {
+                "profiles": {
+                    "deepseek-default": {
+                        "provider": "deepseek",
+                        "enabled": true,
+                        "apiBase": "https://api.deepseek.com",
+                        "models": ["deepseek-v4-pro"]
+                    }
+                }
+            }
+        }),
+    );
+
+    let request = agent_chat_completion_request(&context)
+        .expect("profile-based provider should declare built-in reasoning support");
+
+    assert_eq!(context.provider.as_deref(), Some("deepseek"));
+    assert_eq!(context.settings.provider.as_deref(), Some("deepseek"));
+    assert_eq!(request["reasoning_effort"], "medium");
+}
+
+#[test]
+fn profile_capabilities_override_built_in_provider_defaults() {
+    let context = NativeAgentRunContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }),
+        json!({
+            "agents": {
+                "defaults": {
+                    "activeProfile": "deepseek-default",
+                    "model": "deepseek-v4-pro",
+                    "reasoningEffort": "medium"
+                }
+            },
+            "providers": {
+                "profiles": {
+                    "deepseek-default": {
+                        "provider": "deepseek",
+                        "capabilities": { "reasoning": false }
+                    }
+                }
+            }
+        }),
+    );
+
+    let error = agent_chat_completion_request(&context)
+        .expect_err("explicit profile capabilities should override catalog defaults");
+
+    assert!(error.contains("deepseek"));
+    assert!(error.contains("reasoning"));
+}
+
+#[test]
 fn defaults_native_agent_runs_to_the_desktop_iteration_limit() {
     let context = NativeAgentRunContext::from_spec(json!({}), json!({}));
 
@@ -2151,12 +2220,18 @@ fn typed_turn_settings_report_unsupported_provider_features() {
     let unsupported = NativeAgentRunContext::from_spec(
         json!({
             "runtime": "rust",
-            "provider": "fixture",
             "model": "fixture-model",
             "serviceTier": "priority",
             "messages": [{ "role": "user", "content": "hello" }]
         }),
-        json!({ "providers": { "fixture": {} } }),
+        json!({
+            "agents": { "defaults": { "activeProfile": "fixture-default" } },
+            "providers": {
+                "profiles": {
+                    "fixture-default": { "provider": "fixture" }
+                }
+            }
+        }),
     );
 
     let error = agent_chat_completion_request(&unsupported)
@@ -2171,7 +2246,6 @@ fn typed_turn_settings_encode_declared_provider_features() {
     let context = NativeAgentRunContext::from_spec(
         json!({
             "runtime": "rust",
-            "provider": "fixture",
             "model": "fixture-model",
             "serviceTier": "priority",
             "reasoning": { "effort": "high" },
@@ -2187,12 +2261,16 @@ fn typed_turn_settings_encode_declared_provider_features() {
             "messages": [{ "role": "user", "content": "hello" }]
         }),
         json!({
+            "agents": { "defaults": { "activeProfile": "fixture-default" } },
             "providers": {
-                "fixture": {
-                    "capabilities": {
-                        "serviceTier": true,
-                        "reasoning": true,
-                        "structuredOutput": true
+                "profiles": {
+                    "fixture-default": {
+                        "provider": "fixture",
+                        "capabilities": {
+                            "serviceTier": true,
+                            "reasoning": true,
+                            "structuredOutput": true
+                        }
                     }
                 }
             }
@@ -6636,7 +6714,7 @@ fn handles_approval_denial_form_submit_and_cancel_events() {
         }),
     )
     .expect("form cancellation should return error result");
-    let cancelled = services.cancel("run-cancel");
+    let cancelled = services.cancel_with_command_id("run-cancel", Some("command-cancel-1"));
     let cancel_result = run_native_agent_turn_with_services(
         &services,
         json!({
@@ -6729,7 +6807,15 @@ fn handles_approval_denial_form_submit_and_cancel_events() {
     assert_eq!(cancelled["error"], "cancelled");
     assert_eq!(cancelled["events"][0]["eventName"], "agent.cancelled");
     assert_eq!(cancelled["events"][0]["payload"]["stopReason"], "cancelled");
+    assert_eq!(
+        cancelled["events"][0]["payload"]["commandId"],
+        "command-cancel-1"
+    );
     assert_eq!(cancel_result["stopReason"], "cancelled");
+    assert_eq!(
+        cancel_result["events"][0]["payload"]["commandId"],
+        "command-cancel-1"
+    );
     assert_eq!(
         cancel_result["events"][0]["payload"]["agentItem"]["cancelled"],
         true

@@ -74,6 +74,7 @@ export type NativeSkillsApi = {
 export type NativeSessionsApi = {
   list: () => Promise<unknown>;
   messages: (key: string) => Promise<unknown>;
+  effectiveCapabilities?: (key: string) => Promise<unknown>;
   agentRuns?: (key: string) => Promise<unknown>;
   agentRunRuntimeState?: (key: string, runId: string) => Promise<unknown>;
   temporaryFiles?: (key: string) => Promise<unknown>;
@@ -130,6 +131,8 @@ export type NativeWorkspaceApi = {
   files: () => Promise<unknown>;
   file: (path: string) => Promise<unknown>;
   putFile: (path: string, body: unknown) => Promise<unknown>;
+  directory: (request: { cursor?: string; nameQuery?: string; path: string }) => Promise<unknown>;
+  fileChunk: (request: { cursor?: string; path: string }) => Promise<unknown>;
 };
 
 export type NativeCoworkRouteRequest = {
@@ -415,6 +418,15 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         () => request(`/api/sessions/${encodePathSegment(key)}/messages`),
         "webui.sessions.messages",
         !options.nativeSessions,
+      ),
+      effectiveCapabilities: (key: string) => nativeOrGateway(
+        () => options.nativeSessions?.effectiveCapabilities?.(key) ?? options.nativeWebui?.route({
+          method: "GET",
+          path: `/api/sessions/${encodePathSegment(key)}/effective-capabilities`,
+        }),
+        () => request(`/api/sessions/${encodePathSegment(key)}/effective-capabilities`),
+        "webui.sessions.effectiveCapabilities",
+        !options.nativeSessions?.effectiveCapabilities,
       ),
       agentRuns: (key: string) => nativeOrGateway(
         () => options.nativeSessions?.agentRuns?.(key),
@@ -805,6 +817,29 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
           () => options.nativeWorkspace?.putFile(path, body) ?? options.nativeWebui?.route({ method: "PUT", path: routePath, body }),
           () => request(routePath, jsonRequest("PUT", body)),
           "webui.workspace.putFile",
+        );
+      },
+      directory: (directoryRequest: { cursor?: string; nameQuery?: string; path: string }) => {
+        const params = new URLSearchParams({ path: directoryRequest.path });
+        if (directoryRequest.cursor) params.set("cursor", directoryRequest.cursor);
+        if (directoryRequest.nameQuery) params.set("nameQuery", directoryRequest.nameQuery);
+        const routePath = `/api/workspace/directory?${params.toString()}`;
+        return nativeOrGateway(
+          () => options.nativeWorkspace?.directory(directoryRequest)
+            ?? options.nativeWebui?.route({ method: "GET", path: routePath }),
+          () => request(routePath),
+          "webui.workspace.directory",
+        );
+      },
+      fileChunk: (fileRequest: { cursor?: string; path: string }) => {
+        const params = new URLSearchParams({ path: fileRequest.path });
+        if (fileRequest.cursor) params.set("cursor", fileRequest.cursor);
+        const routePath = `/api/workspace/read?${params.toString()}`;
+        return nativeOrGateway(
+          () => options.nativeWorkspace?.fileChunk(fileRequest)
+            ?? options.nativeWebui?.route({ method: "GET", path: routePath }),
+          () => request(routePath),
+          "webui.workspace.read",
         );
       },
     },

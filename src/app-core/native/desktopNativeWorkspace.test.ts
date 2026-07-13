@@ -22,5 +22,13 @@ describe("desktop native workspace API", () => {
       command: "worker_workspace_put_file",
       args: { input: { path: "docs/readme.md", body: { content: "# Readme\n" } } },
     });
+    await expect(api.directory({ path: "src", nameQuery: "chat" })).resolves.toEqual({
+      command: "worker_workspace_directory",
+      args: { input: { path: "src", nameQuery: "chat" } },
+    });
+    await expect(api.fileChunk({ path: "src/chat.ts", cursor: "next" })).resolves.toEqual({
+      command: "worker_workspace_file_chunk",
+      args: { input: { path: "src/chat.ts", cursor: "next" } },
+    });
   });
 });

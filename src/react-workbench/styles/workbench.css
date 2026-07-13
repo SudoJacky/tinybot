@@ -1607,6 +1607,10 @@ button.tinyos-overlay-backdrop {
   color: var(--color-warning) !important;
 }
 
+.tinyos-command-spinner {
+  animation: react-spin 1s linear infinite;
+}
+
 .tinyos-truth-badge {
   display: inline-flex;
   min-width: 0;
@@ -2130,6 +2134,387 @@ button.tinyos-overlay-backdrop {
   cursor: pointer;
 }
 
+.react-chat-page[data-live-canvas-expanded="true"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.react-chat-page[data-live-canvas-expanded="true"] > .react-session-list,
+.react-chat-page[data-live-canvas-expanded="true"] > .react-chat-surface {
+  display: none;
+}
+
+.react-chat-page[data-live-canvas-expanded="true"] > .react-live-canvas[data-expanded="true"] {
+  position: relative;
+  inset: auto;
+  z-index: auto;
+  grid-column: 1;
+  grid-row: 1;
+  width: 100%;
+  height: 100%;
+  border-left: 0;
+  box-shadow: none;
+}
+
+.react-live-canvas[data-expanded="true"] .tinyos-resize-handle,
+.react-chat-page[data-live-canvas-expanded="true"] > .tinyos-overlay-backdrop {
+  display: none;
+}
+
+.tinyos-workspace-explorer {
+  display: grid;
+  grid-template-columns: minmax(150px, 30%) minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  background: #fffdfa;
+}
+
+.tinyos-workspace-explorer[data-layout="compact"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.tinyos-workspace-explorer__tree {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid rgb(75 67 57 / 10%);
+  background: #f3f0e9;
+}
+
+.tinyos-workspace-explorer__tree > header,
+.tinyos-workspace-document__path,
+.tinyos-workspace-document__search {
+  display: flex;
+  min-width: 0;
+  min-height: 34px;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 1px solid rgb(75 67 57 / 10%);
+  padding: 0 8px;
+}
+
+.tinyos-workspace-explorer__tree > header {
+  justify-content: space-between;
+  color: var(--color-muted);
+}
+
+.tinyos-workspace-explorer__tree > header > span {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.tinyos-workspace-explorer__tree button,
+.tinyos-workspace-document button {
+  cursor: pointer;
+}
+
+.tinyos-workspace-explorer__tree button:focus-visible,
+.tinyos-workspace-document button:focus-visible,
+.tinyos-workspace-explorer input:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.tinyos-workspace-explorer__filter {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 6px;
+  border: 1px solid rgb(75 67 57 / 12%);
+  border-radius: 6px;
+  background: #fffdfa;
+  padding: 0 7px;
+  color: var(--color-muted);
+}
+
+.tinyos-workspace-explorer__filter input {
+  min-width: 0;
+  width: 100%;
+  height: 26px;
+  font-size: 9px;
+}
+
+.tinyos-workspace-tree {
+  min-height: 0;
+  overflow: auto;
+  padding: 3px 5px;
+}
+
+.tinyos-workspace-tree__entry {
+  display: flex;
+  width: 100%;
+  min-height: 26px;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  border-radius: 5px;
+  padding-inline-end: 6px;
+  color: var(--color-body);
+  font-size: 9px;
+  text-align: left;
+}
+
+.tinyos-workspace-tree__entry > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tinyos-workspace-tree__entry:hover,
+.tinyos-workspace-tree__entry:focus-visible,
+.tinyos-workspace-tree__entry[data-active="true"] {
+  background: color-mix(in srgb, var(--color-primary) 9%, #fff);
+  color: var(--color-primary);
+}
+
+.tinyos-workspace-tree__spacer {
+  width: 12px;
+  flex: 0 0 12px;
+}
+
+.tinyos-workspace-tree__more {
+  margin: 4px 8px;
+  color: var(--color-primary);
+  font-size: 8px;
+}
+
+.tinyos-workspace-explorer__status {
+  overflow: hidden;
+  border-top: 1px solid rgb(75 67 57 / 10%);
+  padding: 6px 9px;
+  color: var(--color-muted);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tinyos-workspace-explorer__message {
+  display: flex;
+  min-height: 70px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 12px;
+  color: var(--color-muted);
+  font-size: 9px;
+  text-align: center;
+}
+
+.tinyos-workspace-explorer__message[data-compact="true"] {
+  min-height: 26px;
+  justify-content: flex-start;
+  padding: 4px 12px 4px 28px;
+  font-size: 8px;
+}
+
+.tinyos-workspace-explorer__message button {
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--color-primary) 10%, #fff);
+  padding: 4px 7px;
+  color: var(--color-primary);
+}
+
+.tinyos-workspace-document {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+  background: #fffdfa;
+}
+
+.tinyos-workspace-document__tabs {
+  display: flex;
+  min-width: 0;
+  min-height: 31px;
+  align-items: end;
+  gap: 3px;
+  overflow-x: auto;
+  border-bottom: 1px solid rgb(75 67 57 / 10%);
+  background: #f7f4ee;
+  padding: 4px 6px 0;
+}
+
+.tinyos-workspace-document__tabs > span {
+  display: flex;
+  max-width: 150px;
+  min-height: 26px;
+  align-items: center;
+  border-radius: 6px 6px 0 0;
+  color: var(--color-muted);
+}
+
+.tinyos-workspace-document__tabs > span[data-active="true"] {
+  background: #fffdfa;
+  color: var(--color-ink);
+}
+
+.tinyos-workspace-document__tabs > span > button:first-child {
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 3px 0 8px;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tinyos-workspace-document__tabs > span > button:last-child,
+.tinyos-workspace-document__tabs > button {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+.tinyos-workspace-document__path {
+  justify-content: space-between;
+}
+
+.tinyos-workspace-document__path nav {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  overflow: hidden;
+}
+
+.tinyos-workspace-document__path nav button {
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tinyos-workspace-document__path nav button + button::before {
+  margin: 0 4px;
+  color: #aaa49a;
+  content: "/";
+}
+
+.tinyos-workspace-document__search {
+  min-height: 31px;
+  color: var(--color-muted);
+}
+
+.tinyos-workspace-document__search input {
+  min-width: 70px;
+  flex: 1;
+  font-size: 8px;
+}
+
+.tinyos-workspace-document__search span {
+  min-width: 28px;
+  font-size: 8px;
+  text-align: right;
+}
+
+.tinyos-workspace-document__search button {
+  display: grid;
+  width: 23px;
+  height: 23px;
+  place-items: center;
+  border-radius: 5px;
+}
+
+.tinyos-workspace-document__search button:hover:not(:disabled) {
+  background: #f0ece4;
+}
+
+.tinyos-workspace-document__code {
+  min-height: 0;
+}
+
+.tinyos-workspace-document__code li[data-match="true"] {
+  background: rgb(239 184 80 / 15%);
+}
+
+.tinyos-workspace-document__code li[data-current-match="true"] {
+  box-shadow: inset 3px 0 #df9830;
+}
+
+.tinyos-workspace-document__footer {
+  display: flex;
+  min-width: 0;
+  min-height: 28px;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  border-top: 1px solid rgb(75 67 57 / 10%);
+  padding: 0 9px;
+  color: var(--color-muted);
+  font-size: 8px;
+  white-space: nowrap;
+}
+
+.tinyos-workspace-document__footer > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--color-primary) 9%, transparent);
+  padding: 4px 6px;
+  color: var(--color-primary);
+}
+
+.tinyos-workspace-document__footer > span:last-child {
+  margin-left: auto;
+}
+
+.tinyos-workspace-document .hljs-keyword,
+.tinyos-workspace-document .hljs-selector-tag,
+.tinyos-workspace-document .hljs-literal { color: #9f3e7a; }
+.tinyos-workspace-document .hljs-string,
+.tinyos-workspace-document .hljs-attr { color: #397942; }
+.tinyos-workspace-document .hljs-number,
+.tinyos-workspace-document .hljs-built_in { color: #9d5a22; }
+.tinyos-workspace-document .hljs-comment { color: #8c877f; font-style: italic; }
+.tinyos-workspace-document .hljs-title,
+.tinyos-workspace-document .hljs-function { color: #315b9c; }
+
+.tinyos-spin {
+  animation: react-spin 900ms linear infinite;
+}
+
+.tinyos-system-dialog--history {
+  border-color: color-mix(in srgb, var(--color-muted) 35%, var(--color-hairline));
+}
+
+.tinyos-system-dialog--history .tinyos-system-dialog__heading svg {
+  color: var(--color-muted);
+}
+
+.tinyos-inspector__correlation {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  margin: 8px 0;
+}
+
+.tinyos-inspector__correlation > div {
+  min-width: 0;
+  border-radius: 6px;
+  background: #f3f0e9;
+  padding: 6px;
+}
+
+.tinyos-inspector__correlation dt {
+  color: var(--color-muted);
+  font-size: 7px;
+  text-transform: uppercase;
+}
+
+.tinyos-inspector__correlation dd {
+  margin: 2px 0 0;
+  overflow: hidden;
+  font: 8px/1.3 ui-monospace, SFMono-Regular, Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .tinyos-terminal {
   display: grid;
   grid-template-rows: 34px 34px minmax(0, 1fr) 28px;
@@ -2176,7 +2561,7 @@ button.tinyos-overlay-backdrop {
 
 .tinyos-terminal__toolbar {
   display: grid;
-  grid-template-columns: minmax(100px, 1fr) auto auto auto;
+  grid-template-columns: minmax(100px, 1fr) repeat(7, auto);
   align-items: center;
   gap: 6px;
   border-bottom: 1px solid #2a2d34;
@@ -2243,6 +2628,10 @@ button.tinyos-overlay-backdrop {
 
 .tinyos-terminal__output li[data-match="true"] {
   background: rgb(239 184 80 / 17%);
+}
+
+.tinyos-terminal__output li[data-current-match="true"] {
+  box-shadow: inset 3px 0 #efb850;
 }
 
 .tinyos-terminal__output li[data-selected="true"] {
@@ -4624,6 +5013,18 @@ button.tinyos-overlay-backdrop {
 .react-queued-inputs__message {
   color: var(--color-muted);
   font-size: 12px;
+}
+
+.react-agent-command-status {
+  width: min(760px, calc(100% - 32px));
+  margin: 0 auto 6px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.react-agent-command-status[data-stage="rejected"],
+.react-agent-command-status[data-stage="timed_out"] {
+  color: var(--color-danger);
 }
 
 .react-queued-inputs ol {

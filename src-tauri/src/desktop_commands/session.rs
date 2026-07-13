@@ -1,3 +1,6 @@
+use crate::worker_capability::{
+    default_desktop_capability_policy, CapabilityPolicy, WorkerCapability,
+};
 use crate::worker_protocol::WorkerRequest;
 use crate::worker_request_id::next_worker_request_correlation;
 use crate::{
@@ -97,6 +100,20 @@ pub(crate) fn worker_agent_run_runtime_state(
         state.inner(),
         input.session_key,
         input.run_id,
+        native_backend_workspace_root(),
+        experimental_worker_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+pub(crate) fn worker_session_effective_capabilities(
+    input: WorkerSessionInput,
+    state: State<'_, SharedGateway>,
+) -> Result<serde_json::Value, String> {
+    worker_session_effective_capabilities_with_options(
+        state.inner(),
+        input.key,
         native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
@@ -328,6 +345,117 @@ pub(crate) fn worker_agent_run_runtime_state_with_options(
         ),
         "worker agent run runtime state",
     )
+}
+
+pub(crate) fn worker_session_effective_capabilities_with_options(
+    shared: &SharedGateway,
+    session_key: String,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let workspace_available = workspace_root.is_dir();
+    let runs = worker_agent_runs_list_with_options(
+        shared,
+        session_key.clone(),
+        workspace_root,
+        config_snapshot,
+        timeout,
+    )?;
+    Ok(build_worker_session_effective_capabilities(
+        &session_key,
+        &runs,
+        workspace_available,
+        &default_desktop_capability_policy(),
+    ))
+}
+
+pub(crate) fn build_worker_session_effective_capabilities(
+    session_key: &str,
+    runs: &serde_json::Value,
+    workspace_available: bool,
+    policy: &CapabilityPolicy,
+) -> serde_json::Value {
+    let evaluated_run = runs
+        .get("runs")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|items| {
+            items.iter().rev().find(|run| {
+                matches!(
+                    run.get("status").and_then(serde_json::Value::as_str),
+                    Some("running" | "waiting")
+                )
+            })
+        });
+    let evaluated_run_id = evaluated_run
+        .and_then(|run| run.get("runId"))
+        .and_then(serde_json::Value::as_str);
+    let evaluated_run_status = evaluated_run
+        .and_then(|run| run.get("status"))
+        .and_then(serde_json::Value::as_str);
+    let cancel = match evaluated_run_status {
+        Some("running") => available_capability(),
+        Some("waiting") => unavailable_capability(
+            "run_waiting",
+            "Cancellation of a run waiting for user input is not supported yet.",
+        ),
+        _ => unavailable_capability("no_active_run", "The session has no active Agent run."),
+    };
+    let files_read = if policy.allows(&WorkerCapability::FsWorkspaceRead) && workspace_available {
+        available_capability()
+    } else if !workspace_available {
+        unavailable_capability(
+            "workspace_unavailable",
+            "The configured workspace root is unavailable.",
+        )
+    } else {
+        unavailable_capability(
+            "permission_denied",
+            "Workspace read permission is not granted.",
+        )
+    };
+
+    serde_json::json!({
+        "schemaVersion": "tinybot.effective_capabilities.v1",
+        "sessionId": session_key,
+        "evaluatedRunId": evaluated_run_id,
+        "capabilities": {
+            "agent": {
+                "pause": unavailable_capability("runtime_unsupported", "The Agent runtime does not support pausing a run."),
+                "resume": unavailable_capability("runtime_unsupported", "The Agent runtime does not support resuming a paused run."),
+                "cancel": cancel,
+                "retry": unavailable_capability("command_unavailable", "Retry has not been migrated to the Agent command gateway."),
+            },
+            "files": {
+                "read": files_read,
+                "requestChange": unavailable_capability("command_unavailable", "Change requests have not been migrated to the Agent command gateway."),
+                "directEdit": unavailable_capability("phase_unavailable", "Direct file editing is introduced in Phase 3."),
+                "save": unavailable_capability("phase_unavailable", "File saving is introduced in Phase 3."),
+            },
+            "terminal": {
+                "inspect": available_capability(),
+                "execute": unavailable_capability("phase_unavailable", "Terminal execution is introduced in Phase 3."),
+                "cancel": unavailable_capability("phase_unavailable", "Terminal process cancellation is introduced in Phase 3."),
+            },
+            "browser": {
+                "structured": available_capability(),
+                "realCapture": unavailable_capability("phase_unavailable", "Real browser capture is introduced in Phase 3."),
+                "interact": unavailable_capability("phase_unavailable", "Browser interaction is introduced in Phase 3."),
+            },
+        },
+    })
+}
+
+fn available_capability() -> serde_json::Value {
+    serde_json::json!({ "available": true })
+}
+
+fn unavailable_capability(reason_code: &str, reason: &str) -> serde_json::Value {
+    serde_json::json!({
+        "available": false,
+        "reasonCode": reason_code,
+        "reason": reason,
+    })
 }
 
 pub(crate) fn worker_session_temporary_files_with_options(

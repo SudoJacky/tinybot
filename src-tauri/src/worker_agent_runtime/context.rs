@@ -352,9 +352,7 @@ fn normalized_provider(spec: &Value, metadata: &Value, config_snapshot: &Value) 
         .or_else(|| string_field(spec, "provider_id"))
         .or_else(|| string_field(metadata, "provider"))
         .or_else(|| {
-            config_snapshot
-                .get("agents")
-                .and_then(|agents| agents.get("defaults"))
-                .and_then(|defaults| string_field(defaults, "provider"))
+            crate::native_provider_runtime::resolve_provider_profile(config_snapshot, None, None)
+                .map(|profile| profile.provider_id)
         })
 }

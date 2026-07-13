@@ -1,7 +1,7 @@
 use super::{NativeAgentCancellation, NativeAgentCheckpointStore};
 use serde_json::Value;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::{
         atomic::{AtomicU64, Ordering},
         Mutex,
@@ -114,7 +114,7 @@ fn legacy_session_run_id(session_id: &str) -> String {
 
 #[derive(Default)]
 pub struct InMemoryNativeAgentCancellation {
-    cancelled_runs: Mutex<HashSet<String>>,
+    cancelled_runs: Mutex<HashMap<String, Option<String>>>,
 }
 
 impl NativeAgentCancellation for InMemoryNativeAgentCancellation {
@@ -122,13 +122,29 @@ impl NativeAgentCancellation for InMemoryNativeAgentCancellation {
         self.cancelled_runs
             .lock()
             .expect("cancellation store lock should not be poisoned")
-            .insert(run_id.to_string());
+            .insert(run_id.to_string(), None);
+    }
+
+    fn cancel_with_command_id(&self, run_id: &str, command_id: &str) {
+        self.cancelled_runs
+            .lock()
+            .expect("cancellation store lock should not be poisoned")
+            .insert(run_id.to_string(), Some(command_id.to_string()));
+    }
+
+    fn command_id(&self, run_id: &str) -> Option<String> {
+        self.cancelled_runs
+            .lock()
+            .expect("cancellation store lock should not be poisoned")
+            .get(run_id)
+            .cloned()
+            .flatten()
     }
 
     fn is_cancelled(&self, run_id: &str) -> bool {
         self.cancelled_runs
             .lock()
             .expect("cancellation store lock should not be poisoned")
-            .contains(run_id)
+            .contains_key(run_id)
     }
 }

@@ -232,6 +232,8 @@ pub struct AgentErrorItem {
     pub id: Option<String>,
     pub code: String,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command_id: Option<String>,
     #[serde(default)]
     pub cancelled: bool,
 }

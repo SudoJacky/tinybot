@@ -2,6 +2,7 @@
 
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { createDesktopAppServices } from "./defaultServices";
+import type { ChatEvent } from "./services";
 
 const mocks = vi.hoisted(() => {
   const gatewayApi = {
@@ -16,6 +17,7 @@ const mocks = vi.hoisted(() => {
     sessions: {
       list: vi.fn(),
       messages: vi.fn(),
+      effectiveCapabilities: vi.fn(),
       agentRuns: vi.fn(),
       agentRunRuntimeState: vi.fn(),
       delete: vi.fn(async () => ({ deleted: true })),
@@ -126,6 +128,21 @@ function canonicalRuntimeState(
   };
 }
 
+function effectiveCapabilities(sessionId = "websocket:chat-1", cancelAvailable = false): unknown {
+  const unavailable = { available: false, reasonCode: "no_active_run", reason: "No active run." };
+  const available = { available: true };
+  return {
+    schemaVersion: "tinybot.effective_capabilities.v1",
+    sessionId,
+    capabilities: {
+      agent: { pause: unavailable, resume: unavailable, cancel: cancelAvailable ? available : unavailable, retry: unavailable },
+      files: { read: available, requestChange: unavailable, directEdit: unavailable, save: unavailable },
+      terminal: { inspect: available, execute: unavailable, cancel: unavailable },
+      browser: { structured: available, realCapture: unavailable, interact: unavailable },
+    },
+  };
+}
+
 describe("default desktop app services", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -133,8 +150,19 @@ describe("default desktop app services", () => {
       items: [{ key: "websocket:chat-1", chat_id: "chat-1", title: "Live chat" }],
     });
     mocks.gatewayApi.sessions.messages.mockResolvedValue({ messages: [] });
+    mocks.gatewayApi.sessions.effectiveCapabilities.mockResolvedValue(effectiveCapabilities());
     mocks.gatewayApi.sessions.agentRuns.mockResolvedValue({ runs: [] });
     mocks.gatewayApi.sessions.agentRunRuntimeState.mockResolvedValue(null);
+  });
+
+  test("loads backend-authored TinyOS effective capabilities", async () => {
+    mocks.gatewayApi.sessions.effectiveCapabilities.mockResolvedValue(effectiveCapabilities("websocket:chat-1", true));
+    const services = createDesktopAppServices();
+
+    await expect(services.chatStore.loadTinyOsCapabilities("websocket:chat-1")).resolves.toMatchObject({
+      sessionId: "websocket:chat-1",
+      capabilities: { agent: { cancel: { available: true } } },
+    });
   });
 
   test("does not infer canonical timeline rows from raw structured events", async () => {
@@ -447,6 +475,47 @@ describe("default desktop app services", () => {
       }),
       type: "message-sent",
     }));
+  });
+
+  test("publishes the typed cancel command before a shortcut stop dispatch", async () => {
+    mocks.gatewayApi.sessions.agentRuns.mockResolvedValue({ runs: [{ runId: "run-cancel" }] });
+    mocks.gatewayApi.sessions.agentRunRuntimeState.mockResolvedValue(canonicalRuntimeState("run-cancel", [
+      {
+        itemId: "user-cancel",
+        kind: "user_message",
+        data: { type: "user_message", messageId: "user-cancel", content: "Keep working" },
+      },
+      {
+        itemId: "reasoning-cancel",
+        kind: "reasoning",
+        status: "running",
+        summary: "Still working",
+        data: { type: "reasoning", modelCallId: "call-cancel", summary: "Still working" },
+      },
+    ]));
+    const services = createDesktopAppServices();
+    await services.sessionStore.list();
+    const events: ChatEvent[] = [];
+    services.chatStore.subscribe("websocket:chat-1", (event) => events.push(event));
+
+    await services.chatStore.stop("websocket:chat-1");
+
+    const dispatched = events.find((event) => event.type === "command.dispatched");
+    expect(dispatched?.command).toEqual(expect.objectContaining({
+      kind: "agent.cancel",
+      source: { control: "keyboard-shortcut", surface: "chat" },
+      target: expect.objectContaining({ runId: "run-cancel", sessionId: "websocket:chat-1" }),
+    }));
+    expect(mocks.sendGatewaySocketJson).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        type: "interrupt",
+        chat_id: "chat-1",
+        command_id: dispatched?.command?.commandId,
+        run_id: "run-cancel",
+      }),
+      expect.any(Array),
+    );
   });
 
   test("creates one real session and sends the first message from an empty session list", async () => {

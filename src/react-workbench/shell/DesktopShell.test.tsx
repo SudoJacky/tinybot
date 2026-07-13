@@ -10,11 +10,16 @@ import { buildProviderModelsSettings } from "../../app-core/settings/providerMod
 import type { AppServices, SessionSummary } from "../services";
 import type { ReactChatMessage } from "../chat/messageActions";
 import { timelineFromReactMessages } from "../chat/testTimelineFixtures";
+import { unavailableTinyOsEffectiveCapabilities } from "../../app-core/chat/tinyOsCapabilities";
 
 afterEach(() => cleanup());
 
 function createServices(options: { messages?: ReactChatMessage[]; sessions?: SessionSummary[] } = {}): AppServices & {
-  workspaceStore: { listFiles: ReturnType<typeof vi.fn> };
+  workspaceStore: {
+    listFiles: ReturnType<typeof vi.fn>;
+    listDirectory: ReturnType<typeof vi.fn>;
+    readFile: ReturnType<typeof vi.fn>;
+  };
   knowledgeStore: { listDocuments: ReturnType<typeof vi.fn>; stats: ReturnType<typeof vi.fn> };
   toolsStore: { listSkills: ReturnType<typeof vi.fn> };
   settingsStore: {
@@ -36,8 +41,14 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
     },
     chatStore: {
       load: vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, options.messages ?? [])),
+      loadTinyOsCapabilities: vi.fn(async (sessionId) => {
+        const capabilities = unavailableTinyOsEffectiveCapabilities(sessionId, "test", "Not supported in this fixture.");
+        capabilities.capabilities.agent.cancel = { available: true };
+        return capabilities;
+      }),
       send: vi.fn(async () => undefined),
       stop: vi.fn(async () => undefined),
+      dispatchCommand: vi.fn(async () => undefined),
       resolveApproval: vi.fn(async () => undefined),
       listAgentUiForms: vi.fn(async () => []),
       submitAgentUiForm: vi.fn(async () => undefined),
@@ -51,6 +62,19 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
         { path: "src/main.ts", size: 512 },
         { path: "docs/notes.md", size: 2048 },
       ]),
+      listDirectory: vi.fn(async () => ({
+        entries: [],
+        listingRevision: "test",
+        path: ".",
+        workspaceKey: "test-workspace",
+      })),
+      readFile: vi.fn(async ({ path }) => ({
+        content: "",
+        contentType: "text" as const,
+        path,
+        revision: "test",
+        sizeBytes: 0,
+      })),
     },
     knowledgeStore: {
       listDocuments: vi.fn(async () => [

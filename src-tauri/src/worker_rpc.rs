@@ -777,6 +777,22 @@ struct ListDirParams {
 }
 
 #[derive(Deserialize)]
+struct ListDirPageParams {
+    path: String,
+    #[serde(default)]
+    cursor: Option<String>,
+    #[serde(default, alias = "nameQuery")]
+    name_query: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ReadFileChunkParams {
+    path: String,
+    #[serde(default)]
+    cursor: Option<String>,
+}
+
+#[derive(Deserialize)]
 struct DeleteFileParams {
     path: String,
     #[serde(default)]

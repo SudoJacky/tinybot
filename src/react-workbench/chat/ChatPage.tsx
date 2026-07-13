@@ -43,7 +43,7 @@ import {
 } from "../../components/ui/claude-style-ai-input";
 import { TextType } from "../../components/ui/TextType";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
-import type { ApprovalAction, ChatEvent, ChatInput, ChatModelOption, ChatStore, SessionStore, SessionSummary, SettingsStore } from "../services";
+import type { ApprovalAction, ChatEvent, ChatInput, ChatModelOption, ChatStore, SessionStore, SessionSummary, SettingsStore, WorkspaceStore } from "../services";
 import { reduceSessionDeleteState } from "../sessions/sessionDeleteState";
 import { canBranchFromMessage, canCopyMessage, type ContextReferenceSummary, type ReactChatMessage, type ToolCallSummary } from "./messageActions";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
@@ -64,11 +64,25 @@ import {
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
 import type { NativeChatReference } from "../../app-core/chat/nativeChat";
 import type { TinyOsContextReference } from "../../app-core/chat/tinyOsUiState";
+import { useTinyOsFilesController } from "./useTinyOsFilesController";
+import {
+  TINYOS_COMMAND_ACK_TIMEOUT_MS,
+  canonicalTinyOsCommandAcknowledgement,
+  createTinyOsAgentCancelCommand,
+  isTinyOsCommandPending,
+  reduceTinyOsCommandLifecycle,
+  type TinyOsCommandLifecycle,
+} from "../../app-core/chat/tinyOsCommandGateway";
+import {
+  unavailableTinyOsEffectiveCapabilities,
+  type TinyOsEffectiveCapabilities,
+} from "../../app-core/chat/tinyOsCapabilities";
 
 export type ChatPageProps = {
   chatStore: ChatStore;
   sessionStore: SessionStore;
   settingsStore?: SettingsStore;
+  workspaceStore?: Pick<WorkspaceStore, "listDirectory" | "readFile">;
   createSessionSignal?: number;
   sessionSidebarCollapsed?: boolean;
   onSessionSidebarCollapsedChange?: (collapsed: boolean) => void;
@@ -88,17 +102,20 @@ type DrawerState =
 type LiveCanvasState = {
   mode: LiveCanvasMode;
   selection?: { itemId: string; turnId: string };
+  surface: "panel" | "expanded";
   visibility: "closed" | "open";
 };
 
 type LiveCanvasAction =
   | { type: "close" }
+  | { type: "expand_toggle" }
   | { type: "return_live" }
   | { type: "select"; itemId: string; turnId: string }
   | { type: "toggle" };
 
 const INITIAL_LIVE_CANVAS_STATE: LiveCanvasState = {
   mode: "live_follow",
+  surface: "panel",
   visibility: "closed",
 };
 
@@ -106,14 +123,16 @@ function reduceLiveCanvasState(state: LiveCanvasState, action: LiveCanvasAction)
   switch (action.type) {
     case "close":
       return state.visibility === "closed" ? state : { ...state, visibility: "closed" };
+    case "expand_toggle":
+      return { ...state, surface: state.surface === "expanded" ? "panel" : "expanded", visibility: "open" };
     case "return_live":
-      return { mode: "live_follow", visibility: "open" };
+      return { ...state, mode: "live_follow", visibility: "open" };
     case "select":
-      return { mode: "history", selection: { itemId: action.itemId, turnId: action.turnId }, visibility: "open" };
+      return { ...state, mode: "history", selection: { itemId: action.itemId, turnId: action.turnId }, visibility: "open" };
     case "toggle":
       return state.visibility === "open"
         ? { ...state, visibility: "closed" }
-        : { mode: "live_follow", visibility: "open" };
+        : { ...state, mode: "live_follow", visibility: "open" };
   }
 }
 
@@ -190,13 +209,18 @@ export function ChatPage({
   sessionSidebarCollapsed,
   sessionStore,
   settingsStore,
+  workspaceStore,
 }: ChatPageProps) {
+  const tinyOsUiScope = useId();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState("");
   const [timeline, setTimeline] = useState<ChatTimelineSnapshot | null>(null);
   const [optimisticMessages, setOptimisticMessages] = useState<ReactChatMessage[]>([]);
   const [timelineError, setTimelineError] = useState("");
+  const [tinyOsCapabilities, setTinyOsCapabilities] = useState<TinyOsEffectiveCapabilities>(() => (
+    unavailableTinyOsEffectiveCapabilities("", "loading", "Loading effective capabilities.")
+  ));
   const [composerModels, setComposerModels] = useState<ModelOption[]>([]);
   const [defaultComposerModel, setDefaultComposerModel] = useState("");
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
@@ -204,6 +228,10 @@ export function ChatPage({
   const [localSessionSidebarCollapsed, setLocalSessionSidebarCollapsed] = useState(false);
   const [drawer, setDrawer] = useState<DrawerState>(null);
   const [liveCanvas, dispatchLiveCanvas] = useReducer(reduceLiveCanvasState, INITIAL_LIVE_CANVAS_STATE);
+  const [commandLifecycle, dispatchCommandLifecycle] = useReducer(
+    reduceTinyOsCommandLifecycle,
+    { stage: "idle" } as TinyOsCommandLifecycle,
+  );
   const [tinyOsWidth, setTinyOsWidth] = useState(readStoredTinyOsWidth);
   const [resolvingApprovalId, setResolvingApprovalId] = useState("");
   const [agentUiForms, setAgentUiForms] = useState<AgentUiForm[]>([]);
@@ -233,11 +261,32 @@ export function ChatPage({
     () => sessions.find((session) => session.id === activeSessionId) ?? sessions[0],
     [activeSessionId, sessions],
   );
+  const tinyOsFiles = useTinyOsFilesController(activeSession?.id ?? "draft", workspaceStore, liveCanvas.visibility === "open");
   const draftNewSession = sessionsLoaded && !activeSession;
   const timelineLoaded = Boolean(activeSession) && timeline?.sessionId === activeSession?.id;
   const emptyActiveSession = draftNewSession || (timelineLoaded && timeline.turns.length === 0 && optimisticMessages.length === 0);
   const sessionRunning = activeSession?.status === "running" || activeSession?.status === "waiting_approval";
   const sessionResponding = sessionRunning && !emptyActiveSession;
+  const activeRun = useMemo(() => [...(timeline?.turns ?? [])].reverse().find((turn) => (
+    turn.status === "pending"
+    || turn.status === "running"
+    || turn.status === "awaiting_approval"
+    || turn.status === "awaiting_user"
+  )), [timeline]);
+  const cancelCapability = tinyOsCapabilities.capabilities.agent.cancel;
+  const capabilityTargetsActiveRun = !tinyOsCapabilities.evaluatedRunId
+    || tinyOsCapabilities.evaluatedRunId === activeRun?.id;
+  const canCancelRun = Boolean(
+    activeSession
+    && activeRun
+    && tinyOsCapabilities.sessionId === activeSession.id
+    && capabilityTargetsActiveRun
+    && cancelCapability.available
+  );
+  const cancelUnavailableReason = !capabilityTargetsActiveRun
+    ? "Effective capabilities are stale for the current Agent run."
+    : cancelCapability.reason || "Cancellation is unavailable for this Agent run.";
+  const cancelPending = isTinyOsCommandPending(commandLifecycle);
   const activeQueuedInputs = activeSession ? queuedInputsBySession.get(activeSession.id) ?? [] : [];
   const activeContextUsage = useMemo(() => latestTimelineUsage(timeline?.turns ?? []), [timeline]);
   const latestFailedTurnId = useMemo(() => (
@@ -286,8 +335,60 @@ export function ChatPage({
   }, [sessions]);
 
   useEffect(() => {
+    if (!activeSessionId) {
+      setTinyOsCapabilities(unavailableTinyOsEffectiveCapabilities("", "no_session", "No session is selected."));
+      return;
+    }
+    let cancelled = false;
+    setTinyOsCapabilities(unavailableTinyOsEffectiveCapabilities(
+      activeSessionId,
+      "loading",
+      "Loading effective capabilities.",
+    ));
+    void chatStore.loadTinyOsCapabilities(activeSessionId).then((capabilities) => {
+      if (!cancelled) setTinyOsCapabilities(capabilities);
+    }).catch((error) => {
+      if (!cancelled) {
+        setTinyOsCapabilities(unavailableTinyOsEffectiveCapabilities(
+          activeSessionId,
+          "capability_query_failed",
+          error instanceof Error ? error.message : String(error),
+        ));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeRun?.id, activeRun?.status, activeSessionId, chatStore]);
+
+  useEffect(() => {
     setTinyOsContextReferences([]);
+    dispatchCommandLifecycle({ type: "reset" });
   }, [activeSession?.id]);
+
+  useEffect(() => {
+    if (!timeline || commandLifecycle.stage === "idle") return;
+    const acknowledgement = canonicalTinyOsCommandAcknowledgement(
+      timeline.turns,
+      commandLifecycle.command.commandId,
+    );
+    if (!acknowledgement) return;
+    dispatchCommandLifecycle({
+      acknowledgement,
+      commandId: commandLifecycle.command.commandId,
+      nowMs: now(),
+      type: "canonical_acknowledged",
+    });
+  }, [commandLifecycle, now, timeline]);
+
+  useEffect(() => {
+    if (commandLifecycle.stage !== "sending" && commandLifecycle.stage !== "waiting_for_canonical") return;
+    const elapsed = Math.max(0, now() - commandLifecycle.dispatchedAtMs);
+    const timer = window.setTimeout(() => {
+      dispatchCommandLifecycle({ commandId: commandLifecycle.command.commandId, type: "ack_timeout" });
+    }, Math.max(0, TINYOS_COMMAND_ACK_TIMEOUT_MS - elapsed));
+    return () => window.clearTimeout(timer);
+  }, [commandLifecycle, now]);
 
   useEffect(() => {
     return () => {
@@ -373,6 +474,19 @@ export function ChatPage({
     void loadTimeline();
     void loadAgentUiForms();
     const unsubscribe = chatStore.subscribe(activeSessionId, (event) => {
+      if (event.command && event.type === "command.dispatched") {
+        pauseQueuedInputsForSession(event.command.target.sessionId);
+        dispatchCommandLifecycle({ command: event.command, nowMs: now(), type: "dispatch" });
+        return;
+      }
+      if (event.commandId && event.type === "command.accepted") {
+        dispatchCommandLifecycle({ commandId: event.commandId, nowMs: now(), type: "transport_accepted" });
+        return;
+      }
+      if (event.commandId && event.type === "error") {
+        dispatchCommandLifecycle({ commandId: event.commandId, error: event.error || "Command rejected", type: "rejected" });
+        return;
+      }
       if (event.timeline) {
         if (shouldFrameBatchTimeline(event.timeline)) {
           scheduleStreamingTimeline(event.timeline);
@@ -418,7 +532,7 @@ export function ChatPage({
       }
       unsubscribe();
     };
-  }, [activeSessionId, chatStore]);
+  }, [activeSessionId, chatStore, now]);
 
   useEffect(() => {
     if (!settingsStore?.loadChatModels) {
@@ -736,10 +850,34 @@ export function ChatPage({
     });
   }
 
-  async function handleStopGeneration(session: SessionSummary) {
+  async function handleStopGeneration(session: SessionSummary, surface: "chat" | "tinyos") {
+    if (cancelPending) return;
+    if (!canCancelRun) {
+      setTimelineError(`Cannot cancel: ${cancelUnavailableReason}`);
+      return;
+    }
+    if (!activeRun) {
+      setTimelineError("Cannot cancel: canonical active run is not available.");
+      return;
+    }
+    const command = createTinyOsAgentCancelCommand({
+      runId: activeRun.id,
+      sessionId: session.id,
+      source: { control: surface === "tinyos" ? "system-bar-cancel" : "stop-response", surface },
+      threadId: activeRun.canonicalItems?.find((item) => item.threadId)?.threadId,
+      turnId: activeRun.id,
+    });
     pauseQueuedInputsForSession(session.id);
-    await chatStore.stop(session.id);
-    await handleSessionStoreRefresh();
+    dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
+    try {
+      await chatStore.dispatchCommand(command);
+    } catch (error) {
+      dispatchCommandLifecycle({
+        commandId: command.commandId,
+        error: error instanceof Error ? error.message : String(error),
+        type: "rejected",
+      });
+    }
   }
 
   function updateQueuedInputsBySession(
@@ -912,6 +1050,7 @@ export function ChatPage({
   return (
     <section
       className="react-chat-page"
+      data-live-canvas-expanded={liveCanvasOpen && liveCanvas.surface === "expanded" ? "true" : undefined}
       aria-label="Chat"
       data-live-canvas-open={liveCanvasOpen ? "true" : undefined}
       data-session-sidebar-collapsed={resolvedSessionSidebarCollapsed}
@@ -1116,6 +1255,16 @@ export function ChatPage({
           />
         ) : null}
         {queueMessage ? <p className="react-queued-inputs__message">{queueMessage}</p> : null}
+        {commandLifecycle.stage !== "idle" ? (
+          <p
+            aria-live="polite"
+            className="react-agent-command-status"
+            data-stage={commandLifecycle.stage}
+            role={commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out" ? "alert" : "status"}
+          >
+            {tinyOsCommandLifecycleLabel(commandLifecycle)}
+          </p>
+        ) : null}
         <ClaudeStyleAiInput
           className={["react-composer", emptyActiveSession ? "react-composer--raised" : ""].filter(Boolean).join(" ")}
           contextReferences={tinyOsContextReferences.map(composerReferenceFromTinyOs)}
@@ -1125,6 +1274,8 @@ export function ChatPage({
           contextUsage={activeContextUsage}
           models={composerModels}
           responding={sessionResponding}
+          canStopResponding={canCancelRun}
+          stopUnavailableReason={cancelUnavailableReason}
           placeholder={emptyActiveSession ? "输入任务，或粘贴/拖入文件" : "输入消息给 Tinybot"}
           tools={COMPOSER_TOOLS}
           value={composerDraft}
@@ -1132,7 +1283,7 @@ export function ChatPage({
           onRemoveContextReference={(id) => setTinyOsContextReferences((current) => current.filter((reference) => tinyOsContextReferenceId(reference) !== id))}
           onValueChange={setComposerDraft}
           onSendMessage={(message, files, pastedContent, options) => handleComposerSend(message, files, pastedContent, options)}
-          onStopResponding={() => activeSession && handleStopGeneration(activeSession)}
+          onStopResponding={() => activeSession && handleStopGeneration(activeSession, "chat")}
         />
       </main>
 
@@ -1140,14 +1291,22 @@ export function ChatPage({
         <LiveCanvas
           agentUiForms={visibleAgentUiForms}
           entries={liveCanvasEntries}
+          expanded={liveCanvas.surface === "expanded"}
           headingRef={liveCanvasHeadingRef}
           mode={liveCanvas.mode}
+          canCancelRun={canCancelRun}
+          cancelUnavailableReason={activeRun && !canCancelRun ? cancelUnavailableReason : undefined}
+          commandLifecycle={commandLifecycle}
           resolvingApprovalId={resolvingApprovalId}
           selection={selectedLiveCanvasEntry}
+          sessionKey={`${tinyOsUiScope}:${activeSession?.id ?? "draft"}`}
           widthPx={tinyOsWidth}
+          filesController={tinyOsFiles}
           onAttachContext={handleAttachTinyOsContext}
           onCancelForm={(form) => void handleCancelAgentUiForm(form)}
+          onCancelRun={() => activeSession && void handleStopGeneration(activeSession, "tinyos")}
           onClose={() => dispatchLiveCanvas({ type: "close" })}
+          onExpandedChange={() => dispatchLiveCanvas({ type: "expand_toggle" })}
           onOpenArtifact={(artifact) => void handleOpenArtifact(artifact)}
           onResolveApproval={(approvalId, action) => void handleResolveApproval(approvalId, action)}
           onReturnToLive={() => dispatchLiveCanvas({ type: "return_live" })}
@@ -1409,13 +1568,35 @@ function toChatInput(input: QueuedComposerInput): ChatInput {
 }
 
 function tinyOsContextReferenceId(reference: TinyOsContextReference): string {
+  const scope = reference.kind === "terminal"
+    ? `${reference.turnId}:${reference.sourceItemId}`
+    : reference.provenance.kind === "canonical"
+      ? `${reference.provenance.turnId}:${reference.provenance.sourceItemId}`
+      : reference.provenance.workspaceKey;
   return [
     reference.kind,
-    reference.turnId,
-    reference.sourceItemId,
+    scope,
+    reference.kind === "file" ? reference.path : reference.command,
     reference.startLine ?? "",
     reference.endLine ?? "",
+    reference.kind === "file" ? reference.revision ?? "" : "",
   ].join(":");
+}
+
+function tinyOsCommandLifecycleLabel(lifecycle: TinyOsCommandLifecycle): string {
+  switch (lifecycle.stage) {
+    case "idle":
+      return "";
+    case "sending":
+      return "Sending cancel command…";
+    case "waiting_for_canonical":
+      return "Cancel delivered. Waiting for runtime confirmation…";
+    case "acknowledged":
+      return `Cancellation confirmed by canonical item ${lifecycle.acknowledgement.itemId}.`;
+    case "rejected":
+    case "timed_out":
+      return lifecycle.error;
+  }
 }
 
 function tinyOsReferenceLabel(reference: TinyOsContextReference): string {
@@ -1435,11 +1616,20 @@ function composerReferenceFromTinyOs(reference: TinyOsContextReference): Compose
 }
 
 function nativeReferenceFromTinyOs(reference: TinyOsContextReference): NativeChatReference {
+  const canonical = reference.kind === "terminal"
+    ? { sourceItemId: reference.sourceItemId, turnId: reference.turnId }
+    : reference.provenance.kind === "canonical"
+      ? reference.provenance
+      : undefined;
+  const scope = canonical?.turnId ?? (reference.kind === "file" && reference.provenance.kind === "workspace_read"
+    ? reference.provenance.workspaceKey
+    : undefined);
   return {
     detail: reference.kind === "file" ? "TinyOS file selection" : "TinyOS terminal output selection",
-    evidenceId: reference.sourceItemId,
+    evidenceId: canonical?.sourceItemId,
     kind: "reference",
-    scope: reference.turnId,
+    scope,
+    sourceEndLine: reference.endLine,
     sourceLine: reference.startLine,
     sourceText: reference.selectedText,
     title: tinyOsReferenceLabel(reference),
@@ -1447,6 +1637,7 @@ function nativeReferenceFromTinyOs(reference: TinyOsContextReference): NativeCha
     ...(reference.kind === "file" ? {
       rawLine: reference.startLine,
       rawPath: reference.path,
+      revision: reference.revision,
       sourcePath: reference.path,
     } : {}),
   };

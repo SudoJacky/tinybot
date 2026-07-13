@@ -235,6 +235,7 @@ async fn run_native_agent_turn_with_instructions_async(
             serde_json::json!({ "cancelled": true }),
         );
         return Ok(cancelled_result(
+            services,
             &context.run_id,
             &context.session_id,
             checkpoint,
@@ -263,6 +264,7 @@ async fn run_native_agent_turn_with_instructions_async(
                     }),
                 );
                 return Ok(cancelled_result(
+                    services,
                     &context.run_id,
                     &context.session_id,
                     checkpoint,

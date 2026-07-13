@@ -899,7 +899,8 @@ fn experimental_worker_config_defaults_to_schema_v1_deepseek_profile_without_con
                         "apiBase": "https://api.deepseek.com",
                         "models": ["deepseek-v4-pro", "deepseek-v4-flash"],
                         "defaultModel": "deepseek-v4-pro",
-                        "supportsModelDiscovery": true
+                        "supportsModelDiscovery": true,
+                        "capabilities": ["reasoning"]
                     }
                 }
             },
@@ -5245,6 +5246,19 @@ fn worker_webui_route_serves_rust_owned_state_routes_on_rust_backend() {
         Duration::from_millis(10),
     )
     .expect("session route should be Rust-owned");
+    let effective_capabilities = worker_webui_route_with_options(
+        &shared,
+        WorkerWebuiRouteInput {
+            method: "GET".to_string(),
+            path: "/api/sessions/websocket%3Achat-1/effective-capabilities".to_string(),
+            headers: None,
+            body: None,
+        },
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(10),
+    )
+    .expect("effective capabilities route should be Rust-owned");
     let branch = worker_webui_route_with_options(
         &shared,
         WorkerWebuiRouteInput {
@@ -5394,6 +5408,18 @@ fn worker_webui_route_serves_rust_owned_state_routes_on_rust_backend() {
         .as_str()
         .is_some_and(|token| !token.is_empty()));
     assert_eq!(sessions["body"]["items"][0]["title"], "Route session");
+    assert_eq!(
+        effective_capabilities["headers"]["x-tinybot-route-owner"],
+        "rust"
+    );
+    assert_eq!(
+        effective_capabilities["body"]["schemaVersion"],
+        "tinybot.effective_capabilities.v1"
+    );
+    assert_eq!(
+        effective_capabilities["body"]["capabilities"]["agent"]["cancel"]["reasonCode"],
+        "no_active_run"
+    );
     assert_eq!(branch["headers"]["x-tinybot-route-owner"], "rust");
     assert_eq!(branch["body"]["title"], "Route session · 分叉");
     assert_eq!(workspace_file["body"]["content"], "hello route");
@@ -5650,6 +5676,88 @@ fn worker_transport_websocket_preserves_client_event_id_in_agent_input() {
     assert_eq!(
         request.params["input"]["metadata"]["clientEventId"],
         "client-message-1"
+    );
+}
+
+#[test]
+fn worker_transport_websocket_maps_correlated_interrupt_command() {
+    let transport = native_websocket_transport_result(&WorkerTransportWebSocketDispatchInput {
+        client_id: "client-1".to_string(),
+        frame: serde_json::json!({
+            "type": "interrupt",
+            "chat_id": "chat-1",
+            "command_id": "command-cancel-1",
+            "run_id": "run-cancel-1"
+        }),
+        attached_chat_id: Some("chat-1".to_string()),
+        session_exists: Some(true),
+        editable_paths: None,
+        model: None,
+        max_iterations: None,
+        run_id: Some("run-cancel-1".to_string()),
+        stream: None,
+    })
+    .expect("interrupt frame should produce a transport result");
+
+    assert_eq!(transport["kind"], "interrupt");
+    assert_eq!(transport["chatId"], "chat-1");
+    assert_eq!(transport["sessionId"], "websocket:chat-1");
+    assert_eq!(transport["commandId"], "command-cancel-1");
+    assert_eq!(transport["runId"], "run-cancel-1");
+    assert!(build_worker_transport_websocket_run_input_request(
+        test_request_correlation("interrupt"),
+        &transport,
+        WorkerTransportWebSocketDispatchOptions::default(),
+    )
+    .is_none());
+}
+
+#[test]
+fn tinyos_effective_capabilities_are_backend_authored_and_run_scoped() {
+    let policy = default_desktop_capability_policy();
+    let running = crate::desktop_commands::session::build_worker_session_effective_capabilities(
+        "websocket:chat-1",
+        &serde_json::json!({
+            "runs": [{ "runId": "run-1", "status": "running" }]
+        }),
+        true,
+        &policy,
+    );
+    assert_eq!(
+        running["schemaVersion"],
+        "tinybot.effective_capabilities.v1"
+    );
+    assert_eq!(running["sessionId"], "websocket:chat-1");
+    assert_eq!(running["evaluatedRunId"], "run-1");
+    assert_eq!(
+        running["capabilities"]["agent"]["cancel"]["available"],
+        true
+    );
+    assert_eq!(
+        running["capabilities"]["agent"]["pause"]["available"],
+        false
+    );
+    assert_eq!(
+        running["capabilities"]["agent"]["pause"]["reasonCode"],
+        "runtime_unsupported"
+    );
+    assert_eq!(running["capabilities"]["files"]["read"]["available"], true);
+
+    let waiting = crate::desktop_commands::session::build_worker_session_effective_capabilities(
+        "websocket:chat-1",
+        &serde_json::json!({
+            "runs": [{ "runId": "run-wait", "status": "waiting" }]
+        }),
+        true,
+        &policy,
+    );
+    assert_eq!(
+        waiting["capabilities"]["agent"]["cancel"]["available"],
+        false
+    );
+    assert_eq!(
+        waiting["capabilities"]["agent"]["cancel"]["reasonCode"],
+        "run_waiting"
     );
 }
 
@@ -6426,6 +6534,10 @@ fn ensure_default_config_file_creates_schema_v1_deepseek_profile_when_missing() 
     assert_eq!(
         saved["agents"]["defaults"]["activeProfile"],
         "deepseek-default"
+    );
+    assert_eq!(
+        saved["providers"]["profiles"]["deepseek-default"]["capabilities"],
+        serde_json::json!(["reasoning"])
     );
     assert_eq!(saved["agents"]["defaults"]["model"], "deepseek-v4-pro");
     assert!(saved["agents"]["defaults"].get("provider").is_none());

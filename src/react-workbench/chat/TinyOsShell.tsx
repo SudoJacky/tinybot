@@ -5,7 +5,10 @@ import {
   Bot,
   Check,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Circle,
+  Copy,
   FileCode2,
   FileText,
   Folder,
@@ -44,6 +47,8 @@ import {
 } from "../../app-core/chat/tinyOsUiState";
 import type { ApprovalAction } from "../services";
 import { AgentUiFormCard } from "./AgentUiFormCard";
+import { TinyOsFilesExplorer } from "./TinyOsFilesExplorer";
+import type { TinyOsFilesController } from "./useTinyOsFilesController";
 
 const APP_ICONS = {
   artifacts: Archive,
@@ -68,9 +73,12 @@ const APP_LABELS: Record<TinyOsAppId, string> = {
 };
 
 const APP_ORDER: TinyOsAppId[] = ["files", "terminal", "browser", "plan", "memory", "subagents", "artifacts", "inspector"];
+const tinyOsSessionUiState = new Map<string, ReturnType<typeof createTinyOsUiState>>();
 
 export function TinyOsShell({
   agentUiForms,
+  filesController,
+  history = false,
   onCancelForm,
   onAttachContext,
   onOpenArtifact,
@@ -78,11 +86,14 @@ export function TinyOsShell({
   onSelectEntry,
   onSubmitForm,
   resolvingApprovalId,
+  sessionKey,
   snapshot,
   layoutMode,
   workspaceKey,
 }: {
   agentUiForms: AgentUiForm[];
+  filesController?: TinyOsFilesController;
+  history?: boolean;
   onCancelForm: (form: AgentUiForm) => void;
   onAttachContext: (reference: TinyOsContextReference) => void;
   onOpenArtifact: (artifact: ArtifactRef) => void;
@@ -90,13 +101,31 @@ export function TinyOsShell({
   onSelectEntry: (entry: TinyOsTimelineEntry) => void;
   onSubmitForm: (form: AgentUiForm, values: Record<string, unknown>) => void;
   resolvingApprovalId: string;
+  sessionKey?: string;
   snapshot: TinyOsDesktopSnapshot;
   layoutMode: TinyOsLayoutMode;
   workspaceKey: string;
 }) {
   const desktopRef = useRef<HTMLElement>(null);
-  const initialAppIds = snapshot.windows.map((window) => window.appId);
+  const appWindows = useMemo(() => filesController && !snapshot.windows.some(({ appId }) => appId === "files")
+    ? [{ appId: "files", entries: [], id: "tinyos-window-files", sourceItemIds: [], title: "Files" } satisfies TinyOsWindow, ...snapshot.windows]
+    : snapshot.windows, [filesController, snapshot.windows]);
+  const initialAppIds = appWindows.map((window) => window.appId);
+  const seenFileOperations = useRef(new Set<string>());
+  const revealedCursorItemId = useRef<string | undefined>(undefined);
+  const previousHistoryMode = useRef(history);
+  const sessionUiKey = sessionKey ? `${workspaceKey}:${sessionKey}` : undefined;
   const [uiState, dispatchUi] = useReducer(reduceTinyOsUiState, undefined, () => {
+    const cached = sessionUiKey ? tinyOsSessionUiState.get(sessionUiKey) : undefined;
+    if (cached) {
+      return reduceTinyOsUiState(cached, {
+        appIds: initialAppIds,
+        bounds: cached.bounds,
+        layoutMode,
+        preferredActiveAppId: cached.focusedAppId,
+        type: "sync",
+      });
+    }
     let restoredLayout;
     try {
       restoredLayout = loadTinyOsLayout(typeof window === "undefined" ? undefined : window.localStorage, workspaceKey, layoutMode);
@@ -113,14 +142,16 @@ export function TinyOsShell({
   });
 
   useEffect(() => {
+    const returningToLive = previousHistoryMode.current && !history;
+    previousHistoryMode.current = history;
     dispatchUi({
-      appIds: snapshot.windows.map((window) => window.appId),
+      appIds: appWindows.map((window) => window.appId),
       bounds: uiState.bounds,
       layoutMode,
-      preferredActiveAppId: snapshot.activeAppId,
+      preferredActiveAppId: history || returningToLive ? snapshot.activeAppId : uiState.focusedAppId,
       type: "sync",
     });
-  }, [layoutMode, snapshot.activeAppId, snapshot.cursorItemId, snapshot.cursorTurnId, snapshot.windows.length]);
+  }, [appWindows.length, history, layoutMode, snapshot.activeAppId, snapshot.cursorItemId, snapshot.cursorTurnId]);
 
   useEffect(() => {
     const desktop = desktopRef.current;
@@ -131,7 +162,7 @@ export function TinyOsShell({
       const height = Math.round(entry.contentRect.height);
       if (width < 1 || height < 1) return;
       dispatchUi({
-        appIds: snapshot.windows.map((window) => window.appId),
+        appIds: appWindows.map((window) => window.appId),
         bounds: { height, width },
         layoutMode,
         preferredActiveAppId: uiState.focusedAppId,
@@ -140,20 +171,43 @@ export function TinyOsShell({
     });
     observer.observe(desktop);
     return () => observer.disconnect();
-  }, [layoutMode, snapshot.windows.length, uiState.focusedAppId]);
+  }, [appWindows.length, layoutMode, uiState.focusedAppId]);
+
+  useEffect(() => {
+    if (!filesController) return;
+    snapshot.windows.find(({ appId }) => appId === "files")?.entries.forEach((entry) => {
+      if (seenFileOperations.current.has(entry.step.id)) return;
+      seenFileOperations.current.add(entry.step.id);
+      if (isFileMutation(entry.step)) filesController.markStale(filePath(entry.step));
+    });
+  }, [filesController, snapshot.cursorItemId, snapshot.cursorTurnId, snapshot.windows]);
+
+  useEffect(() => {
+    if (!history || !filesController?.queryAvailable || snapshot.activeAppId !== "files") return;
+    if (!snapshot.cursorItemId || revealedCursorItemId.current === snapshot.cursorItemId) return;
+    const entry = snapshot.windows.find(({ appId }) => appId === "files")?.entries.find(({ step }) => step.id === snapshot.cursorItemId);
+    if (entry) {
+      revealedCursorItemId.current = snapshot.cursorItemId;
+      void filesController.revealFile(filePath(entry.step));
+    }
+  }, [filesController, history, snapshot.activeAppId, snapshot.cursorItemId, snapshot.windows]);
 
   useEffect(() => {
     saveTinyOsLayout(typeof window === "undefined" ? undefined : window.localStorage, workspaceKey, uiState);
   }, [uiState.layoutMode, uiState.windowLayout, workspaceKey]);
 
+  useEffect(() => {
+    if (sessionUiKey) tinyOsSessionUiState.set(sessionUiKey, uiState);
+  }, [sessionUiKey, uiState]);
+
   const windows = useMemo(() => {
-    const visible = snapshot.windows.filter((window) => (
+    const visible = appWindows.filter((window) => (
       !uiState.minimizedAppIds.includes(window.appId)
       && (uiState.layoutMode !== "compact" || window.appId === uiState.focusedAppId)
     ));
     return visible.sort((left, right) => uiState.zOrder.indexOf(left.appId) - uiState.zOrder.indexOf(right.appId));
-  }, [snapshot.windows, uiState.focusedAppId, uiState.layoutMode, uiState.minimizedAppIds, uiState.zOrder]);
-  const availableApps = new Set(snapshot.windows.map((window) => window.appId));
+  }, [appWindows, uiState.focusedAppId, uiState.layoutMode, uiState.minimizedAppIds, uiState.zOrder]);
+  const availableApps = new Set(appWindows.map((window) => window.appId));
   const allEntries = snapshot.windows.flatMap((window) => window.entries);
   const inspectorEntries = uiState.inspectorItemIds.flatMap((itemId) => {
     const entry = allEntries.find((candidate) => candidate.step.id === itemId);
@@ -169,14 +223,33 @@ export function TinyOsShell({
     dispatchUi({ appId, type: "minimize" });
   }
 
+  function handleShellKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    const digit = event.altKey && !event.ctrlKey ? Number(event.key) : 0;
+    if (digit >= 1 && digit <= APP_ORDER.length) {
+      const appId = APP_ORDER[digit - 1];
+      if (availableApps.has(appId)) {
+        event.preventDefault();
+        focusApp(appId);
+      }
+      return;
+    }
+    if (!event.altKey || !event.ctrlKey || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) return;
+    const available = APP_ORDER.filter((appId) => availableApps.has(appId));
+    if (!available.length) return;
+    const current = Math.max(0, available.indexOf(uiState.focusedAppId ?? available[0]));
+    const delta = event.key === "ArrowRight" ? 1 : -1;
+    event.preventDefault();
+    focusApp(available[(current + delta + available.length) % available.length]);
+  }
+
   return (
-    <div className="tinyos-shell" data-has-dialog={snapshot.dialog ? "true" : undefined}>
+    <div className="tinyos-shell" data-has-dialog={snapshot.dialog ? "true" : undefined} onKeyDown={handleShellKeyDown}>
       <nav aria-label="TinyOS applications" className="tinyos-launcher">
         {APP_ORDER.map((appId) => {
           const Icon = APP_ICONS[appId];
           const available = availableApps.has(appId);
           const active = uiState.focusedAppId === appId && !uiState.minimizedAppIds.includes(appId);
-          const window = snapshot.windows.find((candidate) => candidate.appId === appId);
+          const window = appWindows.find((candidate) => candidate.appId === appId);
           const status = window?.entries[window.entries.length - 1]?.step.status;
           return (
             <button
@@ -213,6 +286,8 @@ export function TinyOsShell({
             layout={uiState.windowLayout[window.appId]}
             zIndex={uiState.zOrder.indexOf(window.appId) + 2}
             window={window}
+            filesController={filesController}
+            layoutMode={layoutMode}
             onFocus={() => dispatchUi({ appId: window.appId, type: "focus" })}
             onAttachContext={onAttachContext}
             onInspect={(entry) => dispatchUi({ itemId: entry.step.id, type: "inspect" })}
@@ -234,7 +309,9 @@ export function TinyOsShell({
           }}
         />
 
-        {snapshot.dialog ? (
+        {snapshot.dialog && history ? (
+          <TinyOsHistoricalDialog dialog={snapshot.dialog} />
+        ) : snapshot.dialog ? (
           <TinyOsSystemDialog
             agentUiForms={agentUiForms}
             dialog={snapshot.dialog}
@@ -254,7 +331,11 @@ export function TinyOsShell({
         ) : null}
       </section>
 
-      <TinyOsOperationShelf operations={snapshot.operations} onSelectEntry={onSelectEntry} />
+      <TinyOsOperationShelf operations={snapshot.operations} onSelectEntry={(entry) => {
+        const sourceWindow = appWindows.find(({ sourceItemIds }) => sourceItemIds.includes(entry.step.id));
+        if (sourceWindow) focusApp(sourceWindow.appId);
+        onSelectEntry(entry);
+      }} />
     </div>
   );
 }
@@ -272,7 +353,9 @@ function TinyOsDesktopEmpty() {
 function TinyOsAppWindow({
   active,
   activeTabId,
+  filesController,
   layout,
+  layoutMode,
   onFocus,
   onAttachContext,
   onInspect,
@@ -287,7 +370,9 @@ function TinyOsAppWindow({
 }: {
   active: boolean;
   activeTabId?: string;
+  filesController?: TinyOsFilesController;
   layout?: TinyOsWindowRect & { maximized: boolean };
+  layoutMode: TinyOsLayoutMode;
   onFocus: () => void;
   onAttachContext: (reference: TinyOsContextReference) => void;
   onInspect: (entry: TinyOsTimelineEntry) => void;
@@ -413,14 +498,14 @@ function TinyOsAppWindow({
         onPointerUp={endPointer}
       >
         <span><Icon aria-hidden="true" size={15} /><strong>{window.title}</strong></span>
-        <span className="tinyos-window__source">{latest.step.title}</span>
-        <TinyOsStatus status={latest.step.status} />
-        <button aria-label={`Inspect ${window.title}`} title={`Inspect ${window.title}`} type="button" onClick={() => onInspect(latest)}><Info aria-hidden="true" size={14} /></button>
+        <span className="tinyos-window__source">{latest?.step.title ?? "Workspace Explorer"}</span>
+        {latest ? <TinyOsStatus status={latest.step.status} /> : null}
+        {latest ? <button aria-label={`Inspect ${window.title}`} title={`Inspect ${window.title}`} type="button" onClick={() => onInspect(latest)}><Info aria-hidden="true" size={14} /></button> : null}
         <button aria-label={`${layout?.maximized ? "Restore" : "Maximize"} ${window.title}`} title={layout?.maximized ? "Restore" : "Maximize"} type="button" onClick={onMaximize}><Maximize2 aria-hidden="true" size={14} /></button>
         <button aria-label={`Minimize ${window.title}`} title={`Minimize ${window.title}`} type="button" onClick={onMinimize}><Minus aria-hidden="true" size={15} /></button>
       </header>
       <div className="tinyos-window__content">
-        <TinyOsAppContent activeTabId={activeTabId} window={window} onAttachContext={onAttachContext} onOpenArtifact={onOpenArtifact} onTabChange={onTabChange} />
+        <TinyOsAppContent activeTabId={activeTabId} filesController={filesController} layoutMode={layoutMode} window={window} onAttachContext={onAttachContext} onOpenArtifact={onOpenArtifact} onTabChange={onTabChange} />
       </div>
       <div
         aria-label={`Resize ${window.title} window`}
@@ -435,9 +520,13 @@ function TinyOsAppWindow({
   );
 }
 
-function TinyOsAppContent({ activeTabId, window, onAttachContext, onOpenArtifact, onTabChange }: { activeTabId?: string; window: TinyOsWindow; onAttachContext: (reference: TinyOsContextReference) => void; onOpenArtifact: (artifact: ArtifactRef) => void; onTabChange: (tabId: string) => void }) {
+function TinyOsAppContent({ activeTabId, filesController, layoutMode, window, onAttachContext, onOpenArtifact, onTabChange }: { activeTabId?: string; filesController?: TinyOsFilesController; layoutMode: TinyOsLayoutMode; window: TinyOsWindow; onAttachContext: (reference: TinyOsContextReference) => void; onOpenArtifact: (artifact: ArtifactRef) => void; onTabChange: (tabId: string) => void }) {
   switch (window.appId) {
-    case "files": return <TinyOsFiles activeTabId={activeTabId} window={window} onAttachContext={onAttachContext} onTabChange={onTabChange} />;
+    case "files": return filesController?.queryAvailable || !window.entries.length
+      ? filesController
+        ? <TinyOsFilesExplorer controller={filesController} layoutMode={layoutMode} onAttachContext={onAttachContext} />
+        : <EmptyCopy text="Workspace Explorer is unavailable." />
+      : <TinyOsFiles activeTabId={activeTabId} window={window} onAttachContext={onAttachContext} onTabChange={onTabChange} />;
     case "terminal": return <TinyOsTerminal activeTabId={activeTabId} window={window} onAttachContext={onAttachContext} onTabChange={onTabChange} />;
     case "browser": return <TinyOsBrowser window={window} onOpenArtifact={onOpenArtifact} />;
     case "plan": return <TinyOsPlan entry={[...window.entries].reverse().find(({ step }) => Boolean(step.plan)) ?? window.entries[window.entries.length - 1]} />;
@@ -487,7 +576,7 @@ function TinyOsFiles({ activeTabId, onAttachContext, onTabChange, window }: { ac
           const selected = selectionStart !== undefined && selectionEnd !== undefined && lineNumber >= selectionStart && lineNumber <= selectionEnd;
           return <li data-selected={selected ? "true" : undefined} key={index}><button type="button" onClick={(event) => selectLine(lineNumber, event.shiftKey)}><code>{line || " "}</code></button></li>;
         })}</ol> : <EmptyCopy text={active.entry.step.summary || "No file preview was returned."} />}
-        <footer className="tinyos-files__status"><span>{fileLanguage(active.path)}</span><span>UTF-8</span>{selectionStart ? <button type="button" onClick={() => onAttachContext({ kind: "file", path: active.path, selectedText, sourceItemId: active.entry.step.id, startLine: selectionStart, endLine: selectionEnd, turnId: active.entry.turnId, ...(fileRevision(active.entry.step) ? { revision: fileRevision(active.entry.step) } : {}) })}><Paperclip aria-hidden="true" size={11} />Attach {active.path} · L{selectionStart}{selectionEnd !== selectionStart ? `–${selectionEnd}` : ""}</button> : null}<span>Canonical item {active.entry.step.sequence + 1}</span></footer>
+        <footer className="tinyos-files__status"><span>{fileLanguage(active.path)}</span><span>UTF-8</span>{selectionStart ? <button type="button" onClick={() => onAttachContext({ kind: "file", path: active.path, provenance: { kind: "canonical", sourceItemId: active.entry.step.id, turnId: active.entry.turnId }, selectedText, startLine: selectionStart, endLine: selectionEnd, ...(fileRevision(active.entry.step) ? { revision: fileRevision(active.entry.step) } : {}) })}><Paperclip aria-hidden="true" size={11} />Attach {active.path} · L{selectionStart}{selectionEnd !== selectionStart ? `–${selectionEnd}` : ""}</button> : null}<span>Canonical item {active.entry.step.sequence + 1}</span></footer>
       </section>
     </div>
   );
@@ -498,19 +587,46 @@ function TinyOsTerminal({ activeTabId, onAttachContext, onTabChange, window }: {
   const [follow, setFollow] = useState(true);
   const [query, setQuery] = useState("");
   const [stream, setStream] = useState<"all" | "stdout" | "stderr">("all");
-  const [selectedLine, setSelectedLine] = useState<number>();
+  const [selection, setSelection] = useState<{ anchor: number; end: number }>();
+  const [activeMatch, setActiveMatch] = useState(0);
   const outputRef = useRef<HTMLDivElement>(null);
   const stdout = terminalOutput(active.step);
   const stderr = active.step.toolCall?.stderrPreview ?? "";
   const output = stream === "stdout" ? stdout : stream === "stderr" ? stderr : [stdout, stderr].filter(Boolean).join("\n");
-  const outputLines = (`$ ${terminalCommand(active.step)}\n${output}`).split("\n").slice(-500);
-  const matchCount = query ? outputLines.filter((line) => line.toLocaleLowerCase().includes(query.toLocaleLowerCase())).length : 0;
+  const rawOutputLines = output.split("\n");
+  const outputTruncated = rawOutputLines.length > 499;
+  const outputLines = [`$ ${terminalCommand(active.step)}`, ...rawOutputLines.slice(-499)];
+  const matches = query ? outputLines.flatMap((line, index) => line.toLocaleLowerCase().includes(query.toLocaleLowerCase()) ? [index] : []) : [];
+  const currentMatch = matches.length ? matches[Math.min(activeMatch, matches.length - 1)] : undefined;
+  const selectionStart = selection ? Math.min(selection.anchor, selection.end) : undefined;
+  const selectionEnd = selection ? Math.max(selection.anchor, selection.end) : undefined;
+  const selectedText = selectionStart !== undefined && selectionEnd !== undefined
+    ? boundedSelectionText(outputLines.slice(selectionStart, selectionEnd + 1).join("\n"))
+    : "";
+  const metadata = terminalMetadata(active.step);
 
   useEffect(() => {
     if (!follow) return;
     const element = outputRef.current;
     if (element) element.scrollTop = element.scrollHeight;
   }, [active.step.id, follow, output]);
+  useEffect(() => {
+    setSelection(undefined);
+    setActiveMatch(0);
+  }, [active.step.id, stream]);
+  useEffect(() => {
+    if (currentMatch === undefined) return;
+    outputRef.current?.querySelector<HTMLElement>(`li[data-line="${currentMatch}"]`)?.scrollIntoView({ block: "center" });
+  }, [currentMatch]);
+
+  function selectLine(line: number, extend: boolean) {
+    setSelection((current) => extend && current ? { anchor: current.anchor, end: line } : { anchor: line, end: line });
+  }
+
+  function moveMatch(delta: number) {
+    if (!matches.length) return;
+    setActiveMatch((current) => (current + delta + matches.length) % matches.length);
+  }
 
   return (
     <div className="tinyos-terminal">
@@ -519,18 +635,23 @@ function TinyOsTerminal({ activeTabId, onAttachContext, onTabChange, window }: {
         <TinyOsStatus status={active.step.status} />
       </div>
       <div className="tinyos-terminal__toolbar">
-        <label><Search aria-hidden="true" size={12} /><input aria-label="Search terminal output" placeholder="Search output" value={query} onChange={(event) => setQuery(event.currentTarget.value)} /></label>
-        <span>{query ? `${matchCount} matches` : ""}</span>
+        <label><Search aria-hidden="true" size={12} /><input aria-label="Search terminal output" placeholder="Search output" value={query} onChange={(event) => { setQuery(event.currentTarget.value); setActiveMatch(0); }} /></label>
+        <span aria-live="polite">{query ? `${matches.length ? Math.min(activeMatch, matches.length - 1) + 1 : 0}/${matches.length}` : ""}</span>
+        <button aria-label="Previous terminal match" disabled={!matches.length} title="Previous match" type="button" onClick={() => moveMatch(-1)}><ChevronLeft aria-hidden="true" size={12} /></button>
+        <button aria-label="Next terminal match" disabled={!matches.length} title="Next match" type="button" onClick={() => moveMatch(1)}><ChevronRight aria-hidden="true" size={12} /></button>
         <select aria-label="Terminal stream filter" value={stream} onChange={(event) => setStream(event.currentTarget.value as "all" | "stdout" | "stderr")}><option value="all">All streams</option><option value="stdout">stdout</option><option value="stderr">stderr</option></select>
+        <button aria-label="Copy terminal command" title="Copy command" type="button" onClick={() => copyText(terminalCommand(active.step))}><Copy aria-hidden="true" size={12} />Command</button>
+        <button aria-label={selection ? "Copy selected terminal output" : "Copy loaded terminal output"} title={selection ? "Copy selection" : "Copy loaded output"} type="button" onClick={() => copyText(selection ? selectedText : outputLines.join("\n"))}><Copy aria-hidden="true" size={12} />{selection ? "Selection" : "Output"}</button>
         <button aria-pressed={follow} title={follow ? "Pause output follow" : "Follow output"} type="button" onClick={() => setFollow((current) => !current)}>{follow ? <Pause aria-hidden="true" size={12} /> : <Play aria-hidden="true" size={12} />}{follow ? "Pause" : "Follow"}</button>
       </div>
       <div className="tinyos-terminal__output" data-follow={follow ? "true" : undefined} ref={outputRef}>
         <ol>{outputLines.map((line, index) => {
           const matches = Boolean(query && line.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
-          return <li data-match={matches ? "true" : undefined} data-selected={selectedLine === index ? "true" : undefined} key={index}><button type="button" onClick={() => setSelectedLine(index)}><code>{line || " "}</code></button></li>;
+          const selected = selectionStart !== undefined && selectionEnd !== undefined && index >= selectionStart && index <= selectionEnd;
+          return <li data-current-match={currentMatch === index ? "true" : undefined} data-line={index} data-match={matches ? "true" : undefined} data-selected={selected ? "true" : undefined} key={index}><button type="button" onClick={(event) => selectLine(index, event.shiftKey)}><code>{line || " "}</code></button></li>;
         })}</ol>
       </div>
-      <footer><span>{active.step.toolCall?.durationMs !== undefined ? `${active.step.toolCall.durationMs} ms` : statusLabel(active.step.status)}</span>{selectedLine !== undefined ? <button type="button" onClick={() => onAttachContext({ command: terminalCommand(active.step), endLine: selectedLine + 1, kind: "terminal", selectedText: boundedSelectionText(outputLines[selectedLine] ?? ""), sourceItemId: active.step.id, startLine: selectedLine + 1, turnId: active.turnId })}><Paperclip aria-hidden="true" size={11} />Attach output L{selectedLine + 1}</button> : <span>{follow ? "Following output" : "Follow paused"}</span>}<span>Canonical item {active.step.sequence + 1}</span></footer>
+      <footer><span>{metadata.cwd ? `cwd ${metadata.cwd}` : `Agent ${active.step.agentContext.title}`}</span><span>{metadata.exit}</span><span>{active.step.toolCall?.durationMs !== undefined ? `${active.step.toolCall.durationMs} ms` : statusLabel(active.step.status)}</span>{selectionStart !== undefined && selectionEnd !== undefined ? <button type="button" onClick={() => onAttachContext({ command: terminalCommand(active.step), endLine: selectionEnd + 1, kind: "terminal", selectedText, sourceItemId: active.step.id, startLine: selectionStart + 1, turnId: active.turnId })}><Paperclip aria-hidden="true" size={11} />Attach L{selectionStart + 1}{selectionEnd === selectionStart ? "" : `–${selectionEnd + 1}`}</button> : <span>{follow ? "Following output" : "Follow paused"}</span>}{outputTruncated ? <span>Showing last 499 output lines</span> : null}<span>{stream} · Canonical item {active.step.sequence + 1}</span></footer>
     </div>
   );
 }
@@ -690,8 +811,9 @@ function TinyOsInspector({ entries, onClose, onOpenArtifact }: { entries: TinyOs
             <header><div><small>Canonical evidence</small><strong>{entry.step.title}</strong></div><button aria-label={`Close ${entry.step.title} evidence`} type="button" onClick={() => onClose(entry)}><X aria-hidden="true" size={15} /></button></header>
             <TinyOsStatus status={entry.step.status} />
             {entry.step.summary ? <p>{entry.step.summary}</p> : null}
-            {entry.step.toolCall?.argsJson !== undefined ? <section><strong>Arguments</strong><pre>{jsonPreview(entry.step.toolCall.argsJson)}</pre></section> : null}
-            {entry.step.toolCall?.resultJson !== undefined ? <section><strong>Result</strong><pre>{jsonPreview(entry.step.toolCall.resultJson)}</pre></section> : null}
+            {entry.step.toolCall ? <dl className="tinyos-inspector__correlation"><div><dt>Tool call</dt><dd>{entry.step.toolCall.id}</dd></div>{entry.step.toolCall.resultRef ? <div><dt>Result ref</dt><dd>{entry.step.toolCall.resultRef}</dd></div> : null}<div><dt>Turn</dt><dd>{entry.turnId}</dd></div><div><dt>Agent</dt><dd>{entry.step.agentContext.title}</dd></div></dl> : null}
+            {entry.step.toolCall?.argsJson !== undefined ? <section><strong>Arguments</strong><pre>{sanitizedJsonPreview(entry.step.toolCall.argsJson)}</pre></section> : null}
+            {entry.step.toolCall?.resultJson !== undefined ? <section><strong>Result</strong><pre>{sanitizedJsonPreview(entry.step.toolCall.resultJson)}</pre></section> : null}
             {entry.step.toolCall?.resultPreview ? <section><strong>Result preview</strong><pre>{entry.step.toolCall.resultPreview}</pre></section> : null}
             {entry.step.toolCall?.stderrPreview ? <section><strong>Stderr</strong><pre>{entry.step.toolCall.stderrPreview}</pre></section> : null}
             {artifacts.length ? <section><strong>Artifacts</strong>{artifacts.map((artifact) => <button key={artifact.id} type="button" onClick={() => onOpenArtifact(artifact)}>{artifact.title}</button>)}</section> : null}
@@ -748,6 +870,27 @@ function fileRevision(step: ChatStep): string {
   return firstString(args.revision, args.baseRevision, args.base_revision, args.contentHash, args.content_hash);
 }
 
+function TinyOsHistoricalDialog({ dialog }: { dialog: NonNullable<TinyOsDesktopSnapshot["dialog"]> }) {
+  const { step } = dialog.entry;
+  return (
+    <aside aria-label="Historical TinyOS request" className="tinyos-system-dialog tinyos-system-dialog--history">
+      <div className="tinyos-system-dialog__heading"><ShieldCheck aria-hidden="true" size={20} /><div><small>Historical evidence · read-only</small><strong>{step.title}</strong></div></div>
+      <p>This request is part of canonical History. Return to Live to act on the current request.</p>
+      {dialog.kind === "approval" ? <code className="tinyos-system-dialog__request">{approvalRequest(step)}</code> : null}
+      <dl>
+        <div><dt>Type</dt><dd>{dialog.kind}</dd></div>
+        <div><dt>Status</dt><dd>{statusLabel(step.status)}</dd></div>
+        <div><dt>Agent</dt><dd>{step.agentContext.title}</dd></div>
+      </dl>
+    </aside>
+  );
+}
+
+function isFileMutation(step: ChatStep): boolean {
+  const name = step.toolCall?.name ?? "";
+  return /(?:^|[._-])(write|save|edit|patch|apply|delete|remove|move|rename|create)(?:$|[._-])/i.test(name);
+}
+
 function boundedSelectionText(value: string): string {
   return value.length <= 16_384 ? value : `${value.slice(0, 16_384)}\n[selection truncated]`;
 }
@@ -798,6 +941,23 @@ function terminalOutput(step: ChatStep): string {
   return step.toolCall?.resultPreview || jsonPreview(step.toolCall?.resultJson) || (step.status === "running" ? "Running..." : "No output returned.");
 }
 
+function terminalMetadata(step: ChatStep): { cwd: string; exit: string } {
+  const args = recordValue(step.toolCall?.argsJson);
+  const result = recordValue(step.toolCall?.resultJson);
+  const cwd = firstString(args.cwd, args.directory, args.workdir, args.workingDirectory, args.working_directory);
+  const exitCode = [result.exitCode, result.exit_code, result.code].find((value) => typeof value === "number" || typeof value === "string");
+  return {
+    cwd,
+    exit: exitCode !== undefined ? `exit ${String(exitCode)}` : statusLabel(step.status),
+  };
+}
+
+function copyText(value: string): void {
+  void navigator.clipboard?.writeText(value).catch((error) => {
+    console.error("TinyOS could not copy terminal content.", error);
+  });
+}
+
 function browserLocation(step: ChatStep): string {
   const args = recordValue(step.toolCall?.argsJson);
   return firstString(args.url, args.href, args.location, step.summary) || "Structured browser activity";
@@ -826,6 +986,18 @@ function jsonPreview(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function sanitizedJsonPreview(value: unknown): string {
+  const redact = (input: unknown): unknown => {
+    if (Array.isArray(input)) return input.map(redact);
+    if (!input || typeof input !== "object") return input;
+    return Object.fromEntries(Object.entries(input as Record<string, unknown>).map(([key, item]) => [
+      key,
+      /(?:^|_)(?:authorization|cookie|password|secret|token|api_?key)(?:$|_)/i.test(key) ? "[redacted]" : redact(item),
+    ]));
+  };
+  return jsonPreview(redact(value));
 }
 
 function safeRasterDataUrl(value: string): boolean {

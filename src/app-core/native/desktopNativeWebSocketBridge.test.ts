@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import { createDesktopNativeWebSocket } from "./desktopNativeWebSocketBridge";
-import type { NativeTransportApi } from "./desktopNativeTransport";
+import type { NativeTransportApi, NativeTransportWebSocketDispatchRequest } from "./desktopNativeTransport";
 import { toDesktopNativeTauriEventName } from "./desktopNativeTauriEvents";
 
 describe("desktop native WebSocket bridge", () => {
@@ -1325,6 +1325,65 @@ describe("desktop native WebSocket bridge", () => {
       chat_id: "chat-native",
       reason: "cancelled",
     }));
+  });
+
+  test("dispatches a correlated interrupt against the active native run", async () => {
+    const messageDispatch = deferred<unknown>();
+    const dispatchWebsocketMessage = vi.fn(async (request: NativeTransportWebSocketDispatchRequest) => {
+      if (request.frame.type === "interrupt") {
+        return {
+          transport: {
+            kind: "interrupt",
+            chatId: "chat-native",
+            sessionId: "websocket:chat-native",
+            frames: [{ event: "command_accepted", chat_id: "chat-native", command_id: "command-1" }],
+          },
+        };
+      }
+      return messageDispatch.promise;
+    });
+    const nativeTransport: NativeTransportApi = {
+      gatewayFrame: vi.fn(),
+      websocketMessage: vi.fn(),
+      dispatchWebsocketMessage,
+      dispatchChannelInbound: vi.fn(),
+      startChannels: vi.fn(),
+      channelStatus: vi.fn(),
+      stopChannels: vi.fn(),
+    };
+    const socket = createDesktopNativeWebSocket({ url: "/ws", nativeTransport });
+    const events: Array<Record<string, unknown>> = [];
+    socket.addEventListener("message", (event) => {
+      events.push(JSON.parse(String((event as MessageEvent).data)) as Record<string, unknown>);
+    });
+
+    await flushMicrotasks();
+    socket.send(JSON.stringify({ type: "message", chat_id: "chat-native", content: "hello" }));
+    await flushMicrotasks();
+    const runId = String(dispatchWebsocketMessage.mock.calls[0][0].runId);
+
+    socket.send(JSON.stringify({
+      type: "interrupt",
+      chat_id: "chat-native",
+      command_id: "command-1",
+      run_id: runId,
+    }));
+    await flushMicrotasks();
+
+    expect(dispatchWebsocketMessage.mock.calls[1][0]).toMatchObject({
+      frame: {
+        type: "interrupt",
+        chat_id: "chat-native",
+        command_id: "command-1",
+        run_id: runId,
+      },
+      runId,
+    });
+    expect(events).toContainEqual({
+      event: "command_accepted",
+      chat_id: "chat-native",
+      command_id: "command-1",
+    });
   });
 });
 

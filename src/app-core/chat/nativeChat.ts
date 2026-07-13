@@ -61,6 +61,7 @@ export type NativeChatReference = {
   detail: string;
   sourcePath?: string;
   sourceLine?: number;
+  sourceEndLine?: number;
   sourceText?: string;
   rawPath?: string;
   rawLine?: number;
@@ -68,6 +69,7 @@ export type NativeChatReference = {
   evidenceId?: string;
   scope?: string;
   type?: string;
+  revision?: string;
 };
 
 export type NativeBackgroundTraceEvent = {
@@ -943,11 +945,13 @@ function conversationMessagesToNativeMessages(messages: ReturnType<typeof turnsT
         rawLine: reference.rawLine,
         rawPath: reference.rawPath,
         scope: reference.scope,
+        sourceEndLine: reference.sourceEndLine,
         sourceLine: reference.sourceLine,
         sourcePath: reference.sourcePath,
         sourceText: reference.sourceText,
         title: reference.title,
         type: reference.type,
+        revision: reference.revision,
       })),
     } : {}),
     timestamp: message.time,
@@ -1348,10 +1352,13 @@ function referenceRows(value: unknown, kind: NativeChatReference["kind"]): Nativ
         row.url,
     );
     const canTraceSource = kind === "memory" || kind === "recent";
-    const sourcePath = canTraceSource ? stringValue(row.view_file ?? row.source_file ?? row.file ?? row.path) : "";
-    const rawPath = canTraceSource ? stringValue(row.file ?? row.path) : "";
-    const sourceLine = numberValue(row.view_line ?? row.line ?? row.cursor);
-    const rawLine = numberValue(row.line ?? row.cursor);
+    const sourcePath = stringValue(row.sourcePath ?? row.source_path)
+      || (canTraceSource ? stringValue(row.view_file ?? row.source_file ?? row.file ?? row.path) : "");
+    const rawPath = stringValue(row.rawPath ?? row.raw_path)
+      || (canTraceSource ? stringValue(row.file ?? row.path) : "");
+    const sourceLine = numberValue(row.sourceLine ?? row.source_line ?? row.view_line ?? row.line ?? row.cursor);
+    const sourceEndLine = numberValue(row.sourceEndLine ?? row.source_end_line);
+    const rawLine = numberValue(row.rawLine ?? row.raw_line ?? row.line ?? row.cursor);
     const sourceText = sourcePath || sourceLine
       ? stringValue(row.source_text ?? row.excerpt ?? row.content ?? row.summary ?? row.detail)
       : "";
@@ -1359,12 +1366,14 @@ function referenceRows(value: unknown, kind: NativeChatReference["kind"]): Nativ
     const evidenceId = stringValue(row.evidence_id);
     const scope = stringValue(row.scope);
     const type = stringValue(row.type);
+    const revision = stringValue(row.revision);
     return {
       kind,
       title,
       detail,
       ...(sourcePath ? { sourcePath } : {}),
       ...(sourceLine ? { sourceLine } : {}),
+      ...(sourceEndLine ? { sourceEndLine } : {}),
       ...(sourceText ? { sourceText } : {}),
       ...(rawPath && rawPath !== sourcePath ? { rawPath } : {}),
       ...(rawLine && rawLine !== sourceLine ? { rawLine } : {}),
@@ -1372,6 +1381,7 @@ function referenceRows(value: unknown, kind: NativeChatReference["kind"]): Nativ
       ...(evidenceId ? { evidenceId } : {}),
       ...(scope ? { scope } : {}),
       ...(type ? { type } : {}),
+      ...(revision ? { revision } : {}),
     };
   });
 }

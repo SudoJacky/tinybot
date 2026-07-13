@@ -774,6 +774,36 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
+  test("prefers backend-authored native session effective capabilities", async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
+    const nativeWebui = {
+      route: vi.fn(async () => {
+        throw new Error("native WebUI effective capabilities route should not be used");
+      }),
+    };
+    const nativeSessions = {
+      list: vi.fn(),
+      messages: vi.fn(),
+      effectiveCapabilities: vi.fn(async (key: string) => ({
+        schemaVersion: "tinybot.effective_capabilities.v1",
+        sessionId: key,
+      })),
+    };
+    const client = createGatewayApiClient({
+      config: DEFAULT_GATEWAY_CONFIG,
+      fetchFn,
+      nativeSessions,
+      nativeWebui,
+    });
+
+    await expect(client.sessions.effectiveCapabilities("websocket:chat-1")).resolves.toMatchObject({
+      sessionId: "websocket:chat-1",
+    });
+    expect(nativeSessions.effectiveCapabilities).toHaveBeenCalledWith("websocket:chat-1");
+    expect(nativeWebui.route).not.toHaveBeenCalled();
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   test("prefers native Rust session state mutations when both native paths are available", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
     const nativeWebui = {
@@ -1238,6 +1268,8 @@ describe("gateway HTTP client", () => {
       files: vi.fn(async () => ({ items: [{ path: "docs/readme.md" }] })),
       file: vi.fn(async (path: string) => ({ path, content: "# Readme\n" })),
       putFile: vi.fn(async (path: string, body: unknown) => ({ path, saved: true, body })),
+      directory: vi.fn(async (request: { path: string }) => ({ result: { path: request.path, entries: [] } })),
+      fileChunk: vi.fn(async (request: { path: string }) => ({ result: { path: request.path, content_type: "text" } })),
     };
     const client = createGatewayApiClient({
       config: DEFAULT_GATEWAY_CONFIG,
@@ -1264,12 +1296,20 @@ describe("gateway HTTP client", () => {
         expected_updated_at: null,
       },
     });
+    await expect(client.workspace.directory({ path: "src" })).resolves.toEqual({
+      result: { path: "src", entries: [] },
+    });
+    await expect(client.workspace.fileChunk({ path: "src/main.ts" })).resolves.toEqual({
+      result: { path: "src/main.ts", content_type: "text" },
+    });
     expect(nativeWorkspace.files).toHaveBeenCalledTimes(1);
     expect(nativeWorkspace.file).toHaveBeenCalledWith("docs/readme.md");
     expect(nativeWorkspace.putFile).toHaveBeenCalledWith("docs/readme.md", {
       content: "# Readme\n",
       expected_updated_at: null,
     });
+    expect(nativeWorkspace.directory).toHaveBeenCalledWith({ path: "src" });
+    expect(nativeWorkspace.fileChunk).toHaveBeenCalledWith({ path: "src/main.ts" });
     expect(nativeWebui.route).not.toHaveBeenCalled();
     expect(fetchFn).not.toHaveBeenCalled();
   });
@@ -2159,9 +2199,11 @@ describe("gateway WebSocket client", () => {
       references: [expect.objectContaining({ evidenceId: "item-1", type: "tinyos.file" })],
       use_persistent_rag: true,
     });
-    expect(createGatewaySocketMessage.interrupt("chat-1")).toEqual({
+    expect(createGatewaySocketMessage.interrupt("chat-1", "command-1", "run-1")).toEqual({
       type: "interrupt",
       chat_id: "chat-1",
+      command_id: "command-1",
+      run_id: "run-1",
     });
   });
 
@@ -2190,6 +2232,16 @@ describe("gateway WebSocket client", () => {
     expect(normalizeGatewayFrame({ event: "attached", chat_id: "chat-1" })).toMatchObject({
       kind: "attached",
       chatId: "chat-1",
+    });
+    expect(normalizeGatewayFrame({ event: "command_accepted", chat_id: "chat-1", command_id: "command-1" })).toMatchObject({
+      kind: "command.accepted",
+      chatId: "chat-1",
+      commandId: "command-1",
+    });
+    expect(normalizeGatewayFrame({ event: "error", command_id: "command-1", message: "not active" })).toMatchObject({
+      kind: "error",
+      commandId: "command-1",
+      message: "not active",
     });
     expect(normalizeGatewayFrame({ event: "delta", text: "hi", message_id: "m1" })).toMatchObject({
       kind: "unknown",
