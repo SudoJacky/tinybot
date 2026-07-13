@@ -33,7 +33,9 @@ function canvasProps(entries: LiveCanvasEntry[], overrides: Record<string, unkno
   return {
     agentUiForms: [] as AgentUiForm[],
     canCancelRun: false,
+    canPauseRun: false,
     canRequestChange: false,
+    canResumeRun: false,
     canRetryRun: false,
     commandLifecycle: { stage: "idle" } as const,
     entries,
@@ -41,13 +43,15 @@ function canvasProps(entries: LiveCanvasEntry[], overrides: Record<string, unkno
     mode: "live_follow" as const,
     onCancelForm: vi.fn(),
     onCancelRun: vi.fn(),
+    onPauseRun: vi.fn(),
+    onAgentRequest: vi.fn(),
     onAttachContext: vi.fn(),
     onClose: vi.fn(),
     onOpenArtifact: vi.fn(),
-    onRequestExplanation: vi.fn(),
     onResolveApproval: vi.fn(),
     onRetryOperation: vi.fn(),
     onReturnToLive: vi.fn(),
+    onResumeRun: vi.fn(),
     onSelectEntry: vi.fn(),
     onSubmitForm: vi.fn(),
     onWidthChange: vi.fn(),
@@ -83,6 +87,45 @@ describe("LiveCanvas TinyOS", () => {
     })} />);
     expect((screen.getByRole("button", { name: "Cancel command pending" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("Awaiting runtime")).toBeTruthy();
+  });
+
+  it("routes pause and resume through the shared run controller", async () => {
+    const onPauseRun = vi.fn();
+    const onResumeRun = vi.fn();
+    const { rerender } = render(<LiveCanvas {...canvasProps([], { canPauseRun: true, onPauseRun, onResumeRun })} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Pause active Agent run" }));
+    expect(onPauseRun).toHaveBeenCalledTimes(1);
+
+    rerender(<LiveCanvas {...canvasProps([], { canResumeRun: true, onPauseRun, onResumeRun })} />);
+    await userEvent.click(screen.getByRole("button", { name: "Resume paused Agent run" }));
+    expect(onResumeRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks Agent requests from History as new live operations", async () => {
+    const onAgentRequest = vi.fn();
+    const fileEntry = entry(step({
+      id: "file-history-1",
+      title: "workspace.read_file",
+      toolCall: {
+        argsJson: { path: "src/main.ts" },
+        id: "file-history-call-1",
+        name: "workspace.read_file",
+        resultPreview: "export const ready = true;",
+      },
+    }));
+    render(<LiveCanvas {...canvasProps([fileEntry], {
+      canRequestChange: true,
+      mode: "history",
+      onAgentRequest,
+      selection: fileEntry,
+    })} />);
+
+    const files = screen.getByLabelText("Files window");
+    await userEvent.click(within(files).getByRole("button", { name: "export const ready = true;" }));
+    await userEvent.click(within(files).getByRole("button", { name: "Explain" }));
+
+    expect(onAgentRequest).toHaveBeenCalledWith(expect.objectContaining({ kind: "file" }), "explain", true);
   });
 
   it("routes retry for the failed canonical operation through the shared callback", async () => {

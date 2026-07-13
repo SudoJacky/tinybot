@@ -18,9 +18,11 @@ import {
   ListChecks,
   Maximize2,
   MemoryStick,
+  MessageCircleQuestion,
   Minus,
   Pause,
   Paperclip,
+  PencilLine,
   Play,
   Search,
   ShieldCheck,
@@ -41,6 +43,8 @@ import {
   loadTinyOsLayout,
   reduceTinyOsUiState,
   saveTinyOsLayout,
+  type TinyOsAgentRequestIntent,
+  type TinyOsAgentRequestReference,
   type TinyOsLayoutMode,
   type TinyOsContextReference,
   type TinyOsWindowRect,
@@ -84,7 +88,7 @@ export function TinyOsShell({
   onCancelForm,
   onAttachContext,
   onOpenArtifact,
-  onRequestExplanation,
+  onAgentRequest,
   onResolveApproval,
   onRetryOperation,
   onSelectEntry,
@@ -105,7 +109,7 @@ export function TinyOsShell({
   onCancelForm: (form: AgentUiForm) => void;
   onAttachContext: (reference: TinyOsContextReference) => void;
   onOpenArtifact: (artifact: ArtifactRef) => void;
-  onRequestExplanation: (reference: TinyOsContextReference) => void;
+  onAgentRequest: (reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent) => void;
   onResolveApproval: (approvalId: string, action: ApprovalAction) => void;
   onRetryOperation: (entry: TinyOsTimelineEntry) => void;
   onSelectEntry: (entry: TinyOsTimelineEntry) => void;
@@ -307,7 +311,7 @@ export function TinyOsShell({
             onMaximize={() => dispatchUi({ appId: window.appId, type: "maximize_toggle" })}
             onMinimize={() => minimizeApp(window.appId)}
             onOpenArtifact={onOpenArtifact}
-            onRequestExplanation={onRequestExplanation}
+            onAgentRequest={onAgentRequest}
             onSetRect={(rect) => dispatchUi({ appId: window.appId, rect, type: "set_rect" })}
             onSnap={(edge) => dispatchUi({ appId: window.appId, edge, type: "snap" })}
             onTabChange={(tabId) => dispatchUi({ appId: window.appId, tabId, type: "set_active_tab" })}
@@ -379,7 +383,7 @@ function TinyOsAppWindow({
   onMaximize,
   onMinimize,
   onOpenArtifact,
-  onRequestExplanation,
+  onAgentRequest,
   onSetRect,
   onSnap,
   onTabChange,
@@ -399,7 +403,7 @@ function TinyOsAppWindow({
   onMaximize: () => void;
   onMinimize: () => void;
   onOpenArtifact: (artifact: ArtifactRef) => void;
-  onRequestExplanation: (reference: TinyOsContextReference) => void;
+  onAgentRequest: (reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent) => void;
   onSetRect: (rect: TinyOsWindowRect) => void;
   onSnap: (edge: "left" | "right") => void;
   onTabChange: (tabId: string) => void;
@@ -535,7 +539,7 @@ function TinyOsAppWindow({
           window={window}
           onAttachContext={onAttachContext}
           onOpenArtifact={onOpenArtifact}
-          onRequestExplanation={onRequestExplanation}
+          onAgentRequest={onAgentRequest}
           onTabChange={onTabChange}
           requestChangeUnavailableReason={requestChangeUnavailableReason}
         />
@@ -553,16 +557,16 @@ function TinyOsAppWindow({
   );
 }
 
-function TinyOsAppContent({ activeTabId, canRequestChange, filesController, layoutMode, window, onAttachContext, onOpenArtifact, onRequestExplanation, onTabChange, requestChangeUnavailableReason }: { activeTabId?: string; canRequestChange: boolean; filesController?: TinyOsFilesController; layoutMode: TinyOsLayoutMode; window: TinyOsWindow; onAttachContext: (reference: TinyOsContextReference) => void; onOpenArtifact: (artifact: ArtifactRef) => void; onRequestExplanation: (reference: TinyOsContextReference) => void; onTabChange: (tabId: string) => void; requestChangeUnavailableReason?: string }) {
+function TinyOsAppContent({ activeTabId, canRequestChange, filesController, layoutMode, window, onAgentRequest, onAttachContext, onOpenArtifact, onTabChange, requestChangeUnavailableReason }: { activeTabId?: string; canRequestChange: boolean; filesController?: TinyOsFilesController; layoutMode: TinyOsLayoutMode; window: TinyOsWindow; onAgentRequest: (reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent) => void; onAttachContext: (reference: TinyOsContextReference) => void; onOpenArtifact: (artifact: ArtifactRef) => void; onTabChange: (tabId: string) => void; requestChangeUnavailableReason?: string }) {
   switch (window.appId) {
     case "files": return filesController?.queryAvailable || !window.entries.length
       ? filesController
-        ? <TinyOsFilesExplorer canRequestChange={canRequestChange} controller={filesController} layoutMode={layoutMode} onAttachContext={onAttachContext} onRequestExplanation={onRequestExplanation} requestChangeUnavailableReason={requestChangeUnavailableReason} />
+        ? <TinyOsFilesExplorer canRequestChange={canRequestChange} controller={filesController} layoutMode={layoutMode} onAttachContext={onAttachContext} onRequestExplanation={(reference) => onAgentRequest(reference, "explain")} onRequestModification={(reference) => onAgentRequest(reference, "modify")} requestChangeUnavailableReason={requestChangeUnavailableReason} />
         : <EmptyCopy text="Workspace Explorer is unavailable." />
-      : <TinyOsFiles activeTabId={activeTabId} window={window} onAttachContext={onAttachContext} onTabChange={onTabChange} />;
-    case "terminal": return <TinyOsTerminal activeTabId={activeTabId} window={window} onAttachContext={onAttachContext} onTabChange={onTabChange} />;
+      : <TinyOsFiles activeTabId={activeTabId} canRequestChange={canRequestChange} window={window} onAgentRequest={onAgentRequest} onAttachContext={onAttachContext} onTabChange={onTabChange} requestChangeUnavailableReason={requestChangeUnavailableReason} />;
+    case "terminal": return <TinyOsTerminal activeTabId={activeTabId} canRequestChange={canRequestChange} window={window} onAgentRequest={onAgentRequest} onAttachContext={onAttachContext} onTabChange={onTabChange} requestChangeUnavailableReason={requestChangeUnavailableReason} />;
     case "browser": return <TinyOsBrowser window={window} onOpenArtifact={onOpenArtifact} />;
-    case "plan": return <TinyOsPlan entry={[...window.entries].reverse().find(({ step }) => Boolean(step.plan)) ?? window.entries[window.entries.length - 1]} />;
+    case "plan": return <TinyOsPlan canRequestChange={canRequestChange} entry={[...window.entries].reverse().find(({ step }) => Boolean(step.plan)) ?? window.entries[window.entries.length - 1]} onAgentRequest={onAgentRequest} requestChangeUnavailableReason={requestChangeUnavailableReason} />;
     case "memory": return <TinyOsMemory window={window} />;
     case "subagents": return <TinyOsSubagents window={window} />;
     case "artifacts": return <TinyOsArtifacts window={window} onOpenArtifact={onOpenArtifact} />;
@@ -570,7 +574,7 @@ function TinyOsAppContent({ activeTabId, canRequestChange, filesController, layo
   }
 }
 
-function TinyOsFiles({ activeTabId, onAttachContext, onTabChange, window }: { activeTabId?: string; onAttachContext: (reference: TinyOsContextReference) => void; onTabChange: (tabId: string) => void; window: TinyOsWindow }) {
+function TinyOsFiles({ activeTabId, canRequestChange, onAgentRequest, onAttachContext, onTabChange, requestChangeUnavailableReason, window }: { activeTabId?: string; canRequestChange: boolean; onAgentRequest: (reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent) => void; onAttachContext: (reference: TinyOsContextReference) => void; onTabChange: (tabId: string) => void; requestChangeUnavailableReason?: string; window: TinyOsWindow }) {
   const files = distinctLatestFiles(window.entries.map((entry) => ({ entry, path: filePath(entry.step) })));
   const active = files.find(({ entry }) => entry.step.id === activeTabId) ?? files[files.length - 1];
   const content = fileContent(active.entry.step);
@@ -590,6 +594,15 @@ function TinyOsFiles({ activeTabId, onAttachContext, onTabChange, window }: { ac
   const selectedText = selectionStart !== undefined && selectionEnd !== undefined
     ? boundedSelectionText(lines.slice(selectionStart - 1, selectionEnd).join("\n"))
     : "";
+  const selectedReference: TinyOsContextReference | undefined = selectionStart !== undefined && selectionEnd !== undefined ? {
+    endLine: selectionEnd,
+    kind: "file",
+    path: active.path,
+    provenance: { kind: "canonical", sourceItemId: active.entry.step.id, turnId: active.entry.turnId },
+    selectedText,
+    startLine: selectionStart,
+    ...(fileRevision(active.entry.step) ? { revision: fileRevision(active.entry.step) } : {}),
+  } : undefined;
   return (
     <div className="tinyos-files">
       <aside>
@@ -609,13 +622,13 @@ function TinyOsFiles({ activeTabId, onAttachContext, onTabChange, window }: { ac
           const selected = selectionStart !== undefined && selectionEnd !== undefined && lineNumber >= selectionStart && lineNumber <= selectionEnd;
           return <li data-selected={selected ? "true" : undefined} key={index}><button type="button" onClick={(event) => selectLine(lineNumber, event.shiftKey)}><code>{line || " "}</code></button></li>;
         })}</ol> : <EmptyCopy text={active.entry.step.summary || "No file preview was returned."} />}
-        <footer className="tinyos-files__status"><span>{fileLanguage(active.path)}</span><span>UTF-8</span>{selectionStart ? <button type="button" onClick={() => onAttachContext({ kind: "file", path: active.path, provenance: { kind: "canonical", sourceItemId: active.entry.step.id, turnId: active.entry.turnId }, selectedText, startLine: selectionStart, endLine: selectionEnd, ...(fileRevision(active.entry.step) ? { revision: fileRevision(active.entry.step) } : {}) })}><Paperclip aria-hidden="true" size={11} />Attach {active.path} · L{selectionStart}{selectionEnd !== selectionStart ? `–${selectionEnd}` : ""}</button> : null}<span>Canonical item {active.entry.step.sequence + 1}</span></footer>
+        <footer className="tinyos-files__status"><span>{fileLanguage(active.path)}</span><span>UTF-8</span>{selectedReference ? <button type="button" onClick={() => onAttachContext(selectedReference)}><Paperclip aria-hidden="true" size={11} />Attach {active.path} · L{selectionStart}{selectionEnd !== selectionStart ? `–${selectionEnd}` : ""}</button> : null}{selectedReference ? <button disabled={!canRequestChange} title={canRequestChange ? "Ask Agent to explain this selection" : requestChangeUnavailableReason} type="button" onClick={() => onAgentRequest(selectedReference, "explain")}><MessageCircleQuestion aria-hidden="true" size={11} />Explain</button> : null}{selectedReference ? <button disabled={!canRequestChange} title={canRequestChange ? "Ask Agent to modify this selection" : requestChangeUnavailableReason} type="button" onClick={() => onAgentRequest(selectedReference, "modify")}><PencilLine aria-hidden="true" size={11} />Modify</button> : null}<span>Canonical item {active.entry.step.sequence + 1}</span></footer>
       </section>
     </div>
   );
 }
 
-function TinyOsTerminal({ activeTabId, onAttachContext, onTabChange, window }: { activeTabId?: string; onAttachContext: (reference: TinyOsContextReference) => void; onTabChange: (tabId: string) => void; window: TinyOsWindow }) {
+function TinyOsTerminal({ activeTabId, canRequestChange, onAgentRequest, onAttachContext, onTabChange, requestChangeUnavailableReason, window }: { activeTabId?: string; canRequestChange: boolean; onAgentRequest: (reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent) => void; onAttachContext: (reference: TinyOsContextReference) => void; onTabChange: (tabId: string) => void; requestChangeUnavailableReason?: string; window: TinyOsWindow }) {
   const active = window.entries.find((entry) => entry.step.id === activeTabId) ?? window.entries[window.entries.length - 1];
   const [follow, setFollow] = useState(true);
   const [query, setQuery] = useState("");
@@ -636,6 +649,15 @@ function TinyOsTerminal({ activeTabId, onAttachContext, onTabChange, window }: {
   const selectedText = selectionStart !== undefined && selectionEnd !== undefined
     ? boundedSelectionText(outputLines.slice(selectionStart, selectionEnd + 1).join("\n"))
     : "";
+  const selectedReference: TinyOsContextReference | undefined = selectionStart !== undefined && selectionEnd !== undefined ? {
+    command: terminalCommand(active.step),
+    endLine: selectionEnd + 1,
+    kind: "terminal",
+    selectedText,
+    sourceItemId: active.step.id,
+    startLine: selectionStart + 1,
+    turnId: active.turnId,
+  } : undefined;
   const metadata = terminalMetadata(active.step);
 
   useEffect(() => {
@@ -684,7 +706,7 @@ function TinyOsTerminal({ activeTabId, onAttachContext, onTabChange, window }: {
           return <li data-current-match={currentMatch === index ? "true" : undefined} data-line={index} data-match={matches ? "true" : undefined} data-selected={selected ? "true" : undefined} key={index}><button type="button" onClick={(event) => selectLine(index, event.shiftKey)}><code>{line || " "}</code></button></li>;
         })}</ol>
       </div>
-      <footer><span>{metadata.cwd ? `cwd ${metadata.cwd}` : `Agent ${active.step.agentContext.title}`}</span><span>{metadata.exit}</span><span>{active.step.toolCall?.durationMs !== undefined ? `${active.step.toolCall.durationMs} ms` : statusLabel(active.step.status)}</span>{selectionStart !== undefined && selectionEnd !== undefined ? <button type="button" onClick={() => onAttachContext({ command: terminalCommand(active.step), endLine: selectionEnd + 1, kind: "terminal", selectedText, sourceItemId: active.step.id, startLine: selectionStart + 1, turnId: active.turnId })}><Paperclip aria-hidden="true" size={11} />Attach L{selectionStart + 1}{selectionEnd === selectionStart ? "" : `–${selectionEnd + 1}`}</button> : <span>{follow ? "Following output" : "Follow paused"}</span>}{outputTruncated ? <span>Showing last 499 output lines</span> : null}<span>{stream} · Canonical item {active.step.sequence + 1}</span></footer>
+      <footer><span>{metadata.cwd ? `cwd ${metadata.cwd}` : `Agent ${active.step.agentContext.title}`}</span><span>{metadata.exit}</span><span>{active.step.toolCall?.durationMs !== undefined ? `${active.step.toolCall.durationMs} ms` : statusLabel(active.step.status)}</span>{selectedReference ? <button type="button" onClick={() => onAttachContext(selectedReference)}><Paperclip aria-hidden="true" size={11} />Attach L{selectedReference.startLine}{selectedReference.endLine === selectedReference.startLine ? "" : `–${selectedReference.endLine}`}</button> : <span>{follow ? "Following output" : "Follow paused"}</span>}{selectedReference ? <button disabled={!canRequestChange} title={canRequestChange ? "Ask Agent to explain this output" : requestChangeUnavailableReason} type="button" onClick={() => onAgentRequest(selectedReference, "explain")}><MessageCircleQuestion aria-hidden="true" size={11} />Explain</button> : null}{selectedReference ? <button disabled={!canRequestChange} title={canRequestChange ? "Continue with Agent using this output" : requestChangeUnavailableReason} type="button" onClick={() => onAgentRequest(selectedReference, "follow_up")}><Play aria-hidden="true" size={11} />Continue with Agent</button> : null}{outputTruncated ? <span>Showing last 499 output lines</span> : null}<span>{stream} · Canonical item {active.step.sequence + 1}</span></footer>
     </div>
   );
 }
@@ -702,9 +724,11 @@ function TinyOsBrowser({ window, onOpenArtifact }: { window: TinyOsWindow; onOpe
   );
 }
 
-function TinyOsPlan({ entry }: { entry: TinyOsTimelineEntry }) {
+function TinyOsPlan({ canRequestChange, entry, onAgentRequest, requestChangeUnavailableReason }: { canRequestChange: boolean; entry: TinyOsTimelineEntry; onAgentRequest: (reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent) => void; requestChangeUnavailableReason?: string }) {
   const plan = entry.step.plan;
+  const [adjustment, setAdjustment] = useState("");
   if (!plan) return <EmptyCopy text="No plan snapshot is available." />;
+  const snapshotText = JSON.stringify({ explanation: plan.explanation, steps: plan.steps });
   return (
     <div className="tinyos-plan">
       <header><h3>Execution plan</h3><span>{plan.completed}/{plan.total}</span></header>
@@ -715,6 +739,15 @@ function TinyOsPlan({ entry }: { entry: TinyOsTimelineEntry }) {
           <span>{item.step}</span><small>{item.status.replace(/_/g, " ")}</small>
         </li>
       ))}</ol>
+      <form onSubmit={(event) => {
+        event.preventDefault();
+        const requestedAdjustment = adjustment.trim();
+        if (!canRequestChange || !requestedAdjustment) return;
+        onAgentRequest({ adjustment: requestedAdjustment, kind: "plan", snapshotText, sourceItemId: entry.step.id, turnId: entry.turnId }, "adjust_plan");
+      }}>
+        <input aria-label="Requested plan adjustment" disabled={!canRequestChange} maxLength={2_048} placeholder="Describe a plan adjustment" value={adjustment} onChange={(event) => setAdjustment(event.currentTarget.value)} />
+        <button disabled={!canRequestChange || !adjustment.trim()} title={canRequestChange ? "Request a new live plan adjustment" : requestChangeUnavailableReason} type="submit"><PencilLine aria-hidden="true" size={11} />Ask Agent to adjust</button>
+      </form>
     </div>
   );
 }

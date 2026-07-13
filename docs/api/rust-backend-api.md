@@ -961,6 +961,13 @@ an invalidation hint only: clients reload the canonical runtime state and verify
 system notice. The eventual `agent.cancelled` item remains a separate operation-completion item and
 retains the same `commandId`.
 
+`agent.pause` and `agent.resume` use the native `command` frame and target the same active `run_id`.
+Pause is cooperative: the runtime records `pause_requested`, then enters canonical `paused` state at
+the next safe boundary before a provider call or after a provider response and before Tool execution.
+The same owned run remains active while paused. Resume unblocks that run and restores its previous
+runtime phase. Correlated `agent.paused` and `agent.resumed` system notices are operation-completion
+items distinct from their command acknowledgements. Cancellation remains available while paused.
+
 Approval resolution and Agent UI form actions use the same envelope on a native `command` frame.
 `approval.resolve` carries the approval decision and scope; `form.submit` carries `form_id` and
 validated `values`; `form.cancel` carries only `form_id`. Rust validates the pending checkpoint and
@@ -976,12 +983,14 @@ retry hydrates the existing session history into a new run, emits its correlated
 item as operation completion.
 
 `agent.request_change` starts a new correlated run for an Agent follow-up grounded in structured
-TinyOS file references. The first migrated product action is **Ask Agent to explain**: the desktop
-sends a fixed read-only explanation instruction plus one or more `tinyos.file` references. Rust
-requires a non-empty instruction and 1–16 bounded file ranges, enforces the 64 KiB serialized
-reference limit, and rejects stale observed-run state or any active run before provider work. A
-valid request persists the references on the new canonical `user_message`, emits the correlated
-command acknowledgement, and completes at the new run's terminal canonical item.
+TinyOS evidence. Files explanation/modification uses bounded `tinyos.file` references, Terminal
+explanation/follow-up uses bounded `tinyos.terminal` references with canonical item identity, and
+Plan adjustment uses a `tinyos.plan` snapshot plus canonical identity. Rust requires a non-empty
+instruction and 1–16 validated references, enforces the 64 KiB serialized reference limit, and
+rejects stale observed-run state or any active run before provider work. A valid request persists
+the references on the new canonical `user_message`, emits the correlated command acknowledgement,
+and completes at the new run's terminal canonical item. Requests issued from a History view still
+create this new live run and never mutate the historical snapshot.
 
 `GET /api/sessions/{key}/effective-capabilities` and the native
 `worker_session_effective_capabilities` command return `tinybot.effective_capabilities.v1` decisions.
@@ -989,6 +998,8 @@ Unavailable decisions include both `reasonCode` and a user-facing `reason`; the 
 the evaluated run used for the decision when present. Retry is available only when that latest run
 is failed and no active run supersedes it. `files.requestChange` is available when workspace read
 access is granted, the workspace root is available, and no run is active.
+`agent.pause` is available for a running run; `agent.resume` is available only when the evaluated
+run has `status: "waiting"` and `phase: "paused"`.
 
 Product-facing canonical item data includes the following lifecycle details:
 

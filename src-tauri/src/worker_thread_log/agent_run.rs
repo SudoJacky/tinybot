@@ -922,7 +922,7 @@ fn apply_agent_status_snapshot(record: &mut AgentRunRecord, event: &Value) {
 
 fn agent_run_status_from_phase(phase: &str) -> AgentRunStatus {
     match phase {
-        "awaiting_approval" | "awaiting_form" | "awaiting_subagent" | "queued" => {
+        "awaiting_approval" | "awaiting_form" | "awaiting_subagent" | "paused" | "queued" => {
             AgentRunStatus::Waiting
         }
         "interrupted" => AgentRunStatus::Interrupted,

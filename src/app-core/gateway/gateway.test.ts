@@ -2224,6 +2224,23 @@ describe("gateway WebSocket client", () => {
     });
     expect(createGatewaySocketMessage.command("chat-1", {
       schemaVersion: "tinybot.command.v1",
+      commandId: "command-pause-1",
+      issuedAt: "2026-07-13T00:00:00Z",
+      kind: "agent.pause",
+      source: { control: "system-bar-pause", surface: "tinyos" },
+      target: { runId: "run-1", sessionId: "websocket:chat-1", turnId: "run-1" },
+    })).toEqual({
+      type: "command",
+      chat_id: "chat-1",
+      command_id: "command-pause-1",
+      command_kind: "agent.pause",
+      run_id: "run-1",
+      session_id: "websocket:chat-1",
+      source: { control: "system-bar-pause", surface: "tinyos" },
+      turn_id: "run-1",
+    });
+    expect(createGatewaySocketMessage.command("chat-1", {
+      schemaVersion: "tinybot.command.v1",
       commandId: "command-approval-1",
       issuedAt: "2026-07-13T00:00:00Z",
       kind: "approval.resolve",

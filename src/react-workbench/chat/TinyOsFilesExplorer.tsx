@@ -11,6 +11,7 @@ import {
   Loader2,
   MessageCircleQuestion,
   Paperclip,
+  PencilLine,
   RefreshCw,
   Search,
   X,
@@ -26,6 +27,7 @@ export function TinyOsFilesExplorer({
   layoutMode,
   onAttachContext,
   onRequestExplanation,
+  onRequestModification,
   requestChangeUnavailableReason,
 }: {
   canRequestChange: boolean;
@@ -33,6 +35,7 @@ export function TinyOsFilesExplorer({
   layoutMode: TinyOsLayoutMode;
   onAttachContext: (reference: TinyOsContextReference) => void;
   onRequestExplanation: (reference: TinyOsContextReference) => void;
+  onRequestModification: (reference: TinyOsContextReference) => void;
   requestChangeUnavailableReason?: string;
 }) {
   const { state } = controller;
@@ -81,6 +84,7 @@ export function TinyOsFilesExplorer({
           onAttachContext={onAttachContext}
           onBrowseDirectory={browseDirectory}
           onRequestExplanation={onRequestExplanation}
+          onRequestModification={onRequestModification}
           requestChangeUnavailableReason={requestChangeUnavailableReason}
         />
       ) : null}
@@ -212,6 +216,7 @@ function WorkspaceDocument({
   onAttachContext,
   onBrowseDirectory,
   onRequestExplanation,
+  onRequestModification,
   requestChangeUnavailableReason,
 }: {
   canRequestChange: boolean;
@@ -220,6 +225,7 @@ function WorkspaceDocument({
   onAttachContext: (reference: TinyOsContextReference) => void;
   onBrowseDirectory: (path: string) => void;
   onRequestExplanation: (reference: TinyOsContextReference) => void;
+  onRequestModification: (reference: TinyOsContextReference) => void;
   requestChangeUnavailableReason?: string;
 }) {
   const { state } = controller;
@@ -329,6 +335,14 @@ function WorkspaceDocument({
             type="button"
             onClick={() => onRequestExplanation(selectedReference)}
           ><MessageCircleQuestion aria-hidden="true" size={11} />Ask Agent to explain</button>
+        ) : null}
+        {selectedReference ? (
+          <button
+            disabled={!canRequestChange}
+            title={canRequestChange ? "Ask Agent to modify this selection" : requestChangeUnavailableReason}
+            type="button"
+            onClick={() => onRequestModification(selectedReference)}
+          ><PencilLine aria-hidden="true" size={11} />Ask Agent to modify</button>
         ) : null}
         <span>{document ? `${formatBytes(document.content.length)} loaded / ${formatBytes(document.sizeBytes)}` : ""}</span>
       </footer>

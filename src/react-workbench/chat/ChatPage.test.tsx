@@ -2747,6 +2747,36 @@ describe("ChatPage", () => {
     }));
   });
 
+  it("dispatches pause from Chat through the correlated run controller", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Planning notes",
+        updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+        status: "running",
+      }],
+    });
+    const runningTimeline = await stores.chatStore.load("s1");
+    const run = runningTimeline.turns[runningTimeline.turns.length - 1];
+    run.status = "running";
+    vi.mocked(stores.chatStore.load).mockResolvedValue(runningTimeline);
+    const capabilities = effectiveCapabilities("s1");
+    capabilities.evaluatedRunId = run.id;
+    capabilities.capabilities.agent.pause = { available: true };
+    vi.mocked(stores.chatStore.loadTinyOsCapabilities).mockResolvedValue(capabilities);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    await user.click(await screen.findByRole("button", { name: "Pause" }));
+    expect(stores.chatStore.dispatchCommand).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "agent.pause",
+      source: { control: "chat-pause", surface: "chat" },
+      target: expect.objectContaining({ runId: run.id, sessionId: "s1" }),
+    }));
+  });
+
   it("disables cancellation with the backend-authored unavailable reason", async () => {
     const stores = createStores({
       sessions: [{

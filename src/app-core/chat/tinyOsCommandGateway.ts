@@ -60,6 +60,20 @@ export type TinyOsFormSubmitCommand = {
   };
 };
 
+export type TinyOsAgentRunControlCommand = {
+  schemaVersion: "tinybot.command.v1";
+  commandId: string;
+  issuedAt: string;
+  kind: "agent.pause" | "agent.resume";
+  source: TinyOsCommandSource;
+  target: {
+    runId: string;
+    sessionId: string;
+    threadId?: string;
+    turnId?: string;
+  };
+};
+
 export type TinyOsFormCancelCommand = {
   schemaVersion: "tinybot.command.v1";
   commandId: string;
@@ -115,6 +129,7 @@ export type TinyOsAgentRequestChangeCommand = {
 };
 
 export type TinyOsCommand = TinyOsAgentCancelCommand
+  | TinyOsAgentRunControlCommand
   | TinyOsApprovalResolveCommand
   | TinyOsFormSubmitCommand
   | TinyOsFormCancelCommand
@@ -233,6 +248,31 @@ export function createTinyOsFormSubmitCommand(input: {
     form: {
       formId: input.formId,
       values: { ...input.values },
+    },
+  };
+}
+
+export function createTinyOsAgentRunControlCommand(input: {
+  commandId?: string;
+  issuedAt?: string;
+  kind: "agent.pause" | "agent.resume";
+  runId: string;
+  sessionId: string;
+  source: TinyOsCommandSource;
+  threadId?: string;
+  turnId?: string;
+}): TinyOsAgentRunControlCommand {
+  return {
+    schemaVersion: "tinybot.command.v1",
+    commandId: input.commandId ?? createTinyOsCommandId(),
+    issuedAt: input.issuedAt ?? new Date().toISOString(),
+    kind: input.kind,
+    source: input.source,
+    target: {
+      runId: input.runId,
+      sessionId: input.sessionId,
+      ...(input.threadId ? { threadId: input.threadId } : {}),
+      ...(input.turnId ? { turnId: input.turnId } : {}),
     },
   };
 }
@@ -412,6 +452,17 @@ export function canonicalTinyOsCommandCompletion(
       revision: item.revision,
       status: turn.status === "completed" ? "completed" : turn.status === "failed" ? "failed" : "cancelled",
     };
+  }
+  if (typeof command !== "string" && (command.kind === "agent.pause" || command.kind === "agent.resume")) {
+    const turn = turns.find((candidate) => candidate.id === command.target.runId);
+    const item = [...(turn?.canonicalItems ?? [])].reverse().find((candidate) => {
+      if (candidate.kind !== "system_notice" || candidate.status !== "completed") return false;
+      const data = recordValue(candidate.data);
+      const detail = recordValue(data.detail);
+      return detail.commandId === command.commandId && detail.commandStatus !== "acknowledged";
+    });
+    if (!item) return undefined;
+    return { itemId: item.itemId, revision: item.revision, status: item.status === "failed" ? "failed" : item.status === "cancelled" ? "cancelled" : "completed" };
   }
   const commandId = typeof command === "string" ? command : command.commandId;
   for (const turn of turns) {

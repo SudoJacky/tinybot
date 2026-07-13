@@ -10,8 +10,8 @@ use crate::worker_protocol::WorkerRequest;
 use crate::worker_request_id::{next_worker_request_correlation, WorkerRequestCorrelation};
 use crate::worker_thread_log::now_thread_timestamp;
 use crate::{
-    call_rust_state_service, experimental_worker_config_snapshot, native_backend_workspace_root,
-    SharedGateway,
+    call_rust_state_service, experimental_worker_config_snapshot, lock_runtime,
+    native_backend_workspace_root, SharedGateway,
 };
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, sync::Arc, time::Duration};
@@ -598,11 +598,84 @@ async fn dispatch_tinyos_command(
             )
             .await
         }
+        Some("agent.pause" | "agent.resume") => {
+            dispatch_tinyos_agent_run_control_command(
+                shared,
+                transport,
+                workspace_root,
+                config_snapshot,
+            )
+            .await
+        }
         command_kind => Err(format!(
             "unsupported TinyOS command kind: {}",
             command_kind.unwrap_or("missing")
         )),
     }
+}
+
+async fn dispatch_tinyos_agent_run_control_command(
+    shared: &SharedGateway,
+    mut transport: serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let session_id = required_transport_string(&transport, "sessionId")?;
+    let run_id = required_transport_string(&transport, "runId")?;
+    let command_id = required_transport_string(&transport, "commandId")?;
+    let command_kind = required_transport_string(&transport, "commandKind")?;
+    let task_runtime = {
+        let runtime = lock_runtime(shared);
+        runtime.native_agent_runtime.task_runtime()
+    };
+    let task_status = task_runtime
+        .status(&run_id)
+        .ok_or_else(|| format!("{command_kind} target run `{run_id}` was not found"))?;
+    if task_status.session_id != session_id {
+        return Err(format!(
+            "{command_kind} target run `{run_id}` belongs to session `{}`",
+            task_status.session_id
+        ));
+    }
+    match command_kind.as_str() {
+        "agent.pause" if !task_status.active || task_status.phase == "paused" => {
+            return Err(format!("agent.pause target run `{run_id}` is not running"));
+        }
+        "agent.resume" if !task_status.active || task_status.phase != "paused" => {
+            return Err(format!("agent.resume target run `{run_id}` is not paused"));
+        }
+        "agent.pause" | "agent.resume" => {}
+        _ => return Err(format!("unsupported TinyOS command kind: {command_kind}")),
+    }
+    persist_tinyos_command_acknowledgement(
+        workspace_root,
+        config_snapshot,
+        &session_id,
+        &run_id,
+        &command_id,
+        &transport,
+    )?;
+    let outcome = if command_kind == "agent.pause" {
+        task_runtime.request_pause(&run_id, &command_id)
+    } else {
+        task_runtime.request_resume(&run_id, &command_id)
+    }
+    .map_err(|error| format!("{command_kind} failed: {error}"))?;
+    transport["frames"] = serde_json::json!([
+        {
+            "event": "command_accepted",
+            "chat_id": transport.get("chatId").cloned().unwrap_or(serde_json::Value::Null),
+            "command_id": &command_id,
+            "run_id": &run_id,
+        },
+        {
+            "event": "command_canonical_updated",
+            "chat_id": transport.get("chatId").cloned().unwrap_or(serde_json::Value::Null),
+            "command_id": &command_id,
+            "run_id": &run_id,
+        }
+    ]);
+    Ok(serde_json::json!({ "transport": transport, "control": outcome }))
 }
 
 async fn dispatch_tinyos_approval_command(
@@ -992,31 +1065,7 @@ async fn dispatch_tinyos_agent_request_change_command(
         return Err("agent.request_change references exceed 64 KiB".to_string());
     }
     for reference in references {
-        let reference_type = reference.get("type").and_then(serde_json::Value::as_str);
-        let source_path = reference
-            .get("sourcePath")
-            .and_then(serde_json::Value::as_str)
-            .filter(|value| !value.trim().is_empty());
-        let source_line = reference
-            .get("sourceLine")
-            .and_then(serde_json::Value::as_u64)
-            .filter(|value| *value > 0);
-        let source_end_line = reference
-            .get("sourceEndLine")
-            .and_then(serde_json::Value::as_u64)
-            .filter(|value| source_line.is_some_and(|start| *value >= start));
-        if reference_type != Some("tinyos.file")
-            || source_path.is_none()
-            || source_line.is_none()
-            || source_end_line.is_none()
-            || !reference
-                .get("sourceText")
-                .is_some_and(serde_json::Value::is_string)
-        {
-            return Err(
-                "agent.request_change requires bounded TinyOS file-range references".to_string(),
-            );
-        }
+        validate_tinyos_agent_request_reference(reference)?;
     }
     validate_tinyos_followup_run_state(
         &session_id,
@@ -1052,6 +1101,55 @@ async fn dispatch_tinyos_agent_request_change_command(
         timeout,
     )
     .await
+}
+
+fn validate_tinyos_agent_request_reference(reference: &serde_json::Value) -> Result<(), String> {
+    let reference_type = reference.get("type").and_then(serde_json::Value::as_str);
+    let source_text_is_string = reference
+        .get("sourceText")
+        .is_some_and(serde_json::Value::is_string);
+    let canonical_identity_is_present = || {
+        reference
+            .get("evidenceId")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty())
+            && reference
+                .get("scope")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|value| !value.trim().is_empty())
+    };
+    let valid_line_range = || {
+        let source_line = reference
+            .get("sourceLine")
+            .and_then(serde_json::Value::as_u64)
+            .filter(|value| *value > 0);
+        reference
+            .get("sourceEndLine")
+            .and_then(serde_json::Value::as_u64)
+            .is_some_and(|end| source_line.is_some_and(|start| end >= start))
+    };
+    match reference_type {
+        Some("tinyos.file")
+            if reference
+                .get("sourcePath")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|value| !value.trim().is_empty())
+                && valid_line_range()
+                && source_text_is_string =>
+        {
+            Ok(())
+        }
+        Some("tinyos.terminal")
+            if canonical_identity_is_present() && valid_line_range() && source_text_is_string =>
+        {
+            Ok(())
+        }
+        Some("tinyos.plan") if canonical_identity_is_present() && source_text_is_string => Ok(()),
+        Some(reference_type) => Err(format!(
+            "agent.request_change received an invalid {reference_type} reference"
+        )),
+        None => Err("agent.request_change reference type is required".to_string()),
+    }
 }
 
 async fn dispatch_tinyos_new_run_command(

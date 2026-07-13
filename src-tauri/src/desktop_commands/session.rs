@@ -396,13 +396,27 @@ pub(crate) fn build_worker_session_effective_capabilities(
     let evaluated_run_status = evaluated_run
         .and_then(|run| run.get("status"))
         .and_then(serde_json::Value::as_str);
-    let cancel = match evaluated_run_status {
-        Some("running") => available_capability(),
-        Some("waiting") => unavailable_capability(
+    let evaluated_run_phase = evaluated_run
+        .and_then(|run| run.get("phase"))
+        .and_then(serde_json::Value::as_str);
+    let cancel = match (evaluated_run_status, evaluated_run_phase) {
+        (Some("running"), _) | (Some("waiting"), Some("paused")) => available_capability(),
+        (Some("waiting"), _) => unavailable_capability(
             "run_waiting",
             "Cancellation of a run waiting for user input is not supported yet.",
         ),
         _ => unavailable_capability("no_active_run", "The session has no active Agent run."),
+    };
+    let pause = if evaluated_run_status == Some("running") {
+        available_capability()
+    } else {
+        unavailable_capability("run_not_running", "Only a running Agent run can be paused.")
+    };
+    let resume = if evaluated_run_status == Some("waiting") && evaluated_run_phase == Some("paused")
+    {
+        available_capability()
+    } else {
+        unavailable_capability("run_not_paused", "The Agent run is not paused.")
     };
     let retry = match evaluated_run_status {
         Some("failed") => available_capability(),
@@ -431,7 +445,7 @@ pub(crate) fn build_worker_session_effective_capabilities(
     let request_change = if matches!(evaluated_run_status, Some("running" | "waiting")) {
         unavailable_capability(
             "run_active",
-            "Agent file requests are unavailable while a run is active.",
+            "Agent requests are unavailable while a run is active.",
         )
     } else if policy.allows(&WorkerCapability::FsWorkspaceRead) && workspace_available {
         available_capability()
@@ -453,8 +467,8 @@ pub(crate) fn build_worker_session_effective_capabilities(
         "evaluatedRunId": evaluated_run_id,
         "capabilities": {
             "agent": {
-                "pause": unavailable_capability("runtime_unsupported", "The Agent runtime does not support pausing a run."),
-                "resume": unavailable_capability("runtime_unsupported", "The Agent runtime does not support resuming a paused run."),
+                "pause": pause,
+                "resume": resume,
                 "cancel": cancel,
                 "retry": retry,
             },

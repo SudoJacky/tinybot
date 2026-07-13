@@ -376,6 +376,18 @@ async fn run_native_agent_turn_with_instructions_async(
                 iteration,
             ));
         }
+        honor_pause_request(services, &context, &mut state, iteration).await?;
+        if run_context_is_cancelled(&context) {
+            state.transition_phase(AgentRuntimePhase::Cancelled, iteration, "agent.cancelled");
+            return Ok(cancelled_run_result(
+                services,
+                &context,
+                state.take_runtime_events(),
+                std::mem::take(&mut state.tools_used),
+                std::mem::take(&mut state.completed_tool_results),
+                iteration,
+            ));
+        }
         save_phase_checkpoint(
             services,
             &context,
@@ -610,6 +622,7 @@ async fn run_native_agent_turn_with_instructions_async(
                 ));
             }
         };
+        honor_pause_request(services, &context, &mut state, iteration).await?;
         let provider_phase_conflict = match provider_message_phase {
             crate::agent_loop_runtime_protocol::AgentAssistantMessagePhase::FinalAnswer
                 if !provider_response.tool_calls.is_empty() =>
@@ -837,6 +850,60 @@ async fn run_native_agent_turn_with_instructions_async(
         "events": events,
         "runtimeEvents": runtime_events,
     }))
+}
+
+async fn honor_pause_request(
+    services: &NativeAgentRuntimeServices,
+    context: &NativeAgentRunContext,
+    state: &mut NativeAgentRunState,
+    iteration: i64,
+) -> Result<(), String> {
+    let Some(cancellation) = context.cancellation.as_ref() else {
+        return Ok(());
+    };
+    let Some(pause_command_id) = cancellation.begin_pause() else {
+        return Ok(());
+    };
+    let previous_phase = state.phase.clone();
+    state.transition_phase(AgentRuntimePhase::Paused, iteration, "agent.paused");
+    save_phase_checkpoint(
+        services,
+        context,
+        "paused",
+        state.active_checkpoint_payload("waiting"),
+    );
+    state.emit_event(
+        "agent.paused",
+        serde_json::json!({
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "commandId": pause_command_id,
+            "status": "completed",
+            "message": "Agent run paused at a safe boundary",
+        }),
+    );
+    let resume_command_id = tokio::select! {
+        result = cancellation.wait_for_resume() => result?,
+        _ = cancellation.cancelled() => return Ok(()),
+    };
+    state.transition_phase(previous_phase, iteration, "agent.resumed");
+    save_phase_checkpoint(
+        services,
+        context,
+        state.phase.as_str(),
+        state.active_checkpoint_payload("running"),
+    );
+    state.emit_event(
+        "agent.resumed",
+        serde_json::json!({
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "commandId": resume_command_id,
+            "status": "completed",
+            "message": "Agent run resumed",
+        }),
+    );
+    Ok(())
 }
 
 fn run_context_is_cancelled(context: &NativeAgentRunContext) -> bool {

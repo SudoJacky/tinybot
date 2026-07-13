@@ -7359,6 +7359,142 @@ fn async_provider_is_not_called_when_run_was_cancelled_before_request() {
 }
 
 #[test]
+fn async_provider_run_pauses_at_safe_boundary_and_resumes_same_run() {
+    struct BoundaryProvider {
+        release: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+        started: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+    }
+
+    impl NativeAgentProvider for BoundaryProvider {
+        fn complete(
+            &self,
+            _context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            panic!("async provider path should not call blocking completion");
+        }
+
+        fn complete_streaming_async<'a>(
+            self: Arc<Self>,
+            _context: &'a NativeAgentRunContext,
+            _observer: &'a mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = Result<NativeAgentProviderResponse, NativeAgentProviderFailure>,
+                    > + Send
+                    + 'a,
+            >,
+        > {
+            let started = self
+                .started
+                .lock()
+                .expect("provider start signal lock should not be poisoned")
+                .take();
+            let release = self
+                .release
+                .lock()
+                .expect("provider release signal lock should not be poisoned")
+                .take();
+            Box::pin(async move {
+                if let Some(started) = started {
+                    started.send(()).expect("provider start signal should send");
+                }
+                release
+                    .expect("provider release signal should exist")
+                    .await
+                    .expect("provider release signal should send");
+                Ok(NativeAgentProviderResponse {
+                    final_content: "done after resume".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: Vec::new(),
+                })
+            })
+        }
+    }
+
+    tauri::async_runtime::block_on(async {
+        let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
+        let (release_sender, release_receiver) = tokio::sync::oneshot::channel();
+        let trace_sink = Arc::new(RecordingTraceSink::default());
+        let recorded_events = trace_sink.events.clone();
+        let services = NativeAgentRuntimeServices::new(
+            Arc::new(BoundaryProvider {
+                release: Mutex::new(Some(release_receiver)),
+                started: Mutex::new(Some(started_sender)),
+            }),
+            Arc::new(FakeNativeAgentToolDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        )
+        .with_trace_sink(trace_sink);
+        let run_services = services.clone();
+        let run_task = tauri::async_runtime::spawn(async move {
+            run_native_agent_turn_with_config_async(
+                &run_services,
+                json!({
+                    "runtime": "rust",
+                    "runId": "run-safe-boundary-pause",
+                    "sessionId": "websocket:chat-safe-boundary-pause",
+                    "messages": [{ "role": "user", "content": "pause safely" }]
+                }),
+                json!({}),
+            )
+            .await
+        });
+        started_receiver
+            .await
+            .expect("provider should enter its request");
+
+        services
+            .task_runtime()
+            .request_pause("run-safe-boundary-pause", "command-pause-1")
+            .expect("pause request should be accepted");
+        release_sender
+            .send(())
+            .expect("provider release should send");
+        for _ in 0..200 {
+            if services
+                .task_runtime()
+                .status("run-safe-boundary-pause")
+                .is_some_and(|status| status.phase == "paused")
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        let paused_status = services
+            .task_runtime()
+            .status("run-safe-boundary-pause")
+            .expect("paused run status should exist");
+        assert_eq!(paused_status.phase, "paused");
+        assert!(paused_status.active);
+
+        services
+            .task_runtime()
+            .request_resume("run-safe-boundary-pause", "command-resume-1")
+            .expect("resume request should be accepted");
+        let result = run_task
+            .await
+            .expect("owned run task should join")
+            .expect("resumed run should complete");
+        let events = recorded_events
+            .lock()
+            .expect("recorded events lock should not be poisoned")
+            .clone();
+
+        assert_eq!(result["runId"], "run-safe-boundary-pause");
+        assert_eq!(result["finalContent"], "done after resume");
+        assert!(events.iter().any(|event| {
+            event.event_name == "agent.paused" && event.payload["commandId"] == "command-pause-1"
+        }));
+        assert!(events.iter().any(|event| {
+            event.event_name == "agent.resumed" && event.payload["commandId"] == "command-resume-1"
+        }));
+    });
+}
+
+#[test]
 fn async_provider_cancellation_after_partial_output_drops_stream_without_late_events() {
     struct DropSignal(Arc<AtomicBool>);
 

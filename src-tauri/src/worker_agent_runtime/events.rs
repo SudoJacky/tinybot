@@ -39,6 +39,7 @@ pub(super) fn runtime_status_label(phase: &AgentRuntimePhase) -> Option<&'static
         AgentRuntimePhase::AwaitingApproval => Some("Waiting for approval"),
         AgentRuntimePhase::AwaitingForm => Some("Waiting for form input"),
         AgentRuntimePhase::AwaitingSubagent => Some("Waiting for subagent"),
+        AgentRuntimePhase::Paused => Some("Paused"),
         AgentRuntimePhase::Finalizing => Some("Finalizing response"),
         AgentRuntimePhase::Completed => Some("Completed"),
         AgentRuntimePhase::Failed => Some("Failed"),

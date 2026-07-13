@@ -39,9 +39,19 @@ export type TinyOsTerminalReference = {
   turnId: string;
 };
 
+export type TinyOsPlanReference = {
+  adjustment: string;
+  sourceItemId: string;
+  snapshotText: string;
+  turnId: string;
+};
+
 export type TinyOsContextReference =
   | ({ kind: "file" } & TinyOsFileReference)
   | ({ kind: "terminal" } & TinyOsTerminalReference);
+
+export type TinyOsAgentRequestReference = TinyOsContextReference | ({ kind: "plan" } & TinyOsPlanReference);
+export type TinyOsAgentRequestIntent = "explain" | "modify" | "follow_up" | "adjust_plan";
 
 export type TinyOsUiState = {
   activeTabs: Partial<Record<TinyOsAppId, string>>;

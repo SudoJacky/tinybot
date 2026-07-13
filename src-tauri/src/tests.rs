@@ -5881,6 +5881,35 @@ fn worker_transport_websocket_maps_correlated_agent_request_change_command() {
 }
 
 #[test]
+fn worker_transport_websocket_maps_correlated_agent_pause_command() {
+    let transport = native_websocket_transport_result(&WorkerTransportWebSocketDispatchInput {
+        client_id: "client-1".to_string(),
+        frame: serde_json::json!({
+            "type": "command",
+            "chat_id": "chat-1",
+            "session_id": "websocket:chat-1",
+            "command_id": "command-pause-1",
+            "command_kind": "agent.pause",
+            "run_id": "run-1",
+            "turn_id": "run-1"
+        }),
+        attached_chat_id: Some("chat-1".to_string()),
+        session_exists: Some(true),
+        editable_paths: None,
+        model: None,
+        max_iterations: None,
+        run_id: Some("run-1".to_string()),
+        stream: None,
+    })
+    .expect("Agent pause command frame should produce a transport result");
+
+    assert_eq!(transport["kind"], "command");
+    assert_eq!(transport["commandKind"], "agent.pause");
+    assert_eq!(transport["commandId"], "command-pause-1");
+    assert_eq!(transport["runId"], "run-1");
+}
+
+#[test]
 fn worker_transport_agent_request_change_starts_new_correlated_run() {
     let fixture = WorkspaceFixture::new();
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
@@ -5896,6 +5925,24 @@ fn worker_transport_agent_request_change_starts_new_correlated_run() {
         "sourceEndLine": 1,
         "sourceText": "# Tinybot",
         "scope": "workspace-a"
+    }, {
+        "kind": "reference",
+        "title": "cargo test · L4–6",
+        "detail": "TinyOS terminal output selection",
+        "type": "tinyos.terminal",
+        "sourceLine": 4,
+        "sourceEndLine": 6,
+        "sourceText": "test failed",
+        "evidenceId": "terminal-item-1",
+        "scope": "run-terminal-1"
+    }, {
+        "kind": "reference",
+        "title": "Execution plan",
+        "detail": "TinyOS plan snapshot",
+        "type": "tinyos.plan",
+        "sourceText": "{\"steps\":[{\"step\":\"Verify\",\"status\":\"pending\"}]}",
+        "evidenceId": "plan-item-1",
+        "scope": "run-plan-1"
     }]);
     let request_config = serde_json::json!({
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
@@ -6548,14 +6595,7 @@ fn tinyos_effective_capabilities_are_backend_authored_and_run_scoped() {
         running["capabilities"]["agent"]["cancel"]["available"],
         true
     );
-    assert_eq!(
-        running["capabilities"]["agent"]["pause"]["available"],
-        false
-    );
-    assert_eq!(
-        running["capabilities"]["agent"]["pause"]["reasonCode"],
-        "runtime_unsupported"
-    );
+    assert_eq!(running["capabilities"]["agent"]["pause"]["available"], true);
     assert_eq!(running["capabilities"]["files"]["read"]["available"], true);
     assert_eq!(
         running["capabilities"]["agent"]["retry"]["reasonCode"],
@@ -6582,6 +6622,18 @@ fn tinyos_effective_capabilities_are_backend_authored_and_run_scoped() {
         waiting["capabilities"]["agent"]["cancel"]["reasonCode"],
         "run_waiting"
     );
+
+    let paused = crate::desktop_commands::session::build_worker_session_effective_capabilities(
+        "websocket:chat-1",
+        &serde_json::json!({
+            "runs": [{ "runId": "run-paused", "status": "waiting", "phase": "paused" }]
+        }),
+        true,
+        &policy,
+    );
+    assert_eq!(paused["capabilities"]["agent"]["resume"]["available"], true);
+    assert_eq!(paused["capabilities"]["agent"]["cancel"]["available"], true);
+    assert_eq!(paused["capabilities"]["agent"]["pause"]["available"], false);
 
     let failed = crate::desktop_commands::session::build_worker_session_effective_capabilities(
         "websocket:chat-1",

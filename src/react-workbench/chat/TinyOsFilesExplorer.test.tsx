@@ -56,7 +56,7 @@ function treeState(): TinyOsFilesState {
 describe("TinyOS Workspace Explorer", () => {
   it("loads tree items without recursive enumeration and supports tree keyboard navigation", async () => {
     const files = controller(treeState());
-    render(<TinyOsFilesExplorer canRequestChange={false} controller={files} layoutMode="workspace" onAttachContext={vi.fn()} onRequestExplanation={vi.fn()} />);
+    render(<TinyOsFilesExplorer canRequestChange={false} controller={files} layoutMode="workspace" onAttachContext={vi.fn()} onRequestExplanation={vi.fn()} onRequestModification={vi.fn()} />);
 
     const tree = screen.getByRole("tree", { name: "Workspace files" });
     const rows = within(tree).getAllByRole("treeitem");
@@ -72,6 +72,7 @@ describe("TinyOS Workspace Explorer", () => {
   it("creates an immutable workspace reference from a selected line range", async () => {
     const onAttachContext = vi.fn();
     const onRequestExplanation = vi.fn();
+    const onRequestModification = vi.fn();
     const files = controller({
       ...treeState(),
       activePath: "src/main.ts",
@@ -98,7 +99,7 @@ describe("TinyOS Workspace Explorer", () => {
         startLine: 1,
       },
     });
-    render(<TinyOsFilesExplorer canRequestChange controller={files} layoutMode="compact" onAttachContext={onAttachContext} onRequestExplanation={onRequestExplanation} />);
+    render(<TinyOsFilesExplorer canRequestChange controller={files} layoutMode="compact" onAttachContext={onAttachContext} onRequestExplanation={onRequestExplanation} onRequestModification={onRequestModification} />);
 
     expect(screen.queryByRole("tree")).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Attach L1–2" }));
@@ -121,11 +122,18 @@ describe("TinyOS Workspace Explorer", () => {
       selectedText: "const one = 1;\nconst two = 2;",
       startLine: 1,
     });
+    await userEvent.click(screen.getByRole("button", { name: "Ask Agent to modify" }));
+    expect(onRequestModification).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "file",
+      path: "src/main.ts",
+      startLine: 1,
+      endLine: 2,
+    }));
   });
 
   it("uses a separate tree surface in compact mode", async () => {
     const files = controller(treeState());
-    render(<TinyOsFilesExplorer canRequestChange={false} controller={files} layoutMode="compact" onAttachContext={vi.fn()} onRequestExplanation={vi.fn()} />);
+    render(<TinyOsFilesExplorer canRequestChange={false} controller={files} layoutMode="compact" onAttachContext={vi.fn()} onRequestExplanation={vi.fn()} onRequestModification={vi.fn()} />);
 
     expect(screen.getByRole("tree", { name: "Workspace files" })).toBeTruthy();
     expect(screen.queryByText("Select a UTF-8 text file to preview it.")).toBeNull();

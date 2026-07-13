@@ -33,6 +33,7 @@ pub enum AgentRuntimePhase {
     AwaitingApproval,
     AwaitingForm,
     AwaitingSubagent,
+    Paused,
     Finalizing,
     Completed,
     Failed,
@@ -53,6 +54,7 @@ impl AgentRuntimePhase {
             Self::AwaitingApproval => "awaiting_approval",
             Self::AwaitingForm => "awaiting_form",
             Self::AwaitingSubagent => "awaiting_subagent",
+            Self::Paused => "paused",
             Self::Finalizing => "finalizing",
             Self::Completed => "completed",
             Self::Failed => "failed",
@@ -68,6 +70,8 @@ impl AgentRuntimePhase {
             "agent.tool.start" | "agent.tool.result" => Self::ToolRunning,
             "agent.awaiting_approval" | "agent.approval.decision" => Self::AwaitingApproval,
             "agent.awaiting_form" | "agent.form.resolution" => Self::AwaitingForm,
+            "agent.paused" => Self::Paused,
+            "agent.resumed" => Self::Planning,
             event_name if event_name.starts_with("agent.delegate.") => Self::AwaitingSubagent,
             "agent.checkpoint" => Self::Planning,
             "agent.usage" => Self::CallingModel,
@@ -119,7 +123,10 @@ impl AgentTurnItemKind {
             "agent.awaiting_approval" | "agent.approval.decision" => Some(Self::Approval),
             "agent.awaiting_form" | "agent.form.resolution" => Some(Self::Form),
             "agent.error" | "agent.cancelled" => Some(Self::Error),
-            "agent.checkpoint" | "agent.command.acknowledged" => Some(Self::SystemNotice),
+            "agent.checkpoint"
+            | "agent.command.acknowledged"
+            | "agent.paused"
+            | "agent.resumed" => Some(Self::SystemNotice),
             _ if event_name.starts_with("agent.delegate.") => Some(Self::SubagentLifecycle),
             _ => None,
         }
@@ -1895,6 +1902,8 @@ fn projected_item_status(event: &AgentRuntimeEventEnvelope) -> AgentTurnItemStat
         | "agent.message.completed"
         | "agent.done"
         | "agent.command.acknowledged"
+        | "agent.paused"
+        | "agent.resumed"
         | "agent.tool.result"
         | "agent.approval.decision"
         | "agent.form.resolution" => AgentTurnItemStatus::Completed,
@@ -1907,7 +1916,8 @@ fn projected_item_status(event: &AgentRuntimeEventEnvelope) -> AgentTurnItemStat
             AgentRuntimePhase::Cancelled => AgentTurnItemStatus::Cancelled,
             AgentRuntimePhase::AwaitingApproval
             | AgentRuntimePhase::AwaitingForm
-            | AgentRuntimePhase::AwaitingSubagent => AgentTurnItemStatus::Waiting,
+            | AgentRuntimePhase::AwaitingSubagent
+            | AgentRuntimePhase::Paused => AgentTurnItemStatus::Waiting,
             _ => AgentTurnItemStatus::Running,
         },
     }

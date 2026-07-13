@@ -5,6 +5,7 @@ import {
   canonicalTinyOsCommandCompletion,
   createTinyOsAgentCancelCommand,
   createTinyOsAgentRequestChangeCommand,
+  createTinyOsAgentRunControlCommand,
   createTinyOsApprovalResolveCommand,
   createTinyOsFormCancelCommand,
   createTinyOsFormSubmitCommand,
@@ -57,6 +58,28 @@ describe("TinyOS command lifecycle", () => {
       },
       kind: "form.submit",
     });
+  });
+
+  test("creates pause and resume commands for the same run identity", () => {
+    const pause = createTinyOsAgentRunControlCommand({
+      commandId: "command-pause-1",
+      issuedAt: "2026-07-13T00:00:00Z",
+      kind: "agent.pause",
+      runId: "run-1",
+      sessionId: "websocket:chat-1",
+      source: { control: "chat-pause", surface: "chat" },
+    });
+    const resume = createTinyOsAgentRunControlCommand({
+      commandId: "command-resume-1",
+      issuedAt: "2026-07-13T00:00:01Z",
+      kind: "agent.resume",
+      runId: "run-1",
+      sessionId: "websocket:chat-1",
+      source: { control: "system-bar-resume", surface: "tinyos" },
+    });
+
+    expect(pause).toMatchObject({ kind: "agent.pause", target: { runId: "run-1" } });
+    expect(resume).toMatchObject({ kind: "agent.resume", target: { runId: "run-1" } });
   });
 
   test("creates a correlated form cancellation command", () => {
@@ -295,6 +318,42 @@ describe("TinyOS command lifecycle", () => {
       revision: 2,
       status: "completed",
     });
+  });
+
+  test("recognizes correlated safe-boundary pause and resume events", () => {
+    const pause = createTinyOsAgentRunControlCommand({
+      commandId: "command-pause-1",
+      kind: "agent.pause",
+      runId: "run-1",
+      sessionId: "websocket:chat-1",
+      source: { control: "chat-pause", surface: "chat" },
+    });
+    const resume = createTinyOsAgentRunControlCommand({
+      commandId: "command-resume-1",
+      kind: "agent.resume",
+      runId: "run-1",
+      sessionId: "websocket:chat-1",
+      source: { control: "chat-resume", surface: "chat" },
+    });
+    const turn = {
+      id: "run-1",
+      canonicalItems: [{
+        data: { detail: { commandId: "command-pause-1", message: "Agent run paused" }, type: "system_notice" },
+        itemId: "run-1:agent-paused",
+        kind: "system_notice",
+        revision: 2,
+        status: "completed",
+      }, {
+        data: { detail: { commandId: "command-resume-1", message: "Agent run resumed" }, type: "system_notice" },
+        itemId: "run-1:agent-resumed",
+        kind: "system_notice",
+        revision: 3,
+        status: "completed",
+      }],
+    } as unknown as ChatTurn;
+
+    expect(canonicalTinyOsCommandCompletion([turn], pause)).toMatchObject({ itemId: "run-1:agent-paused", status: "completed" });
+    expect(canonicalTinyOsCommandCompletion([turn], resume)).toMatchObject({ itemId: "run-1:agent-resumed", status: "completed" });
   });
 
   test("recognizes the terminal item of the explicit retry run as completion", () => {

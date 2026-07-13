@@ -179,6 +179,7 @@ impl NativeAgentRunState {
             AgentRuntimePhase::AwaitingApproval
                 | AgentRuntimePhase::AwaitingForm
                 | AgentRuntimePhase::AwaitingSubagent
+                | AgentRuntimePhase::Paused
         );
         let event = self.emitter.emit(AgentRuntimeEventAppendInput {
             parent_turn_id: None,

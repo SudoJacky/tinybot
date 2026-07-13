@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from "react";
-import { Bell, Bot, ChevronLeft, ChevronRight, Loader2, Maximize2, Minimize2, MonitorDot, PanelRightClose, PanelRightOpen, RotateCcw, ShieldCheck, StopCircle, X } from "lucide-react";
+import { Bell, Bot, ChevronLeft, ChevronRight, Loader2, Maximize2, Minimize2, MonitorDot, PanelRightClose, PanelRightOpen, Pause, Play, RotateCcw, ShieldCheck, StopCircle, X } from "lucide-react";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import { projectTinyOsDesktop, tinyOsAppForStep, type TinyOsTimelineEntry } from "../../app-core/chat/tinyOsDesktopModel";
-import { tinyOsLayoutModeForWidth, type TinyOsContextReference } from "../../app-core/chat/tinyOsUiState";
+import { tinyOsLayoutModeForWidth, type TinyOsAgentRequestIntent, type TinyOsAgentRequestReference, type TinyOsContextReference } from "../../app-core/chat/tinyOsUiState";
 import type { ArtifactRef, ChatStep } from "../../app-core/chat/chatRunModel";
 import type { ApprovalAction } from "../services";
 import { TinyOsShell } from "./TinyOsShell";
@@ -22,9 +22,12 @@ let tinyOsBootedInRuntime = false;
 export function LiveCanvas({
   agentUiForms,
   canCancelRun,
+  canPauseRun,
   canRequestChange,
+  canResumeRun,
   canRetryRun,
   cancelUnavailableReason,
+  pauseUnavailableReason,
   commandLifecycle,
   entries,
   expanded = false,
@@ -33,19 +36,22 @@ export function LiveCanvas({
   mode,
   onCancelForm,
   onCancelRun,
+  onPauseRun,
   onAttachContext,
   onClose,
   onExpandedChange,
   onOpenArtifact,
-  onRequestExplanation,
+  onAgentRequest,
   onResolveApproval,
   onRetryOperation,
   onReturnToLive,
+  onResumeRun,
   onSelectEntry,
   onSubmitForm,
   onWidthChange,
   resolvingApprovalId,
   requestChangeUnavailableReason,
+  resumeUnavailableReason,
   selection,
   sessionKey,
   widthPx,
@@ -53,9 +59,12 @@ export function LiveCanvas({
 }: {
   agentUiForms: AgentUiForm[];
   canCancelRun: boolean;
+  canPauseRun: boolean;
   canRequestChange: boolean;
+  canResumeRun: boolean;
   canRetryRun: boolean;
   cancelUnavailableReason?: string;
+  pauseUnavailableReason?: string;
   commandLifecycle: TinyOsCommandLifecycle;
   entries: LiveCanvasEntry[];
   expanded?: boolean;
@@ -64,19 +73,22 @@ export function LiveCanvas({
   mode: LiveCanvasMode;
   onCancelForm: (form: AgentUiForm) => void;
   onCancelRun: () => void;
+  onPauseRun: () => void;
   onAttachContext: (reference: TinyOsContextReference) => void;
   onClose: () => void;
   onExpandedChange?: () => void;
   onOpenArtifact: (artifact: ArtifactRef) => void;
-  onRequestExplanation: (reference: TinyOsContextReference) => void;
+  onAgentRequest: (reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent, fromHistory: boolean) => void;
   onResolveApproval: (approvalId: string, action: ApprovalAction) => void;
   onRetryOperation: (entry: LiveCanvasEntry) => void;
   onReturnToLive: () => void;
+  onResumeRun: () => void;
   onSelectEntry: (entry: LiveCanvasEntry) => void;
   onSubmitForm: (form: AgentUiForm, values: Record<string, unknown>) => void;
   onWidthChange: (widthPx: number) => void;
   resolvingApprovalId: string;
   requestChangeUnavailableReason?: string;
+  resumeUnavailableReason?: string;
   selection?: LiveCanvasEntry;
   sessionKey?: string;
   widthPx: number;
@@ -88,7 +100,7 @@ export function LiveCanvas({
     turnId: mode === "history" ? selection?.turnId : undefined,
   }), [entries, mode, selection?.step.id, selection?.turnId]);
   const actionableDialog = Boolean(snapshot.dialog && mode === "live_follow");
-  const cancelPending = isTinyOsCommandInFlight(commandLifecycle);
+  const commandPending = isTinyOsCommandInFlight(commandLifecycle);
   const commandKind = commandLifecycle.stage === "idle" ? "" : commandLifecycle.command.kind;
   const commandLabel = commandKind === "approval.resolve"
     ? "Approval"
@@ -98,7 +110,11 @@ export function LiveCanvas({
         ? "Form cancellation"
         : commandKind === "operation.retry"
           ? "Retry"
-          : commandKind === "agent.request_change" ? "Agent request" : "Cancellation";
+          : commandKind === "agent.request_change"
+            ? "Agent request"
+            : commandKind === "agent.pause"
+              ? "Pause"
+              : commandKind === "agent.resume" ? "Resume" : "Cancellation";
   const commandAction = commandKind === "approval.resolve"
     ? "approval"
     : commandKind === "form.submit"
@@ -107,7 +123,11 @@ export function LiveCanvas({
         ? "form cancellation"
         : commandKind === "operation.retry"
           ? "retry"
-          : commandKind === "agent.request_change" ? "agent request" : "cancel";
+          : commandKind === "agent.request_change"
+            ? "agent request"
+            : commandKind === "agent.pause"
+              ? "pause"
+              : commandKind === "agent.resume" ? "resume" : "cancel";
   const submittingFormId = commandLifecycle.stage !== "idle"
     && (commandLifecycle.command.kind === "form.submit" || commandLifecycle.command.kind === "form.cancel")
     && isTinyOsCommandInFlight(commandLifecycle)
@@ -209,14 +229,38 @@ export function LiveCanvas({
         <div className="react-live-canvas__header-actions">
           {mode === "live_follow" ? (
             <button
-              aria-label={cancelPending ? "Cancel command pending" : "Cancel active Agent run"}
-              disabled={!canCancelRun || cancelPending}
-              title={cancelPending ? "Waiting for runtime confirmation" : canCancelRun ? "Cancel active run" : cancelUnavailableReason || "No cancellable run"}
+              aria-label={commandPending && commandKind === "agent.pause" ? "Pause command pending" : "Pause active Agent run"}
+              disabled={!canPauseRun || commandPending}
+              title={commandPending ? "Waiting for runtime confirmation" : canPauseRun ? "Pause at the next safe runtime boundary" : pauseUnavailableReason || "No pausable run"}
+              type="button"
+              onClick={onPauseRun}
+            >
+              {commandPending && commandKind === "agent.pause" ? <Loader2 aria-hidden="true" className="tinyos-command-spinner" size={15} /> : <Pause aria-hidden="true" size={15} />}
+              <span>{commandPending && commandKind === "agent.pause" ? "Pausing" : "Pause"}</span>
+            </button>
+          ) : null}
+          {mode === "live_follow" ? (
+            <button
+              aria-label={commandPending && commandKind === "agent.resume" ? "Resume command pending" : "Resume paused Agent run"}
+              disabled={!canResumeRun || commandPending}
+              title={commandPending ? "Waiting for runtime confirmation" : canResumeRun ? "Resume the same Agent run" : resumeUnavailableReason || "No paused run"}
+              type="button"
+              onClick={onResumeRun}
+            >
+              {commandPending && commandKind === "agent.resume" ? <Loader2 aria-hidden="true" className="tinyos-command-spinner" size={15} /> : <Play aria-hidden="true" size={15} />}
+              <span>{commandPending && commandKind === "agent.resume" ? "Resuming" : "Resume"}</span>
+            </button>
+          ) : null}
+          {mode === "live_follow" ? (
+            <button
+              aria-label={commandPending && commandKind === "agent.cancel" ? "Cancel command pending" : "Cancel active Agent run"}
+              disabled={!canCancelRun || commandPending}
+              title={commandPending ? "Waiting for runtime confirmation" : canCancelRun ? "Cancel active run" : cancelUnavailableReason || "No cancellable run"}
               type="button"
               onClick={onCancelRun}
             >
-              {cancelPending ? <Loader2 aria-hidden="true" className="tinyos-command-spinner" size={15} /> : <StopCircle aria-hidden="true" size={15} />}
-              <span>{cancelPending ? "Cancelling" : "Cancel"}</span>
+              {commandPending && commandKind === "agent.cancel" ? <Loader2 aria-hidden="true" className="tinyos-command-spinner" size={15} /> : <StopCircle aria-hidden="true" size={15} />}
+              <span>{commandPending && commandKind === "agent.cancel" ? "Cancelling" : "Cancel"}</span>
             </button>
           ) : null}
           <button aria-label="Previous canonical operation" disabled={!previousEntry} title="Previous operation" type="button" onClick={() => previousEntry && onSelectEntry(previousEntry)}><ChevronLeft aria-hidden="true" size={15} /></button>
@@ -260,7 +304,7 @@ export function LiveCanvas({
         workspaceKey={filesController?.state.workspaceKey ?? workspaceKey}
         onCancelForm={onCancelForm}
         onOpenArtifact={onOpenArtifact}
-        onRequestExplanation={onRequestExplanation}
+        onAgentRequest={(reference, intent) => onAgentRequest(reference, intent, mode === "history")}
         onResolveApproval={onResolveApproval}
         onRetryOperation={onRetryOperation}
         onSelectEntry={onSelectEntry}

@@ -2734,6 +2734,9 @@ button.tinyos-overlay-backdrop {
 .tinyos-plan li { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 6px; min-height: 32px; border-bottom: 1px solid var(--color-hairline); font-size: 10px; }
 .tinyos-plan li[data-status="completed"] > svg { color: #2f9c5d; }
 .tinyos-plan li small { color: var(--color-muted); font-size: 8px; text-transform: capitalize; }
+.tinyos-plan > form { display: flex; gap: 6px; margin-top: 10px; }
+.tinyos-plan > form input { min-width: 0; flex: 1; border: 1px solid var(--color-hairline); border-radius: 7px; padding: 6px 8px; background: var(--color-surface); color: var(--color-ink); font-size: 10px; }
+.tinyos-plan > form button { display: inline-flex; align-items: center; gap: 4px; border: 1px solid color-mix(in srgb, var(--color-accent) 35%, var(--color-hairline)); border-radius: 7px; padding: 0 8px; background: var(--color-surface); color: var(--color-accent); font-size: 9px; }
 
 .tinyos-memory > div:first-child {
   display: flex;
@@ -5022,6 +5025,20 @@ button.tinyos-overlay-backdrop {
   color: var(--color-muted);
   font-size: 12px;
 }
+
+.react-agent-run-controls {
+  display: flex;
+  width: min(760px, calc(100% - 32px));
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin: 0 auto 6px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.react-agent-run-controls > span { overflow: hidden; margin-right: auto; text-overflow: ellipsis; white-space: nowrap; }
+.react-agent-run-controls > button { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--color-hairline); border-radius: 6px; padding: 4px 7px; background: var(--color-surface); color: var(--color-ink); font-size: 10px; }
 
 .react-agent-command-status[data-stage="rejected"],
 .react-agent-command-status[data-stage="timed_out"] {
