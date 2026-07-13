@@ -975,11 +975,20 @@ retry hydrates the existing session history into a new run, emits its correlated
 `agent.command.acknowledged` item before the provider call, and uses the new run's terminal canonical
 item as operation completion.
 
+`agent.request_change` starts a new correlated run for an Agent follow-up grounded in structured
+TinyOS file references. The first migrated product action is **Ask Agent to explain**: the desktop
+sends a fixed read-only explanation instruction plus one or more `tinyos.file` references. Rust
+requires a non-empty instruction and 1–16 bounded file ranges, enforces the 64 KiB serialized
+reference limit, and rejects stale observed-run state or any active run before provider work. A
+valid request persists the references on the new canonical `user_message`, emits the correlated
+command acknowledgement, and completes at the new run's terminal canonical item.
+
 `GET /api/sessions/{key}/effective-capabilities` and the native
 `worker_session_effective_capabilities` command return `tinybot.effective_capabilities.v1` decisions.
 Unavailable decisions include both `reasonCode` and a user-facing `reason`; the response identifies
 the evaluated run used for the decision when present. Retry is available only when that latest run
-is failed and no active run supersedes it.
+is failed and no active run supersedes it. `files.requestChange` is available when workspace read
+access is granted, the workspace root is available, and no run is active.
 
 Product-facing canonical item data includes the following lifecycle details:
 

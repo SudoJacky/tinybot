@@ -5838,6 +5838,157 @@ fn worker_transport_websocket_maps_correlated_operation_retry_command() {
 }
 
 #[test]
+fn worker_transport_websocket_maps_correlated_agent_request_change_command() {
+    let references = serde_json::json!([{
+        "kind": "reference",
+        "title": "src/main.ts · L2–3",
+        "detail": "TinyOS file selection",
+        "type": "tinyos.file",
+        "sourcePath": "src/main.ts",
+        "sourceLine": 2,
+        "sourceEndLine": 3,
+        "sourceText": "let value = 1;\nreturn value;"
+    }]);
+    let transport = native_websocket_transport_result(&WorkerTransportWebSocketDispatchInput {
+        client_id: "client-1".to_string(),
+        frame: serde_json::json!({
+            "type": "command",
+            "chat_id": "chat-1",
+            "session_id": "websocket:chat-1",
+            "command_id": "command-request-1",
+            "command_kind": "agent.request_change",
+            "run_id": "run-request-1",
+            "observed_run_id": "run-completed-1",
+            "instruction": "Explain this selection.",
+            "references": references.clone()
+        }),
+        attached_chat_id: Some("chat-1".to_string()),
+        session_exists: Some(true),
+        editable_paths: None,
+        model: None,
+        max_iterations: None,
+        run_id: Some("run-request-1".to_string()),
+        stream: None,
+    })
+    .expect("Agent request command frame should produce a transport result");
+
+    assert_eq!(transport["kind"], "command");
+    assert_eq!(transport["commandKind"], "agent.request_change");
+    assert_eq!(transport["runId"], "run-request-1");
+    assert_eq!(transport["observedRunId"], "run-completed-1");
+    assert_eq!(transport["instruction"], "Explain this selection.");
+    assert_eq!(transport["references"], references);
+}
+
+#[test]
+fn worker_transport_agent_request_change_starts_new_correlated_run() {
+    let fixture = WorkspaceFixture::new();
+    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let session_id = "websocket:chat-agent-request";
+    let request_run_id = "run-agent-request-target";
+    let references = serde_json::json!([{
+        "kind": "reference",
+        "title": "README.md · L1",
+        "detail": "TinyOS file selection",
+        "type": "tinyos.file",
+        "sourcePath": "README.md",
+        "sourceLine": 1,
+        "sourceEndLine": 1,
+        "sourceText": "# Tinybot",
+        "scope": "workspace-a"
+    }]);
+    let request_config = serde_json::json!({
+        "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+        "providers": { "fixture": { "responses": [{ "content": "The selected line is the project heading." }] } }
+    });
+    let invalid_error = worker_transport_dispatch_websocket_message_with_options(
+        &shared,
+        WorkerTransportWebSocketDispatchInput {
+            client_id: "client-agent-request-invalid".to_string(),
+            frame: serde_json::json!({
+                "type": "command",
+                "chat_id": "chat-agent-request",
+                "session_id": session_id,
+                "command_id": "command-agent-request-invalid",
+                "command_kind": "agent.request_change",
+                "run_id": "run-agent-request-invalid",
+                "instruction": "Explain the selected file range.",
+                "references": []
+            }),
+            attached_chat_id: Some("chat-agent-request".to_string()),
+            session_exists: Some(true),
+            editable_paths: None,
+            model: None,
+            max_iterations: None,
+            run_id: Some("run-agent-request-invalid".to_string()),
+            stream: None,
+        },
+        fixture.root.clone(),
+        request_config.clone(),
+        Duration::from_millis(100),
+    )
+    .expect_err("Agent request without references should fail before provider work");
+    assert!(invalid_error.contains("requires references"));
+
+    let dispatched = worker_transport_dispatch_websocket_message_with_options(
+        &shared,
+        WorkerTransportWebSocketDispatchInput {
+            client_id: "client-agent-request".to_string(),
+            frame: serde_json::json!({
+                "type": "command",
+                "chat_id": "chat-agent-request",
+                "session_id": session_id,
+                "command_id": "command-agent-request-1",
+                "command_kind": "agent.request_change",
+                "run_id": request_run_id,
+                "instruction": "Explain the selected file range. Do not modify files.",
+                "references": references.clone(),
+                "source": { "surface": "tinyos", "control": "files-explain-selection" }
+            }),
+            attached_chat_id: Some("chat-agent-request".to_string()),
+            session_exists: Some(true),
+            editable_paths: None,
+            model: None,
+            max_iterations: None,
+            run_id: Some(request_run_id.to_string()),
+            stream: None,
+        },
+        fixture.root.clone(),
+        request_config,
+        Duration::from_millis(100),
+    )
+    .expect("Agent request should start a new Agent run");
+    let request_state = worker_agent_run_runtime_state_with_options(
+        &shared,
+        session_id.to_string(),
+        request_run_id.to_string(),
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(10),
+    )
+    .expect("Agent request runtime state should be readable");
+    let items = request_state["timeline"]["items"]
+        .as_array()
+        .expect("Agent request timeline items should exist");
+
+    assert_eq!(dispatched["agent"]["stopReason"], "final_response");
+    assert_eq!(
+        dispatched["agent"]["finalContent"],
+        "The selected line is the project heading."
+    );
+    assert!(items.iter().any(|item| {
+        item["kind"] == "system_notice"
+            && item["data"]["detail"]["commandId"] == "command-agent-request-1"
+            && item["data"]["detail"]["commandKind"] == "agent.request_change"
+    }));
+    assert!(items.iter().any(|item| {
+        item["kind"] == "user_message"
+            && item["data"]["references"] == references
+            && item["data"]["content"] == "Explain the selected file range. Do not modify files."
+    }));
+}
+
+#[test]
 fn worker_transport_operation_retry_starts_new_correlated_run() {
     let fixture = WorkspaceFixture::new();
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
@@ -6410,6 +6561,10 @@ fn tinyos_effective_capabilities_are_backend_authored_and_run_scoped() {
         running["capabilities"]["agent"]["retry"]["reasonCode"],
         "run_active"
     );
+    assert_eq!(
+        running["capabilities"]["files"]["requestChange"]["reasonCode"],
+        "run_active"
+    );
 
     let waiting = crate::desktop_commands::session::build_worker_session_effective_capabilities(
         "websocket:chat-1",
@@ -6441,6 +6596,10 @@ fn tinyos_effective_capabilities_are_backend_authored_and_run_scoped() {
     );
     assert_eq!(failed["evaluatedRunId"], "run-failed");
     assert_eq!(failed["capabilities"]["agent"]["retry"]["available"], true);
+    assert_eq!(
+        failed["capabilities"]["files"]["requestChange"]["available"],
+        true
+    );
 }
 
 #[test]

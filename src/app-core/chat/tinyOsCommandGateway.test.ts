@@ -4,6 +4,7 @@ import {
   canonicalTinyOsCommandAcknowledgement,
   canonicalTinyOsCommandCompletion,
   createTinyOsAgentCancelCommand,
+  createTinyOsAgentRequestChangeCommand,
   createTinyOsApprovalResolveCommand,
   createTinyOsFormCancelCommand,
   createTinyOsFormSubmitCommand,
@@ -87,6 +88,37 @@ describe("TinyOS command lifecycle", () => {
       kind: "operation.retry",
       operation: { itemId: "run-failed:error", turnId: "run-failed" },
       target: { runId: "run-retry-1", sessionId: "websocket:chat-1" },
+    });
+  });
+
+  test("creates a correlated Agent request from bounded file references", () => {
+    expect(createTinyOsAgentRequestChangeCommand({
+      commandId: "command-request-1",
+      instruction: "  Explain this selection.  ",
+      issuedAt: "2026-07-13T00:00:00Z",
+      observedRunId: "run-completed-1",
+      references: [{
+        detail: "TinyOS file selection",
+        kind: "reference",
+        sourceEndLine: 3,
+        sourceLine: 2,
+        sourcePath: "src/main.ts",
+        sourceText: "return value;",
+        title: "src/main.ts · L2–3",
+        type: "tinyos.file",
+      }],
+      requestRunId: "run-request-1",
+      sessionId: "websocket:chat-1",
+      source: { control: "files-explain-selection", surface: "tinyos" },
+    })).toMatchObject({
+      commandId: "command-request-1",
+      kind: "agent.request_change",
+      request: {
+        instruction: "Explain this selection.",
+        observedRunId: "run-completed-1",
+        references: [{ sourcePath: "src/main.ts", sourceLine: 2, sourceEndLine: 3 }],
+      },
+      target: { runId: "run-request-1", sessionId: "websocket:chat-1" },
     });
   });
 
@@ -287,6 +319,42 @@ describe("TinyOS command lifecycle", () => {
 
     expect(canonicalTinyOsCommandCompletion([turn], retry)).toEqual({
       itemId: "run-retry-1:assistant",
+      revision: 3,
+      status: "completed",
+    });
+  });
+
+  test("recognizes the terminal item of an Agent request run as completion", () => {
+    const request = createTinyOsAgentRequestChangeCommand({
+      commandId: "command-request-1",
+      instruction: "Explain this selection.",
+      references: [{
+        detail: "TinyOS file selection",
+        kind: "reference",
+        sourceEndLine: 1,
+        sourceLine: 1,
+        sourcePath: "README.md",
+        sourceText: "# Tinybot",
+        title: "README.md · L1",
+        type: "tinyos.file",
+      }],
+      requestRunId: "run-request-1",
+      sessionId: "websocket:chat-1",
+      source: { control: "files-explain-selection", surface: "tinyos" },
+    });
+    const turn = {
+      id: "run-request-1",
+      status: "completed",
+      canonicalItems: [{
+        data: { content: "This is the project heading.", type: "message" },
+        itemId: "run-request-1:assistant",
+        revision: 3,
+        status: "completed",
+      }],
+    } as unknown as ChatTurn;
+
+    expect(canonicalTinyOsCommandCompletion([turn], request)).toEqual({
+      itemId: "run-request-1:assistant",
       revision: 3,
       status: "completed",
     });

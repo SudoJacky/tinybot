@@ -22,6 +22,7 @@ let tinyOsBootedInRuntime = false;
 export function LiveCanvas({
   agentUiForms,
   canCancelRun,
+  canRequestChange,
   canRetryRun,
   cancelUnavailableReason,
   commandLifecycle,
@@ -36,6 +37,7 @@ export function LiveCanvas({
   onClose,
   onExpandedChange,
   onOpenArtifact,
+  onRequestExplanation,
   onResolveApproval,
   onRetryOperation,
   onReturnToLive,
@@ -43,6 +45,7 @@ export function LiveCanvas({
   onSubmitForm,
   onWidthChange,
   resolvingApprovalId,
+  requestChangeUnavailableReason,
   selection,
   sessionKey,
   widthPx,
@@ -50,6 +53,7 @@ export function LiveCanvas({
 }: {
   agentUiForms: AgentUiForm[];
   canCancelRun: boolean;
+  canRequestChange: boolean;
   canRetryRun: boolean;
   cancelUnavailableReason?: string;
   commandLifecycle: TinyOsCommandLifecycle;
@@ -64,6 +68,7 @@ export function LiveCanvas({
   onClose: () => void;
   onExpandedChange?: () => void;
   onOpenArtifact: (artifact: ArtifactRef) => void;
+  onRequestExplanation: (reference: TinyOsContextReference) => void;
   onResolveApproval: (approvalId: string, action: ApprovalAction) => void;
   onRetryOperation: (entry: LiveCanvasEntry) => void;
   onReturnToLive: () => void;
@@ -71,6 +76,7 @@ export function LiveCanvas({
   onSubmitForm: (form: AgentUiForm, values: Record<string, unknown>) => void;
   onWidthChange: (widthPx: number) => void;
   resolvingApprovalId: string;
+  requestChangeUnavailableReason?: string;
   selection?: LiveCanvasEntry;
   sessionKey?: string;
   widthPx: number;
@@ -90,14 +96,18 @@ export function LiveCanvas({
       ? "Form submission"
       : commandKind === "form.cancel"
         ? "Form cancellation"
-        : commandKind === "operation.retry" ? "Retry" : "Cancellation";
+        : commandKind === "operation.retry"
+          ? "Retry"
+          : commandKind === "agent.request_change" ? "Agent request" : "Cancellation";
   const commandAction = commandKind === "approval.resolve"
     ? "approval"
     : commandKind === "form.submit"
       ? "form submission"
       : commandKind === "form.cancel"
         ? "form cancellation"
-        : commandKind === "operation.retry" ? "retry" : "cancel";
+        : commandKind === "operation.retry"
+          ? "retry"
+          : commandKind === "agent.request_change" ? "agent request" : "cancel";
   const submittingFormId = commandLifecycle.stage !== "idle"
     && (commandLifecycle.command.kind === "form.submit" || commandLifecycle.command.kind === "form.cancel")
     && isTinyOsCommandInFlight(commandLifecycle)
@@ -237,6 +247,7 @@ export function LiveCanvas({
       <TinyOsShell
         key={sessionKey}
         agentUiForms={agentUiForms}
+        canRequestChange={canRequestChange}
         canRetryRun={canRetryRun}
         filesController={filesController}
         history={mode === "history"}
@@ -249,10 +260,12 @@ export function LiveCanvas({
         workspaceKey={filesController?.state.workspaceKey ?? workspaceKey}
         onCancelForm={onCancelForm}
         onOpenArtifact={onOpenArtifact}
+        onRequestExplanation={onRequestExplanation}
         onResolveApproval={onResolveApproval}
         onRetryOperation={onRetryOperation}
         onSelectEntry={onSelectEntry}
         onSubmitForm={onSubmitForm}
+        requestChangeUnavailableReason={requestChangeUnavailableReason}
       />
 
       {booting ? (

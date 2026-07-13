@@ -1,4 +1,5 @@
 import type { ChatTurn } from "./chatRunModel";
+import type { NativeChatReference } from "./nativeChat";
 
 export const TINYOS_COMMAND_ACK_TIMEOUT_MS = 5_000;
 
@@ -94,11 +95,31 @@ export type TinyOsOperationRetryCommand = {
   };
 };
 
+export type TinyOsAgentRequestChangeCommand = {
+  schemaVersion: "tinybot.command.v1";
+  commandId: string;
+  issuedAt: string;
+  kind: "agent.request_change";
+  source: TinyOsCommandSource;
+  target: {
+    runId: string;
+    sessionId: string;
+    threadId?: string;
+    turnId?: string;
+  };
+  request: {
+    instruction: string;
+    observedRunId?: string;
+    references: NativeChatReference[];
+  };
+};
+
 export type TinyOsCommand = TinyOsAgentCancelCommand
   | TinyOsApprovalResolveCommand
   | TinyOsFormSubmitCommand
   | TinyOsFormCancelCommand
-  | TinyOsOperationRetryCommand;
+  | TinyOsOperationRetryCommand
+  | TinyOsAgentRequestChangeCommand;
 
 export type TinyOsCommandAcknowledgement = {
   itemId: string;
@@ -272,6 +293,39 @@ export function createTinyOsOperationRetryCommand(input: {
   };
 }
 
+export function createTinyOsAgentRequestChangeCommand(input: {
+  commandId?: string;
+  instruction: string;
+  issuedAt?: string;
+  observedRunId?: string;
+  references: NativeChatReference[];
+  requestRunId?: string;
+  sessionId: string;
+  source: TinyOsCommandSource;
+  threadId?: string;
+}): TinyOsAgentRequestChangeCommand {
+  const instruction = input.instruction.trim();
+  if (!instruction) throw new Error("Agent change request instruction is required.");
+  if (!input.references.length) throw new Error("Agent change request requires at least one reference.");
+  return {
+    schemaVersion: "tinybot.command.v1",
+    commandId: input.commandId ?? createTinyOsCommandId(),
+    issuedAt: input.issuedAt ?? new Date().toISOString(),
+    kind: "agent.request_change",
+    source: input.source,
+    target: {
+      runId: input.requestRunId ?? createTinyOsFollowupRunId("request"),
+      sessionId: input.sessionId,
+      ...(input.threadId ? { threadId: input.threadId } : {}),
+    },
+    request: {
+      instruction,
+      ...(input.observedRunId ? { observedRunId: input.observedRunId } : {}),
+      references: input.references.map((reference) => ({ ...reference })),
+    },
+  };
+}
+
 export function reduceTinyOsCommandLifecycle(
   state: TinyOsCommandLifecycle,
   action: TinyOsCommandLifecycleAction,
@@ -344,7 +398,7 @@ export function canonicalTinyOsCommandCompletion(
   turns: ChatTurn[],
   command: TinyOsCommand | string,
 ): TinyOsCommandCompletion | undefined {
-  if (typeof command !== "string" && command.kind === "operation.retry") {
+  if (typeof command !== "string" && (command.kind === "operation.retry" || command.kind === "agent.request_change")) {
     const turn = turns.find((candidate) => candidate.id === command.target.runId);
     if (!turn || !["completed", "failed", "interrupted"].includes(turn.status)) return undefined;
     const item = [...(turn.canonicalItems ?? [])].reverse().find((candidate) => {
@@ -386,7 +440,11 @@ function createTinyOsCommandId(): string {
 }
 
 function createTinyOsRetryRunId(): string {
-  return `tinyos-retry-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return createTinyOsFollowupRunId("retry");
+}
+
+function createTinyOsFollowupRunId(kind: string): string {
+  return `tinyos-${kind}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function recordValue(value: unknown): Record<string, unknown> {

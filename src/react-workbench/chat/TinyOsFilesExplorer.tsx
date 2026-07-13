@@ -9,6 +9,7 @@ import {
   Folder,
   FolderOpen,
   Loader2,
+  MessageCircleQuestion,
   Paperclip,
   RefreshCw,
   Search,
@@ -20,13 +21,19 @@ import type { WorkspaceDirectoryEntry } from "../../app-core/workspace/workspace
 import type { TinyOsFilesController } from "./useTinyOsFilesController";
 
 export function TinyOsFilesExplorer({
+  canRequestChange,
   controller,
   layoutMode,
   onAttachContext,
+  onRequestExplanation,
+  requestChangeUnavailableReason,
 }: {
+  canRequestChange: boolean;
   controller: TinyOsFilesController;
   layoutMode: TinyOsLayoutMode;
   onAttachContext: (reference: TinyOsContextReference) => void;
+  onRequestExplanation: (reference: TinyOsContextReference) => void;
+  requestChangeUnavailableReason?: string;
 }) {
   const { state } = controller;
   const [currentDirectory, setCurrentDirectory] = useState(".");
@@ -67,7 +74,15 @@ export function TinyOsFilesExplorer({
         </aside>
       ) : null}
       {showDocument ? (
-        <WorkspaceDocument controller={controller} compact={layoutMode === "compact"} onAttachContext={onAttachContext} onBrowseDirectory={browseDirectory} />
+        <WorkspaceDocument
+          canRequestChange={canRequestChange}
+          controller={controller}
+          compact={layoutMode === "compact"}
+          onAttachContext={onAttachContext}
+          onBrowseDirectory={browseDirectory}
+          onRequestExplanation={onRequestExplanation}
+          requestChangeUnavailableReason={requestChangeUnavailableReason}
+        />
       ) : null}
     </div>
   );
@@ -191,15 +206,21 @@ function TreeEntry({
 }
 
 function WorkspaceDocument({
+  canRequestChange,
   compact,
   controller,
   onAttachContext,
   onBrowseDirectory,
+  onRequestExplanation,
+  requestChangeUnavailableReason,
 }: {
+  canRequestChange: boolean;
   compact: boolean;
   controller: TinyOsFilesController;
   onAttachContext: (reference: TinyOsContextReference) => void;
   onBrowseDirectory: (path: string) => void;
+  onRequestExplanation: (reference: TinyOsContextReference) => void;
+  requestChangeUnavailableReason?: string;
 }) {
   const { state } = controller;
   const activePath = state.activePath;
@@ -241,6 +262,16 @@ function WorkspaceDocument({
     if (!matches.length) return;
     controller.setSearch(path, search.query, (activeMatch + delta + matches.length) % matches.length);
   }
+
+  const selectedReference: TinyOsContextReference | undefined = selection && document ? {
+    endLine: selection.endLine,
+    kind: "file",
+    path,
+    provenance: { kind: "workspace_read", workspaceKey: state.workspaceKey ?? "workspace" },
+    revision: document.revision,
+    selectedText: selection.selectedText,
+    startLine: selection.startLine,
+  } : undefined;
 
   return (
     <section aria-label={`File ${path}`} className="tinyos-workspace-document">
@@ -288,16 +319,16 @@ function WorkspaceDocument({
         <span>{document?.stale ? "Snapshot may be stale" : document?.contentType === "text" ? "Read-only · UTF-8" : "Read-only"}</span>
         {document?.nextCursor ? <button type="button" onClick={() => void controller.loadMoreFile(path)}>Load more</button> : null}
         {search.query && document?.nextCursor ? <span>Search covers loaded content only</span> : null}
-        {selection && document ? (
-          <button type="button" onClick={() => onAttachContext({
-            endLine: selection.endLine,
-            kind: "file",
-            path,
-            provenance: { kind: "workspace_read", workspaceKey: state.workspaceKey ?? "workspace" },
-            revision: document.revision,
-            selectedText: selection.selectedText,
-            startLine: selection.startLine,
-          })}><Paperclip aria-hidden="true" size={11} />Attach L{selection.startLine}{selection.endLine === selection.startLine ? "" : `–${selection.endLine}`}</button>
+        {selectedReference ? (
+          <button type="button" onClick={() => onAttachContext(selectedReference)}><Paperclip aria-hidden="true" size={11} />Attach L{selectedReference.startLine}{selectedReference.endLine === selectedReference.startLine ? "" : `–${selectedReference.endLine}`}</button>
+        ) : null}
+        {selectedReference ? (
+          <button
+            disabled={!canRequestChange}
+            title={canRequestChange ? "Ask Agent to explain this selection" : requestChangeUnavailableReason}
+            type="button"
+            onClick={() => onRequestExplanation(selectedReference)}
+          ><MessageCircleQuestion aria-hidden="true" size={11} />Ask Agent to explain</button>
         ) : null}
         <span>{document ? `${formatBytes(document.content.length)} loaded / ${formatBytes(document.sizeBytes)}` : ""}</span>
       </footer>

@@ -33,6 +33,7 @@ function canvasProps(entries: LiveCanvasEntry[], overrides: Record<string, unkno
   return {
     agentUiForms: [] as AgentUiForm[],
     canCancelRun: false,
+    canRequestChange: false,
     canRetryRun: false,
     commandLifecycle: { stage: "idle" } as const,
     entries,
@@ -43,6 +44,7 @@ function canvasProps(entries: LiveCanvasEntry[], overrides: Record<string, unkno
     onAttachContext: vi.fn(),
     onClose: vi.fn(),
     onOpenArtifact: vi.fn(),
+    onRequestExplanation: vi.fn(),
     onResolveApproval: vi.fn(),
     onRetryOperation: vi.fn(),
     onReturnToLive: vi.fn(),

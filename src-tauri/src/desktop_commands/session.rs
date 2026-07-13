@@ -428,6 +428,24 @@ pub(crate) fn build_worker_session_effective_capabilities(
             "Workspace read permission is not granted.",
         )
     };
+    let request_change = if matches!(evaluated_run_status, Some("running" | "waiting")) {
+        unavailable_capability(
+            "run_active",
+            "Agent file requests are unavailable while a run is active.",
+        )
+    } else if policy.allows(&WorkerCapability::FsWorkspaceRead) && workspace_available {
+        available_capability()
+    } else if !workspace_available {
+        unavailable_capability(
+            "workspace_unavailable",
+            "The configured workspace root is unavailable.",
+        )
+    } else {
+        unavailable_capability(
+            "permission_denied",
+            "Workspace read permission is not granted.",
+        )
+    };
 
     serde_json::json!({
         "schemaVersion": "tinybot.effective_capabilities.v1",
@@ -442,7 +460,7 @@ pub(crate) fn build_worker_session_effective_capabilities(
             },
             "files": {
                 "read": files_read,
-                "requestChange": unavailable_capability("command_unavailable", "Change requests have not been migrated to the Agent command gateway."),
+                "requestChange": request_change,
                 "directEdit": unavailable_capability("phase_unavailable", "Direct file editing is introduced in Phase 3."),
                 "save": unavailable_capability("phase_unavailable", "File saving is introduced in Phase 3."),
             },

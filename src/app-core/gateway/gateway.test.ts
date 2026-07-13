@@ -2300,6 +2300,48 @@ describe("gateway WebSocket client", () => {
       source_turn_id: "run-failed",
       item_id: "run-failed:error",
     });
+    expect(createGatewaySocketMessage.command("chat-1", {
+      schemaVersion: "tinybot.command.v1",
+      commandId: "command-request-1",
+      issuedAt: "2026-07-13T00:00:00Z",
+      kind: "agent.request_change",
+      source: { control: "files-explain-selection", surface: "tinyos" },
+      target: { runId: "run-request-1", sessionId: "websocket:chat-1" },
+      request: {
+        instruction: "Explain this selection.",
+        observedRunId: "run-completed-1",
+        references: [{
+          detail: "TinyOS file selection",
+          kind: "reference",
+          sourceEndLine: 3,
+          sourceLine: 2,
+          sourcePath: "src/main.ts",
+          sourceText: "return value;",
+          title: "src/main.ts · L2–3",
+          type: "tinyos.file",
+        }],
+      },
+    })).toEqual({
+      type: "command",
+      chat_id: "chat-1",
+      command_id: "command-request-1",
+      command_kind: "agent.request_change",
+      run_id: "run-request-1",
+      session_id: "websocket:chat-1",
+      source: { control: "files-explain-selection", surface: "tinyos" },
+      instruction: "Explain this selection.",
+      observed_run_id: "run-completed-1",
+      references: [{
+        detail: "TinyOS file selection",
+        kind: "reference",
+        sourceEndLine: 3,
+        sourceLine: 2,
+        sourcePath: "src/main.ts",
+        sourceText: "return value;",
+        title: "src/main.ts · L2–3",
+        type: "tinyos.file",
+      }],
+    });
   });
 
   test("queues outbound messages until the socket is open", () => {

@@ -1,7 +1,7 @@
 import { DEFAULT_GATEWAY_CONFIG, type GatewayConfig } from "./gatewayConfig";
 import { logDesktopNativeChatDebug, summarizeDebugText } from "../native/desktopNativeChatDebug";
 import type { NativeChatReference } from "../chat/nativeChat";
-import type { TinyOsAgentCancelCommand, TinyOsApprovalResolveCommand, TinyOsFormCancelCommand, TinyOsFormSubmitCommand, TinyOsOperationRetryCommand } from "../chat/tinyOsCommandGateway";
+import type { TinyOsAgentCancelCommand, TinyOsAgentRequestChangeCommand, TinyOsApprovalResolveCommand, TinyOsFormCancelCommand, TinyOsFormSubmitCommand, TinyOsOperationRetryCommand } from "../chat/tinyOsCommandGateway";
 
 export const createGatewaySocketMessage = {
   newChat: () => ({ type: "new_chat" as const }),
@@ -26,7 +26,7 @@ export const createGatewaySocketMessage = {
     ...(command.target.turnId ? { turn_id: command.target.turnId } : {}),
     source: command.source,
   }),
-  command: (chatId: string, command: TinyOsApprovalResolveCommand | TinyOsFormCancelCommand | TinyOsFormSubmitCommand | TinyOsOperationRetryCommand) => {
+  command: (chatId: string, command: TinyOsAgentRequestChangeCommand | TinyOsApprovalResolveCommand | TinyOsFormCancelCommand | TinyOsFormSubmitCommand | TinyOsOperationRetryCommand) => {
     const envelope = {
       type: "command" as const,
       chat_id: chatId,
@@ -49,6 +49,12 @@ export const createGatewaySocketMessage = {
       ...envelope,
       source_turn_id: command.operation.turnId,
       item_id: command.operation.itemId,
+    };
+    if (command.kind === "agent.request_change") return {
+      ...envelope,
+      instruction: command.request.instruction,
+      ...(command.request.observedRunId ? { observed_run_id: command.request.observedRunId } : {}),
+      references: command.request.references,
     };
     const formEnvelope = {
       ...envelope,

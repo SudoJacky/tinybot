@@ -471,6 +471,20 @@ pub(crate) fn native_websocket_transport_result(
                 .or_else(|| frame.get("itemId"))
                 .cloned()
                 .unwrap_or(serde_json::Value::Null);
+        } else if command_kind == "agent.request_change" {
+            transport["instruction"] = frame
+                .get("instruction")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+            transport["observedRunId"] = frame
+                .get("observed_run_id")
+                .or_else(|| frame.get("observedRunId"))
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+            transport["references"] = frame
+                .get("references")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
         }
         return Some(transport);
     }
@@ -564,6 +578,17 @@ async fn dispatch_tinyos_command(
         }
         Some("operation.retry") => {
             dispatch_tinyos_retry_command(
+                shared,
+                transport,
+                workspace_root,
+                config_snapshot,
+                live_trace_sink,
+                timeout,
+            )
+            .await
+        }
+        Some("agent.request_change") => {
+            dispatch_tinyos_agent_request_change_command(
                 shared,
                 transport,
                 workspace_root,
@@ -883,7 +908,7 @@ async fn dispatch_tinyos_form_command(
 
 async fn dispatch_tinyos_retry_command(
     shared: &SharedGateway,
-    mut transport: serde_json::Value,
+    transport: serde_json::Value,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
@@ -891,7 +916,6 @@ async fn dispatch_tinyos_retry_command(
 ) -> Result<serde_json::Value, String> {
     let session_id = required_transport_string(&transport, "sessionId")?;
     let retry_run_id = required_transport_string(&transport, "runId")?;
-    let command_id = required_transport_string(&transport, "commandId")?;
     let source_turn_id = required_transport_string(&transport, "sourceTurnId")?;
     let item_id = required_transport_string(&transport, "itemId")?;
     if retry_run_id == source_turn_id {
@@ -910,7 +934,7 @@ async fn dispatch_tinyos_retry_command(
         "Retry the failed canonical operation `{description}` (source item `{item_id}` from run `{source_turn_id}`). Preserve completed work, verify the failure context, and continue the task from that operation."
     );
     let command_metadata = serde_json::json!({
-        "commandId": &command_id,
+        "commandId": required_transport_string(&transport, "commandId")?,
         "commandKind": "operation.retry",
         "operation": {
             "itemId": &item_id,
@@ -923,30 +947,156 @@ async fn dispatch_tinyos_retry_command(
             "threadId": transport.get("threadId").cloned().unwrap_or(serde_json::Value::Null),
         },
     });
-    let retry_transport = serde_json::json!({
+    dispatch_tinyos_new_run_command(
+        shared,
+        transport,
+        content,
+        command_metadata,
+        None,
+        workspace_root,
+        config_snapshot,
+        live_trace_sink,
+        timeout,
+    )
+    .await
+}
+
+async fn dispatch_tinyos_agent_request_change_command(
+    shared: &SharedGateway,
+    transport: serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let session_id = required_transport_string(&transport, "sessionId")?;
+    let request_run_id = required_transport_string(&transport, "runId")?;
+    let command_id = required_transport_string(&transport, "commandId")?;
+    let instruction = required_transport_string(&transport, "instruction")?;
+    if instruction.chars().count() > 4_096 {
+        return Err("agent.request_change instruction exceeds 4096 characters".to_string());
+    }
+    let references = transport
+        .get("references")
+        .and_then(serde_json::Value::as_array)
+        .filter(|references| !references.is_empty())
+        .ok_or_else(|| "agent.request_change requires references".to_string())?;
+    if references.len() > 16 {
+        return Err("agent.request_change supports at most 16 references".to_string());
+    }
+    if serde_json::to_vec(references)
+        .map_err(|error| format!("agent.request_change references are invalid: {error}"))?
+        .len()
+        > 65_536
+    {
+        return Err("agent.request_change references exceed 64 KiB".to_string());
+    }
+    for reference in references {
+        let reference_type = reference.get("type").and_then(serde_json::Value::as_str);
+        let source_path = reference
+            .get("sourcePath")
+            .and_then(serde_json::Value::as_str)
+            .filter(|value| !value.trim().is_empty());
+        let source_line = reference
+            .get("sourceLine")
+            .and_then(serde_json::Value::as_u64)
+            .filter(|value| *value > 0);
+        let source_end_line = reference
+            .get("sourceEndLine")
+            .and_then(serde_json::Value::as_u64)
+            .filter(|value| source_line.is_some_and(|start| *value >= start));
+        if reference_type != Some("tinyos.file")
+            || source_path.is_none()
+            || source_line.is_none()
+            || source_end_line.is_none()
+            || !reference
+                .get("sourceText")
+                .is_some_and(serde_json::Value::is_string)
+        {
+            return Err(
+                "agent.request_change requires bounded TinyOS file-range references".to_string(),
+            );
+        }
+    }
+    validate_tinyos_followup_run_state(
+        &session_id,
+        transport
+            .get("observedRunId")
+            .and_then(serde_json::Value::as_str),
+        workspace_root.clone(),
+        config_snapshot.clone(),
+    )?;
+    let command_metadata = serde_json::json!({
+        "commandId": command_id,
+        "commandKind": "agent.request_change",
+        "request": {
+            "observedRunId": transport.get("observedRunId").cloned().unwrap_or(serde_json::Value::Null),
+            "referenceCount": references.len(),
+        },
+        "source": transport.get("source").cloned().unwrap_or(serde_json::Value::Null),
+        "target": {
+            "runId": request_run_id,
+            "sessionId": session_id,
+            "threadId": transport.get("threadId").cloned().unwrap_or(serde_json::Value::Null),
+        },
+    });
+    dispatch_tinyos_new_run_command(
+        shared,
+        transport.clone(),
+        instruction,
+        command_metadata,
+        Some(serde_json::Value::Array(references.clone())),
+        workspace_root,
+        config_snapshot,
+        live_trace_sink,
+        timeout,
+    )
+    .await
+}
+
+async fn dispatch_tinyos_new_run_command(
+    shared: &SharedGateway,
+    mut transport: serde_json::Value,
+    content: String,
+    command_metadata: serde_json::Value,
+    references: Option<serde_json::Value>,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let session_id = required_transport_string(&transport, "sessionId")?;
+    let run_id = required_transport_string(&transport, "runId")?;
+    let command_id = required_transport_string(&transport, "commandId")?;
+    let command_kind = required_transport_string(&transport, "commandKind")?;
+    let mut metadata = serde_json::json!({ "_tinyosCommand": command_metadata });
+    if let Some(references) = references {
+        metadata["references"] = references;
+    }
+    let run_transport = serde_json::json!({
         "inbound": {
             "channel": "websocket",
             "chat_id": transport.get("chatId").cloned().unwrap_or(serde_json::Value::Null),
             "content": content,
-            "metadata": { "_tinyosCommand": command_metadata },
+            "metadata": metadata,
             "session_key": &session_id,
         }
     });
     let run_request = build_worker_transport_websocket_run_input_request(
         next_worker_request_correlation(),
-        &retry_transport,
+        &run_transport,
         WorkerTransportWebSocketDispatchOptions {
-            run_id: Some(retry_run_id.clone()),
+            run_id: Some(run_id.clone()),
             stream: Some(true),
             ..WorkerTransportWebSocketDispatchOptions::default()
         },
     )
-    .ok_or_else(|| "operation.retry failed to build Agent run input".to_string())?;
+    .ok_or_else(|| format!("{command_kind} failed to build Agent run input"))?;
     let run_spec = run_request
         .params
         .get("input")
         .cloned()
-        .ok_or_else(|| "operation.retry Agent run input is missing".to_string())?;
+        .ok_or_else(|| format!("{command_kind} Agent run input is missing"))?;
     let agent_result = worker_run_agent_with_live_trace_sink_async(
         shared,
         run_spec,
@@ -962,16 +1112,60 @@ async fn dispatch_tinyos_retry_command(
             "event": "command_accepted",
             "chat_id": transport.get("chatId").cloned().unwrap_or(serde_json::Value::Null),
             "command_id": &command_id,
-            "run_id": &retry_run_id,
+            "run_id": &run_id,
         },
         {
             "event": "command_canonical_updated",
             "chat_id": transport.get("chatId").cloned().unwrap_or(serde_json::Value::Null),
             "command_id": &command_id,
-            "run_id": &retry_run_id,
+            "run_id": &run_id,
         }
     ]);
     Ok(serde_json::json!({ "transport": transport, "agent": agent_result }))
+}
+
+fn validate_tinyos_followup_run_state(
+    session_id: &str,
+    observed_run_id: Option<&str>,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> Result<(), String> {
+    let request_id = next_worker_request_correlation();
+    let runs = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("tinyos-followup-run-list"),
+            request_id.trace_id("tinyos-followup-run-list"),
+            "agent_run.list",
+            serde_json::json!({ "session_id": session_id }),
+        ),
+        "TinyOS follow-up run lookup",
+    )?;
+    let runs = runs
+        .get("runs")
+        .and_then(serde_json::Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let latest = runs.first();
+    let latest_run_id = latest
+        .and_then(|run| run.get("runId"))
+        .and_then(serde_json::Value::as_str);
+    if latest_run_id != observed_run_id {
+        return Err(format!(
+            "agent.request_change observed stale run `{}`; latest run is `{}`",
+            observed_run_id.unwrap_or("none"),
+            latest_run_id.unwrap_or("none")
+        ));
+    }
+    if runs.iter().any(|run| {
+        run.get("status")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|status| matches!(status, "running" | "waiting"))
+    }) {
+        return Err("agent.request_change is unavailable while an Agent run is active".to_string());
+    }
+    Ok(())
 }
 
 fn validate_tinyos_retry_source(

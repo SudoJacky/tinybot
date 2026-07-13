@@ -77,17 +77,20 @@ const tinyOsSessionUiState = new Map<string, ReturnType<typeof createTinyOsUiSta
 
 export function TinyOsShell({
   agentUiForms,
+  canRequestChange,
   canRetryRun,
   filesController,
   history = false,
   onCancelForm,
   onAttachContext,
   onOpenArtifact,
+  onRequestExplanation,
   onResolveApproval,
   onRetryOperation,
   onSelectEntry,
   onSubmitForm,
   resolvingApprovalId,
+  requestChangeUnavailableReason,
   sessionKey,
   submittingFormId,
   snapshot,
@@ -95,17 +98,20 @@ export function TinyOsShell({
   workspaceKey,
 }: {
   agentUiForms: AgentUiForm[];
+  canRequestChange: boolean;
   canRetryRun: boolean;
   filesController?: TinyOsFilesController;
   history?: boolean;
   onCancelForm: (form: AgentUiForm) => void;
   onAttachContext: (reference: TinyOsContextReference) => void;
   onOpenArtifact: (artifact: ArtifactRef) => void;
+  onRequestExplanation: (reference: TinyOsContextReference) => void;
   onResolveApproval: (approvalId: string, action: ApprovalAction) => void;
   onRetryOperation: (entry: TinyOsTimelineEntry) => void;
   onSelectEntry: (entry: TinyOsTimelineEntry) => void;
   onSubmitForm: (form: AgentUiForm, values: Record<string, unknown>) => void;
   resolvingApprovalId: string;
+  requestChangeUnavailableReason?: string;
   sessionKey?: string;
   submittingFormId?: string;
   snapshot: TinyOsDesktopSnapshot;
@@ -288,6 +294,7 @@ export function TinyOsShell({
           <TinyOsAppWindow
             active={uiState.focusedAppId === window.appId}
             activeTabId={uiState.activeTabs[window.appId]}
+            canRequestChange={canRequestChange}
             key={window.id}
             layout={uiState.windowLayout[window.appId]}
             zIndex={uiState.zOrder.indexOf(window.appId) + 2}
@@ -300,9 +307,11 @@ export function TinyOsShell({
             onMaximize={() => dispatchUi({ appId: window.appId, type: "maximize_toggle" })}
             onMinimize={() => minimizeApp(window.appId)}
             onOpenArtifact={onOpenArtifact}
+            onRequestExplanation={onRequestExplanation}
             onSetRect={(rect) => dispatchUi({ appId: window.appId, rect, type: "set_rect" })}
             onSnap={(edge) => dispatchUi({ appId: window.appId, edge, type: "snap" })}
             onTabChange={(tabId) => dispatchUi({ appId: window.appId, tabId, type: "set_active_tab" })}
+            requestChangeUnavailableReason={requestChangeUnavailableReason}
           />
         ))}
 
@@ -360,6 +369,7 @@ function TinyOsDesktopEmpty() {
 function TinyOsAppWindow({
   active,
   activeTabId,
+  canRequestChange,
   filesController,
   layout,
   layoutMode,
@@ -369,14 +379,17 @@ function TinyOsAppWindow({
   onMaximize,
   onMinimize,
   onOpenArtifact,
+  onRequestExplanation,
   onSetRect,
   onSnap,
   onTabChange,
+  requestChangeUnavailableReason,
   window,
   zIndex,
 }: {
   active: boolean;
   activeTabId?: string;
+  canRequestChange: boolean;
   filesController?: TinyOsFilesController;
   layout?: TinyOsWindowRect & { maximized: boolean };
   layoutMode: TinyOsLayoutMode;
@@ -386,9 +399,11 @@ function TinyOsAppWindow({
   onMaximize: () => void;
   onMinimize: () => void;
   onOpenArtifact: (artifact: ArtifactRef) => void;
+  onRequestExplanation: (reference: TinyOsContextReference) => void;
   onSetRect: (rect: TinyOsWindowRect) => void;
   onSnap: (edge: "left" | "right") => void;
   onTabChange: (tabId: string) => void;
+  requestChangeUnavailableReason?: string;
   window: TinyOsWindow;
   zIndex: number;
 }) {
@@ -512,7 +527,18 @@ function TinyOsAppWindow({
         <button aria-label={`Minimize ${window.title}`} title={`Minimize ${window.title}`} type="button" onClick={onMinimize}><Minus aria-hidden="true" size={15} /></button>
       </header>
       <div className="tinyos-window__content">
-        <TinyOsAppContent activeTabId={activeTabId} filesController={filesController} layoutMode={layoutMode} window={window} onAttachContext={onAttachContext} onOpenArtifact={onOpenArtifact} onTabChange={onTabChange} />
+        <TinyOsAppContent
+          activeTabId={activeTabId}
+          canRequestChange={canRequestChange}
+          filesController={filesController}
+          layoutMode={layoutMode}
+          window={window}
+          onAttachContext={onAttachContext}
+          onOpenArtifact={onOpenArtifact}
+          onRequestExplanation={onRequestExplanation}
+          onTabChange={onTabChange}
+          requestChangeUnavailableReason={requestChangeUnavailableReason}
+        />
       </div>
       <div
         aria-label={`Resize ${window.title} window`}
@@ -527,11 +553,11 @@ function TinyOsAppWindow({
   );
 }
 
-function TinyOsAppContent({ activeTabId, filesController, layoutMode, window, onAttachContext, onOpenArtifact, onTabChange }: { activeTabId?: string; filesController?: TinyOsFilesController; layoutMode: TinyOsLayoutMode; window: TinyOsWindow; onAttachContext: (reference: TinyOsContextReference) => void; onOpenArtifact: (artifact: ArtifactRef) => void; onTabChange: (tabId: string) => void }) {
+function TinyOsAppContent({ activeTabId, canRequestChange, filesController, layoutMode, window, onAttachContext, onOpenArtifact, onRequestExplanation, onTabChange, requestChangeUnavailableReason }: { activeTabId?: string; canRequestChange: boolean; filesController?: TinyOsFilesController; layoutMode: TinyOsLayoutMode; window: TinyOsWindow; onAttachContext: (reference: TinyOsContextReference) => void; onOpenArtifact: (artifact: ArtifactRef) => void; onRequestExplanation: (reference: TinyOsContextReference) => void; onTabChange: (tabId: string) => void; requestChangeUnavailableReason?: string }) {
   switch (window.appId) {
     case "files": return filesController?.queryAvailable || !window.entries.length
       ? filesController
-        ? <TinyOsFilesExplorer controller={filesController} layoutMode={layoutMode} onAttachContext={onAttachContext} />
+        ? <TinyOsFilesExplorer canRequestChange={canRequestChange} controller={filesController} layoutMode={layoutMode} onAttachContext={onAttachContext} onRequestExplanation={onRequestExplanation} requestChangeUnavailableReason={requestChangeUnavailableReason} />
         : <EmptyCopy text="Workspace Explorer is unavailable." />
       : <TinyOsFiles activeTabId={activeTabId} window={window} onAttachContext={onAttachContext} onTabChange={onTabChange} />;
     case "terminal": return <TinyOsTerminal activeTabId={activeTabId} window={window} onAttachContext={onAttachContext} onTabChange={onTabChange} />;
