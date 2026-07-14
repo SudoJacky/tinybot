@@ -1459,7 +1459,7 @@ describe("ChatPage", () => {
     const details = screen.getByRole("button", { name: /Agent steps, 1 step/i });
     const error = screen.getByRole("alert", { name: "任务执行失败" });
     expect(plan.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(document.activeElement).toBe(error);
+    await waitFor(() => expect(document.activeElement).toBe(error));
     expect(planToggle.getAttribute("aria-expanded")).toBe("true");
     await user.click(planToggle);
     expect(planToggle.getAttribute("aria-expanded")).toBe("false");
