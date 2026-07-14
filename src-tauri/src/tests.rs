@@ -1330,7 +1330,7 @@ fn worker_run_agent_stops_before_provider_when_run_start_persistence_fails() {
 }
 
 #[test]
-fn worker_run_agent_fails_when_run_record_persistence_fails() {
+fn worker_run_agent_fails_when_trace_persistence_breaks_after_provider_response() {
     #[derive(Clone)]
     struct PersistenceBreakingProvider {
         workspace_root: PathBuf,
@@ -1387,9 +1387,12 @@ fn worker_run_agent_fails_when_run_record_persistence_fails() {
         serde_json::json!({}),
         Duration::from_millis(10),
     )
-    .expect_err("run-record persistence failure should fail the command");
+    .expect_err("trace persistence failure should fail the command");
 
-    assert!(error.contains("run persistence failed"), "{error}");
+    assert!(
+        error.contains("native agent run trace batch append failed"),
+        "{error}"
+    );
     assert_eq!(
         *calls
             .lock()

@@ -289,7 +289,11 @@ fn interactive_process_accepts_input_resizes_and_exits_cleanly() {
     assert_eq!(output.status, "exited");
     assert_eq!(output.exit_code, Some(0));
     assert!(
-        transcript.contains("answer=hello"),
+        transcript.contains(if cfg!(target_os = "windows") {
+            "answer=hello"
+        } else {
+            "got:hello"
+        }),
         "{transcript:?}; {output:?}"
     );
     assert_eq!(rpc.active_process_count(), 0);
