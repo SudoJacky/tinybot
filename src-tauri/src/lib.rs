@@ -151,9 +151,9 @@ use crate::desktop_commands::thread::{
 use crate::desktop_commands::transport::worker_dispatch_tinyos_host_command;
 #[cfg(test)]
 use crate::desktop_commands::transport::{
-    build_worker_transport_websocket_run_input_request, native_websocket_transport_result,
+    native_websocket_transport_result, validate_tinyos_host_command_frame,
     worker_transport_dispatch_websocket_message_with_options,
-    WorkerTransportWebSocketDispatchInput, WorkerTransportWebSocketDispatchOptions,
+    WorkerTransportWebSocketDispatchInput,
 };
 use crate::desktop_commands::webui::{
     worker_cowork_route, worker_probe_status, worker_webui_route,

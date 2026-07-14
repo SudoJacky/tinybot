@@ -573,10 +573,7 @@ button:disabled {
 
 .react-session-list[data-collapsed="true"] .react-session-list__header h2,
 .react-session-list[data-collapsed="true"] .react-session-list__search,
-.react-session-list[data-collapsed="true"] .react-session-list__new span,
-.react-session-list[data-collapsed="true"] .react-session-row__title,
-.react-session-list[data-collapsed="true"] .react-session-row__select small,
-.react-session-list[data-collapsed="true"] .react-session-row__delete {
+.react-session-list[data-collapsed="true"] .react-session-list__new span {
   max-width: 0;
   opacity: 0;
   pointer-events: none;
@@ -623,7 +620,7 @@ button:disabled {
 
 .react-session-row__select {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) max-content;
+  grid-template-columns: minmax(0, 1fr) max-content;
   align-items: center;
   column-gap: 8px;
   width: 100%;
@@ -638,19 +635,6 @@ button:disabled {
 .react-session-row__select:hover,
 .react-session-row__select:focus-visible {
   background: transparent;
-}
-
-.react-session-row__avatar {
-  display: inline-grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 7px;
-  background: #fff;
-  color: var(--color-muted);
-  font-size: 11px;
-  font-weight: 650;
 }
 
 .react-session-row__title,
@@ -674,24 +658,6 @@ button:disabled {
   min-width: 34px;
   text-align: right;
   transition: opacity 140ms ease;
-}
-
-.react-session-list[data-collapsed="true"] .react-session-list__rows {
-  padding: 0 7px 12px;
-}
-
-.react-session-list[data-collapsed="true"] .react-session-row {
-  display: grid;
-  justify-items: center;
-}
-
-.react-session-list[data-collapsed="true"] .react-session-row__select {
-  grid-template-columns: 28px;
-  column-gap: 0;
-  justify-content: center;
-  width: 40px;
-  min-height: 40px;
-  padding: 6px;
 }
 
 .react-session-row:hover .react-session-row__select small,
@@ -1080,6 +1046,11 @@ button:disabled {
 
 button.tinyos-overlay-backdrop {
   cursor: pointer;
+}
+
+button.tinyos-overlay-backdrop:hover,
+button.tinyos-overlay-backdrop:focus-visible {
+  background: rgb(20 20 19 / 18%);
 }
 
 .react-live-canvas__header {
@@ -6383,6 +6354,10 @@ button.tinyos-overlay-backdrop {
   width: 32px;
   border-color: transparent;
   padding: 0;
+}
+
+.react-session-list[data-collapsed="true"] .react-session-list__rows {
+  display: none;
 }
 
 .react-provider-card__menu {
