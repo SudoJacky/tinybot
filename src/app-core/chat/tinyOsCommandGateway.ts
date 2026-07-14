@@ -212,6 +212,72 @@ export type TinyOsCommand = TinyOsAgentCancelCommand
   | TinyOsTerminalCancelCommand
   | TinyOsBrowserInteractCommand;
 
+export type TinyOsHostCommand = Exclude<
+  TinyOsCommand,
+  TinyOsAgentCancelCommand | TinyOsApprovalResolveCommand | TinyOsFormSubmitCommand | TinyOsFormCancelCommand
+>;
+
+export function toNativeTinyOsHostCommandFrame(sessionId: string, command: TinyOsHostCommand) {
+  const envelope = {
+    type: "command" as const,
+    chat_id: sessionId,
+    command_id: command.commandId,
+    command_kind: command.kind,
+    run_id: command.target.runId,
+    session_id: command.target.sessionId,
+    ...(command.target.threadId ? { thread_id: command.target.threadId } : {}),
+    ...("turnId" in command.target && command.target.turnId ? { turn_id: command.target.turnId } : {}),
+    source: command.source,
+  };
+  if (command.kind === "operation.retry") return {
+    ...envelope,
+    source_turn_id: command.operation.turnId,
+    item_id: command.operation.itemId,
+  };
+  if (command.kind === "agent.pause" || command.kind === "agent.resume") return envelope;
+  if (command.kind === "agent.request_change") return {
+    ...envelope,
+    instruction: command.request.instruction,
+    ...(command.request.observedRunId ? { observed_run_id: command.request.observedRunId } : {}),
+    references: command.request.references,
+  };
+  if (command.kind === "file.save") return {
+    ...envelope,
+    path: command.file.path,
+    content: command.file.content,
+    create_only: command.file.createOnly,
+    confirmed: command.file.confirmed,
+    ...(command.file.baseRevision ? { base_revision: command.file.baseRevision } : {}),
+  };
+  if (command.kind === "file.move") return {
+    ...envelope,
+    path: command.file.path,
+    target_path: command.file.targetPath,
+    base_revision: command.file.baseRevision,
+    confirmed: command.file.confirmed,
+  };
+  if (command.kind === "file.delete") return {
+    ...envelope,
+    path: command.file.path,
+    base_revision: command.file.baseRevision,
+    confirmed: command.file.confirmed,
+  };
+  if (command.kind === "terminal.execute") return {
+    ...envelope,
+    command: command.terminal.command,
+    confirmed: command.terminal.confirmed,
+    ...(command.terminal.cwd ? { cwd: command.terminal.cwd } : {}),
+  };
+  if (command.kind === "terminal.cancel") return envelope;
+  if (command.kind === "browser.interact") return {
+    ...envelope,
+    action: command.browser.action,
+    capture_id: command.browser.captureId,
+    confirmed: command.browser.confirmed,
+  };
+  throw new Error(`Unsupported Native host command: ${command.kind}`);
+}
+
 export type TinyOsCommandAcknowledgement = {
   itemId: string;
   revision: number;

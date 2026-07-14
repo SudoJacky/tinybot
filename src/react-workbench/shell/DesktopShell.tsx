@@ -12,8 +12,9 @@ import {
 import { BookOpen, Bot, ChevronRight, Code2, Command, FileText, Folder, MessageSquare, Minus, Settings, Square, Wrench, X } from "lucide-react";
 import { ChatPage } from "../chat/ChatPage";
 import { AgentDefaultsSettingsPage } from "../settings/AgentDefaultsSettingsPage";
+import { ConfigSettingsPage, type ConfigSettingsGroupId } from "../settings/ConfigSettingsPage";
 import { ProviderModelsSettingsPage } from "../settings/ProviderModelsSettingsPage";
-import type { AppServices, WorkspaceFileSummary } from "../services";
+import type { AppServices, ToolCatalogSummary, WorkspaceFileSummary } from "../services";
 
 type AppRoute = "chat" | "files" | "knowledge" | "cowork" | "github" | "docs" | "tools" | "settings";
 
@@ -558,29 +559,102 @@ function KnowledgePage({ services }: { services: AppServices }) {
 }
 
 function ToolsPage({ services }: { services: AppServices }) {
+  const catalog = useAsyncValue<ToolCatalogSummary>(
+    () => services.toolsStore.loadCatalog(),
+    { tools: [], mcpServers: [] },
+    [services],
+  );
   const skills = useAsyncList(() => services.toolsStore.listSkills(), [services]);
   return (
     <WorkbenchPage title="Tools & Skills">
-      <DataList
-        empty="No skills found."
-        items={skills}
-        renderItem={(skill) => (
-          <div className="react-data-row" key={skill.name}>
-            <strong>{skill.name}</strong>
-            <small>{skill.description || "Skill"}</small>
-          </div>
-        )}
-      />
+      <div className="react-tools-skills-page">
+        <section>
+          <h2>Tools</h2>
+          <DataList
+            empty="No tools found."
+            items={catalog.tools}
+            renderItem={(tool) => (
+              <div className="react-data-row" key={tool.id}>
+                <span className="react-data-row__content">
+                  <strong>{tool.displayName}</strong>
+                  <small>{tool.description || tool.name}</small>
+                </span>
+                <small>{toolMeta(tool)}</small>
+              </div>
+            )}
+          />
+        </section>
+        {catalog.mcpServers.length > 0 ? (
+          <section>
+            <h2>MCP servers</h2>
+            <DataList
+              empty="No MCP servers configured."
+              items={catalog.mcpServers}
+              renderItem={(server) => (
+                <div className="react-data-row" key={server.id}>
+                  <span className="react-data-row__content">
+                    <strong>{server.id}</strong>
+                    <small>{server.error || `${server.transport} transport`}</small>
+                  </span>
+                  <small>{server.state} / {server.toolCount} tools</small>
+                </div>
+              )}
+            />
+          </section>
+        ) : null}
+        <section>
+          <h2>Skills</h2>
+          <DataList
+            empty="No skills found."
+            items={skills}
+            renderItem={(skill) => (
+              <div className="react-data-row" key={skill.name}>
+                <span className="react-data-row__content">
+                  <strong>{skill.name}</strong>
+                  <small>{skill.description || "Skill"}</small>
+                </span>
+                <small>{skillMeta(skill)}</small>
+              </div>
+            )}
+          />
+        </section>
+      </div>
     </WorkbenchPage>
   );
+}
+
+function toolMeta(tool: ToolCatalogSummary["tools"][number]): string {
+  const source = tool.serverId ? `MCP: ${tool.serverId}` : tool.source;
+  const status = !tool.available ? tool.reason || "unavailable" : !tool.enabled ? tool.reason || "disabled" : "available";
+  return [source, status, tool.approvalRequired ? "approval required" : ""].filter(Boolean).join(" / ");
+}
+
+function skillMeta(skill: Awaited<ReturnType<AppServices["toolsStore"]["listSkills"]>>[number]): string {
+  const status = skill.available === false
+    ? skill.reason || "unavailable"
+    : skill.enabled === false
+      ? skill.reason || "disabled"
+      : skill.effective
+        ? "active"
+        : skill.always
+          ? "autoload"
+          : "available";
+  return [skill.source || "skill", status].join(" / ");
 }
 
 function SettingsPage({ services }: { services: AppServices }) {
   const settings = useAsyncList(() => services.settingsStore.load(), [services]);
   const [activeSettingsModuleId, setActiveSettingsModuleId] = useState<SettingsModuleId>("provider-models");
   if (services.settingsStore.loadProviderSettings && services.settingsStore.saveProviderSettings) {
-    const availableModules = settingsModules.filter((module) => module.id !== "agent-defaults"
-      || (services.settingsStore.loadAgentDefaultsSettings && services.settingsStore.saveAgentDefaultsSettings));
+    const availableModules = settingsModules.filter((module) => {
+      if (module.id === "agent-defaults") {
+        return Boolean(services.settingsStore.loadAgentDefaultsSettings && services.settingsStore.saveAgentDefaultsSettings);
+      }
+      if (module.groupId) {
+        return Boolean(services.settingsStore.loadDesktopConfigSettings && services.settingsStore.saveDesktopConfigSettings);
+      }
+      return true;
+    });
     const activeModuleId = availableModules.some((module) => module.id === activeSettingsModuleId)
       ? activeSettingsModuleId
       : "provider-models";
@@ -594,6 +668,11 @@ function SettingsPage({ services }: { services: AppServices }) {
           {activeModuleId === "agent-defaults" ? (
             <AgentDefaultsSettingsPage
               onNavigateToProviderModels={() => setActiveSettingsModuleId("provider-models")}
+              settingsStore={services.settingsStore}
+            />
+          ) : activeModuleId !== "provider-models" ? (
+            <ConfigSettingsPage
+              groupId={activeModuleId}
               settingsStore={services.settingsStore}
             />
           ) : (
@@ -619,11 +698,15 @@ function SettingsPage({ services }: { services: AppServices }) {
   );
 }
 
-type SettingsModuleId = "provider-models" | "agent-defaults";
+type SettingsModuleId = "provider-models" | "agent-defaults" | ConfigSettingsGroupId;
 
-const settingsModules: Array<{ id: SettingsModuleId; label: string; description: string }> = [
+const settingsModules: Array<{ id: SettingsModuleId; label: string; description: string; groupId?: ConfigSettingsGroupId }> = [
   { id: "provider-models", label: "Provider & Models", description: "Providers, API keys, and model defaults" },
   { id: "agent-defaults", label: "Agent Defaults", description: "Runtime behavior for new agent runs" },
+  { id: "knowledge", label: "Knowledge", description: "Retrieval, reranking, and graph extraction", groupId: "knowledge" },
+  { id: "tools-approvals", label: "Tools & MCP", description: "Tool access and MCP server configuration", groupId: "tools-approvals" },
+  { id: "channels", label: "Channels", description: "Progress signals and delivery retries", groupId: "channels" },
+  { id: "gateway-runtime", label: "Gateway & Runtime", description: "Local port and heartbeat behavior", groupId: "gateway-runtime" },
 ];
 
 function SettingsLayout({
@@ -664,7 +747,7 @@ function SettingsLayout({
 
 function WorkbenchPage({ children, title }: { children: ReactNode; title: string }) {
   return (
-    <div className="react-workbench-page">
+    <div className={title === "Settings" ? "react-workbench-page react-workbench-page--settings" : "react-workbench-page"}>
       <header>
         <h1>{title}</h1>
       </header>
@@ -711,6 +794,26 @@ function useAsyncList<T>(load: () => Promise<T[]>, deps: DependencyList): T[] {
     };
   }, deps);
   return items;
+}
+
+function useAsyncValue<T>(load: () => Promise<T>, initialValue: T, deps: DependencyList): T {
+  const [value, setValue] = useState(initialValue);
+  useEffect(() => {
+    let cancelled = false;
+    void load().then((nextValue) => {
+      if (!cancelled) {
+        setValue(nextValue);
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setValue(initialValue);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, deps);
+  return value;
 }
 
 function formatFileSize(size: WorkspaceFileSummary["size"]): string {

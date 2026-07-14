@@ -4,7 +4,7 @@ use serde::Serialize;
 use std::{
     collections::VecDeque,
     path::{Path, PathBuf},
-    sync::{atomic::AtomicBool, Arc, Mutex},
+    sync::{Arc, Mutex},
     time::Duration,
 };
 use tauri::{Emitter, Manager, Runtime, State, WindowEvent};
@@ -14,18 +14,20 @@ pub mod agent_loop_runtime_protocol;
 mod config_application;
 pub mod config_store;
 pub mod desktop_commands;
-pub mod desktop_cron;
 pub mod desktop_files;
 #[cfg(test)]
 pub mod desktop_heartbeat;
 pub mod desktop_logging;
 pub mod desktop_menu;
 mod desktop_update;
+mod mcp_capability_catalog;
 pub mod native_agent_bridge;
 pub mod native_backend_contract;
 pub mod native_provider_runtime;
 mod runtime;
 pub mod settings_registry;
+mod skill_definition;
+mod skill_resolver;
 mod system_prompt;
 pub mod worker_agent_runtime;
 pub mod worker_background;
@@ -146,16 +148,12 @@ use crate::desktop_commands::thread::{
     worker_thread_search, worker_thread_start_turn, worker_thread_status, worker_thread_unarchive,
     worker_thread_update_metadata, worker_threads_list,
 };
+use crate::desktop_commands::transport::worker_dispatch_tinyos_host_command;
 #[cfg(test)]
 use crate::desktop_commands::transport::{
-    build_worker_transport_websocket_run_input_request, native_websocket_transport_result,
+    native_websocket_transport_result, validate_tinyos_host_command_frame,
     worker_transport_dispatch_websocket_message_with_options,
-    WorkerTransportWebSocketDispatchInput, WorkerTransportWebSocketDispatchOptions,
-};
-use crate::desktop_commands::transport::{
-    worker_channel_dispatch_inbound, worker_channel_login, worker_channel_start,
-    worker_channel_status, worker_channel_stop, worker_transport_dispatch_websocket_message,
-    worker_transport_gateway_frame, worker_transport_websocket_message,
+    WorkerTransportWebSocketDispatchInput,
 };
 use crate::desktop_commands::webui::{
     worker_cowork_route, worker_probe_status, worker_webui_route,
@@ -170,9 +168,6 @@ use crate::desktop_commands::workspace::{
     worker_workspace_file_with_options, worker_workspace_files,
     worker_workspace_files_with_options, worker_workspace_put_file,
     worker_workspace_put_file_with_options,
-};
-use crate::desktop_cron::{
-    start_worker_cron_timer, stop_worker_cron_timer, worker_cron_dispatch_due,
 };
 use crate::desktop_files::{pick_upload_file, reveal_workspace_file, save_export_file};
 use crate::desktop_logging::append_native_backend_log_line;
@@ -223,7 +218,6 @@ fn record_renderer_diagnostic(
 }
 
 pub(crate) type SharedGateway = Arc<Mutex<GatewayRuntime>>;
-const WORKER_CRON_TIMER_MAX_POLL: Duration = Duration::from_secs(30);
 const WORKER_WEBUI_ROUTE_TIMEOUT: Duration = Duration::from_secs(10);
 const NATIVE_BACKEND_LOG_MAX_BYTES: u64 = 5 * 1024 * 1024;
 const NATIVE_BACKEND_LOG_TAIL_LINES: usize = 100;
@@ -239,9 +233,6 @@ pub(crate) struct GatewayRuntime {
     persistent_log_path: PathBuf,
     last_error: Option<String>,
     keep_background: bool,
-    cron_dispatch_running: Arc<AtomicBool>,
-    cron_timer_started: Arc<AtomicBool>,
-    cron_timer_stop: Arc<AtomicBool>,
 }
 
 impl Default for GatewayRuntime {
@@ -262,9 +253,6 @@ impl Default for GatewayRuntime {
             persistent_log_path: native_backend_log_path(),
             last_error: None,
             keep_background: false,
-            cron_dispatch_running: Arc::new(AtomicBool::new(false)),
-            cron_timer_started: Arc::new(AtomicBool::new(false)),
-            cron_timer_stop: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -542,7 +530,6 @@ pub fn run() {
                 emit_worker_manager_frontend_event(&app_handle, event);
             });
             drop(runtime);
-            start_worker_cron_timer(&setup_state);
             #[cfg(windows)]
             desktop_update::spawn_startup_auto_update(app.handle().clone(), setup_state.clone());
             push_log(
@@ -608,14 +595,7 @@ pub fn run() {
             worker_thread_restore_checkpoint,
             worker_cowork_route,
             worker_webui_route,
-            worker_transport_gateway_frame,
-            worker_transport_websocket_message,
-            worker_transport_dispatch_websocket_message,
-            worker_channel_dispatch_inbound,
-            worker_channel_start,
-            worker_channel_status,
-            worker_channel_stop,
-            worker_channel_login,
+            worker_dispatch_tinyos_host_command,
             worker_cancel_agent,
             worker_restore_agent_checkpoint,
             worker_background_trace_list,
@@ -647,7 +627,6 @@ pub fn run() {
             worker_resume_agent_approval,
             worker_resolve_thread_approval,
             worker_submit_thread_form,
-            worker_cron_dispatch_due,
             get_settings_snapshot,
             get_config_editor_snapshot,
             apply_config_patch_result,
@@ -658,7 +637,6 @@ pub fn run() {
         ])
         .on_window_event(move |_window, event| {
             if matches!(event, WindowEvent::CloseRequested { .. }) {
-                stop_worker_cron_timer(&close_state);
                 let _ = stop_owned_gateway(&close_state, false);
             }
         })

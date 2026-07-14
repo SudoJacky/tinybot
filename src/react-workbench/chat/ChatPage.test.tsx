@@ -168,7 +168,6 @@ describe("ChatPage", () => {
   });
 
   it("keeps expanded execution timelines at max-content height inside the conversation grid", async () => {
-    mountWorkbenchCss();
     const stores = createStores();
     const timeline = timelineFromReactMessages("s1", [{
       id: "u-layout",
@@ -195,6 +194,7 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
     await screen.findByRole("button", { name: /Execution details Running · 1 item/ });
+    mountWorkbenchCss();
     const executionTimeline = document.querySelector<HTMLElement>(".react-execution-timeline")!;
     const executionContent = document.querySelector<HTMLElement>(".react-execution-timeline__content")!;
     expect(getComputedStyle(executionTimeline).height).toBe("max-content");
@@ -219,33 +219,32 @@ describe("ChatPage", () => {
   });
 
   it("opens and closes the Live Canvas from the Chat header with focus restoration", async () => {
-    mountWorkbenchCss();
-    const user = userEvent.setup();
     const stores = createStores();
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     const openButton = await screen.findByRole("button", { name: /^Open Live Canvas/ });
     expect(openButton.getAttribute("aria-expanded")).toBe("false");
-    expect(getComputedStyle(openButton).minWidth).toBe("44px");
     expect(screen.queryByLabelText("Live Canvas")).toBeNull();
 
-    await user.click(openButton);
+    fireEvent.click(openButton);
 
-    const canvas = screen.getByLabelText("Live Canvas");
+    const canvas = await screen.findByLabelText("Live Canvas");
+    mountWorkbenchCss();
     const canvasHeading = within(canvas).getByRole("heading", { name: "TinyOS" });
     expect(openButton.getAttribute("aria-expanded")).toBe("true");
+    expect(getComputedStyle(openButton).minWidth).toBe("44px");
     expect(document.querySelector(".react-chat-page")?.getAttribute("data-live-canvas-open")).toBe("true");
     expect(within(canvas).getByRole("article", { name: "Terminal window" })).toBeTruthy();
     expect(within(canvas).getByText("Live follow")).toBeTruthy();
-    expect(document.activeElement).toBe(canvasHeading);
+    await waitFor(() => expect(document.activeElement).toBe(canvasHeading));
 
     const closeButton = within(canvas).getByRole("button", { name: "Close Live Canvas panel" });
     expect(getComputedStyle(closeButton).minWidth).toBe("44px");
-    await user.click(closeButton);
+    fireEvent.click(closeButton);
 
+    await waitFor(() => expect(screen.queryByLabelText("Live Canvas")).toBeNull());
     const restoredButton = screen.getByRole("button", { name: /^Open Live Canvas/ });
-    expect(screen.queryByLabelText("Live Canvas")).toBeNull();
-    expect(document.activeElement).toBe(restoredButton);
+    await waitFor(() => expect(document.activeElement).toBe(restoredButton));
   });
 
   it("attaches a TinyOS file range as a visible composer chip and structured chat reference", async () => {
@@ -532,6 +531,7 @@ describe("ChatPage", () => {
     expect(rows.getAttribute("data-motion")).toBe("animated-list");
     expect(row?.getAttribute("data-motion-role")).toBe("item");
     expect(row?.style.getPropertyValue("--react-session-row-index")).toBe("0");
+    expect(row?.querySelector(".react-session-row__avatar")).toBeNull();
   });
 
   it("uses the active session background for hovered and focused session rows", () => {

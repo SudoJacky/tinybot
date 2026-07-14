@@ -1,10 +1,6 @@
 use super::*;
 use crate::desktop_commands::gateway::{
-    classify_bootstrap_response, current_status, persist_gateway_exit_policy, GatewayRuntimeStatus,
-};
-use crate::desktop_cron::{
-    cron_model_from_config, worker_cron_dispatch_due_with_options,
-    worker_cron_next_wake_delay_with_options,
+    current_status, persist_gateway_exit_policy, GatewayRuntimeStatus,
 };
 use crate::desktop_files::{
     allowed_workspace_file_path, mime_type_for_path, reveal_workspace_file_path_from_config_path,
@@ -4415,14 +4411,6 @@ fn worker_webui_approval_and_form_routes_report_missing_checkpoints_with_rust_me
 }
 
 #[test]
-fn cron_model_from_config_defaults_to_agent_model() {
-    assert_eq!(
-        cron_model_from_config(&serde_json::json!({})),
-        "deepseek-v4-pro"
-    );
-}
-
-#[test]
 fn worker_heartbeat_lifecycle_requests_target_native_worker_methods() {
     let start = build_worker_heartbeat_lifecycle_request(test_request_correlation("42"), "start");
     assert_eq!(start.id, "heartbeat-start-42");
@@ -4435,181 +4423,6 @@ fn worker_heartbeat_lifecycle_requests_target_native_worker_methods() {
     assert_eq!(stop.trace_id, "trace-heartbeat-stop-43");
     assert_eq!(stop.method, "heartbeat.stop");
     assert_eq!(stop.params, serde_json::json!({}));
-}
-
-#[test]
-fn worker_cron_dispatch_due_noops_without_due_jobs() {
-    let fixture = WorkspaceFixture::new();
-    fixture.write(
-            "cron/jobs.json",
-            &serde_json::json!({
-                "version": 1,
-                "jobs": [
-                    {
-                        "id": "future",
-                        "name": "Future",
-                        "enabled": true,
-                        "schedule": { "kind": "at", "atMs": 100000 },
-                        "payload": { "kind": "agent_turn", "message": "later", "deliver": false },
-                        "state": { "nextRunAtMs": 100000, "lastRunAtMs": null, "lastStatus": null, "lastError": null, "runHistory": [] },
-                        "createdAtMs": 1,
-                        "updatedAtMs": 1,
-                        "deleteAfterRun": true
-                    }
-                ]
-            })
-            .to_string(),
-        );
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
-
-    let result = worker_cron_dispatch_due_with_options(
-        &shared,
-        fixture.root.clone(),
-        serde_json::json!({ "agents": { "defaults": { "model": "gpt-5" } } }),
-        2000,
-        Duration::from_secs(1),
-    )
-    .expect("cron due dispatch should no-op");
-
-    assert_eq!(
-        result,
-        serde_json::json!({
-            "dispatched": 0,
-            "records": [],
-            "recorded": { "updated": [], "deleted": [], "missing": [] }
-        })
-    );
-    assert_eq!(
-        lock_runtime(&shared).experimental_worker.status().state,
-        WorkerManagerState::Stopped
-    );
-}
-
-#[test]
-fn worker_cron_next_wake_delay_uses_earliest_enabled_job() {
-    let fixture = WorkspaceFixture::new();
-    fixture.write(
-            "cron/jobs.json",
-            &serde_json::json!({
-                "version": 1,
-                "jobs": [
-                    {
-                        "id": "later",
-                        "name": "Later",
-                        "enabled": true,
-                        "schedule": { "kind": "at", "atMs": 5000 },
-                        "payload": { "kind": "agent_turn", "message": "later", "deliver": false },
-                        "state": { "nextRunAtMs": 5000, "lastRunAtMs": null, "lastStatus": null, "lastError": null, "runHistory": [] },
-                        "createdAtMs": 1,
-                        "updatedAtMs": 1,
-                        "deleteAfterRun": true
-                    },
-                    {
-                        "id": "disabled-earlier",
-                        "name": "Disabled",
-                        "enabled": false,
-                        "schedule": { "kind": "at", "atMs": 2500 },
-                        "payload": { "kind": "agent_turn", "message": "disabled", "deliver": false },
-                        "state": { "nextRunAtMs": 2500, "lastRunAtMs": null, "lastStatus": null, "lastError": null, "runHistory": [] },
-                        "createdAtMs": 1,
-                        "updatedAtMs": 1,
-                        "deleteAfterRun": true
-                    },
-                    {
-                        "id": "earliest",
-                        "name": "Earliest",
-                        "enabled": true,
-                        "schedule": { "kind": "at", "atMs": 3500 },
-                        "payload": { "kind": "agent_turn", "message": "soon", "deliver": false },
-                        "state": { "nextRunAtMs": 3500, "lastRunAtMs": null, "lastStatus": null, "lastError": null, "runHistory": [] },
-                        "createdAtMs": 1,
-                        "updatedAtMs": 1,
-                        "deleteAfterRun": true
-                    }
-                ]
-            })
-            .to_string(),
-        );
-
-    let delay = worker_cron_next_wake_delay_with_options(
-        fixture.root.clone(),
-        serde_json::json!({}),
-        2000,
-        Duration::from_secs(30),
-    )
-    .expect("cron next wake should be derived from store");
-
-    assert_eq!(delay, Duration::from_millis(1500));
-}
-
-#[test]
-fn worker_cron_next_wake_delay_backs_off_due_jobs_while_dispatch_is_unsupported() {
-    let fixture = WorkspaceFixture::new();
-    fixture.write(
-            "cron/jobs.json",
-            &serde_json::json!({
-                "version": 1,
-                "jobs": [
-                    {
-                        "id": "due",
-                        "name": "Due",
-                        "enabled": true,
-                        "schedule": { "kind": "at", "atMs": 1000 },
-                        "payload": { "kind": "agent_turn", "message": "now", "deliver": false },
-                        "state": { "nextRunAtMs": 1000, "lastRunAtMs": null, "lastStatus": null, "lastError": null, "runHistory": [] },
-                        "createdAtMs": 1,
-                        "updatedAtMs": 1,
-                        "deleteAfterRun": true
-                    }
-                ]
-            })
-            .to_string(),
-        );
-
-    let delay = worker_cron_next_wake_delay_with_options(
-        fixture.root.clone(),
-        serde_json::json!({}),
-        2000,
-        Duration::from_secs(30),
-    )
-    .expect("cron next wake should back off due jobs");
-
-    assert_eq!(delay, Duration::from_secs(30));
-}
-
-#[test]
-fn worker_cron_dispatch_due_skips_when_dispatch_already_running() {
-    let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
-    {
-        let runtime = lock_runtime(&shared);
-        runtime
-            .cron_dispatch_running
-            .store(true, std::sync::atomic::Ordering::SeqCst);
-    }
-
-    let result = worker_cron_dispatch_due_with_options(
-        &shared,
-        fixture.root.clone(),
-        serde_json::json!({ "agents": { "defaults": { "model": "gpt-5" } } }),
-        2000,
-        Duration::from_secs(1),
-    )
-    .expect("overlapping cron dispatch should skip");
-
-    assert_eq!(
-        result,
-        serde_json::json!({
-            "dispatched": 0,
-            "records": [],
-            "recorded": { "updated": [], "deleted": [], "missing": [] },
-            "skipped": "already_running"
-        })
-    );
-    assert_eq!(
-        lock_runtime(&shared).experimental_worker.status().state,
-        WorkerManagerState::Stopped
-    );
 }
 
 #[test]
@@ -5204,6 +5017,34 @@ fn worker_cowork_route_serves_rust_sessions_on_rust_backend() {
 }
 
 #[test]
+fn worker_webui_tools_route_returns_effective_catalog() {
+    let fixture = WorkspaceFixture::new();
+    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+    let response = worker_webui_route_with_options(
+        &shared,
+        WorkerWebuiRouteInput {
+            method: "GET".to_string(),
+            path: "/api/tools".to_string(),
+            headers: None,
+            body: None,
+        },
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_secs(1),
+    )
+    .expect("tools route should be Rust-owned");
+
+    assert_eq!(response["status"], 200);
+    assert_eq!(response["headers"]["x-tinybot-route-owner"], "rust");
+    assert!(response["body"]["total"]
+        .as_u64()
+        .is_some_and(|total| total > 0));
+    assert!(response["body"]["tools"].as_array().is_some());
+    assert_eq!(response["body"]["mcpServers"], serde_json::json!([]));
+}
+
+#[test]
 fn worker_webui_route_serves_rust_owned_state_routes_on_rust_backend() {
     let fixture = WorkspaceFixture::new();
     fixture.write("docs/readme.md", "hello route");
@@ -5580,230 +5421,31 @@ fn worker_webui_route_uses_default_timeout_for_graph_extraction_start() {
 }
 
 #[test]
-fn worker_transport_websocket_inbound_result_builds_agent_run_input_request() {
-    let mapper_result = serde_json::json!({
-        "kind": "message",
-        "chatId": "chat-1",
-        "sessionId": "websocket:chat-1",
-        "frames": [],
-        "inbound": {
-            "channel": "websocket",
-            "sender_id": "client-1",
-            "chat_id": "chat-1",
-            "content": "hello",
-            "metadata": { "_use_persistent_rag": true },
-            "session_key": "websocket:chat-1"
-        }
-    });
+fn tinyos_host_command_interface_rejects_chat_frames() {
+    let chat_frames = [
+        serde_json::json!({ "type": "new_chat" }),
+        serde_json::json!({ "type": "message", "content": "hello" }),
+        serde_json::json!({ "type": "interrupt" }),
+    ];
+    for frame in chat_frames {
+        let error = validate_tinyos_host_command_frame(&frame)
+            .expect_err("chat frames must use the typed Thread interface");
+        assert!(error.contains("accepts only TinyOS host commands"));
+    }
 
-    let request = build_worker_transport_websocket_run_input_request(
-        test_request_correlation("42"),
-        &mapper_result,
-        WorkerTransportWebSocketDispatchOptions {
-            model: Some("gpt-5".to_string()),
-            max_iterations: Some(6),
-            stream: None,
-            ..WorkerTransportWebSocketDispatchOptions::default()
-        },
-    )
-    .expect("message mapper result should build a run request");
-
-    assert_eq!(request.id, "transport-websocket-run-input-42");
-    assert_eq!(request.trace_id, "trace-transport-websocket-run-input-42");
-    assert_eq!(request.method, "agent.run_input");
-    assert_eq!(
-        request.params,
-        serde_json::json!({
-            "input": {
-                "runId": "websocket-chat-1-42",
-                "sessionId": "websocket:chat-1",
-                "input": { "role": "user", "content": "hello" },
-                "channel": "websocket",
-                "chatId": "chat-1",
-                "model": "gpt-5",
-                "maxIterations": 6,
-                "stream": true,
-                "metadata": {
-                    "_use_persistent_rag": true,
-                    "_wants_stream": true
-                }
-            }
-        })
-    );
-
-    assert!(build_worker_transport_websocket_run_input_request(
-        test_request_correlation("43"),
-        &serde_json::json!({ "kind": "ping", "frames": [{ "event": "pong" }] }),
-        WorkerTransportWebSocketDispatchOptions::default(),
-    )
-    .is_none());
-}
-
-#[test]
-fn worker_transport_websocket_preserves_client_event_id_in_agent_input() {
-    let transport = native_websocket_transport_result(&WorkerTransportWebSocketDispatchInput {
-        client_id: "client-1".to_string(),
-        frame: serde_json::json!({
-            "type": "message",
-            "chat_id": "chat-1",
-            "client_event_id": "client-message-1",
-            "content": "hello"
-        }),
-        attached_chat_id: Some("chat-1".to_string()),
-        session_exists: Some(true),
-        editable_paths: None,
-        model: None,
-        max_iterations: None,
-        run_id: Some("run-client-event".to_string()),
-        stream: None,
-    })
-    .expect("message frame should produce a transport result");
-
-    let request = build_worker_transport_websocket_run_input_request(
-        test_request_correlation("client-event"),
-        &transport,
-        WorkerTransportWebSocketDispatchOptions {
-            run_id: Some("run-client-event".to_string()),
-            ..WorkerTransportWebSocketDispatchOptions::default()
-        },
-    )
-    .expect("transport result should produce an agent input");
-
-    assert_eq!(
-        request.params["input"]["input"]["clientEventId"],
-        "client-message-1"
-    );
-    assert_eq!(
-        request.params["input"]["metadata"]["clientEventId"],
-        "client-message-1"
-    );
-}
-
-#[test]
-fn worker_transport_websocket_maps_correlated_interrupt_command() {
-    let transport = native_websocket_transport_result(&WorkerTransportWebSocketDispatchInput {
-        client_id: "client-1".to_string(),
-        frame: serde_json::json!({
-            "type": "interrupt",
-            "chat_id": "chat-1",
-            "command_id": "command-cancel-1",
-            "run_id": "run-cancel-1"
-        }),
-        attached_chat_id: Some("chat-1".to_string()),
-        session_exists: Some(true),
-        editable_paths: None,
-        model: None,
-        max_iterations: None,
-        run_id: Some("run-cancel-1".to_string()),
-        stream: None,
-    })
-    .expect("interrupt frame should produce a transport result");
-
-    assert_eq!(transport["kind"], "interrupt");
-    assert_eq!(transport["chatId"], "chat-1");
-    assert_eq!(transport["sessionId"], "websocket:chat-1");
-    assert_eq!(transport["commandId"], "command-cancel-1");
-    assert_eq!(transport["runId"], "run-cancel-1");
-    assert!(build_worker_transport_websocket_run_input_request(
-        test_request_correlation("interrupt"),
-        &transport,
-        WorkerTransportWebSocketDispatchOptions::default(),
-    )
-    .is_none());
-}
-
-#[test]
-fn worker_transport_websocket_maps_correlated_approval_command() {
-    let transport = native_websocket_transport_result(&WorkerTransportWebSocketDispatchInput {
-        client_id: "client-1".to_string(),
-        frame: serde_json::json!({
+    for command_kind in [
+        "agent.cancel",
+        "approval.resolve",
+        "form.submit",
+        "form.cancel",
+    ] {
+        let error = validate_tinyos_host_command_frame(&serde_json::json!({
             "type": "command",
-            "chat_id": "chat-1",
-            "session_id": "websocket:chat-1",
-            "command_id": "command-approval-1",
-            "command_kind": "approval.resolve",
-            "run_id": "run-approval-1",
-            "approval_id": "approval-1",
-            "approved": true,
-            "scope": "session"
-        }),
-        attached_chat_id: Some("chat-1".to_string()),
-        session_exists: Some(true),
-        editable_paths: None,
-        model: None,
-        max_iterations: None,
-        run_id: Some("run-approval-1".to_string()),
-        stream: None,
-    })
-    .expect("approval command frame should produce a transport result");
-
-    assert_eq!(transport["kind"], "command");
-    assert_eq!(transport["commandKind"], "approval.resolve");
-    assert_eq!(transport["commandId"], "command-approval-1");
-    assert_eq!(transport["approvalId"], "approval-1");
-    assert_eq!(transport["approved"], true);
-    assert_eq!(transport["scope"], "session");
-}
-
-#[test]
-fn worker_transport_websocket_maps_correlated_form_command() {
-    let transport = native_websocket_transport_result(&WorkerTransportWebSocketDispatchInput {
-        client_id: "client-1".to_string(),
-        frame: serde_json::json!({
-            "type": "command",
-            "chat_id": "chat-1",
-            "session_id": "websocket:chat-1",
-            "command_id": "command-form-1",
-            "command_kind": "form.submit",
-            "run_id": "run-form-1",
-            "form_id": "travel-preferences-1",
-            "values": { "destination": "Singapore" }
-        }),
-        attached_chat_id: Some("chat-1".to_string()),
-        session_exists: Some(true),
-        editable_paths: None,
-        model: None,
-        max_iterations: None,
-        run_id: Some("run-form-1".to_string()),
-        stream: None,
-    })
-    .expect("form command frame should produce a transport result");
-
-    assert_eq!(transport["kind"], "command");
-    assert_eq!(transport["commandKind"], "form.submit");
-    assert_eq!(transport["commandId"], "command-form-1");
-    assert_eq!(transport["formId"], "travel-preferences-1");
-    assert_eq!(transport["values"]["destination"], "Singapore");
-}
-
-#[test]
-fn worker_transport_websocket_maps_correlated_form_cancel_command() {
-    let transport = native_websocket_transport_result(&WorkerTransportWebSocketDispatchInput {
-        client_id: "client-1".to_string(),
-        frame: serde_json::json!({
-            "type": "command",
-            "chat_id": "chat-1",
-            "session_id": "websocket:chat-1",
-            "command_id": "command-form-cancel-1",
-            "command_kind": "form.cancel",
-            "run_id": "run-form-1",
-            "form_id": "travel-preferences-1"
-        }),
-        attached_chat_id: Some("chat-1".to_string()),
-        session_exists: Some(true),
-        editable_paths: None,
-        model: None,
-        max_iterations: None,
-        run_id: Some("run-form-1".to_string()),
-        stream: None,
-    })
-    .expect("form cancel command frame should produce a transport result");
-
-    assert_eq!(transport["kind"], "command");
-    assert_eq!(transport["commandKind"], "form.cancel");
-    assert_eq!(transport["commandId"], "command-form-cancel-1");
-    assert_eq!(transport["formId"], "travel-preferences-1");
-    assert!(transport.get("values").is_none());
+            "command_kind": command_kind,
+        }))
+        .expect_err("chat control commands must use the typed Thread interface");
+        assert!(error.contains("typed Thread API"));
+    }
 }
 
 #[test]
@@ -6318,437 +5960,6 @@ fn worker_transport_operation_retry_starts_new_correlated_run() {
 }
 
 #[test]
-fn worker_transport_interrupt_persists_distinct_canonical_command_acknowledgement() {
-    let fixture = WorkspaceFixture::new();
-    let record = serde_json::json!({
-        "sessionId": "websocket:chat-command-ack",
-        "runId": "run-command-ack",
-        "status": "running",
-        "phase": "calling_model",
-        "startedAt": "2026-07-13T01:00:00Z",
-        "updatedAt": "2026-07-13T01:00:00Z",
-        "completedAt": null,
-        "stopReason": null,
-        "model": "test-model",
-        "provider": "test",
-        "maxIterations": 4,
-        "currentIteration": 1,
-        "conversationMessageIds": [],
-        "traceMessages": [],
-        "traceEvents": [],
-        "completedToolResults": [],
-        "pendingToolCalls": [],
-        "checkpoint": null,
-        "artifacts": [],
-        "usage": [],
-        "error": null
-    });
-    call_rust_state_service(
-        fixture.root.clone(),
-        serde_json::json!({}),
-        WorkerRequest::new(
-            "req-seed-command-ack-run",
-            "trace-seed-command-ack-run",
-            "agent_run.upsert",
-            serde_json::json!({ "record": record }),
-        ),
-        "command acknowledgement run seed",
-    )
-    .expect("running Agent record should seed");
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
-
-    let dispatched = worker_transport_dispatch_websocket_message_with_options(
-        &shared,
-        WorkerTransportWebSocketDispatchInput {
-            client_id: "client-command-ack".to_string(),
-            frame: serde_json::json!({
-                "type": "interrupt",
-                "chat_id": "chat-command-ack",
-                "session_id": "websocket:chat-command-ack",
-                "command_id": "command-cancel-ack",
-                "command_kind": "agent.cancel",
-                "run_id": "run-command-ack",
-                "turn_id": "run-command-ack",
-                "source": { "surface": "tinyos", "control": "system-bar-cancel" }
-            }),
-            attached_chat_id: Some("chat-command-ack".to_string()),
-            session_exists: Some(true),
-            editable_paths: None,
-            model: None,
-            max_iterations: None,
-            run_id: Some("run-command-ack".to_string()),
-            stream: None,
-        },
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("interrupt command should be accepted and acknowledged");
-    let runtime_state = worker_agent_run_runtime_state_with_options(
-        &shared,
-        "websocket:chat-command-ack".to_string(),
-        "run-command-ack".to_string(),
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("canonical runtime state should include command acknowledgement");
-
-    assert_eq!(
-        dispatched["transport"]["frames"][0]["event"],
-        "command_accepted"
-    );
-    assert_eq!(
-        dispatched["transport"]["frames"][1]["event"],
-        "command_canonical_updated"
-    );
-    let acknowledgement = runtime_state["timeline"]["items"]
-        .as_array()
-        .and_then(|items| items.iter().find(|item| item["kind"] == "system_notice"))
-        .expect("canonical command acknowledgement item should exist");
-    assert_eq!(acknowledgement["status"], "completed");
-    assert_eq!(
-        acknowledgement["data"]["detail"]["commandId"],
-        "command-cancel-ack"
-    );
-    assert_eq!(
-        acknowledgement["data"]["detail"]["commandStatus"],
-        "acknowledged"
-    );
-}
-
-#[test]
-fn worker_transport_approval_command_persists_ack_and_correlated_decision() {
-    let fixture = WorkspaceFixture::new();
-    let first_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
-    let restarted_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
-    let session_id = "websocket:chat-command-approval";
-    let run_id = "run-command-approval";
-
-    worker_run_agent_with_options(
-        &first_runtime,
-        serde_json::json!({
-            "runtime": "rust",
-            "runId": run_id,
-            "sessionId": session_id,
-            "metadata": {
-                "fakeAwaitingApproval": {
-                    "approvalId": "approval-command-1",
-                    "toolName": "workspace.write_file"
-                }
-            }
-        }),
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("Rust runtime should create an approval checkpoint");
-
-    let dispatched = worker_transport_dispatch_websocket_message_with_options(
-        &restarted_runtime,
-        WorkerTransportWebSocketDispatchInput {
-            client_id: "client-command-approval".to_string(),
-            frame: serde_json::json!({
-                "type": "command",
-                "chat_id": "chat-command-approval",
-                "session_id": session_id,
-                "command_id": "command-approval-resolve-1",
-                "command_kind": "approval.resolve",
-                "run_id": run_id,
-                "approval_id": "approval-command-1",
-                "approved": false,
-                "scope": "once",
-                "source": { "surface": "tinyos", "control": "inspector-approval" }
-            }),
-            attached_chat_id: Some("chat-command-approval".to_string()),
-            session_exists: Some(true),
-            editable_paths: None,
-            model: None,
-            max_iterations: None,
-            run_id: Some(run_id.to_string()),
-            stream: None,
-        },
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("approval command should be acknowledged and resolved");
-    let runtime_state = worker_agent_run_runtime_state_with_options(
-        &restarted_runtime,
-        session_id.to_string(),
-        run_id.to_string(),
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("canonical runtime state should include the approval decision");
-
-    assert_eq!(dispatched["command"]["ok"], true);
-    assert_eq!(dispatched["command"]["status"], "denied");
-    let items = runtime_state["timeline"]["items"]
-        .as_array()
-        .expect("canonical timeline items should exist");
-    assert!(items.iter().any(|item| {
-        item["kind"] == "system_notice"
-            && item["data"]["detail"]["commandId"] == "command-approval-resolve-1"
-    }));
-    let decision = items
-        .iter()
-        .find(|item| item["kind"] == "approval" && item["data"]["decision"] == "denied")
-        .expect("canonical approval decision should exist");
-    assert_eq!(decision["data"]["commandId"], "command-approval-resolve-1");
-}
-
-#[test]
-fn worker_transport_form_command_persists_ack_and_correlated_resolution() {
-    let fixture = WorkspaceFixture::new();
-    let first_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
-    let restarted_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
-    let session_id = "websocket:chat-command-form";
-    let run_id = "run-command-form";
-
-    worker_run_agent_with_options(
-        &first_runtime,
-        serde_json::json!({
-            "runtime": "rust",
-            "runId": run_id,
-            "sessionId": session_id,
-            "metadata": {
-                "fakeAwaitingForm": {
-                    "formId": "travel-command-1",
-                    "title": "Travel plan",
-                    "fields": [
-                        { "name": "destination", "type": "text", "required": true }
-                    ]
-                }
-            }
-        }),
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("Rust runtime should create a form checkpoint");
-
-    let dispatched = worker_transport_dispatch_websocket_message_with_options(
-        &restarted_runtime,
-        WorkerTransportWebSocketDispatchInput {
-            client_id: "client-command-form".to_string(),
-            frame: serde_json::json!({
-                "type": "command",
-                "chat_id": "chat-command-form",
-                "session_id": session_id,
-                "command_id": "command-form-submit-1",
-                "command_kind": "form.submit",
-                "run_id": run_id,
-                "form_id": "travel-command-1",
-                "values": { "destination": "Singapore" },
-                "source": { "surface": "tinyos", "control": "system-form" }
-            }),
-            attached_chat_id: Some("chat-command-form".to_string()),
-            session_exists: Some(true),
-            editable_paths: None,
-            model: None,
-            max_iterations: None,
-            run_id: Some(run_id.to_string()),
-            stream: None,
-        },
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("form command should be acknowledged and submitted");
-    let runtime_state = worker_agent_run_runtime_state_with_options(
-        &restarted_runtime,
-        session_id.to_string(),
-        run_id.to_string(),
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("canonical runtime state should include the form resolution");
-
-    assert_eq!(dispatched["command"]["submitted"], true);
-    assert_eq!(
-        dispatched["transport"]["frames"][2]["agent_ui_event"]["event_type"],
-        "ui.form.submitted"
-    );
-    let items = runtime_state["timeline"]["items"]
-        .as_array()
-        .expect("canonical timeline items should exist");
-    assert!(items.iter().any(|item| {
-        item["kind"] == "system_notice"
-            && item["data"]["detail"]["commandId"] == "command-form-submit-1"
-    }));
-    let resolution = items
-        .iter()
-        .find(|item| item["kind"] == "form" && item["data"]["action"] == "submit")
-        .expect("canonical form resolution should exist");
-    assert_eq!(resolution["data"]["commandId"], "command-form-submit-1");
-    assert_eq!(resolution["data"]["values"]["destination"], "Singapore");
-}
-
-#[test]
-fn worker_transport_form_cancel_command_persists_ack_and_correlated_resolution() {
-    let fixture = WorkspaceFixture::new();
-    let first_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
-    let restarted_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
-    let session_id = "websocket:chat-command-form-cancel";
-    let run_id = "run-command-form-cancel";
-
-    worker_run_agent_with_options(
-        &first_runtime,
-        serde_json::json!({
-            "runtime": "rust",
-            "runId": run_id,
-            "sessionId": session_id,
-            "metadata": {
-                "fakeAwaitingForm": {
-                    "formId": "travel-command-cancel-1",
-                    "title": "Travel plan",
-                    "fields": [
-                        { "name": "destination", "type": "text", "required": true }
-                    ]
-                }
-            }
-        }),
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("Rust runtime should create a form checkpoint");
-
-    let dispatched = worker_transport_dispatch_websocket_message_with_options(
-        &restarted_runtime,
-        WorkerTransportWebSocketDispatchInput {
-            client_id: "client-command-form-cancel".to_string(),
-            frame: serde_json::json!({
-                "type": "command",
-                "chat_id": "chat-command-form-cancel",
-                "session_id": session_id,
-                "command_id": "command-form-cancel-1",
-                "command_kind": "form.cancel",
-                "run_id": run_id,
-                "form_id": "travel-command-cancel-1",
-                "source": { "surface": "chat", "control": "chat-form" }
-            }),
-            attached_chat_id: Some("chat-command-form-cancel".to_string()),
-            session_exists: Some(true),
-            editable_paths: None,
-            model: None,
-            max_iterations: None,
-            run_id: Some(run_id.to_string()),
-            stream: None,
-        },
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("form cancel command should be acknowledged and completed");
-    let runtime_state = worker_agent_run_runtime_state_with_options(
-        &restarted_runtime,
-        session_id.to_string(),
-        run_id.to_string(),
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("canonical runtime state should include the form cancellation");
-
-    assert_eq!(dispatched["command"]["cancelled"], true);
-    assert_eq!(
-        dispatched["transport"]["frames"][2]["agent_ui_event"]["event_type"],
-        "ui.form.cancelled"
-    );
-    let items = runtime_state["timeline"]["items"]
-        .as_array()
-        .expect("canonical timeline items should exist");
-    assert!(items.iter().any(|item| {
-        item["kind"] == "system_notice"
-            && item["data"]["detail"]["commandId"] == "command-form-cancel-1"
-            && item["data"]["detail"]["commandKind"] == "form.cancel"
-    }));
-    let resolution = items
-        .iter()
-        .find(|item| item["kind"] == "form" && item["data"]["action"] == "cancel")
-        .expect("canonical form cancellation should exist");
-    assert_eq!(resolution["data"]["commandId"], "command-form-cancel-1");
-}
-
-#[test]
-fn worker_transport_form_command_rejects_validation_before_acknowledgement() {
-    let fixture = WorkspaceFixture::new();
-    let first_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
-    let restarted_runtime = Arc::new(Mutex::new(GatewayRuntime::default()));
-    let session_id = "websocket:chat-command-form-invalid";
-    let run_id = "run-command-form-invalid";
-
-    worker_run_agent_with_options(
-        &first_runtime,
-        serde_json::json!({
-            "runtime": "rust",
-            "runId": run_id,
-            "sessionId": session_id,
-            "metadata": {
-                "fakeAwaitingForm": {
-                    "formId": "travel-command-invalid",
-                    "fields": [
-                        { "name": "destination", "type": "text", "required": true }
-                    ]
-                }
-            }
-        }),
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("Rust runtime should create a form checkpoint");
-
-    let error = worker_transport_dispatch_websocket_message_with_options(
-        &restarted_runtime,
-        WorkerTransportWebSocketDispatchInput {
-            client_id: "client-command-form-invalid".to_string(),
-            frame: serde_json::json!({
-                "type": "command",
-                "chat_id": "chat-command-form-invalid",
-                "session_id": session_id,
-                "command_id": "command-form-invalid-1",
-                "command_kind": "form.submit",
-                "run_id": run_id,
-                "form_id": "travel-command-invalid",
-                "values": {}
-            }),
-            attached_chat_id: Some("chat-command-form-invalid".to_string()),
-            session_exists: Some(true),
-            editable_paths: None,
-            model: None,
-            max_iterations: None,
-            run_id: Some(run_id.to_string()),
-            stream: None,
-        },
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect_err("invalid form command should be rejected");
-    let runtime_state = worker_agent_run_runtime_state_with_options(
-        &restarted_runtime,
-        session_id.to_string(),
-        run_id.to_string(),
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("canonical runtime state should remain available");
-
-    assert!(error.contains("form validation failed for fields: destination"));
-    assert!(!runtime_state["timeline"]["items"]
-        .as_array()
-        .expect("canonical timeline items should exist")
-        .iter()
-        .any(|item| item["data"]["detail"]["commandId"] == "command-form-invalid-1"));
-}
-
-#[test]
 fn tinyos_effective_capabilities_are_backend_authored_and_run_scoped() {
     let policy = default_desktop_capability_policy();
     let running = crate::desktop_commands::session::build_worker_session_effective_capabilities(
@@ -6867,168 +6078,6 @@ fn tinyos_effective_capabilities_are_backend_authored_and_run_scoped() {
     assert_eq!(
         terminal["capabilities"]["terminal"]["execute"]["available"],
         false
-    );
-}
-
-#[test]
-fn worker_transport_websocket_preserves_tinyos_context_references() {
-    let references = serde_json::json!([{
-        "kind": "reference",
-        "title": "src/main.ts · L2–3",
-        "detail": "TinyOS file selection",
-        "type": "tinyos.file",
-        "sourcePath": "src/main.ts",
-        "sourceLine": 2,
-        "sourceText": "let value = 1;\nreturn value;",
-        "evidenceId": "item-file-1",
-        "scope": "turn-1"
-    }]);
-    let transport = native_websocket_transport_result(&WorkerTransportWebSocketDispatchInput {
-        client_id: "client-1".to_string(),
-        frame: serde_json::json!({
-            "type": "message",
-            "chat_id": "chat-1",
-            "content": "Explain the attached selection",
-            "references": references.clone()
-        }),
-        attached_chat_id: Some("chat-1".to_string()),
-        session_exists: Some(true),
-        editable_paths: None,
-        model: None,
-        max_iterations: None,
-        run_id: Some("run-tinyos-reference".to_string()),
-        stream: None,
-    })
-    .expect("TinyOS message frame should produce a transport result");
-
-    assert_eq!(transport["inbound"]["metadata"]["references"], references);
-    let request = build_worker_transport_websocket_run_input_request(
-        test_request_correlation("tinyos-reference"),
-        &transport,
-        WorkerTransportWebSocketDispatchOptions {
-            run_id: Some("run-tinyos-reference".to_string()),
-            ..WorkerTransportWebSocketDispatchOptions::default()
-        },
-    )
-    .expect("TinyOS references should produce an agent input");
-
-    assert_eq!(request.params["input"]["input"]["references"], references);
-    assert_eq!(
-        request.params["input"]["metadata"]["references"],
-        references
-    );
-}
-
-#[test]
-fn worker_transport_websocket_new_chat_returns_created_frame_without_run_request() {
-    let input = WorkerTransportWebSocketDispatchInput {
-        client_id: "client-1".to_string(),
-        frame: serde_json::json!({ "type": "new_chat" }),
-        attached_chat_id: None,
-        session_exists: None,
-        editable_paths: None,
-        model: None,
-        max_iterations: None,
-        run_id: None,
-        stream: None,
-    };
-
-    let result = native_websocket_transport_result(&input)
-        .expect("new chat websocket frame should produce a transport result");
-
-    assert_eq!(result["kind"], "new_chat");
-    assert!(result["chatId"]
-        .as_str()
-        .is_some_and(|chat_id| chat_id.starts_with("chat-")));
-    assert!(result["sessionId"]
-        .as_str()
-        .is_some_and(|session_id| session_id.starts_with("websocket:chat-")));
-    assert_eq!(result["attachedChatId"], result["chatId"]);
-    assert_eq!(result["frames"][0]["event"], "chat_created");
-    assert_eq!(result["frames"][0]["chat_id"], result["chatId"]);
-    assert!(build_worker_transport_websocket_run_input_request(
-        test_request_correlation("44"),
-        &result,
-        WorkerTransportWebSocketDispatchOptions::default(),
-    )
-    .is_none());
-}
-
-#[test]
-fn worker_transport_websocket_dispatch_uses_preallocated_run_id_for_streaming() {
-    let mapper_result = serde_json::json!({
-        "kind": "message",
-        "chatId": "chat-1",
-        "sessionId": "websocket:chat-1",
-        "frames": [],
-        "inbound": {
-            "channel": "websocket",
-            "sender_id": "client-1",
-            "chat_id": "chat-1",
-            "content": "hello",
-            "metadata": {},
-            "session_key": "websocket:chat-1"
-        }
-    });
-
-    let request = build_worker_transport_websocket_run_input_request(
-        test_request_correlation("42"),
-        &mapper_result,
-        WorkerTransportWebSocketDispatchOptions {
-            run_id: Some("websocket-chat-1-preallocated".to_string()),
-            ..WorkerTransportWebSocketDispatchOptions::default()
-        },
-    )
-    .expect("message mapper result should build a run request");
-
-    assert_eq!(
-        request.params["input"]["runId"],
-        serde_json::Value::String("websocket-chat-1-preallocated".to_string())
-    );
-}
-
-#[test]
-fn worker_transport_websocket_dispatch_runs_basic_message_through_rust_on_rust_backend() {
-    let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
-
-    let result = worker_transport_dispatch_websocket_message_with_options(
-        &shared,
-        WorkerTransportWebSocketDispatchInput {
-            client_id: "client-1".to_string(),
-            frame: serde_json::json!({
-                "type": "message",
-                "chat_id": "chat-1",
-                "content": "hello native websocket",
-                "metadata": { "source": "test" }
-            }),
-            attached_chat_id: Some("chat-1".to_string()),
-            session_exists: Some(true),
-            editable_paths: None,
-            model: Some("fixture-model".to_string()),
-            max_iterations: Some(4),
-            run_id: Some("websocket-chat-1-rust".to_string()),
-            stream: Some(true),
-        },
-        fixture.root.clone(),
-        serde_json::json!({
-            "desktop": { "nativeAgentRuntime": "rust" },
-            "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
-            "providers": { "fixture": { "responses": [{ "content": "rust websocket answer" }] } }
-        }),
-        Duration::from_millis(10),
-    )
-    .expect("basic websocket message should dispatch through Rust");
-
-    assert_eq!(result["transport"]["kind"], "message");
-    assert_eq!(result["transport"]["sessionId"], "websocket:chat-1");
-    assert_eq!(result["agent"]["runtime"], "rust");
-    assert_eq!(result["agent"]["runId"], "websocket-chat-1-rust");
-    assert_eq!(result["agent"]["stopReason"], "final_response");
-    assert_eq!(result["agent"]["finalContent"], "rust websocket answer");
-    assert_eq!(
-        lock_runtime(&shared).experimental_worker.status().state,
-        WorkerManagerState::Stopped
     );
 }
 
@@ -7415,6 +6464,11 @@ fn gateway_status_exposes_port_and_exit_policy() {
 
     assert_eq!(status.port, 18790);
     assert_eq!(status.exit_policy, "keep_running");
+    assert_eq!(status.state, "running");
+    assert!(!status.http_ok);
+    assert_eq!(status.bootstrap_status, "not_required");
+    assert_eq!(status.response_class, Some("tauri-native".to_string()));
+    assert!(status.recovery_hint.is_none());
 }
 
 #[test]
@@ -7926,35 +6980,6 @@ fn native_config_operations_save_to_custom_config_path() {
     assert_eq!(saved["agents"]["defaults"]["model"], "gpt-5");
     assert_eq!(saved["agents"]["defaults"]["timezone"], "Asia/Shanghai");
     assert!(!fixture.root.join(".tinybot").join("config.json").exists());
-}
-
-#[test]
-fn bootstrap_probe_classifies_incompatible_2xx_response() {
-    let probe = classify_bootstrap_response(
-        Some(200),
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html>not tinybot</html>",
-    );
-
-    assert_eq!(probe.bootstrap_status(), "incompatible");
-    assert_eq!(
-        probe.response_class(),
-        Some("incompatible-bootstrap".to_string())
-    );
-    assert!(probe
-        .last_error()
-        .expect("incompatible probe should explain the response")
-        .contains("not valid JSON"));
-}
-
-#[test]
-fn bootstrap_probe_classifies_http_error_response() {
-    let probe = classify_bootstrap_response(
-        Some(403),
-        "HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\n\r\n{\"error\":\"forbidden\"}",
-    );
-
-    assert_eq!(probe.bootstrap_status(), "bootstrap_error");
-    assert_eq!(probe.response_class(), Some("HTTP 403".to_string()));
 }
 
 #[test]

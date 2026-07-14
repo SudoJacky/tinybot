@@ -1477,7 +1477,6 @@ export function ChatPage({
                     setActiveSessionId(session.id);
                   }}
                 >
-                  <span className="react-session-row__avatar" aria-hidden="true">{sessionTitleInitial(displaySessionTitle(session.title))}</span>
                   <span className="react-session-row__title">{displaySessionTitle(session.title)}</span>
                   <small>{formatRelativeUpdatedTime(session.updatedAtMs, now())}</small>
                 </button>
@@ -3197,10 +3196,6 @@ function PlainMessageText({ text }: { text: string }) {
       <p>{text}</p>
     </div>
   );
-}
-
-function sessionTitleInitial(title: string): string {
-  return title.trim().charAt(0).toUpperCase() || "C";
 }
 
 function displaySessionTitle(title: string): string {

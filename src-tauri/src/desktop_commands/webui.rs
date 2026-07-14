@@ -366,6 +366,9 @@ async fn worker_webui_rust_route_with_options(
             workspace_root.clone(),
             config_snapshot.clone(),
         )),
+        ("GET", "/api/tools") => Some(
+            worker_webui_tools_body(shared, workspace_root.clone(), config_snapshot.clone()).await,
+        ),
         ("GET", "/api/providers") => Some(Ok(
             crate::native_provider_runtime::provider_catalog_body(&config_snapshot),
         )),
@@ -821,6 +824,36 @@ fn worker_webui_config_body(
     Ok(snapshot.get("value").cloned().unwrap_or(snapshot))
 }
 
+async fn worker_webui_tools_body(
+    shared: &SharedGateway,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let mcp_runtime = { lock_runtime(shared).mcp_runtime.clone() };
+    tauri::async_runtime::spawn_blocking(move || {
+        let request_id = next_worker_request_correlation();
+        let mut router = crate::experimental_worker_router(workspace_root, config_snapshot)
+            .with_mcp_runtime(mcp_runtime);
+        let response = router.dispatch(
+            &WorkerRequest::new(
+                request_id.id("webui-tools"),
+                request_id.trace_id("webui-tools"),
+                "tools.webui_catalog",
+                serde_json::json!({}),
+            )
+            .with_trusted_internal(),
+        );
+        if let Some(error) = response.error {
+            return Err(format!("worker webui tools failed: {}", error.message));
+        }
+        response
+            .result
+            .ok_or_else(|| "worker webui tools failed: missing response result".to_string())
+    })
+    .await
+    .map_err(|error| format!("worker webui tools task failed: {error}"))?
+}
+
 fn native_webui_approvals_body(
     query: &HashMap<String, String>,
     workspace_root: PathBuf,
@@ -1038,6 +1071,8 @@ fn webui_route_group(path: &str) -> &'static str {
         "workspace"
     } else if path.starts_with("/api/skills") {
         "skills"
+    } else if path == "/api/tools" {
+        "tools"
     } else if path == "/api/providers" || path == "/api/provider-models" {
         "providers"
     } else if path.starts_with("/v1/knowledge") {

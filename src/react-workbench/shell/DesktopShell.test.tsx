@@ -7,6 +7,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { DesktopShell } from "./DesktopShell";
 import { buildAgentDefaultsSettings } from "../../app-core/settings/agentDefaultsSettings";
 import { buildProviderModelsSettings } from "../../app-core/settings/providerModelsSettings";
+import {
+  buildDesktopSettingsFormState,
+  buildDesktopSettingsPaneModel,
+} from "../../app-core/settings/desktopSettingsProviders";
 import type { AppServices, SessionSummary } from "../services";
 import type { ReactChatMessage } from "../chat/messageActions";
 import { timelineFromReactMessages } from "../chat/testTimelineFixtures";
@@ -21,11 +25,13 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
     readFile: ReturnType<typeof vi.fn>;
   };
   knowledgeStore: { listDocuments: ReturnType<typeof vi.fn>; stats: ReturnType<typeof vi.fn> };
-  toolsStore: { listSkills: ReturnType<typeof vi.fn> };
+  toolsStore: { loadCatalog: ReturnType<typeof vi.fn>; listSkills: ReturnType<typeof vi.fn> };
   settingsStore: {
     load: ReturnType<typeof vi.fn>;
     loadAgentDefaultsSettings?: ReturnType<typeof vi.fn>;
     saveAgentDefaultsSettings?: ReturnType<typeof vi.fn>;
+    loadDesktopConfigSettings?: ReturnType<typeof vi.fn>;
+    saveDesktopConfigSettings?: ReturnType<typeof vi.fn>;
     loadProviderSettings?: ReturnType<typeof vi.fn>;
     saveProviderSettings?: ReturnType<typeof vi.fn>;
   };
@@ -83,6 +89,21 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
       stats: vi.fn(async () => [{ label: "Documents", value: "1" }]),
     },
     toolsStore: {
+      loadCatalog: vi.fn(async () => ({
+        tools: [
+          {
+            id: "builtin.read_file",
+            name: "read_file",
+            displayName: "Read file",
+            description: "Read a workspace file",
+            source: "builtin",
+            enabled: true,
+            available: true,
+            approvalRequired: false,
+          },
+        ],
+        mcpServers: [],
+      })),
       listSkills: vi.fn(async () => [
         { name: "review-code", description: "Review current changes" },
       ]),
@@ -153,8 +174,10 @@ describe("DesktopShell", () => {
     expect(css).toMatch(/\.react-session-list\[data-collapsed="true"\]\s*{[^}]*width:\s*64px;/s);
     expect(css).toMatch(/\.react-session-list__new\s*{[^}]*font-size:\s*12px;/s);
     expect(css).toMatch(/\.react-session-row__title\s*{[^}]*font-size:\s*12px;/s);
-    expect(css).toMatch(/\.react-default-llm-panel__controls\s*{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(220px,\s*1fr\)\) 180px;/s);
-    expect(css).toMatch(/\.react-default-llm-panel__controls > button\s*{[^}]*align-self:\s*end;/s);
+    expect(css).toMatch(/\.react-default-model-picker\s*{[^}]*grid-template-columns:\s*minmax\(170px,\s*0\.72fr\) minmax\(300px,\s*1\.45fr\);/s);
+    expect(css).toMatch(/\.react-default-model-picker__models-list\s*{[^}]*max-height:\s*220px;[^}]*overflow-y:\s*auto;/s);
+    expect(css).toMatch(/\.react-default-llm-summary\s*{[^}]*grid-template-columns:\s*42px minmax\(145px,\s*0\.85fr\) minmax\(180px,\s*1\.15fr\) 88px auto;/s);
+    expect(css).toMatch(/\.react-provider-directory__columns,\s*\.react-provider-card\s*{[^}]*grid-template-columns:/s);
     expect(css).toMatch(/\.react-settings-choice-item \.react-top-menu__menu-label\s*{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\) max-content;/s);
   });
 
@@ -248,6 +271,7 @@ describe("DesktopShell", () => {
 
     await user.click(screen.getByRole("button", { name: "Tools" }));
     expect(await screen.findByRole("heading", { name: "Tools & Skills" })).toBeTruthy();
+    expect(screen.getByText("Read file")).toBeTruthy();
     expect(screen.getByText("review-code")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Settings" }));
@@ -258,7 +282,7 @@ describe("DesktopShell", () => {
     expect(screen.queryByText(/Vue/i)).toBeNull();
   });
 
-  it("renders provider preset cards and saves provider configuration from Settings", async () => {
+  it("renders the provider directory and saves provider configuration from Settings", async () => {
     const user = userEvent.setup();
     const initialProviderConfig = {
       revision: "hash:1",
@@ -269,7 +293,7 @@ describe("DesktopShell", () => {
             provider: "deepseek",
             enabled: true,
             apiKeyConfigured: true,
-            models: ["deepseek-v4-pro"],
+            models: ["deepseek-v4-pro", "deepseek-v4-flash"],
             defaultModel: "deepseek-v4-pro",
           },
           "openai-default": {
@@ -321,17 +345,19 @@ describe("DesktopShell", () => {
     expect(screen.getByRole("navigation", { name: "Settings categories" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Provider & Models" }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("region", { name: "Provider & Models" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Default LLM" })).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Provider: DeepSeek" }));
-    const providerMenu = screen.getByRole("menu", { name: "Provider options" });
-    expect(providerMenu.classList.contains("react-settings-choice-popover")).toBe(true);
-    expect(providerMenu.classList.contains("react-top-menu__popover")).toBe(true);
-    await user.click(within(providerMenu).getByRole("menuitemradio", { name: /OpenAI/ }));
-    expect(screen.queryByRole("menu", { name: "Provider options" })).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Model: gpt-4.1" }));
-    const modelMenu = screen.getByRole("menu", { name: "Model options" });
-    expect(modelMenu.classList.contains("react-settings-choice-popover")).toBe(true);
-    await user.click(within(modelMenu).getByRole("menuitemradio", { name: /gpt-4.1/ }));
+    expect(screen.getByRole("heading", { name: "Default model" })).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Add provider" }) as HTMLButtonElement).disabled).toBe(false);
+    await user.click(screen.getByRole("button", { name: "Change model" }));
+    expect(screen.getByRole("navigation", { name: "Provider selection" })).toBeTruthy();
+    const modelSearch = screen.getByRole("searchbox", { name: "Search models" });
+    await user.type(modelSearch, "flash");
+    expect(screen.getByRole("radio", { name: "Select deepseek-v4-flash model" })).toBeTruthy();
+    expect(screen.queryByRole("radio", { name: "Select deepseek-v4-pro model" })).toBeNull();
+    expect(screen.getByText(/Showing 1 of/)).toBeTruthy();
+    await user.clear(modelSearch);
+    await user.click(screen.getByRole("button", { name: "Select OpenAI provider" }));
+    expect(screen.getByRole("region", { name: "OpenAI models" })).toBeTruthy();
+    await user.click(screen.getByRole("radio", { name: "Select gpt-4.1 model" }));
     await user.click(screen.getByRole("button", { name: "Save default LLM" }));
 
     await waitFor(() => expect(saveProviderSettings).toHaveBeenCalledTimes(1));
@@ -342,7 +368,7 @@ describe("DesktopShell", () => {
     expect(screen.getByRole("article", { name: "DeepSeek provider" })).toBeTruthy();
     expect(screen.getByRole("article", { name: "DashScope provider" })).toBeTruthy();
     expect(screen.getByRole("article", { name: "OpenAI provider" })).toBeTruthy();
-    expect(screen.getAllByText("Available").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Connected").length).toBeGreaterThan(0);
 
     await user.click(screen.getByRole("button", { name: "Manage DeepSeek models" }));
     const modelsDialog = screen.getByRole("dialog", { name: "DeepSeek models" });
@@ -358,7 +384,9 @@ describe("DesktopShell", () => {
     await waitFor(() => expect(within(modelsDialog).getAllByText("deepseek-live").length).toBeGreaterThan(0));
     await user.click(screen.getByRole("button", { name: "Close models" }));
 
-    await user.click(screen.getByRole("button", { name: "Configure OpenAI" }));
+    await user.click(screen.getByRole("button", { name: "More actions for OpenAI" }));
+    const providerActions = screen.getByRole("menu", { name: "OpenAI provider actions" });
+    await user.click(within(providerActions).getByRole("menuitem", { name: "Configure" }));
     const dialog = screen.getByRole("dialog", { name: "Configure OpenAI" });
     expect((within(dialog).getByLabelText("API base") as HTMLInputElement).value).toBe("https://api.openai.com/v1");
     await user.type(within(dialog).getByLabelText("API key"), "sk-test");
@@ -378,6 +406,71 @@ describe("DesktopShell", () => {
         },
       },
     });
+  });
+
+  it("creates and persists a custom OpenAI-compatible provider", async () => {
+    const user = userEvent.setup();
+    const initialConfig = {
+      revision: "hash:1",
+      agents: { defaults: { activeProfile: "deepseek-default", model: "deepseek-v4-pro" } },
+      providers: { profiles: {} },
+    };
+    const savedConfig = {
+      revision: "hash:2",
+      agents: { defaults: { activeProfile: "local-openai-default", model: "local-model" } },
+      providers: {
+        profiles: {
+          "local-openai-default": {
+            provider: "local-openai",
+            displayName: "Local OpenAI",
+            enabled: true,
+            apiBase: "http://127.0.0.1:11434/v1",
+            apiKeyConfigured: true,
+            models: ["local-model"],
+            defaultModel: "local-model",
+            supportsModelDiscovery: true,
+          },
+        },
+      },
+    };
+    const saveProviderSettings = vi.fn(async (_currentConfig: unknown, _patch: unknown) =>
+      buildProviderModelsSettings(savedConfig),
+    );
+    const services = createServices();
+    services.settingsStore.loadProviderSettings = vi.fn(async () => buildProviderModelsSettings(initialConfig));
+    services.settingsStore.saveProviderSettings = saveProviderSettings;
+    render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={services} />);
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(await screen.findByRole("button", { name: "Add provider" }));
+    const dialog = screen.getByRole("dialog", { name: "Add provider" });
+    await user.type(within(dialog).getByLabelText("Provider ID"), "local-openai");
+    await user.type(within(dialog).getByLabelText("Display name"), "Local OpenAI");
+    await user.type(within(dialog).getByLabelText("Custom API base"), "http://127.0.0.1:11434/v1");
+    await user.type(within(dialog).getByLabelText("Custom API key"), "local-secret");
+    await user.type(within(dialog).getByLabelText("Default model"), "local-model");
+    await user.click(within(dialog).getByRole("checkbox", { name: "Set as active provider and default model" }));
+    await user.click(within(dialog).getByRole("button", { name: "Add provider" }));
+
+    await waitFor(() => expect(saveProviderSettings).toHaveBeenCalledTimes(1));
+    expect(saveProviderSettings.mock.calls[0][1]).toEqual({
+      agents: { defaults: { activeProfile: "local-openai-default", model: "local-model" } },
+      providers: {
+        profiles: {
+          "local-openai-default": {
+            provider: "local-openai",
+            displayName: "Local OpenAI",
+            enabled: true,
+            apiBase: "http://127.0.0.1:11434/v1",
+            apiKey: "local-secret",
+            models: ["local-model"],
+            defaultModel: "local-model",
+            supportsModelDiscovery: true,
+          },
+        },
+      },
+    });
+    expect(await screen.findByRole("article", { name: "Local OpenAI provider" })).toBeTruthy();
   });
 
   it("renders Agent Defaults settings and jumps back to Provider & Models", async () => {
@@ -451,6 +544,70 @@ describe("DesktopShell", () => {
         },
       },
     });
+  });
+
+  it("edits and persists backend-backed knowledge settings", async () => {
+    const user = userEvent.setup();
+    const initialConfig = {
+      revision: "hash:1",
+      agents: { defaults: { model: "deepseek-v4-pro", timezone: "UTC" } },
+      knowledge: {
+        enabled: true,
+        auto_retrieve: false,
+        retrieval_mode: "hybrid",
+        max_chunks: 5,
+        chunk_size: 500,
+        chunk_overlap: 100,
+      },
+    };
+    const savedConfig = {
+      ...initialConfig,
+      revision: "hash:2",
+      knowledge: { ...initialConfig.knowledge, auto_retrieve: true, max_chunks: 8 },
+    };
+    const desktopConfigData = (config: unknown) => {
+      const formState = buildDesktopSettingsFormState(config);
+      return {
+        currentConfig: config,
+        formState,
+        pane: buildDesktopSettingsPaneModel(formState),
+      };
+    };
+    const saveDesktopConfigSettings = vi.fn(async (_currentConfig: unknown, _patch: unknown) => ({
+      ...desktopConfigData(savedConfig),
+      saveDetails: {
+        transport: "native" as const,
+        persistedRevision: "hash:2",
+        updatedFields: ["knowledge.auto_retrieve", "knowledge.max_chunks"],
+        applied: ["knowledgeConfigChanged"],
+        restartRequired: [],
+        reloadRequired: [],
+        warnings: [],
+      },
+    }));
+    const services = createServices();
+    services.settingsStore.loadProviderSettings = vi.fn(async () => buildProviderModelsSettings(initialConfig));
+    services.settingsStore.saveProviderSettings = vi.fn(async () => buildProviderModelsSettings(initialConfig));
+    services.settingsStore.loadDesktopConfigSettings = vi.fn(async () => desktopConfigData(initialConfig));
+    services.settingsStore.saveDesktopConfigSettings = saveDesktopConfigSettings;
+    render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={services} />);
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    const settingsNavigation = await screen.findByRole("navigation", { name: "Settings categories" });
+    await user.click(within(settingsNavigation).getByRole("button", { name: "Knowledge" }));
+
+    expect(await screen.findByRole("heading", { name: "Knowledge" })).toBeTruthy();
+    await user.click(screen.getByRole("checkbox", { name: "Auto retrieve" }));
+    await user.clear(screen.getByLabelText("Max chunks"));
+    await user.type(screen.getByLabelText("Max chunks"), "8");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(saveDesktopConfigSettings).toHaveBeenCalledTimes(1));
+    expect(saveDesktopConfigSettings.mock.calls[0][1]).toEqual({
+      knowledge: { auto_retrieve: true, max_chunks: 8 },
+    });
+    expect(screen.getByRole("status").textContent).toContain("Saved to Tinybot config");
+    expect(screen.getByText("Config revision hash:2")).toBeTruthy();
   });
 
   it("does not reserve Ctrl+K for a command palette", async () => {

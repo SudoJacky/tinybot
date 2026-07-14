@@ -30,6 +30,7 @@ tauri-plugin-updater = { version = "2", default-features = false, features = ["n
 rfd = "0.15"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_yaml = "0.9"
 sha2 = "0.10"
 rusqlite = { version = "0.32", features = ["bundled"] }
 tokio = { version = "1", features = ["io-util", "process", "rt-multi-thread", "sync", "time"] }

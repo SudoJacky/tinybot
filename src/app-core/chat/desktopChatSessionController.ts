@@ -1,14 +1,11 @@
 import {
   appendUserMessage,
-  applyChatEvent,
   canonicalSessionKey,
   createNativeChatState,
   activateSession,
   hydrateDelegatedRunsFromTraceEvents,
   normalizeSessionsPayload,
   setSessions,
-  sessionKeyForChat,
-  sessionKeyForChatState,
   type NativeBackgroundTraceEvent,
   type NativeChatReference,
   type NativeChatState,
@@ -18,13 +15,11 @@ import {
   TimelineRevisionGapError,
   type ChatTimelineSnapshot,
 } from "./agentTimelineModel";
-import { createGatewaySocketMessage, type NormalizedGatewayEvent } from "../gateway/gatewayWebSocketClient";
 import { logDesktopNativeDebug, summarizeDebugText } from "../native/desktopNativeChatDebug";
-import type { TinyOsCommand } from "./tinyOsCommandGateway";
+import type { NativeThreadTurnInput, NativeThreadTurnResult } from "../native/desktopNativeThreads";
 
 export interface DesktopChatSessionControllerApi {
   listSessions(): Promise<unknown>;
-  loadMessages(sessionKey: string): Promise<unknown>;
   listAgentRuns?: (sessionKey: string) => Promise<unknown>;
   getAgentRunRuntimeState?: (sessionKey: string, runId: string) => Promise<unknown>;
   listTraceEvents?: (filter: { sessionKey: string }) => Promise<unknown>;
@@ -32,25 +27,19 @@ export interface DesktopChatSessionControllerApi {
   getArtifact?: (filter: { sessionKey: string; delegateId?: string; traceRef?: string; artifactId: string }) => Promise<unknown>;
   deleteSession?: (sessionKey: string) => Promise<unknown>;
   patchSession?: (sessionKey: string, body: unknown) => Promise<unknown>;
+  submitThreadTurn(input: NativeThreadTurnInput): Promise<NativeThreadTurnResult>;
 }
 
 export interface DesktopChatSessionControllerOptions {
   api: DesktopChatSessionControllerApi;
-  sendSocketMessage(message: unknown): void;
   now?: () => string;
   createClientEventId?: () => string;
+  createRunId?: () => string;
 }
 
 export type ChatSubmitResult =
   | { status: "empty" }
-  | { status: "creating"; pendingContent: string; clientEventId: string }
-  | { status: "sent"; chatId: string; content: string; clientEventId: string };
-
-export type ChatGatewayEventResult = {
-  pendingMessageSent: boolean;
-  loadedMessagesForChatId: string;
-  reloadedSessions: boolean;
-};
+  | { status: "sent"; sessionId: string; threadId: string; runId: string; content: string; clientEventId: string };
 
 export type ChatDeleteSessionResult =
   | { status: "missing"; deletedSessionKey: string; nextSessionKey: "" }
@@ -61,13 +50,9 @@ export interface DesktopChatSessionController {
   readonly state: NativeChatState;
   loadSessions(): Promise<number>;
   selectSession(sessionKey: string, chatId: string): Promise<void>;
-  startNewChat(): void;
   deleteSession(sessionKey: string): Promise<ChatDeleteSessionResult>;
   patchSession(sessionKey: string, body: unknown): Promise<boolean>;
-  submitMessage(content: string, usePersistentRag?: boolean, model?: string, references?: NativeChatReference[]): ChatSubmitResult;
-  dispatchCommand(command: TinyOsCommand): boolean;
-  handleGatewayEvent(event: NormalizedGatewayEvent): Promise<ChatGatewayEventResult>;
-  loadMessagesForChat(chatId: string): Promise<boolean>;
+  submitMessage(content: string, usePersistentRag?: boolean, model?: string, references?: NativeChatReference[]): Promise<ChatSubmitResult>;
   loadTimeline(sessionKey: string): Promise<ChatTimelineSnapshot>;
   reloadTimeline(sessionKey: string): Promise<ChatTimelineSnapshot>;
   applyTimelinePatch(sessionKey: string, payload: unknown): Promise<ChatTimelineSnapshot | null>;
@@ -77,16 +62,15 @@ export interface DesktopChatSessionController {
 
 export function createDesktopChatSessionController({
   api,
-  sendSocketMessage,
   now = () => new Date().toISOString(),
   createClientEventId = defaultClientEventId,
+  createRunId = defaultRunId,
 }: DesktopChatSessionControllerOptions): DesktopChatSessionController {
   const state = createNativeChatState();
   const timelineModel = createAgentTimelineModel();
   const loadedTimelineSessions = new Set<string>();
   const loadingTimelineSessions = new Set<string>();
   const bufferedTimelinePatches = new Map<string, unknown[]>();
-  let pendingMessage: { clientEventId: string; content: string; model?: string; references?: NativeChatReference[]; usePersistentRag: boolean } | null = null;
 
   async function loadSessions(): Promise<number> {
     logDesktopNativeDebug("session.load.start", summarizeSessionState());
@@ -123,7 +107,6 @@ export function createDesktopChatSessionController({
       });
       throw error;
     }
-    sendSocketMessage(createGatewaySocketMessage.attach(chatId));
     logDesktopNativeDebug("session.select.complete", {
       ...summarizeSessionState(),
       chatId,
@@ -156,11 +139,6 @@ export function createDesktopChatSessionController({
         sessionKey,
       });
     }
-  }
-
-  function startNewChat(): void {
-    logDesktopNativeDebug("session.new.request", summarizeSessionState());
-    sendSocketMessage(createGatewaySocketMessage.newChat());
   }
 
   async function deleteSession(sessionKey: string): Promise<ChatDeleteSessionResult> {
@@ -212,32 +190,9 @@ export function createDesktopChatSessionController({
     if (!api.deleteSession) {
       return;
     }
-    try {
-      await api.deleteSession(target.key);
-      logDesktopNativeDebug("session.delete.gateway", {
-        key: target.key,
-        mode: "primary",
-      });
-      return;
-    } catch (error) {
-      const fallbackKey = sessionKeyForChat(target.chatId);
-      if (!fallbackKey || fallbackKey === target.key) {
-        logDesktopNativeDebug("session.delete.failed", {
-          error: error instanceof Error ? error.message : String(error),
-          key: target.key,
-        });
-        throw error;
-      }
-      logDesktopNativeDebug("session.delete.retry", {
-        fallbackKey,
-        key: target.key,
-      });
-      await api.deleteSession(fallbackKey);
-      logDesktopNativeDebug("session.delete.gateway", {
-        key: fallbackKey,
-        mode: "fallback",
-      });
-    }
+    const threadId = target.threadId || target.key;
+    await api.deleteSession(threadId);
+    logDesktopNativeDebug("session.delete.native", { threadId });
   }
 
   async function loadTimeline(sessionKey: string): Promise<ChatTimelineSnapshot> {
@@ -342,7 +297,7 @@ export function createDesktopChatSessionController({
       });
       return false;
     }
-    await api.patchSession(sessionKey, body);
+    await api.patchSession(target.threadId || target.key, body);
     const sessions = normalizeSessionsPayload(await api.listSessions());
     setSessions(state, sessions);
     logDesktopNativeDebug("session.patch.complete", {
@@ -352,116 +307,71 @@ export function createDesktopChatSessionController({
     return true;
   }
 
-  function submitMessage(content: string, usePersistentRag = true, model?: string, references?: NativeChatReference[]): ChatSubmitResult {
+  async function submitMessage(content: string, usePersistentRag = true, model?: string, references?: NativeChatReference[]): Promise<ChatSubmitResult> {
     const trimmed = content.trim();
     if (!trimmed) {
       logDesktopNativeDebug("session.message.empty", summarizeSessionState());
       return { status: "empty" };
     }
-    const clientEventId = createClientEventId();
-
-    if (!state.activeChatId) {
-      pendingMessage = { clientEventId, content: trimmed, model, references, usePersistentRag };
-      startNewChat();
-      logDesktopNativeDebug("session.message.queued", {
-        ...summarizeSessionState(),
-        content: summarizeDebugText(trimmed),
-        model: model || "",
-        usePersistentRag,
-      });
-      return { status: "creating", pendingContent: trimmed, clientEventId };
+    if (!state.activeSessionKey) {
+      throw new Error("Cannot submit a turn without an active Thread");
     }
-
-    sendActiveChatMessage(trimmed, usePersistentRag, model, clientEventId, references);
+    const clientEventId = createClientEventId();
+    const runId = createRunId();
+    const activeSession = state.sessions.find((session) => session.key === state.activeSessionKey);
+    const threadId = activeSession?.threadId || state.activeSessionKey;
+    appendUserMessage(state, trimmed, now(), references);
+    const request: NativeThreadTurnInput = {
+      threadId,
+      input: {
+        role: "user",
+        content: trimmed,
+        clientEventId,
+        ...(references?.length ? { references } : {}),
+      },
+      spec: {
+        runId,
+        sessionId: state.activeSessionKey,
+        stream: true,
+        ...(model ? { model } : {}),
+        metadata: {
+          clientEventId,
+          usePersistentRag,
+          ...(references?.length ? { references } : {}),
+        },
+      },
+    };
+    void api.submitThreadTurn(request).catch((error) => {
+      state.error = error instanceof Error ? error.message : String(error);
+      logDesktopNativeDebug("session.message.failed", {
+        ...summarizeSessionState(),
+        error: state.error,
+        runId,
+        threadId,
+      });
+    });
     logDesktopNativeDebug("session.message.sent", {
       ...summarizeSessionState(),
       content: summarizeDebugText(trimmed),
       model: model || "",
+      runId,
+      threadId,
       usePersistentRag,
     });
-    return { status: "sent", chatId: state.activeChatId, content: trimmed, clientEventId };
-  }
-
-  function dispatchCommand(command: TinyOsCommand): boolean {
-    if (!state.activeChatId || state.activeSessionKey !== command.target.sessionId) {
-      logDesktopNativeDebug("session.interrupt.skipped", summarizeSessionState());
-      return false;
-    }
-    sendSocketMessage(command.kind === "agent.cancel"
-      ? createGatewaySocketMessage.interrupt(state.activeChatId, command)
-      : createGatewaySocketMessage.command(state.activeChatId, command));
-    logDesktopNativeDebug("session.command.request", {
-      ...summarizeSessionState(),
-      commandId: command.commandId,
-      commandKind: command.kind,
-      runId: command.target.runId,
-      sourceControl: command.source.control,
-      sourceSurface: command.source.surface,
-    });
-    return true;
+    return {
+      status: "sent",
+      sessionId: state.activeSessionKey,
+      threadId,
+      runId,
+      content: trimmed,
+      clientEventId,
+    };
   }
 
   async function reloadTimeline(sessionKey: string): Promise<ChatTimelineSnapshot> {
     sessionKey = canonicalSessionKey(sessionKey) || sessionKey;
     loadedTimelineSessions.delete(sessionKey);
     return loadTimeline(sessionKey);
-  }
-
-  async function handleGatewayEvent(event: NormalizedGatewayEvent): Promise<ChatGatewayEventResult> {
-    const result: ChatGatewayEventResult = {
-      pendingMessageSent: false,
-      loadedMessagesForChatId: "",
-      reloadedSessions: false,
-    };
-
-    // Raw Agent and usage events are trace/transport signals only. Canonical
-    // timeline snapshots and patches are the sole writers of Chat turns.
-    if (event.kind !== "agent.event" && event.kind !== "usage") {
-      applyChatEvent(state, event);
-    }
-
-    if (event.kind === "chat.created") {
-      await loadSessions();
-      if (!state.sessions.some((session) => session.chatId === event.chatId)) {
-        activateSession(state, sessionKeyForChat(event.chatId), event.chatId);
-      }
-      result.reloadedSessions = true;
-      if (pendingMessage) {
-        const { clientEventId, content, model, references, usePersistentRag } = pendingMessage;
-        pendingMessage = null;
-        sendActiveChatMessage(content, usePersistentRag, model, clientEventId, references);
-        logDesktopNativeDebug("session.message.queued.sent", {
-          ...summarizeSessionState(),
-          content: summarizeDebugText(content),
-          model: model || "",
-          usePersistentRag,
-        });
-        result.pendingMessageSent = true;
-      }
-    }
-
-    if (event.kind === "attached") {
-      const loaded = await loadMessagesForChat(event.chatId);
-      result.loadedMessagesForChatId = loaded ? event.chatId : "";
-    }
-
-    return result;
-  }
-
-  async function loadMessagesForChat(chatId: string): Promise<boolean> {
-    const sessionKey = sessionKeyForChatState(state, chatId);
-    if (!sessionKey) {
-      return false;
-    }
-    loadedTimelineSessions.delete(sessionKey);
-    await loadTimeline(sessionKey);
-    await loadTraceEventsForSession(sessionKey);
-    logDesktopNativeDebug("session.messages.loaded", {
-      chatId,
-      turnCount: state.chatRuns.turnsBySession.get(sessionKey)?.length ?? 0,
-      sessionKey,
-    });
-    return true;
   }
 
   async function loadDelegateTrace(selection: { sessionKey: string; delegateId?: string; traceRef?: string }): Promise<unknown> {
@@ -504,35 +414,13 @@ export function createDesktopChatSessionController({
     return artifact;
   }
 
-  function sendActiveChatMessage(
-    content: string,
-    usePersistentRag = true,
-    model?: string,
-    clientEventId?: string,
-    references?: NativeChatReference[],
-  ): void {
-    appendUserMessage(state, content, now(), references);
-    sendSocketMessage(createGatewaySocketMessage.message(
-      state.activeChatId,
-      content,
-      usePersistentRag,
-      model,
-      clientEventId,
-      references,
-    ));
-  }
-
   return {
     state,
     loadSessions,
     selectSession,
-    startNewChat,
     deleteSession,
     patchSession,
     submitMessage,
-    dispatchCommand,
-    handleGatewayEvent,
-    loadMessagesForChat,
     loadTimeline,
     reloadTimeline,
     applyTimelinePatch,
@@ -544,7 +432,6 @@ export function createDesktopChatSessionController({
     return {
       activeChatId: state.activeChatId,
       activeSessionKey: state.activeSessionKey,
-      pendingMessage: Boolean(pendingMessage),
       sessionCount: state.sessions.length,
     };
   }
@@ -552,6 +439,10 @@ export function createDesktopChatSessionController({
 
 function defaultClientEventId(): string {
   return `client-message-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function defaultRunId(): string {
+  return `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function normalizeTraceEventsPayload(payload: unknown): NativeBackgroundTraceEvent[] {

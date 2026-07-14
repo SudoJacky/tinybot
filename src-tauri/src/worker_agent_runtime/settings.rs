@@ -37,6 +37,7 @@ pub struct AgentTurnSettings {
     pub provider: Option<String>,
     pub max_iterations: i64,
     pub stream: bool,
+    pub temperature: Option<f64>,
     pub max_completion_tokens: Option<u64>,
     pub context_window_strategy: ContextWindowStrategy,
     pub reasoning: Option<AgentReasoningSettings>,
@@ -66,11 +67,26 @@ impl AgentTurnSettings {
             .and_then(|agents| agents.get("defaults"))
             .unwrap_or(&Value::Null);
         let mut validation_errors = Vec::new();
+        let temperature = optional_f64_setting(
+            spec,
+            metadata,
+            defaults,
+            &["temperature"],
+            "temperature",
+            0.0,
+            2.0,
+            &mut validation_errors,
+        );
         let max_completion_tokens = optional_u64_setting(
             spec,
             metadata,
             defaults,
-            &["maxCompletionTokens", "max_completion_tokens", "max_tokens"],
+            &[
+                "maxCompletionTokens",
+                "max_completion_tokens",
+                "maxTokens",
+                "max_tokens",
+            ],
             "max_completion_tokens",
             &mut validation_errors,
         );
@@ -153,6 +169,7 @@ impl AgentTurnSettings {
             provider,
             max_iterations,
             stream,
+            temperature,
             max_completion_tokens,
             context_window_strategy,
             reasoning,
@@ -343,6 +360,30 @@ fn optional_u64_setting(
         Some(value) => Some(value),
         None => {
             validation_errors.push(format!("{label} must be a positive integer"));
+            None
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn optional_f64_setting(
+    spec: &Value,
+    metadata: &Value,
+    defaults: &Value,
+    keys: &[&str],
+    label: &str,
+    min: f64,
+    max: f64,
+    validation_errors: &mut Vec<String>,
+) -> Option<f64> {
+    let value = setting_value(spec, metadata, defaults, keys)?;
+    match value
+        .as_f64()
+        .filter(|value| *value >= min && *value <= max)
+    {
+        Some(value) => Some(value),
+        None => {
+            validation_errors.push(format!("{label} must be a number from {min} to {max}"));
             None
         }
     }

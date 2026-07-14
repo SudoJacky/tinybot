@@ -2,7 +2,7 @@ import type { DesktopNativeConfigPatchResponse } from "../native/desktopNativeCo
 
 export type DesktopSettingsSaveDeps = {
   applyNativeConfigPatch?: (currentConfig: unknown, patch: unknown) => Promise<DesktopNativeConfigPatchResponse>;
-  applyGatewayConfigPatch: (patch: unknown) => Promise<unknown>;
+  applyGatewayConfigPatch?: (patch: unknown) => Promise<unknown>;
   onNativeFallback?: (error: unknown) => void;
 };
 
@@ -39,6 +39,11 @@ export async function saveDesktopSettingsConfig(
       }
       throw new Error(result.error ?? "native config patch failed");
     }
+  }
+  if (!deps.applyGatewayConfigPatch) {
+    throw fallbackError instanceof Error
+      ? fallbackError
+      : new Error("native config patch is unavailable");
   }
   const gatewayResult = await deps.applyGatewayConfigPatch(patch);
   return {

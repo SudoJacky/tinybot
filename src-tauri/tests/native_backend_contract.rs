@@ -62,13 +62,13 @@ fn route_inventory_classifies_webui_routes_and_tauri_commands() {
     assert!(webui.iter().any(|entry| {
         entry.method == Some("GET")
             && entry.path == "/api/tools"
-            && entry.owner == NativeRouteOwner::Unsupported
+            && entry.owner == NativeRouteOwner::RustOwned
     }));
     assert!(tauri.iter().any(|entry| {
         entry.path == "worker_run_agent" && entry.owner == NativeRouteOwner::RustOwned
     }));
     assert!(tauri.iter().any(|entry| {
-        entry.path == "worker_channel_start" && entry.owner == NativeRouteOwner::Unsupported
+        entry.path == "worker_submit_thread_turn" && entry.owner == NativeRouteOwner::RustOwned
     }));
     assert!(summary.rust_owned > 0);
     assert!(summary.unsupported > 0);
@@ -103,11 +103,9 @@ fn unsupported_areas_are_explicitly_inventoried() {
 
     assert_inventory_area(&webui, "knowledge", NativeRouteOwner::Unsupported);
     assert_inventory_area(&webui, "cowork", NativeRouteOwner::Unsupported);
-    assert_inventory_area(&tauri, "channel", NativeRouteOwner::Unsupported);
-    assert_inventory_area(&tauri, "cron", NativeRouteOwner::Unsupported);
     assert_inventory_area(&runtime, "heartbeat", NativeRouteOwner::Unsupported);
     assert_inventory_area(&runtime, "tools", NativeRouteOwner::RustOwned);
-    assert_inventory_area(&webui, "tools", NativeRouteOwner::Unsupported);
+    assert_inventory_area(&webui, "tools", NativeRouteOwner::RustOwned);
     assert_inventory_area(&runtime, "background", NativeRouteOwner::RustOwned);
     assert_inventory_area(&webui, "agent-ui", NativeRouteOwner::RustOwned);
 

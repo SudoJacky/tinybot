@@ -61,9 +61,12 @@ impl NativeAgentRunContext {
             messages.push(message);
         }
         let tool_router = NativeToolRouter::new(
-            WorkerToolRegistryRpc::new(default_desktop_capability_policy())
-                .list_tools()
-                .tools,
+            WorkerToolRegistryRpc::new_with_config(
+                default_desktop_capability_policy(),
+                config_snapshot.clone(),
+            )
+            .list_tools()
+            .tools,
         );
         let settings = AgentTurnSettings::from_sources(
             &spec,

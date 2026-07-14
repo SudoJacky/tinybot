@@ -13,10 +13,13 @@ import {
 export type NativeChatSession = {
   key: string;
   chatId: string;
+  threadId?: string;
   title: string;
   createdAt: string;
   updatedAt: string;
   pinned?: boolean;
+  archived?: boolean;
+  status?: string;
 };
 
 export type NativeChatMessage = {
@@ -126,20 +129,28 @@ export function sessionKeyForChatState(state: NativeChatState, chatId: string): 
 }
 
 export function normalizeSessionsPayload(payload: unknown): NativeChatSession[] {
-  if (!isRecord(payload) || !Array.isArray(payload.items)) {
+  if (!isRecord(payload)) {
     return [];
   }
-  return payload.items.filter(isRecord).map((item) => {
-    const chatId = stringValue(item.chat_id) || chatIdFromKey(stringValue(item.key));
-    const key = canonicalSessionKey(stringValue(item.key), chatId) || sessionKeyForChat(chatId);
-    const metadata = isRecord(item.metadata) ? item.metadata : isRecord(item.extra) && isRecord(item.extra.metadata) ? item.extra.metadata : {};
+  const isThreadList = Array.isArray(payload.threads);
+  const items = Array.isArray(payload.threads) ? payload.threads : Array.isArray(payload.items) ? payload.items : [];
+  return items.filter(isRecord).map((item) => {
+    const threadId = stringValue(item.threadId ?? item.thread_id);
+    const sourceKey = stringValue(item.sessionKey ?? item.session_key ?? item.key) || threadId;
+    const chatId = threadId || stringValue(item.chat_id) || chatIdFromKey(sourceKey);
+    const key = isThreadList && threadId ? threadId : canonicalSessionKey(sourceKey, chatId) || chatId;
+    const metadata = isRecord(item.metadata) ? item.metadata : {};
+    const extra = isRecord(metadata.extra) ? metadata.extra : isRecord(item.extra) && isRecord(item.extra.metadata) ? item.extra.metadata : {};
     return {
       key,
       chatId,
+      ...(threadId ? { threadId } : {}),
       title: stringValue(item.title) || "New session",
-      createdAt: stringValue(item.created_at),
-      updatedAt: stringValue(item.updated_at),
-      ...(booleanValue(metadata.pinned) ? { pinned: true } : {}),
+      createdAt: stringValue(item.createdAt ?? item.created_at),
+      updatedAt: stringValue(item.updatedAt ?? item.updated_at),
+      ...(booleanValue(extra.pinned) ? { pinned: true } : {}),
+      ...(stringValue(item.status) ? { status: stringValue(item.status) } : {}),
+      ...(Boolean(item.archivedAt ?? item.archived_at) || stringValue(item.status) === "archived" ? { archived: true } : {}),
     };
   });
 }

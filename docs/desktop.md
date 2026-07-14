@@ -56,16 +56,17 @@ Build a desktop package from the repository root:
 npm run tauri -- build
 ```
 
-The desktop shell starts the Rust native backend in-process. The runtime exposes WebUI-compatible status and WebSocket endpoints at `http://127.0.0.1:18790` and `ws://127.0.0.1:18790/ws`. Routes or commands that are not implemented in Rust return explicit unsupported responses.
+The desktop shell starts the Rust native backend in-process. Tauri mode does not require a listener
+on port `18790`. Chat uses typed Thread commands and typed Tauri events directly; the native WebUI
+route wrapper remains available only for non-chat HTTP-compatible surfaces. Routes or commands that
+are not implemented in Rust return explicit errors.
 
 ## Current Boundary
 
 - Frontend workspace: `src/`
 - Desktop shell: `src-tauri/`
-- Runtime endpoint: `http://127.0.0.1:18790`
-- WebSocket endpoint: `ws://127.0.0.1:18790/ws`
 - Runtime backend: Rust native backend
-- Optional compatibility path: none
+- Desktop chat contract: typed Thread commands plus `agent.timeline.patch` and `agent.awaiting_form` Tauri events
 - Primary UI source: repository `index.html` plus `src/native-workbench/`
 - Static assets and docs: repository `public/`
 - Browser mode: external browser only
@@ -74,8 +75,9 @@ The desktop shell starts the Rust native backend in-process. The runtime exposes
 
 1. Open the desktop app.
 2. A compact startup state waits for the Rust native backend to become ready.
-3. The Tauri shell initializes the native runtime and exposes WebUI-compatible routes.
-4. When `/webui/bootstrap` is ready, the desktop window installs the native workbench shell.
+3. The Tauri shell initializes and checks the in-process native runtime directly.
+4. The desktop window installs the workbench shell without probing `/webui/bootstrap` or reserving
+   port `18790`.
 5. Use the desktop app through native workbench modules for chat, sessions, approvals, temporary files, settings, providers, tools, skills, knowledge, workspace files, browser frames, Cowork, language toggle, and theme toggle where Rust support exists.
 
 The app owns the native runtime lifecycle. The configured exit policy applies to managed native backend state.
@@ -84,7 +86,9 @@ The app owns the native runtime lifecycle. The configured exit policy applies to
 
 The desktop route keeps the Rust backend contract as the source of truth and layers native capabilities around it:
 
-- WebUI HTTP and WebSocket requests are routed through the Rust native backend or native WebUI route bridge;
+- chat creation, turns, interruption, approvals, and forms use the native Thread API;
+- live chat rendering consumes typed native Tauri events without projecting them into Gateway frames;
+- non-chat WebUI-compatible requests use the native WebUI route wrapper where needed;
 - menu and keyboard commands route through native workbench navigation and actions;
 - native file picking feeds native workbench upload actions;
 - OS notifications observe native approval and task progress surfaces;

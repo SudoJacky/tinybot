@@ -827,7 +827,9 @@ mod tests {
         assert!(fixture.root.join("skills/review-work/assets").is_dir());
 
         let listed = rpc
-            .webui_list_skills(Some(vec!["review-work".to_string()]))
+            .webui_list_skills(&serde_json::json!({
+                "skills": { "enabled": ["review-work"] }
+            }))
             .expect("skills should list");
         assert_eq!(listed["skills"][0]["name"], "review-work");
         assert_eq!(listed["skills"][0]["enabled"], true);

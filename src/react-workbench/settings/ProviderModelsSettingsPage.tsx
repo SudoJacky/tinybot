@@ -1,6 +1,7 @@
-import { Check, KeyRound, Plus, RefreshCw, Search, Settings, Trash2, X } from "lucide-react";
+import { Check, ChevronRight, EllipsisVertical, KeyRound, Plus, RefreshCw, Search, Settings, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
+  buildCustomProviderPatch,
   buildProviderConfigurePatch,
   buildProviderDefaultLlmPatch,
   buildProviderModelsPatch,
@@ -12,7 +13,6 @@ import {
   type ProviderModelsSettingsData,
 } from "../../app-core/settings/providerModelsSettings";
 import type { SettingsStore } from "../services";
-import { SettingsChoiceList } from "./SettingsChoiceList";
 
 type ProviderModelsSettingsPageProps = {
   settingsStore: SettingsStore;
@@ -23,7 +23,9 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [configureProvider, setConfigureProvider] = useState<ProviderCardModel | null>(null);
+  const [creatingProvider, setCreatingProvider] = useState(false);
   const [modelsProvider, setModelsProvider] = useState<ProviderCardModel | null>(null);
+  const [openProviderMenu, setOpenProviderMenu] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -78,16 +80,56 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
 
       {saveStatus ? <p className="react-settings-save-status" role="status">{saveStatus}</p> : null}
 
-      <div className="react-provider-grid">
+      <section className="react-provider-directory" aria-labelledby="providers-title">
+        <header>
+          <h3 id="providers-title">Providers</h3>
+          <p>Manage provider connections, credentials, and available models.</p>
+        </header>
+        <div className="react-provider-directory__columns" aria-hidden="true">
+          <span>Provider</span>
+          <span>Base URL</span>
+          <span>Status</span>
+          <span>Models</span>
+          <span>Action</span>
+        </div>
+        <div className="react-provider-grid">
         {data.providers.map((provider) => (
-          <ProviderPresetCard
+          <ProviderPresetRow
             key={provider.id}
+            menuOpen={openProviderMenu === provider.id}
             provider={provider}
-            onConfigure={() => setConfigureProvider(provider)}
-            onModels={() => setModelsProvider(provider)}
+            onConfigure={() => {
+              setOpenProviderMenu(null);
+              setConfigureProvider(provider);
+            }}
+            onModels={() => {
+              setOpenProviderMenu(null);
+              setModelsProvider(provider);
+            }}
+            onToggleMenu={() => setOpenProviderMenu((current) => current === provider.id ? null : provider.id)}
           />
         ))}
-      </div>
+        </div>
+        <button
+          className="react-provider-add"
+          type="button"
+          onClick={() => setCreatingProvider(true)}
+        >
+          <Plus aria-hidden="true" size={16} />
+          Add provider
+        </button>
+      </section>
+
+      {creatingProvider ? (
+        <CustomProviderDialog
+          existingProviders={data.providers}
+          onClose={() => setCreatingProvider(false)}
+          onSave={async (patch) => {
+            await savePatch(patch);
+            setCreatingProvider(false);
+          }}
+        />
+      ) : null}
 
       {configureProvider ? (
         <ProviderConfigureDialog
@@ -138,7 +180,9 @@ function DefaultLlmPanel({
   const selectedProvider = data.providers.find((provider) => provider.profileId === profileId) ?? data.providers[0];
   const modelOptions = selectedProvider?.models ?? [];
   const [model, setModel] = useState(initialModel);
+  const [modelSearch, setModelSearch] = useState("");
   const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   useEffect(() => {
     setProfileId(initialProfileId);
@@ -155,6 +199,10 @@ function DefaultLlmPanel({
 
   const dirty = profileId !== (data.activeProfileId ?? "") || model !== (data.agentDefaultModel ?? "");
   const canSave = Boolean(profileId && model && dirty && !saving);
+  const normalizedModelSearch = modelSearch.trim().toLocaleLowerCase();
+  const filteredModelOptions = useMemo(() => normalizedModelSearch
+    ? modelOptions.filter((option) => `${option.label} ${option.id}`.toLocaleLowerCase().includes(normalizedModelSearch))
+    : modelOptions, [modelOptions, normalizedModelSearch]);
 
   async function saveDefaultLlm() {
     if (!canSave) {
@@ -163,6 +211,7 @@ function DefaultLlmPanel({
     setSaving(true);
     try {
       await onSave(buildProviderDefaultLlmPatch({ profileId, model }));
+      setEditing(false);
     } finally {
       setSaving(false);
     }
@@ -170,94 +219,235 @@ function DefaultLlmPanel({
 
   return (
     <section className="react-default-llm-panel" aria-labelledby="default-llm-title">
-      <h3 id="default-llm-title">Default LLM</h3>
-      <div className="react-default-llm-panel__controls">
-        <SettingsChoiceList
-          label="Provider"
-          options={data.providers.map((provider) => ({
-            value: provider.profileId,
-            label: provider.label,
-            description: provider.modelCount ? `${provider.modelCount} models` : provider.statusLabel,
-          }))}
-          value={profileId}
-          onChange={(nextProfileId) => {
-            const nextProvider = data.providers.find((provider) => provider.profileId === nextProfileId);
-            setProfileId(nextProfileId);
-            setModel(nextProvider?.defaultModel ?? nextProvider?.models[0]?.id ?? "");
-          }}
-        />
-        <SettingsChoiceList
-          label="Model"
-          options={modelOptions.length
-            ? modelOptions.map((option) => ({
-              value: option.id,
-              label: option.label,
-              description: option.id === option.label ? modelSourceLabel(option.source) : `${option.id} - ${modelSourceLabel(option.source)}`,
-            }))
-            : [{ value: "", label: "No models configured", disabled: true }]}
-          value={model}
-          onChange={setModel}
-        />
-        <button type="button" aria-label="Save default LLM" disabled={!canSave} onClick={saveDefaultLlm}>
-          <Check aria-hidden="true" size={15} />
-          {saving ? "Saving" : dirty ? "Save" : "Saved"}
+      <header>
+        <div>
+          <h3 id="default-llm-title">Default model</h3>
+          <p>This model is used for new chats and agent runs unless overridden.</p>
+        </div>
+      </header>
+      <div className="react-default-llm-summary">
+        {selectedProvider ? <ProviderBrandIcon provider={selectedProvider} /> : null}
+        <div className="react-default-llm-summary__provider">
+          <strong>{selectedProvider?.label ?? "No provider"}</strong>
+          <span className="react-provider-status" data-status={selectedProvider?.status}>
+            <span aria-hidden="true" />
+            {selectedProvider ? providerStatusLabel(selectedProvider.status) : "Not configured"}
+          </span>
+        </div>
+        <div className="react-default-llm-summary__model">
+          <strong>{model || "No model configured"}</strong>
+          {model ? <span>Default</span> : null}
+        </div>
+        <span className="react-default-llm-summary__count">
+          {selectedProvider?.modelCount ? `${selectedProvider.modelCount} models` : "No models"}
+        </span>
+        <button
+          aria-expanded={editing}
+          type="button"
+          onClick={() => setEditing((current) => !current)}
+        >
+          Change model
         </button>
       </div>
-      <p>Set the global default LLM. A specific Agent can still choose a different model from the chat page.</p>
-      {data.revision ? <small>Config revision {data.revision}</small> : null}
+      {editing ? (
+        <div className="react-default-llm-editor">
+          <div className="react-default-model-picker">
+            <nav className="react-default-model-picker__providers" aria-label="Provider selection">
+              {data.providers.map((provider) => {
+                const selected = provider.profileId === profileId;
+                return (
+                  <button
+                    aria-label={`Select ${provider.label} provider`}
+                    aria-pressed={selected}
+                    key={provider.profileId}
+                    type="button"
+                    onClick={() => {
+                      setProfileId(provider.profileId);
+                      setModel(provider.defaultModel ?? provider.models[0]?.id ?? "");
+                      setModelSearch("");
+                    }}
+                  >
+                    <ProviderBrandIcon provider={provider} />
+                    <span>
+                      <strong>{provider.label}</strong>
+                      <small>{provider.modelCount ? `${provider.modelCount} models` : providerStatusLabel(provider.status)}</small>
+                    </span>
+                    <ChevronRight aria-hidden="true" size={16} />
+                  </button>
+                );
+              })}
+            </nav>
+            <section className="react-default-model-picker__models" aria-label={`${selectedProvider?.label ?? "Provider"} models`}>
+              <header>
+                <h4>Models from {selectedProvider?.label ?? "provider"}</h4>
+              </header>
+              <label className="react-default-model-picker__search">
+                <Search aria-hidden="true" size={16} />
+                <span className="react-sr-only">Search models</span>
+                <input
+                  type="search"
+                  placeholder="Search models"
+                  value={modelSearch}
+                  onChange={(event) => setModelSearch(event.target.value)}
+                />
+              </label>
+              <p className="react-default-model-picker__count">
+                {normalizedModelSearch
+                  ? `Showing ${filteredModelOptions.length} of ${modelOptions.length}`
+                  : `${modelOptions.length} ${modelOptions.length === 1 ? "model" : "models"}`}
+              </p>
+              <div className="react-default-model-picker__models-list" role="radiogroup" aria-label="Model selection">
+                {filteredModelOptions.length ? filteredModelOptions.map((option) => {
+                  const selected = option.id === model;
+                  return (
+                    <button
+                      aria-checked={selected}
+                      aria-label={`Select ${option.label} model`}
+                      key={option.id}
+                      role="radio"
+                      type="button"
+                      onClick={() => setModel(option.id)}
+                    >
+                      <strong>{option.label}</strong>
+                      <small>{modelSourceLabel(option.source)}</small>
+                      {selected ? <Check aria-hidden="true" size={16} /> : <span aria-hidden="true" />}
+                    </button>
+                  );
+                }) : (
+                  <p className="react-default-model-picker__empty">
+                    {modelOptions.length ? "No models match your search." : "No models configured."}
+                  </p>
+                )}
+              </div>
+            </section>
+          </div>
+          <footer>
+            <span>{data.revision ? `Config revision ${data.revision}` : "Changes apply to new agent runs."}</span>
+            <div>
+              <button
+                type="button"
+                onClick={() => {
+                  setProfileId(initialProfileId);
+                  setModel(initialModel);
+                  setModelSearch("");
+                  setEditing(false);
+                }}
+              >
+                Cancel
+              </button>
+              <button type="button" aria-label="Save default LLM" disabled={!canSave} onClick={saveDefaultLlm}>
+                <Check aria-hidden="true" size={15} />
+                {saving ? "Saving" : dirty ? "Save" : "Saved"}
+              </button>
+            </div>
+          </footer>
+        </div>
+      ) : null}
     </section>
   );
 }
 
-function ProviderPresetCard({
+function ProviderPresetRow({
+  menuOpen,
   onConfigure,
   onModels,
+  onToggleMenu,
   provider,
 }: {
+  menuOpen: boolean;
   provider: ProviderCardModel;
   onConfigure: () => void;
   onModels: () => void;
+  onToggleMenu: () => void;
 }) {
+  const primaryAction = provider.status === "available" ? "models" : "configure";
+
   return (
     <article className="react-provider-card" aria-label={`${provider.label} provider`} data-status={provider.status}>
-      <div className="react-provider-card__top">
-        <div className="react-provider-card__mark" aria-hidden="true">{provider.label.slice(0, 2)}</div>
-        <span className="react-provider-card__status">
+      <div className="react-provider-card__identity">
+        <ProviderBrandIcon provider={provider} />
+        <strong>{provider.label}</strong>
+      </div>
+      <span className="react-provider-card__url" title={provider.baseUrl}>{provider.baseUrl}</span>
+      <div className="react-provider-card__state">
+        <span className="react-provider-status" data-status={provider.status}>
           <span aria-hidden="true" />
-          {provider.statusLabel}
+          {providerStatusLabel(provider.status)}
         </span>
+        {provider.active ? <small>Active</small> : !provider.apiKeyConfigured ? <small>API key not set</small> : null}
       </div>
-      <div className="react-provider-card__title">
-        <h3>{provider.label}</h3>
-        {provider.builtIn ? <span>Built-in</span> : null}
-        {provider.active ? <span>Active</span> : null}
-      </div>
-      <dl className="react-provider-card__facts">
-        <div>
-          <dt>Base URL</dt>
-          <dd>{provider.baseUrl}</dd>
-        </div>
-        <div>
-          <dt>API key</dt>
-          <dd>{provider.apiKeyConfigured ? "Configured" : "Not set"}</dd>
-        </div>
-        <div>
-          <dt>Models</dt>
-          <dd>{provider.modelCount ? `${provider.modelCount} models` : "No models"}</dd>
-        </div>
-      </dl>
+      <span className="react-provider-card__models">{provider.modelCount ? `${provider.modelCount} models` : "—"}</span>
       <div className="react-provider-card__actions">
-        <button type="button" aria-label={`Manage ${provider.label} models`} onClick={onModels}>
-          <Search aria-hidden="true" size={15} />
-          Models
+        {primaryAction === "models" ? (
+          <button type="button" aria-label={`Manage ${provider.label} models`} onClick={onModels}>Models</button>
+        ) : (
+          <button type="button" aria-label={`Configure ${provider.label}`} onClick={onConfigure}>Configure</button>
+        )}
+        <button
+          className="react-provider-card__more"
+          type="button"
+          aria-expanded={menuOpen}
+          aria-haspopup="menu"
+          aria-label={`More actions for ${provider.label}`}
+          onClick={onToggleMenu}
+        >
+          <EllipsisVertical aria-hidden="true" size={17} />
         </button>
-        <button type="button" aria-label={`Configure ${provider.label}`} onClick={onConfigure}>
-          <Settings aria-hidden="true" size={15} />
-          Configure
-        </button>
+        {menuOpen ? (
+          <div className="react-provider-card__menu" role="menu" aria-label={`${provider.label} provider actions`}>
+            {primaryAction !== "models" ? (
+              <button role="menuitem" type="button" onClick={onModels}>
+                <Search aria-hidden="true" size={15} />
+                Models
+              </button>
+            ) : null}
+            {primaryAction !== "configure" ? (
+              <button role="menuitem" type="button" onClick={onConfigure}>
+                <Settings aria-hidden="true" size={15} />
+                Configure
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </article>
   );
+}
+
+const PROVIDER_LOGOS: Record<string, string> = {
+  dashscope: "/assets/providers/dashscope.svg",
+  deepseek: "/assets/providers/deepseek.svg",
+  openai: "/assets/providers/openai.svg",
+};
+
+function ProviderBrandIcon({ provider }: { provider: ProviderCardModel }) {
+  const logo = PROVIDER_LOGOS[provider.id];
+  return (
+    <span className="react-provider-brand-icon" aria-hidden="true">
+      {logo
+        ? <img alt="" src={logo} />
+        : <span className="react-provider-brand-icon__fallback">{providerInitials(provider.label)}</span>}
+    </span>
+  );
+}
+
+function providerInitials(label: string): string {
+  return label
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("") || "P";
+}
+
+function providerStatusLabel(status: ProviderCardModel["status"]): string {
+  if (status === "available") {
+    return "Connected";
+  }
+  if (status === "not_ready") {
+    return "Needs attention";
+  }
+  return "Not configured";
 }
 
 function ProviderConfigureDialog({
@@ -280,6 +470,7 @@ function ProviderConfigureDialog({
     await onSave(buildProviderConfigurePatch({
       providerId: provider.id,
       profileId: provider.profileId,
+      displayName: provider.label,
       apiBase,
       apiKey,
       enabled: true,
@@ -329,6 +520,129 @@ function ProviderConfigureDialog({
       </form>
     </div>
   );
+}
+
+function CustomProviderDialog({
+  existingProviders,
+  onClose,
+  onSave,
+}: {
+  existingProviders: ProviderCardModel[];
+  onClose: () => void;
+  onSave: (patch: unknown) => Promise<void>;
+}) {
+  const [providerId, setProviderId] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [apiBase, setApiBase] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [model, setModel] = useState("");
+  const [supportsModelDiscovery, setSupportsModelDiscovery] = useState(true);
+  const [activate, setActivate] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const normalizedProviderId = providerId.trim().toLowerCase();
+  const profileId = `${normalizedProviderId}-default`;
+  const idValid = /^[a-z0-9][a-z0-9_-]*$/.test(normalizedProviderId);
+  const duplicate = existingProviders.some((provider) => (
+    provider.id === normalizedProviderId || provider.profileId === profileId
+  ));
+  const apiBaseValid = isHttpUrl(apiBase);
+  const canSave = idValid
+    && !duplicate
+    && Boolean(displayName.trim())
+    && apiBaseValid
+    && Boolean(model.trim())
+    && !saving;
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canSave) {
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave(buildCustomProviderPatch({
+        providerId: normalizedProviderId,
+        profileId,
+        displayName,
+        apiBase,
+        apiKey,
+        model,
+        supportsModelDiscovery,
+        activate,
+      }));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="react-settings-dialog-backdrop">
+      <form className="react-settings-dialog" aria-label="Add provider" role="dialog" onSubmit={submit}>
+        <header>
+          <div>
+            <h2>Add provider</h2>
+            <p>Configure an OpenAI-compatible endpoint.</p>
+          </div>
+          <button type="button" aria-label="Close add provider" onClick={onClose}>
+            <X aria-hidden="true" size={17} />
+          </button>
+        </header>
+        <label>
+          <span>Provider ID</span>
+          <input
+            aria-label="Provider ID"
+            autoComplete="off"
+            placeholder="local-openai"
+            value={providerId}
+            onChange={(event) => setProviderId(event.currentTarget.value)}
+          />
+          {providerId && !idValid ? <small>Use lowercase letters, numbers, hyphens, or underscores.</small> : null}
+          {duplicate ? <small role="alert">This provider ID already exists.</small> : null}
+        </label>
+        <label>
+          <span>Display name</span>
+          <input aria-label="Display name" placeholder="Local OpenAI" value={displayName} onChange={(event) => setDisplayName(event.currentTarget.value)} />
+        </label>
+        <label>
+          <span>API base</span>
+          <input aria-label="Custom API base" placeholder="http://127.0.0.1:11434/v1" value={apiBase} onChange={(event) => setApiBase(event.currentTarget.value)} />
+          {apiBase && !apiBaseValid ? <small role="alert">Enter a valid HTTP or HTTPS URL.</small> : null}
+        </label>
+        <label>
+          <span>API key <small>Optional for local endpoints</small></span>
+          <input aria-label="Custom API key" autoComplete="off" type="password" value={apiKey} onChange={(event) => setApiKey(event.currentTarget.value)} />
+        </label>
+        <label>
+          <span>Default model</span>
+          <input aria-label="Default model" placeholder="model-id" value={model} onChange={(event) => setModel(event.currentTarget.value)} />
+        </label>
+        <label className="react-settings-checkbox">
+          <input checked={supportsModelDiscovery} type="checkbox" onChange={(event) => setSupportsModelDiscovery(event.currentTarget.checked)} />
+          <span>Discover models from the /models endpoint</span>
+        </label>
+        <label className="react-settings-checkbox">
+          <input checked={activate} type="checkbox" onChange={(event) => setActivate(event.currentTarget.checked)} />
+          <span>Set as active provider and default model</span>
+        </label>
+        <footer>
+          <button type="button" onClick={onClose}>Cancel</button>
+          <button type="submit" disabled={!canSave}>
+            <Plus aria-hidden="true" size={15} />
+            {saving ? "Adding" : "Add provider"}
+          </button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function ProviderModelsDialog({
