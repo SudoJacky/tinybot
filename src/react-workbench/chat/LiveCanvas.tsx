@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from "react";
 import { Bell, Bot, ChevronLeft, ChevronRight, Loader2, Maximize2, Minimize2, MonitorDot, PanelRightClose, PanelRightOpen, Pause, Play, RotateCcw, ShieldCheck, StopCircle, X } from "lucide-react";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
-import { projectTinyOsDesktop, tinyOsAppForStep, type TinyOsTimelineEntry } from "../../app-core/chat/tinyOsDesktopModel";
+import { projectKernelBackedTinyOsDesktop, projectTinyOsDesktop, tinyOsAppForStep, type TinyOsTimelineEntry } from "../../app-core/chat/tinyOsDesktopModel";
 import { tinyOsLayoutModeForWidth, type TinyOsAgentRequestIntent, type TinyOsAgentRequestReference, type TinyOsContextReference } from "../../app-core/chat/tinyOsUiState";
-import type { ArtifactRef, ChatStep } from "../../app-core/chat/chatRunModel";
+import type { ArtifactRef, BackendAgentTurnItem, ChatStep } from "../../app-core/chat/chatRunModel";
 import type { ApprovalAction } from "../services";
 import { TinyOsShell } from "./TinyOsShell";
 import type { TinyOsFilesController } from "./useTinyOsFilesController";
@@ -20,6 +20,7 @@ const TINYOS_BOOT_DURATION_MS = 1_000;
 let tinyOsBootedInRuntime = false;
 
 export function LiveCanvas({
+  activeRunId,
   agentUiForms,
   canCancelTerminal = false,
   canDirectEdit = false,
@@ -31,6 +32,7 @@ export function LiveCanvas({
   canRetryRun,
   canSaveFile = false,
   cancelUnavailableReason,
+  canonicalItems = [],
   pauseUnavailableReason,
   commandLifecycle,
   entries,
@@ -61,6 +63,8 @@ export function LiveCanvas({
   resolvingApprovalId,
   requestChangeUnavailableReason,
   directEditUnavailableReason,
+  retryRunId,
+  retryUnavailableReason,
   resumeUnavailableReason,
   runningTerminalRunId,
   saveFileUnavailableReason,
@@ -71,6 +75,7 @@ export function LiveCanvas({
   widthPx,
   workspaceKey = "desktop-workspace",
 }: {
+  activeRunId?: string;
   agentUiForms: AgentUiForm[];
   canCancelTerminal?: boolean;
   canDirectEdit?: boolean;
@@ -82,6 +87,7 @@ export function LiveCanvas({
   canRetryRun: boolean;
   canSaveFile?: boolean;
   cancelUnavailableReason?: string;
+  canonicalItems?: BackendAgentTurnItem[];
   pauseUnavailableReason?: string;
   commandLifecycle: TinyOsCommandLifecycle;
   entries: LiveCanvasEntry[];
@@ -112,6 +118,8 @@ export function LiveCanvas({
   resolvingApprovalId: string;
   requestChangeUnavailableReason?: string;
   directEditUnavailableReason?: string;
+  retryRunId?: string;
+  retryUnavailableReason?: string;
   resumeUnavailableReason?: string;
   runningTerminalRunId?: string;
   saveFileUnavailableReason?: string;
@@ -122,11 +130,16 @@ export function LiveCanvas({
   widthPx: number;
   workspaceKey?: string;
 }) {
-  const snapshot = useMemo(() => projectTinyOsDesktop(entries, {
-    itemId: mode === "history" ? selection?.step.id : undefined,
-    mode,
-    turnId: mode === "history" ? selection?.turnId : undefined,
-  }), [entries, mode, selection?.step.id, selection?.turnId]);
+  const snapshot = useMemo(() => {
+    const cursor = {
+      itemId: mode === "history" ? selection?.step.id : undefined,
+      mode,
+      turnId: mode === "history" ? selection?.turnId : undefined,
+    } as const;
+    return canonicalItems.length || (entries.length === 0 && mode === "live_follow")
+      ? projectKernelBackedTinyOsDesktop(entries, canonicalItems, cursor)
+      : projectTinyOsDesktop(entries, cursor);
+  }, [canonicalItems, entries, mode, selection?.step.id, selection?.turnId]);
   const actionableDialog = Boolean(snapshot.dialog && mode === "live_follow");
   const commandPending = isTinyOsCommandInFlight(commandLifecycle);
   const commandKind = commandLifecycle.stage === "idle" ? "" : commandLifecycle.command.kind;
@@ -294,13 +307,19 @@ export function LiveCanvas({
 
       <TinyOsShell
         key={sessionKey}
+        activeRunId={activeRunId}
         agentUiForms={agentUiForms}
+        canCancelRun={canCancelRun}
         canCancelTerminal={canCancelTerminal}
         canDirectEdit={canDirectEdit}
         canExecuteTerminal={canExecuteTerminal}
+        canPauseRun={canPauseRun}
         canRequestChange={canRequestChange}
+        canResumeRun={canResumeRun}
         canRetryRun={canRetryRun}
         canSaveFile={canSaveFile}
+        cancelUnavailableReason={cancelUnavailableReason}
+        commandLifecycle={commandLifecycle}
         directEditUnavailableReason={directEditUnavailableReason}
         filesController={filesController}
         history={mode === "history"}
@@ -312,18 +331,25 @@ export function LiveCanvas({
         sessionKey={sessionKey}
         workspaceKey={filesController?.state.workspaceKey ?? workspaceKey}
         onCancelForm={onCancelForm}
+        onCancelRun={onCancelRun}
         onOpenArtifact={onOpenArtifact}
         onAgentRequest={(reference, intent) => onAgentRequest(reference, intent, mode === "history")}
         onCancelTerminal={onCancelTerminal}
         onDeleteFile={onDeleteFile}
         onExecuteTerminal={onExecuteTerminal}
         onMoveFile={onMoveFile}
+        onPauseRun={onPauseRun}
         onResolveApproval={onResolveApproval}
         onRetryOperation={onRetryOperation}
+        onResumeRun={onResumeRun}
         onSelectEntry={onSelectEntry}
         onSubmitForm={onSubmitForm}
         onSaveFile={onSaveFile}
         requestChangeUnavailableReason={requestChangeUnavailableReason}
+        pauseUnavailableReason={pauseUnavailableReason}
+        retryRunId={retryRunId}
+        retryUnavailableReason={retryUnavailableReason}
+        resumeUnavailableReason={resumeUnavailableReason}
         runningTerminalRunId={runningTerminalRunId}
         saveFileUnavailableReason={saveFileUnavailableReason}
         terminalCancelUnavailableReason={terminalCancelUnavailableReason}

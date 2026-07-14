@@ -1523,7 +1523,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 .react-live-canvas.tinyos {
   grid-template-rows: 58px minmax(0, 1fr);
   container-type: inline-size;
-  background: #f3efe7;
+  background: #ded5c8;
   color: var(--color-body);
 }
 
@@ -1531,9 +1531,11 @@ button.tinyos-overlay-backdrop:focus-visible {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 10px;
-  background: color-mix(in srgb, var(--color-canvas) 94%, transparent);
-  padding: 0 12px;
-  backdrop-filter: blur(16px);
+  border-bottom-color: rgb(72 59 45 / 10%);
+  background: rgb(250 248 243 / 88%);
+  padding: 0 14px;
+  box-shadow: 0 1px 0 rgb(255 255 255 / 64%);
+  backdrop-filter: blur(22px) saturate(1.2);
 }
 
 .tinyos-system-bar__identity,
@@ -1547,11 +1549,13 @@ button.tinyos-overlay-backdrop:focus-visible {
 .tinyos-system-bar__identity > svg {
   flex: 0 0 auto;
   color: var(--color-primary);
+  filter: drop-shadow(0 2px 5px rgb(204 120 92 / 24%));
 }
 
 .tinyos-system-bar__identity h2 {
   flex: 0 0 auto;
-  font-size: 14px;
+  font-size: 15px;
+  letter-spacing: -.025em;
 }
 
 .tinyos-system-bar__status {
@@ -1562,6 +1566,10 @@ button.tinyos-overlay-backdrop:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  border: 1px solid rgb(75 67 57 / 8%);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 42%);
+  padding: 4px 7px;
   white-space: nowrap;
 }
 
@@ -1590,8 +1598,8 @@ button.tinyos-overlay-backdrop:focus-visible {
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-hairline));
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-primary) 7%, #fff);
-  padding: 4px 7px;
+  background: color-mix(in srgb, var(--color-primary) 6%, rgb(255 255 255 / 72%));
+  padding: 4px 8px;
   color: color-mix(in srgb, var(--color-primary) 82%, var(--color-body)) !important;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1637,55 +1645,85 @@ button.tinyos-overlay-backdrop:focus-visible {
 }
 
 .tinyos-shell {
+  --tinyos-dock-surface: rgb(250 247 241 / 78%);
+  --tinyos-window-surface: rgb(255 253 249 / 94%);
+  position: relative;
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: #eee8df;
+  background: #ded5c8;
 }
 
 .tinyos-launcher {
-  z-index: 12;
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  z-index: 24;
   display: flex;
-  grid-row: 1 / 3;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 2px;
-  min-height: 0;
-  overflow: auto;
-  border-right: 1px solid rgb(82 72 58 / 11%);
-  background: #f8f5ef;
-  padding: 10px 6px;
+  max-width: calc(100% - 24px);
+  align-items: center;
+  gap: 4px;
+  overflow: visible;
+  border: 1px solid rgb(76 65 52 / 14%);
+  border-radius: 18px;
+  background: var(--tinyos-dock-surface);
+  padding: 6px;
+  box-shadow: 0 18px 42px rgb(62 47 34 / 18%), inset 0 1px 0 rgb(255 255 255 / 74%);
+  transform: translateX(-50%);
+  backdrop-filter: blur(24px) saturate(1.3);
 }
 
 .tinyos-launcher__app {
   position: relative;
-  display: grid;
-  min-width: 0;
-  min-height: 52px;
+  display: inline-grid;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
   place-items: center;
-  gap: 3px;
-  border-radius: 10px;
-  color: #777168;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  color: #655f57;
   cursor: pointer;
-  transition: background-color var(--motion-duration-fast) var(--motion-ease-standard), color var(--motion-duration-fast) var(--motion-ease-standard);
+  transition: background-color var(--motion-duration-fast) var(--motion-ease-standard), border-color var(--motion-duration-fast) var(--motion-ease-standard), color var(--motion-duration-fast) var(--motion-ease-standard), transform var(--motion-duration-fast) var(--motion-ease-standard);
 }
 
 .tinyos-launcher__app > span {
-  overflow: hidden;
-  max-width: 100%;
-  font-size: 8px;
-  text-overflow: ellipsis;
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  z-index: 2;
+  border: 1px solid rgb(75 67 57 / 13%);
+  border-radius: 7px;
+  background: rgb(255 253 249 / 96%);
+  padding: 5px 7px;
+  box-shadow: 0 8px 20px rgb(57 45 34 / 16%);
+  color: var(--color-ink);
+  font-size: 9px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 4px);
+  transition: opacity var(--motion-duration-fast) var(--motion-ease-standard), transform var(--motion-duration-fast) var(--motion-ease-standard);
   white-space: nowrap;
+}
+
+.tinyos-launcher__app:hover > span,
+.tinyos-launcher__app:focus-visible > span {
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
 
 .tinyos-launcher__app:hover:not(:disabled),
 .tinyos-launcher__app:focus-visible,
 .tinyos-launcher__app[data-active="true"] {
-  background: color-mix(in srgb, var(--color-primary) 9%, #fff);
+  border-color: color-mix(in srgb, var(--color-primary) 18%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 10%, rgb(255 255 255 / 78%));
   color: var(--color-primary);
+}
+
+.tinyos-launcher__app:hover:not(:disabled) {
+  transform: translateY(-2px);
 }
 
 .tinyos-launcher__app:focus-visible {
@@ -1695,18 +1733,23 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .tinyos-launcher__app:disabled {
   cursor: default;
-  opacity: .42;
+  opacity: .36;
 }
 
 .tinyos-launcher__state {
   position: absolute;
-  top: 7px;
-  right: 8px;
+  bottom: 3px;
+  left: 50%;
   color: #8f8a80;
+  transform: translateX(-50%);
 }
 
-.tinyos-launcher__reset {
-  margin-top: auto;
+.tinyos-launcher__divider {
+  width: 1px;
+  height: 26px;
+  flex: 0 0 1px;
+  margin: 0 2px;
+  background: rgb(75 67 57 / 14%);
 }
 
 .tinyos-launcher__app[data-status="running"] .tinyos-launcher__state {
@@ -1723,7 +1766,10 @@ button.tinyos-overlay-backdrop:focus-visible {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: #eee8df;
+  background:
+    radial-gradient(circle at 18% 8%, rgb(255 255 255 / 68%) 0, transparent 36%),
+    radial-gradient(circle at 86% 84%, rgb(204 120 92 / 13%) 0, transparent 34%),
+    linear-gradient(145deg, #eee9e0 0%, #e6ddd0 48%, #dcd1c2 100%);
   isolation: isolate;
 }
 
@@ -1731,8 +1777,56 @@ button.tinyos-overlay-backdrop:focus-visible {
   position: absolute;
   inset: 0;
   z-index: -1;
-  background: rgb(204 120 92 / 3%);
+  background-image:
+    linear-gradient(rgb(93 78 61 / 3.5%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(93 78 61 / 3.5%) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: linear-gradient(to bottom, rgb(0 0 0 / 40%), transparent 70%);
   content: "";
+}
+
+.tinyos-desktop__environment {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  left: 16px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: rgb(78 69 59 / 62%);
+  pointer-events: none;
+}
+
+.tinyos-desktop__brand,
+.tinyos-desktop__brand > span {
+  display: inline-flex;
+  align-items: center;
+}
+
+.tinyos-desktop__brand {
+  gap: 6px;
+}
+
+.tinyos-desktop__brand strong {
+  color: rgb(58 51 44 / 74%);
+  font-size: 10px;
+  letter-spacing: -.01em;
+}
+
+.tinyos-desktop__brand small {
+  border-left: 1px solid rgb(75 67 57 / 18%);
+  padding-left: 7px;
+  font-size: 8px;
+}
+
+.tinyos-desktop__mode {
+  border: 1px solid rgb(75 67 57 / 10%);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 28%);
+  padding: 4px 7px;
+  font-size: 8px;
+  backdrop-filter: blur(8px);
 }
 
 .tinyos-desktop__empty {
@@ -1741,20 +1835,30 @@ button.tinyos-overlay-backdrop:focus-visible {
   display: grid;
   place-content: center;
   justify-items: center;
-  gap: 8px;
-  padding: 28px;
-  color: #777168;
+  gap: 9px;
+  padding: 28px 28px 92px;
+  color: #6e675e;
   text-align: center;
+}
+
+.tinyos-desktop__empty > svg {
+  box-sizing: content-box;
+  border: 1px solid rgb(75 67 57 / 12%);
+  border-radius: 15px;
+  background: rgb(255 255 255 / 38%);
+  padding: 13px;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 62%);
 }
 
 .tinyos-desktop__empty strong {
   color: var(--color-ink);
-  font-size: 14px;
+  font-size: 15px;
+  letter-spacing: -.02em;
 }
 
 .tinyos-desktop__empty span {
-  max-width: 260px;
-  font-size: 11px;
+  max-width: 290px;
+  font-size: 10px;
   line-height: 1.55;
 }
 
@@ -1766,16 +1870,16 @@ button.tinyos-overlay-backdrop:focus-visible {
   left: 5%;
   z-index: 2;
   display: grid;
-  grid-template-rows: 40px minmax(0, 1fr);
+  grid-template-rows: 44px minmax(0, 1fr);
   min-width: 0;
   min-height: 180px;
   overflow: hidden;
-  border: 1px solid rgb(75 67 57 / 16%);
-  border-radius: 13px;
-  background: rgb(252 250 246 / 96%);
-  box-shadow: 0 16px 34px rgb(66 53 40 / 12%);
-  opacity: .82;
-  transform: scale(.985);
+  border: 1px solid rgb(75 64 51 / 15%);
+  border-radius: 16px;
+  background: var(--tinyos-window-surface);
+  box-shadow: 0 18px 42px rgb(61 48 35 / 13%), inset 0 1px 0 rgb(255 255 255 / 72%);
+  opacity: .86;
+  transform: scale(.99);
   transform-origin: center;
   transition: opacity var(--motion-duration-medium) var(--motion-ease-standard), transform var(--motion-duration-medium) var(--motion-ease-standard), box-shadow var(--motion-duration-medium) var(--motion-ease-standard);
   will-change: left, top, width, height;
@@ -1792,7 +1896,8 @@ button.tinyos-overlay-backdrop:focus-visible {
 .tinyos-window[data-active="true"] {
   z-index: 9;
   opacity: 1;
-  box-shadow: 0 20px 44px rgb(66 53 40 / 18%);
+  border-color: rgb(75 64 51 / 20%);
+  box-shadow: 0 26px 64px rgb(61 48 35 / 22%), 0 2px 8px rgb(61 48 35 / 9%), inset 0 1px 0 rgb(255 255 255 / 82%);
   transform: none;
 }
 
@@ -1801,9 +1906,10 @@ button.tinyos-overlay-backdrop:focus-visible {
   grid-template-columns: auto minmax(0, 1fr) auto 32px 32px 32px;
   align-items: center;
   gap: 6px;
-  border-bottom: 1px solid rgb(75 67 57 / 11%);
-  background: #fdfbf7;
-  padding: 0 6px 0 11px;
+  border-bottom: 1px solid rgb(75 67 57 / 9%);
+  background: rgb(250 248 243 / 88%);
+  padding: 0 6px 0 12px;
+  backdrop-filter: blur(18px);
   user-select: none;
   cursor: move;
   touch-action: none;
@@ -1819,7 +1925,11 @@ button.tinyos-overlay-backdrop:focus-visible {
   align-items: center;
   gap: 6px;
   color: var(--color-ink);
-  font-size: 11px;
+  font-size: 10px;
+}
+
+.tinyos-window__titlebar > span:first-child > svg {
+  color: var(--color-primary);
 }
 
 .tinyos-window__source {
@@ -1834,10 +1944,10 @@ button.tinyos-overlay-backdrop:focus-visible {
 .tinyos-window__titlebar > button,
 .tinyos-inspector header button {
   display: inline-grid;
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   place-items: center;
-  border-radius: 7px;
+  border-radius: 9px;
   color: var(--color-muted);
   cursor: pointer;
 }
@@ -1859,6 +1969,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 .tinyos-window__content {
   min-height: 0;
   overflow: auto;
+  background: rgb(255 253 249 / 74%);
 }
 
 .tinyos-window__resize-handle {
@@ -2879,12 +2990,13 @@ button.tinyos-overlay-backdrop:focus-visible {
   position: relative;
   z-index: 13;
   display: grid;
-  grid-column: 2;
+  grid-column: 1;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 7px;
-  border-top: 1px solid rgb(82 72 58 / 11%);
-  background: #faf8f3;
-  padding: 7px 9px;
+  border-top: 1px solid rgb(72 59 45 / 10%);
+  background: rgb(248 245 239 / 94%);
+  padding: 7px 10px;
+  box-shadow: 0 -1px 0 rgb(255 255 255 / 62%);
 }
 
 .tinyos-operation-shelf__select {
@@ -2893,10 +3005,10 @@ button.tinyos-overlay-backdrop:focus-visible {
   align-items: center;
   gap: 4px;
   min-width: 0;
-  min-height: 52px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 10px;
-  background: #fffdfa;
+  min-height: 48px;
+  border: 1px solid rgb(75 67 57 / 11%);
+  border-radius: 11px;
+  background: rgb(255 253 249 / 76%);
   padding: 6px 9px;
   text-align: left;
   cursor: pointer;
@@ -3025,18 +3137,48 @@ button.tinyos-overlay-backdrop:focus-visible {
   }
 }
 
-@container (max-width: 520px) {
+@container (max-width: 720px) {
   .tinyos-system-bar__status > span:not(:first-child),
-  .tinyos-workspace-toggle > span {
+  .react-live-canvas__header-actions > button > span {
     display: none;
   }
 
+  .react-live-canvas__header-actions > button:disabled {
+    display: none;
+  }
+
+  .react-live-canvas__header-actions > button:first-child:not(:last-child),
+  .react-live-canvas__header-actions > button.tinyos-workspace-toggle {
+    width: 44px;
+    padding: 0;
+  }
+}
+
+@container (max-width: 520px) {
+  .tinyos-system-bar__status,
+  .tinyos-truth-badge {
+    display: none;
+  }
+
+  .tinyos-system-bar.react-live-canvas__header {
+    grid-template-columns: minmax(70px, 1fr) auto;
+    gap: 6px;
+    padding-inline: 10px;
+  }
+
+  .tinyos-system-bar__identity {
+    overflow: hidden;
+  }
+
   .tinyos-shell {
-    grid-template-columns: 58px minmax(0, 1fr);
+    --tinyos-dock-surface: rgb(250 247 241 / 86%);
   }
 
   .tinyos-launcher__app {
-    min-height: 48px;
+    width: 38px;
+    height: 38px;
+    min-height: 38px;
+    flex-basis: 38px;
   }
 
   .tinyos-window:not([data-active="true"]) {
@@ -3077,7 +3219,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   }
 
   .tinyos-operation-shelf {
-    grid-column: 2;
+    grid-column: 1;
   }
 
   .tinyos-operation-shelf__select {
@@ -3088,6 +3230,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   .tinyos-operation-shelf__select > span:nth-child(5) {
     display: none;
   }
+
 }
 
 @container (max-width: 430px) {
@@ -3096,8 +3239,24 @@ button.tinyos-overlay-backdrop:focus-visible {
     display: none;
   }
 
-  .tinyos-shell {
-    grid-template-columns: 50px minmax(0, 1fr);
+  .tinyos-launcher {
+    bottom: 10px;
+    max-width: calc(100% - 12px);
+    gap: 2px;
+    border-radius: 16px;
+    padding: 5px;
+  }
+
+  .tinyos-launcher__app {
+    width: 34px;
+    height: 36px;
+    min-height: 36px;
+    flex-basis: 34px;
+    border-radius: 10px;
+  }
+
+  .tinyos-launcher__divider {
+    margin: 0 1px;
   }
 }
 
@@ -7094,4 +7253,476 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .tinyos-browser[data-truth="real_capture"] .tinyos-browser__bar b {
   color: var(--color-warning);
+}
+
+.tinyos-system-monitor {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  color: var(--color-ink);
+}
+
+.tinyos-window[data-app="system_monitor"] .tinyos-window__content {
+  container-type: inline-size;
+}
+
+.tinyos-system-monitor__summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  border-bottom: 1px solid var(--color-hairline);
+  background: var(--color-hairline);
+}
+
+.tinyos-system-monitor__summary > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  background: rgb(255 253 249 / 94%);
+  padding: 10px 12px;
+}
+
+.tinyos-system-monitor__summary strong {
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.03em;
+}
+
+.tinyos-system-monitor__summary small {
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tinyos-system-monitor__summary > span[data-attention="true"] strong {
+  color: var(--color-error);
+}
+
+.tinyos-system-monitor__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--color-hairline);
+  background: rgb(247 244 238 / 92%);
+  padding: 7px 8px;
+  scrollbar-width: thin;
+}
+
+.tinyos-system-monitor__search {
+  display: flex;
+  min-width: 176px;
+  flex: 1 0 176px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-canvas);
+  padding: 0 8px;
+  color: var(--color-muted);
+}
+
+.tinyos-system-monitor__search input {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--color-ink);
+  font-size: 11px;
+}
+
+.tinyos-system-monitor__toolbar select,
+.tinyos-system-monitor__view button {
+  height: 34px;
+  flex: 0 0 auto;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-canvas);
+  color: var(--color-muted);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.tinyos-system-monitor__toolbar select {
+  max-width: 132px;
+  padding: 0 24px 0 8px;
+}
+
+.tinyos-system-monitor__view {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.tinyos-system-monitor__view button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+}
+
+.tinyos-system-monitor__view button[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--color-primary) 24%, var(--color-hairline));
+  background: color-mix(in srgb, var(--color-primary) 9%, var(--color-canvas));
+  color: var(--color-primary);
+}
+
+.tinyos-system-monitor__search:focus-within,
+.tinyos-system-monitor__toolbar select:focus-visible,
+.tinyos-system-monitor__view button:focus-visible,
+.tinyos-process-list button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.tinyos-system-monitor__body {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-columns: minmax(280px, 1.2fr) minmax(210px, .8fr);
+}
+
+.tinyos-process-list {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: rgb(255 253 249 / 72%);
+}
+
+.tinyos-process-list__head,
+.tinyos-process-list li > button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 92px 96px;
+  align-items: center;
+  gap: 8px;
+}
+
+.tinyos-process-list__head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  min-height: 28px;
+  border-bottom: 1px solid var(--color-hairline);
+  background: rgb(247 244 238 / 96%);
+  padding: 0 10px;
+  color: var(--color-muted);
+  font-size: 8px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  backdrop-filter: blur(10px);
+}
+
+.tinyos-process-list ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tinyos-process-list li > button {
+  width: 100%;
+  min-height: 44px;
+  border-bottom: 1px solid rgb(75 67 57 / 7%);
+  padding: 5px 10px 5px calc(10px + var(--tinyos-process-depth, 0) * 14px);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--motion-duration-fast) var(--motion-ease-standard), color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.tinyos-process-list li > button:hover,
+.tinyos-process-list li > button[data-selected="true"] {
+  background: color-mix(in srgb, var(--color-primary) 8%, rgb(255 255 255 / 76%));
+}
+
+.tinyos-process-list li > button[data-selected="true"] {
+  box-shadow: inset 3px 0 0 var(--color-primary);
+}
+
+.tinyos-process-list__identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.tinyos-process-list__identity > svg {
+  flex: 0 0 auto;
+  color: var(--color-primary);
+}
+
+.tinyos-process-list__identity > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.tinyos-process-list__identity strong,
+.tinyos-process-list__identity code,
+.tinyos-process-list__source {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tinyos-process-list__identity strong {
+  font-size: 10px;
+}
+
+.tinyos-process-list__identity code,
+.tinyos-process-list__source {
+  color: var(--color-muted);
+  font-size: 8px;
+}
+
+.tinyos-process-state {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  border-radius: 999px;
+  background: #f0eee9;
+  padding: 3px 6px;
+  color: #625d55;
+  font-size: 8px;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.tinyos-process-state[data-state="running"] { background: #e8f4ff; color: #21638c; }
+.tinyos-process-state[data-state="completed"] { background: #e7f6eb; color: #267b46; }
+.tinyos-process-state[data-state="waiting_for_user"],
+.tinyos-process-state[data-state="blocked"],
+.tinyos-process-state[data-state="failed"],
+.tinyos-process-state[data-state="cancelled"] { background: #fff0ed; color: #9a3d2e; }
+.tinyos-process-state[data-state="paused"] { background: #fff5db; color: #815e13; }
+
+.tinyos-process-detail {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  border-left: 1px solid var(--color-hairline);
+  background: rgb(249 247 242 / 94%);
+  padding: 11px;
+}
+
+.tinyos-process-detail > header,
+.tinyos-process-detail > header > span,
+.tinyos-process-detail section p,
+.tinyos-process-detail section p > span {
+  display: flex;
+  align-items: center;
+}
+
+.tinyos-process-detail > header {
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.tinyos-process-detail > header > span {
+  min-width: 0;
+  gap: 6px;
+}
+
+.tinyos-process-detail > header strong {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tinyos-process-detail dl {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 6px 8px;
+  margin: 0;
+  font-size: 9px;
+}
+
+.tinyos-process-detail dt {
+  color: var(--color-muted);
+}
+
+.tinyos-process-detail dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.tinyos-process-detail code {
+  font-size: 8px;
+}
+
+.tinyos-process-actions {
+  margin-top: 12px;
+  border-top: 1px solid var(--color-hairline);
+  padding-top: 9px;
+}
+
+.tinyos-process-actions > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.tinyos-process-actions button {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 7px;
+  background: var(--color-canvas);
+  padding: 0 7px;
+  color: var(--color-body);
+  font-size: 8px;
+  cursor: pointer;
+}
+
+.tinyos-process-actions button:hover:not(:disabled),
+.tinyos-process-actions button:focus-visible {
+  border-color: color-mix(in srgb, var(--color-primary) 34%, var(--color-hairline));
+  color: var(--color-primary);
+}
+
+.tinyos-process-actions button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.tinyos-process-actions button:disabled {
+  cursor: not-allowed;
+  opacity: .42;
+}
+
+.tinyos-process-command-state {
+  display: grid;
+  gap: 2px;
+  margin: 9px 0 0;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--color-accent) 7%, transparent);
+  padding: 7px;
+  font-size: 8px;
+}
+
+.tinyos-process-command-state strong {
+  font-size: 9px;
+}
+
+.tinyos-process-command-state span {
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+}
+
+.tinyos-process-command-state[data-state="error"] {
+  background: color-mix(in srgb, var(--color-error) 8%, transparent);
+  color: var(--color-error);
+}
+
+.tinyos-process-command-state[data-state="success"] {
+  background: color-mix(in srgb, #267b46 9%, transparent);
+  color: #267b46;
+}
+
+.tinyos-process-detail section {
+  margin-top: 12px;
+  border-top: 1px solid var(--color-hairline);
+  padding-top: 9px;
+}
+
+.tinyos-process-detail h4 {
+  margin: 0 0 6px;
+  color: var(--color-muted);
+  font-size: 8px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.tinyos-process-detail section p {
+  gap: 6px;
+  margin: 5px 0;
+  font-size: 9px;
+}
+
+.tinyos-process-detail section p > span {
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.tinyos-process-detail section p code,
+.tinyos-process-detail section p small,
+.tinyos-process-detail section > small {
+  color: var(--color-muted);
+  font-size: 8px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.tinyos-process-detail__warning {
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--color-error) 7%, transparent);
+  padding: 6px;
+  color: var(--color-error);
+}
+
+.tinyos-system-monitor__empty {
+  margin: 0;
+  padding: 18px;
+  color: var(--color-muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+@container (max-width: 520px) {
+  .tinyos-terminal-command {
+    align-items: stretch;
+  }
+
+  .tinyos-terminal-command label {
+    flex-basis: 100%;
+  }
+
+  .tinyos-terminal-command > div {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .tinyos-system-monitor__summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tinyos-system-monitor__toolbar {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+
+  .tinyos-system-monitor__search {
+    flex-basis: 100%;
+  }
+
+  .tinyos-system-monitor__body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(180px, 1fr) minmax(180px, .9fr);
+  }
+
+  .tinyos-process-detail {
+    border-top: 1px solid var(--color-hairline);
+    border-left: 0;
+  }
+
+  .tinyos-process-list__head,
+  .tinyos-process-list li > button {
+    grid-template-columns: minmax(0, 1fr) 90px;
+  }
+
+  .tinyos-process-list__head > span:last-child,
+  .tinyos-process-list__source {
+    display: none;
+  }
 }

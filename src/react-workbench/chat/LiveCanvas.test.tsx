@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
-import type { ChatStep } from "../../app-core/chat/chatRunModel";
+import type { BackendAgentTurnItem, ChatStep } from "../../app-core/chat/chatRunModel";
 import { LiveCanvas, type LiveCanvasEntry } from "./LiveCanvas";
 
 afterEach(() => {
@@ -169,6 +169,9 @@ describe("LiveCanvas TinyOS", () => {
     const canvas = screen.getByLabelText("Live Canvas");
     expect(within(canvas).getByRole("heading", { name: "TinyOS" })).toBeTruthy();
     expect(within(canvas).getAllByText("Structured simulation").length).toBeGreaterThan(0);
+    const desktop = within(canvas).getByRole("region", { name: "TinyOS desktop" });
+    expect(within(desktop).getByRole("navigation", { name: "TinyOS applications" })).toBeTruthy();
+    expect(within(desktop).getByText("Agent workspace")).toBeTruthy();
     expect(canvas.querySelector("[data-app='files']")).toBeTruthy();
     expect(canvas.querySelector("[data-app='terminal']")).toBeTruthy();
     expect(within(canvas).getAllByText("src/app.ts").length).toBeGreaterThan(0);
@@ -343,9 +346,75 @@ describe("LiveCanvas TinyOS", () => {
     const canvas = screen.getByLabelText("Live Canvas");
     expect(canvas.querySelector("[data-app='terminal']")).toBeTruthy();
     expect(canvas.querySelector("[data-app='files']")).toBeNull();
-    await user.click(within(canvas).getByRole("button", { name: "Open Files" }));
+    const filesLauncher = within(canvas).getByRole("button", { name: "Open Files" });
+    expect(filesLauncher.getAttribute("aria-pressed")).toBe("false");
+    await user.click(filesLauncher);
     expect(canvas.querySelector("[data-app='files']")).toBeTruthy();
     expect(canvas.querySelector("[data-app='terminal']")).toBeNull();
+    expect(within(canvas).getByRole("button", { name: "Open Files" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("opens the kernel-backed System Monitor from the TinyOS Dock", async () => {
+    const user = userEvent.setup();
+    const onPauseRun = vi.fn();
+    const terminalStep = step({
+      id: "tool-1",
+      status: "running",
+      title: "Run tests",
+      toolCall: { id: "call-1", name: "shell.execute" },
+    });
+    const canonicalItems: BackendAgentTurnItem[] = [{
+      schemaVersion: "tinybot.turn_item.v2",
+      createdAt: "2026-07-14T00:00:00Z",
+      data: {
+        args: {},
+        name: "shell.execute",
+        result: null,
+        status: "running",
+        timing: {},
+        toolCallId: "call-1",
+        type: "tool_call",
+      },
+      itemId: "tool-1",
+      kind: "tool_call",
+      revision: 1,
+      runId: "turn-1",
+      sequence: 1,
+      sessionId: "session-1",
+      status: "running",
+      title: "Run tests",
+      turnId: "turn-1",
+    }];
+    render(<LiveCanvas {...canvasProps([entry(terminalStep)], {
+      activeRunId: "turn-1",
+      canPauseRun: true,
+      canonicalItems,
+      onPauseRun,
+      widthPx: 480,
+    })} />);
+
+    await user.click(screen.getByRole("button", { name: "Open System Monitor" }));
+    expect(screen.getByRole("region", { name: "TinyOS processes" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Pause run" }));
+    expect(onPauseRun).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: /Run tests/ })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /Run tests/ }));
+    await user.click(screen.getByRole("button", { name: "Reveal app" }));
+    expect(screen.getByLabelText("Terminal window")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Open System Monitor" }));
+    await user.click(screen.getByRole("button", { name: /Run tests/ }));
+    await user.click(screen.getByRole("button", { name: "Inspect evidence" }));
+    expect(screen.getByLabelText("TinyOS Inspector")).toBeTruthy();
+  });
+
+  it("keeps System Monitor available when the kernel has no processes", async () => {
+    const user = userEvent.setup();
+    render(<LiveCanvas {...canvasProps([], { widthPx: 480 })} />);
+
+    const launcher = screen.getByRole("button", { name: "Open System Monitor" });
+    expect(launcher.hasAttribute("disabled")).toBe(false);
+    await user.click(launcher);
+    expect(screen.getByText("No processes match the current filters.")).toBeTruthy();
   });
 
   it("supports keyboard window movement, snapping, maximize, and minimize", async () => {

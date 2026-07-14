@@ -1292,6 +1292,8 @@ Thread statuses:
 | `worker_workspace_files` | none | `{ files: WorkspaceFileEntry[] }` |
 | `worker_workspace_file` | `{ input: { path } }` | `WorkspaceReadFileResult` |
 | `worker_workspace_put_file` | `{ input: { path, body } }` | `WorkspaceWriteResult` |
+| `worker_workspace_directory` | `{ input: { path, cursor?, nameQuery? } }` | Worker response containing `WorkspaceDirectoryPage` |
+| `worker_workspace_file_chunk` | `{ input: { path, cursor? } }` | Worker response containing `WorkspaceFileChunk` |
 
 Lower-level workspace RPC also supports:
 
@@ -1320,6 +1322,51 @@ Lower-level workspace RPC also supports:
   "truncated": false
 }
 ```
+
+TinyOS Files uses revision-bound, paginated read commands instead of loading an unbounded workspace
+tree or file. `worker_workspace_directory` returns a Worker response whose `result` has this shape:
+
+```json
+{
+  "path": "src",
+  "workspace_key": "D:/code/tinybot",
+  "listing_revision": "...",
+  "entries": [
+    {
+      "path": "src/app-core",
+      "kind": "directory",
+      "size_bytes": null,
+      "updated_at": "2026-07-14T00:00:00Z"
+    }
+  ],
+  "next_cursor": null
+}
+```
+
+Directories sort before files, entries are then ordered by normalized path, and `nameQuery` filters
+entry names before pagination. A continuation cursor is bound to `listing_revision`; using it after
+the directory changes fails visibly with query code `listing_changed`.
+
+`worker_workspace_file_chunk` returns a Worker response whose `result` has this shape:
+
+```json
+{
+  "path": "src/main.ts",
+  "content_type": "text",
+  "revision": "...",
+  "size_bytes": 1024,
+  "updated_at": "2026-07-14T00:00:00Z",
+  "content": "...",
+  "line_start": 1,
+  "line_end": 40,
+  "next_cursor": null
+}
+```
+
+Binary files return `content_type: "binary"` without invented text content or line numbers. File
+continuation cursors are bound to `revision`; using one after the file changes fails visibly with
+query code `source_changed`. Other workspace query failures retain their protocol error, path, and
+retryable metadata rather than returning an empty successful page.
 
 `workspace.apply_patch` accepts:
 

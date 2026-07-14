@@ -4,6 +4,23 @@ export type TinyOsCapabilityDecision = {
   reasonCode?: string;
 };
 
+export const TINYOS_CAPABILITY_IDS = [
+  "agent.pause",
+  "agent.resume",
+  "agent.cancel",
+  "agent.retry",
+  "files.read",
+  "files.requestChange",
+  "files.directEdit",
+  "files.save",
+  "terminal.inspect",
+  "terminal.execute",
+  "terminal.cancel",
+  "browser.structured",
+  "browser.realCapture",
+  "browser.interact",
+] as const;
+
 export type TinyOsEffectiveCapabilities = {
   schemaVersion: "tinybot.effective_capabilities.v1";
   sessionId: string;

@@ -358,11 +358,23 @@ export function ChatPage({
   const latestFailedTurnId = useMemo(() => (
     [...(timeline?.turns ?? [])].reverse().find((turn) => turn.status === "failed" || turn.status === "interrupted")?.id ?? ""
   ), [timeline]);
+  const retryCapability = tinyOsCapabilities.capabilities.agent.retry;
+  const canRetryRun = Boolean(
+    activeSession
+    && latestFailedTurnId
+    && tinyOsCapabilities.sessionId === activeSession.id
+    && tinyOsCapabilities.evaluatedRunId === latestFailedTurnId
+    && retryCapability.available
+  );
+  const retryUnavailableReason = retryCapability.reason || "Retry is unavailable for this Agent run.";
   const liveCanvasOpen = liveCanvas.visibility === "open";
   const liveCanvasEntries = useMemo<LiveCanvasEntry[]>(() => (
     (timelineLoaded ? timeline?.turns ?? [] : []).flatMap((turn) => (
       (turn.executionItems ?? turn.steps).map((step) => ({ step, turnId: turn.id }))
     ))
+  ), [timeline, timelineLoaded]);
+  const liveCanvasCanonicalItems = useMemo(() => (
+    (timelineLoaded ? timeline?.turns ?? [] : []).flatMap((turn) => turn.canonicalItems ?? [])
   ), [timeline, timelineLoaded]);
   const latestLiveCanvasEntry = liveCanvasEntries[liveCanvasEntries.length - 1];
   const latestLiveCanvasAttention = useMemo(() => [...liveCanvasEntries].reverse().find(({ step }) => (
@@ -1662,7 +1674,9 @@ export function ChatPage({
 
       {liveCanvasOpen ? (
         <LiveCanvas
+          activeRunId={activeRun?.id}
           agentUiForms={visibleAgentUiForms}
+          canonicalItems={liveCanvasCanonicalItems}
           canCancelTerminal={canCancelTerminal}
           canDirectEdit={canDirectEdit}
           canExecuteTerminal={canExecuteTerminal}
@@ -1674,13 +1688,7 @@ export function ChatPage({
           canPauseRun={canPauseRun}
           canRequestChange={canRequestChange}
           canResumeRun={canResumeRun}
-          canRetryRun={Boolean(
-            activeSession
-            && latestFailedTurnId
-            && tinyOsCapabilities.sessionId === activeSession.id
-            && tinyOsCapabilities.evaluatedRunId === latestFailedTurnId
-            && tinyOsCapabilities.capabilities.agent.retry.available
-          )}
+          canRetryRun={canRetryRun}
           canSaveFile={canSaveFile}
           cancelUnavailableReason={activeRun && !canCancelRun ? cancelUnavailableReason : undefined}
           pauseUnavailableReason={activeRun && !canPauseRun ? pauseUnavailableReason : undefined}
@@ -1714,6 +1722,8 @@ export function ChatPage({
           onSubmitForm={(form, values) => void handleSubmitAgentUiForm(form, values, "tinyos")}
           onSaveFile={handleSaveTinyOsFile}
           requestChangeUnavailableReason={requestChangeUnavailableReason}
+          retryRunId={latestFailedTurnId || undefined}
+          retryUnavailableReason={retryUnavailableReason}
           runningTerminalRunId={runningTerminalRunId}
           saveFileUnavailableReason={saveFileUnavailableReason}
           terminalCancelUnavailableReason={terminalCancelUnavailableReason}

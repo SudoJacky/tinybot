@@ -3,6 +3,23 @@ import type { NativeChatReference } from "./nativeChat";
 
 export const TINYOS_COMMAND_ACK_TIMEOUT_MS = 5_000;
 
+export const TINYOS_COMMAND_KINDS = [
+  "agent.cancel",
+  "agent.pause",
+  "agent.resume",
+  "approval.resolve",
+  "form.submit",
+  "form.cancel",
+  "operation.retry",
+  "agent.request_change",
+  "file.save",
+  "file.move",
+  "file.delete",
+  "terminal.execute",
+  "terminal.cancel",
+  "browser.interact",
+] as const;
+
 export type TinyOsCommandSource = {
   control: string;
   surface: "chat" | "tinyos";

@@ -85,7 +85,7 @@ export type TinyOsUiAction =
 const MIN_WINDOW_WIDTH = 260;
 const MIN_WINDOW_HEIGHT = 180;
 const DESKTOP_INSET = 10;
-const PERSISTENCE_VERSION = 1;
+const PERSISTENCE_VERSION = 2;
 const STORAGE_PREFIX = "tinybot.tinyos.layout";
 
 const APP_INDEX: Record<TinyOsAppId, number> = {
@@ -97,6 +97,7 @@ const APP_INDEX: Record<TinyOsAppId, number> = {
   subagents: 5,
   artifacts: 6,
   inspector: 7,
+  system_monitor: 8,
 };
 
 export function tinyOsLayoutModeForWidth(width: number, expanded = false): TinyOsLayoutMode {
@@ -287,14 +288,30 @@ function defaultWindowLayout(
   const index = APP_INDEX[appId];
   const availableWidth = Math.max(1, bounds.width - DESKTOP_INSET * 2);
   const availableHeight = Math.max(1, bounds.height - DESKTOP_INSET * 2);
-  const primary = appId === "files" || appId === "terminal";
-  const width = primary ? availableWidth * .86 : availableWidth * .82;
-  const height = primary ? availableHeight * .58 : availableHeight * .76;
+  if (appId === "files") {
+    return normalizeWindowLayout({
+      height: Math.round(availableHeight * .76),
+      width: Math.round(availableWidth * .68),
+      x: DESKTOP_INSET,
+      y: DESKTOP_INSET + 18,
+    }, bounds);
+  }
+  if (appId === "terminal") {
+    const width = Math.round(availableWidth * .7);
+    return normalizeWindowLayout({
+      height: Math.round(availableHeight * .64),
+      width,
+      x: bounds.width - DESKTOP_INSET - width,
+      y: DESKTOP_INSET + Math.round(availableHeight * .12),
+    }, bounds);
+  }
+  const width = Math.round(availableWidth * .78);
+  const height = Math.round(availableHeight * .72);
   return normalizeWindowLayout({
     height,
     width,
-    x: DESKTOP_INSET + (index % 4) * 14,
-    y: DESKTOP_INSET + (index % 5) * 18,
+    x: DESKTOP_INSET + (index % 4) * 18,
+    y: DESKTOP_INSET + 18 + (index % 5) * 22,
   }, bounds);
 }
 

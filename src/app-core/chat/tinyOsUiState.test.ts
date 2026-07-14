@@ -44,6 +44,10 @@ describe("TinyOS UI state", () => {
     expect(tinyOsLayoutModeForWidth(521)).toBe("workspace");
     const compact = createTinyOsUiState({ appIds: ["files"], bounds: { height: 400, width: 420 }, layoutMode: "compact" });
     expect(compact.windowLayout.files).toMatchObject({ height: 380, width: 400, x: 10, y: 10 });
+
+    const workspace = createTinyOsUiState({ appIds: ["files", "terminal"], bounds, layoutMode: "workspace" });
+    expect(workspace.windowLayout.files).toMatchObject({ height: 365, width: 462, x: 10, y: 28 });
+    expect(workspace.windowLayout.terminal).toMatchObject({ height: 307, width: 476, x: 214, y: 68 });
   });
 
   it("persists only versioned window layout and rejects incompatible data", () => {

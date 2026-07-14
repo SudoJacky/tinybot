@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
 import {
+  Activity,
   AlertTriangle,
   Archive,
   Bot,
@@ -20,6 +21,7 @@ import {
   MemoryStick,
   MessageCircleQuestion,
   Minus,
+  MonitorDot,
   Pause,
   Paperclip,
   PencilLine,
@@ -32,6 +34,8 @@ import {
 } from "lucide-react";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import type { ArtifactRef, ChatStep, ChatStepStatus } from "../../app-core/chat/chatRunModel";
+import type { TinyOsCommandLifecycle } from "../../app-core/chat/tinyOsCommandGateway";
+import type { TinyOsKernelSnapshot } from "../../app-core/chat/tinyOsKernelModel";
 import type {
   TinyOsAppId,
   TinyOsDesktopSnapshot,
@@ -52,6 +56,7 @@ import {
 import type { ApprovalAction } from "../services";
 import { AgentUiFormCard } from "./AgentUiFormCard";
 import { TinyOsFilesExplorer } from "./TinyOsFilesExplorer";
+import { TinyOsSystemMonitor, type TinyOsSystemMonitorControls } from "./TinyOsSystemMonitor";
 import type { TinyOsFilesController } from "./useTinyOsFilesController";
 
 const APP_ICONS = {
@@ -62,6 +67,7 @@ const APP_ICONS = {
   memory: MemoryStick,
   plan: ListChecks,
   subagents: Bot,
+  system_monitor: Activity,
   terminal: TerminalSquare,
 } satisfies Record<TinyOsAppId, typeof Folder>;
 
@@ -73,10 +79,11 @@ const APP_LABELS: Record<TinyOsAppId, string> = {
   memory: "Memory",
   plan: "Plan",
   subagents: "Subagents",
+  system_monitor: "System Monitor",
   terminal: "Terminal",
 };
 
-const APP_ORDER: TinyOsAppId[] = ["files", "terminal", "browser", "plan", "memory", "subagents", "artifacts", "inspector"];
+const APP_ORDER: TinyOsAppId[] = ["files", "terminal", "system_monitor", "browser", "plan", "memory", "subagents", "artifacts", "inspector"];
 const tinyOsSessionUiState = new Map<string, ReturnType<typeof createTinyOsUiState>>();
 type TinyOsFileSaveInput = { baseRevision?: string; content: string; createOnly: boolean; path: string };
 type TinyOsFileMoveInput = { baseRevision: string; path: string; targetPath: string };
@@ -84,16 +91,23 @@ type TinyOsFileDeleteInput = { baseRevision: string; path: string };
 type TinyOsTerminalExecuteInput = { command: string; cwd?: string };
 
 export function TinyOsShell({
+  activeRunId,
   agentUiForms,
+  canCancelRun,
   canCancelTerminal = false,
   canDirectEdit = false,
   canExecuteTerminal = false,
+  canPauseRun,
   canRequestChange,
+  canResumeRun,
   canRetryRun,
   canSaveFile = false,
   filesController,
   history = false,
+  cancelUnavailableReason,
+  commandLifecycle,
   onCancelForm,
+  onCancelRun,
   onAttachContext,
   onOpenArtifact,
   onAgentRequest,
@@ -101,14 +115,20 @@ export function TinyOsShell({
   onDeleteFile = async () => undefined,
   onExecuteTerminal = async () => undefined,
   onMoveFile = async () => undefined,
+  onPauseRun,
   onResolveApproval,
   onRetryOperation,
+  onResumeRun,
   onSelectEntry,
   onSubmitForm,
   onSaveFile = async () => undefined,
   resolvingApprovalId,
   requestChangeUnavailableReason,
   directEditUnavailableReason,
+  pauseUnavailableReason,
+  retryRunId,
+  retryUnavailableReason,
+  resumeUnavailableReason,
   saveFileUnavailableReason,
   terminalCancelUnavailableReason,
   terminalExecuteUnavailableReason,
@@ -119,16 +139,23 @@ export function TinyOsShell({
   layoutMode,
   workspaceKey,
 }: {
+  activeRunId?: string;
   agentUiForms: AgentUiForm[];
+  canCancelRun: boolean;
   canCancelTerminal?: boolean;
   canDirectEdit?: boolean;
   canExecuteTerminal?: boolean;
+  canPauseRun: boolean;
   canRequestChange: boolean;
+  canResumeRun: boolean;
   canRetryRun: boolean;
   canSaveFile?: boolean;
   filesController?: TinyOsFilesController;
   history?: boolean;
+  cancelUnavailableReason?: string;
+  commandLifecycle: TinyOsCommandLifecycle;
   onCancelForm: (form: AgentUiForm) => void;
+  onCancelRun: () => void;
   onAttachContext: (reference: TinyOsContextReference) => void;
   onOpenArtifact: (artifact: ArtifactRef) => void;
   onAgentRequest: (reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent) => void;
@@ -136,14 +163,20 @@ export function TinyOsShell({
   onDeleteFile?: (input: TinyOsFileDeleteInput) => Promise<void>;
   onExecuteTerminal?: (input: TinyOsTerminalExecuteInput) => Promise<void>;
   onMoveFile?: (input: TinyOsFileMoveInput) => Promise<void>;
+  onPauseRun: () => void;
   onResolveApproval: (approvalId: string, action: ApprovalAction) => void;
   onRetryOperation: (entry: TinyOsTimelineEntry) => void;
+  onResumeRun: () => void;
   onSelectEntry: (entry: TinyOsTimelineEntry) => void;
   onSubmitForm: (form: AgentUiForm, values: Record<string, unknown>) => void;
   onSaveFile?: (input: TinyOsFileSaveInput) => Promise<void>;
   resolvingApprovalId: string;
   requestChangeUnavailableReason?: string;
   directEditUnavailableReason?: string;
+  pauseUnavailableReason?: string;
+  retryRunId?: string;
+  retryUnavailableReason?: string;
+  resumeUnavailableReason?: string;
   saveFileUnavailableReason?: string;
   terminalCancelUnavailableReason?: string;
   terminalExecuteUnavailableReason?: string;
@@ -160,11 +193,20 @@ export function TinyOsShell({
     if (filesController && !windows.some(({ appId }) => appId === "files")) {
       windows.unshift({ appId: "files", entries: [], id: "tinyos-window-files", sourceItemIds: [], title: "Files" });
     }
+    if (snapshot.kernel && !windows.some(({ appId }) => appId === "system_monitor")) {
+      windows.push({
+        appId: "system_monitor",
+        entries: [],
+        id: "tinyos-window-system-monitor",
+        sourceItemIds: snapshot.kernel.processes.flatMap((process) => process.correlation.itemId ? [process.correlation.itemId] : []),
+        title: "System Monitor",
+      });
+    }
     if (sessionKey && !windows.some(({ appId }) => appId === "terminal")) {
       windows.push({ appId: "terminal", entries: [], id: "tinyos-window-terminal", sourceItemIds: [], title: "Terminal" });
     }
     return windows;
-  }, [filesController, sessionKey, snapshot.windows]);
+  }, [filesController, sessionKey, snapshot.kernel, snapshot.windows]);
   const initialAppIds = appWindows.map((window) => window.appId);
   const seenFileOperations = useRef(new Set<string>());
   const revealedCursorItemId = useRef<string | undefined>(undefined);
@@ -264,6 +306,39 @@ export function TinyOsShell({
   }, [appWindows, uiState.focusedAppId, uiState.layoutMode, uiState.minimizedAppIds, uiState.zOrder]);
   const availableApps = new Set(appWindows.map((window) => window.appId));
   const allEntries = snapshot.windows.flatMap((window) => window.entries);
+  const systemMonitorControls: TinyOsSystemMonitorControls = {
+    activeRunId,
+    canCancelRun,
+    canPauseRun,
+    canResumeRun,
+    canRetryRun,
+    cancelUnavailableReason,
+    commandLifecycle,
+    history,
+    inspectableItemIds: allEntries.map((entry) => entry.step.id),
+    onCancelRun,
+    onInspect: (process) => {
+      const entry = allEntries.find((candidate) => candidate.step.id === process.correlation.itemId);
+      if (!entry) return;
+      dispatchUi({ itemId: entry.step.id, type: "inspect" });
+    },
+    onPauseRun,
+    onResumeRun,
+    onRetry: (process) => {
+      const entry = allEntries.find((candidate) => candidate.step.id === process.correlation.itemId);
+      if (entry) onRetryOperation(entry);
+    },
+    onReveal: (process) => {
+      if (process.applicationId && availableApps.has(process.applicationId as TinyOsAppId)) {
+        focusApp(process.applicationId as TinyOsAppId);
+      }
+    },
+    pauseUnavailableReason,
+    resumeUnavailableReason,
+    retryRunId,
+    retryUnavailableReason,
+    revealableApplicationIds: [...availableApps],
+  };
   const inspectorEntries = uiState.inspectorItemIds.flatMap((itemId) => {
     const entry = allEntries.find((candidate) => candidate.step.id === itemId);
     return entry ? [entry] : [];
@@ -299,40 +374,47 @@ export function TinyOsShell({
 
   return (
     <div className="tinyos-shell" data-has-dialog={snapshot.dialog ? "true" : undefined} onKeyDown={handleShellKeyDown}>
-      <nav aria-label="TinyOS applications" className="tinyos-launcher">
-        {APP_ORDER.map((appId) => {
-          const Icon = APP_ICONS[appId];
-          const available = availableApps.has(appId);
-          const active = uiState.focusedAppId === appId && !uiState.minimizedAppIds.includes(appId);
-          const window = appWindows.find((candidate) => candidate.appId === appId);
-          const status = window?.entries[window.entries.length - 1]?.step.status;
-          return (
-            <button
-              aria-label={`Open ${APP_LABELS[appId]}`}
-              className="tinyos-launcher__app"
-              data-active={active ? "true" : undefined}
-              data-available={available ? "true" : undefined}
-              data-minimized={uiState.minimizedAppIds.includes(appId) ? "true" : undefined}
-              data-status={status}
-              disabled={!available}
-              key={appId}
-              title={available ? APP_LABELS[appId] : `${APP_LABELS[appId]} has no activity yet`}
-              type="button"
-              onClick={() => focusApp(appId)}
-            >
-              <Icon aria-hidden="true" size={18} />
-              <span>{APP_LABELS[appId]}</span>
-              {available ? <Circle aria-hidden="true" className="tinyos-launcher__state" fill="currentColor" size={6} /> : null}
-            </button>
-          );
-        })}
-        <button aria-label="Reset TinyOS layout" className="tinyos-launcher__app tinyos-launcher__reset" title="Reset layout" type="button" onClick={() => dispatchUi({ type: "reset" })}>
-          <RotateCcw aria-hidden="true" size={17} />
-          <span>Reset</span>
-        </button>
-      </nav>
+      <section aria-label="TinyOS desktop" className="tinyos-desktop" data-app-count={availableApps.size} data-layout-mode={uiState.layoutMode} ref={desktopRef}>
+        <div aria-hidden="true" className="tinyos-desktop__environment">
+          <span className="tinyos-desktop__brand"><MonitorDot size={17} /><strong>TinyOS</strong><small>Agent workspace</small></span>
+          <span className="tinyos-desktop__mode">{history ? "History snapshot" : "Live workspace"}</span>
+        </div>
 
-      <section aria-label="TinyOS desktop" className="tinyos-desktop" data-layout-mode={uiState.layoutMode} ref={desktopRef}>
+        <nav aria-label="TinyOS applications" className="tinyos-launcher">
+          {APP_ORDER.map((appId, index) => {
+            const Icon = APP_ICONS[appId];
+            const available = availableApps.has(appId);
+            const active = uiState.focusedAppId === appId && !uiState.minimizedAppIds.includes(appId);
+            const window = appWindows.find((candidate) => candidate.appId === appId);
+            const status = window?.entries[window.entries.length - 1]?.step.status;
+            return (
+              <button
+                aria-label={`Open ${APP_LABELS[appId]}`}
+                aria-pressed={active}
+                className="tinyos-launcher__app"
+                data-active={active ? "true" : undefined}
+                data-available={available ? "true" : undefined}
+                data-minimized={uiState.minimizedAppIds.includes(appId) ? "true" : undefined}
+                data-status={status}
+                disabled={!available}
+                key={appId}
+                title={available ? `${APP_LABELS[appId]} · Alt+${index + 1}` : `${APP_LABELS[appId]} has no activity yet`}
+                type="button"
+                onClick={() => focusApp(appId)}
+              >
+                <Icon aria-hidden="true" size={19} />
+                <span>{APP_LABELS[appId]}</span>
+                {available ? <Circle aria-hidden="true" className="tinyos-launcher__state" fill="currentColor" size={6} /> : null}
+              </button>
+            );
+          })}
+          <span aria-hidden="true" className="tinyos-launcher__divider" />
+          <button aria-label="Reset TinyOS layout" className="tinyos-launcher__app tinyos-launcher__reset" title="Reset layout" type="button" onClick={() => dispatchUi({ type: "reset" })}>
+            <RotateCcw aria-hidden="true" size={18} />
+            <span>Reset</span>
+          </button>
+        </nav>
+
         {!windows.length ? <TinyOsDesktopEmpty /> : windows.map((window) => (
           <TinyOsAppWindow
             active={uiState.focusedAppId === window.appId}
@@ -343,6 +425,8 @@ export function TinyOsShell({
             canRequestChange={canRequestChange}
             canSaveFile={canSaveFile && !history}
             key={window.id}
+            kernel={snapshot.kernel}
+            systemMonitorControls={systemMonitorControls}
             layout={uiState.windowLayout[window.appId]}
             zIndex={uiState.zOrder.indexOf(window.appId) + 2}
             window={window}
@@ -417,8 +501,8 @@ function TinyOsDesktopEmpty() {
   return (
     <div className="tinyos-desktop__empty">
       <FileCode2 aria-hidden="true" size={26} />
-      <strong>Desktop ready</strong>
-      <span>Agent applications will open here as canonical work begins.</span>
+      <strong>Your workspace is ready</strong>
+      <span>Files, terminals, plans, and browser activity will open here as the Agent works.</span>
     </div>
   );
 }
@@ -435,6 +519,7 @@ function TinyOsAppWindow({
   filesController,
   layout,
   layoutMode,
+  kernel,
   onFocus,
   onAttachContext,
   onInspect,
@@ -453,6 +538,7 @@ function TinyOsAppWindow({
   requestChangeUnavailableReason,
   runningTerminalRunId,
   saveFileUnavailableReason,
+  systemMonitorControls,
   terminalCancelUnavailableReason,
   terminalExecuteUnavailableReason,
   window,
@@ -469,6 +555,7 @@ function TinyOsAppWindow({
   filesController?: TinyOsFilesController;
   layout?: TinyOsWindowRect & { maximized: boolean };
   layoutMode: TinyOsLayoutMode;
+  kernel?: TinyOsKernelSnapshot;
   onFocus: () => void;
   onAttachContext: (reference: TinyOsContextReference) => void;
   onInspect: (entry: TinyOsTimelineEntry) => void;
@@ -487,6 +574,7 @@ function TinyOsAppWindow({
   requestChangeUnavailableReason?: string;
   runningTerminalRunId?: string;
   saveFileUnavailableReason?: string;
+  systemMonitorControls: TinyOsSystemMonitorControls;
   terminalCancelUnavailableReason?: string;
   terminalExecuteUnavailableReason?: string;
   window: TinyOsWindow;
@@ -605,7 +693,7 @@ function TinyOsAppWindow({
         onPointerUp={endPointer}
       >
         <span><Icon aria-hidden="true" size={15} /><strong>{window.title}</strong></span>
-        <span className="tinyos-window__source">{latest?.step.title ?? "Workspace Explorer"}</span>
+        <span className="tinyos-window__source">{latest?.step.title ?? (window.appId === "system_monitor" ? `${kernel?.processes.length ?? 0} processes` : "Workspace Explorer")}</span>
         {latest ? <TinyOsStatus status={latest.step.status} /> : null}
         {latest ? <button aria-label={`Inspect ${window.title}`} title={`Inspect ${window.title}`} type="button" onClick={() => onInspect(latest)}><Info aria-hidden="true" size={14} /></button> : null}
         <button aria-label={`${layout?.maximized ? "Restore" : "Maximize"} ${window.title}`} title={layout?.maximized ? "Restore" : "Maximize"} type="button" onClick={onMaximize}><Maximize2 aria-hidden="true" size={14} /></button>
@@ -622,6 +710,7 @@ function TinyOsAppWindow({
           directEditUnavailableReason={directEditUnavailableReason}
           filesController={filesController}
           layoutMode={layoutMode}
+          kernel={kernel}
           window={window}
           onAttachContext={onAttachContext}
           onOpenArtifact={onOpenArtifact}
@@ -635,6 +724,7 @@ function TinyOsAppWindow({
           requestChangeUnavailableReason={requestChangeUnavailableReason}
           runningTerminalRunId={runningTerminalRunId}
           saveFileUnavailableReason={saveFileUnavailableReason}
+          systemMonitorControls={systemMonitorControls}
           terminalCancelUnavailableReason={terminalCancelUnavailableReason}
           terminalExecuteUnavailableReason={terminalExecuteUnavailableReason}
         />
@@ -652,7 +742,7 @@ function TinyOsAppWindow({
   );
 }
 
-function TinyOsAppContent({ activeTabId, canCancelTerminal, canDirectEdit, canExecuteTerminal, canRequestChange, canSaveFile, directEditUnavailableReason, filesController, layoutMode, window, onAgentRequest, onAttachContext, onCancelTerminal, onDeleteFile, onExecuteTerminal, onMoveFile, onOpenArtifact, onSaveFile, onTabChange, requestChangeUnavailableReason, runningTerminalRunId, saveFileUnavailableReason, terminalCancelUnavailableReason, terminalExecuteUnavailableReason }: {
+function TinyOsAppContent({ activeTabId, canCancelTerminal, canDirectEdit, canExecuteTerminal, canRequestChange, canSaveFile, directEditUnavailableReason, filesController, kernel, layoutMode, window, onAgentRequest, onAttachContext, onCancelTerminal, onDeleteFile, onExecuteTerminal, onMoveFile, onOpenArtifact, onSaveFile, onTabChange, requestChangeUnavailableReason, runningTerminalRunId, saveFileUnavailableReason, systemMonitorControls, terminalCancelUnavailableReason, terminalExecuteUnavailableReason }: {
   activeTabId?: string;
   canCancelTerminal: boolean;
   canDirectEdit: boolean;
@@ -661,6 +751,7 @@ function TinyOsAppContent({ activeTabId, canCancelTerminal, canDirectEdit, canEx
   canSaveFile: boolean;
   directEditUnavailableReason?: string;
   filesController?: TinyOsFilesController;
+  kernel?: TinyOsKernelSnapshot;
   layoutMode: TinyOsLayoutMode;
   onAgentRequest: (reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent) => void;
   onAttachContext: (reference: TinyOsContextReference) => void;
@@ -674,6 +765,7 @@ function TinyOsAppContent({ activeTabId, canCancelTerminal, canDirectEdit, canEx
   requestChangeUnavailableReason?: string;
   runningTerminalRunId?: string;
   saveFileUnavailableReason?: string;
+  systemMonitorControls: TinyOsSystemMonitorControls;
   terminalCancelUnavailableReason?: string;
   terminalExecuteUnavailableReason?: string;
   window: TinyOsWindow;
@@ -691,6 +783,7 @@ function TinyOsAppContent({ activeTabId, canCancelTerminal, canDirectEdit, canEx
     case "subagents": return <TinyOsSubagents window={window} />;
     case "artifacts": return <TinyOsArtifacts window={window} onOpenArtifact={onOpenArtifact} />;
     case "inspector": return <TinyOsStructured entry={window.entries[window.entries.length - 1]} />;
+    case "system_monitor": return kernel ? <TinyOsSystemMonitor controls={systemMonitorControls} snapshot={kernel} /> : <EmptyCopy text="Kernel process data is unavailable." />;
   }
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ChatStep } from "./chatRunModel";
-import { projectTinyOsDesktop, tinyOsAppForStep, type TinyOsTimelineEntry } from "./tinyOsDesktopModel";
+import type { BackendAgentTurnItem, ChatStep } from "./chatRunModel";
+import { projectKernelBackedTinyOsDesktop, projectTinyOsDesktop, tinyOsAppForStep, type TinyOsTimelineEntry } from "./tinyOsDesktopModel";
 
 function step(id: string, overrides: Partial<ChatStep> = {}): ChatStep {
   return {
@@ -86,5 +86,39 @@ describe("TinyOS desktop projector", () => {
     expect(tinyOsAppForStep(step("tool-search", {
       toolCall: { id: "tool-search", name: "tool_search" },
     }))).toBe("inspector");
+  });
+
+  it("attaches a kernel snapshot without changing the compatibility desktop", () => {
+    const entries = [entry("turn-1", step("read-1", { toolCall: { id: "call-1", name: "workspace.read_file" } }))];
+    const canonicalItems: BackendAgentTurnItem[] = [{
+      schemaVersion: "tinybot.turn_item.v2",
+      createdAt: "2026-07-14T00:00:00Z",
+      data: {
+        args: {},
+        name: "workspace.read_file",
+        result: null,
+        status: "running",
+        timing: {},
+        toolCallId: "call-1",
+        type: "tool_call",
+      },
+      itemId: "read-1",
+      kind: "tool_call",
+      revision: 1,
+      runId: "turn-1",
+      sequence: 1,
+      sessionId: "session-1",
+      status: "running",
+      turnId: "turn-1",
+    }];
+    const legacy = projectTinyOsDesktop(entries, { mode: "live_follow" });
+    const backed = projectKernelBackedTinyOsDesktop(entries, canonicalItems, { mode: "live_follow" });
+
+    expect({ ...backed, kernel: undefined }).toEqual({ ...legacy, kernel: undefined });
+    expect(backed.kernel).toMatchObject({
+      cursor: { eventCount: 1, eventIndex: 0, mode: "live" },
+      processes: expect.arrayContaining([expect.objectContaining({ kind: "tool_operation", state: "running" })]),
+      truth: "derived",
+    });
   });
 });
