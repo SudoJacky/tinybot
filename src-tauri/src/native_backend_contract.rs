@@ -90,15 +90,7 @@ pub const NATIVE_TAURI_COMMANDS: &[&str] = &[
     "worker_knowledge_graph",
     "worker_webui_route",
     "worker_cowork_route",
-    "worker_cron_dispatch_due",
-    "worker_transport_gateway_frame",
-    "worker_transport_websocket_message",
-    "worker_transport_dispatch_websocket_message",
-    "worker_channel_dispatch_inbound",
-    "worker_channel_start",
-    "worker_channel_status",
-    "worker_channel_stop",
-    "worker_channel_login",
+    "worker_dispatch_tinyos_host_command",
     "worker_skills_list",
     "worker_skills_detail",
     "worker_skills_create",
@@ -644,13 +636,12 @@ const WEBUI_ROUTE_INVENTORY: &[NativeRouteInventoryEntry] = &[
         "unimplemented Cowork routes are not exposed by the Rust backend",
         "add the specific Rust Cowork route before enabling",
     ),
-    unsupported_webui(
+    rust_webui(
         "tools",
         "GET",
         "/api/tools",
         "tools",
-        "native tool catalog route is not exposed yet",
-        "add Rust tool catalog route before enabling",
+        "native tool and MCP capability catalog",
     ),
 ];
 
@@ -790,14 +781,6 @@ fn webui_inventory_path_matches(template: &str, path: &str) -> bool {
 
 fn tauri_command_owner(command: &str) -> NativeRouteOwner {
     match command {
-        "worker_transport_gateway_frame"
-        | "worker_transport_websocket_message"
-        | "worker_cron_dispatch_due"
-        | "worker_channel_dispatch_inbound"
-        | "worker_channel_start"
-        | "worker_channel_status"
-        | "worker_channel_stop"
-        | "worker_channel_login" => NativeRouteOwner::Unsupported,
         _ => NativeRouteOwner::RustOwned,
     }
 }

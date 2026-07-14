@@ -115,9 +115,7 @@ impl WorkerRpcRouter {
             }
             "skills.webui_list" => self
                 .workspace
-                .webui_list_skills(enabled_skills_from_snapshot(
-                    &self.config.snapshot_public()?.value,
-                )),
+                .webui_list_skills(&self.config.snapshot_public()?.value),
             "skills.webui_detail" => {
                 let params: SkillNameParams = parse_params(request)?;
                 self.workspace.webui_skill_detail(&params.name)

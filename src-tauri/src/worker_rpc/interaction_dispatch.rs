@@ -25,6 +25,7 @@ impl WorkerRpcRouter {
                 .channel_connector
                 .transcribe_audio_from_request(request),
             "shell.execute" => {
+                require_exec_tools_enabled(self.config.snapshot())?;
                 let params: ShellExecuteRequestParams = parse_params(request)?;
                 let sandbox_mode = params.sandbox_mode.unwrap_or_default();
                 let network_mode = params
@@ -48,12 +49,13 @@ impl WorkerRpcRouter {
                         ))?;
                 }
                 serde_json::to_value(self.shell.execute_with_approval_decision(
-                    params.into_shell_params(request.cancellation()),
+                    params.into_shell_params(request.cancellation(), self.config.snapshot()),
                     approval_decision,
                 )?)
                 .map_err(serialization_error)
             }
             "shell.start" => {
+                require_exec_tools_enabled(self.config.snapshot())?;
                 let params: ShellStartRequestParams = parse_params(request)?;
                 let sandbox_mode = params.sandbox_mode.unwrap_or_default();
                 let network_mode = params
@@ -79,7 +81,7 @@ impl WorkerRpcRouter {
                         ))?;
                 }
                 serde_json::to_value(self.shell.start_with_approval_decision(
-                    params.into_shell_params(request.cancellation()),
+                    params.into_shell_params(request.cancellation(), self.config.snapshot()),
                     approval_decision,
                 )?)
                 .map_err(serialization_error)
@@ -128,4 +130,21 @@ impl WorkerRpcRouter {
             _ => Err(unknown_method_error(request)),
         }
     }
+}
+
+fn require_exec_tools_enabled(config_snapshot: &Value) -> Result<(), WorkerProtocolError> {
+    if config_snapshot
+        .pointer("/tools/exec/enable")
+        .and_then(Value::as_bool)
+        != Some(false)
+    {
+        return Ok(());
+    }
+    Err(WorkerProtocolError::new(
+        WorkerProtocolErrorCode::CapabilityDenied,
+        "shell execution is disabled by tools.exec.enable",
+        serde_json::json!({ "path": "tools.exec.enable" }),
+        false,
+        WorkerProtocolErrorSource::RustCore,
+    ))
 }

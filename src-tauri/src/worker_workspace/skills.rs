@@ -3,31 +3,19 @@ use super::*;
 impl WorkerWorkspaceRpc {
     pub fn list_skills(&self) -> Result<WorkspaceSkillsList, WorkerProtocolError> {
         self.require(WorkerCapability::FsWorkspaceRead)?;
-        let root = canonicalize_workspace_root(&self.root)?;
-        let builtin_skills_root = canonicalize_workspace_root(&self.builtin_skills_root)?;
-        let mut skills = Vec::new();
-        let mut seen_names = Vec::new();
-        collect_skill_entries(&root, "skills", "workspace", &mut skills, &mut seen_names)?;
-        collect_skill_entries(
-            &builtin_skills_root,
-            "builtin-skills",
-            "builtin",
-            &mut skills,
-            &mut seen_names,
-        )?;
-        Ok(WorkspaceSkillsList { skills })
+        Ok(WorkspaceSkillsList {
+            skills: discover_skill_entries(&self.root, &self.builtin_skills_root)?,
+        })
     }
 
     pub fn webui_list_skills(
         &self,
-        enabled_skills: Option<Vec<String>>,
+        config_snapshot: &serde_json::Value,
     ) -> Result<serde_json::Value, WorkerProtocolError> {
-        let skills = self
-            .list_skills()?
-            .skills
-            .into_iter()
-            .map(|skill| webui_skill_list_item(skill, enabled_skills.as_deref()))
-            .collect::<Vec<_>>();
+        let skills =
+            crate::skill_resolver::resolve_skills(self.list_skills()?.skills, config_snapshot, &[])
+                .map_err(|error| skill_error(error, 400))?
+                .catalog;
         Ok(serde_json::json!({ "skills": skills }))
     }
 
@@ -40,15 +28,23 @@ impl WorkerWorkspaceRpc {
         else {
             return Ok(serde_json::Value::Null);
         };
-        let metadata = parse_skill_frontmatter(&skill.content).unwrap_or_default();
-        let tinybot_meta = skill_tinybot_meta(&metadata);
+        let definition = crate::skill_definition::SkillDefinition::parse(&skill.content)
+            .map_err(|error| skill_error(format!("invalid skill: {error}"), 400))?;
+        let availability = definition.availability();
         Ok(serde_json::json!({
             "name": name,
-            "content": strip_skill_frontmatter(&skill.content),
+            "content": definition.body,
             "raw_content": skill.content,
-            "metadata": metadata,
-            "tinybot_meta": tinybot_meta,
-            "available": skill_missing_requirements(&tinybot_meta).is_empty(),
+            "metadata": definition.frontmatter,
+            "tinybot_meta": {
+                "always": definition.always,
+                "requires": {
+                    "bins": definition.required_bins,
+                    "env": definition.required_env,
+                }
+            },
+            "available": availability.available,
+            "missing_requirements": availability.missing,
         }))
     }
 
@@ -78,7 +74,21 @@ impl WorkerWorkspaceRpc {
             .unwrap_or_else(|| format!("Custom skill: {name}"));
         let always = json_truthy(body.get("always"));
         let content = create_skill_body_content(body.get("content"), always)?;
-        let contents = create_skill_content(&name, &description, &content, always);
+        let contents = crate::skill_definition::render_new_skill(
+            &name,
+            &description,
+            &format!(
+                "# {}\n\n{}",
+                title_case_skill_name(&name),
+                if content.is_empty() {
+                    "[TODO: Add skill instructions here]"
+                } else {
+                    content.as_str()
+                }
+            ),
+            always,
+        )
+        .map_err(|error| skill_error(format!("failed to create skill: {error}"), 400))?;
         let path = skill_file_path(&name);
         if let Err(error) = self.write_file(&path, &contents) {
             let _ = self.delete_file(&skill_dir_path(&name), true);
@@ -120,7 +130,19 @@ impl WorkerWorkspaceRpc {
             },
         )?;
         let body = body.as_object().cloned().unwrap_or_default();
-        let contents = update_skill_content(&file.content, name, &body)?;
+        let description = body.get("description").map(json_value_to_string);
+        let always = body.get("always").map(|value| json_truthy(Some(value)));
+        let content = body
+            .get("content")
+            .map(update_skill_body_content)
+            .transpose()?;
+        let contents = crate::skill_definition::update_skill_document(
+            &file.content,
+            description,
+            always,
+            content,
+        )
+        .map_err(|error| skill_error(format!("failed to update skill: {error}"), 400))?;
         self.write_file(&path, &contents)?;
         Ok(serde_json::json!({
             "updated": true,
@@ -174,168 +196,25 @@ impl WorkerWorkspaceRpc {
                 }))
             }
         };
-        let Some(frontmatter) = parse_skill_frontmatter(&content) else {
+        let definition = match crate::skill_definition::SkillDefinition::parse(&content) {
+            Ok(definition) => definition,
+            Err(error) => {
+                return Ok(serde_json::json!({
+                    "name": name,
+                    "valid": false,
+                    "message": error.to_string(),
+                }));
+            }
+        };
+        if let Err(error) = definition.validate_directory_name(name) {
             return Ok(serde_json::json!({
                 "name": name,
                 "valid": false,
-                "message": "Invalid frontmatter format",
+                "message": error.to_string(),
             }));
-        };
-        if let Some(result) = validate_skill_frontmatter(name, &frontmatter) {
-            return Ok(result);
         }
         Ok(validate_skill_children(name, &listing.entries))
     }
-}
-
-fn webui_skill_list_item(
-    skill: WorkspaceSkillEntry,
-    enabled_skills: Option<&[String]>,
-) -> serde_json::Value {
-    let metadata = parse_skill_frontmatter(&skill.content).unwrap_or_default();
-    let tinybot_meta = skill_tinybot_meta(&metadata);
-    let missing_requirements = skill_missing_requirements(&tinybot_meta);
-    let description = metadata
-        .get("description")
-        .and_then(|value| value.as_str())
-        .unwrap_or(&skill.name)
-        .to_string();
-    let mut item = serde_json::json!({
-        "name": skill.name,
-        "path": skill.path,
-        "source": skill.source,
-        "description": description,
-        "available": missing_requirements.is_empty(),
-        "enabled": skill_enabled(&skill.name, enabled_skills),
-        "always": bool_metadata(metadata.get("always")),
-    });
-    if !missing_requirements.is_empty() {
-        item["missing_requirements"] = serde_json::Value::String(missing_requirements);
-    }
-    item
-}
-
-fn skill_enabled(name: &str, enabled_skills: Option<&[String]>) -> bool {
-    enabled_skills.is_none_or(|skills| {
-        skills.is_empty()
-            || skills.iter().any(|skill| skill == "*")
-            || skills.iter().any(|skill| skill == name)
-    })
-}
-
-fn parse_skill_frontmatter(content: &str) -> Option<serde_json::Map<String, serde_json::Value>> {
-    let content = content.strip_prefix("---")?;
-    let content = content
-        .strip_prefix("\r\n")
-        .or_else(|| content.strip_prefix('\n'))?;
-    let end = content.find("\n---").or_else(|| content.find("\r\n---"))?;
-    let raw = &content[..end];
-    let mut metadata = serde_json::Map::new();
-    for line in raw.lines() {
-        let Some((key, value)) = line.split_once(':') else {
-            continue;
-        };
-        let key = key.trim();
-        if key.is_empty() {
-            continue;
-        }
-        metadata.insert(
-            key.to_string(),
-            serde_json::Value::String(
-                value
-                    .trim()
-                    .trim_matches('"')
-                    .trim_matches('\'')
-                    .to_string(),
-            ),
-        );
-    }
-    Some(metadata)
-}
-
-fn strip_skill_frontmatter(content: &str) -> String {
-    let Some(content_without_open) = content.strip_prefix("---") else {
-        return content.trim().to_string();
-    };
-    let Some(content_without_open) = content_without_open
-        .strip_prefix("\r\n")
-        .or_else(|| content_without_open.strip_prefix('\n'))
-    else {
-        return content.trim().to_string();
-    };
-    let Some(end) = content_without_open
-        .find("\n---")
-        .or_else(|| content_without_open.find("\r\n---"))
-    else {
-        return content.trim().to_string();
-    };
-    let after_marker = &content_without_open[end + 4..];
-    after_marker.trim().to_string()
-}
-
-fn skill_tinybot_meta(
-    metadata: &serde_json::Map<String, serde_json::Value>,
-) -> serde_json::Map<String, serde_json::Value> {
-    let mut result = metadata
-        .get("metadata")
-        .and_then(|value| value.as_str())
-        .and_then(|value| serde_json::from_str::<serde_json::Value>(value).ok())
-        .and_then(|value| value.as_object().cloned())
-        .unwrap_or_default();
-    if !result.contains_key("always") {
-        if let Some(always) = metadata.get("always") {
-            result.insert(
-                "always".to_string(),
-                serde_json::Value::Bool(bool_metadata(Some(always))),
-            );
-        }
-    }
-    result
-}
-
-fn skill_missing_requirements(metadata: &serde_json::Map<String, serde_json::Value>) -> String {
-    let Some(requires) = metadata.get("requires").and_then(|value| value.as_object()) else {
-        return String::new();
-    };
-    let mut missing = Vec::new();
-    for bin in requires
-        .get("bins")
-        .and_then(|value| value.as_array())
-        .into_iter()
-        .flatten()
-        .filter_map(|value| value.as_str())
-    {
-        missing.push(format!("CLI: {bin}"));
-    }
-    for env in requires
-        .get("env")
-        .and_then(|value| value.as_array())
-        .into_iter()
-        .flatten()
-        .filter_map(|value| value.as_str())
-    {
-        if std::env::var_os(env).is_none() {
-            missing.push(format!("ENV: {env}"));
-        }
-    }
-    missing.join(", ")
-}
-
-fn bool_metadata(value: Option<&serde_json::Value>) -> bool {
-    value
-        .and_then(|value| {
-            value
-                .as_bool()
-                .or_else(|| value.as_str().map(json_string_truthy))
-        })
-        .unwrap_or(false)
-}
-
-fn json_string_truthy(value: &str) -> bool {
-    !matches!(
-        value.trim().to_ascii_lowercase().as_str(),
-        "" | "false" | "0"
-    )
 }
 
 fn normalize_skill_name(name: &str) -> String {
@@ -421,117 +300,6 @@ fn compat_type_name(value: &serde_json::Value) -> &'static str {
     }
 }
 
-fn create_skill_content(name: &str, description: &str, content: &str, always: bool) -> String {
-    let mut lines = vec![
-        "---".to_string(),
-        format!("name: {name}"),
-        format!("description: {description}"),
-    ];
-    if always {
-        lines.push("always: true".to_string());
-    }
-    lines.extend([
-        "---".to_string(),
-        String::new(),
-        format!("# {}", title_case_skill_name(name)),
-        String::new(),
-        if content.is_empty() {
-            "[TODO: Add skill instructions here]".to_string()
-        } else {
-            content.to_string()
-        },
-    ]);
-    lines.join("\n")
-}
-
-fn update_skill_content(
-    current_content: &str,
-    name: &str,
-    body: &serde_json::Map<String, serde_json::Value>,
-) -> Result<String, WorkerProtocolError> {
-    let (metadata, body_content) = split_skill_frontmatter_for_update(current_content);
-    let mut lines = vec!["---".to_string()];
-    if metadata.is_empty() {
-        lines.push(format!("name: {name}"));
-        lines.push(format!(
-            "description: {}",
-            body.get("description")
-                .map(json_value_to_string)
-                .unwrap_or_else(|| name.to_string())
-        ));
-        if body
-            .get("always")
-            .is_some_and(|value| json_truthy(Some(value)))
-        {
-            lines.push("always: true".to_string());
-        }
-    } else {
-        let mut saw_description = false;
-        let mut saw_always = false;
-        for (key, value) in metadata {
-            if key == "description" {
-                saw_description = true;
-                if let Some(description) = body.get("description") {
-                    lines.push(format!(
-                        "description: {}",
-                        json_value_to_string(description)
-                    ));
-                } else {
-                    lines.push(format!("{key}: {value}"));
-                }
-            } else if key == "always" {
-                saw_always = true;
-                if let Some(always) = body.get("always") {
-                    lines.push(format!("always: {}", json_truthy(Some(always))));
-                } else {
-                    lines.push(format!("{key}: {value}"));
-                }
-            } else {
-                lines.push(format!("{key}: {value}"));
-            }
-        }
-        if !saw_description {
-            if let Some(description) = body.get("description") {
-                lines.push(format!(
-                    "description: {}",
-                    json_value_to_string(description)
-                ));
-            }
-        }
-        if !saw_always {
-            if let Some(always) = body.get("always") {
-                lines.push(format!("always: {}", json_truthy(Some(always))));
-            }
-        }
-    }
-    lines.push("---".to_string());
-    let next_body = if let Some(content) = body.get("content") {
-        update_skill_body_content(content)?
-    } else {
-        body_content.trim().to_string()
-    };
-    Ok(format!("{}\n{}", lines.join("\n"), next_body))
-}
-
-fn split_skill_frontmatter_for_update(content: &str) -> (Vec<(String, String)>, String) {
-    let Some(content_without_open) = content.strip_prefix("---\n") else {
-        return (Vec::new(), content.to_string());
-    };
-    let Some(end) = content_without_open.find("\n---\n") else {
-        return (Vec::new(), content.to_string());
-    };
-    let raw = &content_without_open[..end];
-    let body = content_without_open[end + 5..].trim().to_string();
-    let metadata = raw
-        .lines()
-        .filter_map(|line| {
-            let (key, value) = line.split_once(':')?;
-            Some((key.trim().to_string(), value.trim().to_string()))
-        })
-        .collect();
-    (metadata, body)
-}
-
 fn title_case_skill_name(name: &str) -> String {
     name.split('-')
         .map(|part| {
@@ -571,54 +339,6 @@ fn normalize_skill_resources(value: Option<&serde_json::Value>) -> Vec<String> {
     resources
 }
 
-fn validate_skill_frontmatter(
-    name: &str,
-    frontmatter: &serde_json::Map<String, serde_json::Value>,
-) -> Option<serde_json::Value> {
-    let skill_name = frontmatter.get("name").and_then(|value| value.as_str());
-    if skill_name.is_none() {
-        return Some(serde_json::json!({
-            "name": name,
-            "valid": false,
-            "message": "Missing 'name' in frontmatter",
-        }));
-    }
-    if !frontmatter.contains_key("description") {
-        return Some(serde_json::json!({
-            "name": name,
-            "valid": false,
-            "message": "Missing 'description' in frontmatter",
-        }));
-    }
-    let skill_name = skill_name.unwrap_or_default();
-    if skill_name != name {
-        return Some(serde_json::json!({
-            "name": name,
-            "valid": false,
-            "message": format!("Skill name '{skill_name}' must match directory name '{name}'"),
-        }));
-    }
-    if normalize_skill_name(skill_name) != skill_name {
-        return Some(serde_json::json!({
-            "name": name,
-            "valid": false,
-            "message": "Name should be hyphen-case (lowercase letters, digits, hyphens)",
-        }));
-    }
-    if frontmatter
-        .get("description")
-        .and_then(|value| value.as_str())
-        .is_none_or(|value| value.trim().is_empty())
-    {
-        return Some(serde_json::json!({
-            "name": name,
-            "valid": false,
-            "message": "Description cannot be empty",
-        }));
-    }
-    None
-}
-
 fn validate_skill_children(name: &str, entries: &[WorkspaceDirectoryEntry]) -> serde_json::Value {
     for entry in entries {
         let trimmed_path = entry.path.trim_end_matches('/');
@@ -647,6 +367,31 @@ fn skill_error(message: impl Into<String>, status: u16) -> WorkerProtocolError {
         WorkerProtocolErrorSource::RustCore,
     )
 }
+pub(crate) fn discover_skill_entries(
+    workspace_root: &Path,
+    builtin_skills_root: &Path,
+) -> Result<Vec<WorkspaceSkillEntry>, WorkerProtocolError> {
+    let workspace_root = canonicalize_workspace_root(workspace_root)?;
+    let builtin_skills_root = canonicalize_workspace_root(builtin_skills_root)?;
+    let mut skills = Vec::new();
+    let mut seen_names = Vec::new();
+    collect_skill_entries(
+        &workspace_root,
+        "skills",
+        "workspace",
+        &mut skills,
+        &mut seen_names,
+    )?;
+    collect_skill_entries(
+        &builtin_skills_root,
+        "builtin-skills",
+        "builtin",
+        &mut skills,
+        &mut seen_names,
+    )?;
+    Ok(skills)
+}
+
 fn collect_skill_entries(
     root: &Path,
     relative_dir: &str,

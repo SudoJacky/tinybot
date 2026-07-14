@@ -5172,6 +5172,23 @@ button.tinyos-overlay-backdrop {
   align-content: start;
 }
 
+.react-tools-skills-page {
+  display: grid;
+  gap: 20px;
+  align-content: start;
+}
+
+.react-tools-skills-page section {
+  display: grid;
+  gap: 8px;
+}
+
+.react-tools-skills-page h2 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 14px;
+}
+
 .react-data-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -5203,14 +5220,23 @@ button.tinyos-overlay-backdrop {
 
 .react-settings-layout {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
-  gap: 18px;
+  grid-template-columns: 196px minmax(0, 1fr);
+  gap: 34px;
   align-items: start;
+}
+
+.react-data-row__content {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
 }
 
 .react-settings-sidebar {
   position: sticky;
   top: 16px;
+  min-height: calc(100vh - 138px);
+  border-right: 1px solid var(--color-hairline);
+  padding-right: 20px;
 }
 
 .react-settings-sidebar nav {
@@ -5229,7 +5255,7 @@ button.tinyos-overlay-backdrop {
 }
 
 .react-settings-sidebar button[aria-current="page"] {
-  background: var(--color-surface-card);
+  background: var(--color-surface-soft);
   color: var(--color-ink);
 }
 
@@ -5257,9 +5283,267 @@ button.tinyos-overlay-backdrop {
 }
 
 .react-provider-settings,
-.react-agent-defaults-settings {
+.react-agent-defaults-settings,
+.react-config-settings {
   display: grid;
-  gap: 14px;
+  gap: 26px;
+}
+
+.react-config-settings__persistence {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--color-surface-soft);
+  padding: 5px 9px;
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.react-config-settings__form {
+  display: grid;
+  gap: 18px;
+}
+
+.react-config-settings__fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+.react-config-settings__field,
+.react-config-settings__toggle {
+  min-width: 0;
+  border: 1px solid var(--color-hairline);
+  border-radius: 9px;
+  background: #fff;
+  padding: 15px 16px;
+}
+
+.react-config-settings__field {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.react-config-settings__field--wide {
+  grid-column: 1 / -1;
+}
+
+.react-config-settings__field > span,
+.react-config-settings__toggle > span {
+  min-width: 0;
+}
+
+.react-config-settings__field > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.react-config-settings__field strong,
+.react-config-settings__toggle strong {
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.react-config-settings__field em {
+  border-radius: 999px;
+  background: var(--color-surface-soft);
+  padding: 2px 6px;
+  color: var(--color-muted);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 600;
+}
+
+.react-config-settings__field > small,
+.react-config-settings__toggle small {
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.react-config-settings__field input,
+.react-config-settings__field select,
+.react-config-settings__field textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  outline: 0;
+  background: #fff;
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+.react-config-settings__field input,
+.react-config-settings__field select {
+  min-height: 38px;
+  padding: 0 10px;
+}
+
+.react-config-settings__field textarea {
+  resize: vertical;
+  min-height: 156px;
+  padding: 10px 11px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.react-config-settings__field input:focus,
+.react-config-settings__field select:focus,
+.react-config-settings__field textarea:focus {
+  border-color: color-mix(in srgb, var(--color-primary) 52%, var(--color-hairline));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+
+.react-config-settings__field input[aria-invalid="true"],
+.react-config-settings__field textarea[aria-invalid="true"] {
+  border-color: #d92d20;
+}
+
+.react-config-settings__field :disabled,
+.react-config-settings__toggle[data-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.react-config-settings__input-wrap {
+  position: relative;
+}
+
+.react-config-settings__input-wrap > span {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  color: var(--color-muted);
+  font-size: 11px;
+  transform: translateY(-50%);
+}
+
+.react-config-settings__toggle {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  align-items: center;
+  gap: 16px;
+  cursor: pointer;
+}
+
+.react-config-settings__toggle > span {
+  display: grid;
+  gap: 4px;
+}
+
+.react-config-settings__toggle input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.react-config-settings__toggle i {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-muted) 28%, #fff);
+  transition: background-color 140ms ease;
+}
+
+.react-config-settings__toggle i::after {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(20 20 19 / 22%);
+  content: "";
+  transition: transform 140ms ease;
+}
+
+.react-config-settings__toggle input:checked + i {
+  background: var(--color-primary);
+}
+
+.react-config-settings__toggle input:checked + i::after {
+  transform: translateX(16px);
+}
+
+.react-config-settings__toggle:focus-within {
+  border-color: color-mix(in srgb, var(--color-primary) 52%, var(--color-hairline));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+
+.react-config-settings__notice {
+  color: #8a5b12 !important;
+}
+
+.react-config-settings__error {
+  color: #b42318 !important;
+}
+
+.react-config-settings__advanced-toggle {
+  justify-self: start;
+  border: 0;
+  background: transparent;
+  padding: 2px 0;
+  color: var(--color-primary-active);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.react-config-settings__form > footer,
+.react-config-settings__form > footer > div {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.react-config-settings__form > footer {
+  justify-content: space-between;
+  border-top: 1px solid var(--color-hairline);
+  padding-top: 16px;
+}
+
+.react-config-settings__form > footer > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.react-config-settings__form > footer span,
+.react-config-settings__form > footer small {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.react-config-settings__form > footer button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  gap: 6px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+  padding: 0 12px;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.react-config-settings__form > footer .react-config-settings__save {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: #fff;
 }
 
 .react-provider-settings__header {
@@ -5272,14 +5556,17 @@ button.tinyos-overlay-backdrop {
 .react-provider-settings__header h2 {
   margin: 0;
   color: var(--color-ink);
-  font-size: 18px;
+  font-size: 28px;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
 }
 
 .react-provider-settings__header p {
-  max-width: 620px;
-  margin: 4px 0 0;
+  max-width: 680px;
+  margin: 8px 0 0;
   color: var(--color-muted);
-  font-size: 13px;
+  font-size: 14px;
+  line-height: 1.45;
 }
 
 .react-provider-settings__summary {
@@ -5306,34 +5593,267 @@ button.tinyos-overlay-backdrop {
 .react-settings-save-status,
 .react-settings-alert {
   margin: 0;
-  border: 1px solid var(--color-hairline);
-  border-radius: 8px;
-  background: #fff;
-  padding: 9px 10px;
+  border: 0;
+  background: transparent;
+  padding: 0;
   color: var(--color-muted);
   font-size: 13px;
 }
 
 .react-default-llm-panel {
   display: grid;
-  gap: 10px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 8px;
-  background: #fff;
-  padding: 18px 20px;
+  gap: 14px;
+}
+
+.react-default-llm-panel > header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 20px;
 }
 
 .react-default-llm-panel h3 {
   margin: 0;
   color: var(--color-ink);
-  font-size: 15px;
+  font-size: 18px;
+  letter-spacing: -0.01em;
 }
 
-.react-default-llm-panel__controls {
+.react-default-llm-panel > header p {
+  margin-top: 5px;
+  font-size: 13px;
+}
+
+.react-default-llm-summary {
   display: grid;
-  grid-template-columns: repeat(2, minmax(220px, 1fr)) 180px;
-  align-items: start;
-  gap: 18px;
+  grid-template-columns: 42px minmax(145px, 0.85fr) minmax(180px, 1.15fr) 88px auto;
+  align-items: center;
+  gap: 16px;
+  min-height: 88px;
+  border-top: 1px solid var(--color-hairline);
+  border-bottom: 1px solid var(--color-hairline);
+  padding: 14px 10px;
+}
+
+.react-default-llm-summary__provider,
+.react-default-llm-summary__model {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.react-default-llm-summary__provider strong,
+.react-default-llm-summary__model strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: 14px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-default-llm-summary__model {
+  border-left: 1px solid var(--color-hairline);
+  padding-left: 22px;
+}
+
+.react-default-llm-summary__model span {
+  justify-self: start;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  padding: 2px 6px;
+  color: var(--color-primary-active);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.react-default-llm-summary__count {
+  color: var(--color-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.react-default-llm-editor {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--color-hairline);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 18px 42px rgb(20 20 19 / 7%);
+}
+
+.react-default-model-picker {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.72fr) minmax(300px, 1.45fr);
+  min-height: 310px;
+}
+
+.react-default-model-picker__providers {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  border-right: 1px solid var(--color-hairline);
+  padding: 14px 12px;
+}
+
+.react-default-model-picker__providers button {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 16px;
+  justify-content: initial;
+  min-width: 0;
+  min-height: 62px;
+  gap: 11px;
+  border-color: transparent;
+  background: transparent;
+  padding: 9px 10px;
+  text-align: left;
+}
+
+.react-default-model-picker__providers button:hover,
+.react-default-model-picker__providers button:focus-visible {
+  background: var(--color-surface-soft);
+}
+
+.react-default-model-picker__providers button[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--color-surface-soft) 82%, #fff);
+}
+
+.react-default-model-picker__providers button > span:not(.react-provider-brand-icon) {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.react-default-model-picker__providers strong,
+.react-default-model-picker__providers small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-default-model-picker__providers strong {
+  color: var(--color-ink);
+  font-size: 13px;
+}
+
+.react-default-model-picker__providers small {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.react-default-model-picker__providers svg {
+  color: var(--color-muted);
+}
+
+.react-default-model-picker__models {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  min-width: 0;
+  padding: 18px 18px 14px;
+}
+
+.react-default-model-picker__models h4 {
+  margin: 0 0 14px;
+  color: var(--color-ink);
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.react-default-model-picker__search {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  min-height: 40px;
+  gap: 9px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+  padding: 0 11px;
+  color: var(--color-muted);
+}
+
+.react-default-model-picker__search:focus-within {
+  border-color: color-mix(in srgb, var(--color-primary) 52%, var(--color-hairline));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+
+.react-default-model-picker__search input {
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+.react-default-model-picker__search input::placeholder {
+  color: var(--color-muted-soft);
+}
+
+.react-default-model-picker__count {
+  padding: 11px 2px 8px;
+  font-size: 11px;
+}
+
+.react-default-model-picker__models-list {
+  min-height: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  scrollbar-color: color-mix(in srgb, var(--color-muted) 42%, transparent) transparent;
+  scrollbar-width: thin;
+}
+
+.react-default-model-picker__models-list > button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 18px;
+  justify-content: initial;
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  gap: 14px;
+  border: 0;
+  border-bottom: 1px solid var(--color-hairline);
+  border-radius: 0;
+  background: transparent;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.react-default-model-picker__models-list > button:hover,
+.react-default-model-picker__models-list > button:focus-visible {
+  background: var(--color-surface-soft);
+}
+
+.react-default-model-picker__models-list > button[aria-checked="true"] {
+  border-bottom-color: transparent;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--color-surface-soft) 82%, #fff);
+}
+
+.react-default-model-picker__models-list strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-default-model-picker__models-list small {
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.react-default-model-picker__models-list svg {
+  color: var(--color-primary-active);
+}
+
+.react-default-model-picker__empty {
+  padding: 28px 10px;
+  text-align: center;
 }
 
 .react-default-llm-panel label {
@@ -5491,12 +6011,13 @@ button.tinyos-overlay-backdrop {
   font-weight: 500;
 }
 
-.react-default-llm-panel button {
+.react-default-llm-summary > button,
+.react-default-llm-editor footer button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 120px;
-  min-height: 34px;
+  min-width: 108px;
+  min-height: 38px;
   gap: 6px;
   border: 1px solid var(--color-hairline);
   border-radius: 8px;
@@ -5506,19 +6027,32 @@ button.tinyos-overlay-backdrop {
   font-weight: 650;
 }
 
-.react-default-llm-panel__controls > button {
-  align-self: end;
-  width: 100%;
-  min-height: 40px;
-}
-
-.react-default-llm-panel button:disabled {
+.react-default-llm-summary > button:disabled,
+.react-default-llm-editor footer button:disabled {
   opacity: 0.55;
 }
 
 .react-default-llm-panel p,
 .react-default-llm-panel small {
   margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.react-default-llm-editor footer,
+.react-default-llm-editor footer > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.react-default-llm-editor footer {
+  justify-content: space-between;
+  border-top: 1px solid var(--color-hairline);
+  padding: 12px 16px;
+}
+
+.react-default-llm-editor footer > span {
   color: var(--color-muted);
   font-size: 12px;
 }
@@ -5651,33 +6185,60 @@ button.tinyos-overlay-backdrop {
 
 .react-provider-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 12px;
+}
+
+.react-provider-directory {
+  display: grid;
+  gap: 0;
+}
+
+.react-provider-directory > header {
+  margin-bottom: 18px;
+}
+
+.react-provider-directory > header h3 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 18px;
+  letter-spacing: -0.01em;
+}
+
+.react-provider-directory > header p {
+  margin: 6px 0 0;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.react-provider-directory__columns,
+.react-provider-card {
+  display: grid;
+  grid-template-columns: minmax(145px, 1fr) minmax(160px, 1.25fr) minmax(132px, 0.95fr) 88px 118px;
+  align-items: center;
+  gap: 16px;
+}
+
+.react-provider-directory__columns {
+  min-height: 38px;
+  border-bottom: 1px solid var(--color-hairline);
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
 }
 
 .react-provider-card {
-  display: grid;
-  gap: 14px;
-  min-height: 224px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 8px;
-  background: #fff;
-  padding: 16px;
-  transition:
-    border-color var(--motion-duration-fast) var(--motion-ease-standard),
-    box-shadow var(--motion-duration-fast) var(--motion-ease-standard),
-    transform var(--motion-duration-fast) var(--motion-ease-standard);
+  min-height: 92px;
+  border-bottom: 1px solid var(--color-hairline);
+  padding: 14px 0;
+  transition: background-color var(--motion-duration-fast) var(--motion-ease-standard);
 }
 
 .react-provider-card:hover,
 .react-provider-card:focus-within {
-  border-color: color-mix(in srgb, var(--color-primary) 42%, var(--color-hairline));
-  box-shadow: 0 12px 30px rgb(20 20 19 / 8%);
-  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--color-surface-soft) 56%, transparent);
 }
 
-.react-provider-card__top,
-.react-provider-card__title,
+.react-provider-card__identity,
 .react-provider-card__actions,
 .react-provider-model-add,
 .react-provider-model-row {
@@ -5686,67 +6247,82 @@ button.tinyos-overlay-backdrop {
   gap: 8px;
 }
 
-.react-provider-card__top {
-  justify-content: space-between;
+.react-provider-card__identity {
+  min-width: 0;
 }
 
-.react-provider-card__mark {
+.react-provider-brand-icon {
   display: inline-grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
   border: 1px solid var(--color-hairline);
-  border-radius: 8px;
-  background: var(--color-surface-soft);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--color-ink);
+}
+
+.react-provider-brand-icon img {
+  display: block;
+  width: 23px;
+  height: 23px;
+}
+
+.react-provider-brand-icon__fallback {
   color: var(--color-ink);
   font-size: 12px;
   font-weight: 750;
+  letter-spacing: -0.02em;
 }
 
-.react-provider-card__status {
+.react-provider-card__identity strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: 14px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-provider-status {
   display: inline-flex;
   align-items: center;
+  justify-self: start;
   gap: 6px;
   color: var(--color-muted);
   font-size: 12px;
   font-weight: 650;
 }
 
-.react-provider-card__status span {
+.react-provider-status > span {
   width: 7px;
   height: 7px;
+  flex: 0 0 auto;
   border-radius: 999px;
   background: var(--color-muted-soft);
 }
 
-.react-provider-card[data-status="available"] .react-provider-card__status {
+.react-provider-status[data-status="available"] {
   color: var(--color-success);
 }
 
-.react-provider-card[data-status="available"] .react-provider-card__status span {
+.react-provider-status[data-status="available"] > span {
   background: var(--color-success);
 }
 
-.react-provider-card[data-status="not_ready"] .react-provider-card__status {
+.react-provider-status[data-status="not_ready"] {
   color: var(--color-warning);
 }
 
-.react-provider-card[data-status="not_ready"] .react-provider-card__status span {
+.react-provider-status[data-status="not_ready"] > span {
   background: var(--color-warning);
 }
 
-.react-provider-card__title {
-  flex-wrap: wrap;
-}
-
-.react-provider-card__title h3 {
-  margin: 0;
-  color: var(--color-ink);
-  font-size: 18px;
-}
-
-.react-provider-card__title span,
+.react-provider-card__state small,
 .react-provider-model-row > span {
+  justify-self: start;
   border-radius: 6px;
   background: var(--color-surface-soft);
   padding: 3px 6px;
@@ -5755,35 +6331,29 @@ button.tinyos-overlay-backdrop {
   font-weight: 650;
 }
 
-.react-provider-card__facts {
+.react-provider-card__state {
   display: grid;
-  gap: 8px;
-  margin: 0;
+  min-width: 0;
+  gap: 5px;
 }
 
-.react-provider-card__facts div {
-  display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: 8px;
-}
-
-.react-provider-card__facts dt {
+.react-provider-card__url,
+.react-provider-card__models {
+  min-width: 0;
+  overflow: hidden;
   color: var(--color-muted);
   font-size: 12px;
-}
-
-.react-provider-card__facts dd {
-  min-width: 0;
-  margin: 0;
-  overflow: hidden;
-  color: var(--color-body);
-  font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.react-provider-card__url {
+  font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
 .react-provider-card__actions {
-  margin-top: auto;
+  position: relative;
+  justify-content: flex-end;
 }
 
 .react-provider-card__actions button,
@@ -5805,7 +6375,53 @@ button.tinyos-overlay-backdrop {
 }
 
 .react-provider-card__actions button {
-  flex: 1 1 0;
+  min-width: 82px;
+}
+
+.react-provider-card__actions .react-provider-card__more {
+  min-width: 32px;
+  width: 32px;
+  border-color: transparent;
+  padding: 0;
+}
+
+.react-provider-card__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  min-width: 140px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+  padding: 5px;
+  box-shadow: 0 14px 36px rgb(20 20 19 / 12%);
+}
+
+.react-provider-card__menu button {
+  justify-content: flex-start;
+  min-width: 0;
+  border-color: transparent;
+}
+
+.react-provider-add {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  min-height: 38px;
+  gap: 7px;
+  margin-top: 16px;
+  border: 0;
+  padding: 0 4px;
+  color: var(--color-primary-active);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.react-provider-add:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
 }
 
 .react-settings-dialog-backdrop {
@@ -6150,6 +6766,146 @@ button.tinyos-overlay-backdrop {
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
+}
+
+@media (max-width: 1080px) {
+  .react-settings-layout {
+    grid-template-columns: 176px minmax(0, 1fr);
+    gap: 24px;
+  }
+
+  .react-settings-sidebar {
+    padding-right: 14px;
+  }
+
+  .react-default-llm-summary {
+    grid-template-columns: 40px minmax(120px, 1fr) minmax(160px, 1.15fr) auto;
+  }
+
+  .react-default-llm-summary__count {
+    display: none;
+  }
+
+  .react-provider-directory__columns,
+  .react-provider-card {
+    grid-template-columns: minmax(135px, 1fr) minmax(132px, 0.9fr) 76px 110px;
+  }
+
+  .react-provider-directory__columns > span:nth-child(2),
+  .react-provider-card__url {
+    display: none;
+  }
+}
+
+@media (max-width: 780px) {
+  .react-settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+  }
+
+  .react-settings-sidebar {
+    position: static;
+    min-height: 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-hairline);
+    padding: 0 0 16px;
+  }
+
+  .react-settings-sidebar nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .react-provider-settings__header h2 {
+    font-size: 24px;
+  }
+
+  .react-config-settings__fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .react-config-settings__field--wide {
+    grid-column: auto;
+  }
+
+  .react-config-settings__form > footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .react-default-llm-summary {
+    grid-template-areas:
+      "icon provider action"
+      "model model model";
+    grid-template-columns: 40px minmax(0, 1fr) auto;
+  }
+
+  .react-default-llm-summary > .react-provider-brand-icon {
+    grid-area: icon;
+  }
+
+  .react-default-llm-summary__provider {
+    grid-area: provider;
+  }
+
+  .react-default-llm-summary__model {
+    grid-area: model;
+    border-top: 1px solid var(--color-hairline);
+    border-left: 0;
+    padding: 12px 0 0;
+  }
+
+  .react-default-llm-summary > button {
+    grid-area: action;
+  }
+
+  .react-default-model-picker {
+    grid-template-columns: minmax(145px, 0.6fr) minmax(270px, 1.4fr);
+  }
+
+  .react-default-model-picker__providers {
+    padding-inline: 8px;
+  }
+
+  .react-default-model-picker__providers button {
+    grid-template-columns: 36px minmax(0, 1fr) 14px;
+    gap: 8px;
+    padding-inline: 7px;
+  }
+
+  .react-provider-directory__columns {
+    display: none;
+  }
+
+  .react-provider-card {
+    grid-template-areas:
+      "identity actions"
+      "url actions"
+      "state models";
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 14px;
+  }
+
+  .react-provider-card__identity {
+    grid-area: identity;
+  }
+
+  .react-provider-card__url {
+    display: block;
+    grid-area: url;
+  }
+
+  .react-provider-card__state {
+    grid-area: state;
+  }
+
+  .react-provider-card__models {
+    grid-area: models;
+    justify-self: end;
+  }
+
+  .react-provider-card__actions {
+    grid-area: actions;
+  }
 }
 
 @media (max-width: 680px) {

@@ -20,6 +20,7 @@ impl WorkerRpcRouter {
                 self.mcp.call_tool_from_request(request)
             }
             "mcp.list_tools" => self.mcp.list_tools(),
+            "mcp.capability_catalog" => self.mcp.capability_catalog(),
             "mcp.server_status" => self.mcp.server_status_from_request(request),
             "mcp.diagnostics" => self.mcp.diagnostics(),
             "mcp.shutdown" => {
@@ -63,7 +64,49 @@ impl WorkerRpcRouter {
                 serde_json::to_value(self.tool_registry.search_tools(params))
                     .map_err(serialization_error)
             }
+            "tools.webui_catalog" => self.webui_tools_catalog(),
             _ => Err(unknown_method_error(request)),
         }
+    }
+
+    fn webui_tools_catalog(&self) -> Result<Value, WorkerProtocolError> {
+        let mut tools = self
+            .tool_registry
+            .list_tools()
+            .tools
+            .into_iter()
+            .map(|tool| {
+                serde_json::json!({
+                    "id": tool.tool_id,
+                    "name": tool.method,
+                    "displayName": tool.title,
+                    "description": tool.description,
+                    "namespace": tool.namespace,
+                    "source": "builtin",
+                    "enabled": tool.available,
+                    "available": tool.available,
+                    "callable": tool.available,
+                    "approval": tool.approval,
+                    "parameters": tool.input_schema,
+                    "outputSchema": tool.output_schema,
+                    "exposure": tool.exposure,
+                    "dynamic": tool.dynamic,
+                })
+            })
+            .collect::<Vec<_>>();
+        let mcp = self.mcp.capability_catalog()?;
+        tools.extend(
+            mcp.get("tools")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .cloned(),
+        );
+        let total = tools.len();
+        Ok(serde_json::json!({
+            "tools": tools,
+            "total": total,
+            "mcpServers": mcp.get("servers").cloned().unwrap_or_else(|| serde_json::json!([])),
+        }))
     }
 }

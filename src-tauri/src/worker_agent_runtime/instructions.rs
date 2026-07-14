@@ -100,10 +100,20 @@ impl Default for InstructionComposer {
 }
 
 impl InstructionComposer {
+    #[cfg(test)]
     pub fn compose(
         &self,
         workspace_root: &Path,
         spec: &Value,
+    ) -> Result<ComposedInstructions, String> {
+        self.compose_with_config(workspace_root, spec, &Value::Null)
+    }
+
+    pub fn compose_with_config(
+        &self,
+        workspace_root: &Path,
+        spec: &Value,
+        config_snapshot: &Value,
     ) -> Result<ComposedInstructions, String> {
         let working_directory = instruction_working_directory(spec, workspace_root)?;
         let loaded_at_ms = current_unix_ms();
@@ -229,10 +239,23 @@ impl InstructionComposer {
             );
         }
 
-        for (index, skill_name) in selected_skill_names(spec)?.into_iter().enumerate() {
-            let (path, scope_root) = selected_skill_path(workspace_root, &skill_name)?;
-            let (content, warnings) = read_optional_workspace_instruction(&path)?
-                .ok_or_else(|| format!("selected skill `{skill_name}` does not exist"))?;
+        let selected_skills = selected_skill_names(spec)?;
+        let skill_entries =
+            crate::worker_workspace::discover_skill_entries(workspace_root, &crate::repo_root())
+                .map_err(|error| format!("failed to discover skills: {}", error.message))?;
+        let resolved_skills = crate::skill_resolver::resolve_skills(
+            skill_entries,
+            config_snapshot,
+            &selected_skills,
+        )?;
+        for (index, skill) in resolved_skills.active.into_iter().enumerate() {
+            let scope_root = if skill.entry.source == "workspace" {
+                workspace_root.to_path_buf()
+            } else {
+                crate::repo_root()
+            };
+            let path = scope_root.join(&skill.entry.path);
+            let warnings = vec![format!("skill activation: {:?}", skill.activation)];
             push_instruction_source(
                 &mut messages,
                 &mut sources,
@@ -241,7 +264,7 @@ impl InstructionComposer {
                 scope_root,
                 SELECTED_SKILL_PRECEDENCE.saturating_add(index as u32),
                 loaded_at_ms,
-                content,
+                skill.entry.content,
                 false,
                 warnings,
                 false,
@@ -353,35 +376,6 @@ fn selected_skill_names(spec: &Value) -> Result<Vec<String>, String> {
         names.push(name.to_string());
     }
     Ok(names)
-}
-
-fn selected_skill_path(
-    workspace_root: &Path,
-    skill_name: &str,
-) -> Result<(PathBuf, PathBuf), String> {
-    for (root, relative_root) in [
-        (workspace_root.to_path_buf(), "skills"),
-        (crate::repo_root(), "builtin-skills"),
-    ] {
-        let path = root.join(relative_root).join(skill_name).join("SKILL.md");
-        match fs::metadata(&path) {
-            Ok(metadata) if metadata.is_file() => return Ok((path, root)),
-            Ok(_) => {
-                return Err(format!(
-                    "selected skill instruction path is not a file: `{}`",
-                    path.display()
-                ));
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => {
-                return Err(format!(
-                    "failed to inspect selected skill `{}`: {error}",
-                    path.display()
-                ));
-            }
-        }
-    }
-    Err(format!("selected skill `{skill_name}` does not exist"))
 }
 
 fn optional_turn_instruction(
@@ -899,7 +893,7 @@ mod tests {
         fs::create_dir_all(&skill_dir).expect("selected skill directory should create");
         fs::write(
             skill_dir.join("SKILL.md"),
-            "---\nname: review-work\n---\nReview the actual diff before reporting.\n",
+            "---\nname: review-work\ndescription: Review work\n---\nReview the actual diff before reporting.\n",
         )
         .expect("selected skill should write");
 
@@ -925,6 +919,40 @@ mod tests {
         assert!(composed
             .rendered_prompt()
             .contains("Review the actual diff before reporting."));
+    }
+
+    #[test]
+    fn autoloads_always_skill_only_when_enabled_by_config() {
+        let fixture = InstructionFixture::new("autoload-skill");
+        let skill_dir = fixture.root.join("skills").join("workspace-rules");
+        fs::create_dir_all(&skill_dir).expect("autoload skill directory should create");
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: workspace-rules\ndescription: Workspace rules\nalways: true\n---\nFollow workspace rules.\n",
+        )
+        .expect("autoload skill should write");
+
+        let composed = InstructionComposer::default()
+            .compose_with_config(
+                &fixture.root,
+                &serde_json::json!({ "cwd": fixture.root }),
+                &serde_json::json!({ "skills": { "enabled": true, "autoload": true } }),
+            )
+            .expect("autoload skill should compose");
+        assert!(composed
+            .rendered_prompt()
+            .contains("Follow workspace rules."));
+
+        let disabled = InstructionComposer::default()
+            .compose_with_config(
+                &fixture.root,
+                &serde_json::json!({ "cwd": fixture.root }),
+                &serde_json::json!({ "skills": { "enabled": false, "autoload": true } }),
+            )
+            .expect("disabled Skill settings should still compose");
+        assert!(!disabled
+            .rendered_prompt()
+            .contains("Follow workspace rules."));
     }
 
     #[test]

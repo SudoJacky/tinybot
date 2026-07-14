@@ -30,7 +30,7 @@ export const CHAT_RUNTIME_CAPABILITY_AUDIT = {
   },
   runInput: {
     status: "available",
-    source: "worker_run_agent_input / worker_transport_dispatch_websocket_message",
+    source: "worker_submit_thread_turn / worker_dispatch_tinyos_host_command",
     notes: "Native websocket dispatch builds agent.run_input requests for Rust runtime.",
   },
   approvalResume: {

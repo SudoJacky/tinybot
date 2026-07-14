@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   BUILT_IN_PROVIDER_PRESETS,
+  buildCustomProviderPatch,
   buildProviderConfigurePatch,
   buildProviderDefaultLlmPatch,
   buildProviderModelsPatch,
@@ -51,6 +52,35 @@ describe("provider models settings", () => {
     expect(BUILT_IN_PROVIDER_PRESETS.every((preset) => preset.builtIn)).toBe(true);
   });
 
+  test("builds configured custom providers alongside built-in presets", () => {
+    const settings = buildProviderModelsSettings({
+      agents: { defaults: { activeProfile: "local-default", model: "local-model" } },
+      providers: {
+        profiles: {
+          "local-default": {
+            provider: "local-openai",
+            displayName: "Local OpenAI",
+            enabled: true,
+            apiBase: "http://127.0.0.1:11434/v1",
+            models: ["local-model"],
+            defaultModel: "local-model",
+            supportsModelDiscovery: true,
+          },
+        },
+      },
+    });
+
+    expect(settings.providers.find((provider) => provider.profileId === "local-default")).toMatchObject({
+      id: "local-openai",
+      label: "Local OpenAI",
+      builtIn: false,
+      active: true,
+      baseUrl: "http://127.0.0.1:11434/v1",
+      models: [{ id: "local-model", label: "local-model", source: "user" }],
+      modelDiscovery: { status: "openai-compatible", endpoint: "/models" },
+    });
+  });
+
   test("builds configure patches without exposing unchanged secrets", () => {
     expect(buildProviderConfigurePatch({
       providerId: "openai",
@@ -88,6 +118,35 @@ describe("provider models settings", () => {
             enabled: true,
             apiBase: "https://api.openai.com/v1",
             apiKey: "sk-new",
+          },
+        },
+      },
+    });
+  });
+
+  test("builds an OpenAI-compatible custom provider profile", () => {
+    expect(buildCustomProviderPatch({
+      providerId: "local-openai",
+      profileId: "local-default",
+      displayName: "Local OpenAI",
+      apiBase: "http://127.0.0.1:11434/v1",
+      apiKey: "local-secret",
+      model: "local-model",
+      supportsModelDiscovery: true,
+      activate: true,
+    })).toEqual({
+      agents: { defaults: { activeProfile: "local-default", model: "local-model" } },
+      providers: {
+        profiles: {
+          "local-default": {
+            provider: "local-openai",
+            displayName: "Local OpenAI",
+            enabled: true,
+            apiBase: "http://127.0.0.1:11434/v1",
+            apiKey: "local-secret",
+            models: ["local-model"],
+            defaultModel: "local-model",
+            supportsModelDiscovery: true,
           },
         },
       },

@@ -49,9 +49,21 @@ export type ProviderModelsSettingsData = {
 export type ProviderConfigurePatchInput = {
   providerId: string;
   profileId?: string | null;
+  displayName?: string;
   apiBase: string;
   apiKey?: string;
   enabled?: boolean;
+  activate?: boolean;
+};
+
+export type CustomProviderPatchInput = {
+  providerId: string;
+  profileId?: string | null;
+  displayName: string;
+  apiBase: string;
+  apiKey?: string;
+  model: string;
+  supportsModelDiscovery?: boolean;
   activate?: boolean;
 };
 
@@ -120,12 +132,28 @@ export function buildProviderModelsSettings(config: unknown): ProviderModelsSett
   const activeProfileId = stringOrNull(pick(defaults, "activeProfile", "active_profile"));
   const agentDefaultModel = stringOrNull(defaults.model);
 
+  const builtInProviders = BUILT_IN_PROVIDER_PRESETS.map((preset) => (
+    buildProviderCard(preset, profiles, activeProfileId, agentDefaultModel)
+  ));
+  const builtInIds = new Set(BUILT_IN_PROVIDER_PRESETS.map((preset) => preset.id));
+  const customProviders = Object.entries(profiles)
+    .filter(([, value]) => {
+      const providerId = stringValue(asRecord(value).provider);
+      return providerId && !builtInIds.has(providerId as BuiltInProviderPreset["id"]);
+    })
+    .map(([profileId, value]) => buildCustomProviderCard(
+      profileId,
+      asRecord(value),
+      activeProfileId,
+      agentDefaultModel,
+    ));
+
   return {
     currentConfig: config,
     revision: stringOrUndefined(root.revision) ?? stringOrUndefined(asRecord(root.configMetadata).revision),
     activeProfileId,
     agentDefaultModel,
-    providers: BUILT_IN_PROVIDER_PRESETS.map((preset) => buildProviderCard(preset, profiles, activeProfileId, agentDefaultModel)),
+    providers: [...builtInProviders, ...customProviders],
   };
 }
 
@@ -134,7 +162,7 @@ export function buildProviderConfigurePatch(input: ProviderConfigurePatchInput):
   const profileId = resolveProviderProfileId(input.providerId, input.profileId);
   const profile: JsonRecord = {
     provider: input.providerId,
-    displayName: preset?.label ?? input.providerId,
+    displayName: input.displayName?.trim() || preset?.label || input.providerId,
     enabled: input.enabled ?? true,
     apiBase: input.apiBase.trim(),
   };
@@ -143,6 +171,36 @@ export function buildProviderConfigurePatch(input: ProviderConfigurePatchInput):
     profile.apiKey = apiKey;
   }
   return withOptionalAgentsPatch(input.activate ? { activeProfile: profileId } : null, {
+    providers: {
+      profiles: {
+        [profileId]: profile,
+      },
+    },
+  });
+}
+
+export function buildCustomProviderPatch(input: CustomProviderPatchInput): JsonRecord {
+  const providerId = input.providerId.trim();
+  const profileId = resolveProviderProfileId(providerId, input.profileId);
+  const model = input.model.trim();
+  const profile: JsonRecord = {
+    provider: providerId,
+    displayName: input.displayName.trim(),
+    enabled: true,
+    apiBase: input.apiBase.trim(),
+    models: model ? [model] : [],
+    supportsModelDiscovery: input.supportsModelDiscovery !== false,
+  };
+  if (model) {
+    profile.defaultModel = model;
+  }
+  const apiKey = input.apiKey?.trim();
+  if (apiKey) {
+    profile.apiKey = apiKey;
+  }
+  return withOptionalAgentsPatch(input.activate
+    ? { activeProfile: profileId, ...(model ? { model } : {}) }
+    : null, {
     providers: {
       profiles: {
         [profileId]: profile,
@@ -243,6 +301,48 @@ function buildProviderCard(
     defaultModel,
     models,
     modelDiscovery: preset.modelDiscovery,
+  };
+}
+
+function buildCustomProviderCard(
+  profileId: string,
+  profile: JsonRecord,
+  activeProfileId: string | null,
+  agentDefaultModel: string | null,
+): ProviderCardModel {
+  const providerId = stringValue(profile.provider) || profileId;
+  const models = parseModelList(profile.models).map((model) => ({
+    id: model,
+    label: model,
+    source: "user" as const,
+  }));
+  const defaultModel = stringOrNull(pick(profile, "defaultModel", "default_model"))
+    ?? (activeProfileId === profileId ? agentDefaultModel : null)
+    ?? models[0]?.id
+    ?? null;
+  const enabled = profile.enabled !== false;
+  const baseUrl = stringValue(pick(profile, "apiBase", "api_base"));
+  const available = enabled && Boolean(baseUrl) && models.length > 0;
+  const status: ProviderCardStatus = available ? "available" : "not_ready";
+  const supportsModelDiscovery = pick(profile, "supportsModelDiscovery", "supports_model_discovery") !== false;
+
+  return {
+    id: providerId,
+    label: stringValue(pick(profile, "displayName", "display_name")) || providerId,
+    builtIn: false,
+    active: activeProfileId === profileId,
+    configured: true,
+    status,
+    statusLabel: statusLabel(status),
+    profileId,
+    baseUrl,
+    apiKeyConfigured: hasConfiguredApiKey(profile),
+    modelCount: models.length,
+    defaultModel,
+    models,
+    modelDiscovery: supportsModelDiscovery
+      ? { status: "openai-compatible", endpoint: "/models" }
+      : { status: "static", endpoint: null },
   };
 }
 

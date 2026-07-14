@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::{
-    io::{BufRead, BufReader, Read, Write},
-    net::{SocketAddr, TcpStream},
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -51,70 +49,6 @@ pub(crate) struct GatewayRuntimeStatus {
 #[derive(Deserialize, Serialize)]
 struct GatewayExitPolicyPreference {
     keep_running: bool,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) enum GatewayBootstrapProbe {
-    Ready,
-    Offline(String),
-    Incompatible { detail: String },
-    BootstrapError { status: u16, detail: String },
-}
-
-impl GatewayBootstrapProbe {
-    fn is_ready(&self) -> bool {
-        matches!(self, Self::Ready)
-    }
-
-    fn is_conflict_or_error(&self) -> bool {
-        matches!(
-            self,
-            Self::Incompatible { .. } | Self::BootstrapError { .. }
-        )
-    }
-
-    pub(crate) fn bootstrap_status(&self) -> String {
-        match self {
-            Self::Ready => "ready",
-            Self::Offline(_) => "offline",
-            Self::Incompatible { .. } => "incompatible",
-            Self::BootstrapError { .. } => "bootstrap_error",
-        }
-        .to_string()
-    }
-
-    pub(crate) fn response_class(&self) -> Option<String> {
-        match self {
-            Self::Ready => Some("tinybot-bootstrap".to_string()),
-            Self::Offline(_) => Some("unreachable".to_string()),
-            Self::Incompatible { .. } => Some("incompatible-bootstrap".to_string()),
-            Self::BootstrapError { status, .. } => Some(format!("HTTP {status}")),
-        }
-    }
-
-    pub(crate) fn last_error(&self) -> Option<String> {
-        match self {
-            Self::Ready => None,
-            Self::Offline(error) => Some(error.clone()),
-            Self::Incompatible { detail } | Self::BootstrapError { detail, .. } => {
-                Some(detail.clone())
-            }
-        }
-    }
-
-    fn recovery_hint(&self) -> Option<String> {
-        match self {
-            Self::Incompatible { .. } => Some(
-                "Port 18790 is reachable, but /webui/bootstrap is not a Tinybot gateway. Stop the conflicting process on port 18790, then retry Tinybot gateway startup."
-                    .to_string(),
-            ),
-            Self::BootstrapError { .. } => Some(
-                "The process on port 18790 returned a bootstrap error. Check whether it is Tinybot, then retry or restart the gateway."
-                    .to_string(),
-            ),
-            _ => None,
-        }
-    }
 }
 
 #[tauri::command]
@@ -272,16 +206,12 @@ pub(crate) fn persist_gateway_exit_policy(path: &Path, keep_running: bool) -> Re
 }
 
 pub(crate) fn current_status(shared: &SharedGateway) -> GatewayRuntimeStatus {
-    let probe = gateway_bootstrap_probe();
-    let http_ok = probe.is_ready();
     let runtime = lock_runtime(shared);
     let worker_status = runtime.experimental_worker.status();
     let agent_task_runtime = runtime.native_agent_runtime.task_runtime();
 
     let owner = "shell";
-    let state = if runtime.last_error.is_some()
-        || worker_status.state == WorkerManagerState::Failed
-        || probe.is_conflict_or_error()
+    let state = if runtime.last_error.is_some() || worker_status.state == WorkerManagerState::Failed
     {
         "failed"
     } else {
@@ -296,7 +226,7 @@ pub(crate) fn current_status(shared: &SharedGateway) -> GatewayRuntimeStatus {
     GatewayRuntimeStatus {
         state: state.to_string(),
         owner: owner.to_string(),
-        http_ok,
+        http_ok: false,
         gateway_http: "http://127.0.0.1:18790",
         gateway_ws: "ws://127.0.0.1:18790/ws",
         command: RUST_BACKEND_COMMAND,
@@ -311,18 +241,11 @@ pub(crate) fn current_status(shared: &SharedGateway) -> GatewayRuntimeStatus {
         last_error: runtime
             .last_error
             .clone()
-            .or_else(|| worker_status.last_error.clone())
-            .or_else(|| {
-                if probe.is_conflict_or_error() {
-                    probe.last_error()
-                } else {
-                    None
-                }
-            }),
+            .or_else(|| worker_status.last_error.clone()),
         exit_policy,
-        bootstrap_status: probe.bootstrap_status(),
-        response_class: probe.response_class(),
-        recovery_hint: probe.recovery_hint(),
+        bootstrap_status: "not_required".to_string(),
+        response_class: Some("tauri-native".to_string()),
+        recovery_hint: None,
         worker_runtime: gateway_worker_runtime_status(&worker_status),
         agent_tasks: AgentTaskRuntimeStatus {
             accepting: agent_task_runtime.is_accepting(),
@@ -363,85 +286,6 @@ fn gateway_worker_runtime_status(
             ),
         ]),
     }
-}
-
-fn gateway_bootstrap_probe() -> GatewayBootstrapProbe {
-    let addr: SocketAddr = match "127.0.0.1:18790".parse() {
-        Ok(addr) => addr,
-        Err(error) => return GatewayBootstrapProbe::Offline(error.to_string()),
-    };
-    let mut stream = match TcpStream::connect_timeout(&addr, Duration::from_millis(700)) {
-        Ok(stream) => stream,
-        Err(error) => return GatewayBootstrapProbe::Offline(error.to_string()),
-    };
-    let _ = stream.set_read_timeout(Some(Duration::from_millis(700)));
-    let _ = stream.set_write_timeout(Some(Duration::from_millis(700)));
-    if stream
-        .write_all(b"GET /webui/bootstrap HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
-        .is_err()
-    {
-        return GatewayBootstrapProbe::Offline("failed to write bootstrap request".to_string());
-    }
-    let mut first_line = String::new();
-    let mut reader = BufReader::new(stream);
-    if reader.read_line(&mut first_line).is_err() {
-        return GatewayBootstrapProbe::Offline("failed to read bootstrap response".to_string());
-    }
-    let mut rest = String::new();
-    let _ = reader.read_to_string(&mut rest);
-    let status = first_line
-        .split_whitespace()
-        .nth(1)
-        .and_then(|code| code.parse::<u16>().ok());
-    classify_bootstrap_response(status, &rest)
-}
-
-pub(crate) fn classify_bootstrap_response(
-    status: Option<u16>,
-    response: &str,
-) -> GatewayBootstrapProbe {
-    let Some(status) = status else {
-        return GatewayBootstrapProbe::Offline(
-            "bootstrap response missing HTTP status".to_string(),
-        );
-    };
-    let body = http_response_body(response);
-    if !(200..300).contains(&status) {
-        return GatewayBootstrapProbe::BootstrapError {
-            status,
-            detail: if body.trim().is_empty() {
-                format!("bootstrap returned HTTP {status}")
-            } else {
-                format!("bootstrap returned HTTP {status}: {}", body.trim())
-            },
-        };
-    }
-    let payload: serde_json::Value = match serde_json::from_str(body.trim()) {
-        Ok(payload) => payload,
-        Err(error) => {
-            return GatewayBootstrapProbe::Incompatible {
-                detail: format!("bootstrap response is not valid JSON: {error}"),
-            };
-        }
-    };
-    if payload
-        .get("token")
-        .and_then(|value| value.as_str())
-        .is_some_and(|token| !token.is_empty())
-    {
-        return GatewayBootstrapProbe::Ready;
-    }
-    GatewayBootstrapProbe::Incompatible {
-        detail: "bootstrap response missing token".to_string(),
-    }
-}
-
-fn http_response_body(response: &str) -> &str {
-    response
-        .split_once("\r\n\r\n")
-        .map(|(_, body)| body)
-        .or_else(|| response.split_once("\n\n").map(|(_, body)| body))
-        .unwrap_or(response)
 }
 
 pub(crate) fn stop_owned_gateway(shared: &SharedGateway, explicit: bool) -> Result<(), String> {

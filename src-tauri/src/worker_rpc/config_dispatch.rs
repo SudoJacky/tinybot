@@ -23,6 +23,8 @@ impl WorkerRpcRouter {
                 };
                 if result.ok {
                     self.secret.update_snapshot(self.config.snapshot().clone());
+                    self.tool_registry
+                        .update_config_snapshot(self.config.snapshot().clone());
                 }
                 serde_json::to_value(result).map_err(serialization_error)
             }
@@ -42,6 +44,8 @@ impl WorkerRpcRouter {
                 };
                 if result.ok {
                     self.secret.update_snapshot(self.config.snapshot().clone());
+                    self.tool_registry
+                        .update_config_snapshot(self.config.snapshot().clone());
                 }
                 serde_json::to_value(result).map_err(serialization_error)
             }

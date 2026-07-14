@@ -89,6 +89,27 @@ impl WorkerMcpRpc {
         Ok(serde_json::json!({ "servers": servers }))
     }
 
+    pub(super) fn capability_catalog(&self) -> Result<Value, WorkerProtocolError> {
+        let allowed = self.policy.allows(&WorkerCapability::McpCall);
+        serde_json::to_value(tauri::async_runtime::block_on(
+            crate::mcp_capability_catalog::build_mcp_capability_catalog(
+                &self.runtime,
+                &self.workspace_root,
+                &self.config_snapshot,
+                allowed,
+            ),
+        ))
+        .map_err(|error| {
+            WorkerProtocolError::new(
+                WorkerProtocolErrorCode::WorkerError,
+                format!("failed to serialize MCP capability catalog: {error}"),
+                serde_json::json!({ "method": "mcp.capability_catalog" }),
+                false,
+                WorkerProtocolErrorSource::RustCore,
+            )
+        })
+    }
+
     pub(super) fn server_status_from_request(
         &self,
         request: &WorkerRequest,
@@ -743,6 +764,39 @@ lines.on("line", (line) => {
             .expect("HTTP MCP status should remain queryable");
         assert_eq!(stopped["state"], "stopped");
         assert_eq!(stopped["transport"], "http");
+    }
+
+    #[test]
+    fn mcp_capability_catalog_exposes_discovered_and_allowlisted_state() {
+        let fixture = HttpMcpFixture::new();
+        let rpc = mcp_rpc(serde_json::json!({
+            "tools": {
+                "mcp_servers": {
+                    "remote": {
+                        "transport": "http",
+                        "url": fixture.endpoint,
+                        "enabled_tools": ["echo"],
+                        "approval": "always"
+                    }
+                }
+            }
+        }));
+
+        let catalog = rpc
+            .capability_catalog()
+            .expect("MCP capability catalog should load");
+
+        assert_eq!(catalog["servers"][0]["status"]["state"], "ready");
+        assert_eq!(catalog["servers"][0]["toolCount"], 2);
+        assert_eq!(catalog["tools"].as_array().map(Vec::len), Some(2));
+        assert_eq!(catalog["tools"][0]["name"], "remote.echo");
+        assert_eq!(catalog["tools"][0]["callable"], true);
+        assert_eq!(catalog["tools"][0]["approval"]["required"], true);
+        assert_eq!(catalog["tools"][1]["enabled"], false);
+        assert_eq!(
+            catalog["tools"][1]["reason"],
+            "tool is not included in the server allowlist"
+        );
     }
 
     #[test]

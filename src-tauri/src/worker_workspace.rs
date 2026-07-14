@@ -37,4 +37,5 @@ mod write;
 
 use self::path_guard::*;
 use self::read::*;
+pub(crate) use self::skills::discover_skill_entries;
 pub use self::types::*;

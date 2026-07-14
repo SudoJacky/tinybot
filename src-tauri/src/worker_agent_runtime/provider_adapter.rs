@@ -106,6 +106,9 @@ impl ChatCompletionsAdapter {
         config_snapshot: &Value,
     ) -> Result<(), String> {
         settings.validate()?;
+        if let Some(temperature) = settings.temperature {
+            request["temperature"] = serde_json::json!(temperature);
+        }
         if let Some(max_completion_tokens) = settings.max_completion_tokens {
             request["max_completion_tokens"] = serde_json::json!(max_completion_tokens);
         }

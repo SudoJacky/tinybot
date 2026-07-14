@@ -31,7 +31,11 @@ pub(crate) async fn run_agent_with_services(
             .map_err(|error| format!("failed to serialize terminal run trace context: {error}"))?;
         return Ok(rejection);
     }
-    let instructions = InstructionComposer::default().compose(&workspace_root, &spec)?;
+    let instructions = InstructionComposer::default().compose_with_config(
+        &workspace_root,
+        &spec,
+        &config_snapshot,
+    )?;
     instructions.attach_diagnostics(&mut persistence_spec)?;
     let runtime_spec = hydrate_native_agent_history_for_runtime(
         spec,

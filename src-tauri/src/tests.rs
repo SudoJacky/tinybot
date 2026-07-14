@@ -1,10 +1,6 @@
 use super::*;
 use crate::desktop_commands::gateway::{
-    classify_bootstrap_response, current_status, persist_gateway_exit_policy, GatewayRuntimeStatus,
-};
-use crate::desktop_cron::{
-    cron_model_from_config, worker_cron_dispatch_due_with_options,
-    worker_cron_next_wake_delay_with_options,
+    current_status, persist_gateway_exit_policy, GatewayRuntimeStatus,
 };
 use crate::desktop_files::{
     allowed_workspace_file_path, mime_type_for_path, reveal_workspace_file_path_from_config_path,
@@ -4415,14 +4411,6 @@ fn worker_webui_approval_and_form_routes_report_missing_checkpoints_with_rust_me
 }
 
 #[test]
-fn cron_model_from_config_defaults_to_agent_model() {
-    assert_eq!(
-        cron_model_from_config(&serde_json::json!({})),
-        "deepseek-v4-pro"
-    );
-}
-
-#[test]
 fn worker_heartbeat_lifecycle_requests_target_native_worker_methods() {
     let start = build_worker_heartbeat_lifecycle_request(test_request_correlation("42"), "start");
     assert_eq!(start.id, "heartbeat-start-42");
@@ -4435,181 +4423,6 @@ fn worker_heartbeat_lifecycle_requests_target_native_worker_methods() {
     assert_eq!(stop.trace_id, "trace-heartbeat-stop-43");
     assert_eq!(stop.method, "heartbeat.stop");
     assert_eq!(stop.params, serde_json::json!({}));
-}
-
-#[test]
-fn worker_cron_dispatch_due_noops_without_due_jobs() {
-    let fixture = WorkspaceFixture::new();
-    fixture.write(
-            "cron/jobs.json",
-            &serde_json::json!({
-                "version": 1,
-                "jobs": [
-                    {
-                        "id": "future",
-                        "name": "Future",
-                        "enabled": true,
-                        "schedule": { "kind": "at", "atMs": 100000 },
-                        "payload": { "kind": "agent_turn", "message": "later", "deliver": false },
-                        "state": { "nextRunAtMs": 100000, "lastRunAtMs": null, "lastStatus": null, "lastError": null, "runHistory": [] },
-                        "createdAtMs": 1,
-                        "updatedAtMs": 1,
-                        "deleteAfterRun": true
-                    }
-                ]
-            })
-            .to_string(),
-        );
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
-
-    let result = worker_cron_dispatch_due_with_options(
-        &shared,
-        fixture.root.clone(),
-        serde_json::json!({ "agents": { "defaults": { "model": "gpt-5" } } }),
-        2000,
-        Duration::from_secs(1),
-    )
-    .expect("cron due dispatch should no-op");
-
-    assert_eq!(
-        result,
-        serde_json::json!({
-            "dispatched": 0,
-            "records": [],
-            "recorded": { "updated": [], "deleted": [], "missing": [] }
-        })
-    );
-    assert_eq!(
-        lock_runtime(&shared).experimental_worker.status().state,
-        WorkerManagerState::Stopped
-    );
-}
-
-#[test]
-fn worker_cron_next_wake_delay_uses_earliest_enabled_job() {
-    let fixture = WorkspaceFixture::new();
-    fixture.write(
-            "cron/jobs.json",
-            &serde_json::json!({
-                "version": 1,
-                "jobs": [
-                    {
-                        "id": "later",
-                        "name": "Later",
-                        "enabled": true,
-                        "schedule": { "kind": "at", "atMs": 5000 },
-                        "payload": { "kind": "agent_turn", "message": "later", "deliver": false },
-                        "state": { "nextRunAtMs": 5000, "lastRunAtMs": null, "lastStatus": null, "lastError": null, "runHistory": [] },
-                        "createdAtMs": 1,
-                        "updatedAtMs": 1,
-                        "deleteAfterRun": true
-                    },
-                    {
-                        "id": "disabled-earlier",
-                        "name": "Disabled",
-                        "enabled": false,
-                        "schedule": { "kind": "at", "atMs": 2500 },
-                        "payload": { "kind": "agent_turn", "message": "disabled", "deliver": false },
-                        "state": { "nextRunAtMs": 2500, "lastRunAtMs": null, "lastStatus": null, "lastError": null, "runHistory": [] },
-                        "createdAtMs": 1,
-                        "updatedAtMs": 1,
-                        "deleteAfterRun": true
-                    },
-                    {
-                        "id": "earliest",
-                        "name": "Earliest",
-                        "enabled": true,
-                        "schedule": { "kind": "at", "atMs": 3500 },
-                        "payload": { "kind": "agent_turn", "message": "soon", "deliver": false },
-                        "state": { "nextRunAtMs": 3500, "lastRunAtMs": null, "lastStatus": null, "lastError": null, "runHistory": [] },
-                        "createdAtMs": 1,
-                        "updatedAtMs": 1,
-                        "deleteAfterRun": true
-                    }
-                ]
-            })
-            .to_string(),
-        );
-
-    let delay = worker_cron_next_wake_delay_with_options(
-        fixture.root.clone(),
-        serde_json::json!({}),
-        2000,
-        Duration::from_secs(30),
-    )
-    .expect("cron next wake should be derived from store");
-
-    assert_eq!(delay, Duration::from_millis(1500));
-}
-
-#[test]
-fn worker_cron_next_wake_delay_backs_off_due_jobs_while_dispatch_is_unsupported() {
-    let fixture = WorkspaceFixture::new();
-    fixture.write(
-            "cron/jobs.json",
-            &serde_json::json!({
-                "version": 1,
-                "jobs": [
-                    {
-                        "id": "due",
-                        "name": "Due",
-                        "enabled": true,
-                        "schedule": { "kind": "at", "atMs": 1000 },
-                        "payload": { "kind": "agent_turn", "message": "now", "deliver": false },
-                        "state": { "nextRunAtMs": 1000, "lastRunAtMs": null, "lastStatus": null, "lastError": null, "runHistory": [] },
-                        "createdAtMs": 1,
-                        "updatedAtMs": 1,
-                        "deleteAfterRun": true
-                    }
-                ]
-            })
-            .to_string(),
-        );
-
-    let delay = worker_cron_next_wake_delay_with_options(
-        fixture.root.clone(),
-        serde_json::json!({}),
-        2000,
-        Duration::from_secs(30),
-    )
-    .expect("cron next wake should back off due jobs");
-
-    assert_eq!(delay, Duration::from_secs(30));
-}
-
-#[test]
-fn worker_cron_dispatch_due_skips_when_dispatch_already_running() {
-    let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
-    {
-        let runtime = lock_runtime(&shared);
-        runtime
-            .cron_dispatch_running
-            .store(true, std::sync::atomic::Ordering::SeqCst);
-    }
-
-    let result = worker_cron_dispatch_due_with_options(
-        &shared,
-        fixture.root.clone(),
-        serde_json::json!({ "agents": { "defaults": { "model": "gpt-5" } } }),
-        2000,
-        Duration::from_secs(1),
-    )
-    .expect("overlapping cron dispatch should skip");
-
-    assert_eq!(
-        result,
-        serde_json::json!({
-            "dispatched": 0,
-            "records": [],
-            "recorded": { "updated": [], "deleted": [], "missing": [] },
-            "skipped": "already_running"
-        })
-    );
-    assert_eq!(
-        lock_runtime(&shared).experimental_worker.status().state,
-        WorkerManagerState::Stopped
-    );
 }
 
 #[test]
@@ -5201,6 +5014,34 @@ fn worker_cowork_route_serves_rust_sessions_on_rust_backend() {
         lock_runtime(&shared).experimental_worker.status().state,
         WorkerManagerState::Stopped
     );
+}
+
+#[test]
+fn worker_webui_tools_route_returns_effective_catalog() {
+    let fixture = WorkspaceFixture::new();
+    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+    let response = worker_webui_route_with_options(
+        &shared,
+        WorkerWebuiRouteInput {
+            method: "GET".to_string(),
+            path: "/api/tools".to_string(),
+            headers: None,
+            body: None,
+        },
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_secs(1),
+    )
+    .expect("tools route should be Rust-owned");
+
+    assert_eq!(response["status"], 200);
+    assert_eq!(response["headers"]["x-tinybot-route-owner"], "rust");
+    assert!(response["body"]["total"]
+        .as_u64()
+        .is_some_and(|total| total > 0));
+    assert!(response["body"]["tools"].as_array().is_some());
+    assert_eq!(response["body"]["mcpServers"], serde_json::json!([]));
 }
 
 #[test]
@@ -6955,6 +6796,50 @@ fn worker_transport_websocket_new_chat_returns_created_frame_without_run_request
 }
 
 #[test]
+fn worker_transport_websocket_dispatch_attaches_existing_sessions_and_reports_missing_sessions() {
+    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let attach_input = |session_exists| WorkerTransportWebSocketDispatchInput {
+        client_id: "client-1".to_string(),
+        frame: serde_json::json!({ "type": "attach", "chat_id": "chat-1" }),
+        attached_chat_id: None,
+        session_exists: Some(session_exists),
+        editable_paths: None,
+        model: None,
+        max_iterations: None,
+        run_id: None,
+        stream: None,
+    };
+
+    let attached = worker_transport_dispatch_websocket_message_with_options(
+        &shared,
+        attach_input(true),
+        std::env::temp_dir(),
+        serde_json::json!({}),
+        Duration::from_millis(10),
+    )
+    .expect("existing session should attach through the Rust transport");
+    let missing = worker_transport_dispatch_websocket_message_with_options(
+        &shared,
+        attach_input(false),
+        std::env::temp_dir(),
+        serde_json::json!({}),
+        Duration::from_millis(10),
+    )
+    .expect("missing session should return an explicit transport error frame");
+
+    assert_eq!(attached["transport"]["kind"], "attached");
+    assert_eq!(attached["transport"]["attachedChatId"], "chat-1");
+    assert_eq!(attached["transport"]["sessionId"], "websocket:chat-1");
+    assert_eq!(attached["transport"]["frames"][0]["event"], "attached");
+    assert_eq!(missing["transport"]["kind"], "error");
+    assert_eq!(missing["transport"]["frames"][0]["event"], "error");
+    assert_eq!(
+        missing["transport"]["frames"][0]["message"],
+        "session not found"
+    );
+}
+
+#[test]
 fn worker_transport_websocket_dispatch_uses_preallocated_run_id_for_streaming() {
     let mapper_result = serde_json::json!({
         "kind": "message",
@@ -7415,6 +7300,11 @@ fn gateway_status_exposes_port_and_exit_policy() {
 
     assert_eq!(status.port, 18790);
     assert_eq!(status.exit_policy, "keep_running");
+    assert_eq!(status.state, "running");
+    assert!(!status.http_ok);
+    assert_eq!(status.bootstrap_status, "not_required");
+    assert_eq!(status.response_class, Some("tauri-native".to_string()));
+    assert!(status.recovery_hint.is_none());
 }
 
 #[test]
@@ -7926,35 +7816,6 @@ fn native_config_operations_save_to_custom_config_path() {
     assert_eq!(saved["agents"]["defaults"]["model"], "gpt-5");
     assert_eq!(saved["agents"]["defaults"]["timezone"], "Asia/Shanghai");
     assert!(!fixture.root.join(".tinybot").join("config.json").exists());
-}
-
-#[test]
-fn bootstrap_probe_classifies_incompatible_2xx_response() {
-    let probe = classify_bootstrap_response(
-        Some(200),
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html>not tinybot</html>",
-    );
-
-    assert_eq!(probe.bootstrap_status(), "incompatible");
-    assert_eq!(
-        probe.response_class(),
-        Some("incompatible-bootstrap".to_string())
-    );
-    assert!(probe
-        .last_error()
-        .expect("incompatible probe should explain the response")
-        .contains("not valid JSON"));
-}
-
-#[test]
-fn bootstrap_probe_classifies_http_error_response() {
-    let probe = classify_bootstrap_response(
-        Some(403),
-        "HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\n\r\n{\"error\":\"forbidden\"}",
-    );
-
-    assert_eq!(probe.bootstrap_status(), "bootstrap_error");
-    assert_eq!(probe.response_class(), Some("HTTP 403".to_string()));
 }
 
 #[test]

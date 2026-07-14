@@ -1,3 +1,4 @@
+use super::ShellExecuteRequestParams;
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_permission_profile::PermissionEvaluateToolRequest;
 use crate::worker_protocol::{WorkerRequest, WorkerRequestCancellation};
@@ -16,6 +17,56 @@ use std::{
 };
 
 static WORKSPACE_FIXTURE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+#[test]
+fn shell_request_uses_configured_defaults_when_call_omits_them() {
+    let params: ShellExecuteRequestParams = serde_json::from_value(json!({
+        "command": "echo configured"
+    }))
+    .expect("shell request should deserialize");
+    let params = params.into_shell_params(
+        None,
+        &json!({
+            "tools": {
+                "exec": { "timeout": 17 },
+                "restrictToWorkspace": false
+            }
+        }),
+    );
+
+    assert_eq!(params.timeout, Some(17));
+    assert_eq!(params.restrict_to_workspace, Some(false));
+}
+
+#[test]
+fn disabled_exec_config_rejects_direct_shell_execution() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new(
+        fixture.root.clone(),
+        json!({ "tools": { "exec": { "enable": false } } }),
+        vec![],
+        20,
+        CapabilityPolicy::new([WorkerCapability::ShellExecute]),
+    );
+    let request = WorkerRequest::new(
+        "req-disabled-exec",
+        "trace-disabled-exec",
+        "shell.execute",
+        json!({ "command": "echo should-not-run" }),
+    )
+    .with_trusted_internal();
+
+    let response = router.dispatch(&request);
+
+    assert_eq!(
+        response.error.as_ref().map(|error| error.code.clone()),
+        Some(crate::worker_protocol::WorkerProtocolErrorCode::CapabilityDenied)
+    );
+    assert!(response
+        .error
+        .as_ref()
+        .is_some_and(|error| error.message.contains("tools.exec.enable")));
+}
 
 #[test]
 fn dispatches_workspace_read_file_request() {

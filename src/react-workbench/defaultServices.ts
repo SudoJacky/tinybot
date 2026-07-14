@@ -1,8 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { createDesktopChatSessionController } from "../app-core/chat/desktopChatSessionController";
-import { sessionKeyForChat, sessionKeyForChatState, type NativeChatReference, type NativeChatSession } from "../app-core/chat/nativeChat";
-import { submitDesktopApprovalAction } from "../app-core/agent-ui/desktopApprovalActions";
+import type { NativeChatReference, NativeChatSession } from "../app-core/chat/nativeChat";
 import {
   AGENT_UI_FORM_STATUSES,
   buildAgentUiFormCancelRequest,
@@ -13,31 +12,17 @@ import {
   type AgentUiForm,
 } from "../app-core/agent-ui/agentUiEvents";
 import { DEFAULT_GATEWAY_CONFIG, resolveGatewayConfig } from "../app-core/gateway/gatewayConfig";
-import { installDesktopGatewayBridge } from "../app-core/gateway/desktopGatewayBridge";
 import { ensureGatewayReady } from "../app-core/gateway/desktopGatewayStartup";
-import {
-  checkGatewayHealth,
-  createGatewayApiClient,
-  DEFAULT_TS_COWORK_RUNTIME_ROLLOUT,
-} from "../app-core/gateway/gatewayHttpClient";
-import {
-  flushGatewaySocketQueue,
-  openGatewaySocket,
-  sendGatewaySocketJson,
-  type NormalizedGatewayEvent,
-} from "../app-core/gateway/gatewayWebSocketClient";
 import { createDesktopNativeConfigApi } from "../app-core/native/desktopNativeConfig";
 import { applyNativeConfigPatch } from "../app-core/native/desktopNativeConfigPatch";
-import { createDesktopNativeCoworkApi } from "../app-core/native/desktopNativeCowork";
 import { createDesktopNativeKnowledgeApi } from "../app-core/native/desktopNativeKnowledge";
 import { createDesktopNativeSessionsApi } from "../app-core/native/desktopNativeSessions";
 import { createDesktopNativeSkillsApi } from "../app-core/native/desktopNativeSkills";
 import { createDesktopNativeThreadsApi } from "../app-core/native/desktopNativeThreads";
-import { createDesktopNativeTransportApi } from "../app-core/native/desktopNativeTransport";
+import { createDesktopNativeHostCommandApi } from "../app-core/native/desktopNativeHostCommand";
 import { toDesktopNativeTauriEventName } from "../app-core/native/desktopNativeTauriEvents";
 import { createDesktopNativeWebuiApi } from "../app-core/native/desktopNativeWebui";
 import { createDesktopNativeWorkspaceApi } from "../app-core/native/desktopNativeWorkspace";
-import { startDesktopNativeChannelRuntime } from "../app-core/native/desktopNativeChannelLifecycle";
 import { normalizeNativeBackendEventPayload } from "../app-core/native/nativeBackendContract";
 import {
   buildDesktopProviderCatalogItems,
@@ -55,8 +40,11 @@ import type {
   ChatModelOption,
   ChatEvent,
   KnowledgeDocumentSummary,
+  McpServerSummary,
   SessionSummary,
   SkillSummary,
+  ToolCatalogSummary,
+  ToolSummary,
   WorkspaceDirectoryPage,
   WorkspaceFileChunk,
   WorkspaceFileSummary,
@@ -64,7 +52,12 @@ import type {
   WorkspaceQueryErrorCode,
 } from "./services";
 import type { ReactChatMessage } from "./chat/messageActions";
-import { createTinyOsAgentCancelCommand, type TinyOsCommand } from "../app-core/chat/tinyOsCommandGateway";
+import {
+  createTinyOsAgentCancelCommand,
+  toNativeTinyOsHostCommandFrame,
+  type TinyOsCommand,
+  type TinyOsHostCommand,
+} from "../app-core/chat/tinyOsCommandGateway";
 import { normalizeTinyOsEffectiveCapabilities } from "../app-core/chat/tinyOsCapabilities";
 
 type Listener = (event: ChatEvent) => void;
@@ -73,150 +66,114 @@ export function createDesktopAppServices(): AppServices {
   const config = resolveGatewayConfig(DEFAULT_GATEWAY_CONFIG);
   const nativeMode = hasTauriRuntime();
   const nativeConfig = nativeMode ? createDesktopNativeConfigApi({ invoke }) : undefined;
-  const nativeCowork = nativeMode ? createDesktopNativeCoworkApi({ invoke }) : undefined;
   const nativeKnowledge = nativeMode ? createDesktopNativeKnowledgeApi({ invoke }) : undefined;
   const nativeSessions = nativeMode ? createDesktopNativeSessionsApi({ invoke }) : undefined;
   const nativeSkills = nativeMode ? createDesktopNativeSkillsApi({ invoke }) : undefined;
   const nativeThreads = nativeMode ? createDesktopNativeThreadsApi({ invoke }) : undefined;
-  const nativeTransport = nativeMode ? createDesktopNativeTransportApi({ invoke }) : undefined;
+  const nativeHostCommands = nativeMode ? createDesktopNativeHostCommandApi({ invoke }) : undefined;
   const nativeWebui = nativeMode ? createDesktopNativeWebuiApi({ invoke }) : undefined;
   const nativeWorkspace = nativeMode ? createDesktopNativeWorkspaceApi({ invoke }) : undefined;
-  const gatewayApi = createGatewayApiClient({
-    config,
-    nativeConfig,
-    nativeCowork,
-    nativeKnowledge,
-    nativeSessions,
-    nativeSkills,
-    nativeThreads,
-    nativeWebui,
-    nativeWorkspace,
-    tsCoworkRuntime: DEFAULT_TS_COWORK_RUNTIME_ROLLOUT,
-  });
   let initialized: Promise<void> | null = null;
-  let socket: WebSocket | null = null;
-  let wsUrl = config.wsUrl;
-  const pendingSocketMessages: unknown[] = [];
   const listeners = new Map<string, Set<Listener>>();
-  let pendingNewSessionId = "";
-  let pendingNewSession: SessionSummary | null = null;
+  const notifiedTerminalRuns = new Set<string>();
   const agentUiState = createAgentUiEventState();
 
   const controller = createDesktopChatSessionController({
     api: {
-      listSessions: () => gatewayApi.sessions.list(),
-      loadMessages: (sessionKey) => gatewayApi.sessions.messages(sessionKey),
-      listAgentRuns: (sessionKey) => gatewayApi.sessions.agentRuns?.(sessionKey) ?? Promise.resolve({ runs: [] }),
-      getAgentRunRuntimeState: (sessionKey, runId) => gatewayApi.sessions.agentRunRuntimeState?.(sessionKey, runId) ?? Promise.resolve(null),
-      deleteSession: (sessionKey) => gatewayApi.sessions.delete(sessionKey),
-      patchSession: (sessionKey, body) => gatewayApi.sessions.patch(sessionKey, body),
+      listSessions: () => requireNative(nativeThreads, "Thread").list(),
+      listAgentRuns: (sessionKey) => requireNative(nativeSessions, "Session").agentRuns?.(sessionKey) ?? Promise.resolve({ runs: [] }),
+      getAgentRunRuntimeState: (sessionKey, runId) => requireNative(nativeSessions, "Session").agentRunRuntimeState?.(sessionKey, runId) ?? Promise.resolve(null),
+      deleteSession: (threadId) => requireNative(nativeThreads, "Thread").delete({ threadId }),
+      patchSession: (threadId, body) => requireNative(nativeThreads, "Thread").updateMetadata({
+        threadId,
+        metadata: nativeThreadMetadataPatch(body),
+      }),
+      submitThreadTurn: (input) => requireNative(nativeThreads, "Thread").submitTurn(input),
     },
-    sendSocketMessage,
   });
 
   async function initialize(): Promise<void> {
     initialized ??= (async () => {
-      if (nativeMode && nativeTransport && nativeWebui) {
-        await ensureGatewayReady(config, { invoke, hasTauriRuntime });
-        await startDesktopNativeChannelRuntime({ nativeTransport });
-        installDesktopGatewayBridge({
-          config,
-          nativeTransport,
-          nativeWebui,
-          resolveNativeWebSocketSessionExists,
-          listenToNativeAgentEvent: (eventName, handler) => listen(toDesktopNativeTauriEventName(eventName), (event) => {
-            handler(normalizeNativeBackendEventPayload(event.payload));
-          }),
-        });
-        await listen(toDesktopNativeTauriEventName("agent.timeline.patch"), async (event) => {
-          const payload = normalizeNativeBackendEventPayload(event.payload);
-          const sessionId = isRecord(payload) ? stringValue(payload.sessionId) : "";
-          if (!sessionId) {
-            notifyAll({ type: "timeline.error", error: "Canonical timeline patch is missing sessionId" });
-            return;
-          }
-          try {
-            const timeline = await controller.applyTimelinePatch(sessionId, payload);
-            if (timeline) {
-              notifySession(sessionId, { type: "timeline.patch", timeline });
-            }
-          } catch (error) {
-            notifySession(sessionId, {
-              type: "timeline.error",
-              error: error instanceof Error ? error.message : String(error),
-            });
-          }
-        });
+      if (!nativeMode) {
+        throw new Error("Tinybot chat requires the Tauri native runtime");
       }
-      const health = await checkGatewayHealth({ config }).catch(() => null);
-      wsUrl = health?.tokenReady ? health.wsUrl : config.wsUrl;
-      ensureSocket();
+      await ensureGatewayReady(config, { invoke, hasTauriRuntime });
+      await registerNativeChatEvents();
       await controller.loadSessions();
     })();
     return initialized;
   }
 
-  async function resolveNativeWebSocketSessionExists(sessionId: string): Promise<boolean | undefined> {
-    try {
-      await gatewayApi.sessions.messages(sessionId);
-      return true;
-    } catch {
-      return undefined;
-    }
+  async function registerNativeChatEvents(): Promise<void> {
+    await Promise.all([
+      listen(toDesktopNativeTauriEventName("agent.timeline.patch"), async (event) => {
+        const payload = normalizeNativeBackendEventPayload(event.payload);
+        const sessionId = isRecord(payload) ? stringValue(payload.sessionId) : "";
+        if (!sessionId) {
+          notifyAll({ type: "timeline.error", error: "Canonical timeline patch is missing sessionId" });
+          return;
+        }
+        try {
+          const timeline = await controller.applyTimelinePatch(sessionId, payload);
+          if (timeline) {
+            notifySession(sessionId, { type: "timeline.patch", timeline });
+            notifyTerminalTimelineState(sessionId, timeline);
+          }
+        } catch (error) {
+          notifySession(sessionId, {
+            type: "timeline.error",
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }),
+      listen(toDesktopNativeTauriEventName("agent.awaiting_form"), (event) => {
+        reduceNativeAgentFormEvent(normalizeNativeBackendEventPayload(event.payload));
+      }),
+    ]);
   }
 
-  function ensureSocket(): void {
-    if (socket && socket.readyState <= WebSocket.OPEN) {
-      return;
-    }
-    socket = openGatewaySocket(resolveGatewayConfig({ ...config, wsUrl }), {
-      onOpen: () => {
-        flushGatewaySocketQueue(socket, pendingSocketMessages);
-        notifyAll({ type: "socket-open" });
+  function notifyTerminalTimelineState(sessionId: string, timeline: Awaited<ReturnType<typeof controller.applyTimelinePatch>>): void {
+    const turn = timeline?.turns[timeline.turns.length - 1];
+    if (!turn || !["completed", "failed", "interrupted"].includes(turn.status)) return;
+    const key = `${sessionId}:${turn.id}:${turn.status}`;
+    if (notifiedTerminalRuns.has(key)) return;
+    notifiedTerminalRuns.add(key);
+    const eventType = turn.status === "completed"
+      ? "agent.turn.completed"
+      : turn.status === "failed" ? "agent.turn.failed" : "agent.turn.interrupted";
+    notifySession(sessionId, { type: "agent.event", eventType });
+  }
+
+  function reduceNativeAgentFormEvent(payload: unknown): void {
+    if (!isRecord(payload)) return;
+    const form = isRecord(payload.form) ? payload.form : payload;
+    const traceContext = isRecord(payload.traceContext) ? payload.traceContext : {};
+    const formId = stringValue(payload.formId ?? payload.form_id ?? form.formId ?? form.form_id);
+    const threadId = stringValue(traceContext.threadId ?? traceContext.thread_id);
+    const runId = stringValue(traceContext.runId ?? traceContext.run_id);
+    if (!formId || !threadId) return;
+    const correlation = isRecord(form.correlation) ? form.correlation : {};
+    for (const agentUiEvent of normalizeAgentUiEvents({
+      event: "agent_ui_event",
+      agent_ui_event: {
+        event_type: "ui.form.requested",
+        run_id: runId,
+        payload: {
+          ...form,
+          form_id: formId,
+          correlation: {
+            ...correlation,
+            form_id: formId,
+            run_id: runId,
+            session_key: threadId,
+            thread_id: threadId,
+          },
+        },
       },
-      onClose: () => notifyAll({ type: "socket-close" }),
-      onError: () => notifyAll({ type: "socket-error" }),
-      onEvent: (event) => {
-        void handleGatewayEvent(event);
-      },
-    });
-  }
-
-  function sendSocketMessage(message: unknown): void {
-    ensureSocket();
-    sendGatewaySocketJson(socket, message, pendingSocketMessages);
-  }
-
-  async function handleGatewayEvent(event: NormalizedGatewayEvent): Promise<void> {
-    await controller.handleGatewayEvent(event);
-    reduceAgentUiEventsFromGatewayEvent(event);
-    if (event.kind === "chat.created") {
-      pendingNewSessionId = "";
-      pendingNewSession = null;
-    }
-    const chatEvent = chatEventFromGatewayEvent(event);
-    const usageSessionId = event.kind === "usage" ? sessionKeyForGatewayEvent(event) : "";
-    if (usageSessionId) {
-      notifySession(usageSessionId, chatEvent);
-    } else {
-      notifyAll(chatEvent);
-    }
-  }
-
-  function sessionKeyForGatewayEvent(event: NormalizedGatewayEvent): string {
-    if (event.kind === "usage" && event.chatId) {
-      return sessionKeyForChatState(controller.state, event.chatId) || sessionKeyForChat(event.chatId);
-    }
-    return controller.state.activeSessionKey;
-  }
-
-  function reduceAgentUiEventsFromGatewayEvent(event: NormalizedGatewayEvent): void {
-    if (event.kind !== "agent-ui.form" && event.kind !== "agent-ui.event" && event.kind !== "browser.frame" && event.kind !== "browser.snapshot") {
-      return;
-    }
-    for (const agentUiEvent of normalizeAgentUiEvents(event.raw)) {
+    })) {
       reduceAgentUiEventState(agentUiState, agentUiEvent);
     }
+    notifySession(threadId, { type: "agent-ui.form" });
   }
 
   function notifyAll(event: ChatEvent): void {
@@ -234,11 +191,11 @@ export function createDesktopAppServices(): AppServices {
   }
 
   async function loadSettingsSnapshot(): Promise<unknown> {
-    return gatewayApi.config.get().catch(async () => nativeConfig?.get().catch(() => null) ?? null);
+    return requireNative(nativeConfig, "Config").get();
   }
 
   async function loadProviderCatalog(): Promise<unknown[]> {
-    const payload = await gatewayApi.config.providers().catch(() => []);
+    const payload = await requireNative(nativeWebui, "WebUI").route({ method: "GET", path: "/api/providers" }).catch(() => []);
     if (Array.isArray(payload)) {
       return payload;
     }
@@ -255,43 +212,64 @@ export function createDesktopAppServices(): AppServices {
     if (session && controller.state.activeSessionKey !== session.key) {
       await controller.selectSession(session.key, session.chatId);
     }
-    if (!controller.dispatchCommand(command)) {
-      throw new Error(`Cannot dispatch ${command.kind}: target session is not active`);
+    const threadId = session?.threadId || command.target.threadId || command.target.sessionId;
+    if (command.kind === "agent.cancel") {
+      await requireNative(nativeThreads, "Thread").interrupt({
+        threadId,
+        runId: command.target.runId,
+        clientEventId: command.commandId,
+        reason: "user_requested",
+      });
+    } else if (command.kind === "approval.resolve") {
+      await requireNative(nativeThreads, "Thread").resolveApproval({
+        threadId,
+        approvalId: command.approval.approvalId,
+        approved: command.approval.approved,
+        scope: command.approval.scope,
+        ...(command.approval.guidance ? { guidance: command.approval.guidance } : {}),
+      });
+    } else if (command.kind === "form.submit" || command.kind === "form.cancel") {
+      await requireNative(nativeThreads, "Thread").submitForm({
+        threadId,
+        formId: command.form.formId,
+        values: command.kind === "form.submit" ? command.form.values : {},
+        action: command.kind === "form.submit" ? "submit" : "cancel",
+      });
+    } else {
+      await requireNative(nativeHostCommands, "Host command").dispatch({
+        clientId: "desktop-native",
+        attachedChatId: command.target.sessionId,
+        runId: command.target.runId,
+        frame: toNativeTinyOsHostCommandFrame(command.target.sessionId, command as TinyOsHostCommand),
+      });
     }
+    notifySession(command.target.sessionId, { commandId: command.commandId, type: "command.accepted" });
+    notifySession(command.target.sessionId, { commandId: command.commandId, type: "command.canonical-updated" });
   }
 
   return {
     sessionStore: {
       async list() {
         await initialize();
-        const sessions = controller.state.sessions.map((session) => mapSession(session, controller.state.respondingSessionKeys.has(session.key)));
-        if (pendingNewSession && !sessions.some((session) => session.id === pendingNewSession?.id)) {
-          return [pendingNewSession, ...sessions];
-        }
-        return sessions;
+        return controller.state.sessions.map((session) => mapSession(session, controller.state.respondingSessionKeys.has(session.key)));
       },
       async create(input) {
         await initialize();
-        pendingNewSessionId = `pending:${Date.now().toString(36)}`;
-        controller.state.activeSessionKey = "";
-        controller.state.activeChatId = "";
-        const pendingSession = {
-          id: pendingNewSessionId,
+        const thread = await requireNative(nativeThreads, "Thread").create({
           title: input?.title || "New session",
-          updatedAtMs: Date.now(),
-          status: "running" as const,
-        };
-        pendingNewSession = pendingSession;
-        notifySession(pendingNewSessionId, { type: "session-created" });
-        return pendingSession;
+          source: "desktop",
+        });
+        await controller.loadSessions();
+        const sessionId = thread.threadId;
+        const session = controller.state.sessions.find((candidate) => candidate.key === sessionId);
+        if (!session) throw new Error(`Created Thread ${thread.threadId} is missing from the Thread list`);
+        await controller.selectSession(session.key, session.chatId);
+        const created = mapSession(session, false);
+        notifySession(created.id, { type: "session-created" });
+        return created;
       },
       async delete(id) {
         await initialize();
-        if (id.startsWith("pending:")) {
-          pendingNewSessionId = "";
-          pendingNewSession = null;
-          return;
-        }
         await controller.deleteSession(id);
         notifyAll({ type: "session-deleted" });
       },
@@ -307,23 +285,19 @@ export function createDesktopAppServices(): AppServices {
       },
       async archive(id) {
         await initialize();
-        await controller.patchSession(id, { archived: true });
+        const session = controller.state.sessions.find((candidate) => candidate.key === id);
+        if (!session) throw new Error(`Cannot archive unknown Thread ${id}`);
+        await requireNative(nativeThreads, "Thread").archive({
+          threadId: session.threadId || session.key,
+          archived: true,
+        });
+        await controller.loadSessions();
         notifySession(id, { type: "session-archived" });
       },
     },
     chatStore: {
       async load(sessionId) {
         await initialize();
-        if (sessionId.startsWith("pending:")) {
-          return {
-            schemaVersion: "tinybot.chat_timeline.v1",
-            sessionId,
-            source: "canonical",
-            runRevisions: {},
-            turns: [],
-            diagnostics: [],
-          };
-        }
         const session = controller.state.sessions.find((item) => item.key === sessionId);
         if (session && controller.state.activeSessionKey !== session.key) {
           await controller.selectSession(session.key, session.chatId);
@@ -333,27 +307,19 @@ export function createDesktopAppServices(): AppServices {
       async loadTinyOsCapabilities(sessionId) {
         await initialize();
         return normalizeTinyOsEffectiveCapabilities(
-          await gatewayApi.sessions.effectiveCapabilities(sessionId),
+          await requireNative(nativeSessions, "Session").effectiveCapabilities?.(sessionId),
           sessionId,
         );
       },
       async send(sessionId, input) {
         await initialize();
-        if (sessionId === pendingNewSessionId) {
-          controller.state.activeSessionKey = "";
-          controller.state.activeChatId = "";
-        } else {
-          const session = controller.state.sessions.find((item) => item.key === sessionId);
-          if (session && controller.state.activeSessionKey !== session.key) {
-            await controller.selectSession(session.key, session.chatId);
-          }
+        const session = controller.state.sessions.find((item) => item.key === sessionId);
+        if (!session) throw new Error(`Cannot send to unknown Thread ${sessionId}`);
+        if (controller.state.activeSessionKey !== session.key) {
+          await controller.selectSession(session.key, session.chatId);
         }
-        const result = controller.submitMessage(input.text, input.usePersistentRag ?? true, input.model, input.references);
-        const optimisticText = result.status === "sent"
-          ? result.content
-          : result.status === "creating"
-            ? result.pendingContent
-            : "";
+        const result = await controller.submitMessage(input.text, input.usePersistentRag ?? true, input.model, input.references);
+        const optimisticText = result.status === "sent" ? result.content : "";
         const optimisticMessage = result.status === "empty"
           ? undefined
           : createOptimisticUserMessage(result.clientEventId, optimisticText, input.references);
@@ -388,14 +354,14 @@ export function createDesktopAppServices(): AppServices {
       async resolveApproval(sessionId, input) {
         await initialize();
         try {
-          await submitDesktopApprovalAction({
-            action: input.action,
+          const session = controller.state.sessions.find((candidate) => candidate.key === sessionId);
+          if (!session) throw new Error(`Cannot resolve approval for unknown Thread ${sessionId}`);
+          await requireNative(nativeThreads, "Thread").resolveApproval({
+            threadId: session.threadId || session.key,
             approvalId: input.approvalId,
-            gatewayTools: gatewayApi.tools,
+            approved: input.action !== "deny",
+            scope: input.action === "approveSession" ? "session" : "once",
             ...(input.guidance ? { guidance: input.guidance } : {}),
-            invoke,
-            preferNativeWorkerResume: nativeMode,
-            sessionKey: sessionId,
           });
         } finally {
           await controller.reloadTimeline(sessionId);
@@ -417,7 +383,12 @@ export function createDesktopAppServices(): AppServices {
         if (!request) {
           return;
         }
-        await gatewayApi.agentUi.submitForm(formId, request);
+        await requireNative(nativeThreads, "Thread").submitForm({
+          threadId: threadIdForForm(form),
+          formId,
+          values: request.values,
+          action: "submit",
+        });
         agentUiState.forms.set(formId, {
           ...form,
           status: AGENT_UI_FORM_STATUSES.submitted,
@@ -436,7 +407,12 @@ export function createDesktopAppServices(): AppServices {
         if (!request) {
           return;
         }
-        await gatewayApi.agentUi.cancelForm(formId, request);
+        await requireNative(nativeThreads, "Thread").submitForm({
+          threadId: threadIdForForm(form),
+          formId,
+          values: {},
+          action: "cancel",
+        });
         agentUiState.forms.set(formId, {
           ...form,
           status: AGENT_UI_FORM_STATUSES.cancelled,
@@ -454,7 +430,7 @@ export function createDesktopAppServices(): AppServices {
       },
       async branchFromMessage(sessionId, messageId) {
         await initialize();
-        const payload = await gatewayApi.sessions.branch?.({ session_key: sessionId, message_id: messageId });
+        const payload = await requireNative(nativeSessions, "Session").branch?.({ session_key: sessionId, message_id: messageId });
         await controller.loadSessions();
         return mapSession(controller.state.sessions[0] ?? {
           key: sessionId,
@@ -487,31 +463,35 @@ export function createDesktopAppServices(): AppServices {
     workspaceStore: {
       async listFiles() {
         await initialize();
-        return normalizeWorkspaceFiles(await gatewayApi.workspace.files());
+        return normalizeWorkspaceFiles(await requireNative(nativeWorkspace, "Workspace").files());
       },
       async listDirectory(request) {
         await initialize();
-        return normalizeWorkspaceDirectoryPage(await gatewayApi.workspace.directory(request));
+        return normalizeWorkspaceDirectoryPage(await requireNative(nativeWorkspace, "Workspace").directory(request));
       },
       async readFile(request) {
         await initialize();
-        return normalizeWorkspaceFileChunk(await gatewayApi.workspace.fileChunk(request));
+        return normalizeWorkspaceFileChunk(await requireNative(nativeWorkspace, "Workspace").fileChunk(request));
       },
     },
     knowledgeStore: {
       async listDocuments() {
         await initialize();
-        return normalizeKnowledgeDocuments(await gatewayApi.knowledge.documents());
+        return normalizeKnowledgeDocuments(await requireNative(nativeKnowledge, "Knowledge").documents());
       },
       async stats() {
         await initialize();
-        return normalizeStats(await gatewayApi.knowledge.stats());
+        return normalizeStats(await requireNative(nativeKnowledge, "Knowledge").stats());
       },
     },
     toolsStore: {
+      async loadCatalog() {
+        await initialize();
+        return normalizeToolCatalog(await requireNative(nativeWebui, "WebUI").route({ method: "GET", path: "/api/tools" }));
+      },
       async listSkills() {
         await initialize();
-        return normalizeSkills(await gatewayApi.skills.list());
+        return normalizeSkills(await requireNative(nativeSkills, "Skills").list());
       },
     },
     settingsStore: {
@@ -531,6 +511,49 @@ export function createDesktopAppServices(): AppServices {
         const pane = buildDesktopSettingsPaneModel(state, { providerCatalog });
         return normalizeChatModelOptions(pane);
       },
+      async loadDesktopConfigSettings() {
+        await initialize();
+        const currentConfig = await loadSettingsSnapshot();
+        const providerCatalog = buildDesktopProviderCatalogItems(await loadProviderCatalog());
+        const formState = buildDesktopSettingsFormState(currentConfig, providerCatalog);
+        return {
+          currentConfig,
+          formState,
+          pane: buildDesktopSettingsPaneModel(formState, { providerCatalog }),
+        };
+      },
+      async saveDesktopConfigSettings(currentConfig, patch) {
+        await initialize();
+        const result = await saveDesktopSettingsConfig(currentConfig, patch, {
+          applyNativeConfigPatch: nativeMode
+            ? (configToPatch, nativePatch) => applyNativeConfigPatch(configToPatch, nativePatch, { invoke })
+            : undefined,
+        });
+        const savedConfig = result.persistedRevision && isRecord(result.config)
+          ? { ...result.config, revision: result.persistedRevision }
+          : result.config;
+        const providerCatalog = buildDesktopProviderCatalogItems(await loadProviderCatalog());
+        const formState = buildDesktopSettingsFormState(savedConfig, providerCatalog);
+        const saveDetails = {
+          transport: result.transport,
+          persistedRevision: result.persistedRevision,
+          updatedFields: result.updatedFields,
+          applied: result.applied,
+          restartRequired: result.restartRequired,
+          reloadRequired: result.reloadRequired,
+          warnings: result.warnings,
+        };
+        return {
+          currentConfig: savedConfig,
+          formState,
+          pane: buildDesktopSettingsPaneModel(formState, {
+            providerCatalog,
+            saveStatus: "saved",
+            saveDetails,
+          }),
+          saveDetails,
+        };
+      },
       async loadProviderSettings() {
         await initialize();
         return buildProviderModelsSettings(await loadSettingsSnapshot());
@@ -545,7 +568,6 @@ export function createDesktopAppServices(): AppServices {
           applyNativeConfigPatch: nativeMode
             ? (configToPatch, nativePatch) => applyNativeConfigPatch(configToPatch, nativePatch, { invoke })
             : undefined,
-          applyGatewayConfigPatch: (gatewayPatch) => gatewayApi.config.patch(gatewayPatch),
         });
         const savedConfig = result.persistedRevision && isRecord(result.config)
           ? { ...result.config, revision: result.persistedRevision }
@@ -563,11 +585,15 @@ export function createDesktopAppServices(): AppServices {
             error: null,
           };
         }
-        return normalizeProviderModelFetchResult(await gatewayApi.config.providerModels({
-          provider: input.providerId,
-          profile: input.profileId,
-          apiBase: input.apiBase,
-          refreshLive: true,
+        return normalizeProviderModelFetchResult(await requireNative(nativeWebui, "WebUI").route({
+          method: "POST",
+          path: "/api/provider-models",
+          body: {
+            provider: input.providerId,
+            profile: input.profileId,
+            apiBase: input.apiBase,
+            refreshLive: true,
+          },
         }));
       },
       async saveProviderSettings(currentConfig, patch) {
@@ -576,7 +602,6 @@ export function createDesktopAppServices(): AppServices {
           applyNativeConfigPatch: nativeMode
             ? (configToPatch, nativePatch) => applyNativeConfigPatch(configToPatch, nativePatch, { invoke })
             : undefined,
-          applyGatewayConfigPatch: (gatewayPatch) => gatewayApi.config.patch(gatewayPatch),
         });
         const savedConfig = result.persistedRevision && isRecord(result.config)
           ? { ...result.config, revision: result.persistedRevision }
@@ -588,13 +613,19 @@ export function createDesktopAppServices(): AppServices {
 }
 
 function mapSession(session: NativeChatSession, responding: boolean, fallbackPayload?: unknown): SessionSummary {
+  const threadStatus = session.status;
   return {
     id: session.key,
     chatId: session.chatId,
     title: session.title || "New session",
     updatedAtMs: timestampMs(session.updatedAt) ?? timestampFromPayload(fallbackPayload) ?? Date.now(),
     ...(session.pinned ? { pinned: true } : {}),
-    status: responding ? "running" : "idle",
+    ...(session.archived ? { archived: true } : {}),
+    status: responding || threadStatus === "running" || threadStatus === "cancelling"
+      ? "running"
+      : threadStatus === "waiting_for_approval"
+        ? "waiting_approval"
+        : threadStatus === "failed" ? "failed" : "idle",
   };
 }
 
@@ -760,8 +791,50 @@ function normalizeSkills(payload: unknown): SkillSummary[] {
     return {
       name: name || "Unnamed skill",
       description: stringValue(item.description ?? item.summary),
+      source: stringValue(item.source) || undefined,
+      enabled: typeof item.enabled === "boolean" ? item.enabled : undefined,
+      available: typeof item.available === "boolean" ? item.available : undefined,
+      always: item.always === true,
+      effective: typeof item.effective === "boolean" ? item.effective : undefined,
+      reason: stringValue(item.reason) || undefined,
     };
   });
+}
+
+function normalizeToolCatalog(payload: unknown): ToolCatalogSummary {
+  return {
+    tools: payloadItems(payload, ["tools", "items"]).map(normalizeToolSummary),
+    mcpServers: payloadItems(payload, ["mcpServers", "servers"]).map(normalizeMcpServerSummary),
+  };
+}
+
+function normalizeToolSummary(item: Record<string, unknown>): ToolSummary {
+  const approval = isRecord(item.approval) ? item.approval : {};
+  const name = stringValue(item.name ?? item.id);
+  return {
+    id: stringValue(item.id) || name,
+    name,
+    displayName: stringValue(item.displayName ?? item.title) || name,
+    description: stringValue(item.description),
+    source: stringValue(item.source) || "builtin",
+    serverId: stringValue(item.serverId) || undefined,
+    enabled: item.enabled !== false,
+    available: item.available !== false,
+    reason: stringValue(item.reason) || undefined,
+    approvalRequired: approval.required === true,
+  };
+}
+
+function normalizeMcpServerSummary(item: Record<string, unknown>): McpServerSummary {
+  const status = isRecord(item.status) ? item.status : {};
+  return {
+    id: stringValue(item.id),
+    enabled: item.enabled !== false,
+    transport: stringValue(item.transport) || "stdio",
+    state: stringValue(status.state) || (item.enabled === false ? "disabled" : "unknown"),
+    toolCount: numberValue(item.toolCount ?? status.toolCount) ?? 0,
+    error: stringValue(item.error ?? status.lastError) || undefined,
+  };
 }
 
 function normalizeStats(payload: unknown): Array<{ label: string; value: string }> {
@@ -806,36 +879,37 @@ function normalizeSettingsSummary(snapshot: unknown, config: { httpBaseUrl: stri
   return rows;
 }
 
-function chatEventFromGatewayEvent(event: NormalizedGatewayEvent, message?: ReactChatMessage): ChatEvent {
-  if (event.kind === "agent-ui.event") {
-    return {
-      type: event.kind,
-      ...(event.eventType ? { eventType: event.eventType } : {}),
-      ...(message ? { message } : {}),
-    };
-  }
-  if (event.kind !== "agent.event") {
-    return {
-      type: event.kind,
-      ...("commandId" in event && event.commandId ? { commandId: event.commandId } : {}),
-      ...(event.kind === "error" && event.message ? { error: event.message } : {}),
-      ...(message ? { message } : {}),
-    };
-  }
-  const eventType = stringValue(event.raw.event_type);
-  return {
-    type: event.kind,
-    ...(eventType ? { eventType } : {}),
-    ...(message ? { message } : {}),
-  };
-}
-
 function formMatchesSession(form: AgentUiForm, sessionId: string): boolean {
   const chatId = stringValue(form.chat_id || form.correlation.chat_id);
   const sessionKey = stringValue(form.correlation.session_key ?? form.correlation.sessionKey);
   return sessionKey === sessionId
     || chatId === sessionId
     || (Boolean(chatId) && sessionId.endsWith(`:${chatId}`));
+}
+
+function threadIdForForm(form: AgentUiForm): string {
+  const threadId = stringValue(
+    form.correlation.thread_id
+    ?? form.correlation.threadId
+    ?? form.correlation.session_key
+    ?? form.correlation.sessionKey,
+  );
+  if (!threadId) throw new Error(`Agent UI form ${form.form_id} is missing thread correlation`);
+  return threadId;
+}
+
+function nativeThreadMetadataPatch(body: unknown): Record<string, unknown> {
+  if (!isRecord(body)) return {};
+  const metadata = isRecord(body.metadata) ? body.metadata : {};
+  return {
+    ...(typeof body.title === "string" ? { title: body.title } : {}),
+    ...(Object.keys(metadata).length ? { extra: metadata } : {}),
+  };
+}
+
+function requireNative<T>(value: T | undefined, capability: string): T {
+  if (!value) throw new Error(`${capability} Native API is unavailable outside the Tauri runtime`);
+  return value;
 }
 
 function normalizeChatModelOptions(

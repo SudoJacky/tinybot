@@ -71,7 +71,11 @@ pub async fn run_native_agent_turn_with_workspace_async(
     config_snapshot: Value,
     workspace_root: &Path,
 ) -> Result<Value, String> {
-    let instructions = InstructionComposer::default().compose(workspace_root, &spec)?;
+    let instructions = InstructionComposer::default().compose_with_config(
+        workspace_root,
+        &spec,
+        &config_snapshot,
+    )?;
     run_owned_native_agent_turn_async(
         services,
         spec,
@@ -277,7 +281,10 @@ async fn run_native_agent_turn_with_instructions_async(
                 ));
             }
         };
-        let mut tool_registry = WorkerToolRegistryRpc::new(context.settings.capability_policy()?);
+        let mut tool_registry = WorkerToolRegistryRpc::new_with_config(
+            context.settings.capability_policy()?,
+            config_snapshot.clone(),
+        );
         for server in discovered {
             tool_registry =
                 tool_registry.with_contributor(Arc::new(McpToolContributor::from_discovery(

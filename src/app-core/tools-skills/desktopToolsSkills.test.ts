@@ -119,6 +119,26 @@ describe("desktop tools and skills helpers", () => {
     });
   });
 
+  test("honors effective tool availability from the native catalog", () => {
+    const [tool] = buildDesktopToolRows({
+      tools: [{ name: "remote.search", description: "Search", enabled: false, available: false }],
+    });
+
+    expect(tool?.enabled).toBe(false);
+    expect(tool?.meta).toContain("disabled");
+  });
+
+  test("honors global and catalog skill enablement", () => {
+    expect(buildDesktopSkillRows(
+      { skills: [{ name: "planner", available: true, always: true }] },
+      { skills: { enabled: false } },
+    )[0]).toMatchObject({ enabled: false, status: "disabled" });
+    expect(buildDesktopSkillRows(
+      { skills: [{ name: "planner", available: true, enabled: false }] },
+      { skills: { enabled: true } },
+    )[0]?.enabled).toBe(false);
+  });
+
   test("builds skill detail state and preserves root WebUI create, edit, delete, and validate contracts", () => {
     const detail = buildDesktopSkillDetailView(
       {
@@ -221,7 +241,7 @@ describe("desktop tools and skills helpers", () => {
       ],
     });
     expect(pane.skillRows.map((row) => [row.name, row.status, row.source, row.deletable])).toEqual([
-      ["planner", "always", "workspace", true],
+      ["planner", "disabled", "workspace", true],
       ["reviewer", "enabled", "builtin", false],
     ]);
     expect(pane.selectedSkill).toMatchObject({

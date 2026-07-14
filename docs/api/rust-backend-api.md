@@ -108,7 +108,7 @@ Known worker error sources:
 {
   "state": "running",
   "owner": "shell",
-  "http_ok": true,
+  "http_ok": false,
   "gateway_http": "http://127.0.0.1:18790",
   "gateway_ws": "ws://127.0.0.1:18790/ws",
   "command": "Tauri Rust backend",
@@ -119,8 +119,8 @@ Known worker error sources:
   "logs": [],
   "last_error": null,
   "exit_policy": "stop_on_exit",
-  "bootstrap_status": "ready",
-  "response_class": "tinybot-bootstrap",
+  "bootstrap_status": "not_required",
+  "response_class": "tauri-native",
   "recovery_hint": null,
   "worker_runtime": {},
   "agent_tasks": {
@@ -145,6 +145,11 @@ Known worker error sources:
   }
 }
 ```
+
+In Tauri mode, readiness is derived from the in-process Rust lifecycle and worker status. The
+compatibility `gateway_http`, `gateway_ws`, and `port` fields do not imply that Tinybot binds a local
+HTTP server, and another process listening on `18790` does not make the Rust runtime fail. External
+browser mode still performs its own `/webui/bootstrap` check.
 
 `lifecycle` is the queryable native-runtime recovery and cleanup record. Startup pauses new agent
 runs until both thread journals and their SQLite projections pass consistency checks. The startup
@@ -190,16 +195,20 @@ source provenance. Increasing precedence is:
 4. optional workspace `SOUL.md`, `USER.md`, and `TOOLS.md` (`400`, `410`, `420`);
 5. project `AGENTS.md` scopes from the nearest `.git` root to the effective working directory
    (`500 + depth`), with `AGENTS.override.md` replacing `AGENTS.md` at the same scope;
-6. explicitly selected skill files (`700 + index`);
+6. effective skill files selected explicitly or autoloaded from `always: true` metadata (`700 + index`);
 7. `collaborationMode` and `agentRole` instructions (`800`, `810`);
 8. generated working-directory and operating-system facts (`900`).
 
 The four turn fields may appear at the run root or under `metadata`; snake_case aliases are also
 accepted. `selectedSkills` is an ordered array of names. Workspace `skills/<name>/SKILL.md` wins over
-the bundled `builtin-skills/<name>/SKILL.md`; invalid, duplicate, or missing selected skill names fail
-before provider dispatch. Workspace profile and skill files have a 64 KiB per-file limit, while
-project instructions share a 64 KiB aggregate budget. Invalid UTF-8, unreadable paths, invalid field
-types, truncation, and empty sources are surfaced instead of silently disappearing.
+the bundled `builtin-skills/<name>/SKILL.md`. Skill frontmatter is parsed as typed YAML and requires
+`name` and `description`; optional `requires.bins` and `requires.env` entries determine runtime
+availability. `skills.enabled: false` disables all skills, the legacy array form acts as an allowlist,
+`skills.disabled_skills` excludes named skills, and `skills.autoload: true` loads available skills
+with `always: true`. Invalid, disabled, unavailable, duplicate, or missing explicitly selected skill
+names fail before provider dispatch. Workspace profile and skill files have a 64 KiB per-file limit,
+while project instructions share a 64 KiB aggregate budget. Invalid UTF-8, unreadable paths, invalid
+field types, truncation, and empty sources are surfaced instead of silently disappearing.
 
 ## Config Commands
 
@@ -309,6 +318,9 @@ return `value: null` with `secret` metadata and must remain redacted in exported
 Provider selection is profile-based. New config should use `agents.defaults.activeProfile` and
 `providers.profiles.<profileId>.provider`; `agents.defaults.provider: "auto"` is a legacy value only.
 The built-in provider catalog currently exposes only `deepseek`, `dashscope`, and `openai`.
+Profiles are not limited to that catalog: a profile with a custom provider ID, explicit `apiBase`,
+and at least one model is resolved as an OpenAI-compatible provider. Its optional API key remains on
+the existing secret/redaction path, and `supportsModelDiscovery` controls `/models` discovery.
 
 OpenAI-compatible provider profiles accept separate network deadlines:
 
@@ -526,7 +538,7 @@ projecting the existing persisted message shape.
 
 Each `NativeAgentRunContext` also owns an immutable `AgentTurnSettings` snapshot parsed from the run
 spec, metadata, and agent defaults. It includes model, provider, iteration and streaming limits,
-maximum completion tokens, context-window strategy, reasoning options, service tier, output schema,
+temperature, maximum completion tokens, context-window strategy, reasoning options, service tier, output schema,
 working directory, approval policy, permission profile, selected tools, and parallel-tool policy.
 Invalid values fail request construction rather than being reread differently by later stages.
 
@@ -911,21 +923,21 @@ Only user-visible reasoning summaries are projected. Hidden or debug provider re
 for diagnostics where applicable but is excluded from the product-facing canonical timeline.
 
 Canonical `user_message` data also carries optional `clientEventId`. The desktop sends this ID in
-the WebSocket message frame, the native transport preserves it in the Agent input, and the runtime
-echoes it in the canonical user item. It is a reconciliation identity and does not replace the
-durable `messageId`.
+`worker_submit_thread_turn`, and the runtime echoes it in the canonical user item. It is a
+reconciliation identity and does not replace the durable `messageId`.
 
-WebSocket `message` frames may also carry an optional `references` array for structured user-attached
+Typed Thread turn input may carry an optional `references` array for structured user-attached
 context. TinyOS uses the existing canonical reference shape rather than embedding selected file or
 terminal evidence into the visible message text:
 
 ```json
 {
-  "type": "message",
-  "chat_id": "chat-1",
-  "client_event_id": "client-message-1",
-  "content": "Explain this selection",
-  "references": [
+  "threadId": "thread-1",
+  "input": {
+    "role": "user",
+    "clientEventId": "client-message-1",
+    "content": "Explain this selection",
+    "references": [
     {
       "kind": "reference",
       "title": "src/main.ts · L2–3",
@@ -937,29 +949,28 @@ terminal evidence into the visible message text:
       "evidenceId": "item-file-1",
       "scope": "turn-1"
     }
-  ]
+    ]
+  },
+  "spec": {
+    "runId": "run-1",
+    "sessionId": "thread-1",
+    "stream": true,
+    "metadata": { "clientEventId": "client-message-1" }
+  }
 }
 ```
 
-The native WebSocket transport preserves `references` in both run metadata and Agent user input.
-The thread runtime persists them on the canonical `user_message`, so reloads keep the same visible
+The Thread command preserves `references` in the Agent input and run metadata. The thread runtime
+persists them on the canonical `user_message`, so reloads keep the same visible
 reference chips. Immediately before a provider request, references whose `type` starts with
 `tinyos.` are appended to the provider-only user content inside an explicit untrusted-evidence
 block; the stored and user-visible message content remains unchanged. Provider injection accepts at
 most 16 TinyOS references and 64 KiB of serialized reference data per message. Exceeding either
 limit fails the provider request visibly rather than dropping context.
 
-TinyOS Agent controls use a versioned command envelope. The native `interrupt` frame carries
-`command_id`, `command_kind`, `session_id`, `run_id`, optional turn/thread correlation, and the
-source surface/control. Before cancellation is handed to the runtime, Rust appends a distinct
-`agent.command.acknowledged` trace event to the target run. Canonical projection exposes it as a
-completed `system_notice` whose `data.detail` includes `commandId`, `commandKind`, and
-`commandStatus: "acknowledged"`.
-
-The transport response emits `command_accepted` and then `command_canonical_updated`. The latter is
-an invalidation hint only: clients reload the canonical runtime state and verify the correlated
-system notice. The eventual `agent.cancelled` item remains a separate operation-completion item and
-retains the same `commandId`.
+Desktop chat controls call `worker_thread_interrupt`, `worker_resolve_thread_approval`, and
+`worker_submit_thread_form` directly. Their canonical Thread timeline updates are delivered through
+typed Tauri events; no Native Event to Gateway Frame projection is part of the desktop contract.
 
 `agent.pause` and `agent.resume` use the native `command` frame and target the same active `run_id`.
 Pause is cooperative: the runtime records `pause_requested`, then enters canonical `paused` state at
@@ -1396,6 +1407,13 @@ interactive sessions. Its returned stdout/stderr is bounded by the manager's ret
 The manager is held by `NativeAgentRuntimeServices`, so separate per-tool Worker RPC router instances
 share the same live process store.
 
+The worker tool registry also receives the current config snapshot. An explicit
+`tools.exec.enable: false` marks `shell.execute` and `exec_command` unavailable and rejects direct
+starts. `tools.exec.timeout` supplies the default one-shot timeout, while
+`tools.restrictToWorkspace` supplies the default workspace restriction for execute/start requests;
+explicit per-request values still take precedence. Process-management tools remain available so a
+previously started process can be polled or terminated safely.
+
 Model-visible deferred tools map to the richer RPC surface:
 
 | Tool | Worker RPC target | Approval | Cancellation policy |
@@ -1522,7 +1540,7 @@ Lower-level knowledge RPC additionally supports:
 - `knowledge.session_list`
 - `knowledge.session_clear`
 
-## Background, Task, Subagent, Transport, and Channel Commands
+## Background, Task, Subagent, and Host Commands
 
 | Group | Commands |
 | --- | --- |
@@ -1530,9 +1548,7 @@ Lower-level knowledge RPC additionally supports:
 | Background subagent input | `worker_background_subagent_enqueue_input` |
 | Subagent manager | `worker_subagent_spawn`, `worker_subagent_list`, `worker_subagent_query`, `worker_subagent_send_input`, `worker_subagent_wait`, `worker_subagent_cancel`, `worker_subagent_close`, `worker_subagent_resume` |
 | Task plans | `worker_task_plan_list`, `worker_task_plan_get`, `worker_task_plan_save`, `worker_task_plan_delete` |
-| Transport | `worker_transport_gateway_frame`, `worker_transport_websocket_message`, `worker_transport_dispatch_websocket_message` |
-| Channel connector | `worker_channel_dispatch_inbound`, `worker_channel_start`, `worker_channel_status`, `worker_channel_stop`, `worker_channel_login` |
-| Cron | `worker_cron_dispatch_due` |
+| TinyOS host operations | `worker_dispatch_tinyos_host_command` |
 | Cowork proxy | `worker_cowork_route` |
 | WebUI proxy | `worker_webui_route` |
 
@@ -1566,31 +1582,21 @@ or terminal boundary, the timeout expires, or the parent request is cancelled. T
 to 30 seconds and is capped at 30 seconds. Waiting does not write polling snapshots into thread
 history.
 
-Transport input examples:
+Host command input example:
 
 ```ts
-await invoke("worker_transport_dispatch_websocket_message", {
+await invoke("worker_dispatch_tinyos_host_command", {
   input: {
     clientId: "client-1",
-    frame: { type: "message", content: "hello" },
-    attachedChatId: "chat-1",
-    sessionExists: true,
-    editablePaths: ["src/main.ts"],
-    model: "deepseek-v4-pro",
-    maxIterations: 20,
+    frame: { type: "command", command_kind: "file.save", path: "notes.txt", content: "hello" },
+    attachedChatId: "thread-1",
     runId: "run-1",
-    stream: true
   }
 });
 ```
 
-Channel login:
-
-```ts
-await invoke("worker_channel_login", {
-  input: { channel: "slack", force: false }
-});
-```
+This dispatcher accepts only remaining non-chat TinyOS host operations. Chat turns, interruption,
+approvals, and forms must use the typed Thread commands.
 
 ## WebUI Route Wrapper
 
@@ -1632,6 +1638,7 @@ Use `routeResponse()` if the status and headers are needed.
 | `POST` | `/webui/refresh-token` | bootstrap | Returns a fresh bootstrap token |
 | `GET` | `/api/status` | status | Runtime status body |
 | `GET` | `/api/config` | config | Public config snapshot |
+| `GET` | `/api/tools` | tools | Effective built-in and MCP capability catalog |
 | `GET` | `/api/providers` | providers | Provider catalog |
 | `POST` | `/api/provider-models` | providers | Provider model resolution |
 | `GET` | `/v1/models` | openai | OpenAI-compatible model list |
@@ -1680,7 +1687,6 @@ These return status `501` through `worker_webui_route`:
 | `POST` | `/v1/knowledge/graph/extract` | LLM graph extraction orchestration is not exposed as WebUI route |
 | `GET` | `/v1/knowledge/graphrag` | GraphRAG route is not exposed as WebUI route |
 | `GET/POST/PATCH/DELETE` | `/api/cowork/{path:.+}` | Cowork HTTP routes are not exposed by Rust WebUI route inventory |
-| `GET` | `/api/tools` | Native tool catalog route is not exposed yet |
 
 Unknown, non-inventoried routes return status `404` with:
 
@@ -1756,6 +1762,12 @@ Accepted transport values:
 Configured server maps are normalized from `tools.mcp_servers`, `tools.mcpServers`, or
 `mcp.servers`. All MCP status, discovery, reconciliation, Worker RPC, and native-agent dispatch
 paths use the same normalized map.
+
+`mcp.capability_catalog` and `GET /api/tools` expose one effective snapshot containing configured
+servers, runtime status, discovered tools, allowlist state, callable state, denial reasons, input
+schemas, and approval metadata. One failed or disabled server remains visible without hiding tools
+from healthy servers. The catalog reports configured approval policy separately; MCP execution still
+requires the current per-request approval until policy enforcement is implemented at the dispatcher.
 
 Stdio configuration example:
 
@@ -1999,9 +2011,8 @@ Prefer these wrappers instead of direct command strings:
 | `createDesktopNativeSessionsApi` | `src/app-core/native/desktopNativeSessions.ts` | Session commands |
 | `createDesktopNativeThreadsApi` | `src/app-core/native/desktopNativeThreads.ts` | Thread commands |
 | `createDesktopNativeKnowledgeApi` | `src/app-core/native/desktopNativeKnowledge.ts` | Knowledge commands |
-| `createDesktopNativeTransportApi` | `src/app-core/native/desktopNativeTransport.ts` | Transport and channel commands |
+| `createDesktopNativeHostCommandApi` | `src/app-core/native/desktopNativeHostCommand.ts` | Remaining non-chat TinyOS host commands |
 | `createDesktopNativeWebuiApi` | `src/app-core/native/desktopNativeWebui.ts` | `worker_webui_route` |
-| `createGatewayApiClient` | `src/app-core/gateway/gatewayHttpClient.ts` | Chooses native WebUI/native command first, then gateway HTTP fallback when configured |
 
 ## Examples
 

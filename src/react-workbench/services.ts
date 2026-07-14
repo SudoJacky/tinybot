@@ -23,6 +23,11 @@ import type {
   ProviderModelFetchResult,
   ProviderModelsSettingsData,
 } from "../app-core/settings/providerModelsSettings";
+import type {
+  DesktopSettingsFormState,
+  DesktopSettingsPaneModel,
+  DesktopSettingsPaneSaveDetails,
+} from "../app-core/settings/desktopSettingsProviders";
 
 export type SessionSummary = {
   id: string;
@@ -112,20 +117,66 @@ export type KnowledgeStore = {
 export type SkillSummary = {
   name: string;
   description?: string;
+  source?: string;
+  enabled?: boolean;
+  available?: boolean;
+  always?: boolean;
+  effective?: boolean;
+  reason?: string;
+};
+
+export type ToolSummary = {
+  id: string;
+  name: string;
+  displayName: string;
+  description?: string;
+  source: string;
+  serverId?: string;
+  enabled: boolean;
+  available: boolean;
+  reason?: string;
+  approvalRequired: boolean;
+};
+
+export type McpServerSummary = {
+  id: string;
+  enabled: boolean;
+  transport: string;
+  state: string;
+  toolCount: number;
+  error?: string;
+};
+
+export type ToolCatalogSummary = {
+  tools: ToolSummary[];
+  mcpServers: McpServerSummary[];
 };
 
 export type ToolsStore = {
+  loadCatalog(): Promise<ToolCatalogSummary>;
   listSkills(): Promise<SkillSummary[]>;
 };
 
 export type SettingsStore = {
   load(): Promise<Array<{ label: string; value: string }>>;
   loadChatModels?(): Promise<ChatModelOption[]>;
+  loadDesktopConfigSettings?(): Promise<DesktopConfigSettingsData>;
+  saveDesktopConfigSettings?(currentConfig: unknown, patch: unknown): Promise<DesktopConfigSettingsSaveResult>;
   loadAgentDefaultsSettings?(): Promise<AgentDefaultsSettingsData>;
   saveAgentDefaultsSettings?(currentConfig: unknown, patch: unknown): Promise<AgentDefaultsSettingsData>;
   loadProviderSettings?(): Promise<ProviderModelsSettingsData>;
   fetchProviderModels?(input: ProviderModelFetchInput): Promise<ProviderModelFetchResult>;
   saveProviderSettings?(currentConfig: unknown, patch: unknown): Promise<ProviderModelsSettingsData>;
+};
+
+export type DesktopConfigSettingsData = {
+  currentConfig: unknown;
+  formState: DesktopSettingsFormState;
+  pane: DesktopSettingsPaneModel;
+};
+
+export type DesktopConfigSettingsSaveResult = DesktopConfigSettingsData & {
+  saveDetails: DesktopSettingsPaneSaveDetails;
 };
 
 export type ChatModelOption = {

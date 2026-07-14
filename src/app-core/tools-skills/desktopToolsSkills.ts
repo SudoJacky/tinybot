@@ -247,9 +247,11 @@ export function buildDesktopToolSchemaFields(schema: unknown): DesktopToolSchema
 
 export function buildDesktopSkillRows(payload: unknown, config: unknown = {}): DesktopSkillRow[] {
   const skills = arrayFromPayload(payload, "skills");
-  const enabledSkills = arrayValue(asRecord(asRecord(config).skills).enabled).map((item) => stringValue(item));
+  const enabledSetting = asRecord(asRecord(config).skills).enabled;
+  const globallyEnabled = enabledSetting !== false;
+  const enabledSkills = arrayValue(enabledSetting).map((item) => stringValue(item));
   const allEnabled = !enabledSkills.length || enabledSkills.includes("*");
-  return skills.map((skill) => buildDesktopSkillRow(skill, allEnabled, enabledSkills));
+  return skills.map((skill) => buildDesktopSkillRow(skill, globallyEnabled, allEnabled, enabledSkills));
 }
 
 export function buildDesktopSkillDetailView(detail: unknown, listItem: unknown = {}): DesktopSkillDetailView {
@@ -434,7 +436,9 @@ export function buildDesktopSkillTogglePatch(
 function buildDesktopToolRow(tool: UnknownRecord, config: unknown): DesktopToolRow {
   const name = stringValue(tool.name);
   const schemaFields = buildDesktopToolSchemaFields(tool.parameters);
-  const enabled = resolveDesktopToolEnabled(name, config);
+  const enabled = tool.enabled !== false
+    && tool.available !== false
+    && resolveDesktopToolEnabled(name, config);
   return {
     name,
     displayName: TOOL_DISPLAY_NAMES[name] || name,
@@ -451,13 +455,21 @@ function buildDesktopToolRow(tool: UnknownRecord, config: unknown): DesktopToolR
   };
 }
 
-function buildDesktopSkillRow(skill: UnknownRecord, allEnabled: boolean, enabledSkills: string[]): DesktopSkillRow {
+function buildDesktopSkillRow(
+  skill: UnknownRecord,
+  globallyEnabled: boolean,
+  allEnabled: boolean,
+  enabledSkills: string[],
+): DesktopSkillRow {
   const name = stringValue(skill.name);
   const source = stringValue(skill.source) || "unknown";
   const available = skill.available !== false;
   const always = skill.always === true;
-  const enabled = available && (always || allEnabled || enabledSkills.includes(name));
-  const status: DesktopSkillStatus = !available ? "unavailable" : always ? "always" : enabled ? "enabled" : "disabled";
+  const enabledByCatalog = typeof skill.enabled === "boolean" ? skill.enabled : undefined;
+  const enabled = available
+    && globallyEnabled
+    && (enabledByCatalog ?? (allEnabled || enabledSkills.includes(name)));
+  const status: DesktopSkillStatus = !available ? "unavailable" : !enabled ? "disabled" : always ? "always" : "enabled";
   return {
     name,
     source,

@@ -27,34 +27,6 @@ use tauri::{Runtime, State};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct WorkerTransportGatewayFrameInput {
-    kind: String,
-    chat_id: String,
-    #[serde(default)]
-    content: Option<String>,
-    #[serde(default)]
-    delta: Option<String>,
-    #[serde(default)]
-    usage: Option<serde_json::Value>,
-    #[serde(default)]
-    metadata: Option<serde_json::Value>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct WorkerTransportWebSocketMessageInput {
-    client_id: String,
-    frame: serde_json::Value,
-    #[serde(default)]
-    attached_chat_id: Option<String>,
-    #[serde(default)]
-    session_exists: Option<bool>,
-    #[serde(default)]
-    editable_paths: Option<Vec<String>>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub(crate) struct WorkerTransportWebSocketDispatchInput {
     pub(crate) client_id: String,
     pub(crate) frame: serde_json::Value,
@@ -74,20 +46,6 @@ pub(crate) struct WorkerTransportWebSocketDispatchInput {
     pub(crate) stream: Option<bool>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct WorkerChannelDispatchInboundInput {
-    message: serde_json::Value,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct WorkerChannelLoginInput {
-    channel: String,
-    #[serde(default)]
-    force: bool,
-}
-
 #[derive(Clone, Debug, Default)]
 pub(crate) struct WorkerTransportWebSocketDispatchOptions {
     pub(crate) model: Option<String>,
@@ -97,39 +55,31 @@ pub(crate) struct WorkerTransportWebSocketDispatchOptions {
 }
 
 #[tauri::command]
-pub(crate) fn worker_transport_gateway_frame(
-    input: WorkerTransportGatewayFrameInput,
-    state: State<'_, SharedGateway>,
-) -> Result<serde_json::Value, String> {
-    worker_transport_gateway_frame_with_options(
-        state.inner(),
-        input,
-        native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
-        Duration::from_secs(10),
-    )
-}
-
-#[tauri::command]
-pub(crate) fn worker_transport_websocket_message(
-    input: WorkerTransportWebSocketMessageInput,
-    state: State<'_, SharedGateway>,
-) -> Result<serde_json::Value, String> {
-    worker_transport_websocket_message_with_options(
-        state.inner(),
-        input,
-        native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
-        Duration::from_secs(10),
-    )
-}
-
-#[tauri::command]
-pub(crate) async fn worker_transport_dispatch_websocket_message<R: Runtime + 'static>(
+pub(crate) async fn worker_dispatch_tinyos_host_command<R: Runtime + 'static>(
     input: WorkerTransportWebSocketDispatchInput,
     state: State<'_, SharedGateway>,
     app: tauri::AppHandle<R>,
 ) -> Result<serde_json::Value, String> {
+    let frame_type = input.frame.get("type").and_then(serde_json::Value::as_str);
+    if frame_type != Some("command") {
+        return Err(
+            "worker_dispatch_tinyos_host_command accepts only TinyOS host commands; use worker_submit_thread_turn, worker_thread_interrupt, worker_resolve_thread_approval, or worker_submit_thread_form for chat"
+                .to_string(),
+        );
+    }
+    if matches!(
+        input
+            .frame
+            .get("command_kind")
+            .or_else(|| input.frame.get("commandKind"))
+            .and_then(serde_json::Value::as_str),
+        Some("agent.cancel" | "approval.resolve" | "form.submit" | "form.cancel")
+    ) {
+        return Err(
+            "chat control commands must use the typed Thread API instead of the TinyOS host command dispatcher"
+                .to_string(),
+        );
+    }
     let shared = state.inner().clone();
     let workspace_root = native_backend_workspace_root();
     let config_snapshot = experimental_worker_config_snapshot();
@@ -143,91 +93,6 @@ pub(crate) async fn worker_transport_dispatch_websocket_message<R: Runtime + 'st
         Some(live_trace_sink),
     )
     .await
-}
-
-#[tauri::command]
-pub(crate) fn worker_channel_dispatch_inbound(
-    input: WorkerChannelDispatchInboundInput,
-    state: State<'_, SharedGateway>,
-) -> Result<serde_json::Value, String> {
-    worker_channel_dispatch_inbound_with_options(
-        state.inner(),
-        input,
-        native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
-        Duration::from_secs(60),
-    )
-}
-
-#[tauri::command]
-pub(crate) fn worker_channel_start(
-    state: State<'_, SharedGateway>,
-) -> Result<serde_json::Value, String> {
-    worker_channel_start_with_options(
-        state.inner(),
-        native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
-        Duration::from_secs(60),
-    )
-}
-
-#[tauri::command]
-pub(crate) fn worker_channel_status(
-    state: State<'_, SharedGateway>,
-) -> Result<serde_json::Value, String> {
-    worker_channel_status_with_options(
-        state.inner(),
-        native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
-        Duration::from_secs(10),
-    )
-}
-
-#[tauri::command]
-pub(crate) fn worker_channel_stop(
-    state: State<'_, SharedGateway>,
-) -> Result<serde_json::Value, String> {
-    worker_channel_stop_with_options(
-        state.inner(),
-        native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
-        Duration::from_secs(60),
-    )
-}
-
-#[tauri::command]
-pub(crate) fn worker_channel_login(
-    input: WorkerChannelLoginInput,
-    state: State<'_, SharedGateway>,
-) -> Result<serde_json::Value, String> {
-    worker_channel_login_with_options(
-        state.inner(),
-        native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
-        Duration::from_secs(60),
-        input.channel,
-        input.force,
-    )
-}
-
-pub(crate) fn worker_transport_gateway_frame_with_options(
-    _shared: &SharedGateway,
-    _input: WorkerTransportGatewayFrameInput,
-    _workspace_root: PathBuf,
-    _config_snapshot: serde_json::Value,
-    _timeout: Duration,
-) -> Result<serde_json::Value, String> {
-    unsupported_rust_only_command("worker_transport_gateway_frame")
-}
-
-pub(crate) fn worker_transport_websocket_message_with_options(
-    _shared: &SharedGateway,
-    _input: WorkerTransportWebSocketMessageInput,
-    _workspace_root: PathBuf,
-    _config_snapshot: serde_json::Value,
-    _timeout: Duration,
-) -> Result<serde_json::Value, String> {
-    unsupported_rust_only_command("worker_transport_websocket_message")
 }
 
 #[cfg(test)]
@@ -259,7 +124,7 @@ async fn worker_transport_dispatch_websocket_message_with_live_trace_sink_async(
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 ) -> Result<serde_json::Value, String> {
     let Some(mut transport_result) = native_websocket_transport_result(&input) else {
-        return unsupported_rust_only_command("worker_transport_dispatch_websocket_message");
+        return unsupported_rust_only_command("worker_dispatch_tinyos_host_command");
     };
     if transport_result
         .get("kind")
@@ -379,6 +244,30 @@ pub(crate) fn native_websocket_transport_result(
             "sessionId": session_id,
             "attachedChatId": chat_id,
             "frames": [{ "event": "chat_created", "chat_id": chat_id }],
+        }));
+    }
+    if json_string_field(frame, "type") == Some("attach") {
+        let chat_id =
+            json_string_field(frame, "chat_id").or_else(|| json_string_field(frame, "chatId"))?;
+        let session_id = format!("websocket:{chat_id}");
+        if input.session_exists == Some(false) {
+            return Some(serde_json::json!({
+                "kind": "error",
+                "chatId": chat_id,
+                "sessionId": session_id,
+                "frames": [{
+                    "event": "error",
+                    "chat_id": chat_id,
+                    "message": "session not found"
+                }],
+            }));
+        }
+        return Some(serde_json::json!({
+            "kind": "attached",
+            "chatId": chat_id,
+            "sessionId": session_id,
+            "attachedChatId": chat_id,
+            "frames": [{ "event": "attached", "chat_id": chat_id }],
         }));
     }
     if json_string_field(frame, "type") == Some("interrupt") {
@@ -2569,137 +2458,6 @@ pub(crate) fn build_worker_transport_websocket_run_input_request(
         "agent.run_input",
         serde_json::json!({ "input": input }),
     ))
-}
-
-pub(crate) fn worker_channel_dispatch_inbound_with_options(
-    _shared: &SharedGateway,
-    _input: WorkerChannelDispatchInboundInput,
-    _workspace_root: PathBuf,
-    _config_snapshot: serde_json::Value,
-    _timeout: Duration,
-) -> Result<serde_json::Value, String> {
-    unsupported_rust_only_command("worker_channel_dispatch_inbound")
-}
-
-pub(crate) fn worker_channel_start_with_options(
-    shared: &SharedGateway,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    timeout: Duration,
-) -> Result<serde_json::Value, String> {
-    send_channel_lifecycle_worker_request(
-        shared,
-        workspace_root,
-        config_snapshot,
-        build_worker_channel_start_request(next_worker_request_correlation()),
-        timeout,
-        "start",
-    )
-}
-
-pub(crate) fn worker_channel_status_with_options(
-    shared: &SharedGateway,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    timeout: Duration,
-) -> Result<serde_json::Value, String> {
-    send_channel_lifecycle_worker_request(
-        shared,
-        workspace_root,
-        config_snapshot,
-        build_worker_channel_status_request(next_worker_request_correlation()),
-        timeout,
-        "status",
-    )
-}
-
-pub(crate) fn worker_channel_stop_with_options(
-    shared: &SharedGateway,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    timeout: Duration,
-) -> Result<serde_json::Value, String> {
-    send_channel_lifecycle_worker_request(
-        shared,
-        workspace_root,
-        config_snapshot,
-        build_worker_channel_stop_request(next_worker_request_correlation()),
-        timeout,
-        "stop",
-    )
-}
-
-pub(crate) fn worker_channel_login_with_options(
-    shared: &SharedGateway,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    timeout: Duration,
-    channel: String,
-    force: bool,
-) -> Result<serde_json::Value, String> {
-    send_channel_lifecycle_worker_request(
-        shared,
-        workspace_root,
-        config_snapshot,
-        build_worker_channel_login_request(next_worker_request_correlation(), channel, force),
-        timeout,
-        "login",
-    )
-}
-
-fn send_channel_lifecycle_worker_request(
-    _shared: &SharedGateway,
-    _workspace_root: PathBuf,
-    _config_snapshot: serde_json::Value,
-    request: WorkerRequest,
-    _timeout: Duration,
-    action: &str,
-) -> Result<serde_json::Value, String> {
-    let _ = request;
-    unsupported_rust_only_command(&format!("worker_channel_{action}"))
-}
-
-fn build_worker_channel_start_request(request_id: WorkerRequestCorrelation) -> WorkerRequest {
-    WorkerRequest::new(
-        request_id.id("channel-start"),
-        request_id.trace_id("channel-start"),
-        "channel.start",
-        serde_json::json!({}),
-    )
-}
-
-fn build_worker_channel_status_request(request_id: WorkerRequestCorrelation) -> WorkerRequest {
-    WorkerRequest::new(
-        request_id.id("channel-status"),
-        request_id.trace_id("channel-status"),
-        "channel.status",
-        serde_json::json!({}),
-    )
-}
-
-fn build_worker_channel_stop_request(request_id: WorkerRequestCorrelation) -> WorkerRequest {
-    WorkerRequest::new(
-        request_id.id("channel-stop"),
-        request_id.trace_id("channel-stop"),
-        "channel.stop",
-        serde_json::json!({}),
-    )
-}
-
-fn build_worker_channel_login_request(
-    request_id: WorkerRequestCorrelation,
-    channel: String,
-    force: bool,
-) -> WorkerRequest {
-    WorkerRequest::new(
-        request_id.id("channel-login"),
-        request_id.trace_id("channel-login"),
-        "channel.login",
-        serde_json::json!({
-            "channel": channel,
-            "force": force,
-        }),
-    )
 }
 
 fn json_string_field<'a>(

@@ -43,17 +43,27 @@ describe("desktop native threads API", () => {
     }));
     const api = createDesktopNativeThreadsApi({ invoke });
 
-    await expect(api.submitTurn({ threadId: "thread-1", input: { text: "hello" } })).resolves.toEqual({
+    await expect(api.submitTurn({
+      threadId: "thread-1",
+      input: { role: "user", content: "hello", clientEventId: "client-1" },
+      spec: { runId: "run-1", sessionId: "thread-1", stream: true, metadata: {} },
+    })).resolves.toEqual({
       command: "worker_submit_thread_turn",
-      args: { input: { threadId: "thread-1", input: { text: "hello" } } },
+      args: {
+        input: {
+          threadId: "thread-1",
+          input: { role: "user", content: "hello", clientEventId: "client-1" },
+          spec: { runId: "run-1", sessionId: "thread-1", stream: true, metadata: {} },
+        },
+      },
     });
     await expect(api.resolveApproval({ threadId: "thread-1", approvalId: "approval-1", approved: true })).resolves.toEqual({
       command: "worker_resolve_thread_approval",
       args: { input: { threadId: "thread-1", approvalId: "approval-1", approved: true } },
     });
-    await expect(api.submitForm({ threadId: "thread-1", formId: "form-1", values: {} })).resolves.toEqual({
+    await expect(api.submitForm({ threadId: "thread-1", formId: "form-1", values: {}, action: "submit" })).resolves.toEqual({
       command: "worker_submit_thread_form",
-      args: { input: { threadId: "thread-1", formId: "form-1", values: {} } },
+      args: { input: { threadId: "thread-1", formId: "form-1", values: {}, action: "submit" } },
     });
   });
 });

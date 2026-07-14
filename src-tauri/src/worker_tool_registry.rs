@@ -18,6 +18,7 @@ pub const MAX_TOOL_SEARCH_LIMIT: usize = 20;
 #[derive(Clone, Debug)]
 pub struct WorkerToolRegistryRpc {
     policy: CapabilityPolicy,
+    config_snapshot: Value,
     contributors: Vec<Arc<dyn ToolContributor>>,
 }
 
@@ -146,10 +147,19 @@ pub struct ToolApprovalMetadata {
 
 impl WorkerToolRegistryRpc {
     pub fn new(policy: CapabilityPolicy) -> Self {
+        Self::new_with_config(policy, Value::Null)
+    }
+
+    pub fn new_with_config(policy: CapabilityPolicy, config_snapshot: Value) -> Self {
         Self {
             policy,
+            config_snapshot,
             contributors: default_tool_contributors(),
         }
+    }
+
+    pub fn update_config_snapshot(&mut self, config_snapshot: Value) {
+        self.config_snapshot = config_snapshot;
     }
 
     pub fn with_contributor(
@@ -203,7 +213,8 @@ impl WorkerToolRegistryRpc {
                 tool.available = tool
                     .required_capabilities
                     .iter()
-                    .all(|capability| self.policy.allows(capability));
+                    .all(|capability| self.policy.allows(capability))
+                    && tool_enabled_by_config(&tool, &self.config_snapshot);
                 tool
             })
             .collect::<Vec<_>>();
@@ -299,6 +310,19 @@ impl WorkerToolRegistryRpc {
             tools,
         }
     }
+}
+
+fn tool_enabled_by_config(tool: &ToolRegistryEntry, config_snapshot: &Value) -> bool {
+    if matches!(
+        tool.method.as_str(),
+        "shell.execute" | "shell.start" | "exec_command"
+    ) {
+        return config_snapshot
+            .pointer("/tools/exec/enable")
+            .and_then(Value::as_bool)
+            != Some(false);
+    }
+    true
 }
 
 fn tool_matches_query(tool: &ToolRegistryEntry, query: &str) -> bool {
@@ -958,6 +982,27 @@ mod tests {
                 method: "shell.write_stdin".to_string()
             }
         );
+    }
+
+    #[test]
+    fn explicit_exec_disable_marks_new_shell_commands_unavailable() {
+        let policy = CapabilityPolicy::new([
+            WorkerCapability::ShellExecute,
+            WorkerCapability::ApprovalRequest,
+        ]);
+        let disabled = WorkerToolRegistryRpc::new_with_config(
+            policy.clone(),
+            json!({ "tools": { "exec": { "enable": false } } }),
+        );
+        let enabled = WorkerToolRegistryRpc::new_with_config(
+            policy,
+            json!({ "tools": { "exec": { "enable": true } } }),
+        );
+
+        assert!(!disabled.get_tool("shell.execute").unwrap().available);
+        assert!(!disabled.get_tool("exec_command").unwrap().available);
+        assert!(enabled.get_tool("shell.execute").unwrap().available);
+        assert!(enabled.get_tool("exec_command").unwrap().available);
     }
 
     #[test]

@@ -280,6 +280,39 @@ fn profile_capabilities_override_built_in_provider_defaults() {
 }
 
 #[test]
+fn agent_defaults_apply_temperature_and_max_tokens_to_provider_requests() {
+    let context = NativeAgentRunContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }),
+        json!({
+            "agents": {
+                "defaults": {
+                    "model": "deepseek-v4-pro",
+                    "temperature": 0.6,
+                    "maxTokens": 2048
+                }
+            },
+            "providers": {
+                "profiles": {
+                    "deepseek-default": {
+                        "provider": "deepseek",
+                        "capabilities": ["reasoning"]
+                    }
+                }
+            }
+        }),
+    );
+
+    let request = agent_chat_completion_request(&context)
+        .expect("agent defaults should produce a provider request");
+
+    assert_eq!(request["temperature"], json!(0.6));
+    assert_eq!(request["max_completion_tokens"], 2048);
+}
+
+#[test]
 fn defaults_native_agent_runs_to_the_desktop_iteration_limit() {
     let context = NativeAgentRunContext::from_spec(json!({}), json!({}));
 

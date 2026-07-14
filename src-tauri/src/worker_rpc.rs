@@ -145,6 +145,10 @@ impl WorkerRpcRouter {
             cron: WorkerCronRpc::new(workspace_root.clone(), policy.clone()),
             background: WorkerBackgroundRpc::new(workspace_root.clone(), policy.clone()),
             channel_connector: WorkerChannelConnectorRpc::new(policy.clone()),
+            tool_registry: WorkerToolRegistryRpc::new_with_config(
+                policy.clone(),
+                config_snapshot.clone(),
+            ),
             mcp: WorkerMcpRpc::new(
                 workspace_root.clone(),
                 config_snapshot,
@@ -154,7 +158,6 @@ impl WorkerRpcRouter {
             runtime: WorkerRuntimeRpc::new(),
             thread: WorkerThreadRpc::new(workspace_root.clone(), policy.clone()),
             thread_log: WorkerThreadLogRpc::new(workspace_root, policy.clone()),
-            tool_registry: WorkerToolRegistryRpc::new(policy.clone()),
             permission_profile: WorkerPermissionProfileRpc::new(policy),
             subagents: None,
             config_store: None,
@@ -187,6 +190,10 @@ impl WorkerRpcRouter {
             cron: WorkerCronRpc::new(workspace_root.clone(), policy.clone()),
             background: WorkerBackgroundRpc::new(workspace_root.clone(), policy.clone()),
             channel_connector: WorkerChannelConnectorRpc::new(policy.clone()),
+            tool_registry: WorkerToolRegistryRpc::new_with_config(
+                policy.clone(),
+                config_snapshot.clone(),
+            ),
             mcp: WorkerMcpRpc::new(
                 workspace_root.clone(),
                 config_snapshot,
@@ -196,7 +203,6 @@ impl WorkerRpcRouter {
             runtime: WorkerRuntimeRpc::new(),
             thread: WorkerThreadRpc::new(workspace_root.clone(), policy.clone()),
             thread_log: WorkerThreadLogRpc::new(workspace_root, policy.clone()),
-            tool_registry: WorkerToolRegistryRpc::new(policy.clone()),
             permission_profile: WorkerPermissionProfileRpc::new(policy),
             subagents: None,
             config_store: None,
@@ -301,6 +307,7 @@ impl WorkerRpcRouter {
             method if method.starts_with("subagent.") => self.dispatch_subagent_method(request),
             method
                 if method.starts_with("mcp.")
+                    || method == "tools.webui_catalog"
                     || method.starts_with("permission_profile.")
                     || method.starts_with("tool_executor.")
                     || method.starts_with("tool_registry.") =>
@@ -905,11 +912,15 @@ impl ShellStartRequestParams {
     fn into_shell_params(
         self,
         cancellation: Option<std::sync::Arc<dyn crate::worker_protocol::WorkerRequestCancellation>>,
+        config_snapshot: &Value,
     ) -> ShellStartParams {
         ShellStartParams {
             command: self.command,
             working_dir: self.working_dir,
-            restrict_to_workspace: self.restrict_to_workspace,
+            restrict_to_workspace: self.restrict_to_workspace.or_else(|| {
+                configured_bool(config_snapshot, "/tools/restrictToWorkspace")
+                    .or_else(|| configured_bool(config_snapshot, "/tools/restrict_to_workspace"))
+            }),
             tty: self.tty,
             yield_time_ms: self.yield_time_ms,
             rows: self.rows,
@@ -933,17 +944,29 @@ impl ShellExecuteRequestParams {
     fn into_shell_params(
         self,
         cancellation: Option<std::sync::Arc<dyn crate::worker_protocol::WorkerRequestCancellation>>,
+        config_snapshot: &Value,
     ) -> ShellExecuteParams {
         ShellExecuteParams {
             command: self.command,
             working_dir: self.working_dir,
-            timeout: self.timeout,
-            restrict_to_workspace: self.restrict_to_workspace,
+            timeout: self.timeout.or_else(|| {
+                config_snapshot
+                    .pointer("/tools/exec/timeout")
+                    .and_then(Value::as_u64)
+            }),
+            restrict_to_workspace: self.restrict_to_workspace.or_else(|| {
+                configured_bool(config_snapshot, "/tools/restrictToWorkspace")
+                    .or_else(|| configured_bool(config_snapshot, "/tools/restrict_to_workspace"))
+            }),
             sandbox_mode: self.sandbox_mode,
             network_mode: self.network_mode,
             cancellation,
         }
     }
+}
+
+fn configured_bool(config_snapshot: &Value, pointer: &str) -> Option<bool> {
+    config_snapshot.pointer(pointer).and_then(Value::as_bool)
 }
 
 #[derive(Deserialize)]
@@ -1146,19 +1169,6 @@ where
             )));
         }
     })
-}
-
-fn enabled_skills_from_snapshot(snapshot: &Value) -> Option<Vec<String>> {
-    snapshot
-        .get("skills")
-        .and_then(|value| value.get("enabled"))
-        .and_then(|value| value.as_array())
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(|value| value.as_str().map(str::to_string))
-                .collect()
-        })
 }
 
 fn serialization_error(error: serde_json::Error) -> crate::worker_protocol::WorkerProtocolError {
