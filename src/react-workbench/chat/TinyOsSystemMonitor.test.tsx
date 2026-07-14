@@ -39,6 +39,7 @@ function snapshot(): TinyOsKernelSnapshot {
     title: "Review tests",
   });
   return {
+    browserSessions: [],
     capabilities: [],
     cursor: { eventCount: 4, eventIndex: 3, mode: "live" },
     discrepancies: [],

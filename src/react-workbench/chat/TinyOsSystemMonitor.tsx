@@ -6,6 +6,7 @@ import type {
   TinyOsKernelSnapshot,
   TinyOsProcess,
   TinyOsProcessState,
+  TinyOsResource,
 } from "../../app-core/chat/tinyOsKernelModel";
 
 type TinyOsSystemMonitorFilters = {
@@ -34,6 +35,8 @@ export type TinyOsSystemMonitorControls = {
   inspectableItemIds: readonly string[];
   onCancelRun: () => void;
   onInspect: (process: TinyOsProcess) => void;
+  onOpenProcessMenu?: (process: TinyOsProcess, clientX: number, clientY: number) => void;
+  onOpenResourceMenu?: (resource: TinyOsResource, clientX: number, clientY: number) => void;
   onPauseRun: () => void;
   onResumeRun: () => void;
   onRetry: (process: TinyOsProcess) => void;
@@ -149,6 +152,11 @@ export function TinyOsSystemMonitor({ controls, snapshot }: { controls?: TinyOsS
                     data-selected={selected?.id === process.id ? "true" : undefined}
                     type="button"
                     onClick={() => setSelectedProcessId(process.id)}
+                    onContextMenu={(event) => {
+                      if (!controls?.onOpenProcessMenu) return;
+                      event.preventDefault();
+                      controls.onOpenProcessMenu(process, event.clientX, event.clientY);
+                    }}
                   >
                     <span className="tinyos-process-list__identity">
                       <Activity aria-hidden="true" size={13} />
@@ -193,7 +201,11 @@ export function TinyOsSystemMonitor({ controls, snapshot }: { controls?: TinyOsS
                 <small>Revision {selected.provenance.revision ?? "unavailable"} · Observed {selected.provenance.observedAt || "time unavailable"}</small>
               </DetailSection>
               <DetailSection title={`Resources · ${relatedResources.length}`}>
-                {relatedResources.length ? relatedResources.map((resource) => <p key={resource.id}><span><strong>{resource.title}</strong><small>{formatLabel(resource.kind)} · revision {resource.revision ?? "unavailable"}</small></span></p>) : <small>No related resource observation.</small>}
+                {relatedResources.length ? relatedResources.map((resource) => <p key={resource.id} onContextMenu={(event) => {
+                  if (!controls?.onOpenResourceMenu) return;
+                  event.preventDefault();
+                  controls.onOpenResourceMenu(resource, event.clientX, event.clientY);
+                }}><span><strong>{resource.title}</strong><small>{formatLabel(resource.kind)} · revision {resource.revision ?? "unavailable"}</small></span></p>) : <small>No related resource observation.</small>}
               </DetailSection>
               <DetailSection title={`Capabilities · ${relatedCapabilities.length}`}>
                 {relatedCapabilities.length ? relatedCapabilities.map((capability) => <p key={capability.id}><span><strong>{capability.id}</strong><small>{capability.available ? "Available" : capability.reason || "Unavailable"}</small></span></p>) : <small>No backend capability observation is correlated to this process.</small>}

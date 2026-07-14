@@ -234,9 +234,19 @@ pub(crate) fn native_websocket_transport_result(
             .cloned()
             .unwrap_or(serde_json::Value::Null);
     } else if command_kind == "browser.interact" {
+        transport["browserSessionId"] = frame
+            .get("browser_session_id")
+            .or_else(|| frame.get("browserSessionId"))
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
         transport["captureId"] = frame
             .get("capture_id")
             .or_else(|| frame.get("captureId"))
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        transport["tabId"] = frame
+            .get("tab_id")
+            .or_else(|| frame.get("tabId"))
             .cloned()
             .unwrap_or(serde_json::Value::Null);
         transport["action"] = frame
@@ -313,10 +323,7 @@ async fn dispatch_tinyos_command(
             )
             .await
         }
-        Some("browser.interact") => Err(
-            "browser.interact is unavailable because no real browser capture backend is configured"
-                .to_string(),
-        ),
+        Some("browser.interact") => dispatch_tinyos_browser_command(transport),
         command_kind => Err(format!(
             "unsupported TinyOS command kind: {}",
             command_kind.unwrap_or("missing")
@@ -1607,6 +1614,7 @@ fn append_tinyos_terminal_event(
 ) -> Result<(), String> {
     let stdout = sanitize_tinyos_host_text(&output.stdout, &config_snapshot);
     let stderr = sanitize_tinyos_host_text(&output.stderr, &config_snapshot);
+    let result = tinyos_terminal_result_payload(output, &stdout, &stderr);
     append_tinyos_host_event(
         workspace_root,
         config_snapshot,
@@ -1631,15 +1639,7 @@ fn append_tinyos_terminal_event(
                     "status": if terminal { "completed" } else { "running" },
                     "summary": if terminal { "Terminal command finished" } else { "Terminal command running" },
                 },
-                "result": {
-                    "cancelled": output.status == "cancelled",
-                    "droppedBytes": output.dropped_bytes,
-                    "exitCode": output.exit_code,
-                    "processId": output.process_id,
-                    "stderr": stderr,
-                    "stdout": stdout,
-                    "truncated": output.truncated,
-                },
+                "result": result,
                 "stderr": stderr,
                 "stdout": stdout,
                 "summary": if terminal { "Terminal command finished" } else { "Terminal command running" },
@@ -1648,6 +1648,102 @@ fn append_tinyos_terminal_event(
             }
         }),
     )
+}
+
+fn dispatch_tinyos_browser_command(
+    transport: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let run_id = required_transport_string(&transport, "runId")?;
+    let command_kind = required_transport_string(&transport, "commandKind")?;
+    if !run_id.starts_with("tinyos-host-browser-") {
+        return Err(format!(
+            "{command_kind} requires a dedicated TinyOS browser operation run"
+        ));
+    }
+    if transport
+        .get("confirmed")
+        .and_then(serde_json::Value::as_bool)
+        != Some(true)
+    {
+        return Err("browser.interact requires explicit user confirmation".to_string());
+    }
+    required_transport_string(&transport, "sessionId")?;
+    required_transport_string(&transport, "commandId")?;
+    required_transport_string(&transport, "browserSessionId")?;
+    required_transport_string(&transport, "tabId")?;
+    required_transport_string(&transport, "captureId")?;
+
+    let action = transport
+        .get("action")
+        .and_then(serde_json::Value::as_object)
+        .ok_or_else(|| "browser.interact requires an action object".to_string())?;
+    let action_type = action
+        .get("type")
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "browser.interact action is missing type".to_string())?;
+    match action_type {
+        "click" => {
+            for coordinate in ["x", "y"] {
+                action
+                    .get(coordinate)
+                    .and_then(serde_json::Value::as_f64)
+                    .filter(|value| value.is_finite() && *value >= 0.0)
+                    .ok_or_else(|| {
+                        format!("browser.interact click requires a non-negative {coordinate}")
+                    })?;
+            }
+        }
+        "navigate" => {
+            action
+                .get("url")
+                .and_then(serde_json::Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| "browser.interact navigate requires url".to_string())?;
+        }
+        "type" => {
+            action
+                .get("text")
+                .and_then(serde_json::Value::as_str)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| "browser.interact type requires text".to_string())?;
+        }
+        unsupported => {
+            return Err(format!(
+                "browser.interact action type `{unsupported}` is unsupported"
+            ));
+        }
+    }
+
+    Err(
+        "browser.interact is unavailable because no real browser capture backend is configured"
+            .to_string(),
+    )
+}
+
+pub(crate) fn tinyos_terminal_result_payload(
+    output: &ShellProcessOutput,
+    stdout: &str,
+    stderr: &str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "cancelled": output.status == "cancelled",
+        "droppedBytes": output.dropped_bytes,
+        "durationMs": output.last_activity_ms.saturating_sub(output.started_at_ms),
+        "executionContract": "retained_execution_v1",
+        "exitCode": output.exit_code,
+        "lastActivityMs": output.last_activity_ms,
+        "networkMode": output.network_mode,
+        "processId": output.process_id,
+        "sandboxMode": output.sandbox_mode,
+        "stderr": stderr,
+        "stderrBytes": stderr.len(),
+        "startedAtMs": output.started_at_ms,
+        "stdout": stdout,
+        "stdoutBytes": stdout.len(),
+        "tty": output.tty,
+        "truncated": output.truncated,
+    })
 }
 
 fn tinyos_terminal_process_failure(output: &ShellProcessOutput) -> Option<String> {

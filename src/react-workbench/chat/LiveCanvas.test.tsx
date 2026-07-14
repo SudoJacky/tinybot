@@ -6,6 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import type { BackendAgentTurnItem, ChatStep } from "../../app-core/chat/chatRunModel";
+import { createTinyOsBrowserSessionSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
 import { LiveCanvas, type LiveCanvasEntry } from "./LiveCanvas";
 
 afterEach(() => {
@@ -27,6 +28,37 @@ function step(overrides: Partial<ChatStep>): ChatStep {
 
 function entry(canvasStep: ChatStep, turnId = "turn-1"): LiveCanvasEntry {
   return { step: canvasStep, turnId };
+}
+
+function canonicalItemForEntry(
+  canvasEntry: LiveCanvasEntry,
+  eventIndex: number,
+  overrides: Partial<BackendAgentTurnItem> = {},
+): BackendAgentTurnItem {
+  const { step: canvasStep, turnId } = canvasEntry;
+  return {
+    schemaVersion: "tinybot.turn_item.v2",
+    createdAt: `2026-07-14T00:00:${String(eventIndex).padStart(2, "0")}Z`,
+    data: {
+      args: canvasStep.toolCall?.argsJson ?? {},
+      name: canvasStep.toolCall?.name ?? canvasStep.title,
+      result: canvasStep.toolCall?.resultJson ?? {},
+      status: canvasStep.status,
+      timing: {},
+      toolCallId: canvasStep.toolCall?.id ?? `call-${eventIndex}`,
+      type: "tool_call",
+    },
+    itemId: canvasStep.id,
+    kind: "tool_call",
+    revision: 1,
+    runId: "run-1",
+    sequence: eventIndex,
+    sessionId: "session-1",
+    status: canvasStep.status,
+    title: canvasStep.title,
+    turnId,
+    ...overrides,
+  } as BackendAgentTurnItem;
 }
 
 function canvasProps(entries: LiveCanvasEntry[], overrides: Record<string, unknown> = {}) {
@@ -59,6 +91,59 @@ function canvasProps(entries: LiveCanvasEntry[], overrides: Record<string, unkno
     widthPx: 480,
     ...overrides,
   };
+}
+
+function dragTransfer(): DataTransfer {
+  const values = new Map<string, string>();
+  return {
+    dropEffect: "none",
+    effectAllowed: "none",
+    getData: (type: string) => values.get(type) ?? "",
+    setData: (type: string, value: string) => values.set(type, value),
+    get types() { return [...values.keys()]; },
+  } as unknown as DataTransfer;
+}
+
+function browserSessionSnapshot() {
+  return createTinyOsBrowserSessionSnapshot({
+    activeTabId: "tab-1",
+    browserSessionId: "browser-session-1",
+    contract: "browser_session_v1",
+    interaction: { click: true, navigate: true, type: true },
+    kind: "browser_session",
+    runId: "run-browser-1",
+    sessionId: "session-1",
+    state: "running",
+    tabs: [{
+      activeHistoryIndex: 1,
+      captures: [
+        { captureId: "capture-old", observedAt: "2026-07-14T01:00:00Z", stale: true },
+        { captureId: "capture-current", observedAt: "2026-07-14T01:01:00Z", stale: false },
+      ],
+      currentCaptureId: "capture-current",
+      history: [
+        { captureId: "capture-old", title: "Old", url: "https://example.com/old" },
+        { captureId: "capture-current", title: "Current", url: "https://example.com/current" },
+      ],
+      loading: false,
+      tabId: "tab-1",
+      title: "Current",
+      url: "https://example.com/current",
+    }, {
+      activeHistoryIndex: 0,
+      captures: [{ captureId: "capture-second", observedAt: "2026-07-14T01:02:00Z", stale: false }],
+      currentCaptureId: "capture-second",
+      history: [{ captureId: "capture-second", title: "Second", url: "https://example.org" }],
+      loading: true,
+      tabId: "tab-2",
+      title: "Second",
+      url: "https://example.org",
+    }],
+  }, {
+    observedAt: "2026-07-14T01:02:00Z",
+    revision: "browser-revision-1",
+    sourceId: "browser.session",
+  });
 }
 
 describe("LiveCanvas TinyOS", () => {
@@ -203,6 +288,22 @@ describe("LiveCanvas TinyOS", () => {
     expect(onExecuteTerminal).toHaveBeenCalledWith({ command: "npm test", cwd: "." });
   });
 
+  it("routes Terminal cancellation through the registered runtime command", async () => {
+    const onCancelTerminal = vi.fn(async () => undefined);
+    render(<LiveCanvas {...canvasProps([], {
+      canCancelTerminal: true,
+      onCancelTerminal,
+      runningTerminalRunId: "tinyos-host-terminal-1",
+      sessionKey: "websocket:chat-1",
+    })} />);
+
+    const terminal = document.querySelector<HTMLElement>("[data-app='terminal']");
+    expect(terminal).toBeTruthy();
+    await userEvent.click(within(terminal!).getByRole("button", { name: "Cancel process" }));
+
+    expect(onCancelTerminal).toHaveBeenCalledTimes(1);
+  });
+
   it("reconstructs a historical desktop and returns to live", async () => {
     const user = userEvent.setup();
     const onReturnToLive = vi.fn();
@@ -212,16 +313,94 @@ describe("LiveCanvas TinyOS", () => {
       entry(step({ id: "memory", title: "memory.search", toolCall: { argsJson: { query: "TinyOS" }, id: "memory", name: "memory.search" } })),
     ];
 
-    render(<LiveCanvas {...canvasProps(entries, { mode: "history", onReturnToLive, onSelectEntry, selection: entries[0] })} />);
+    const canonicalItems = entries.map((canvasEntry, index) => canonicalItemForEntry(canvasEntry, index));
+    render(<LiveCanvas {...canvasProps(entries, {
+      canonicalItems,
+      mode: "history",
+      onReturnToLive,
+      onSelectEntry,
+      selection: entries[0],
+      selectionEventIndex: 0,
+    })} />);
 
     const canvas = screen.getByLabelText("Live Canvas");
     expect(within(canvas).getByText("History")).toBeTruthy();
     expect(canvas.querySelector("[data-app='files']")).toBeTruthy();
     expect(canvas.querySelector("[data-app='memory']")).toBeNull();
-    await user.click(within(canvas).getByRole("button", { name: "Next canonical operation" }));
+    expect(within(canvas).getByText("Event 1 of 2")).toBeTruthy();
+    await user.click(within(canvas).getByRole("button", { name: "Next canonical event" }));
     expect(onSelectEntry).toHaveBeenCalledWith(entries[1]);
-    await user.click(within(canvas).getByRole("button", { name: "Return to live" }));
+    await user.click(within(canvas).getByRole("button", { name: "Return to Live" }));
     expect(onReturnToLive).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps layout preferences and restores runtime capabilities on Return to Live", () => {
+    const fileEntry = entry(step({
+      id: "history-layout-file",
+      title: "Read workspace",
+      toolCall: { argsJson: { path: "README.md" }, id: "history-layout-file", name: "workspace.read_file" },
+    }));
+    const canonicalItems = [canonicalItemForEntry(fileEntry, 0)];
+    const shared = canvasProps([fileEntry], {
+      canExecuteTerminal: true,
+      canonicalItems,
+      selection: fileEntry,
+      selectionEventIndex: 0,
+      sessionKey: "history-layout-session",
+      widthPx: 680,
+    });
+    const { rerender } = render(<LiveCanvas {...shared} mode="history" />);
+
+    const historicalTerminal = screen.getByLabelText("Terminal window");
+    const historicalLayout = historicalTerminal.getAttribute("style");
+    expect((within(historicalTerminal).getByLabelText("TinyOS terminal command") as HTMLInputElement).disabled).toBe(true);
+    expect(within(historicalTerminal).getByRole("button", { name: "Review command" }).getAttribute("title")).toBe("History snapshots are read-only.");
+
+    rerender(<LiveCanvas {...shared} mode="live_follow" />);
+    const liveTerminal = screen.getByLabelText("Terminal window");
+    expect(liveTerminal.getAttribute("style")).toBe(historicalLayout);
+    expect((within(liveTerminal).getByLabelText("TinyOS terminal command") as HTMLInputElement).disabled).toBe(false);
+    expect(within(liveTerminal).getByRole("button", { name: "Review command" }).getAttribute("title")).toBe("Review the exact command and execution boundary");
+  });
+
+  it("compares the same resource at two exact canonical boundaries without merging revisions", async () => {
+    const user = userEvent.setup();
+    const fileEntry = entry(step({
+      id: "versioned-file",
+      title: "Read versioned file",
+      toolCall: { argsJson: { path: "src/versioned.ts" }, id: "versioned-file", name: "workspace.read_file" },
+    }));
+    const first = canonicalItemForEntry(fileEntry, 0, {
+      data: { id: "versioned-file", path: "src/versioned.ts", referenceKind: "file", revision: "rev-1", type: "file_reference" },
+      kind: "file_reference",
+      revision: 1,
+    });
+    const second = canonicalItemForEntry(fileEntry, 1, {
+      data: { id: "versioned-file", path: "src/versioned.ts", referenceKind: "file", revision: "rev-2", type: "file_reference" },
+      kind: "file_reference",
+      revision: 2,
+    });
+    const canonicalItems = [first, second];
+    const shared = canvasProps([fileEntry], {
+      canonicalItems,
+      mode: "history",
+      selection: fileEntry,
+      sessionKey: "history-inspector-session",
+      widthPx: 680,
+    });
+    const { rerender } = render(<LiveCanvas {...shared} selectionEventIndex={0} />);
+
+    await user.click(screen.getByRole("button", { name: "Inspect Files" }));
+    rerender(<LiveCanvas {...shared} selectionEventIndex={1} />);
+    await user.click(screen.getByRole("button", { name: "Inspect Files" }));
+
+    const inspector = screen.getByLabelText("TinyOS Inspector");
+    expect(inspector.dataset.split).toBe("true");
+    expect(within(inspector).getByText("Canonical evidence · Event 1")).toBeTruthy();
+    expect(within(inspector).getByText("Canonical evidence · Event 2")).toBeTruthy();
+    expect(within(inspector).getByText("rev-1")).toBeTruthy();
+    expect(within(inspector).getByText("rev-2")).toBeTruthy();
+    expect(within(inspector).getAllByText(/canonical_event · versioned-file/)).toHaveLength(2);
   });
 
   it("resolves approvals directly from a TinyOS system dialog", async () => {
@@ -487,12 +666,131 @@ describe("LiveCanvas TinyOS", () => {
     expect(onAttachContext).toHaveBeenCalledWith({
       command: "npm test",
       endLine: 2,
+      executionId: "shell-a",
       kind: "terminal",
+      provenance: { kind: "canonical", sourceItemId: "shell-a", turnId: "turn-1" },
       selectedText: "$ npm test\nPASS tinyos",
       sourceItemId: "shell-a",
       startLine: 1,
       turnId: "turn-1",
     });
+  });
+
+  it("labels retained terminal executions with real boundary, identity, byte, and lifecycle state", async () => {
+    const user = userEvent.setup();
+    const terminalEntry = entry(step({
+      id: "retained-terminal",
+      status: "completed",
+      title: "Run checks",
+      toolCall: {
+        argsJson: { command: "npm test", cwd: "src", networkMode: "denied", sandboxMode: "read_only" },
+        durationMs: 87,
+        id: "retained-terminal-call",
+        name: "shell.execute",
+        resultJson: { droppedBytes: 32, exitCode: 0, processId: "native-process-7", stderr: "warn", stdout: "PASS", truncated: true },
+      },
+    }));
+    const command = {
+      schemaVersion: "tinybot.command.v1" as const,
+      commandId: "terminal-command-1",
+      issuedAt: "2026-07-14T00:00:00Z",
+      kind: "terminal.execute" as const,
+      source: { control: "terminal-execute", surface: "tinyos" as const },
+      target: { runId: "tinyos-host-terminal-1", sessionId: "session-1" },
+      terminal: { command: "npm test", confirmed: true as const, cwd: "src" },
+    };
+    render(<LiveCanvas {...canvasProps([terminalEntry], {
+      commandLifecycle: { command, dispatchedAtMs: 1, transportAcceptedAtMs: 2, stage: "waiting_for_canonical" },
+      sessionKey: "session-1",
+      widthPx: 480,
+    })} />);
+    await user.click(screen.getByRole("button", { name: "Open Terminal" }));
+
+    const identity = screen.getByRole("group", { name: "Terminal execution identity" });
+    expect(within(identity).getByText("retained execution v1")).toBeTruthy();
+    expect(within(identity).getByText("native-process-7")).toBeTruthy();
+    expect(within(identity).getByText("read_only · network denied · non-TTY")).toBeTruthy();
+    expect(within(identity).getByText(/4 B stdout · 4 B stderr · 32 B dropped/)).toBeTruthy();
+    expect(within(identity).getByText("canonical_event · retained-terminal")).toBeTruthy();
+    expect(screen.getByText("Execution awaiting runtime")).toBeTruthy();
+    expect(screen.getByText(/Retained boundary · last 499 lines · 32 B dropped/)).toBeTruthy();
+  });
+
+  it("keeps structured browser projections and standalone raster previews read-only", () => {
+    const structured = entry(step({ id: "browser-structured", kind: "browser", summary: "Structured browser metadata" }));
+    const { rerender } = render(<LiveCanvas {...canvasProps([structured])} />);
+
+    let browser = screen.getByLabelText("Browser window");
+    expect(within(browser).getByText("Structured projection")).toBeTruthy();
+    expect(within(browser).getByText("Read-only projection")).toBeTruthy();
+    expect(within(browser).queryByRole("tablist", { name: "Native browser tabs" })).toBeNull();
+
+    const preview = entry(step({
+      artifacts: [{ id: "preview-1", kind: "browser_snapshot", preview: "data:image/png;base64,AAAA", title: "Preview" }],
+      id: "browser-preview",
+      kind: "browser",
+    }));
+    rerender(<LiveCanvas {...canvasProps([preview])} />);
+    browser = screen.getByLabelText("Browser window");
+    expect(within(browser).getByText("Local preview")).toBeTruthy();
+    expect(within(browser).queryByText("Real capture")).toBeNull();
+  });
+
+  it("projects native Browser tabs and routes interactions with session, tab, and capture identity", async () => {
+    const onBrowserInteract = vi.fn(async () => undefined);
+    const browserEntry = entry(step({
+      artifacts: [{ id: "capture-current", kind: "browser_snapshot", preview: "data:image/png;base64,AAAA", title: "Current capture" }],
+      id: "browser-native",
+      kind: "browser",
+    }));
+    render(<LiveCanvas {...canvasProps([browserEntry], {
+      canInteractBrowser: true,
+      nativeSnapshots: [browserSessionSnapshot()],
+      onBrowserInteract,
+    })} />);
+
+    const browser = screen.getByLabelText("Browser window");
+    expect(within(browser).getByText("Real capture")).toBeTruthy();
+    expect(within(browser).getAllByRole("tab")).toHaveLength(2);
+    expect(within(browser).getByRole("region", { name: "Browser session identity" })).toBeTruthy();
+    await userEvent.click(within(browser).getByRole("button", { name: "Interact with current browser capture" }));
+    expect(onBrowserInteract).toHaveBeenCalledWith({
+      action: { type: "click", x: 0, y: 0 },
+      browserSessionId: "browser-session-1",
+      captureId: "capture-current",
+      tabId: "tab-1",
+    });
+    await userEvent.click(within(browser).getByRole("button", { name: "Browser back" }));
+    expect(onBrowserInteract).toHaveBeenCalledWith(expect.objectContaining({
+      action: { type: "navigate", url: "https://example.com/old" },
+      browserSessionId: "browser-session-1",
+      captureId: "capture-current",
+      tabId: "tab-1",
+    }));
+    const typeInput = within(browser).getByLabelText("Text for browser");
+    await userEvent.type(typeInput, "hello browser");
+    await userEvent.click(within(browser).getByRole("button", { name: "Type" }));
+    expect(onBrowserInteract).toHaveBeenCalledWith(expect.objectContaining({
+      action: { text: "hello browser", type: "type" },
+      captureId: "capture-current",
+    }));
+  });
+
+  it("preserves stale Browser evidence, rejects interaction, and reveals the current capture", async () => {
+    const onBrowserInteract = vi.fn(async () => undefined);
+    render(<LiveCanvas {...canvasProps([], {
+      canInteractBrowser: true,
+      nativeSnapshots: [browserSessionSnapshot()],
+      onBrowserInteract,
+    })} />);
+
+    const browser = screen.getByLabelText("Browser window");
+    await userEvent.click(within(browser).getByRole("button", { name: /capture-old.*Stale evidence/ }));
+    expect(within(browser).getByRole("alert").textContent).toContain("Stale capture");
+    expect((within(browser).getByLabelText("Text for browser") as HTMLInputElement).disabled).toBe(true);
+    expect(onBrowserInteract).not.toHaveBeenCalled();
+    await userEvent.click(within(browser).getByRole("button", { name: "Show current capture" }));
+    expect(within(browser).queryByRole("alert")).toBeNull();
   });
 
   it("switches applications with keyboard shortcuts and restores session UI state", async () => {
@@ -515,6 +813,151 @@ describe("LiveCanvas TinyOS", () => {
     const restored = screen.getByLabelText("Live Canvas");
     expect(restored.querySelector("[data-app='terminal']")).toBeTruthy();
     expect(within(restored).getByRole("button", { name: "Open Files" }).getAttribute("data-minimized")).toBe("true");
+  });
+
+  it("switches available applications with an accessible Alt+Tab overlay", () => {
+    const entries = [
+      entry(step({ id: "switch-file", toolCall: { argsJson: { path: "README.md" }, id: "switch-file", name: "workspace.read_file" } })),
+      entry(step({ id: "switch-shell", toolCall: { argsJson: { cmd: "npm test" }, id: "switch-shell", name: "shell.exec" } })),
+    ];
+    render(<LiveCanvas {...canvasProps(entries, { widthPx: 480 })} />);
+
+    const activeTitlebar = screen.getByLabelText("Move Terminal window");
+    fireEvent.keyDown(activeTitlebar, { altKey: true, key: "Tab" });
+
+    const switcher = screen.getByRole("dialog", { name: "application switcher" });
+    expect(within(switcher).getByRole("listbox", { name: "Available TinyOS applications" })).toBeTruthy();
+    expect(within(switcher).getAllByRole("option").length).toBeGreaterThan(1);
+    fireEvent.keyUp(switcher, { key: "Alt" });
+    expect(screen.queryByRole("dialog", { name: "application switcher" })).toBeNull();
+  });
+
+  it("restores minimized windows from Overview and returns focus to its trigger", async () => {
+    const user = userEvent.setup();
+    const entries = [
+      entry(step({ id: "overview-file", toolCall: { argsJson: { path: "README.md" }, id: "overview-file", name: "workspace.read_file" } })),
+      entry(step({ id: "overview-shell", toolCall: { argsJson: { cmd: "npm test" }, id: "overview-shell", name: "shell.exec" } })),
+    ];
+    render(<LiveCanvas {...canvasProps(entries, { widthPx: 680 })} />);
+
+    await user.click(screen.getByRole("button", { name: "Minimize Files" }));
+    const overviewTrigger = screen.getByRole("button", { name: "Open window Overview" });
+    overviewTrigger.focus();
+    await user.click(overviewTrigger);
+    const overview = screen.getByRole("dialog", { name: "window Overview" });
+    const filesPreview = within(overview).getByRole("button", { name: /Files.*Minimized/ });
+    await user.click(filesPreview);
+
+    expect(screen.queryByRole("dialog", { name: "window Overview" })).toBeNull();
+    expect(screen.getByLabelText("Files window")).toBeTruthy();
+
+    await user.click(overviewTrigger);
+    await user.click(within(screen.getByRole("dialog", { name: "window Overview" })).getByRole("button", { name: "Close window Overview" }));
+    await new Promise((resolve) => window.requestAnimationFrame(resolve));
+    expect(document.activeElement).toBe(overviewTrigger);
+  });
+
+  it("traps keyboard focus inside compact shell overlays and closes with Escape", async () => {
+    const user = userEvent.setup();
+    const fileEntry = entry(step({ id: "compact-overlay-file", toolCall: { argsJson: { path: "README.md" }, id: "compact-overlay-file", name: "workspace.read_file" } }));
+    render(<LiveCanvas {...canvasProps([fileEntry], { widthPx: 480 })} />);
+
+    await user.click(screen.getByRole("button", { name: "Open window Overview" }));
+    const overview = screen.getByRole("dialog", { name: "window Overview" });
+    const close = within(overview).getByRole("button", { name: "Close window Overview" });
+    close.focus();
+    fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
+    expect(overview.contains(document.activeElement)).toBe(true);
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "window Overview" })).toBeNull();
+  });
+
+  it("searches registered application and unavailable runtime commands from Ctrl+K", async () => {
+    const user = userEvent.setup();
+    const fileEntry = entry(step({ id: "palette-file", toolCall: { argsJson: { path: "src/app.ts" }, id: "palette-file", name: "workspace.read_file" } }));
+    render(<LiveCanvas {...canvasProps([fileEntry], { pauseUnavailableReason: "The backend did not advertise pause.", widthPx: 680 })} />);
+
+    fireEvent.keyDown(screen.getByLabelText("Move Files window"), { ctrlKey: true, key: "k" });
+    const palette = screen.getByRole("dialog", { name: "command palette" });
+    const search = within(palette).getByRole("searchbox", { name: "Search TinyOS commands" });
+    await user.type(search, "open files");
+    expect(within(palette).getByRole("option", { name: /Open Files/ })).toBeTruthy();
+
+    await user.clear(search);
+    await user.type(search, "pause active");
+    const pause = within(palette).getByRole("option", { name: /Pause active Agent run/ });
+    expect((pause as HTMLButtonElement).disabled).toBe(true);
+    expect(pause.getAttribute("title")).toBe("The backend did not advertise pause.");
+  });
+
+  it("runs Dock and window context-menu actions through registered commands", async () => {
+    const user = userEvent.setup();
+    const fileEntry = entry(step({ id: "menu-file", toolCall: { argsJson: { path: "README.md" }, id: "menu-file", name: "workspace.read_file" } }));
+    render(<LiveCanvas {...canvasProps([fileEntry], { widthPx: 680 })} />);
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Open Files" }), { clientX: 120, clientY: 180 });
+    const menu = screen.getByRole("menu", { name: "Files menu" });
+    await user.click(within(menu).getByRole("menuitem", { name: /Minimize Files/ }));
+
+    expect(screen.queryByLabelText("Files window")).toBeNull();
+    expect(screen.getByRole("button", { name: "Open Files" }).getAttribute("data-minimized")).toBe("true");
+  });
+
+  it("keeps derived notification history and local read state in the notification center", async () => {
+    const user = userEvent.setup();
+    const failed = entry(step({ id: "notification-failed", kind: "error", status: "failed", summary: "Build exited with code 1", title: "Build failed" }));
+    render(<LiveCanvas {...canvasProps([failed], { widthPx: 680 })} />);
+
+    await user.click(screen.getByRole("button", { name: "Open notification center" }));
+    const center = screen.getByRole("dialog", { name: "notification center" });
+    expect(within(center).getByText("Build failed")).toBeTruthy();
+    await user.click(within(center).getByRole("button", { name: "Mark read" }));
+    expect(within(center).getByRole("button", { name: "Read" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getAllByText("Build failed").length).toBeGreaterThan(1);
+  });
+
+  it("pins dragged canonical evidence into Inspector", async () => {
+    const user = userEvent.setup();
+    const entries = [
+      entry(step({ id: "drag-file", title: "Read config", toolCall: { id: "drag-file", name: "workspace.read_file" } })),
+      entry(step({ id: "drag-shell", title: "Run tests", toolCall: { id: "drag-shell", name: "shell.exec" } })),
+    ];
+    render(<LiveCanvas {...canvasProps(entries, { widthPx: 680 })} />);
+    await user.click(screen.getByRole("button", { name: "Inspect Files" }));
+    const inspector = screen.getByLabelText("TinyOS Inspector");
+    const latestOperation = within(screen.getByRole("navigation", { name: "TinyOS recent operations" })).getByRole("button", { name: /Latest canonical operation/ });
+    const dataTransfer = dragTransfer();
+
+    fireEvent.dragStart(latestOperation, { dataTransfer });
+    fireEvent.dragOver(inspector, { dataTransfer });
+    fireEvent.drop(inspector, { dataTransfer });
+
+    expect(within(inspector).getByText("Read config")).toBeTruthy();
+    expect(within(inspector).getByText("Run tests")).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toContain("pinned in Inspector");
+  });
+
+  it("visibly rejects a file-context drop on Inspector without attaching it", async () => {
+    const user = userEvent.setup();
+    const onAttachContext = vi.fn();
+    const fileEntry = entry(step({
+      id: "drop-file",
+      title: "Read source",
+      toolCall: { argsJson: { path: "src/app.ts" }, id: "drop-file", name: "workspace.read_file", resultPreview: "const ready = true;" },
+    }));
+    render(<LiveCanvas {...canvasProps([fileEntry], { onAttachContext, widthPx: 680 })} />);
+    await user.click(screen.getByRole("button", { name: "Inspect Files" }));
+    await user.click(within(screen.getByLabelText("Files window")).getByRole("button", { name: "const ready = true;" }));
+    const source = within(screen.getByLabelText("Files window")).getByRole("button", { name: /Attach src\/app\.ts/ });
+    const inspector = screen.getByLabelText("TinyOS Inspector");
+    const dataTransfer = dragTransfer();
+
+    fireEvent.dragStart(source, { dataTransfer });
+    fireEvent.dragOver(inspector, { dataTransfer });
+    fireEvent.drop(inspector, { dataTransfer });
+
+    expect(screen.getByRole("alert").textContent).toBe("Inspector accepts canonical evidence, not context references.");
+    expect(onAttachContext).not.toHaveBeenCalled();
   });
 
   it("pins two canonical evidence items into a split Inspector", async () => {

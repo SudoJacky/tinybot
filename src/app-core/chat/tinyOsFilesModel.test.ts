@@ -93,6 +93,7 @@ describe("TinyOS Files state", () => {
       chunk: fileChunk({ nextCursor: "chunk-2" }),
       requestId: "file-1",
       type: "file_loaded",
+      workspaceKey: "workspace-a",
     });
     const loadingNextChunk = reduceTinyOsFilesState(firstChunk, {
       path: "README.md",
@@ -104,6 +105,7 @@ describe("TinyOS Files state", () => {
       chunk: fileChunk({ content: "three\n", lineEnd: 3, lineStart: 3, nextCursor: undefined }),
       requestId: "file-2",
       type: "file_loaded",
+      workspaceKey: "workspace-a",
     });
 
     expect(resourceValue(nextChunk.documents["README.md"])?.content).toBe("one\ntwo\nthree\n");
@@ -118,6 +120,7 @@ describe("TinyOS Files state", () => {
         chunk: fileChunk({ path }),
         requestId: `load-${path}`,
         type: "file_loaded",
+        workspaceKey: "workspace-a",
       });
     }
     state = reduceTinyOsFilesState(state, { path: "a.ts", type: "activate_file" });
@@ -143,6 +146,7 @@ describe("TinyOS Files state", () => {
       chunk: fileChunk(),
       requestId: "file-1",
       type: "file_loaded",
+      workspaceKey: "workspace-a",
     });
     const stale = reduceTinyOsFilesState(loaded, { path: "README.md", type: "mark_stale" });
 
@@ -154,7 +158,7 @@ describe("TinyOS Files state", () => {
     state = reduceTinyOsFilesState(state, { requestId: "init-a", type: "initialize" });
     state = reduceTinyOsFilesState(state, { page: directoryPage({ workspaceKey: "workspace-a" }), requestId: "init-a", type: "initialized" });
     state = reduceTinyOsFilesState(state, { path: "README.md", requestId: "file-a", type: "file_loading" });
-    state = reduceTinyOsFilesState(state, { append: false, chunk: fileChunk(), requestId: "file-a", type: "file_loaded" });
+    state = reduceTinyOsFilesState(state, { append: false, chunk: fileChunk(), requestId: "file-a", type: "file_loaded", workspaceKey: "workspace-a" });
     state = reduceTinyOsFilesState(state, { requestId: "init-b", type: "initialize" });
     state = reduceTinyOsFilesState(state, { page: directoryPage({ workspaceKey: "workspace-b" }), requestId: "init-b", type: "initialized" });
 

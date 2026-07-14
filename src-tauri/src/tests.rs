@@ -5486,7 +5486,9 @@ fn worker_transport_websocket_maps_controlled_host_commands() {
             "command_id": "command-browser-1",
             "command_kind": "browser.interact",
             "run_id": "tinyos-host-browser-1",
+            "browser_session_id": "browser-session-1",
             "capture_id": "capture-1",
+            "tab_id": "tab-1",
             "action": { "type": "click", "x": 12, "y": 34 },
             "confirmed": true
         }),
@@ -5505,7 +5507,9 @@ fn worker_transport_websocket_maps_controlled_host_commands() {
     assert_eq!(file["baseRevision"], "metadata:12:34");
     assert_eq!(file["confirmed"], true);
     assert_eq!(browser["commandKind"], "browser.interact");
+    assert_eq!(browser["browserSessionId"], "browser-session-1");
     assert_eq!(browser["captureId"], "capture-1");
+    assert_eq!(browser["tabId"], "tab-1");
     assert_eq!(browser["action"]["type"], "click");
 }
 
@@ -5587,7 +5591,9 @@ fn worker_transport_dispatches_a_revision_guarded_file_command_and_rejects_fake_
                 "command_id": "command-browser-1",
                 "command_kind": "browser.interact",
                 "run_id": "tinyos-host-browser-test",
+                "browser_session_id": "browser-session-1",
                 "capture_id": "capture-1",
+                "tab_id": "tab-1",
                 "action": { "type": "click", "x": 12, "y": 34 },
                 "confirmed": true
             }),
@@ -5605,6 +5611,91 @@ fn worker_transport_dispatches_a_revision_guarded_file_command_and_rejects_fake_
     )
     .expect_err("browser control must fail closed without a real backend");
     assert!(browser_error.contains("no real browser"), "{browser_error}");
+
+    let missing_identity_error = worker_transport_dispatch_websocket_message_with_options(
+        &shared,
+        WorkerTransportWebSocketDispatchInput {
+            client_id: "client-host-browser".to_string(),
+            frame: serde_json::json!({
+                "type": "command",
+                "chat_id": "chat-host-file",
+                "session_id": session_id,
+                "command_id": "command-browser-2",
+                "command_kind": "browser.interact",
+                "run_id": "tinyos-host-browser-missing-identity",
+                "capture_id": "capture-1",
+                "tab_id": "tab-1",
+                "action": { "type": "click", "x": 12, "y": 34 },
+                "confirmed": true
+            }),
+            attached_chat_id: Some("chat-host-file".to_string()),
+            session_exists: Some(true),
+            editable_paths: None,
+            model: None,
+            max_iterations: None,
+            run_id: Some("tinyos-host-browser-missing-identity".to_string()),
+            stream: None,
+        },
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(100),
+    )
+    .expect_err("browser control must reject incomplete capture identity");
+    assert!(
+        missing_identity_error.contains("missing browserSessionId"),
+        "{missing_identity_error}"
+    );
+
+    let invalid_action_error = worker_transport_dispatch_websocket_message_with_options(
+        &shared,
+        WorkerTransportWebSocketDispatchInput {
+            client_id: "client-host-browser".to_string(),
+            frame: serde_json::json!({
+                "type": "command",
+                "chat_id": "chat-host-file",
+                "session_id": session_id,
+                "command_id": "command-browser-3",
+                "command_kind": "browser.interact",
+                "run_id": "tinyos-host-browser-invalid-action",
+                "browser_session_id": "browser-session-1",
+                "capture_id": "capture-1",
+                "tab_id": "tab-1",
+                "action": { "type": "click", "x": -1, "y": 34 },
+                "confirmed": true
+            }),
+            attached_chat_id: Some("chat-host-file".to_string()),
+            session_exists: Some(true),
+            editable_paths: None,
+            model: None,
+            max_iterations: None,
+            run_id: Some("tinyos-host-browser-invalid-action".to_string()),
+            stream: None,
+        },
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(100),
+    )
+    .expect_err("browser control must reject invalid coordinates");
+    assert!(
+        invalid_action_error.contains("non-negative x"),
+        "{invalid_action_error}"
+    );
+    let runs_after_rejections = worker_agent_runs_list_with_options(
+        &shared,
+        session_id.to_string(),
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(10),
+    )
+    .expect("host run list should remain readable after browser rejections");
+    assert_eq!(
+        runs_after_rejections["runs"]
+            .as_array()
+            .expect("host runs should be an array")
+            .len(),
+        1,
+        "rejected browser commands must not create runtime state"
+    );
 }
 
 #[test]
@@ -5963,6 +6054,63 @@ fn worker_transport_operation_retry_starts_new_correlated_run() {
 }
 
 #[test]
+fn tinyos_terminal_execute_fails_closed_without_network_enforcement_and_leaks_no_process() {
+    let fixture = WorkspaceFixture::new();
+    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let session_id = "websocket:chat-host-terminal";
+    let run_id = "tinyos-host-terminal-cancel-test";
+    let error = worker_transport_dispatch_websocket_message_with_options(
+        &shared,
+        WorkerTransportWebSocketDispatchInput {
+            client_id: "client-host-terminal".to_string(),
+            frame: serde_json::json!({
+                "type": "command",
+                "chat_id": "chat-host-terminal",
+                "session_id": session_id,
+                "command_id": "command-terminal-execute-1",
+                "command_kind": "terminal.execute",
+                "run_id": run_id,
+                "command": lifecycle_blocking_command(),
+                "cwd": ".",
+                "confirmed": true
+            }),
+            attached_chat_id: Some("chat-host-terminal".to_string()),
+            session_exists: Some(true),
+            editable_paths: None,
+            model: None,
+            max_iterations: None,
+            run_id: Some(run_id.to_string()),
+            stream: None,
+        },
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(100),
+    )
+    .expect_err(
+        "terminal execution must fail before process start when network denial cannot be enforced",
+    );
+
+    assert!(error.contains("network enforcement is unavailable"));
+    assert_eq!(
+        lock_runtime(&shared)
+            .native_agent_runtime
+            .shell_runtime()
+            .active_process_count(),
+        0
+    );
+
+    let runs = worker_agent_runs_list_with_options(
+        &shared,
+        session_id.to_string(),
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(10),
+    )
+    .expect("failed terminal run should remain inspectable");
+    assert_eq!(runs["runs"][0]["status"], "failed");
+}
+
+#[test]
 fn tinyos_effective_capabilities_are_backend_authored_and_run_scoped() {
     let policy = default_desktop_capability_policy();
     let running = crate::desktop_commands::session::build_worker_session_effective_capabilities(
@@ -6047,7 +6195,11 @@ fn tinyos_effective_capabilities_are_backend_authored_and_run_scoped() {
     assert_eq!(failed["capabilities"]["files"]["save"]["available"], true);
     assert_eq!(
         failed["capabilities"]["terminal"]["execute"]["available"],
-        true
+        false
+    );
+    assert_eq!(
+        failed["capabilities"]["terminal"]["execute"]["reasonCode"],
+        "network_enforcement_unavailable"
     );
     assert_eq!(
         failed["capabilities"]["browser"]["structured"]["available"],
@@ -6061,6 +6213,15 @@ fn tinyos_effective_capabilities_are_backend_authored_and_run_scoped() {
         failed["capabilities"]["browser"]["interact"]["available"],
         false
     );
+    assert_eq!(
+        failed["capabilities"]["browser"]["projectionContract"],
+        "structured_projection_v1"
+    );
+    assert_eq!(
+        failed["capabilities"]["browser"]["sessionContract"],
+        "browser_session_v1"
+    );
+    assert_eq!(failed["capabilities"]["browser"]["sessionSnapshot"], false);
 
     let terminal = crate::desktop_commands::session::build_worker_session_effective_capabilities(
         "websocket:chat-1",
@@ -6081,6 +6242,85 @@ fn tinyos_effective_capabilities_are_backend_authored_and_run_scoped() {
     assert_eq!(
         terminal["capabilities"]["terminal"]["execute"]["available"],
         false
+    );
+    assert_eq!(
+        terminal["capabilities"]["terminal"]["contract"],
+        "retained_execution_v1"
+    );
+    assert_eq!(terminal["capabilities"]["terminal"]["persistentPty"], false);
+}
+
+#[test]
+fn tinyos_terminal_result_payload_preserves_retained_execution_boundaries() {
+    let output = crate::worker_shell::ShellProcessOutput {
+        process_id: "shell-1".to_string(),
+        system_process_id: Some(42),
+        run_id: Some("tinyos-host-terminal-1".to_string()),
+        tool_call_id: Some("command-1".to_string()),
+        command: "cargo test".to_string(),
+        working_dir: ".".to_string(),
+        tty: false,
+        status: "completed".to_string(),
+        running: false,
+        exit_code: Some(0),
+        stdout: "ignored unsanitized output".to_string(),
+        stderr: "ignored unsanitized error".to_string(),
+        output: String::new(),
+        chunks: Vec::new(),
+        cursor: 3,
+        truncated: true,
+        dropped_bytes: 17,
+        started_at_ms: 1_000,
+        last_activity_ms: 1_250,
+        sandbox_mode: "read_only".to_string(),
+        network_mode: "denied".to_string(),
+        approval_decision: "user_confirmed".to_string(),
+        failure: None,
+    };
+
+    let payload = crate::desktop_commands::transport::tinyos_terminal_result_payload(
+        &output,
+        "safe stdout",
+        "safe stderr",
+    );
+
+    assert_eq!(payload["executionContract"], "retained_execution_v1");
+    assert_eq!(payload["processId"], "shell-1");
+    assert_eq!(payload["tty"], false);
+    assert_eq!(payload["sandboxMode"], "read_only");
+    assert_eq!(payload["networkMode"], "denied");
+    assert_eq!(payload["durationMs"], 250);
+    assert_eq!(payload["stdout"], "safe stdout");
+    assert_eq!(payload["stdoutBytes"], 11);
+    assert_eq!(payload["stderr"], "safe stderr");
+    assert_eq!(payload["stderrBytes"], 11);
+    assert_eq!(payload["truncated"], true);
+    assert_eq!(payload["droppedBytes"], 17);
+}
+
+#[test]
+fn tinyos_host_restart_recovery_keeps_live_terminal_and_marks_stale_runs() {
+    let live_process_runs =
+        std::collections::HashSet::from(["tinyos-host-terminal-live".to_string()]);
+    let interrupted = crate::desktop_commands::session::interrupted_tinyos_host_run_ids(
+        &serde_json::json!({
+            "runs": [
+                { "runId": "tinyos-host-terminal-live", "status": "running" },
+                { "runId": "tinyos-host-terminal-stale", "status": "running" },
+                { "runId": "tinyos-host-file-stale", "status": "waiting" },
+                { "runId": "tinyos-host-terminal-done", "status": "completed" },
+                { "runId": "agent-run", "status": "running" }
+            ]
+        }),
+        &live_process_runs,
+    );
+
+    assert_eq!(
+        interrupted,
+        vec![
+            "tinyos-host-terminal-stale".to_string(),
+            "tinyos-host-file-stale".to_string(),
+        ]
     );
 }
 

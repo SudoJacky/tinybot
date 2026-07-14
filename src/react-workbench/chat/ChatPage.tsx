@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useReducer, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useId, useMemo, useReducer, useRef, useState, type CSSProperties, type DragEvent } from "react";
 import {
   AlertTriangle,
   Check,
@@ -55,6 +55,7 @@ import {
   applyLoadedDelegatedAgentTrace,
   projectLoadedArtifactDetail,
   type ArtifactRef,
+  type BackendAgentTurnItem,
   type ChatStep,
   type ChatTurn,
   type DelegatedAgentState,
@@ -65,6 +66,7 @@ import {
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
 import type { NativeChatReference } from "../../app-core/chat/nativeChat";
 import type { TinyOsAgentRequestIntent, TinyOsAgentRequestReference, TinyOsContextReference } from "../../app-core/chat/tinyOsUiState";
+import { readTinyOsReferenceTransfer, tinyOsReferenceAcceptedBy, TINYOS_REFERENCE_MIME } from "../../app-core/chat/tinyOsReferenceTransfer";
 import { useTinyOsFilesController } from "./useTinyOsFilesController";
 import {
   TINYOS_COMMAND_ACK_TIMEOUT_MS,
@@ -74,6 +76,7 @@ import {
   createTinyOsAgentRequestChangeCommand,
   createTinyOsAgentRunControlCommand,
   createTinyOsApprovalResolveCommand,
+  createTinyOsBrowserInteractCommand,
   createTinyOsFileDeleteCommand,
   createTinyOsFileMoveCommand,
   createTinyOsFileSaveCommand,
@@ -86,6 +89,7 @@ import {
   reduceTinyOsCommandLifecycle,
   type TinyOsCommandLifecycle,
   type TinyOsCommand,
+  type TinyOsBrowserAction,
 } from "../../app-core/chat/tinyOsCommandGateway";
 import {
   unavailableTinyOsEffectiveCapabilities,
@@ -115,7 +119,7 @@ type DrawerState =
 
 type LiveCanvasState = {
   mode: LiveCanvasMode;
-  selection?: { itemId: string; turnId: string };
+  selection?: { eventIndex?: number; itemId: string; runId?: string; turnId: string };
   surface: "panel" | "expanded";
   visibility: "closed" | "open";
 };
@@ -124,7 +128,7 @@ type LiveCanvasAction =
   | { type: "close" }
   | { type: "expand_toggle" }
   | { type: "return_live" }
-  | { type: "select"; itemId: string; turnId: string }
+  | { type: "select"; eventIndex?: number; itemId: string; runId?: string; turnId: string }
   | { type: "toggle" };
 
 const INITIAL_LIVE_CANVAS_STATE: LiveCanvasState = {
@@ -142,7 +146,17 @@ function reduceLiveCanvasState(state: LiveCanvasState, action: LiveCanvasAction)
     case "return_live":
       return { ...state, mode: "live_follow", visibility: "open" };
     case "select":
-      return { ...state, mode: "history", selection: { itemId: action.itemId, turnId: action.turnId }, visibility: "open" };
+      return {
+        ...state,
+        mode: "history",
+        selection: {
+          ...(action.eventIndex !== undefined ? { eventIndex: action.eventIndex } : {}),
+          itemId: action.itemId,
+          ...(action.runId ? { runId: action.runId } : {}),
+          turnId: action.turnId,
+        },
+        visibility: "open",
+      };
     case "toggle":
       return state.visibility === "open"
         ? { ...state, visibility: "closed" }
@@ -156,6 +170,18 @@ type QueuedComposerInput = QueuedInput & Pick<ChatInput, "model" | "references" 
 
 function shouldFrameBatchTimeline(timeline: ChatTimelineSnapshot): boolean {
   return timeline.turns[timeline.turns.length - 1]?.status === "running";
+}
+
+function lastCanonicalEventIndex(
+  items: readonly BackendAgentTurnItem[],
+  turnId: string,
+  itemId: string,
+): number {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (item.turnId === turnId && item.itemId === itemId) return index;
+  }
+  return -1;
 }
 
 function readStoredTinyOsWidth(): number {
@@ -253,6 +279,7 @@ export function ChatPage({
   const [queueMessage, setQueueMessage] = useState("");
   const [composerDraft, setComposerDraft] = useState("");
   const [tinyOsContextReferences, setTinyOsContextReferences] = useState<TinyOsContextReference[]>([]);
+  const [tinyOsDropError, setTinyOsDropError] = useState("");
   const [recoveringTurnId, setRecoveringTurnId] = useState("");
   const [showBackToLatest, setShowBackToLatest] = useState(false);
   const [dissolvingSessionIds, setDissolvingSessionIds] = useState<Set<string>>(() => new Set());
@@ -337,14 +364,19 @@ export function ChatPage({
   const saveFileCapability = tinyOsCapabilities.capabilities.files.save;
   const terminalExecuteCapability = tinyOsCapabilities.capabilities.terminal.execute;
   const terminalCancelCapability = tinyOsCapabilities.capabilities.terminal.cancel;
+  const browserInteractCapability = tinyOsCapabilities.capabilities.browser.interact;
   const canDirectEdit = Boolean(activeSession && directEditCapability.available && !cancelInFlight);
   const canSaveFile = Boolean(activeSession && saveFileCapability.available && !cancelInFlight);
   const canExecuteTerminal = Boolean(activeSession && terminalExecuteCapability.available && !cancelInFlight);
   const canCancelTerminal = Boolean(activeSession && terminalCancelCapability.available);
+  const canInteractBrowser = Boolean(activeSession && browserInteractCapability.available && !cancelInFlight);
   const directEditUnavailableReason = cancelInFlight ? "Another TinyOS command is in flight." : directEditCapability.reason;
   const saveFileUnavailableReason = cancelInFlight ? "Another TinyOS command is in flight." : saveFileCapability.reason;
   const terminalExecuteUnavailableReason = cancelInFlight ? "Another TinyOS command is in flight." : terminalExecuteCapability.reason;
   const terminalCancelUnavailableReason = terminalCancelCapability.reason;
+  const browserInteractUnavailableReason = cancelInFlight
+    ? "Another TinyOS command is in flight."
+    : browserInteractCapability.reason || "Browser interaction is unavailable.";
   const runningTerminalRunId = [...(timeline?.turns ?? [])].reverse().find((turn) => (
     turn.id.startsWith("tinyos-host-terminal-") && (turn.status === "running" || turn.status === "pending")
   ))?.id;
@@ -388,7 +420,15 @@ export function ChatPage({
     : liveCanvasEntries.find((entry) => entry.turnId === liveCanvas.selection?.turnId && entry.step.id === liveCanvas.selection.itemId);
 
   const openLiveCanvasItem = (turnId: string, step: ChatStep) => {
-    dispatchLiveCanvas({ type: "select", itemId: step.id, turnId });
+    const eventIndex = lastCanonicalEventIndex(liveCanvasCanonicalItems, turnId, step.id);
+    const boundary = eventIndex >= 0 ? liveCanvasCanonicalItems[eventIndex] : undefined;
+    dispatchLiveCanvas({
+      ...(eventIndex >= 0 ? { eventIndex } : {}),
+      itemId: step.id,
+      ...(boundary?.runId ? { runId: boundary.runId } : {}),
+      turnId,
+      type: "select",
+    });
   };
 
   const handleAttachTinyOsContext = (reference: TinyOsContextReference) => {
@@ -397,6 +437,22 @@ export function ChatPage({
       ...current.filter((candidate) => tinyOsContextReferenceId(candidate) !== id),
       reference,
     ]);
+  };
+
+  const handleTinyOsComposerDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const parsed = readTinyOsReferenceTransfer(event.dataTransfer);
+    if (parsed.status === "rejected") {
+      setTinyOsDropError(parsed.reason);
+      return;
+    }
+    const accepted = tinyOsReferenceAcceptedBy(parsed.reference, "chat");
+    if (accepted.status === "rejected") {
+      setTinyOsDropError(accepted.reason);
+      return;
+    }
+    setTinyOsDropError("");
+    handleAttachTinyOsContext(accepted.reference.reference);
   };
 
   async function handleTinyOsAgentRequest(
@@ -494,6 +550,22 @@ export function ChatPage({
       sessionId: activeSession.id,
       source: { control: "terminal-cancel", surface: "tinyos" },
     }), true);
+  }
+
+  async function handleInteractTinyOsBrowser(input: {
+    action: TinyOsBrowserAction;
+    browserSessionId: string;
+    captureId: string;
+    tabId: string;
+  }): Promise<void> {
+    if (!activeSession || !browserInteractCapability.available) {
+      throw new Error(browserInteractUnavailableReason);
+    }
+    await dispatchTinyOsHostCommand(createTinyOsBrowserInteractCommand({
+      ...input,
+      sessionId: activeSession.id,
+      source: { control: `browser-${input.action.type}`, surface: "tinyos" },
+    }));
   }
 
   useEffect(() => {
@@ -1650,8 +1722,17 @@ export function ChatPage({
             {tinyOsCommandLifecycleLabel(commandLifecycle)}
           </p>
         ) : null}
-        <ClaudeStyleAiInput
-          className={["react-composer", emptyActiveSession ? "react-composer--raised" : ""].filter(Boolean).join(" ")}
+        <div
+          className="tinyos-composer-drop-target"
+          onDragOver={(event) => {
+            if (!Array.from(event.dataTransfer.types).includes(TINYOS_REFERENCE_MIME)) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "copy";
+          }}
+          onDrop={handleTinyOsComposerDrop}
+        >
+          <ClaudeStyleAiInput
+            className={["react-composer", emptyActiveSession ? "react-composer--raised" : ""].filter(Boolean).join(" ")}
           contextReferences={tinyOsContextReferences.map(composerReferenceFromTinyOs)}
           disabled={!activeSession && !draftNewSession}
           disabledReason={!sessionsLoaded ? "正在加载会话…" : !activeSession && !draftNewSession ? "请先创建或选择一个会话" : undefined}
@@ -1668,8 +1749,10 @@ export function ChatPage({
           onRemoveContextReference={(id) => setTinyOsContextReferences((current) => current.filter((reference) => tinyOsContextReferenceId(reference) !== id))}
           onValueChange={setComposerDraft}
           onSendMessage={(message, files, pastedContent, options) => handleComposerSend(message, files, pastedContent, options)}
-          onStopResponding={() => activeSession && handleStopGeneration(activeSession, "chat")}
-        />
+            onStopResponding={() => activeSession && handleStopGeneration(activeSession, "chat")}
+          />
+          {tinyOsDropError ? <p className="tinyos-composer-drop-error" role="alert">{tinyOsDropError}</p> : null}
+        </div>
       </main>
 
       {liveCanvasOpen ? (
@@ -1678,6 +1761,7 @@ export function ChatPage({
           agentUiForms={visibleAgentUiForms}
           canonicalItems={liveCanvasCanonicalItems}
           canCancelTerminal={canCancelTerminal}
+          canInteractBrowser={canInteractBrowser}
           canDirectEdit={canDirectEdit}
           canExecuteTerminal={canExecuteTerminal}
           entries={liveCanvasEntries}
@@ -1695,10 +1779,12 @@ export function ChatPage({
           commandLifecycle={commandLifecycle}
           resolvingApprovalId={resolvingApprovalId}
           selection={selectedLiveCanvasEntry}
+          selectionEventIndex={liveCanvas.selection?.eventIndex}
           sessionKey={`${tinyOsUiScope}:${activeSession?.id ?? "draft"}`}
           widthPx={tinyOsWidth}
           filesController={tinyOsFiles}
           directEditUnavailableReason={directEditUnavailableReason}
+          browserInteractUnavailableReason={browserInteractUnavailableReason}
           onAttachContext={handleAttachTinyOsContext}
           onCancelForm={(form) => void handleCancelAgentUiForm(form, "tinyos")}
           onCancelRun={() => activeSession && void handleStopGeneration(activeSession, "tinyos")}
@@ -1708,6 +1794,7 @@ export function ChatPage({
           onOpenArtifact={(artifact) => void handleOpenArtifact(artifact)}
           onAgentRequest={(reference, intent, fromHistory) => void handleTinyOsAgentRequest(reference, intent, fromHistory)}
           onCancelTerminal={handleCancelTinyOsTerminal}
+          onBrowserInteract={handleInteractTinyOsBrowser}
           onDeleteFile={handleDeleteTinyOsFile}
           onExecuteTerminal={handleExecuteTinyOsTerminal}
           onMoveFile={handleMoveTinyOsFile}
@@ -1719,6 +1806,13 @@ export function ChatPage({
           onReturnToLive={() => dispatchLiveCanvas({ type: "return_live" })}
           onResumeRun={() => void handleAgentRunControl("agent.resume", "tinyos")}
           onSelectEntry={(entry) => openLiveCanvasItem(entry.turnId, entry.step)}
+          onSelectBoundary={(boundary) => dispatchLiveCanvas({
+            eventIndex: boundary.eventIndex,
+            itemId: boundary.itemId,
+            runId: boundary.runId,
+            turnId: boundary.turnId,
+            type: "select",
+          })}
           onSubmitForm={(form, values) => void handleSubmitAgentUiForm(form, values, "tinyos")}
           onSaveFile={handleSaveTinyOsFile}
           requestChangeUnavailableReason={requestChangeUnavailableReason}

@@ -1,5 +1,5 @@
 import type { BackendAgentTurnItem, ChatStep, ChatStepStatus } from "./chatRunModel";
-import { projectTinyOsKernel, type TinyOsKernelSnapshot } from "./tinyOsKernelModel";
+import { projectTinyOsKernel, type TinyOsKernelProjectionOptions, type TinyOsKernelSnapshot } from "./tinyOsKernelModel";
 
 export type TinyOsAppId =
   | "files"
@@ -18,8 +18,10 @@ export type TinyOsTimelineEntry = {
 };
 
 export type TinyOsCursor = {
+  eventIndex?: number;
   itemId?: string;
   mode: "live_follow" | "history";
+  runId?: string;
   turnId?: string;
 };
 
@@ -160,11 +162,27 @@ export function projectKernelBackedTinyOsDesktop(
   entries: readonly TinyOsTimelineEntry[],
   canonicalItems: readonly BackendAgentTurnItem[],
   cursor: TinyOsCursor,
+  options: TinyOsKernelProjectionOptions = {},
 ): TinyOsDesktopSnapshot {
   const kernel = projectTinyOsKernel(canonicalItems, cursor.mode === "history" && cursor.itemId
-    ? { itemId: cursor.itemId, mode: "history", turnId: cursor.turnId }
-    : { mode: "live" });
-  return projectTinyOsDesktop(entries, cursor, kernel);
+    ? {
+        ...(cursor.eventIndex !== undefined ? { eventIndex: cursor.eventIndex } : {}),
+        itemId: cursor.itemId,
+        mode: "history",
+        ...(cursor.runId ? { runId: cursor.runId } : {}),
+        ...(cursor.turnId ? { turnId: cursor.turnId } : {}),
+      }
+    : { mode: "live" }, options);
+  if (cursor.mode !== "history") return projectTinyOsDesktop(entries, cursor, kernel);
+  const visibleCanonicalKeys = new Set(canonicalItems
+    .slice(0, kernel.cursor.eventIndex + 1)
+    .map((item) => `${item.turnId}:${item.itemId}`));
+  let visibleEntryCount = 0;
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
+    if (visibleCanonicalKeys.has(`${entry.turnId}:${entry.step.id}`)) visibleEntryCount = index + 1;
+  }
+  return projectTinyOsDesktop(entries.slice(0, visibleEntryCount), { mode: "live_follow" }, kernel);
 }
 
 export function tinyOsAppForStep(step: ChatStep): TinyOsAppId | undefined {

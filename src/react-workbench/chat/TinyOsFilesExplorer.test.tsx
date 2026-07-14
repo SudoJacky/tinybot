@@ -4,6 +4,8 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTinyOsFilesState, type TinyOsFilesState } from "../../app-core/chat/tinyOsFilesModel";
+import { createTinyOsFileSaveCommand } from "../../app-core/chat/tinyOsCommandGateway";
+import { createTinyOsShellCommandRegistry, defineTinyOsShellCommand } from "../../app-core/chat/tinyOsShellCommandRegistry";
 import { TinyOsFilesExplorer } from "./TinyOsFilesExplorer";
 import type { TinyOsFilesController } from "./useTinyOsFilesController";
 
@@ -53,6 +55,32 @@ function treeState(): TinyOsFilesState {
   };
 }
 
+function openDocumentState(path = "README.md"): TinyOsFilesState {
+  return {
+    ...treeState(),
+    activePath: path,
+    documents: {
+      [path]: {
+        status: "ready",
+        value: {
+          access: "read_only",
+          content: "before\n",
+          contentType: "text",
+          lineEnd: 1,
+          path,
+          provenance: { kind: "native_query", sourceId: "workspace-a" },
+          resourceId: `workspace:workspace-a:${path}`,
+          revision: "metadata:7:12",
+          sizeBytes: 7,
+          stale: false,
+        },
+      },
+    },
+    mruPaths: [path],
+    openPaths: [path],
+  };
+}
+
 describe("TinyOS Workspace Explorer", () => {
   it("loads tree items without recursive enumeration and supports tree keyboard navigation", async () => {
     const files = controller(treeState());
@@ -81,10 +109,13 @@ describe("TinyOS Workspace Explorer", () => {
         "src/main.ts": {
           status: "ready",
           value: {
+            access: "read_only",
             content: "const one = 1;\nconst two = 2;",
             contentType: "text",
             lineEnd: 2,
             path: "src/main.ts",
+            provenance: { kind: "native_query", sourceId: "workspace-a" },
+            resourceId: "workspace:workspace-a:src/main.ts",
             revision: "revision-1",
             sizeBytes: 31,
             stale: false,
@@ -150,10 +181,13 @@ describe("TinyOS Workspace Explorer", () => {
         "README.md": {
           status: "ready",
           value: {
+            access: "read_only",
             content: "before\n",
             contentType: "text",
             lineEnd: 1,
             path: "README.md",
+            provenance: { kind: "native_query", sourceId: "workspace-a" },
+            resourceId: "workspace:workspace-a:README.md",
             revision: "metadata:7:12",
             sizeBytes: 7,
             stale: false,
@@ -193,7 +227,7 @@ describe("TinyOS Workspace Explorer", () => {
   });
 
   it("keeps a rejected draft visible for conflict recovery", async () => {
-    const onSaveFile = vi.fn(async () => { throw new Error("version conflict"); });
+    const onSaveFile = vi.fn(async () => { throw new Error('file.save failed: version conflict: {"revision":"metadata:9:18"}'); });
     const files = controller({
       ...treeState(),
       activePath: "README.md",
@@ -201,10 +235,13 @@ describe("TinyOS Workspace Explorer", () => {
         "README.md": {
           status: "ready",
           value: {
+            access: "read_only",
             content: "before\n",
             contentType: "text",
             lineEnd: 1,
             path: "README.md",
+            provenance: { kind: "native_query", sourceId: "workspace-a" },
+            resourceId: "workspace:workspace-a:README.md",
             revision: "metadata:7:12",
             sizeBytes: 7,
             stale: false,
@@ -234,5 +271,119 @@ describe("TinyOS Workspace Explorer", () => {
 
     expect((await screen.findByRole("alert")).textContent).toContain("version conflict");
     expect((screen.getByRole("textbox", { name: "Editable draft of README.md" }) as HTMLTextAreaElement).value).toBe("keep this draft");
+    const conflict = screen.getByRole("region", { name: "File revision conflict" });
+    expect(within(conflict).getByText("metadata:7:12")).toBeTruthy();
+    expect(within(conflict).getByText("metadata:9:18")).toBeTruthy();
+  });
+
+  it("shows stable native resource identity, registered Open With handlers, and process occupancy", async () => {
+    const attach = vi.fn();
+    const resourceId = "workspace:workspace-a:README.md";
+    const registry = createTinyOsShellCommandRegistry([defineTinyOsShellCommand({
+      availability: { available: true },
+      category: "resource",
+      dispatch: attach,
+      id: `reference.attach:${resourceId}`,
+      input: { acceptedKinds: ["file"], kind: "reference" },
+      keywords: ["readme", "chat"],
+      label: "Attach README.md to Chat",
+      scope: "local_presentation",
+      target: { kind: "resource", resourceId },
+    })]);
+    const files = controller(openDocumentState());
+    render(<TinyOsFilesExplorer
+      canRequestChange={false}
+      commandRegistry={registry}
+      controller={files}
+      kernel={{
+        browserSessions: [],
+        capabilities: [],
+        cursor: { eventCount: 1, eventIndex: 1, mode: "live" },
+        discrepancies: [],
+        metrics: [],
+        notifications: [],
+        processes: [{
+          applicationId: "files",
+          correlation: { runId: "run-1", sessionId: "session-1" },
+          id: "process-file-1",
+          kind: "tool_operation",
+          provenance: { kind: "canonical_event", sourceId: "item-1" },
+          state: "running",
+          title: "Read README",
+        }],
+        resources: [{
+          access: "read_only",
+          id: "kernel-file-1",
+          kind: "file",
+          path: "README.md",
+          provenance: { kind: "canonical_event", sourceId: "item-1" },
+          relatedProcessIds: ["process-file-1"],
+          revision: "metadata:7:12",
+          title: "README.md",
+        }],
+        truth: "derived",
+      }}
+      layoutMode="workspace"
+      onAttachContext={vi.fn()}
+      onRequestExplanation={vi.fn()}
+      onRequestModification={vi.fn()}
+    />);
+
+    const identity = screen.getByRole("group", { name: "File resource identity" });
+    expect(within(identity).getByText(resourceId)).toBeTruthy();
+    expect(within(identity).getByText(/native_query/)).toBeTruthy();
+    expect(within(identity).getByText("1 related process")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Open With" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Attach README.md to Chat" }));
+    expect(attach).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps recent files and favorites as local views over known resources", async () => {
+    const files = controller(openDocumentState());
+    render(<TinyOsFilesExplorer canRequestChange={false} controller={files} layoutMode="workspace" onAttachContext={vi.fn()} onRequestExplanation={vi.fn()} onRequestModification={vi.fn()} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Add README.md to favorites" }));
+    await userEvent.click(screen.getByRole("button", { name: "Show favorite files" }));
+    await userEvent.click(within(screen.getByLabelText("Favorite files")).getByRole("button", { name: /README.md/ }));
+    expect(files.openFile).toHaveBeenCalledWith("README.md");
+
+    await userEvent.click(screen.getByRole("button", { name: "Show recent files" }));
+    expect(within(screen.getByLabelText("Recent files")).getByRole("button", { name: /README.md/ })).toBeTruthy();
+  });
+
+  it("tracks file dispatch, acknowledgement, completion, and conflict without presenting Trash", () => {
+    const files = controller(openDocumentState());
+    const command = createTinyOsFileSaveCommand({
+      baseRevision: "metadata:7:12",
+      commandId: "file-command-1",
+      content: "after\n",
+      issuedAt: "2026-07-14T00:00:00Z",
+      path: "README.md",
+      sessionId: "session-1",
+      source: { control: "files-save", surface: "tinyos" },
+    });
+    const props = {
+      canRequestChange: false,
+      controller: files,
+      layoutMode: "workspace" as const,
+      onAttachContext: vi.fn(),
+      onRequestExplanation: vi.fn(),
+      onRequestModification: vi.fn(),
+    };
+    const { rerender } = render(<TinyOsFilesExplorer {...props} commandLifecycle={{ command, dispatchedAtMs: 1, stage: "sending" }} />);
+    expect(within(screen.getByLabelText("File operation queue")).getByText("dispatching")).toBeTruthy();
+
+    rerender(<TinyOsFilesExplorer {...props} commandLifecycle={{ command, dispatchedAtMs: 1, transportAcceptedAtMs: 2, stage: "waiting_for_canonical" }} />);
+    expect(within(screen.getByLabelText("File operation queue")).getByText("awaiting runtime")).toBeTruthy();
+    rerender(<TinyOsFilesExplorer {...props} commandLifecycle={{ acknowledgement: { itemId: "item-1", revision: 1 }, acknowledgedAtMs: 3, command, dispatchedAtMs: 1, stage: "acknowledged" }} />);
+    expect(within(screen.getByLabelText("File operation queue")).getByText("acknowledged")).toBeTruthy();
+    rerender(<TinyOsFilesExplorer {...props} commandLifecycle={{ acknowledgement: { itemId: "item-1", revision: 1 }, command, completedAtMs: 4, completion: { itemId: "item-1", revision: 2, status: "completed" }, dispatchedAtMs: 1, stage: "completed" }} />);
+    expect(within(screen.getByLabelText("File operation queue")).getByText("completed")).toBeTruthy();
+
+    const conflictCommand = { ...command, commandId: "file-command-2" };
+    rerender(<TinyOsFilesExplorer {...props} commandLifecycle={{ command: conflictCommand, dispatchedAtMs: 5, error: "version conflict", stage: "rejected" }} />);
+    expect(within(screen.getByLabelText("File operation queue")).getByText("conflict")).toBeTruthy();
+    expect(screen.getByText("Permanent delete · Trash unavailable")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Trash/ })).toBeNull();
   });
 });

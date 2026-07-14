@@ -212,7 +212,13 @@ export type TinyOsBrowserInteractCommand = {
   kind: "browser.interact";
   source: TinyOsCommandSource;
   target: { runId: string; sessionId: string; threadId?: string };
-  browser: { action: TinyOsBrowserAction; captureId: string; confirmed: true };
+  browser: {
+    action: TinyOsBrowserAction;
+    browserSessionId: string;
+    captureId: string;
+    confirmed: true;
+    tabId: string;
+  };
 };
 
 export type TinyOsCommand = TinyOsAgentCancelCommand
@@ -289,8 +295,10 @@ export function toNativeTinyOsHostCommandFrame(sessionId: string, command: TinyO
   if (command.kind === "browser.interact") return {
     ...envelope,
     action: command.browser.action,
+    browser_session_id: command.browser.browserSessionId,
     capture_id: command.browser.captureId,
     confirmed: command.browser.confirmed,
+    tab_id: command.browser.tabId,
   };
   throw new Error(`Unsupported Native host command: ${command.kind}`);
 }
@@ -654,11 +662,13 @@ export function createTinyOsTerminalCancelCommand(input: {
 
 export function createTinyOsBrowserInteractCommand(input: {
   action: TinyOsBrowserAction;
+  browserSessionId: string;
   captureId: string;
   commandId?: string;
   issuedAt?: string;
   sessionId: string;
   source: TinyOsCommandSource;
+  tabId: string;
   threadId?: string;
 }): TinyOsBrowserInteractCommand {
   return {
@@ -670,8 +680,10 @@ export function createTinyOsBrowserInteractCommand(input: {
     target: hostCommandTarget("browser", input.sessionId, input.threadId),
     browser: {
       action: { ...input.action },
+      browserSessionId: requiredHostText(input.browserSessionId, "Browser session id"),
       captureId: requiredHostText(input.captureId, "Browser capture id"),
       confirmed: true,
+      tabId: requiredHostText(input.tabId, "Browser tab id"),
     },
   };
 }

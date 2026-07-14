@@ -39,13 +39,19 @@ export type TinyOsEffectiveCapabilities = {
       save: TinyOsCapabilityDecision;
     };
     terminal: {
+      contract: "retained_execution_v1";
+      persistentPty: false;
       inspect: TinyOsCapabilityDecision;
       execute: TinyOsCapabilityDecision;
       cancel: TinyOsCapabilityDecision;
     };
     browser: {
+      interactionRequires: "current_real_capture";
       structured: TinyOsCapabilityDecision;
+      projectionContract: "structured_projection_v1";
       realCapture: TinyOsCapabilityDecision;
+      sessionContract: "browser_session_v1";
+      sessionSnapshot: boolean;
       interact: TinyOsCapabilityDecision;
     };
   };
@@ -86,13 +92,19 @@ export function normalizeTinyOsEffectiveCapabilities(
         save: normalizeDecision(files.save, "files.save"),
       },
       terminal: {
+        contract: normalizeTerminalContract(terminal),
+        persistentPty: normalizePersistentPty(terminal),
         inspect: normalizeDecision(terminal.inspect, "terminal.inspect"),
         execute: normalizeDecision(terminal.execute, "terminal.execute"),
         cancel: normalizeDecision(terminal.cancel, "terminal.cancel"),
       },
       browser: {
+        interactionRequires: normalizeLiteral(browser.interactionRequires, "current_real_capture", "browser interaction requirement"),
         structured: normalizeDecision(browser.structured, "browser.structured"),
+        projectionContract: normalizeLiteral(browser.projectionContract, "structured_projection_v1", "browser projection contract"),
         realCapture: normalizeDecision(browser.realCapture, "browser.realCapture"),
+        sessionContract: normalizeLiteral(browser.sessionContract, "browser_session_v1", "browser session contract"),
+        sessionSnapshot: normalizeBoolean(browser.sessionSnapshot, "browser session snapshot"),
         interact: normalizeDecision(browser.interact, "browser.interact"),
       },
     },
@@ -111,10 +123,48 @@ export function unavailableTinyOsEffectiveCapabilities(
     capabilities: {
       agent: { pause: unavailable(), resume: unavailable(), cancel: unavailable(), retry: unavailable() },
       files: { read: unavailable(), requestChange: unavailable(), directEdit: unavailable(), save: unavailable() },
-      terminal: { inspect: unavailable(), execute: unavailable(), cancel: unavailable() },
-      browser: { structured: unavailable(), realCapture: unavailable(), interact: unavailable() },
+      terminal: {
+        contract: "retained_execution_v1",
+        persistentPty: false,
+        inspect: unavailable(),
+        execute: unavailable(),
+        cancel: unavailable(),
+      },
+      browser: {
+        interactionRequires: "current_real_capture",
+        structured: unavailable(),
+        projectionContract: "structured_projection_v1",
+        realCapture: unavailable(),
+        sessionContract: "browser_session_v1",
+        sessionSnapshot: false,
+        interact: unavailable(),
+      },
     },
   };
+}
+
+function normalizeTerminalContract(value: Record<string, unknown>): "retained_execution_v1" {
+  if (value.contract !== "retained_execution_v1") {
+    throw new Error("TinyOS terminal capability uses an unsupported execution contract");
+  }
+  return value.contract;
+}
+
+function normalizePersistentPty(value: Record<string, unknown>): false {
+  if (value.persistentPty !== false) {
+    throw new Error("TinyOS retained terminal capability must declare persistentPty=false");
+  }
+  return false;
+}
+
+function normalizeLiteral<T extends string>(value: unknown, expected: T, label: string): T {
+  if (value !== expected) throw new Error(`TinyOS ${label} is unsupported`);
+  return expected;
+}
+
+function normalizeBoolean(value: unknown, label: string): boolean {
+  if (typeof value !== "boolean") throw new Error(`TinyOS ${label} availability is missing`);
+  return value;
 }
 
 function normalizeDecision(value: unknown, name: string): TinyOsCapabilityDecision {

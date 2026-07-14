@@ -1,5 +1,5 @@
 import type { BackendAgentTurnItem } from "./chatRunModel";
-import type { TinyOsNativeSnapshot } from "./tinyOsNativeSnapshot";
+import type { TinyOsNativeBrowserSession, TinyOsNativeSnapshot } from "./tinyOsNativeSnapshot";
 
 export type TinyOsProvenanceKind =
   | "canonical_event"
@@ -146,6 +146,7 @@ export type TinyOsSimulationCursor = {
 };
 
 export type TinyOsKernelSnapshot = {
+  browserSessions: TinyOsBrowserSessionProjection[];
   capabilities: TinyOsCapability[];
   cursor: TinyOsSimulationCursor;
   discrepancies: TinyOsDiscrepancy[];
@@ -154,6 +155,12 @@ export type TinyOsKernelSnapshot = {
   processes: TinyOsProcess[];
   resources: TinyOsResource[];
   truth: "derived";
+};
+
+export type TinyOsBrowserSessionProjection = TinyOsNativeBrowserSession & {
+  observedAt: string;
+  provenance: TinyOsProvenance;
+  revision: number | string;
 };
 
 export type TinyOsResourceIdentityInput = {
@@ -180,7 +187,7 @@ export type TinyOsProcessIdentityInput =
 
 export type TinyOsKernelCursorInput =
   | { mode: "live" }
-  | { itemId: string; mode: "history"; runId?: string; turnId?: string };
+  | { eventIndex?: number; itemId: string; mode: "history"; runId?: string; turnId?: string };
 
 export type TinyOsKernelProjectionOptions = {
   nativeSnapshots?: readonly TinyOsNativeSnapshot[];
@@ -337,11 +344,15 @@ export function projectTinyOsKernel(
   }
 
   const canonicalResources = projectCanonicalResources(latestItems, processIdByItemId, processIdByToolCallId);
-  const native = projectNativeSnapshots(options.nativeSnapshots ?? [], processIdByToolCallId);
+  const native = projectNativeSnapshots(
+    nativeSnapshotsAtCursor(options.nativeSnapshots ?? [], visibleItems, cursorInput),
+    processIdByToolCallId,
+  );
   const resources = [...canonicalResources, ...native.resources];
   const allProcesses = [...processes, ...native.processes];
 
   return {
+    browserSessions: native.browserSessions,
     capabilities: [],
     cursor: simulationCursor(items, visibleItems, cursorInput),
     discrepancies: projectDiscrepancies(processes, canonicalResources, native.processes, native.resources),
@@ -356,7 +367,8 @@ export function projectTinyOsKernel(
 function projectNativeSnapshots(
   snapshots: readonly TinyOsNativeSnapshot[],
   processIdByToolCallId: ReadonlyMap<string, string>,
-): { processes: TinyOsProcess[]; resources: TinyOsResource[] } {
+): { browserSessions: TinyOsBrowserSessionProjection[]; processes: TinyOsProcess[]; resources: TinyOsResource[] } {
+  const browserSessions: TinyOsBrowserSessionProjection[] = [];
   const processes: TinyOsProcess[] = [];
   const resources: TinyOsResource[] = [];
   for (const snapshot of latestNativeSnapshots(snapshots)) {
@@ -384,6 +396,56 @@ function projectNativeSnapshots(
         revision: snapshot.revision,
         title: data.title || data.url || data.captureId,
       });
+      continue;
+    }
+    if (data.kind === "browser_session") {
+      const processId = createTinyOsProcessId({
+        browserSessionId: data.browserSessionId,
+        kind: "browser_session",
+        runId: data.runId,
+        sessionId: data.sessionId,
+      });
+      browserSessions.push({
+        ...data,
+        observedAt: snapshot.observedAt,
+        provenance: snapshot.provenance,
+        revision: snapshot.revision,
+      });
+      processes.push({
+        applicationId: "browser",
+        correlation: {
+          browserSessionId: data.browserSessionId,
+          runId: data.runId,
+          sessionId: data.sessionId,
+        },
+        id: processId,
+        kind: "browser_session",
+        provenance: snapshot.provenance,
+        state: data.state,
+        title: data.tabs.find(({ tabId }) => tabId === data.activeTabId)?.title || `Browser session ${shortIdentity(data.browserSessionId)}`,
+      });
+      resources.push({
+        access: data.interaction.navigate || data.interaction.click || data.interaction.type ? "execute" : "read_only",
+        id: nativeResourceId("browser_session", [data.browserSessionId]),
+        kind: "browser_session",
+        provenance: snapshot.provenance,
+        relatedProcessIds: [processId],
+        revision: snapshot.revision,
+        title: `Browser session ${shortIdentity(data.browserSessionId)}`,
+      });
+      for (const tab of data.tabs) {
+        for (const capture of tab.captures) {
+          resources.push({
+            access: "read_only",
+            id: nativeResourceId("browser_capture", [data.browserSessionId, tab.tabId, capture.captureId]),
+            kind: "browser_capture",
+            provenance: snapshot.provenance,
+            relatedProcessIds: [processId],
+            revision: snapshot.revision,
+            title: `${tab.title} capture ${shortIdentity(capture.captureId)}`,
+          });
+        }
+      }
       continue;
     }
     const id = createTinyOsProcessId({
@@ -422,7 +484,7 @@ function projectNativeSnapshots(
       title: data.command || `Terminal execution ${shortIdentity(data.nativeProcessId)}`,
     });
   }
-  return { processes, resources };
+  return { browserSessions, processes, resources };
 }
 
 function latestNativeSnapshots(snapshots: readonly TinyOsNativeSnapshot[]): TinyOsNativeSnapshot[] {
@@ -442,6 +504,7 @@ function nativeSnapshotEntityKey(snapshot: TinyOsNativeSnapshot): string {
   const { data } = snapshot;
   if (data.kind === "workspace_resource") return `${data.kind}:${data.workspaceKey}:${data.path}`;
   if (data.kind === "browser_capture") return `${data.kind}:${data.captureId}`;
+  if (data.kind === "browser_session") return `${data.kind}:${data.browserSessionId}`;
   return `${data.kind}:${data.sessionId}:${data.runId}:${data.nativeProcessId}`;
 }
 
@@ -625,11 +688,35 @@ function stableIdentityPart(value: string): string {
 
 function projectionEndIndex(items: readonly BackendAgentTurnItem[], cursor: TinyOsKernelCursorInput): number {
   if (cursor.mode === "live") return items.length;
+  if (cursor.eventIndex !== undefined) {
+    if (!Number.isInteger(cursor.eventIndex) || cursor.eventIndex < 0 || cursor.eventIndex >= items.length) {
+      throw new Error(`TinyOS history event index is unavailable: ${cursor.eventIndex}`);
+    }
+    const boundary = items[cursor.eventIndex];
+    if (boundary.itemId !== cursor.itemId
+      || (cursor.runId && boundary.runId !== cursor.runId)
+      || (cursor.turnId && boundary.turnId !== cursor.turnId)) {
+      throw new Error(`TinyOS history boundary identity does not match event index ${cursor.eventIndex}.`);
+    }
+    return cursor.eventIndex + 1;
+  }
   const index = items.findIndex((item) => item.itemId === cursor.itemId
     && (!cursor.runId || item.runId === cursor.runId)
     && (!cursor.turnId || item.turnId === cursor.turnId));
   if (index < 0) throw new Error(`TinyOS history boundary is unavailable: ${cursor.itemId}`);
   return index + 1;
+}
+
+function nativeSnapshotsAtCursor(
+  snapshots: readonly TinyOsNativeSnapshot[],
+  visibleItems: readonly BackendAgentTurnItem[],
+  cursor: TinyOsKernelCursorInput,
+): readonly TinyOsNativeSnapshot[] {
+  if (cursor.mode === "live") return snapshots;
+  const boundaryTime = reliableCanonicalTimestamp(visibleItems[visibleItems.length - 1]);
+  if (!boundaryTime) return [];
+  const boundaryMs = Date.parse(boundaryTime);
+  return snapshots.filter((snapshot) => Date.parse(snapshot.observedAt) <= boundaryMs);
 }
 
 function latestCanonicalItemRevisions(items: readonly BackendAgentTurnItem[]): BackendAgentTurnItem[] {
@@ -808,6 +895,7 @@ function simulationCursor(
   input: TinyOsKernelCursorInput,
 ): TinyOsSimulationCursor {
   const boundary = visibleItems[visibleItems.length - 1];
+  const wallClockTime = reliableCanonicalTimestamp(boundary);
   return {
     ...(boundary ? {
       boundary: {
@@ -816,12 +904,17 @@ function simulationCursor(
         sequence: boundary.sequence,
         turnId: boundary.turnId,
       },
-      ...(boundary.updatedAt || boundary.createdAt ? { wallClockTime: boundary.updatedAt || boundary.createdAt } : {}),
+      ...(wallClockTime ? { wallClockTime } : {}),
     } : {}),
     eventCount: allItems.length,
     eventIndex: visibleItems.length - 1,
     mode: input.mode,
   };
+}
+
+function reliableCanonicalTimestamp(item: BackendAgentTurnItem | undefined): string {
+  const value = item?.updatedAt || item?.createdAt || "";
+  return value && Number.isFinite(Date.parse(value)) ? value : "";
 }
 
 function shortIdentity(value: string): string {

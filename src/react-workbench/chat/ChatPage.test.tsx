@@ -25,6 +25,17 @@ function mountWorkbenchCss(): void {
   document.head.append(style);
 }
 
+function dragTransfer(): DataTransfer {
+  const values = new Map<string, string>();
+  return {
+    dropEffect: "none",
+    effectAllowed: "none",
+    getData: (type: string) => values.get(type) ?? "",
+    setData: (type: string, value: string) => values.set(type, value),
+    get types() { return [...values.keys()]; },
+  } as unknown as DataTransfer;
+}
+
 function effectiveCapabilities(sessionId: string, cancelAvailable = true): TinyOsEffectiveCapabilities {
   const unavailable = { available: false, reasonCode: "runtime_unsupported", reason: "Not supported." };
   const available = { available: true };
@@ -34,8 +45,22 @@ function effectiveCapabilities(sessionId: string, cancelAvailable = true): TinyO
     capabilities: {
       agent: { pause: unavailable, resume: unavailable, cancel: cancelAvailable ? available : unavailable, retry: unavailable },
       files: { read: available, requestChange: unavailable, directEdit: unavailable, save: unavailable },
-      terminal: { inspect: available, execute: unavailable, cancel: unavailable },
-      browser: { structured: available, realCapture: unavailable, interact: unavailable },
+      terminal: {
+        contract: "retained_execution_v1",
+        persistentPty: false,
+        inspect: available,
+        execute: unavailable,
+        cancel: unavailable,
+      },
+      browser: {
+        interactionRequires: "current_real_capture",
+        structured: available,
+        projectionContract: "structured_projection_v1",
+        realCapture: unavailable,
+        sessionContract: "browser_session_v1",
+        sessionSnapshot: false,
+        interact: unavailable,
+      },
     },
   };
 }
@@ -301,6 +326,48 @@ describe("ChatPage", () => {
     expect(screen.queryByText("src/main.ts · L1")).toBeNull();
   });
 
+  it("attaches a dragged TinyOS file reference to the Chat composer", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    const timeline = timelineFromReactMessages("s1", [{
+      id: "u-tinyos-drag-reference",
+      role: "user" as const,
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+      text: "Inspect this file",
+      status: "complete" as const,
+    }]);
+    timeline.turns[0].steps = [{
+      agentContext: { id: "main", title: "Tinybot", type: "main" },
+      id: "file-drag-reference",
+      kind: "tool_call",
+      sequence: 1,
+      status: "completed",
+      title: "workspace.read_file",
+      toolCall: {
+        argsJson: { path: "src/drag.ts" },
+        id: "file-drag-reference",
+        name: "workspace.read_file",
+        resultPreview: "export const dragged = true;",
+      },
+    }];
+    timeline.turns[0].executionItems = timeline.turns[0].steps;
+    stores.chatStore.load = vi.fn(async () => timeline);
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    await user.click(await screen.findByRole("button", { name: /^Open Live Canvas/ }));
+    const filesWindow = screen.getByLabelText("Files window");
+    await user.click(within(filesWindow).getByRole("button", { name: "export const dragged = true;" }));
+    const source = within(filesWindow).getByRole("button", { name: /Attach src\/drag\.ts/ });
+    const target = document.querySelector<HTMLElement>(".tinyos-composer-drop-target")!;
+    const dataTransfer = dragTransfer();
+
+    fireEvent.dragStart(source, { dataTransfer });
+    fireEvent.dragOver(target, { dataTransfer });
+    fireEvent.drop(target, { dataTransfer });
+
+    expect(within(screen.getByLabelText("Composer attachments")).getByText("src/drag.ts · L1")).toBeTruthy();
+  });
+
   it("opens exact timeline items in history and returns to the latest live frame", async () => {
     const user = userEvent.setup();
     const stores = createStores();
@@ -389,7 +456,7 @@ describe("ChatPage", () => {
     expect(within(canvas).getByText("History")).toBeTruthy();
     expect(within(canvas).getAllByText("src/main.ts").length).toBeGreaterThan(0);
 
-    await user.click(within(canvas).getByRole("button", { name: "Return to live" }));
+    await user.click(within(canvas).getByRole("button", { name: "Return to Live" }));
     expect(within(canvas).getByText("Live follow")).toBeTruthy();
     expect(within(canvas).getByRole("article", { name: "Memory window" })).toBeTruthy();
     expect(within(canvas).getAllByText("memory.search").length).toBeGreaterThan(0);

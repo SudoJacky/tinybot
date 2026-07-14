@@ -33,6 +33,9 @@ export type TinyOsFileReference = {
 export type TinyOsTerminalReference = {
   command: string;
   endLine?: number;
+  executionId: string;
+  processId?: string;
+  provenance: { kind: "canonical"; sourceItemId: string; turnId: string };
   sourceItemId: string;
   selectedText?: string;
   startLine?: number;

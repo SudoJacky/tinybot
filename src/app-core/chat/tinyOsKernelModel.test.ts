@@ -13,6 +13,7 @@ import {
 } from "./tinyOsKernelModel";
 import {
   createTinyOsBrowserCaptureSnapshot,
+  createTinyOsBrowserSessionSnapshot,
   createTinyOsTerminalProcessSnapshot,
   createTinyOsWorkspaceResourceSnapshot,
 } from "./tinyOsNativeSnapshot";
@@ -116,7 +117,7 @@ describe("TinyOS simulation kernel", () => {
     const reloaded = JSON.parse(JSON.stringify(source)) as BackendAgentTurnItem[];
     const live = projectTinyOsKernel(source);
     const liveAfterReload = projectTinyOsKernel(reloaded);
-    const history = projectTinyOsKernel(reloaded, { itemId: "approval-1", mode: "history" });
+    const history = projectTinyOsKernel(reloaded, { eventIndex: 2, itemId: "approval-1", mode: "history" });
 
     expect(liveAfterReload.processes.map((process) => process.id)).toEqual(live.processes.map((process) => process.id));
     expect(history.cursor).toMatchObject({
@@ -128,6 +129,31 @@ describe("TinyOS simulation kernel", () => {
     expect(history.processes.some((process) => process.kind === "subagent")).toBe(false);
     expect(history.processes.find((process) => process.kind === "agent_run")?.state).toBe("waiting_for_user");
     expect(() => projectTinyOsKernel(source, { itemId: "missing", mode: "history" })).toThrow(/boundary is unavailable/i);
+    expect(() => projectTinyOsKernel(source, { eventIndex: 2, itemId: "wrong", mode: "history" })).toThrow(/identity does not match/i);
+  });
+
+  it("does not leak current native snapshots into an earlier History boundary", () => {
+    const source = timeline();
+    const history = projectTinyOsKernel(source, {
+      eventIndex: 1,
+      itemId: source[1].itemId,
+      mode: "history",
+      runId: source[1].runId,
+      turnId: source[1].turnId,
+    }, {
+      nativeSnapshots: [createTinyOsBrowserCaptureSnapshot({
+        captureId: "future-capture",
+        kind: "browser_capture",
+        realCapture: true,
+        title: "Future capture",
+      }, {
+        observedAt: "2026-07-14T00:10:00Z",
+        revision: 1,
+        sourceId: "browser.capture",
+      })],
+    });
+
+    expect(history.resources.some(({ title }) => title === "Future capture")).toBe(false);
   });
 
   it("uses the newest canonical item revision without changing its stable identity", () => {
@@ -296,6 +322,45 @@ describe("TinyOS simulation kernel", () => {
     })).toThrow(/unsupported provenance/i);
   });
 
+  it("projects a versioned native browser session without fabricating missing history", () => {
+    const snapshot = projectTinyOsKernel([], { mode: "live" }, {
+      nativeSnapshots: [createTinyOsBrowserSessionSnapshot({
+        activeTabId: "tab-1",
+        browserSessionId: "browser-session-1",
+        contract: "browser_session_v1",
+        interaction: { click: true, navigate: true, type: false },
+        kind: "browser_session",
+        runId: "run-browser-1",
+        sessionId: "session-1",
+        state: "running",
+        tabs: [{
+          activeHistoryIndex: 0,
+          captures: [{ captureId: "capture-1", observedAt: "2026-07-14T00:00:03Z", stale: false }],
+          currentCaptureId: "capture-1",
+          history: [{ captureId: "capture-1", url: "https://example.com" }],
+          loading: false,
+          tabId: "tab-1",
+          title: "Example",
+          url: "https://example.com",
+        }],
+      }, { observedAt: "2026-07-14T00:00:03Z", revision: "browser-revision-1", sourceId: "browser.session" })],
+    });
+
+    expect(snapshot.browserSessions).toEqual([
+      expect.objectContaining({
+        activeTabId: "tab-1",
+        browserSessionId: "browser-session-1",
+        provenance: { kind: "native_query", observedAt: "2026-07-14T00:00:03Z", revision: "browser-revision-1", sourceId: "browser.session" },
+      }),
+    ]);
+    expect(snapshot.processes.find(({ kind }) => kind === "browser_session")).toMatchObject({
+      applicationId: "browser",
+      state: "running",
+    });
+    expect(snapshot.resources.filter(({ kind }) => kind === "browser_capture")).toHaveLength(1);
+    expect(snapshot.browserSessions[0].tabs[0].history).toHaveLength(1);
+  });
+
   it("requires writable revisioned resources before mutation", () => {
     const resource: TinyOsResource = {
       access: "read_write",
@@ -332,6 +397,7 @@ describe("TinyOS simulation kernel", () => {
 
   it("handles empty and partial canonical input without inventing state", () => {
     expect(projectTinyOsKernel([])).toEqual({
+      browserSessions: [],
       capabilities: [],
       cursor: { eventCount: 0, eventIndex: -1, mode: "live" },
       discrepancies: [],

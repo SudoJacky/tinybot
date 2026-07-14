@@ -114,7 +114,8 @@ export function useTinyOsFilesController(
         path,
         ...(options.append && currentValue?.nextCursor ? { cursor: currentValue.nextCursor } : {}),
       });
-      dispatchFor(key, { append: Boolean(options.append), chunk, requestId: id, type: "file_loaded" });
+      const workspaceKey = (statesRef.current[key] ?? createTinyOsFilesState()).workspaceKey ?? key;
+      dispatchFor(key, { append: Boolean(options.append), chunk, requestId: id, type: "file_loaded", workspaceKey });
     } catch (error) {
       dispatchFor(key, {
         error: normalizeQueryError(error, path),

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createTinyOsBrowserCaptureSnapshot,
+  createTinyOsBrowserSessionSnapshot,
   createTinyOsTerminalProcessSnapshot,
   createTinyOsWorkspaceResourceSnapshot,
 } from "./tinyOsNativeSnapshot";
@@ -61,6 +62,7 @@ describe("TinyOS native snapshot adapters", () => {
     }, { ...metadata, sourceId: "browser.capture" });
 
     expect(terminal.provenance.kind).toBe("native_query");
+    expect(terminal.data.executionContract).toBe("retained_execution_v1");
     expect(capture.provenance.kind).toBe("real_capture");
   });
 
@@ -79,10 +81,54 @@ describe("TinyOS native snapshot adapters", () => {
       sessionId: "session-1",
       state: "running",
     }, metadata)).toThrow(/process id is required/i);
+    expect(() => createTinyOsTerminalProcessSnapshot({
+      droppedBytes: -1,
+      kind: "terminal_process",
+      nativeProcessId: "process-1",
+      runId: "run-1",
+      sessionId: "session-1",
+      state: "running",
+    }, metadata)).toThrow(/dropped bytes must be non-negative/i);
     expect(() => createTinyOsBrowserCaptureSnapshot({
       captureId: "capture-1",
       kind: "browser_capture",
       realCapture: false,
     }, { ...metadata, observedAt: "not-a-time" })).toThrow(/valid timestamp/i);
+  });
+
+  it("validates browser session tab, history, and current-capture identity", () => {
+    const snapshot = createTinyOsBrowserSessionSnapshot({
+      activeTabId: "tab-1",
+      browserSessionId: "browser-session-1",
+      contract: "browser_session_v1",
+      interaction: { click: true, navigate: true, type: false },
+      kind: "browser_session",
+      runId: "run-1",
+      sessionId: "session-1",
+      state: "running",
+      tabs: [{
+        activeHistoryIndex: 0,
+        captures: [{ captureId: "capture-1", observedAt: metadata.observedAt, stale: false }],
+        currentCaptureId: "capture-1",
+        history: [{ captureId: "capture-1", observedAt: metadata.observedAt, title: "Home", url: "https://example.com" }],
+        loading: false,
+        tabId: "tab-1",
+        title: "Home",
+        url: "https://example.com",
+      }],
+    }, metadata);
+
+    expect(snapshot.data.contract).toBe("browser_session_v1");
+    expect(snapshot.data.tabs[0].currentCaptureId).toBe("capture-1");
+    expect(snapshot.provenance.kind).toBe("native_query");
+
+    expect(() => createTinyOsBrowserSessionSnapshot({
+      ...snapshot.data,
+      activeTabId: "tab-missing",
+    }, metadata)).toThrow(/not present/i);
+    expect(() => createTinyOsBrowserSessionSnapshot({
+      ...snapshot.data,
+      tabs: [{ ...snapshot.data.tabs[0], currentCaptureId: "capture-missing" }],
+    }, metadata)).toThrow(/current capture.*missing/i);
   });
 });
