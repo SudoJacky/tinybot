@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
+import { gsap } from "gsap";
 import {
   Activity,
   AlertTriangle,
@@ -63,6 +64,7 @@ import {
 import type { ApprovalAction } from "../services";
 import { AgentUiFormCard } from "./AgentUiFormCard";
 import { TinyOsFilesExplorer } from "./TinyOsFilesExplorer";
+import { TinyOsSideRays } from "./TinyOsSideRays";
 import { TinyOsSystemMonitor, type TinyOsSystemMonitorControls } from "./TinyOsSystemMonitor";
 import type { TinyOsFilesController } from "./useTinyOsFilesController";
 
@@ -190,7 +192,9 @@ export function TinyOsShell({
   layoutMode: TinyOsLayoutMode;
   workspaceKey: string;
 }) {
+  const shellRef = useRef<HTMLDivElement>(null);
   const desktopRef = useRef<HTMLElement>(null);
+  const launcherRef = useRef<HTMLElement>(null);
   const overlayReturnFocusRef = useRef<HTMLElement | null>(null);
   const [overlay, setOverlay] = useState<TinyOsShellOverlay | null>(null);
   const [paletteQuery, setPaletteQuery] = useState("");
@@ -251,6 +255,84 @@ export function TinyOsShell({
       restoredLayout,
     });
   });
+
+  useLayoutEffect(() => {
+    const shell = shellRef.current;
+    if (!shell || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+
+    const context = gsap.context(() => {
+      gsap.timeline({ defaults: { ease: "power3.out" } })
+        .from(".tinyos-desktop", { duration: .48, opacity: 0 })
+        .from(".tinyos-desktop__side-rays", { clearProps: "opacity", duration: .62, opacity: 0 }, "<")
+        .from(".tinyos-desktop__environment > *", { clearProps: "opacity,transform", duration: .42, opacity: 0, stagger: .08, y: -10 }, "-=.26")
+        .from(".tinyos-desktop__system-tools", { clearProps: "opacity,transform", duration: .42, opacity: 0, scale: .9, x: 12 }, "<")
+        .from(".tinyos-launcher", { clearProps: "opacity,transform", duration: .56, opacity: 0, scale: .94, y: 28 }, "-=.2")
+        .from(".tinyos-launcher__app", { clearProps: "opacity,transform", duration: .34, opacity: 0, scale: .72, stagger: .035, y: 10 }, "-=.3");
+    }, shell);
+
+    return () => context.revert();
+  }, []);
+
+  useLayoutEffect(() => {
+    const launcher = launcherRef.current;
+    if (!launcher || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+
+    type DockMotion = { scale: (value: number) => void; y: (value: number) => void };
+    const motions = new Map<HTMLElement, DockMotion>();
+    const dockItems = () => Array.from(launcher.querySelectorAll<HTMLElement>(".tinyos-launcher__app"));
+    const motionFor = (item: HTMLElement) => {
+      const current = motions.get(item);
+      if (current) return current;
+      const motion = {
+        scale: gsap.quickTo(item, "scale", { duration: .24, ease: "power3.out" }),
+        y: gsap.quickTo(item, "y", { duration: .24, ease: "power3.out" }),
+      };
+      motions.set(item, motion);
+      return motion;
+    };
+    const resetDock = () => {
+      const items = dockItems();
+      launcher.removeAttribute("data-magnifying");
+      gsap.killTweensOf(items);
+      motions.clear();
+      gsap.to(items, {
+        clearProps: "transform",
+        duration: .52,
+        ease: "elastic.out(1, .48)",
+        overwrite: true,
+        scale: 1,
+        y: 0,
+        onComplete: () => items.forEach((item) => item.style.removeProperty("z-index")),
+      });
+    };
+    const magnifyDock = (event: globalThis.PointerEvent) => {
+      launcher.setAttribute("data-magnifying", "true");
+      dockItems().forEach((item) => {
+        const bounds = item.getBoundingClientRect();
+        if (bounds.width < 1 || (item instanceof HTMLButtonElement && item.disabled)) return;
+        const distance = Math.abs(event.clientX - bounds.left - bounds.width / 2);
+        const proximity = Math.max(0, 1 - distance / 126);
+        const influence = proximity * proximity * (3 - 2 * proximity);
+        const motion = motionFor(item);
+        motion.scale(1 + influence * .36);
+        motion.y(-influence * 11);
+        item.style.zIndex = `${Math.round(1 + influence * 10)}`;
+      });
+    };
+
+    launcher.addEventListener("pointermove", magnifyDock);
+    launcher.addEventListener("pointerleave", resetDock);
+    return () => {
+      launcher.removeEventListener("pointermove", magnifyDock);
+      launcher.removeEventListener("pointerleave", resetDock);
+      const items = dockItems();
+      gsap.killTweensOf(items);
+      items.forEach((item) => {
+        item.style.removeProperty("transform");
+        item.style.removeProperty("z-index");
+      });
+    };
+  }, [appWindows.length]);
 
   useEffect(() => {
     const returningToLive = previousHistoryMode.current && !history;
@@ -840,15 +922,17 @@ export function TinyOsShell({
   }
 
   return (
-    <div className="tinyos-shell" data-has-dialog={snapshot.dialog ? "true" : undefined} onKeyDown={handleShellKeyDown} onKeyUp={handleShellKeyUp}>
+    <div className="tinyos-shell" data-has-dialog={snapshot.dialog ? "true" : undefined} ref={shellRef} onKeyDown={handleShellKeyDown} onKeyUp={handleShellKeyUp}>
       <section
         aria-label="TinyOS desktop"
         className="tinyos-desktop"
         data-app-count={availableApps.size}
+        data-has-windows={windows.length ? "true" : undefined}
         data-layout-mode={uiState.layoutMode}
         ref={desktopRef}
         onContextMenu={(event) => openContextMenu(event, "Desktop menu", ["shell.overview", "shell.palette", "shell.reset_layout"])}
       >
+        <TinyOsSideRays />
         <div aria-hidden="true" className="tinyos-desktop__environment">
           <span className="tinyos-desktop__brand"><MonitorDot size={17} /><strong>TinyOS</strong><small>Agent workspace</small></span>
           <span className="tinyos-desktop__mode">{history ? "History snapshot" : "Live workspace"}</span>
@@ -866,7 +950,7 @@ export function TinyOsShell({
           ><Bell aria-hidden="true" size={15} /></button>
         </div>
 
-        <nav aria-label="TinyOS applications" className="tinyos-launcher">
+        <nav aria-label="TinyOS applications" className="tinyos-launcher" ref={launcherRef}>
           {APP_ORDER.map((appId, index) => {
             const Icon = APP_ICONS[appId];
             const available = availableApps.has(appId);
@@ -1294,6 +1378,7 @@ function TinyOsAppWindow({
 }) {
   const Icon = APP_ICONS[window.appId];
   const latest = window.entries[window.entries.length - 1];
+  const windowRef = useRef<HTMLElement>(null);
   const pointerState = useRef<{
     kind: "move" | "resize";
     pointerId: number;
@@ -1308,6 +1393,32 @@ function TinyOsAppWindow({
     width: `${layout.width}px`,
     zIndex,
   } satisfies CSSProperties : { zIndex };
+
+  useLayoutEffect(() => {
+    const element = windowRef.current;
+    if (!element || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    const context = gsap.context(() => {
+      gsap.fromTo(element, {
+        opacity: 0,
+        scale: .982,
+        y: 12,
+      }, {
+        clearProps: "opacity,transform",
+        duration: .26,
+        ease: "power3.out",
+        opacity: active ? 1 : .86,
+        scale: active ? 1 : .99,
+        y: 0,
+      });
+      gsap.fromTo(element, { filter: "blur(1.5px)" }, {
+        clearProps: "filter",
+        duration: .09,
+        ease: "power1.out",
+        filter: "blur(0px)",
+      });
+    }, element);
+    return () => context.revert();
+  }, []);
 
   function startPointer(event: PointerEvent<HTMLElement>, kind: "move" | "resize") {
     if (!layout || event.button !== 0) return;
@@ -1392,6 +1503,7 @@ function TinyOsAppWindow({
       data-maximized={layout?.maximized ? "true" : undefined}
       onMouseDown={onFocus}
       onContextMenu={onOpenContextMenu}
+      ref={windowRef}
       style={style}
     >
       <header
