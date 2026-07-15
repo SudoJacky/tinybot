@@ -5510,6 +5510,7 @@ fn worker_transport_websocket_maps_controlled_host_commands() {
             "command_kind": "browser.interact",
             "run_id": "tinyos-host-browser-1",
             "browser_session_id": "browser-session-1",
+            "control_epoch": 0,
             "capture_id": "capture-1",
             "tab_id": "tab-1",
             "action": { "type": "click", "x": 12, "y": 34 },
@@ -5531,6 +5532,7 @@ fn worker_transport_websocket_maps_controlled_host_commands() {
     assert_eq!(file["confirmed"], true);
     assert_eq!(browser["commandKind"], "browser.interact");
     assert_eq!(browser["browserSessionId"], "browser-session-1");
+    assert_eq!(browser["controlEpoch"], 0);
     assert_eq!(browser["captureId"], "capture-1");
     assert_eq!(browser["tabId"], "tab-1");
     assert_eq!(browser["action"]["type"], "click");
@@ -5615,6 +5617,7 @@ fn worker_transport_dispatches_a_revision_guarded_file_command_and_rejects_fake_
                 "command_kind": "browser.interact",
                 "run_id": "tinyos-host-browser-test",
                 "browser_session_id": "browser-session-1",
+                "control_epoch": 0,
                 "capture_id": "capture-1",
                 "tab_id": "tab-1",
                 "action": { "type": "click", "x": 12, "y": 34 },
@@ -5633,7 +5636,10 @@ fn worker_transport_dispatches_a_revision_guarded_file_command_and_rejects_fake_
         Duration::from_millis(100),
     )
     .expect_err("browser control must fail closed without a real backend");
-    assert!(browser_error.contains("no real browser"), "{browser_error}");
+    assert!(
+        browser_error.contains("native browser runtime is not managed"),
+        "{browser_error}"
+    );
 
     let missing_identity_error = worker_transport_dispatch_websocket_message_with_options(
         &shared,
@@ -5646,6 +5652,7 @@ fn worker_transport_dispatches_a_revision_guarded_file_command_and_rejects_fake_
                 "command_id": "command-browser-2",
                 "command_kind": "browser.interact",
                 "run_id": "tinyos-host-browser-missing-identity",
+                "control_epoch": 0,
                 "capture_id": "capture-1",
                 "tab_id": "tab-1",
                 "action": { "type": "click", "x": 12, "y": 34 },
@@ -5681,9 +5688,10 @@ fn worker_transport_dispatches_a_revision_guarded_file_command_and_rejects_fake_
                 "command_kind": "browser.interact",
                 "run_id": "tinyos-host-browser-invalid-action",
                 "browser_session_id": "browser-session-1",
+                "control_epoch": 0,
                 "capture_id": "capture-1",
                 "tab_id": "tab-1",
-                "action": { "type": "click", "x": -1, "y": 34 },
+                "action": { "type": "unsupported" },
                 "confirmed": true
             }),
             attached_chat_id: Some("chat-host-file".to_string()),
@@ -5698,9 +5706,10 @@ fn worker_transport_dispatches_a_revision_guarded_file_command_and_rejects_fake_
         serde_json::json!({}),
         Duration::from_millis(100),
     )
-    .expect_err("browser control must reject invalid coordinates");
+    .expect_err("browser control must reject an invalid action type");
     assert!(
-        invalid_action_error.contains("non-negative x"),
+        invalid_action_error.contains("payload is invalid")
+            && invalid_action_error.contains("unsupported"),
         "{invalid_action_error}"
     );
     let runs_after_rejections = worker_agent_runs_list_with_options(

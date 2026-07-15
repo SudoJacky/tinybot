@@ -1,3 +1,4 @@
+use crate::native_browser::SharedBrowserRuntime;
 use crate::worker_capability::{
     default_desktop_capability_policy, CapabilityPolicy, WorkerCapability,
 };
@@ -111,14 +112,38 @@ pub(crate) fn worker_agent_run_runtime_state(
 pub(crate) fn worker_session_effective_capabilities(
     input: WorkerSessionInput,
     state: State<'_, SharedGateway>,
+    browser_runtime: State<'_, SharedBrowserRuntime>,
 ) -> Result<serde_json::Value, String> {
-    worker_session_effective_capabilities_with_options(
+    let mut capabilities = worker_session_effective_capabilities_with_options(
         state.inner(),
         input.key,
         native_backend_workspace_root(),
         experimental_worker_config_snapshot(),
         Duration::from_secs(10),
-    )
+    )?;
+    let browser = browser_runtime.capabilities();
+    if let Some(target) = capabilities
+        .pointer_mut("/capabilities/browser")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        target.insert(
+            "sessionSnapshot".to_string(),
+            serde_json::Value::Bool(browser.session_snapshot.available),
+        );
+        target.insert(
+            "realCapture".to_string(),
+            serde_json::to_value(&browser.real_capture).map_err(|error| error.to_string())?,
+        );
+        target.insert(
+            "interact".to_string(),
+            serde_json::to_value(&browser.agent_interaction).map_err(|error| error.to_string())?,
+        );
+        target.insert(
+            "runtime".to_string(),
+            serde_json::to_value(browser).map_err(|error| error.to_string())?,
+        );
+    }
+    Ok(capabilities)
 }
 
 #[tauri::command]

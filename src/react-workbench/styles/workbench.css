@@ -2013,6 +2013,30 @@ button.tinyos-overlay-backdrop:focus-visible {
   opacity: .38;
 }
 
+.tinyos-agent-filter {
+  width: 112px;
+  min-width: 0;
+  border: 0;
+  border-right: 1px solid rgb(148 163 184 / 16%);
+  border-radius: 9px 3px 3px 9px;
+  padding: 0 22px 0 8px;
+  background: transparent;
+  color: #cbd5e1;
+  font: inherit;
+  font-size: 11px;
+  outline: none;
+}
+
+.tinyos-agent-filter:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.tinyos-agent-filter option {
+  background: #101827;
+  color: #e2e8f0;
+}
+
 .tinyos-desktop {
   position: relative;
   min-width: 0;
@@ -3248,6 +3272,23 @@ button.tinyos-overlay-backdrop:focus-visible {
 .tinyos-browser__identity span { display: grid; gap: 2px; white-space: nowrap; }
 .tinyos-browser__identity strong { color: var(--color-ink); font-size: 8px; }
 
+.tinyos-browser__policy {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid #e6c675;
+  background: #fff7e5;
+  padding: 7px 9px;
+  color: #6f4b0d;
+  font-size: 9px;
+}
+
+.tinyos-browser__policy > div { display: flex; align-items: center; gap: 6px; }
+.tinyos-browser__policy span { display: grid; gap: 2px; min-width: 0; }
+.tinyos-browser__policy code { max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+.tinyos-browser__policy button { border-radius: 6px; background: #fff; padding: 4px 7px; }
+
 .tinyos-browser__capture {
   min-width: 0;
   min-height: 0;
@@ -3441,7 +3482,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   border-radius: 16px;
   background: rgb(255 253 249 / 98%);
   box-shadow: 0 28px 80px rgb(45 36 28 / 28%), inset 0 1px 0 rgb(255 255 255 / 88%);
-  animation: tinyos-dialog-enter var(--motion-duration-medium) var(--motion-ease-standard) both;
+  animation: tinyos-shell-overlay-enter var(--motion-duration-medium) var(--motion-ease-standard) both;
 }
 
 .tinyos-shell-overlay[data-overlay="switcher"] .tinyos-shell-overlay__panel {
@@ -3533,6 +3574,79 @@ button.tinyos-overlay-backdrop:focus-visible {
   overflow: auto;
   padding: 12px;
 }
+
+.tinyos-browser__surface-host {
+  position: relative;
+  min-width: 0;
+  min-height: 120px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.tinyos-browser__surface-host > span {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--color-muted);
+  font-size: 9px;
+}
+
+.tinyos-browser__insecure {
+  color: var(--color-warning);
+}
+
+.tinyos-mission-groups {
+  display: grid;
+  gap: 7px;
+  border-bottom: 1px solid var(--color-hairline);
+  padding: 10px 12px 2px;
+  overflow: auto;
+}
+
+.tinyos-mission-groups > h3 {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.tinyos-mission-groups > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.tinyos-mission-groups article {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 10px;
+  padding: 8px;
+  background: color-mix(in srgb, var(--color-panel) 88%, transparent);
+}
+
+.tinyos-mission-groups article > header,
+.tinyos-mission-groups article > header > span {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+}
+
+.tinyos-mission-groups article > header { justify-content: space-between; }
+.tinyos-mission-groups article > header strong { overflow: hidden; color: var(--color-ink); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.tinyos-mission-groups article > header small { color: var(--color-muted); font-size: 8px; text-transform: capitalize; }
+.tinyos-mission-groups article > p { margin: 0; overflow: hidden; color: var(--color-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.tinyos-mission-groups article > dl { display: grid; gap: 3px; margin: 0; }
+.tinyos-mission-groups article > dl > div { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 5px; }
+.tinyos-mission-groups dt,
+.tinyos-mission-groups dd { margin: 0; overflow: hidden; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.tinyos-mission-groups dt { color: var(--color-muted); }
+.tinyos-mission-groups dd { color: var(--color-ink); }
 
 .tinyos-window-overview > button {
   display: grid;
@@ -3926,6 +4040,11 @@ button.tinyos-overlay-backdrop:focus-visible {
   to { opacity: 1; transform: translate(-50%, -50%); }
 }
 
+@keyframes tinyos-shell-overlay-enter {
+  from { opacity: 0; transform: translateY(8px) scale(.98); }
+  to { opacity: 1; transform: none; }
+}
+
 @keyframes tinyos-inspector-enter {
   from { opacity: 0; transform: translateX(12px); }
   to { opacity: 1; transform: none; }
@@ -4021,6 +4140,10 @@ button.tinyos-overlay-backdrop:focus-visible {
   }
 
   .tinyos-window-overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tinyos-mission-groups > div {
     grid-template-columns: minmax(0, 1fr);
   }
 

@@ -13,6 +13,7 @@ import { isTinyOsCommandInFlight, type TinyOsCommandLifecycle } from "../../app-
 import { createTinyOsShellCommandRegistry, defineTinyOsShellCommand, type TinyOsShellCommandAvailability } from "../../app-core/chat/tinyOsShellCommandRegistry";
 import { createTinyOsTimeMachineIndex, type TinyOsTimeMachineBoundary } from "../../app-core/chat/tinyOsTimeMachine";
 import { TinyOsTimeMachine } from "./TinyOsTimeMachine";
+import type { NativeBrowserRuntimeApi } from "../../app-core/native/desktopNativeBrowser";
 
 export type LiveCanvasMode = "live_follow" | "history";
 export type LiveCanvasEntry = TinyOsTimelineEntry;
@@ -80,6 +81,7 @@ export function LiveCanvas({
   terminalCancelUnavailableReason,
   terminalExecuteUnavailableReason,
   browserInteractUnavailableReason,
+  browserRuntime,
   selection,
   selectionEventIndex,
   sessionKey,
@@ -117,7 +119,7 @@ export function LiveCanvas({
   onOpenArtifact: (artifact: ArtifactRef) => void;
   onAgentRequest: (reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent, fromHistory: boolean) => void;
   onCancelTerminal?: () => Promise<void>;
-  onBrowserInteract?: (input: { action: TinyOsBrowserAction; browserSessionId: string; captureId: string; tabId: string }) => Promise<void>;
+  onBrowserInteract?: (input: { action: TinyOsBrowserAction; browserSessionId: string; captureId: string; controlEpoch: number; observationRevision: number; tabId: string }) => Promise<void>;
   onDeleteFile?: (input: { baseRevision: string; path: string }) => Promise<void>;
   onExecuteTerminal?: (input: { command: string; cwd?: string }) => Promise<void>;
   onMoveFile?: (input: { baseRevision: string; path: string; targetPath: string }) => Promise<void>;
@@ -141,6 +143,7 @@ export function LiveCanvas({
   terminalCancelUnavailableReason?: string;
   terminalExecuteUnavailableReason?: string;
   browserInteractUnavailableReason?: string;
+  browserRuntime?: NativeBrowserRuntimeApi;
   selection?: LiveCanvasEntry;
   selectionEventIndex?: number;
   sessionKey?: string;
@@ -489,6 +492,7 @@ export function LiveCanvas({
         commandLifecycle={commandLifecycle}
         directEditUnavailableReason={directEditUnavailableReason}
         browserInteractUnavailableReason={browserInteractUnavailableReason}
+        browserRuntime={browserRuntime}
         filesController={filesController}
         history={mode === "history"}
         onAttachContext={onAttachContext}

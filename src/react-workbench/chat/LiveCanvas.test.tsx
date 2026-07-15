@@ -596,6 +596,84 @@ describe("LiveCanvas TinyOS", () => {
     expect(screen.getByText("No processes match the current filters.")).toBeTruthy();
   });
 
+  it("uses one Agent filter for windows, notifications, operations, resources, and processes", async () => {
+    const user = userEvent.setup();
+    const mainEntry = entry(step({
+      agentContext: { id: "main", title: "Tinybot", type: "main" },
+      id: "main-file",
+      toolCall: { argsJson: { path: "src/main.ts" }, id: "main-file", name: "workspace.read_file" },
+    }));
+    const childEntry = entry(step({
+      agentContext: { id: "main", title: "Tinybot", type: "main" },
+      id: "child-shell",
+      status: "failed",
+      title: "Child tests",
+      toolCall: { argsJson: { cmd: "npm test" }, id: "child-shell", name: "shell.exec" },
+    }));
+    const mainCanonical = canonicalItemForEntry(mainEntry, 1, {
+      data: {
+        ...canonicalItemForEntry(mainEntry, 1).data,
+        agentId: "agent-main",
+      },
+    });
+    const childCanonical = canonicalItemForEntry(childEntry, 3, {
+      data: {
+        ...canonicalItemForEntry(childEntry, 3).data,
+        agentId: "agent-child",
+      },
+    });
+    const lifecycle: BackendAgentTurnItem = {
+      schemaVersion: "tinybot.turn_item.v2",
+      createdAt: "2026-07-14T00:00:02Z",
+      data: {
+        action: "started",
+        agentId: "agent-child",
+        childRunId: "run-child",
+        message: "Child started",
+        name: "Reviewer",
+        parentAgentId: "agent-main",
+        parentRunId: "run-1",
+        status: "running",
+        task: "Run tests",
+        traceRef: "trace-child",
+        type: "subagent_lifecycle",
+      },
+      itemId: "child-lifecycle",
+      kind: "subagent_lifecycle",
+      revision: 1,
+      runId: "run-child",
+      sequence: 2,
+      sessionId: "session-1",
+      status: "running",
+      turnId: "turn-1",
+    };
+
+    render(<LiveCanvas {...canvasProps([mainEntry, childEntry], {
+      canonicalItems: [mainCanonical, lifecycle, childCanonical],
+      widthPx: 680,
+    })} />);
+
+    const filter = screen.getByRole("combobox", { name: "Filter TinyOS by Agent" });
+    await user.selectOptions(filter, "agent-child");
+    expect(screen.getByRole("button", { name: "Open Terminal" }).hasAttribute("disabled")).toBe(false);
+    expect(screen.getByRole("button", { name: "Open Files" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Open notification center" }).hasAttribute("disabled")).toBe(false);
+    expect(within(screen.getByRole("navigation", { name: "TinyOS recent operations" })).getByText("shell.exec")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Open window Overview" }));
+    const missionControl = screen.getByRole("dialog", { name: "window Overview" });
+    const missionGroups = within(missionControl).getByRole("region", { name: "Agent mission groups" });
+    expect(within(missionGroups).getByText("Reviewer")).toBeTruthy();
+    expect(within(missionGroups).getByText("Run tests")).toBeTruthy();
+    expect(within(missionGroups).getByText("Terminal")).toBeTruthy();
+    await user.click(within(missionControl).getByRole("button", { name: "Close window Overview" }));
+
+    await user.selectOptions(filter, "agent-main");
+    expect(screen.getByRole("button", { name: "Open Files" }).hasAttribute("disabled")).toBe(false);
+    expect(screen.getByRole("button", { name: "Open Terminal" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Open notification center" }).hasAttribute("disabled")).toBe(true);
+    expect(within(screen.getByRole("navigation", { name: "TinyOS recent operations" })).getByText("workspace.read_file")).toBeTruthy();
+  });
+
   it("supports keyboard window movement, snapping, maximize, and minimize", async () => {
     const user = userEvent.setup();
     const fileEntry = entry(step({ id: "file", toolCall: { id: "file", name: "workspace.read_file" } }));
@@ -751,13 +829,20 @@ describe("LiveCanvas TinyOS", () => {
 
     const browser = screen.getByLabelText("Browser window");
     expect(within(browser).getByText("Real capture")).toBeTruthy();
-    expect(within(browser).getAllByRole("tab")).toHaveLength(2);
-    expect(within(browser).getByRole("region", { name: "Browser session identity" })).toBeTruthy();
+    const tabs = within(browser).getAllByRole("tab");
+    expect(tabs).toHaveLength(2);
+    expect(tabs[0].getAttribute("aria-selected")).toBe("true");
+    expect((within(browser).getByRole("button", { name: "Browser back" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((within(browser).getByRole("button", { name: "Browser forward" }) as HTMLButtonElement).disabled).toBe(true);
+    const identity = within(browser).getByRole("region", { name: "Browser session identity" });
+    expect(identity).toBeTruthy();
     await userEvent.click(within(browser).getByRole("button", { name: "Interact with current browser capture" }));
     expect(onBrowserInteract).toHaveBeenCalledWith({
       action: { type: "click", x: 0, y: 0 },
       browserSessionId: "browser-session-1",
       captureId: "capture-current",
+      controlEpoch: 0,
+      observationRevision: 0,
       tabId: "tab-1",
     });
     await userEvent.click(within(browser).getByRole("button", { name: "Browser back" }));
@@ -774,6 +859,13 @@ describe("LiveCanvas TinyOS", () => {
       action: { text: "hello browser", type: "type" },
       captureId: "capture-current",
     }));
+
+    await userEvent.click(tabs[1]);
+    expect(tabs[1].getAttribute("aria-selected")).toBe("true");
+    expect((within(browser).getByLabelText("Browser URL") as HTMLInputElement).value).toBe("https://example.org");
+    expect(within(identity).getByText("capture-second")).toBeTruthy();
+    expect((within(browser).getByRole("button", { name: "Browser back" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(browser).getByRole("button", { name: "Browser forward" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("preserves stale Browser evidence, rejects interaction, and reveals the current capture", async () => {

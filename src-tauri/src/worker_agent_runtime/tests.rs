@@ -7454,16 +7454,20 @@ fn async_provider_run_pauses_at_safe_boundary_and_resumes_same_run() {
         release_sender
             .send(())
             .expect("provider release should send");
-        for _ in 0..200 {
-            if services
-                .task_runtime()
-                .status("run-safe-boundary-pause")
-                .is_some_and(|status| status.phase == "paused")
-            {
-                break;
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if services
+                    .task_runtime()
+                    .status("run-safe-boundary-pause")
+                    .is_some_and(|status| status.phase == "paused")
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(1)).await;
             }
-            tokio::task::yield_now().await;
-        }
+        })
+        .await
+        .expect("run should pause at a safe boundary before the timeout");
         let paused_status = services
             .task_runtime()
             .status("run-safe-boundary-pause")

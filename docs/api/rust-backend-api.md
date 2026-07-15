@@ -1106,6 +1106,10 @@ Product-facing canonical item data includes the following lifecycle details:
   `estimatedTokensAfter`.
 - `file_reference`: stable `id`, `path`, optional `mimeType`, and `referenceKind`. `parentItemId`
   associates the reference with its owning Tool, Form, or Subagent item.
+- `subagent_lifecycle`: stable `agentId`, `action`, and `status`; optional `childRunId`,
+  `childThreadId`, `parentAgentId`, `parentRunId`, `name`, `task`, `message`, and `traceRef` retain
+  the backend-authored parent and assigned-work correlation used by TinyOS Agent process groups.
+  Missing relationships remain absent and are not inferred from labels.
 - `error`: `code`, `message`, and `cancelled`. An error with `parentItemId` is scoped to its owner;
   errors without a parent remain terminal timeline rows.
 
@@ -2167,4 +2171,61 @@ Read the settings control-center projection:
 ```ts
 const snapshot = await invoke("get_settings_snapshot");
 ```
+
+## Native Browser session runtime
+
+Windows desktop builds expose a backend-owned WebView2 runtime. The remote child webviews are not
+members of the Tauri capability set, `withGlobalTauri` is disabled, and page content receives no
+TinyBot IPC or privileged host object. Non-Windows builds return explicit unavailable capability
+decisions rather than synthetic browser state.
+
+The public commands are:
+
+| Command | Input | Result |
+| --- | --- | --- |
+| `browser_capabilities` | none | `tinybot.browser_runtime_capabilities.v1` |
+| `browser_metrics` | none | bounded counters and last-duration metrics |
+| `browser_create_session` | owner session, optional profile/persistence/initial URL | authoritative `browser_session_v1` snapshot; idempotent by owner session |
+| `browser_snapshot` | browser session identity | current authoritative snapshot |
+| `browser_close_session` | browser session identity | cleanup completion or an incomplete-cleanup error |
+| `browser_create_tab` | browser session and optional URL | updated snapshot |
+| `browser_activate_tab`, `browser_close_tab`, `browser_restart_tab` | browser session and tab | updated snapshot |
+| `browser_navigate` | browser session, tab, URL | updated snapshot after dispatch |
+| `browser_back`, `browser_forward`, `browser_reload`, `browser_stop` | browser session and tab | completion or exact platform error |
+| `browser_update_surface` | surface identity, layout revision, CSS-pixel rectangle, scale and visibility gates | updated snapshot |
+| `browser_observe` | browser session, tab, capture/semantic flags | snapshot plus optional real capture and semantic observation |
+| `browser_interact` | session, tab, command, control epoch, observation/capture identities and typed action | terminal command result |
+| `browser_resolve_policy_request` | browser session, pending request identity, allow/deny decision | updated snapshot after the confirmed popup or external-protocol operation finishes |
+| `browser_delete_profile` | profile identity | cleanup completion or an exact deletion error; active profiles are rejected |
+
+`browser_session_v1` carries stable browser session, profile, tab, navigation, capture and surface
+identities; monotonically increasing snapshot and observation revisions; ordered tabs and history;
+session/tab/renderer/surface lifecycles; control state and epoch; profile persistence; real capture
+metadata; bounded semantic targets; and at most one pending popup or external-protocol policy
+request. Frontend reload calls `browser_create_session` again with the same owner identity and
+rehydrates from the existing native session.
+
+Agent actions include navigate, back/forward/reload/stop, coordinate or semantic click, focused
+type, semantic fill, key, scroll, bounded wait, `userHandoff`, and `resume`. State-sensitive actions
+must match the current control epoch and observation revision. Coordinate clicks additionally require
+the current capture and must fall inside its CSS viewport. Accepted dispatch is not completion: the
+host command persists acknowledgement, then records the actual completed, failed, cancelled,
+timed-out, or user-required result. Trusted direct input increments the control epoch and invalidates
+pending Agent work with `user_interrupted`.
+
+Navigation permits HTTPS, visibly marks HTTP as insecure, and permits only `about:blank` from the
+`about` family. HTTP(S) popups and supported external protocols require an explicit user decision;
+denied schemes and downloads are blocked with exact reason codes. Uploads, native pickers, CAPTCHA,
+protected authentication, payment verification, and similar protected UI use the visible
+`user_required` handoff. Persistent profiles live under the application browser profile root;
+incognito profiles use physically separate ephemeral directories and are deleted on close. A
+cleanup failure is returned and counted instead of being hidden.
+
+Captures retain at most 12 observations per tab. Semantic observations retain at most 500 visible
+interactive nodes, cap selector depth and accessible text, identify top/child frame provenance, and
+never include password, payment-card autocomplete, or one-time-code values. Ordinary browser
+diagnostics redact URL credentials, query strings, and fragments and never log headers, cookies,
+form values, response bodies, screenshots, or semantic payloads. The React Browser chrome is covered
+by DOM tests; the remote child-WebView DOM, WebView2 process lifecycle, DPI, focus, and native surface
+stacking require Windows native integration coverage.
 

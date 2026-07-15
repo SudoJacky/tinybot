@@ -296,6 +296,7 @@ describe("TinyOS Workspace Explorer", () => {
       commandRegistry={registry}
       controller={files}
       kernel={{
+        agentGroups: [],
         browserSessions: [],
         capabilities: [],
         cursor: { eventCount: 1, eventIndex: 1, mode: "live" },

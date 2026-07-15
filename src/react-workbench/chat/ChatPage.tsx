@@ -65,6 +65,7 @@ import {
   type ToolCallState,
 } from "../../app-core/chat/chatRunModel";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
+import type { TinyOsNativeBrowserSession, TinyOsNativeSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
 import type { NativeChatReference } from "../../app-core/chat/nativeChat";
 import type { TinyOsAgentRequestIntent, TinyOsAgentRequestReference, TinyOsContextReference } from "../../app-core/chat/tinyOsUiState";
 import { readTinyOsReferenceTransfer, tinyOsReferenceAcceptedBy, TINYOS_REFERENCE_MIME } from "../../app-core/chat/tinyOsReferenceTransfer";
@@ -259,6 +260,8 @@ export function ChatPage({
   const [timeline, setTimeline] = useState<ChatTimelineSnapshot | null>(null);
   const [optimisticMessages, setOptimisticMessages] = useState<ReactChatMessage[]>([]);
   const [timelineError, setTimelineError] = useState("");
+  const [browserSnapshot, setBrowserSnapshot] = useState<TinyOsNativeSnapshot<TinyOsNativeBrowserSession>>();
+  const [browserRuntimeError, setBrowserRuntimeError] = useState("");
   const [tinyOsCapabilities, setTinyOsCapabilities] = useState<TinyOsEffectiveCapabilities>(() => (
     unavailableTinyOsEffectiveCapabilities("", "loading", "Loading effective capabilities.")
   ));
@@ -401,6 +404,21 @@ export function ChatPage({
   );
   const retryUnavailableReason = retryCapability.reason || "Retry is unavailable for this Agent run.";
   const liveCanvasOpen = liveCanvas.visibility === "open";
+
+  useEffect(() => {
+    setBrowserSnapshot(undefined);
+    setBrowserRuntimeError("");
+    if (!liveCanvasOpen || !activeSession?.id || !chatStore.browserRuntime) return;
+    let cancelled = false;
+    void chatStore.browserRuntime.createSession({ ownerSessionId: activeSession.id }).then((snapshot) => {
+      if (!cancelled) setBrowserSnapshot(snapshot);
+    }).catch((error) => {
+      if (!cancelled) setBrowserRuntimeError(error instanceof Error ? error.message : String(error));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSession?.id, chatStore, liveCanvasOpen]);
   const liveCanvasEntries = useMemo<LiveCanvasEntry[]>(() => (
     (timelineLoaded ? timeline?.turns ?? [] : []).flatMap((turn) => (
       (turn.executionItems ?? turn.steps).map((step) => ({ step, turnId: turn.id }))
@@ -557,6 +575,8 @@ export function ChatPage({
     action: TinyOsBrowserAction;
     browserSessionId: string;
     captureId: string;
+    controlEpoch: number;
+    observationRevision: number;
     tabId: string;
   }): Promise<void> {
     if (!activeSession || !browserInteractCapability.available) {
@@ -733,6 +753,7 @@ export function ChatPage({
     setOptimisticMessages([]);
     setTimelineError("");
     setAgentUiForms([]);
+    setBrowserSnapshot(undefined);
     let cancelled = false;
     const loadTimeline = () => chatStore.load(activeSessionId).then((nextTimeline) => {
       if (!cancelled) {
@@ -775,6 +796,11 @@ export function ChatPage({
     void loadTimeline();
     void loadAgentUiForms();
     const unsubscribe = chatStore.subscribe(activeSessionId, (event) => {
+      if (event.browserSnapshot) {
+        setBrowserSnapshot(event.browserSnapshot);
+        setBrowserRuntimeError("");
+        return;
+      }
       if (event.command && event.type === "command.dispatched") {
         pauseQueuedInputsForSession(event.command.target.sessionId);
         dispatchCommandLifecycle({ command: event.command, nowMs: now(), type: "dispatch" });
@@ -1776,6 +1802,8 @@ export function ChatPage({
           canDirectEdit={canDirectEdit}
           canExecuteTerminal={canExecuteTerminal}
           entries={liveCanvasEntries}
+          nativeSnapshots={browserSnapshot ? [browserSnapshot] : []}
+          browserRuntime={chatStore.browserRuntime}
           expanded={liveCanvas.surface === "expanded"}
           headingRef={liveCanvasHeadingRef}
           mode={liveCanvas.mode}
@@ -1795,7 +1823,7 @@ export function ChatPage({
           widthPx={tinyOsWidth}
           filesController={tinyOsFiles}
           directEditUnavailableReason={directEditUnavailableReason}
-          browserInteractUnavailableReason={browserInteractUnavailableReason}
+          browserInteractUnavailableReason={browserRuntimeError || browserInteractUnavailableReason}
           onAttachContext={handleAttachTinyOsContext}
           onCancelForm={(form) => void handleCancelAgentUiForm(form, "tinyos")}
           onCancelRun={() => activeSession && void handleStopGeneration(activeSession, "tinyos")}
