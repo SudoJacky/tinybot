@@ -1,7 +1,8 @@
 use crate::call_rust_state_service;
 use crate::native_agent_bridge::{
-    native_agent_services_with_tool_executor, persist_native_agent_checkpoint_if_present,
-    persist_native_agent_run_record, persist_native_agent_turn_if_final,
+    cleanup_turn_attachments, native_agent_services_with_tool_executor,
+    persist_native_agent_checkpoint_if_present, persist_native_agent_run_record,
+    persist_native_agent_turn_if_final, turn_result_needs_attachment_files,
 };
 use crate::worker_agent_runtime::{
     run_native_agent_turn_with_workspace_async, NativeAgentRuntimeServices,
@@ -353,11 +354,14 @@ pub(crate) async fn resolve_approval_continuation_with_services(
         config_snapshot.clone(),
     )?;
     persist_native_agent_turn_if_final(
-        continuation_spec,
+        continuation_spec.clone(),
         &mut continuation,
         workspace_root.clone(),
         config_snapshot.clone(),
     )?;
+    if !turn_result_needs_attachment_files(&continuation) {
+        cleanup_turn_attachments(&continuation_spec, &workspace_root);
+    }
     if body.get("threadCheckpoint").is_none() {
         clear_native_session_checkpoint(
             session_key,
@@ -672,11 +676,14 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
         config_snapshot.clone(),
     )?;
     persist_native_agent_turn_if_final(
-        continuation_spec,
+        continuation_spec.clone(),
         &mut continuation,
         workspace_root.clone(),
         config_snapshot.clone(),
     )?;
+    if !turn_result_needs_attachment_files(&continuation) {
+        cleanup_turn_attachments(&continuation_spec, &workspace_root);
+    }
     if body.get("threadCheckpoint").is_none() {
         clear_native_session_checkpoint(
             session_key,

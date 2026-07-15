@@ -1,9 +1,10 @@
 use crate::native_agent_bridge::{
-    hydrate_native_agent_history_for_runtime, native_agent_run_id,
+    hydrate_native_agent_history_for_runtime, materialize_turn_attachments, native_agent_run_id,
     native_agent_services_with_tool_executor, native_agent_session_id, native_agent_thread_id,
     native_agent_trace_sink, persist_native_agent_checkpoint_if_present,
     persist_native_agent_run_record, persist_native_agent_run_start,
     persist_native_agent_turn_if_final, reject_native_agent_terminal_run_reentry,
+    turn_result_needs_attachment_files, TurnAttachmentLease,
 };
 use crate::worker_agent_runtime::{
     ensure_agent_trace_context, run_native_agent_turn_with_workspace_and_instructions_async,
@@ -20,10 +21,8 @@ pub(crate) async fn run_agent_with_services(
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 ) -> Result<serde_json::Value, String> {
     let trace_context = ensure_agent_trace_context(&mut spec)?;
-    let mut persistence_spec = spec.clone();
-    let thread_owned = native_agent_thread_id(&persistence_spec).is_some();
     if let Some(mut rejection) = reject_native_agent_terminal_run_reentry(
-        &persistence_spec,
+        &spec,
         workspace_root.clone(),
         config_snapshot.clone(),
     )? {
@@ -31,6 +30,10 @@ pub(crate) async fn run_agent_with_services(
             .map_err(|error| format!("failed to serialize terminal run trace context: {error}"))?;
         return Ok(rejection);
     }
+    materialize_turn_attachments(&mut spec, &workspace_root)?;
+    let mut attachment_lease = TurnAttachmentLease::for_spec(&spec, &workspace_root);
+    let mut persistence_spec = spec.clone();
+    let thread_owned = native_agent_thread_id(&persistence_spec).is_some();
     let instructions = InstructionComposer::default().compose_with_config(
         &workspace_root,
         &spec,
@@ -84,6 +87,9 @@ pub(crate) async fn run_agent_with_services(
         ))
         }
     };
+    if turn_result_needs_attachment_files(&result) {
+        attachment_lease.preserve();
+    }
     if !thread_owned {
         merge_persisted_runtime_events(&services, &persistence_spec, &mut result)?;
     }

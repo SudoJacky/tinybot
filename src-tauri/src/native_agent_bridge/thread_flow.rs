@@ -1,8 +1,9 @@
 use crate::agent_loop_runtime_protocol::AgentTraceContext;
 use crate::call_rust_state_service;
 use crate::native_agent_bridge::{
-    native_agent_assistant_messages, native_agent_current_user_message, native_agent_model,
-    native_agent_provider, native_agent_run_id, native_agent_string_field, native_agent_usage,
+    cleanup_turn_attachments, materialize_turn_attachments, native_agent_assistant_messages,
+    native_agent_current_user_message, native_agent_model, native_agent_provider,
+    native_agent_run_id, native_agent_string_field, native_agent_usage,
 };
 use crate::worker_agent_runtime::{
     agent_trace_context_from_value, ensure_agent_trace_context, AgentHookInvocation,
@@ -168,14 +169,19 @@ pub(crate) async fn submit_thread_turn_with_services(
         }));
     }
 
-    start_native_agent_thread_turn(
+    materialize_turn_attachments(&mut spec, &workspace_root)?;
+
+    if let Err(error) = start_native_agent_thread_turn(
         &thread_id,
         &run_id,
         &spec,
         &trace_context,
         workspace_root.clone(),
         config_snapshot.clone(),
-    )?;
+    ) {
+        cleanup_turn_attachments(&spec, &workspace_root);
+        return Err(error);
+    }
     let mut agent_result = run_agent_with_services(
         base_services,
         spec,
