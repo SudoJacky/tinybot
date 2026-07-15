@@ -37,7 +37,6 @@ import {
   ClaudeStyleAiInput,
   type ComposerContextReference,
   type ComposerSendOptions,
-  type ComposerToolOption,
   type FileWithPreview,
   type ModelOption,
   type PastedContent,
@@ -46,6 +45,7 @@ import { TextType } from "../../components/ui/TextType";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
 import type { ApprovalAction, ChatEvent, ChatInput, ChatModelOption, ChatStore, SessionStore, SessionSummary, SettingsStore, WorkspaceStore } from "../services";
 import { createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
+import type { DesktopChatAttachment } from "../../app-core/chat/desktopCommand";
 import { reduceSessionDeleteState } from "../sessions/sessionDeleteState";
 import { canBranchFromMessage, canCopyMessage, type ContextReferenceSummary, type ReactChatMessage, type ToolCallSummary } from "./messageActions";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
@@ -167,7 +167,7 @@ function reduceLiveCanvasState(state: LiveCanvasState, action: LiveCanvasAction)
 
 type RecoveryAction = "continue" | "retry" | "restart";
 
-type QueuedComposerInput = QueuedInput & Pick<ChatInput, "model" | "references" | "usePersistentRag">;
+type QueuedComposerInput = QueuedInput & Pick<ChatInput, "model" | "references" | "attachments">;
 
 function shouldFrameBatchTimeline(timeline: ChatTimelineSnapshot): boolean {
   return timeline.turns[timeline.turns.length - 1]?.status === "running";
@@ -191,14 +191,14 @@ function readStoredTinyOsWidth(): number {
   return Number.isFinite(stored) && stored > 0 ? clampTinyOsWidth(stored) : 480;
 }
 
-const COMPOSER_TOOLS: ComposerToolOption[] = [
-  {
-    id: "knowledge-rag",
-    name: "Knowledge RAG",
-    description: "Use uploaded files and knowledge base material",
-    enabled: true,
-  },
-];
+const COMPOSER_ATTACHMENT_MAX_BYTES = 256 * 1024;
+const COMPOSER_ATTACHMENT_TOTAL_MAX_BYTES = 1024 * 1024;
+const COMPOSER_ATTACHMENT_TYPES = [
+  ".txt", ".md", ".markdown", ".json", ".jsonl", ".toml", ".yaml", ".yml",
+  ".rs", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".go",
+  ".java", ".kt", ".swift", ".c", ".h", ".cpp", ".hpp", ".cs", ".sh",
+  ".ps1", ".sql", ".html", ".css", ".xml", ".csv", ".log",
+] as const;
 
 const EMPTY_CHAT_PROMPTS = [
   "规划一个任务并列出执行步骤",
@@ -1024,9 +1024,9 @@ export function ChatPage({
     options: ComposerSendOptions,
   ) {
     const references = tinyOsContextReferences.map(nativeReferenceFromTinyOs);
+    const attachments = await readComposerAttachments(files);
     const text = formatComposerMessage(
-      message || (references.length ? "Use the attached TinyOS context." : ""),
-      files,
+      message || (files.length ? "Review the attached files." : references.length ? "Use the attached TinyOS context." : ""),
       pastedContent,
     );
     const sendSession = activeSession ?? await createSessionForDraft();
@@ -1041,7 +1041,7 @@ export function ChatPage({
       queuedInputs: activeQueuedInputs,
     });
     if (queuedResult.kind !== "send_message") {
-      handleQueuedComposerResult(sendSession.id, queuedResult, options, references);
+      handleQueuedComposerResult(sendSession.id, queuedResult, options, references, attachments);
       return;
     }
     const optimisticSession = isDefaultSessionTitle(sendSession.title)
@@ -1055,7 +1055,7 @@ export function ChatPage({
       text: queuedResult.content,
       ...(options.model ? { model: options.model } : {}),
       ...(references.length ? { references } : {}),
-      ...(typeof options.usePersistentRag === "boolean" ? { usePersistentRag: options.usePersistentRag } : {}),
+      ...(attachments.length ? { attachments } : {}),
     }, "composer-send");
     await handleSessionStoreRefresh(optimisticSession);
   }
@@ -1141,6 +1141,7 @@ export function ChatPage({
     result: Exclude<SubmitComposerTextResult, { kind: "send_message" }>,
     options: ComposerSendOptions,
     references: NativeChatReference[],
+    attachments: DesktopChatAttachment[],
   ) {
     if (result.kind === "queue_limit_reached") {
       setQueueMessage("Already have 5 queued messages. Wait for processing or delete one before sending more.");
@@ -1156,7 +1157,7 @@ export function ChatPage({
         ...result.input,
         ...(options.model ? { model: options.model } : {}),
         ...(references.length ? { references } : {}),
-        ...(typeof options.usePersistentRag === "boolean" ? { usePersistentRag: options.usePersistentRag } : {}),
+        ...(attachments.length ? { attachments } : {}),
       }]);
       return next;
     });
@@ -1752,7 +1753,8 @@ export function ChatPage({
           canStopResponding={canCancelRun}
           stopUnavailableReason={cancelUnavailableReason}
           placeholder={emptyActiveSession ? "输入任务，或粘贴/拖入文件" : "输入消息给 Tinybot"}
-          tools={COMPOSER_TOOLS}
+          acceptedFileTypes={[...COMPOSER_ATTACHMENT_TYPES]}
+          maxFileSize={COMPOSER_ATTACHMENT_MAX_BYTES}
           value={composerDraft}
           onClearContextReferences={() => setTinyOsContextReferences([])}
           onRemoveContextReference={(id) => setTinyOsContextReferences((current) => current.filter((reference) => tinyOsContextReferenceId(reference) !== id))}
@@ -2083,7 +2085,7 @@ function toChatInput(input: QueuedComposerInput): ChatInput {
     text: input.content,
     ...(input.model ? { model: input.model } : {}),
     ...(input.references?.length ? { references: input.references } : {}),
-    ...(typeof input.usePersistentRag === "boolean" ? { usePersistentRag: input.usePersistentRag } : {}),
+    ...(input.attachments?.length ? { attachments: input.attachments } : {}),
   };
 }
 
@@ -2218,28 +2220,36 @@ async function writeClipboardText(value: string): Promise<void> {
   await navigator.clipboard?.writeText(value);
 }
 
-function formatComposerMessage(message: string, files: FileWithPreview[], pastedContent: PastedContent[]): string {
+function formatComposerMessage(message: string, pastedContent: PastedContent[]): string {
   const segments = [message.trim()].filter(Boolean);
   for (const pasted of pastedContent) {
     segments.push(`Pasted content:\n${pasted.content}`);
   }
-  if (files.length) {
-    segments.push([
-      "Attached files:",
-      ...files.map((item) => `- ${item.file.name} (${formatComposerFileSize(item.file.size)})`),
-    ].join("\n"));
-  }
   return segments.join("\n\n");
 }
 
-function formatComposerFileSize(bytes: number): string {
-  if (bytes === 0) {
-    return "0 Bytes";
+async function readComposerAttachments(files: FileWithPreview[]): Promise<DesktopChatAttachment[]> {
+  const attachments: DesktopChatAttachment[] = [];
+  let totalBytes = 0;
+  for (const item of files) {
+    const content = await item.file.text();
+    const contentBytes = new TextEncoder().encode(content).byteLength;
+    if (contentBytes > COMPOSER_ATTACHMENT_MAX_BYTES) {
+      throw new Error(`${item.file.name} exceeds the 256 KiB text attachment limit.`);
+    }
+    totalBytes += contentBytes;
+    if (totalBytes > COMPOSER_ATTACHMENT_TOTAL_MAX_BYTES) {
+      throw new Error("Attached files exceed the 1 MiB total text limit.");
+    }
+    attachments.push({
+      type: "text",
+      name: item.file.name,
+      mimeType: item.file.type || "text/plain",
+      sizeBytes: contentBytes,
+      content,
+    });
   }
-  const k = 1024;
-  const sizes = ["Bytes", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+  return attachments;
 }
 
 function toComposerModelOption(model: ChatModelOption): ModelOption {

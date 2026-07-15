@@ -38,7 +38,6 @@ pub mod worker_connection;
 pub mod worker_cowork_runtime;
 pub mod worker_cron;
 pub mod worker_diagnostics;
-pub mod worker_knowledge;
 pub mod worker_manager;
 pub mod worker_memory;
 pub mod worker_permission_profile;
@@ -107,16 +106,6 @@ use crate::desktop_commands::gateway::{
     native_backend_log_path, set_gateway_keep_running, start_gateway,
     start_gateway_with_workspace_root, stop_gateway, stop_owned_gateway,
 };
-use crate::desktop_commands::knowledge::{
-    worker_knowledge_add_document, worker_knowledge_add_document_with_options,
-    worker_knowledge_delete_document, worker_knowledge_delete_document_with_options,
-    worker_knowledge_document, worker_knowledge_document_with_options, worker_knowledge_documents,
-    worker_knowledge_documents_with_options, worker_knowledge_graph,
-    worker_knowledge_graph_with_options, worker_knowledge_job, worker_knowledge_job_with_options,
-    worker_knowledge_rebuild_index, worker_knowledge_rebuild_index_with_options,
-    worker_knowledge_stats, worker_knowledge_stats_with_options, WorkerKnowledgeDocumentsInput,
-    WorkerKnowledgeGraphInput,
-};
 use crate::desktop_commands::session::{
     worker_agent_run_runtime_state, worker_agent_run_runtime_state_with_options,
     worker_agent_runs_list, worker_agent_runs_list_with_options, worker_session_branch,
@@ -160,8 +149,8 @@ use crate::desktop_commands::webui::{
 };
 #[cfg(test)]
 use crate::desktop_commands::webui::{
-    worker_cowork_route_with_options, worker_webui_route_timeout, worker_webui_route_with_options,
-    WorkerCoworkRouteInput, WorkerWebuiRouteInput,
+    worker_cowork_route_with_options, worker_webui_route_with_options, WorkerCoworkRouteInput,
+    WorkerWebuiRouteInput,
 };
 use crate::desktop_commands::workspace::{
     worker_workspace_directory, worker_workspace_file, worker_workspace_file_chunk,
@@ -615,14 +604,6 @@ pub fn run() {
             worker_task_plan_get,
             worker_task_plan_save,
             worker_task_plan_delete,
-            worker_knowledge_documents,
-            worker_knowledge_add_document,
-            worker_knowledge_document,
-            worker_knowledge_delete_document,
-            worker_knowledge_job,
-            worker_knowledge_rebuild_index,
-            worker_knowledge_stats,
-            worker_knowledge_graph,
             worker_submit_agent_form,
             worker_resume_agent_approval,
             worker_resolve_thread_approval,

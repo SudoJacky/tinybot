@@ -145,19 +145,6 @@ describe("gateway HTTP client", () => {
     temporaryForm.append("file", new File(["temporary"], "temporary.txt", { type: "text/plain" }));
     await client.sessions.uploadTemporaryFile("WebSocket:chat-1", temporaryForm);
     await client.sessions.clearTemporaryFiles("WebSocket:chat-1");
-    await client.knowledge.documents();
-    const knowledgeForm = new FormData();
-    knowledgeForm.append("file", new File(["knowledge"], "knowledge.md", { type: "text/markdown" }));
-    await client.knowledge.addDocument({ name: "Inline Knowledge", content: "Notes", file_type: "md" });
-    await client.knowledge.document("docs/knowledge.md");
-    await client.knowledge.uploadDocument(knowledgeForm);
-    await client.knowledge.deleteDocument("docs/knowledge.md");
-    await client.knowledge.job("kjob/1");
-    await client.knowledge.rebuildIndex("all");
-    await client.knowledge.stats();
-    await client.knowledge.graph();
-    await client.knowledge.graphrag();
-    await client.knowledge.query({ query: "desktop", mode: "hybrid", top_k: 5 });
     await client.workspace.file("docs/readme.md");
     await client.workspace.putFile("docs/readme.md", {
       content: "# Readme\n",
@@ -197,17 +184,6 @@ describe("gateway HTTP client", () => {
       "http://127.0.0.1:18790/api/sessions/WebSocket%3Achat-1/temporary-files",
       "http://127.0.0.1:18790/api/sessions/WebSocket%3Achat-1/temporary-files",
       "http://127.0.0.1:18790/api/sessions/WebSocket%3Achat-1/temporary-files",
-      "http://127.0.0.1:18790/v1/knowledge/documents",
-      "http://127.0.0.1:18790/v1/knowledge/documents",
-      "http://127.0.0.1:18790/v1/knowledge/documents/docs%2Fknowledge.md",
-      "http://127.0.0.1:18790/v1/knowledge/documents/upload?async_index=true",
-      "http://127.0.0.1:18790/v1/knowledge/documents/docs%2Fknowledge.md",
-      "http://127.0.0.1:18790/v1/knowledge/jobs/kjob%2F1",
-      "http://127.0.0.1:18790/v1/knowledge/rebuild-index?type=all&async_index=true",
-      "http://127.0.0.1:18790/v1/knowledge/stats",
-      "http://127.0.0.1:18790/v1/knowledge/graph",
-      "http://127.0.0.1:18790/v1/knowledge/graphrag?min_confidence=0&include_reports=true&include_covariates=true",
-      "http://127.0.0.1:18790/v1/knowledge/query",
       "http://127.0.0.1:18790/api/workspace/files/docs%2Freadme.md",
       "http://127.0.0.1:18790/api/workspace/files/docs%2Freadme.md",
       "http://127.0.0.1:18790/health",
@@ -240,36 +216,10 @@ describe("gateway HTTP client", () => {
     expect(fetchFn.mock.calls[5][1]).toMatchObject({
       method: "DELETE",
     });
-    expect(fetchFn.mock.calls[7][1]).toMatchObject({
-      method: "POST",
-      headers: expect.objectContaining({
-        Authorization: "Bearer token-1",
-        "Content-Type": "application/json",
-      }),
-      body: JSON.stringify({ name: "Inline Knowledge", content: "Notes", file_type: "md" }),
-    });
-    expect(fetchFn.mock.calls[9][1]).toMatchObject({
-      method: "POST",
-      body: knowledgeForm,
-    });
     expect((fetchFn.mock.calls[4][1] as RequestInit).headers).not.toMatchObject({
       "Content-Type": expect.any(String),
     });
-    expect((fetchFn.mock.calls[9][1] as RequestInit).headers).not.toMatchObject({
-      "Content-Type": expect.any(String),
-    });
-    expect(fetchFn.mock.calls[10][1]).toMatchObject({
-      method: "DELETE",
-    });
-    expect(fetchFn.mock.calls[16][1]).toMatchObject({
-      method: "POST",
-      headers: expect.objectContaining({
-        Authorization: "Bearer token-1",
-        "Content-Type": "application/json",
-      }),
-      body: JSON.stringify({ query: "desktop", mode: "hybrid", top_k: 5 }),
-    });
-    expect(fetchFn.mock.calls[18][1]).toMatchObject({
+    expect(fetchFn.mock.calls[7][1]).toMatchObject({
       method: "PUT",
       headers: expect.objectContaining({
         Authorization: "Bearer token-1",
@@ -280,7 +230,7 @@ describe("gateway HTTP client", () => {
         expected_updated_at: "2026-05-31T10:00:00+00:00",
       }),
     });
-    expect(fetchFn.mock.calls[21][1]).toMatchObject({
+    expect(fetchFn.mock.calls[10][1]).toMatchObject({
       method: "POST",
       headers: expect.objectContaining({
         Authorization: "Bearer token-1",
@@ -292,7 +242,7 @@ describe("gateway HTTP client", () => {
         session_id: "desktop-chat",
       }),
     });
-    expect(fetchFn.mock.calls[24][1]).toMatchObject({
+    expect(fetchFn.mock.calls[13][1]).toMatchObject({
       method: "PATCH",
       headers: expect.objectContaining({
         Authorization: "Bearer token-1",
@@ -300,13 +250,13 @@ describe("gateway HTTP client", () => {
       }),
       body: JSON.stringify({ content: "# Updated" }),
     });
-    expect(fetchFn.mock.calls[25][1]).toMatchObject({ method: "POST" });
-    expect(fetchFn.mock.calls[26][1]).toMatchObject({ method: "DELETE" });
-    expect(fetchFn.mock.calls[28][1]).toMatchObject({
+    expect(fetchFn.mock.calls[14][1]).toMatchObject({ method: "POST" });
+    expect(fetchFn.mock.calls[15][1]).toMatchObject({ method: "DELETE" });
+    expect(fetchFn.mock.calls[17][1]).toMatchObject({
       method: "POST",
       body: JSON.stringify({ goal: "Ship desktop" }),
     });
-    expect(fetchFn.mock.calls[40][1]).toMatchObject({
+    expect(fetchFn.mock.calls[29][1]).toMatchObject({
       method: "POST",
       body: JSON.stringify({ blueprint: {} }),
     });
@@ -516,50 +466,6 @@ describe("gateway HTTP client", () => {
       request: { method: "GET", path: "/api/providers" },
     });
     expect(nativeWebui.route).toHaveBeenCalledWith({ method: "GET", path: "/api/providers" });
-    expect(fetchFn).not.toHaveBeenCalled();
-  });
-
-  test("prefers native Rust knowledge state routes when available", async () => {
-    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
-    const nativeWebui = {
-      route: vi.fn(async () => {
-        throw new Error("native WebUI knowledge route should not be used");
-      }),
-    };
-    const nativeKnowledge = {
-      documents: vi.fn(async (options: unknown) => ({ documents: [{ id: "doc-1" }], options })),
-      addDocument: vi.fn(async (body: unknown) => ({ document: { id: "doc-2" }, body })),
-      document: vi.fn(async (documentId: string) => ({ document: { id: documentId } })),
-      deleteDocument: vi.fn(async (documentId: string) => ({ deleted: true, doc_id: documentId })),
-      job: vi.fn(async (jobId: string) => ({ id: jobId, status: "completed" })),
-      rebuildIndex: vi.fn(async (type?: string) => ({ id: `kjob_rebuild_${type ?? "all"}`, status: "completed" })),
-      stats: vi.fn(async () => ({ document_count: 1 })),
-      graph: vi.fn(async (options: unknown) => ({ object: "knowledge_graph", options })),
-    };
-    const client = createGatewayApiClient({
-      config: DEFAULT_GATEWAY_CONFIG,
-      fetchFn,
-      nativeKnowledge,
-      nativeWebui,
-    });
-
-    await expect(client.knowledge.documents({ category: "desktop", limit: 5 })).resolves.toEqual({
-      documents: [{ id: "doc-1" }],
-      options: { category: "desktop", limit: 5 },
-    });
-    await expect(client.knowledge.addDocument({ name: "notes.md" })).resolves.toMatchObject({
-      document: { id: "doc-2" },
-    });
-    await expect(client.knowledge.document("doc-1")).resolves.toEqual({ document: { id: "doc-1" } });
-    await expect(client.knowledge.deleteDocument("doc-1")).resolves.toEqual({ deleted: true, doc_id: "doc-1" });
-    await expect(client.knowledge.job("kjob-1")).resolves.toEqual({ id: "kjob-1", status: "completed" });
-    await expect(client.knowledge.rebuildIndex("tree")).resolves.toEqual({ id: "kjob_rebuild_tree", status: "completed" });
-    await expect(client.knowledge.stats()).resolves.toEqual({ document_count: 1 });
-    await expect(client.knowledge.graph({ graphType: "document" })).resolves.toEqual({
-      object: "knowledge_graph",
-      options: { graphType: "document" },
-    });
-    expect(nativeWebui.route).not.toHaveBeenCalled();
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
@@ -1348,319 +1254,6 @@ describe("gateway HTTP client", () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
-  test("prefers native WebUI Knowledge API routes when available", async () => {
-    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
-    const nativeWebui = {
-      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
-        native: true,
-        request,
-      })),
-    };
-    const client = createGatewayApiClient({
-      config: DEFAULT_GATEWAY_CONFIG,
-      fetchFn,
-      nativeWebui,
-    });
-
-    await expect(client.knowledge.documents({ category: "docs", limit: 10 })).resolves.toEqual({
-      native: true,
-      request: { method: "GET", path: "/v1/knowledge/documents?category=docs&limit=10" },
-    });
-    await expect(client.knowledge.addDocument({ name: "Inline Knowledge", content: "Notes", file_type: "md" })).resolves.toEqual({
-      native: true,
-      request: {
-        method: "POST",
-        path: "/v1/knowledge/documents",
-        body: { name: "Inline Knowledge", content: "Notes", file_type: "md" },
-      },
-    });
-    await expect(client.knowledge.document("docs/knowledge.md")).resolves.toEqual({
-      native: true,
-      request: { method: "GET", path: "/v1/knowledge/documents/docs%2Fknowledge.md" },
-    });
-    await expect(client.knowledge.deleteDocument("docs/knowledge.md")).resolves.toEqual({
-      native: true,
-      request: { method: "DELETE", path: "/v1/knowledge/documents/docs%2Fknowledge.md" },
-    });
-    await expect(client.knowledge.stats()).resolves.toEqual({
-      native: true,
-      request: { method: "GET", path: "/v1/knowledge/stats" },
-    });
-    await expect(client.knowledge.query({ query: "desktop", mode: "sparse", top_k: 5 })).resolves.toEqual({
-      native: true,
-      request: {
-        method: "POST",
-        path: "/v1/knowledge/query",
-        body: { query: "desktop", mode: "sparse", top_k: 5 },
-      },
-    });
-    const form = new FormData();
-    form.append("file", new File(["# Native\n"], "native.md", { type: "text/markdown" }));
-    form.append("category", "docs");
-    form.append("tags", "desktop, native");
-    await expect(client.knowledge.uploadDocument(form)).resolves.toEqual({
-      native: true,
-      request: {
-        method: "POST",
-        path: "/v1/knowledge/documents/upload?async_index=true",
-        body: {
-          name: "native.md",
-          file_type: "md",
-          content: "# Native\n",
-          size_bytes: 9,
-          category: "docs",
-          tags: ["desktop", "native"],
-        },
-      },
-    });
-    const markdownForm = new FormData();
-    markdownForm.append("file", new File(["# Native Markdown\n"], "native.markdown", { type: "text/markdown" }));
-    await expect(client.knowledge.uploadDocument(markdownForm)).resolves.toEqual({
-      native: true,
-      request: {
-        method: "POST",
-        path: "/v1/knowledge/documents/upload?async_index=true",
-        body: {
-          name: "native.markdown",
-          file_type: "md",
-          content: "# Native Markdown\n",
-          size_bytes: 18,
-        },
-      },
-    });
-    const jsonForm = new FormData();
-    jsonForm.append("file", new File(["{\"topic\":\"desktop\"}\n"], "native.json", { type: "application/json" }));
-    await expect(client.knowledge.uploadDocument(jsonForm)).resolves.toEqual({
-      native: true,
-      request: {
-        method: "POST",
-        path: "/v1/knowledge/documents/upload?async_index=true",
-        body: {
-          name: "native.json",
-          file_type: "json",
-          content: "{\"topic\":\"desktop\"}\n",
-          size_bytes: 20,
-        },
-      },
-    });
-    const csvForm = new FormData();
-    csvForm.append("file", new File(["name,value\nnative,true\n"], "native.csv", { type: "text/csv" }));
-    await expect(client.knowledge.uploadDocument(csvForm)).resolves.toEqual({
-      native: true,
-      request: {
-        method: "POST",
-        path: "/v1/knowledge/documents/upload?async_index=true",
-        body: {
-          name: "native.csv",
-          file_type: "csv",
-          content: "name,value\nnative,true\n",
-          size_bytes: 23,
-        },
-      },
-    });
-    await expect(client.knowledge.job("kjob_doc-2")).resolves.toEqual({
-      native: true,
-      request: {
-        method: "GET",
-        path: "/v1/knowledge/jobs/kjob_doc-2",
-      },
-    });
-    await expect(client.knowledge.rebuildIndex("bm25")).resolves.toEqual({
-      native: true,
-      request: {
-        method: "POST",
-        path: "/v1/knowledge/rebuild-index?type=bm25&async_index=true",
-      },
-    });
-    await expect(client.knowledge.rebuildIndex("all")).resolves.toEqual({
-      native: true,
-      request: {
-        method: "POST",
-        path: "/v1/knowledge/rebuild-index?type=all&async_index=true",
-      },
-    });
-    await expect(client.knowledge.rebuildIndex("semantic")).resolves.toEqual({
-      native: true,
-      request: {
-        method: "POST",
-        path: "/v1/knowledge/rebuild-index?type=semantic&async_index=true",
-      },
-    });
-    await expect(client.knowledge.rebuildIndex("tree")).resolves.toEqual({
-      native: true,
-      request: {
-        method: "POST",
-        path: "/v1/knowledge/rebuild-index?type=tree&async_index=true",
-      },
-    });
-    await expect(client.knowledge.graph()).resolves.toEqual({
-      native: true,
-      request: {
-        method: "GET",
-        path: "/v1/knowledge/graph",
-      },
-    });
-    await expect(client.knowledge.graph({
-      docId: "docs/knowledge.md",
-      graphType: "entity",
-      limit: 20,
-      edgeLimit: 40,
-      minConfidence: 0.2,
-      includeOrphans: true,
-    })).resolves.toEqual({
-      native: true,
-      request: {
-        method: "GET",
-        path: "/v1/knowledge/graph?doc_id=docs%2Fknowledge.md&graph_type=entity&limit=20&edge_limit=40&min_confidence=0.2&include_orphans=true",
-      },
-    });
-    await expect(client.knowledge.extractGraph({
-      docId: "docs/knowledge.md",
-      dryRun: true,
-    })).resolves.toEqual({
-      native: true,
-      request: {
-        method: "POST",
-        path: "/v1/knowledge/graph/extract",
-        body: {
-          doc_id: "docs/knowledge.md",
-          dry_run: true,
-        },
-      },
-    });
-    await expect(client.knowledge.extractGraph({
-      docIds: ["doc-1", "doc-2"],
-    })).resolves.toEqual({
-      native: true,
-      request: {
-        method: "POST",
-        path: "/v1/knowledge/graph/extract",
-        body: {
-          doc_ids: ["doc-1", "doc-2"],
-        },
-      },
-    });
-    await expect(client.knowledge.extractGraph({
-      scope: "all",
-      dryRun: true,
-    })).resolves.toEqual({
-      native: true,
-      request: {
-        method: "POST",
-        path: "/v1/knowledge/graph/extract",
-        body: {
-          scope: "all",
-          dry_run: true,
-        },
-      },
-    });
-    await expect(client.knowledge.extractGraph({
-      docId: "docs/knowledge.md",
-      force: true,
-    })).resolves.toEqual({
-      native: true,
-      request: {
-        method: "POST",
-        path: "/v1/knowledge/graph/extract",
-        body: {
-          doc_id: "docs/knowledge.md",
-          force: true,
-        },
-      },
-    });
-    await expect(client.knowledge.graphrag()).resolves.toEqual({
-      native: true,
-      request: {
-        method: "GET",
-        path: "/v1/knowledge/graphrag?min_confidence=0&include_reports=true&include_covariates=true",
-      },
-    });
-    await expect(client.knowledge.graphrag({
-      docId: "docs/knowledge.md",
-      minConfidence: 0.2,
-      level: 1,
-      includeReports: false,
-      includeCovariates: true,
-    })).resolves.toEqual({
-      native: true,
-      request: {
-        method: "GET",
-        path: "/v1/knowledge/graphrag?doc_id=docs%2Fknowledge.md&min_confidence=0.2&level=1&include_reports=false&include_covariates=true",
-      },
-    });
-    expect(fetchFn).not.toHaveBeenCalled();
-  });
-
-  test("does not fallback to gateway HTTP when native graph extraction fails", async () => {
-    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
-    const nativeWebui = {
-      route: vi.fn(async () => {
-        throw new Error("Error extracting knowledge graph: unsupported relation predicate");
-      }),
-    };
-    const client = createGatewayApiClient({
-      config: DEFAULT_GATEWAY_CONFIG,
-      fetchFn,
-      nativeWebui,
-    });
-
-    await expect(client.knowledge.extractGraph({ docId: "doc-1" }))
-      .rejects
-      .toThrow("unsupported relation predicate");
-    expect(fetchFn).not.toHaveBeenCalled();
-  });
-
-  test("does not fallback to gateway HTTP for native Knowledge graph read routes", async () => {
-    const fetchFn = vi.fn(async (url: RequestInfo | URL) => {
-      if (String(url).endsWith("/webui/bootstrap")) {
-        return new Response(JSON.stringify({ token: "token-1" }), { status: 200 });
-      }
-      return new Response(JSON.stringify({ gateway: true }), { status: 200 });
-    });
-    const nativeWebui = {
-      route: vi.fn(async () => {
-        throw new Error("native knowledge route unavailable");
-      }),
-    };
-    const client = createGatewayApiClient({
-      config: DEFAULT_GATEWAY_CONFIG,
-      fetchFn,
-      nativeWebui,
-    });
-
-    await expect(client.knowledge.job("kjob_1")).rejects.toThrow("native knowledge route unavailable");
-    await expect(client.knowledge.graph({ graphType: "entity" })).rejects.toThrow("native knowledge route unavailable");
-    await expect(client.knowledge.graphrag()).rejects.toThrow("native knowledge route unavailable");
-    expect(fetchFn).not.toHaveBeenCalled();
-  });
-
-  test("rejects unsupported native Knowledge uploads without gateway HTTP fallback", async () => {
-    const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
-      if (String(url).endsWith("/webui/bootstrap")) {
-        return new Response(JSON.stringify({ token: "token-1" }), { status: 200 });
-      }
-      return new Response(JSON.stringify({ gateway: true }), { status: 200 });
-    });
-    const nativeWebui = {
-      route: vi.fn(async () => {
-        throw new Error("pdf upload should not use native route");
-      }),
-    };
-    const client = createGatewayApiClient({
-      config: DEFAULT_GATEWAY_CONFIG,
-      fetchFn,
-      nativeWebui,
-    });
-    const form = new FormData();
-    form.append("file", new File(["%PDF-1.4"], "paper.pdf", { type: "application/pdf" }));
-
-    await expect(client.knowledge.uploadDocument(form))
-      .rejects
-      .toThrow("Native Knowledge uploads only support txt, md, json, and csv files.");
-    expect(nativeWebui.route).not.toHaveBeenCalled();
-    expect(fetchFn).not.toHaveBeenCalled();
-  });
-
   test("falls back to gateway skills operations when native skills are unavailable", async () => {
     const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
       if (String(url).endsWith("/webui/bootstrap")) {
@@ -2175,14 +1768,13 @@ describe("gateway WebSocket client", () => {
       type: "attach",
       chat_id: "chat-1",
     });
-    expect(createGatewaySocketMessage.message("chat-1", "hello", true, "deepseek-reasoner")).toEqual({
+    expect(createGatewaySocketMessage.message("chat-1", "hello", "deepseek-reasoner")).toEqual({
       type: "message",
       chat_id: "chat-1",
       content: "hello",
       model: "deepseek-reasoner",
-      use_persistent_rag: true,
     });
-    expect(createGatewaySocketMessage.message("chat-1", "explain", true, undefined, "client-1", [{
+    expect(createGatewaySocketMessage.message("chat-1", "explain", undefined, "client-1", [{
       detail: "TinyOS file selection",
       evidenceId: "item-1",
       kind: "reference",
@@ -2197,7 +1789,6 @@ describe("gateway WebSocket client", () => {
       client_event_id: "client-1",
       content: "explain",
       references: [expect.objectContaining({ evidenceId: "item-1", type: "tinyos.file" })],
-      use_persistent_rag: true,
     });
     expect(createGatewaySocketMessage.interrupt("chat-1", {
       schemaVersion: "tinybot.command.v1",

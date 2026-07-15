@@ -311,7 +311,7 @@ First-version group ids returned by `get_settings_snapshot`:
 - `logs-diagnostics`
 - `expert-config`
 
-The first version intentionally does not include Knowledge, Memory, Cowork, Channels, generic
+The first version intentionally does not include Memory, Cowork, Channels, generic
 web/exec/browser tool toggles, telemetry/crash-report controls, or raw JSON editing fields.
 `gateway.host` is projected as readonly `127.0.0.1`; `gateway.port` is editable. Secret fields
 return `value: null` with `secret` metadata and must remain redacted in exported/public config.
@@ -438,14 +438,10 @@ not used by the agent runtime.
 
 Workspace-backed turns hydrate provider context through ordered `AgentContextContributor`
 registrations after continuation state is restored and before the first provider request. The
-default order is memory followed by knowledge:
+current built-in contributor is memory:
 
 - Memory retrieval requires `memory.enabled: true`. `max_notes`/`maxNotes` defaults to `6` and must
   not exceed `20`; `max_chars`/`maxChars` defaults to `1600` and must not exceed `12000`.
-- Knowledge retrieval requires both `knowledge.enabled: true` and
-  `knowledge.auto_retrieve`/`autoRetrieve: true`. `max_chunks`/`maxChunks` defaults to `5` and must
-  not exceed `20`.
-
 Malformed sections, incorrectly typed fields, out-of-range limits, and enabled-contributor
 retrieval failures stop the run before provider execution. Contributed text is JSON-encoded and
 appended after the composed system instructions under an explicit evidence-only frame; retrieved
@@ -454,8 +450,8 @@ text never receives instruction precedence.
 Enabled contributors emit the debug event `agent.context.hydrated`, including `empty` evaluations
 when no source matched. This event follows the durable runtime trace path. The event and top-level
 `contextContributions` projection contain hashes, counts, truncation state, and allowlisted source
-identifiers only. They do not contain prompt text, memory content, knowledge excerpts, document
-names, or filesystem paths.
+identifiers only. They do not contain prompt text, memory content, document names, or filesystem
+paths.
 
 ### Hooks, trace correlation, and runtime metrics
 
@@ -1259,6 +1255,29 @@ Thread continuation helper commands:
 | `worker_resolve_thread_approval` | `{ input: { threadId, approvalId, approved, scope?, guidance? } }` |
 | `worker_submit_thread_form` | `{ input: { threadId, formId, values?, action? } }` |
 
+`worker_submit_thread_turn` accepts text attachments on the current user input. Attachments are
+passed directly to the provider context for that turn; they are not indexed or added to a retrieval
+store. The supported shape is:
+
+```json
+{
+  "role": "user",
+  "content": "Review the attached files.",
+  "attachments": [
+    {
+      "type": "text",
+      "name": "notes.md",
+      "mimeType": "text/markdown",
+      "sizeBytes": 42,
+      "content": "# Notes"
+    }
+  ]
+}
+```
+
+The runtime accepts at most 10 text attachments, at most 256 KiB per attachment, and at most 1 MiB
+across a turn. Binary files and PDF extraction are not supported by this path.
+
 `ThreadRecord`:
 
 ```json
@@ -1613,30 +1632,6 @@ assigned to a kill-on-close Job Object before resume, and report
 `windows_restricted_low_integrity_read_only` as their actual sandbox label. `approvalDecision` is
 `approved`, `trusted_internal`, or `internal_direct` according to the launch boundary.
 
-## Knowledge Commands
-
-| Command | Args | Response |
-| --- | --- | --- |
-| `worker_knowledge_documents` | `{ input: { category?: string, limit?: number } }` | documents list |
-| `worker_knowledge_add_document` | `{ input: { body } }` | document/job payload |
-| `worker_knowledge_document` | `{ input: { docId } }` | document detail |
-| `worker_knowledge_delete_document` | `{ input: { docId } }` | delete result |
-| `worker_knowledge_job` | `{ input: { jobId } }` | job detail |
-| `worker_knowledge_rebuild_index` | `{ input: { rebuildType?: string } }` | rebuild job/result |
-| `worker_knowledge_stats` | none | knowledge stats |
-| `worker_knowledge_graph` | `{ input: { docId?, graphType?, limit?, edgeLimit?, minConfidence?, includeOrphans? } }` | graph payload |
-
-Lower-level knowledge RPC additionally supports:
-
-- `knowledge.context`
-- `knowledge.query`
-- `knowledge.start_index_job`
-- `knowledge.document_tree`
-- `knowledge.save_entity_graph_extraction`
-- `knowledge.session_upload`
-- `knowledge.session_list`
-- `knowledge.session_clear`
-
 ## Background, Task, Subagent, and Host Commands
 
 | Group | Commands |
@@ -1763,15 +1758,6 @@ Use `routeResponse()` if the status and headers are needed.
 | `GET` | `/api/workspace/files` | workspace | List workspace files |
 | `GET` | `/api/workspace/files/{path:.+}` | workspace | Read workspace file |
 | `PUT` | `/api/workspace/files/{path:.+}` | workspace | Write workspace file |
-| `GET` | `/v1/knowledge/documents` | knowledge | Query: `category`, `limit` |
-| `POST` | `/v1/knowledge/documents` | knowledge | Add document |
-| `POST` | `/v1/knowledge/documents/upload` | knowledge | Add uploaded text document |
-| `GET` | `/v1/knowledge/documents/{doc_id}` | knowledge | Document detail |
-| `DELETE` | `/v1/knowledge/documents/{doc_id}` | knowledge | Delete document |
-| `GET` | `/v1/knowledge/stats` | knowledge | Stats |
-| `GET` | `/v1/knowledge/jobs/{job_id}` | knowledge | Job detail |
-| `POST` | `/v1/knowledge/rebuild-index` | knowledge | Query currently reads `type`; direct command uses `rebuildType` |
-| `GET` | `/v1/knowledge/graph` | knowledge | Query: `doc_id`, `graph_type`, `limit`, `edge_limit`, `min_confidence`, `include_orphans` |
 
 ### Inventoried But Unsupported WebUI Routes
 
@@ -1780,9 +1766,6 @@ These return status `501` through `worker_webui_route`:
 | Method | Path | Reason |
 | --- | --- | --- |
 | `PATCH` | `/api/config` | Config patch route is not implemented in Rust WebUI route surface |
-| `POST` | `/v1/knowledge/query` | Advanced query route is not exposed as WebUI route |
-| `POST` | `/v1/knowledge/graph/extract` | LLM graph extraction orchestration is not exposed as WebUI route |
-| `GET` | `/v1/knowledge/graphrag` | GraphRAG route is not exposed as WebUI route |
 | `GET/POST/PATCH/DELETE` | `/api/cowork/{path:.+}` | Cowork HTTP routes are not exposed by Rust WebUI route inventory |
 
 Unknown, non-inventoried routes return status `404` with:
@@ -1827,14 +1810,12 @@ External callers should usually prefer the Tauri commands above.
 | `config` | `apply_operations`, `apply_patch_result`, `get`, `snapshot_public` |
 | `diagnostics` | `append` |
 | `form` | `request` |
-| `knowledge` | `add_document`, `context`, `delete_document`, `document_tree`, `get_document`, `get_job`, `graph`, `list_documents`, `query`, `rebuild_index`, `save_entity_graph_extraction`, `session_clear`, `session_list`, `session_upload`, `start_index_job`, `stats` |
 | `mcp` | `call_tool`, `diagnostics`, `list_tools`, `server_status`, `shutdown` |
 | `memory` | `capture_evidence`, `dream_apply`, `dream_log`, `dream_pending`, `dream_restore`, `dream_run`, `list_evidence`, `migrate_legacy_notes`, `rebuild_index`, `recall`, `refresh_views`, `reject`, `save`, `search`, `supersede`, `trace` |
 | `permission_profile` | `current`, `evaluate_tool`, `request_tool_approval`, `resolve_tool_approval` |
 | `provider` | `resolve_secret` |
-| `rag` | `query` |
 | `runtime` | `metrics`, `now`, `restart` |
-| `session` | `append_messages`, `clear`, `clear_checkpoint`, `delete`, `get_checkpoint`, `get_history`, `get_metadata`, `list_metadata`, `patch_metadata`, `patch_user_profile`, `persist_turn`, `set_checkpoint`, `trim` |
+| `session` | `append_messages`, `clear`, `clear_checkpoint`, `delete`, `get_checkpoint`, `get_history`, `get_metadata`, `list_metadata`, `patch_metadata`, `patch_user_profile`, `persist_turn`, `set_checkpoint`, `temporary_file.clear`, `temporary_file.list`, `temporary_file.upload`, `trim` |
 | `shell` | `execute`, `start`, `poll`, `write_stdin`, `resize`, `interrupt`, `terminate`, `terminate_run`, `list`, `shutdown` |
 | `skills` | `list`, `webui_create`, `webui_delete`, `webui_detail`, `webui_list`, `webui_update`, `webui_validate` |
 | `subagent` | `cancel`, `close`, `list`, `query`, `resume`, `send_input`, `spawn`, `wait` |
@@ -2107,7 +2088,6 @@ Prefer these wrappers instead of direct command strings:
 | `createDesktopNativeConfigApi` | `src/app-core/native/desktopNativeConfig.ts` | Config snapshot |
 | `createDesktopNativeSessionsApi` | `src/app-core/native/desktopNativeSessions.ts` | Session commands |
 | `createDesktopNativeThreadsApi` | `src/app-core/native/desktopNativeThreads.ts` | Thread commands |
-| `createDesktopNativeKnowledgeApi` | `src/app-core/native/desktopNativeKnowledge.ts` | Knowledge commands |
 | `createDesktopNativeHostCommandApi` | `src/app-core/native/desktopNativeHostCommand.ts` | Remaining non-chat TinyOS host commands |
 | `createDesktopNativeWebuiApi` | `src/app-core/native/desktopNativeWebui.ts` | `worker_webui_route` |
 
@@ -2156,7 +2136,7 @@ Call an HTTP-compatible route through Rust:
 const response = await invoke("worker_webui_route", {
   input: {
     method: "GET",
-    path: "/v1/knowledge/documents?limit=20"
+    path: "/api/workspace/files"
   }
 });
 

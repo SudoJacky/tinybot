@@ -74,9 +74,7 @@ flowchart TD
     RecallBlock --> AgentContext["ContextBuilder.build_messages"]
 
     Experience["ExperienceStore"] --> ExperienceBlock["[RELEVANT WORKFLOWS / RECOVERIES]"]
-    Knowledge["KnowledgeStore / SessionKnowledgeStore"] --> KnowledgeBlock["Knowledge context"]
     ExperienceBlock --> AgentContext
-    KnowledgeBlock --> AgentContext
 ```
 
 ```mermaid
@@ -90,7 +88,6 @@ flowchart LR
     Legacy["Legacy Markdown/history\nmigration + fallback"] --> Notes
 
     Experience["Experience\nhow to act"] --> AgentPrompt["Agent prompt"]
-    Knowledge["Knowledge\nexternal document evidence"] --> AgentPrompt
     Recall --> AgentPrompt
 
     Views -. "inspection + compatibility" .-> AgentPrompt
@@ -146,27 +143,12 @@ Cowork now exposes versioned graph/trace snapshots, reusable JSON blueprints, bu
 </details>
 
 <details>
-<summary>2026.04.28 Add beta RAG relation graph.</summary>
-
-![rag_graph_beta_gif](./show/webui_rag_graph_beta1.gif)
-
-![rag_graph_beta](./show/webui_rag_graph_beta1.PNG)
-
-</details>
-
-<details>
 <summary>2026.04.27 Add docs and fix some issue.</summary>
 
 ![doc_home](./show/webui_doc_home.PNG)
 
 ![startup](./show/webui_startup.PNG)
 
-</details>
-
-<details>
-<summary>2026.04.26 add RAG module, support text content for now</summary>
-
-![RAG](./show/webui_RAG.PNG)
 </details>
 
 <details>
@@ -275,7 +257,7 @@ Task execution shows real-time progress in the desktop WebUI without disrupting 
 
 Configuration is managed directly in the desktop settings surface:
 
-- Edit provider settings, model parameters, tool configs, knowledge settings, and runtime options.
+- Edit provider settings, model parameters, tool configs, and runtime options.
 - Changes are applied through the Rust native backend.
 - No separate terminal chat session is required.
 
@@ -376,9 +358,9 @@ Use the desktop WebUI for day-to-day operation:
 | Surface | Description |
 |---------|-------------|
 | Chat composer | Send messages, attach files, stop generation, and switch sessions |
-| Settings | Configure providers, models, tools, knowledge, channels, and runtime options |
+| Settings | Configure providers, models, tools, channels, and runtime options |
 | Gateway & Runtime | View local runtime readiness, endpoint status, and compatibility-worker state |
-| Tools / Skills / Knowledge | Inspect tools, manage skills, and operate the local knowledge base |
+| Tools / Skills | Inspect tools and manage skills |
 
 ## Skills System
 

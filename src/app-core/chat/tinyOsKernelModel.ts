@@ -940,7 +940,7 @@ function recordValue(value: unknown): Record<string, unknown> {
 }
 
 const TERMINAL_TOOL_RE = /(?:^|[._-])(shell|terminal|command|exec|process|powershell|bash)(?:$|[._-])/i;
-const MEMORY_TOOL_RE = /(?:^|[._-])(memory|knowledge|recall)(?:$|[._-])/i;
+const MEMORY_TOOL_RE = /(?:^|[._-])(memory|recall)(?:$|[._-])/i;
 const BROWSER_TOOL_RE = /(?:^|[._-])(browser|web|navigate|screenshot|page)(?:$|[._-])/i;
 const PLAN_TOOL_RE = /(?:^|[._-])(plan|update_plan|task_progress)(?:$|[._-])/i;
 const FILE_TOOL_RE = /(?:^|[._-])(file|workspace|path|directory|search|grep|glob|read|write|patch)(?:$|[._-])/i;

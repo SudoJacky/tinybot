@@ -1296,7 +1296,6 @@ mod tests {
                 "expert-config",
             ]
         );
-        assert!(!group_ids.contains(&"knowledge"));
         assert!(!group_ids.contains(&"memory-experience"));
         assert!(!group_ids.contains(&"cowork-tasks"));
         assert!(!group_ids.contains(&"channels"));
@@ -1552,9 +1551,6 @@ mod tests {
             "gateway": {
                 "host": "0.0.0.0",
                 "port": 18791
-            },
-            "knowledge": {
-                "enabled": true
             },
             "memory": {
                 "enabled": true

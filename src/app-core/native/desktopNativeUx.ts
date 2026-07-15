@@ -1,5 +1,3 @@
-type Tone = "ready" | "warn" | "error" | "muted";
-
 interface RouteIntent {
   href?: string;
   sessionId?: string;
@@ -72,7 +70,7 @@ export function buildDesktopWorkbenchShellUx(input: {
 
 export function buildDesktopChatSessionUx(input: {
   sessions?: Array<{ key: string; title: string; pinned?: boolean; status?: string }>;
-  attachments?: Array<{ id: string; source: "session" | "knowledge" | "workspace"; title: string }>;
+  attachments?: Array<{ id: string; source: "session" | "workspace"; title: string }>;
   responding?: boolean;
   scroll?: { distanceFromBottom: number; viewportHeight: number };
   activities?: Array<{ id: string; kind: "tool" | "reference"; label: string }>;
@@ -86,7 +84,6 @@ export function buildDesktopChatSessionUx(input: {
     starters: [
       { id: "ask", label: "Ask a question", href: "/chat/new" },
       { id: "analyze-file", label: "Analyze a file", href: "/files" },
-      { id: "use-knowledge", label: "Use knowledge base", href: "/knowledge" },
       { id: "plan-cowork", label: "Plan multi-step work", href: "/cowork" },
       { id: "edit-workspace-file", label: "Edit workspace file", href: "/workspace" },
     ],
@@ -168,7 +165,6 @@ export function buildDesktopSettingsProviderSetupUx(input: {
     intentGroups: [
       ["ai-provider-model", "AI provider and model"],
       ["workspace-files", "Workspace and files"],
-      ["knowledge", "Knowledge"],
       ["tools-skills", "Tools and skills"],
       ["gateway-runtime", "Gateway/runtime"],
       ["diagnostics", "Diagnostics"],
@@ -190,33 +186,8 @@ export function buildDesktopSettingsProviderSetupUx(input: {
   };
 }
 
-export function buildDesktopKnowledgeTraceUx(input: {
-  readinessRows?: Array<{ id: string; tone: Tone }>;
-  documents?: Array<{ id: string; status?: string; phaseLabel?: string; updatedAt?: string }>;
-  selectedResult?: { id: string; docId?: string; entities?: string[]; relations?: string[] };
-}) {
-  const rows = input.readinessRows ?? [];
-  const partial = rows.some((row) => row.tone === "warn" || row.tone === "error" || row.tone === "muted");
-  return {
-    stages: ["import", "index", "ask", "trace", "use"].map((id) => ({ id, label: titleCase(id) })),
-    readinessMessage: partial ? "Knowledge is partially available." : "Knowledge is ready.",
-    documentBadges: (input.documents ?? []).map((document) => ({
-      id: document.id,
-      badges: documentBadges(document),
-    })),
-    queryActions: ["useInCurrentChat", "openEvidence", "inspectGraph", "rebuildSource"].map((id) => ({ id })),
-    graphFocus: {
-      rootId: input.selectedResult?.id ?? "",
-      docId: input.selectedResult?.docId ?? "",
-      entities: input.selectedResult?.entities ?? [],
-      relations: input.selectedResult?.relations ?? [],
-      expandable: true,
-    },
-  };
-}
-
 export function buildDesktopFileLifecycleUx(input: {
-  destination: "session" | "knowledge" | "workspace";
+  destination: "session" | "workspace";
   file?: { name: string; size: number; type?: string };
   workspaceState?: "saved" | "dirty" | "saving" | "conflict" | "failed";
   temporarySessionFile?: boolean;
@@ -278,19 +249,18 @@ export function buildDesktopCoworkCockpitUx(input: {
 
 export function buildDesktopLoadingPerformanceUx(input: {
   route?: string;
-  longListCounts?: { sessions?: number; knowledgeDocuments?: number; taskRows?: number; coworkTraces?: number };
+  longListCounts?: { sessions?: number; taskRows?: number; coworkTraces?: number };
 }) {
   const counts = input.longListCounts ?? {};
   return {
     immediate: ["startup-shell", "chat-shell", "composer", "session-list-metadata", "task-center-shell", "command-palette-shell"],
-    lazy: ["knowledge-graph", "cowork-cockpit", "provider-model-discovery", "tools-skills-editor", "docs-pages", "3d-graph-rendering"],
+    lazy: ["cowork-cockpit", "provider-model-discovery", "tools-skills-editor", "docs-pages"],
     routeHydration: {
       skeleton: `${titleCase(input.route ?? "route")} skeleton`,
       keepStaleData: true,
     },
     virtualization: {
       sessions: { enabled: (counts.sessions ?? 0) > 80 },
-      knowledgeDocuments: { enabled: (counts.knowledgeDocuments ?? 0) > 80 },
       taskRows: { enabled: (counts.taskRows ?? 0) > 60 },
       coworkTraces: { enabled: (counts.coworkTraces ?? 0) > 80 },
     },
@@ -371,7 +341,6 @@ function attentionBadges(attention: { taskUpdates?: number; references?: number;
 
 function helpHref(moduleId: string): string {
   const routes: Record<string, string> = {
-    knowledge: "/docs/knowledge",
     workspace: "/docs/webui",
     files: "/docs/webui",
     cowork: "/docs/tasks",
@@ -382,7 +351,6 @@ function helpHref(moduleId: string): string {
 
 function fileSourceLabel(source: string): string {
   if (source === "session") return "session file";
-  if (source === "knowledge") return "knowledge document";
   return "workspace file";
 }
 
@@ -403,9 +371,6 @@ function primaryTaskAction(state: string, actions: Array<{ id: string; label: st
 
 function paletteActions(groupId: string) {
   const base = [{ id: "open", label: "Open" }, { id: "focus", label: "Focus" }];
-  if (groupId === "knowledgeDocuments") {
-    return [...base, { id: "inspect", label: "Inspect" }, { id: "useInChat", label: "Use in chat" }];
-  }
   if (groupId === "workspaceFiles") {
     return [...base, { id: "reveal", label: "Reveal" }];
   }
@@ -428,23 +393,8 @@ function paletteScore(
   return score;
 }
 
-function documentBadges(document: { status?: string; phaseLabel?: string }) {
-  const status = (document.status ?? "").toLowerCase();
-  const badges: string[] = [];
-  if (document.phaseLabel) {
-    badges.push(document.phaseLabel);
-  } else if (status === "indexed") {
-    badges.push("Indexed");
-  }
-  if (["stale", "needs_rebuild", "failed"].includes(status)) {
-    badges.push(status === "failed" ? "Failed" : "Needs rebuild");
-  }
-  return badges;
-}
-
 function destinationCopy(destination: string): string {
   if (destination === "session") return "Attach to this conversation";
-  if (destination === "knowledge") return "Import and index for retrieval";
   return "Open or save as workspace file";
 }
 
@@ -481,7 +431,6 @@ function toolGroups(tools: Array<{ name: string; description?: string; riskHint?
     { id: "web", tools: [] as typeof tools },
     { id: "files", tools: [] as typeof tools },
     { id: "execution", tools: [] as typeof tools },
-    { id: "knowledge", tools: [] as typeof tools },
     { id: "workspace", tools: [] as typeof tools },
     { id: "requires-approval", tools: [] as typeof tools },
     { id: "other", tools: [] as typeof tools },
@@ -492,7 +441,6 @@ function toolGroups(tools: Array<{ name: string; description?: string; riskHint?
     if (text.includes("exec") || text.includes("command") || text.includes("shell")) groups.find((group) => group.id === "execution")?.tools.push(tool);
     else if (text.includes("web") || text.includes("browser")) groups.find((group) => group.id === "web")?.tools.push(tool);
     else if (text.includes("file")) groups.find((group) => group.id === "files")?.tools.push(tool);
-    else if (text.includes("knowledge")) groups.find((group) => group.id === "knowledge")?.tools.push(tool);
     else if (text.includes("workspace")) groups.find((group) => group.id === "workspace")?.tools.push(tool);
     else groups.find((group) => group.id === "other")?.tools.push(tool);
   }

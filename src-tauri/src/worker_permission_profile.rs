@@ -464,9 +464,6 @@ fn capability_scope(capability: &WorkerCapability) -> &'static str {
         }
         WorkerCapability::FormRequest => "agent-ui://current",
         WorkerCapability::MemoryRead | WorkerCapability::MemoryWrite => "memory://notes",
-        WorkerCapability::KnowledgeRead | WorkerCapability::KnowledgeWrite => {
-            "knowledge://workspace"
-        }
         WorkerCapability::TaskRead | WorkerCapability::TaskWrite => "task://plans",
         WorkerCapability::CronRead | WorkerCapability::CronWrite | WorkerCapability::CronRun => {
             "cron://jobs"

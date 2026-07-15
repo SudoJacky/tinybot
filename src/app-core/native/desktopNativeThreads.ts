@@ -41,6 +41,13 @@ export type NativeThreadTurnInput = {
     content: string;
     clientEventId: string;
     references?: unknown[];
+    attachments?: Array<{
+      type: "text";
+      name: string;
+      mimeType: string;
+      sizeBytes: number;
+      content: string;
+    }>;
   };
   spec: {
     runId: string;

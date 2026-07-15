@@ -321,7 +321,6 @@ fn registry_tool_mutates_session(context: &NativeAgentRunContext, name: &str) ->
 fn legacy_native_tool_alias_is_permitted(context: &NativeAgentRunContext, name: &str) -> bool {
     match name {
         "workspace.list_files" => registry_tool_available(context, "workspace.read_file"),
-        "knowledge.search" => registry_tool_available(context, "knowledge.query"),
         "spawn_agent" => registry_tool_available(context, "subagent.spawn"),
         "send_input" => registry_tool_available(context, "subagent.send_input"),
         "wait_agent" => registry_tool_available(context, "subagent.wait"),
@@ -338,7 +337,6 @@ fn legacy_native_tool_alias_is_permitted(context: &NativeAgentRunContext, name: 
 fn legacy_native_tool_alias_supports_parallel(context: &NativeAgentRunContext, name: &str) -> bool {
     match name {
         "workspace.list_files" => registry_tool_supports_parallel(context, "workspace.read_file"),
-        "knowledge.search" => registry_tool_supports_parallel(context, "knowledge.query"),
         _ => false,
     }
 }
@@ -381,7 +379,6 @@ fn legacy_native_tool_alias_mutates_session(context: &NativeAgentRunContext, nam
 fn legacy_native_tool_alias_policy_method(name: &str) -> Option<&'static str> {
     match name {
         "workspace.list_files" => Some("workspace.read_file"),
-        "knowledge.search" => Some("knowledge.query"),
         "spawn_agent" => Some("subagent.spawn"),
         "send_input" => Some("subagent.send_input"),
         "wait_agent" => Some("subagent.wait"),

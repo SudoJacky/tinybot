@@ -223,6 +223,14 @@ impl WorkerRpcRouter {
                         .unwrap_or_else(|| params.content.len() as u64),
                 )
             }
+            "session.temporary_file.list" => {
+                let params: SessionIdParams = parse_params(request)?;
+                self.session.list_temporary_files(&params.session_id)
+            }
+            "session.temporary_file.clear" => {
+                let params: SessionIdParams = parse_params(request)?;
+                self.session.clear_temporary_files(&params.session_id)
+            }
             "session.append_messages" => {
                 let params: SessionAppendMessagesParams = parse_params(request)?;
                 serde_json::to_value(

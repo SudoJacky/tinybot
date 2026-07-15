@@ -1,13 +1,6 @@
 use crate::config_application::{
     experimental_worker_config_snapshot, native_backend_workspace_root,
 };
-use crate::desktop_commands::knowledge::{
-    worker_knowledge_add_document_with_options, worker_knowledge_delete_document_with_options,
-    worker_knowledge_document_with_options, worker_knowledge_documents_with_options,
-    worker_knowledge_graph_with_options, worker_knowledge_job_with_options,
-    worker_knowledge_rebuild_index_with_options, worker_knowledge_stats_with_options,
-    WorkerKnowledgeDocumentsInput, WorkerKnowledgeGraphInput,
-};
 use crate::desktop_commands::session::{
     worker_session_branch_with_options, worker_session_clear_temporary_files_with_options,
     worker_session_clear_with_options, worker_session_delete_with_options,
@@ -441,71 +434,6 @@ async fn worker_webui_rust_route_with_options(
             config_snapshot.clone(),
             timeout,
         )),
-        ("GET", "/v1/knowledge/documents") => Some(worker_knowledge_documents_with_options(
-            shared,
-            WorkerKnowledgeDocumentsInput {
-                category: query.get("category").cloned(),
-                limit: query
-                    .get("limit")
-                    .and_then(|value| value.parse::<usize>().ok()),
-            },
-            workspace_root.clone(),
-            config_snapshot.clone(),
-            timeout,
-        )),
-        ("POST", "/v1/knowledge/documents") => Some(worker_knowledge_add_document_with_options(
-            shared,
-            body,
-            workspace_root.clone(),
-            config_snapshot.clone(),
-            timeout,
-        )),
-        ("POST", "/v1/knowledge/documents/upload") => {
-            Some(worker_knowledge_add_document_with_options(
-                shared,
-                body,
-                workspace_root.clone(),
-                config_snapshot.clone(),
-                timeout,
-            ))
-        }
-        ("GET", "/v1/knowledge/stats") => Some(worker_knowledge_stats_with_options(
-            shared,
-            workspace_root.clone(),
-            config_snapshot.clone(),
-            timeout,
-        )),
-        ("POST", "/v1/knowledge/rebuild-index") => {
-            Some(worker_knowledge_rebuild_index_with_options(
-                shared,
-                query.get("type").cloned(),
-                workspace_root.clone(),
-                config_snapshot.clone(),
-                timeout,
-            ))
-        }
-        ("GET", "/v1/knowledge/graph") => Some(worker_knowledge_graph_with_options(
-            shared,
-            WorkerKnowledgeGraphInput {
-                doc_id: query.get("doc_id").cloned(),
-                graph_type: query.get("graph_type").cloned(),
-                limit: query
-                    .get("limit")
-                    .and_then(|value| value.parse::<usize>().ok()),
-                edge_limit: query
-                    .get("edge_limit")
-                    .and_then(|value| value.parse::<usize>().ok()),
-                min_confidence: query
-                    .get("min_confidence")
-                    .and_then(|value| value.parse::<f64>().ok()),
-                include_orphans: query
-                    .get("include_orphans")
-                    .and_then(|value| value.parse::<bool>().ok()),
-            },
-            workspace_root.clone(),
-            config_snapshot.clone(),
-            timeout,
-        )),
         _ => {
             worker_webui_rust_dynamic_route(
                 shared,
@@ -737,36 +665,6 @@ async fn worker_webui_rust_dynamic_route(
                 )
                 .await,
             );
-        }
-    }
-    if let Some(doc_id) = webui_path_param(path, "/v1/knowledge/documents/") {
-        return match method {
-            "GET" => Some(worker_knowledge_document_with_options(
-                shared,
-                doc_id,
-                workspace_root,
-                config_snapshot,
-                timeout,
-            )),
-            "DELETE" => Some(worker_knowledge_delete_document_with_options(
-                shared,
-                doc_id,
-                workspace_root,
-                config_snapshot,
-                timeout,
-            )),
-            _ => None,
-        };
-    }
-    if let Some(job_id) = webui_path_param(path, "/v1/knowledge/jobs/") {
-        if method == "GET" {
-            return Some(worker_knowledge_job_with_options(
-                shared,
-                job_id,
-                workspace_root,
-                config_snapshot,
-                timeout,
-            ));
         }
     }
     None
@@ -1048,14 +946,6 @@ fn webui_agent_ui_form_route_id(path: &str, suffix: &str) -> Option<String> {
     Some(percent_decode(form_id))
 }
 
-fn webui_path_param(path: &str, prefix: &str) -> Option<String> {
-    let rest = path.strip_prefix(prefix)?;
-    if rest.is_empty() || rest.contains('/') {
-        return None;
-    }
-    Some(percent_decode(rest))
-}
-
 fn webui_route_group(path: &str) -> &'static str {
     if path == "/health" {
         "health"
@@ -1075,8 +965,6 @@ fn webui_route_group(path: &str) -> &'static str {
         "tools"
     } else if path == "/api/providers" || path == "/api/provider-models" {
         "providers"
-    } else if path.starts_with("/v1/knowledge") {
-        "knowledge"
     } else if path.starts_with("/api/cowork") {
         "cowork"
     } else if path.starts_with("/api/approvals") {

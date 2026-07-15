@@ -15,12 +15,12 @@ describe("desktop task notifications", () => {
     });
 
     await controller.update(buildDesktopTaskCenterItems({
-      knowledgeJobs: [
+      fileOperations: [
         {
-          id: "knowledge:index",
-          title: "Index Desktop Notes",
-          status: "indexing",
-          canonical: { module: "knowledge", href: "/knowledge" },
+          id: "file:process",
+          title: "Process Desktop Notes",
+          status: "saving",
+          canonical: { module: "files", href: "/files" },
         },
       ],
       gatewayOperations: [
@@ -34,13 +34,13 @@ describe("desktop task notifications", () => {
     }));
 
     await controller.update(buildDesktopTaskCenterItems({
-      knowledgeJobs: [
+      fileOperations: [
         {
-          id: "knowledge:index",
-          title: "Index Desktop Notes",
+          id: "file:process",
+          title: "Process Desktop Notes",
           status: "completed",
-          detail: "Document ready",
-          canonical: { module: "knowledge", href: "/knowledge" },
+          detail: "File ready",
+          canonical: { module: "files", href: "/files" },
         },
       ],
       gatewayOperations: [
@@ -89,18 +89,18 @@ describe("desktop task notifications", () => {
       },
       {
         title: "Tinybot task completed",
-        body: "Index Desktop Notes - Document ready",
+        body: "Process Desktop Notes - File ready",
       },
     ]);
 
     await controller.update(buildDesktopTaskCenterItems({
-      knowledgeJobs: [
+      fileOperations: [
         {
-          id: "knowledge:index",
-          title: "Index Desktop Notes",
+          id: "file:process",
+          title: "Process Desktop Notes",
           status: "completed",
-          detail: "Document ready",
-          canonical: { module: "knowledge", href: "/knowledge" },
+          detail: "File ready",
+          canonical: { module: "files", href: "/files" },
         },
       ],
     }));

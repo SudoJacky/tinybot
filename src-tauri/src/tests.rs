@@ -856,10 +856,6 @@ fn experimental_worker_config_snapshot_loads_real_tinybot_config() {
               "provider": "deepseek",
               "model": "deepseek-v4-flash"
             }
-          },
-          "knowledge": {
-            "semanticLlmTimeout": 30.0,
-            "semanticLlmMaxTokens": 1200
           }
         }"#,
     );
@@ -869,7 +865,6 @@ fn experimental_worker_config_snapshot_loads_real_tinybot_config() {
 
     assert_eq!(snapshot["agents"]["defaults"]["provider"], "deepseek");
     assert_eq!(snapshot["agents"]["defaults"]["model"], "deepseek-v4-flash");
-    assert_eq!(snapshot["knowledge"]["semanticLlmTimeout"], 30.0);
 }
 
 #[test]
@@ -5242,23 +5237,6 @@ fn worker_webui_route_serves_rust_owned_state_routes_on_rust_backend() {
         Duration::from_millis(10),
     )
     .expect("workspace route should be Rust-owned");
-    let knowledge = worker_webui_route_with_options(
-        &shared,
-        WorkerWebuiRouteInput {
-            method: "POST".to_string(),
-            path: "/v1/knowledge/documents".to_string(),
-            headers: None,
-            body: Some(serde_json::json!({
-                "name": "Route Knowledge.md",
-                "content": "# Route Knowledge\n\nRust owns route metadata.\n",
-                "file_type": "md"
-            })),
-        },
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("knowledge route should be Rust-owned");
     let approvals = worker_webui_route_with_options(
         &shared,
         WorkerWebuiRouteInput {
@@ -5370,7 +5348,6 @@ fn worker_webui_route_serves_rust_owned_state_routes_on_rust_backend() {
     assert_eq!(branch["headers"]["x-tinybot-route-owner"], "rust");
     assert_eq!(branch["body"]["title"], "Route session · 分叉");
     assert_eq!(workspace_file["body"]["content"], "hello route");
-    assert_eq!(knowledge["body"]["document"]["name"], "Route Knowledge.md");
     assert_eq!(approvals["headers"]["x-tinybot-route-owner"], "rust");
     assert_eq!(approvals["headers"]["x-tinybot-route-group"], "approvals");
     assert_eq!(approvals["body"]["session_key"], "websocket:chat-1");
@@ -5467,63 +5444,6 @@ fn worker_webui_route_classifies_rust_owned_chat_and_unsupported_routes_on_rust_
     assert!(current_status(&shared)
         .compatibility_fallback_diagnostics
         .is_empty());
-}
-
-#[test]
-fn worker_webui_route_returns_unsupported_for_unimplemented_inventory_route_on_rust_backend() {
-    let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
-
-    let response = worker_webui_route_with_options(
-        &shared,
-        WorkerWebuiRouteInput {
-            method: "POST".to_string(),
-            path: "/v1/knowledge/graph/extract".to_string(),
-            headers: None,
-            body: Some(serde_json::json!({ "text": "hello" })),
-        },
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(1),
-    )
-    .expect("unsupported route should return a structured response");
-
-    let status = current_status(&shared);
-    assert_eq!(response["status"], 501);
-    assert_eq!(response["headers"]["x-tinybot-route-owner"], "unsupported");
-    assert_eq!(response["headers"]["x-tinybot-route-group"], "knowledge");
-    assert_eq!(response["body"]["inventoryStatus"], "unsupported");
-    assert_eq!(response["body"]["routeGroup"], "knowledge");
-    assert!(response["body"]["reason"]
-        .as_str()
-        .is_some_and(|reason| reason.contains("not implemented")));
-    assert!(status.compatibility_fallback_diagnostics.is_empty());
-    assert_eq!(
-        lock_runtime(&shared).experimental_worker.status().state,
-        WorkerManagerState::Stopped
-    );
-}
-
-#[test]
-fn worker_webui_route_uses_default_timeout_for_graph_extraction_start() {
-    assert_eq!(
-        worker_webui_route_timeout(&WorkerWebuiRouteInput {
-            method: "POST".to_string(),
-            path: "/v1/knowledge/graph/extract".to_string(),
-            body: None,
-            headers: None,
-        }),
-        Duration::from_secs(10)
-    );
-    assert_eq!(
-        worker_webui_route_timeout(&WorkerWebuiRouteInput {
-            method: "GET".to_string(),
-            path: "/api/status".to_string(),
-            body: None,
-            headers: None,
-        }),
-        Duration::from_secs(10)
-    );
 }
 
 #[test]
@@ -6559,110 +6479,6 @@ fn worker_task_plan_commands_use_rust_store() {
 }
 
 #[test]
-fn worker_knowledge_state_commands_use_rust_store_on_rust_backend() {
-    let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
-
-    let added = worker_knowledge_add_document_with_options(
-        &shared,
-        serde_json::json!({
-            "name": "Native Knowledge.md",
-            "content": "# Native Knowledge\n\nRust state services own knowledge metadata.\n",
-            "category": "desktop",
-            "tags": ["native", "rust"],
-            "file_type": "md"
-        }),
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("knowledge add should use Rust store without starting TS worker");
-    let doc_id = added["document"]["id"]
-        .as_str()
-        .expect("added document should include an id")
-        .to_string();
-    let listed = worker_knowledge_documents_with_options(
-        &shared,
-        WorkerKnowledgeDocumentsInput {
-            category: Some("desktop".to_string()),
-            limit: Some(5),
-        },
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("knowledge list should use Rust store without starting TS worker");
-    let document = worker_knowledge_document_with_options(
-        &shared,
-        doc_id.clone(),
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("knowledge get should use Rust store without starting TS worker");
-    let stats = worker_knowledge_stats_with_options(
-        &shared,
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("knowledge stats should use Rust store without starting TS worker");
-    let graph = worker_knowledge_graph_with_options(
-        &shared,
-        WorkerKnowledgeGraphInput {
-            doc_id: Some(doc_id.clone()),
-            graph_type: Some("document".to_string()),
-            limit: Some(10),
-            edge_limit: Some(10),
-            min_confidence: None,
-            include_orphans: Some(true),
-        },
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("knowledge graph should use Rust store without starting TS worker");
-    let rebuild = worker_knowledge_rebuild_index_with_options(
-        &shared,
-        Some("tree".to_string()),
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("knowledge rebuild should use Rust store without starting TS worker");
-    let job = worker_knowledge_job_with_options(
-        &shared,
-        rebuild["id"]
-            .as_str()
-            .expect("rebuild job should include id")
-            .to_string(),
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("knowledge job should use Rust store without starting TS worker");
-    let deleted = worker_knowledge_delete_document_with_options(
-        &shared,
-        doc_id.clone(),
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("knowledge delete should use Rust store without starting TS worker");
-
-    assert_eq!(listed["documents"][0]["id"], doc_id);
-    assert_eq!(document["document"]["name"], "Native Knowledge.md");
-    assert_eq!(stats["document_count"], 1);
-    assert_eq!(graph["object"], "knowledge_graph");
-    assert_eq!(job["status"], "completed");
-    assert_eq!(deleted["deleted"], true);
-    assert_eq!(
-        lock_runtime(&shared).experimental_worker.status().state,
-        WorkerManagerState::Stopped
-    );
-}
-
-#[test]
 fn worker_background_trace_get_delegate_trace_request_wraps_filter_for_background_rpc() {
     let request = build_worker_background_trace_get_delegate_trace_request(
         test_request_correlation("42"),
@@ -6849,15 +6665,14 @@ fn worker_diagnostics_append_to_persistent_backend_log() {
         &shared,
         &WorkerManagerEvent::Diagnostics(crate::worker_protocol::WorkerDiagnosticLine::new(
             "stderr",
-            "[native-backend] worker.request.start route=POST /v1/knowledge/graph/extract",
+            "[native-backend] worker.request.start route=POST /api/cowork/sessions",
         )),
     );
 
     let contents =
         std::fs::read_to_string(log_path).expect("persistent backend log should be written");
-    assert!(contents.contains(
-        "stderr [native-backend] worker.request.start route=POST /v1/knowledge/graph/extract"
-    ));
+    assert!(contents
+        .contains("stderr [native-backend] worker.request.start route=POST /api/cowork/sessions"));
 }
 
 #[test]
@@ -6909,7 +6724,7 @@ fn gateway_status_exposes_recent_persistent_backend_log_tail() {
         .expect("log directory should create");
     std::fs::write(
             &log_path,
-            "older line\nworker.request.start route=POST /v1/knowledge/graph/extract\nknowledge.graph.extract.progress percent=60\n",
+            "older line\nworker.request.start route=POST /api/cowork/sessions\ncowork.session.progress percent=60\n",
         )
         .expect("persistent log should write");
     let shared = Arc::new(Mutex::new(GatewayRuntime {
@@ -6923,11 +6738,11 @@ fn gateway_status_exposes_recent_persistent_backend_log_tail() {
     assert!(status
         .log_tail
         .iter()
-        .any(|line| line.contains("POST /v1/knowledge/graph/extract")));
+        .any(|line| line.contains("POST /api/cowork/sessions")));
     assert!(status
         .log_tail
         .iter()
-        .any(|line| line.contains("knowledge.graph.extract.progress")));
+        .any(|line| line.contains("cowork.session.progress")));
 }
 
 #[test]
@@ -7200,7 +7015,6 @@ fn native_settings_snapshot_returns_registry_projection() {
     assert_eq!(group_ids[0], "general");
     assert!(group_ids.contains(&"provider-models"));
     assert!(group_ids.contains(&"expert-config"));
-    assert!(!group_ids.contains(&"knowledge"));
 
     let provider_group = snapshot
         .groups

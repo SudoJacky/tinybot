@@ -17,7 +17,7 @@ import { ConfigSettingsPage, type ConfigSettingsGroupId } from "../settings/Conf
 import { ProviderModelsSettingsPage } from "../settings/ProviderModelsSettingsPage";
 import type { AppServices, ToolCatalogSummary, WorkspaceFileSummary } from "../services";
 
-type AppRoute = "chat" | "files" | "knowledge" | "cowork" | "github" | "docs" | "tools" | "settings";
+type AppRoute = "chat" | "files" | "cowork" | "github" | "docs" | "tools" | "settings";
 
 export type DesktopShellProps = {
   services: AppServices;
@@ -28,7 +28,6 @@ export type DesktopShellProps = {
 const routeItems: Array<{ id: AppRoute; label: string; icon: typeof MessageSquare }> = [
   { id: "chat", label: "Chat", icon: MessageSquare },
   { id: "files", label: "Files", icon: Folder },
-  { id: "knowledge", label: "Knowledge", icon: BookOpen },
   { id: "cowork", label: "Cowork", icon: Bot },
   { id: "github", label: "GitHub", icon: Code2 },
   { id: "docs", label: "Docs", icon: FileText },
@@ -504,8 +503,6 @@ function RouteSurface({
       );
     case "files":
       return <FilesPage services={services} />;
-    case "knowledge":
-      return <KnowledgePage services={services} />;
     case "tools":
       return <ToolsPage services={services} />;
     case "settings":
@@ -528,33 +525,6 @@ function FilesPage({ services }: { services: AppServices }) {
           <div className="react-data-row" key={file.path}>
             <strong>{file.path}</strong>
             <small>{formatFileSize(file.size)}</small>
-          </div>
-        )}
-      />
-    </WorkbenchPage>
-  );
-}
-
-function KnowledgePage({ services }: { services: AppServices }) {
-  const documents = useAsyncList(() => services.knowledgeStore.listDocuments(), [services]);
-  const stats = useAsyncList(() => services.knowledgeStore.stats(), [services]);
-  return (
-    <WorkbenchPage title="Knowledge">
-      <div className="react-stat-strip">
-        {stats.length ? stats.map((stat) => (
-          <div className="react-stat" key={stat.label}>
-            <strong>{stat.value}</strong>
-            <span>{stat.label}</span>
-          </div>
-        )) : <p className="react-empty-state">No knowledge stats available.</p>}
-      </div>
-      <DataList
-        empty="No knowledge documents indexed."
-        items={documents}
-        renderItem={(document) => (
-          <div className="react-data-row" key={document.id}>
-            <strong>{document.title}</strong>
-            <small>{document.source || document.id}</small>
           </div>
         )}
       />
@@ -707,7 +677,6 @@ type SettingsModuleId = "provider-models" | "agent-defaults" | ConfigSettingsGro
 const settingsModules: Array<{ id: SettingsModuleId; label: string; description: string; groupId?: ConfigSettingsGroupId }> = [
   { id: "provider-models", label: "Provider & Models", description: "Providers, API keys, and model defaults" },
   { id: "agent-defaults", label: "Agent Defaults", description: "Runtime behavior for new agent runs" },
-  { id: "knowledge", label: "Knowledge", description: "Retrieval, reranking, and graph extraction", groupId: "knowledge" },
   { id: "tools-approvals", label: "Tools & MCP", description: "Tool access and MCP server configuration", groupId: "tools-approvals" },
   { id: "channels", label: "Channels", description: "Progress signals and delivery retries", groupId: "channels" },
   { id: "gateway-runtime", label: "Gateway & Runtime", description: "Local port and heartbeat behavior", groupId: "gateway-runtime" },

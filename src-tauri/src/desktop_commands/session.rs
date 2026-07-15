@@ -701,7 +701,7 @@ pub(crate) fn worker_session_temporary_files_with_options(
         WorkerRequest::new(
             request_id.id("session-temporary-files"),
             request_id.trace_id("session-temporary-files"),
-            "knowledge.session_list",
+            "session.temporary_file.list",
             serde_json::json!({ "session_id": key }),
         ),
         "worker session temporary files",
@@ -758,7 +758,7 @@ pub(crate) fn worker_session_clear_temporary_files_with_options(
         WorkerRequest::new(
             request_id.id("session-clear-temporary-files"),
             request_id.trace_id("session-clear-temporary-files"),
-            "knowledge.session_clear",
+            "session.temporary_file.clear",
             serde_json::json!({ "session_id": key }),
         ),
         "worker session temporary files clear",

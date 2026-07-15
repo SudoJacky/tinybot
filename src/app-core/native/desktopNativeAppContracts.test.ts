@@ -14,7 +14,6 @@ describe("native app cross-surface contracts", () => {
 
     expect(contract.categories.map((category) => category.id)).toEqual([
       "provider-models",
-      "knowledge",
       "tools-approvals",
       "files-workspace",
       "memory-experience",
@@ -29,7 +28,6 @@ describe("native app cross-surface contracts", () => {
       actions: ["discover", "test-connection", "validate", "save"],
       states: ["dirty", "validating", "invalid", "saved", "health-check"],
     });
-    expect(contract.knowledge.dangerConfirmations).toEqual(["rebuild-index", "clear-graph", "delete-document"]);
     expect(contract.toolsApprovals.policyDefaults).toEqual(["ask-before-shell", "deny-browser-by-default", "require-mcp-allowlist"]);
     expect(contract.verification).toEqual(["unsaved-changes", "validation-failures", "danger-confirmations", "runtime-modes", "channel-controls"]);
   });
@@ -54,13 +52,12 @@ describe("native app cross-surface contracts", () => {
     });
   });
 
-  test("covers page modernization preservation for Chat, Files, Knowledge, and Settings", () => {
+  test("covers page modernization preservation for Chat, Files, and Settings", () => {
     const contract = buildNativeAppPageModernizationContract();
 
     expect(contract.pages.map((page) => [page.id, page.preserved, page.added])).toEqual([
       ["chat", ["new-chat", "send", "attach", "stop"], ["structured-messages", "activity-inspector"]],
       ["files", ["upload", "workspace-save", "reveal"], ["scopes", "detail-pane", "editor", "index-status"]],
-      ["knowledge", ["upload", "query", "rebuild"], ["graph-primary", "query-drawer", "detail-drawer"]],
       ["settings", ["provider-save", "model-select"], ["detail-layout", "expanded-sections"]],
     ]);
     expect(contract.verifyAfterEachSlice).toBe(true);
@@ -72,8 +69,6 @@ describe("native app cross-surface contracts", () => {
     expect(contract.flows.map((flow) => flow.id)).toEqual([
       "first-start-provider-setup",
       "upload-scope-selection",
-      "promote-to-knowledge",
-      "knowledge-result-to-chat",
       "provider-model-toolbar-update",
       "approval-continuation",
     ]);
@@ -81,13 +76,13 @@ describe("native app cross-surface contracts", () => {
     expect(contract.endToEndVerification).toEqual(["route-transition", "event-update", "state-continuity"]);
   });
 
-  test("covers technical editor/preview, Tauri capability, graph lazy-load, opener, and dialog integration", () => {
+  test("covers technical editor/preview, Tauri capability, opener, and dialog integration", () => {
     const contract = buildNativeAppTechnicalIntegrationContract();
 
-    expect(contract.editorPreview).toEqual(["workspace-editor", "diff-preview", "knowledge-source-preview"]);
+    expect(contract.editorPreview).toEqual(["workspace-editor", "diff-preview"]);
     expect(contract.tauriCapabilities).toEqual(["opener", "notification", "file-dialog"]);
-    expect(contract.deepLinks).toEqual(["/chat/:chatId", "/knowledge", "/files", "/settings/:section"]);
-    expect(contract.nativeBehaviors).toEqual(["graph-lazy-3d-load", "native-opener", "native-dialog"]);
+    expect(contract.deepLinks).toEqual(["/chat/:chatId", "/files", "/settings/:section"]);
+    expect(contract.nativeBehaviors).toEqual(["native-opener", "native-dialog"]);
   });
 
   test("summarizes final local verification coverage across remaining specs", () => {
@@ -99,14 +94,12 @@ describe("native app cross-surface contracts", () => {
       coveredSpecs: [
         "native-app-chat-workbench",
         "native-app-files-workbench",
-        "native-app-knowledge-workbench",
         "native-app-shell-inspector",
         "native-app-settings-center",
         "native-app-visual-system",
         "native-app-page-modernization",
         "native-app-user-flows",
         "native-app-technical-stack",
-        "native-app-graph-technology",
         "native-app-product-architecture",
       ],
     });

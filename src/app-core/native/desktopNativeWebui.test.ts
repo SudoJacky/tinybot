@@ -122,12 +122,12 @@ describe("desktop native WebUI API", () => {
   test("surfaces native WebUI error body messages", async () => {
     const invoke = vi.fn(async (_command: string, _args?: unknown) => ({
       status: 500,
-      body: { error: { message: "Error extracting knowledge graph: unsupported relation predicate" } },
+      body: { error: { message: "Cowork session could not be created" } },
     }));
     const api = createDesktopNativeWebuiApi({ invoke });
 
-    await expect(api.route({ method: "POST", path: "/v1/knowledge/graph/extract" }))
+    await expect(api.route({ method: "POST", path: "/api/cowork/sessions" }))
       .rejects
-      .toThrow("Error extracting knowledge graph: unsupported relation predicate");
+      .toThrow("Cowork session could not be created");
   });
 });

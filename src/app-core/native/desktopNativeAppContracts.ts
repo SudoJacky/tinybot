@@ -2,7 +2,6 @@ export function buildNativeAppSettingsCenterContract() {
   return {
     categories: [
       category("provider-models", "Provider & Models"),
-      category("knowledge", "Knowledge"),
       category("tools-approvals", "Tools & Approvals"),
       category("files-workspace", "Files & Workspace"),
       category("memory-experience", "Memory & Experience"),
@@ -16,10 +15,6 @@ export function buildNativeAppSettingsCenterContract() {
       cards: ["current-provider", "available-models", "health"],
       actions: ["discover", "test-connection", "validate", "save"],
       states: ["dirty", "validating", "invalid", "saved", "health-check"],
-    },
-    knowledge: {
-      settings: ["retrieval-mode", "top-k", "rerank", "graphrag", "indexing"],
-      dangerConfirmations: ["rebuild-index", "clear-graph", "delete-document"],
     },
     toolsApprovals: {
       policyDefaults: ["ask-before-shell", "deny-browser-by-default", "require-mcp-allowlist"],
@@ -53,7 +48,6 @@ export function buildNativeAppPageModernizationContract() {
     pages: [
       page("chat", ["new-chat", "send", "attach", "stop"], ["structured-messages", "activity-inspector"]),
       page("files", ["upload", "workspace-save", "reveal"], ["scopes", "detail-pane", "editor", "index-status"]),
-      page("knowledge", ["upload", "query", "rebuild"], ["graph-primary", "query-drawer", "detail-drawer"]),
       page("settings", ["provider-save", "model-select"], ["detail-layout", "expanded-sections"]),
     ],
     verifyAfterEachSlice: true,
@@ -65,8 +59,6 @@ export function buildNativeAppUserFlowContract() {
     flows: [
       flow("first-start-provider-setup", ["/settings/provider-models", "/chat"], ["provider.validated", "toolbar.model.updated"]),
       flow("upload-scope-selection", ["/chat/:chatId", "/files"], ["upload.started", "upload.completed"]),
-      flow("promote-to-knowledge", ["/files", "/knowledge"], ["promotion.started", "index-job.updated"]),
-      flow("knowledge-result-to-chat", ["/knowledge", "/chat/:chatId"], ["query.result.selected", "chat.context.added"]),
       flow("provider-model-toolbar-update", ["/settings/provider-models", "/chat"], ["settings.saved", "toolbar.model.updated"]),
       flow("approval-continuation", ["/chat/:chatId", "/approvals"], ["approval.pending", "approval.resolved"]),
     ],
@@ -76,10 +68,10 @@ export function buildNativeAppUserFlowContract() {
 
 export function buildNativeAppTechnicalIntegrationContract() {
   return {
-    editorPreview: ["workspace-editor", "diff-preview", "knowledge-source-preview"],
+    editorPreview: ["workspace-editor", "diff-preview"],
     tauriCapabilities: ["opener", "notification", "file-dialog"],
-    deepLinks: ["/chat/:chatId", "/knowledge", "/files", "/settings/:section"],
-    nativeBehaviors: ["graph-lazy-3d-load", "native-opener", "native-dialog"],
+    deepLinks: ["/chat/:chatId", "/files", "/settings/:section"],
+    nativeBehaviors: ["native-opener", "native-dialog"],
   };
 }
 
@@ -90,14 +82,12 @@ export function buildNativeAppVerificationMatrix() {
     coveredSpecs: [
       "native-app-chat-workbench",
       "native-app-files-workbench",
-      "native-app-knowledge-workbench",
       "native-app-shell-inspector",
       "native-app-settings-center",
       "native-app-visual-system",
       "native-app-page-modernization",
       "native-app-user-flows",
       "native-app-technical-stack",
-      "native-app-graph-technology",
       "native-app-product-architecture",
     ],
   };

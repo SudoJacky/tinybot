@@ -2,7 +2,6 @@ import { buildDesktopTaskCenterAttentionUx } from "../native/desktopNativeUx";
 
 export type DesktopTaskSource =
   | "chat"
-  | "knowledge"
   | "cowork"
   | "provider"
   | "file"
@@ -15,7 +14,6 @@ export type DesktopTaskTone = "normal" | "attention" | "danger" | "complete" | "
 export type DesktopTaskActionId = "retry" | "cancel" | "open" | "inspect" | "dismiss" | "copyDiagnostics" | "approveOnce" | "approveSession" | "deny";
 export type DesktopTaskDestinationModule =
   | "chat"
-  | "knowledge"
   | "cowork"
   | "settings"
   | "files"
@@ -76,7 +74,6 @@ export interface DesktopTaskApprovalAction {
 
 export interface DesktopTaskProjectionInput {
   chatStreams?: DesktopTaskSourceOperation[];
-  knowledgeJobs?: DesktopTaskSourceOperation[];
   coworkRuns?: DesktopTaskSourceOperation[];
   providerRefreshes?: DesktopTaskSourceOperation[];
   fileOperations?: DesktopTaskSourceOperation[];
@@ -127,13 +124,12 @@ const ACTION_LABELS: Record<DesktopTaskActionId, string> = {
   approveSession: "Allow session",
   deny: "Deny",
 };
-const SOURCE_ORDER: DesktopTaskSource[] = ["approval", "cowork", "file", "chat", "gateway", "knowledge", "provider", "failure"];
+const SOURCE_ORDER: DesktopTaskSource[] = ["approval", "cowork", "file", "chat", "gateway", "provider", "failure"];
 const STATE_ORDER: DesktopTaskState[] = ["blocked", "failed", "active", "canceled", "completed"];
 
 export function buildDesktopTaskCenterItems(input: DesktopTaskProjectionInput): DesktopTaskCenterItem[] {
   return [
     ...projectOperations("chat", input.chatStreams),
-    ...projectOperations("knowledge", input.knowledgeJobs),
     ...projectOperations("cowork", input.coworkRuns),
     ...projectOperations("provider", input.providerRefreshes),
     ...projectOperations("file", input.fileOperations),

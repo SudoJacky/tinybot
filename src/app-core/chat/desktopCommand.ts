@@ -5,7 +5,15 @@ export type DesktopChatInput = {
   text: string;
   model?: string;
   references?: NativeChatReference[];
-  usePersistentRag?: boolean;
+  attachments?: DesktopChatAttachment[];
+};
+
+export type DesktopChatAttachment = {
+  type: "text";
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+  content: string;
 };
 
 export type DesktopTurnSubmitCommand = {

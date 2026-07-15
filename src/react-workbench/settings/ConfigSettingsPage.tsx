@@ -6,7 +6,6 @@ import {
   createDesktopSettingsPatch,
   type DesktopSettingsFormState,
   type DesktopSettingsPaneField,
-  type DesktopSettingsPaneGroup,
 } from "../../app-core/settings/desktopSettingsProviders";
 import type {
   DesktopConfigSettingsData,
@@ -14,7 +13,7 @@ import type {
   SettingsStore,
 } from "../services";
 
-export type ConfigSettingsGroupId = "knowledge" | "tools-approvals" | "channels" | "gateway-runtime";
+export type ConfigSettingsGroupId = "tools-approvals" | "channels" | "gateway-runtime";
 
 type ConfigSettingsPageProps = {
   groupId: ConfigSettingsGroupId;
@@ -22,10 +21,6 @@ type ConfigSettingsPageProps = {
 };
 
 const GROUP_COPY: Record<ConfigSettingsGroupId, { title: string; description: string }> = {
-  knowledge: {
-    title: "Knowledge",
-    description: "Control retrieval quality, document chunking, reranking, and graph extraction.",
-  },
   "tools-approvals": {
     title: "Tools & MCP",
     description: "Configure built-in tools, workspace boundaries, and raw MCP server definitions.",
@@ -41,22 +36,6 @@ const GROUP_COPY: Record<ConfigSettingsGroupId, { title: string; description: st
 };
 
 const FIELD_COPY: Record<string, string> = {
-  enabled: "Make knowledge retrieval available to new runs.",
-  autoRetrieve: "Automatically retrieve relevant knowledge before a response.",
-  retrievalMode: "Hybrid combines semantic and keyword retrieval.",
-  maxChunks: "Maximum number of retrieved chunks added to a run.",
-  chunkSize: "Target size of each indexed document chunk, in tokens.",
-  chunkOverlap: "Token overlap between adjacent chunks; must be smaller than chunk size.",
-  rerankEnabled: "Reorder retrieved chunks with a reranking model.",
-  rerankModel: "Model identifier used for reranking.",
-  rerankApiBase: "OpenAI-compatible endpoint used by the reranker.",
-  rerankTopN: "Number of top candidates retained after reranking; 0 keeps the backend default.",
-  graphExtractionEnabled: "Extract entities and relationships for graph-assisted retrieval.",
-  graphAutoExtract: "Run graph extraction automatically when knowledge changes.",
-  graphExtractionModel: "Optional model override for graph extraction.",
-  graphExtractionMaxTokens: "Maximum output tokens for one graph extraction request.",
-  graphExtractionMaxJobTokens: "Maximum token budget for a complete extraction job; 0 is unlimited.",
-  graphExtractionConcurrency: "Maximum number of graph extraction requests in flight.",
   webEnable: "Allow agents to use configured web tools.",
   execEnable: "Allow agents to execute local commands. Enable only for trusted workspaces.",
   webProxy: "Optional HTTP proxy for web requests.",
@@ -73,24 +52,6 @@ const FIELD_COPY: Record<string, string> = {
 };
 
 const EXPOSED_FIELDS: Record<ConfigSettingsGroupId, readonly string[]> = {
-  knowledge: [
-    "enabled",
-    "autoRetrieve",
-    "retrievalMode",
-    "maxChunks",
-    "chunkSize",
-    "chunkOverlap",
-    "rerankEnabled",
-    "rerankModel",
-    "rerankApiBase",
-    "rerankTopN",
-    "graphExtractionEnabled",
-    "graphAutoExtract",
-    "graphExtractionModel",
-    "graphExtractionMaxTokens",
-    "graphExtractionMaxJobTokens",
-    "graphExtractionConcurrency",
-  ],
   "tools-approvals": [
     "webEnable",
     "execEnable",
@@ -180,7 +141,7 @@ export function ConfigSettingsPage({ groupId, settingsStore }: ConfigSettingsPag
     if (!data || !draft || !settingsStore.saveDesktopConfigSettings || !group) {
       return;
     }
-    const nextErrors = validateGroup(group, fields, draft);
+    const nextErrors = validateGroup(fields);
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) {
       if (fields.some((field) => field.advanced && nextErrors[field.id])) {
@@ -354,11 +315,7 @@ function ConfigField({
   );
 }
 
-function validateGroup(
-  group: DesktopSettingsPaneGroup,
-  fields: DesktopSettingsPaneField[],
-  draft: DesktopSettingsFormState,
-): Record<string, string> {
+function validateGroup(fields: DesktopSettingsPaneField[]): Record<string, string> {
   const errors: Record<string, string> = {};
   for (const field of fields) {
     if (field.disabled || field.control === "readonly") {
@@ -382,12 +339,6 @@ function validateGroup(
         errors[field.id] = `${field.label} must be at most ${field.max}.`;
       }
     }
-  }
-  if (group.id === "knowledge"
-    && draft.knowledge.chunkSize !== null
-    && draft.knowledge.chunkOverlap !== null
-    && draft.knowledge.chunkOverlap >= draft.knowledge.chunkSize) {
-    errors.chunkOverlap = "Chunk overlap must be smaller than chunk size.";
   }
   return errors;
 }

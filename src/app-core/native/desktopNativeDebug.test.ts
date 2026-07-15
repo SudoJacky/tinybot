@@ -121,7 +121,7 @@ describe("desktop native debug logger", () => {
       fetchFn,
     });
 
-    await client.knowledge.query({ query: "sensitive long query", top_k: 5 });
+    await client.openAi.chatCompletions({ messages: [{ role: "user", content: "sensitive long query" }] });
 
     const entries = window.__tinybotNativeDebug ?? [];
     expect(entries.map((entry) => entry.stage)).toEqual(expect.arrayContaining([
@@ -132,7 +132,7 @@ describe("desktop native debug logger", () => {
     ]));
     expect(entries.find((entry) => entry.stage === "gateway.http.request")?.details).toMatchObject({
       method: "POST",
-      path: "/v1/knowledge/query",
+      path: "/v1/chat/completions",
     });
     expect(JSON.stringify(entries)).not.toContain("sensitive long query");
   });

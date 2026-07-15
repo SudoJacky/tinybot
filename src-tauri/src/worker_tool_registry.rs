@@ -461,27 +461,6 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             }),
         ),
         tool(
-            "knowledge.query",
-            "knowledge",
-            "Query knowledge",
-            "Search the local knowledge index.",
-            ToolExposure::Model,
-            false,
-            runtime_policy(true, ToolCancellationMode::Cooperative, false, false),
-            vec![WorkerCapability::KnowledgeRead],
-            approval(false, None, None),
-            json!({
-                "type": "object",
-                "required": ["query"],
-                "properties": {
-                    "query": { "type": "string" },
-                    "category": { "type": "string" },
-                    "tags": { "type": "array", "items": { "type": "string" } },
-                    "limit": { "type": "integer" }
-                }
-            }),
-        ),
-        tool(
             "memory.search",
             "memory",
             "Search memory",

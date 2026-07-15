@@ -15,16 +15,6 @@ describe("desktop task center projection", () => {
           cancelable: true,
         },
       ],
-      knowledgeJobs: [
-        {
-          id: "knowledge:doc-1:index",
-          title: "Index Desktop UX Notes",
-          status: "indexing",
-          detail: "Embedding chunks",
-          progress: { completed: 7, total: 12 },
-          canonical: { module: "knowledge", entityId: "doc-1", href: "/knowledge" },
-        },
-      ],
       coworkRuns: [
         {
           id: "cowork:session-1",
@@ -81,13 +71,8 @@ describe("desktop task center projection", () => {
       "file:failed:Save AGENTS.md",
       "chat:active:Streaming response",
       "gateway:active:Start Tinybot gateway",
-      "knowledge:active:Index Desktop UX Notes",
       "provider:completed:Refresh OpenAI models",
     ]);
-    expect(items.find((item) => item.id === "knowledge:doc-1:index")).toMatchObject({
-      progressLabel: "7/12",
-      destination: { module: "knowledge", entityId: "doc-1", href: "/knowledge" },
-    });
     expect(items.find((item) => item.id === "file:workspace:AGENTS.md:save")?.actions.map((action) => action.id)).toEqual([
       "retry",
       "open",

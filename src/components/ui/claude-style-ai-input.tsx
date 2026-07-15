@@ -56,7 +56,6 @@ export interface ComposerToolOption {
 
 export interface ComposerSendOptions {
   model?: string;
-  usePersistentRag?: boolean;
 }
 
 export interface ComposerContextReference {
@@ -199,17 +198,15 @@ export function ClaudeStyleAiInput({
     setSending(true);
     setError("");
     try {
-      const usesKnowledgeRag = tools.some((tool) => tool.id === "knowledge-rag");
       await onSendMessage?.(currentMessage.trim(), files, pastedContent, {
         ...(selectedModel?.id ? { model: selectedModel.id } : {}),
-        ...(usesKnowledgeRag ? { usePersistentRag: enabledToolIdSet.has("knowledge-rag") } : {}),
       });
       updateMessage("");
       setFiles([]);
       setPastedContent([]);
       onClearContextReferences?.();
-    } catch {
-      setError("Message could not be sent.");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Message could not be sent.");
     } finally {
       setSending(false);
     }
