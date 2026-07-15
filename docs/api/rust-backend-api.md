@@ -1255,9 +1255,11 @@ Thread continuation helper commands:
 | `worker_resolve_thread_approval` | `{ input: { threadId, approvalId, approved, scope?, guidance? } }` |
 | `worker_submit_thread_form` | `{ input: { threadId, formId, values?, action? } }` |
 
-`worker_submit_thread_turn` accepts text attachments on the current user input. Attachments are
-passed directly to the provider context for that turn; they are not indexed or added to a retrieval
-store. The supported shape is:
+`worker_submit_thread_turn` accepts text attachments on the current user input. The runtime writes
+each attachment to a per-run file under `.tinybot/attachments`, removes the inline content before
+persistence, and gives only the current turn a workspace-relative path manifest. The agent reads
+the file on demand with `workspace.read_file`; attachments are not indexed or added to a retrieval
+store. The supported input shape is:
 
 ```json
 {
@@ -1276,7 +1278,9 @@ store. The supported shape is:
 ```
 
 The runtime accepts at most 10 text attachments, at most 256 KiB per attachment, and at most 1 MiB
-across a turn. Binary files and PDF extraction are not supported by this path.
+across a turn. Files remain available while a run is waiting for approval or form input and are
+removed when the run becomes terminal. Binary files and PDF extraction are not supported by this
+path.
 
 `ThreadRecord`:
 
