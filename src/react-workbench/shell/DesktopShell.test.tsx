@@ -7,10 +7,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { DesktopShell } from "./DesktopShell";
 import { buildAgentDefaultsSettings } from "../../app-core/settings/agentDefaultsSettings";
 import { buildProviderModelsSettings } from "../../app-core/settings/providerModelsSettings";
-import {
-  buildDesktopSettingsFormState,
-  buildDesktopSettingsPaneModel,
-} from "../../app-core/settings/desktopSettingsProviders";
 import type { AppServices, SessionSummary } from "../services";
 import type { ReactChatMessage } from "../chat/messageActions";
 import { timelineFromReactMessages } from "../chat/testTimelineFixtures";
@@ -24,7 +20,6 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
     listDirectory: ReturnType<typeof vi.fn>;
     readFile: ReturnType<typeof vi.fn>;
   };
-  knowledgeStore: { listDocuments: ReturnType<typeof vi.fn>; stats: ReturnType<typeof vi.fn> };
   toolsStore: { loadCatalog: ReturnType<typeof vi.fn>; listSkills: ReturnType<typeof vi.fn> };
   settingsStore: {
     load: ReturnType<typeof vi.fn>;
@@ -76,12 +71,6 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
         revision: "test",
         sizeBytes: 0,
       })),
-    },
-    knowledgeStore: {
-      listDocuments: vi.fn(async () => [
-        { id: "doc-1", title: "Project Plan", source: "docs/plan.md" },
-      ]),
-      stats: vi.fn(async () => [{ label: "Documents", value: "1" }]),
     },
     toolsStore: {
       loadCatalog: vi.fn(async () => ({
@@ -258,11 +247,6 @@ describe("DesktopShell", () => {
     expect(await screen.findByRole("heading", { name: "Workspace Files" })).toBeTruthy();
     expect(screen.getByText("src/main.ts")).toBeTruthy();
     expect(services.workspaceStore.listFiles).toHaveBeenCalled();
-
-    await user.click(screen.getByRole("button", { name: "Knowledge" }));
-    expect(await screen.findByRole("heading", { name: "Knowledge" })).toBeTruthy();
-    expect(screen.getByText("Project Plan")).toBeTruthy();
-    expect(screen.getByText("Documents")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Tools" }));
     expect(await screen.findByRole("heading", { name: "Tools & Skills" })).toBeTruthy();
@@ -539,70 +523,6 @@ describe("DesktopShell", () => {
         },
       },
     });
-  });
-
-  it("edits and persists backend-backed knowledge settings", async () => {
-    const user = userEvent.setup();
-    const initialConfig = {
-      revision: "hash:1",
-      agents: { defaults: { model: "deepseek-v4-pro", timezone: "UTC" } },
-      knowledge: {
-        enabled: true,
-        auto_retrieve: false,
-        retrieval_mode: "hybrid",
-        max_chunks: 5,
-        chunk_size: 500,
-        chunk_overlap: 100,
-      },
-    };
-    const savedConfig = {
-      ...initialConfig,
-      revision: "hash:2",
-      knowledge: { ...initialConfig.knowledge, auto_retrieve: true, max_chunks: 8 },
-    };
-    const desktopConfigData = (config: unknown) => {
-      const formState = buildDesktopSettingsFormState(config);
-      return {
-        currentConfig: config,
-        formState,
-        pane: buildDesktopSettingsPaneModel(formState),
-      };
-    };
-    const saveDesktopConfigSettings = vi.fn(async (_currentConfig: unknown, _patch: unknown) => ({
-      ...desktopConfigData(savedConfig),
-      saveDetails: {
-        transport: "native" as const,
-        persistedRevision: "hash:2",
-        updatedFields: ["knowledge.auto_retrieve", "knowledge.max_chunks"],
-        applied: ["knowledgeConfigChanged"],
-        restartRequired: [],
-        reloadRequired: [],
-        warnings: [],
-      },
-    }));
-    const services = createServices();
-    services.settingsStore.loadProviderSettings = vi.fn(async () => buildProviderModelsSettings(initialConfig));
-    services.settingsStore.saveProviderSettings = vi.fn(async () => buildProviderModelsSettings(initialConfig));
-    services.settingsStore.loadDesktopConfigSettings = vi.fn(async () => desktopConfigData(initialConfig));
-    services.settingsStore.saveDesktopConfigSettings = saveDesktopConfigSettings;
-    render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={services} />);
-
-    await user.click(screen.getByRole("button", { name: "Settings" }));
-    const settingsNavigation = await screen.findByRole("navigation", { name: "Settings categories" });
-    await user.click(within(settingsNavigation).getByRole("button", { name: "Knowledge" }));
-
-    expect(await screen.findByRole("heading", { name: "Knowledge" })).toBeTruthy();
-    await user.click(screen.getByRole("checkbox", { name: "Auto retrieve" }));
-    await user.clear(screen.getByLabelText("Max chunks"));
-    await user.type(screen.getByLabelText("Max chunks"), "8");
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
-
-    await waitFor(() => expect(saveDesktopConfigSettings).toHaveBeenCalledTimes(1));
-    expect(saveDesktopConfigSettings.mock.calls[0][1]).toEqual({
-      knowledge: { auto_retrieve: true, max_chunks: 8 },
-    });
-    expect(screen.getByRole("status").textContent).toContain("Saved to Tinybot config");
-    expect(screen.getByText("Config revision hash:2")).toBeTruthy();
   });
 
   it("does not reserve Ctrl+K for a command palette", async () => {

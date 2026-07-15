@@ -50,35 +50,6 @@ export interface DesktopSettingsFormState {
     apiKey: string;
     apiBase: string | null;
   };
-  knowledge: {
-    enabled: boolean;
-    autoRetrieve: boolean;
-    maxChunks: number | null;
-    chunkSize: number | null;
-    chunkOverlap: number | null;
-    retrievalMode: string | null;
-    rerankEnabled: boolean;
-    rerankModel: string | null;
-    rerankApiKey: string | null;
-    rerankApiKeyEnvVar: string | null;
-    rerankApiBase: string | null;
-    rerankTopN: number | null;
-    generateSummary: boolean;
-    semanticExtractionMode: string | null;
-    semanticLlmMaxTokens: number | null;
-    semanticLlmTimeout: number | null;
-    graphExtractionEnabled: boolean;
-    graphAutoExtract: boolean;
-    graphExtractionModel: string | null;
-    graphExtractionMaxTokens: number | null;
-    graphExtractionMaxJobTokens: number | null;
-    graphExtractionConcurrency: number | null;
-    graphRagCommunityAlgorithm: string | null;
-    graphRagCommunityLevel: number | null;
-    graphRagReportLlmEnabled: boolean;
-    graphRagReportMaxTokens: number | null;
-    graphRagEntitySummaryEnabled: boolean;
-  };
   tools: {
     webEnable: boolean;
     webProxy: string | null;
@@ -112,8 +83,7 @@ export type DesktopSettingsValidationField =
   | "gatewayPort"
   | "mcpServers"
   | "providerApiBase"
-  | "embeddingApiBase"
-  | "rerankApiBase";
+  | "embeddingApiBase";
 
 export interface DesktopSettingsValidationError {
   field: DesktopSettingsValidationField;
@@ -151,11 +121,10 @@ export interface DesktopSecretField {
   empty: boolean;
 }
 
-type DesktopWorkbenchFileScopeId = "session" | "knowledge" | "workspace";
+type DesktopWorkbenchFileScopeId = "session" | "workspace";
 
 const WORKBENCH_FILE_SCOPE_LABELS: Record<DesktopWorkbenchFileScopeId, string> = {
   session: "Session file",
-  knowledge: "Knowledge document",
   workspace: "Workspace file",
 };
 
@@ -264,7 +233,6 @@ export interface DesktopSettingsPaneGroup {
   id:
     | "general"
     | "provider-models"
-    | "knowledge"
     | "tools-approvals"
     | "files-workspace"
     | "memory-experience"
@@ -301,14 +269,6 @@ const DESKTOP_SETTINGS_GROUP_METADATA: Record<DesktopSettingsPaneGroupId, Deskto
     navigationArea: "core",
     navigationMode: "section",
   },
-  knowledge: {
-    label: "Knowledge",
-    description: "Retrieval, indexing, reranking, and graph extraction behavior.",
-    aliases: ["rag", "retrieval", "embeddings", "graph"],
-    i18nKey: "settings.groups.knowledge",
-    navigationArea: "core",
-    navigationMode: "section",
-  },
   "tools-approvals": {
     label: "Tools & MCP",
     description: "Tool toggles and MCP server access. Approval controls are not exposed here yet.",
@@ -319,7 +279,7 @@ const DESKTOP_SETTINGS_GROUP_METADATA: Record<DesktopSettingsPaneGroupId, Deskto
   },
   "files-workspace": {
     label: "Files & Workspace",
-    description: "Session files, knowledge documents, and editable workspace file boundaries.",
+    description: "Session attachments and editable workspace file boundaries.",
     aliases: ["files", "storage", "workspace"],
     i18nKey: "settings.groups.files-workspace",
     navigationArea: "application",
@@ -464,11 +424,6 @@ const DESKTOP_SETTINGS_FIELD_METADATA: Record<string, DesktopSettingsPaneFieldMe
 };
 
 const DESKTOP_SETTINGS_AUTO_COMMIT_FIELDS = new Set([
-  "knowledge.enabled",
-  "knowledge.autoRetrieve",
-  "knowledge.rerankEnabled",
-  "knowledge.graphExtractionEnabled",
-  "knowledge.graphAutoExtract",
   "tools-approvals.webEnable",
   "tools-approvals.execEnable",
   "tools-approvals.restrictToWorkspace",
@@ -486,16 +441,9 @@ const DESKTOP_SETTINGS_FIELD_CONFIRMATIONS: Record<string, DesktopSettingsPaneFi
     when: "disable",
     message: "Allow execution outside the workspace boundary? This broadens local file access for command workflows.",
   },
-  "knowledge.graphAutoExtract": {
-    when: "enable",
-    message: "Enable automatic graph extraction? This can start background extraction work and may increase token usage.",
-  },
 };
 
-const DESKTOP_SETTINGS_FIELD_NOTICES: Record<string, string> = {
-  "knowledge.rerankEnabled": "Reranking can improve retrieval quality, but may add latency and requires the rerank settings to be valid.",
-  "knowledge.graphExtractionEnabled": "Graph extraction makes graph features available. Automatic background extraction is controlled separately.",
-};
+const DESKTOP_SETTINGS_FIELD_NOTICES: Record<string, string> = {};
 
 export function getDesktopSettingsGroupMetadata(
   groupId: DesktopSettingsPaneGroupId,
@@ -581,7 +529,6 @@ export function buildDesktopSettingsFormState(
 ): DesktopSettingsFormState {
   const root = asRecord(config);
   const defaults = asRecord(asRecord(root.agents).defaults);
-  const knowledge = asRecord(root.knowledge);
   const embedding = asRecord(defaults.embedding);
   const tools = asRecord(root.tools);
   const web = asRecord(tools.web);
@@ -622,41 +569,6 @@ export function buildDesktopSettingsFormState(
       modelName: stringOrDefault(pick(embedding, "modelName", "model_name"), "text-embedding-3-small"),
       apiKey: stringValue(pick(embedding, "apiKey", "api_key")),
       apiBase: stringOrNull(pick(embedding, "apiBase", "api_base")),
-    },
-    knowledge: {
-      enabled: knowledge.enabled === true,
-      autoRetrieve: boolValue(pick(knowledge, "autoRetrieve", "auto_retrieve")),
-      maxChunks: numberOrDefault(pick(knowledge, "maxChunks", "max_chunks"), 5),
-      chunkSize: numberOrDefault(pick(knowledge, "chunkSize", "chunk_size"), 500),
-      chunkOverlap: numberOrDefault(pick(knowledge, "chunkOverlap", "chunk_overlap"), 100),
-      retrievalMode: stringOrDefault(pick(knowledge, "retrievalMode", "retrieval_mode"), "hybrid"),
-      rerankEnabled: boolValue(pick(knowledge, "rerankEnabled", "rerank_enabled")),
-      rerankModel: stringOrDefault(pick(knowledge, "rerankModel", "rerank_model"), "qwen3-rerank"),
-      rerankApiKey: stringOrNull(pick(knowledge, "rerankApiKey", "rerank_api_key")),
-      rerankApiKeyEnvVar: stringOrDefault(pick(knowledge, "rerankApiKeyEnvVar", "rerank_api_key_env_var"), "DASHSCOPE_API_KEY"),
-      rerankApiBase: stringOrDefault(
-        pick(knowledge, "rerankApiBase", "rerank_api_base"),
-        "https://dashscope.aliyuncs.com/compatible-api/v1",
-      ),
-      rerankTopN: numberOrDefault(pick(knowledge, "rerankTopN", "rerank_top_n"), 0),
-      generateSummary: boolValue(pick(knowledge, "generateSummary", "generate_summary")),
-      semanticExtractionMode: stringOrDefault(pick(knowledge, "semanticExtractionMode", "semantic_extraction_mode"), "rule"),
-      semanticLlmMaxTokens: numberOrDefault(pick(knowledge, "semanticLlmMaxTokens", "semantic_llm_max_tokens"), 1200),
-      semanticLlmTimeout: numberOrDefault(pick(knowledge, "semanticLlmTimeout", "semantic_llm_timeout"), 30),
-      graphExtractionEnabled: pick(knowledge, "graphExtractionEnabled", "graph_extraction_enabled") !== false,
-      graphAutoExtract: boolValue(pick(knowledge, "graphAutoExtract", "graph_auto_extract")),
-      graphExtractionModel: stringOrNull(pick(knowledge, "graphExtractionModel", "graph_extraction_model")),
-      graphExtractionMaxTokens: numberOrDefault(pick(knowledge, "graphExtractionMaxTokens", "graph_extraction_max_tokens"), 1200),
-      graphExtractionMaxJobTokens: numberOrDefault(pick(knowledge, "graphExtractionMaxJobTokens", "graph_extraction_max_job_tokens"), 0),
-      graphExtractionConcurrency: numberOrDefault(pick(knowledge, "graphExtractionConcurrency", "graph_extraction_concurrency"), 1),
-      graphRagCommunityAlgorithm: stringOrDefault(
-        pick(knowledge, "graphragCommunityAlgorithm", "graphrag_community_algorithm"),
-        "greedy",
-      ),
-      graphRagCommunityLevel: numberOrDefault(pick(knowledge, "graphragCommunityLevel", "graphrag_community_level"), 0),
-      graphRagReportLlmEnabled: boolValue(pick(knowledge, "graphragReportLlmEnabled", "graphrag_report_llm_enabled")),
-      graphRagReportMaxTokens: numberOrDefault(pick(knowledge, "graphragReportMaxTokens", "graphrag_report_max_tokens"), 1200),
-      graphRagEntitySummaryEnabled: pick(knowledge, "graphragEntitySummaryEnabled", "graphrag_entity_summary_enabled") !== false,
     },
     tools: {
       webEnable: web.enable === true,
@@ -920,35 +832,6 @@ function createDesktopSettingsFullPatch(
         },
       },
     },
-    knowledge: {
-      enabled: state.knowledge.enabled,
-      auto_retrieve: state.knowledge.autoRetrieve,
-      max_chunks: state.knowledge.maxChunks,
-      chunk_size: state.knowledge.chunkSize,
-      chunk_overlap: state.knowledge.chunkOverlap,
-      retrieval_mode: state.knowledge.retrievalMode,
-      rerank_enabled: state.knowledge.rerankEnabled,
-      rerank_model: state.knowledge.rerankModel,
-      rerank_api_key: state.knowledge.rerankApiKey,
-      rerank_api_key_env_var: state.knowledge.rerankApiKeyEnvVar,
-      rerank_api_base: state.knowledge.rerankApiBase,
-      rerank_top_n: state.knowledge.rerankTopN,
-      generate_summary: state.knowledge.generateSummary,
-      semantic_extraction_mode: state.knowledge.semanticExtractionMode,
-      semantic_llm_max_tokens: state.knowledge.semanticLlmMaxTokens,
-      semantic_llm_timeout: state.knowledge.semanticLlmTimeout,
-      graph_extraction_enabled: state.knowledge.graphExtractionEnabled,
-      graph_auto_extract: state.knowledge.graphAutoExtract,
-      graph_extraction_model: state.knowledge.graphExtractionModel,
-      graph_extraction_max_tokens: state.knowledge.graphExtractionMaxTokens,
-      graph_extraction_max_job_tokens: state.knowledge.graphExtractionMaxJobTokens,
-      graph_extraction_concurrency: state.knowledge.graphExtractionConcurrency,
-      graphrag_community_algorithm: state.knowledge.graphRagCommunityAlgorithm,
-      graphrag_community_level: state.knowledge.graphRagCommunityLevel,
-      graphrag_report_llm_enabled: state.knowledge.graphRagReportLlmEnabled,
-      graphrag_report_max_tokens: state.knowledge.graphRagReportMaxTokens,
-      graphrag_entity_summary_enabled: state.knowledge.graphRagEntitySummaryEnabled,
-    },
     tools: {
       web: {
         enable: state.tools.webEnable,
@@ -1025,60 +908,6 @@ function getDesktopSettingsPatchPathValue(state: DesktopSettingsFormState, path:
       return state.embedding.apiKey || "";
     case "agents.defaults.embedding.api_base":
       return state.embedding.apiBase;
-    case "knowledge.enabled":
-      return state.knowledge.enabled;
-    case "knowledge.auto_retrieve":
-      return state.knowledge.autoRetrieve;
-    case "knowledge.max_chunks":
-      return state.knowledge.maxChunks;
-    case "knowledge.chunk_size":
-      return state.knowledge.chunkSize;
-    case "knowledge.chunk_overlap":
-      return state.knowledge.chunkOverlap;
-    case "knowledge.retrieval_mode":
-      return state.knowledge.retrievalMode;
-    case "knowledge.rerank_enabled":
-      return state.knowledge.rerankEnabled;
-    case "knowledge.rerank_model":
-      return state.knowledge.rerankModel;
-    case "knowledge.rerank_api_key":
-      return state.knowledge.rerankApiKey;
-    case "knowledge.rerank_api_key_env_var":
-      return state.knowledge.rerankApiKeyEnvVar;
-    case "knowledge.rerank_api_base":
-      return state.knowledge.rerankApiBase;
-    case "knowledge.rerank_top_n":
-      return state.knowledge.rerankTopN;
-    case "knowledge.generate_summary":
-      return state.knowledge.generateSummary;
-    case "knowledge.semantic_extraction_mode":
-      return state.knowledge.semanticExtractionMode;
-    case "knowledge.semantic_llm_max_tokens":
-      return state.knowledge.semanticLlmMaxTokens;
-    case "knowledge.semantic_llm_timeout":
-      return state.knowledge.semanticLlmTimeout;
-    case "knowledge.graph_extraction_enabled":
-      return state.knowledge.graphExtractionEnabled;
-    case "knowledge.graph_auto_extract":
-      return state.knowledge.graphAutoExtract;
-    case "knowledge.graph_extraction_model":
-      return state.knowledge.graphExtractionModel;
-    case "knowledge.graph_extraction_max_tokens":
-      return state.knowledge.graphExtractionMaxTokens;
-    case "knowledge.graph_extraction_max_job_tokens":
-      return state.knowledge.graphExtractionMaxJobTokens;
-    case "knowledge.graph_extraction_concurrency":
-      return state.knowledge.graphExtractionConcurrency;
-    case "knowledge.graphrag_community_algorithm":
-      return state.knowledge.graphRagCommunityAlgorithm;
-    case "knowledge.graphrag_community_level":
-      return state.knowledge.graphRagCommunityLevel;
-    case "knowledge.graphrag_report_llm_enabled":
-      return state.knowledge.graphRagReportLlmEnabled;
-    case "knowledge.graphrag_report_max_tokens":
-      return state.knowledge.graphRagReportMaxTokens;
-    case "knowledge.graphrag_entity_summary_enabled":
-      return state.knowledge.graphRagEntitySummaryEnabled;
     case "tools.web.enable":
       return state.tools.webEnable;
     case "tools.web.proxy":
@@ -1187,9 +1016,6 @@ export function validateDesktopSettingsForm(state: DesktopSettingsFormState): De
   }
   if (state.embedding.apiBase && !validateDesktopUrl(state.embedding.apiBase)) {
     errors.push({ field: "embeddingApiBase", errorKey: "urlError" });
-  }
-  if (state.knowledge.rerankApiBase && !validateDesktopUrl(state.knowledge.rerankApiBase)) {
-    errors.push({ field: "rerankApiBase", errorKey: "urlError" });
   }
   return errors;
 }
@@ -1477,70 +1303,6 @@ export function applyDesktopSettingsFieldEdit(
       syncDesktopProviderSummaryFromEditor(nextState);
       markDesktopProviderEditorTouched(nextState, "models");
       break;
-    case "enabled":
-      nextState.knowledge.enabled = Boolean(value);
-      markDesktopSettingsTouched(nextState, "knowledge.enabled");
-      break;
-    case "autoRetrieve":
-      nextState.knowledge.autoRetrieve = Boolean(value);
-      markDesktopSettingsTouched(nextState, "knowledge.auto_retrieve");
-      break;
-    case "retrievalMode":
-      nextState.knowledge.retrievalMode = stringOrNullInput(text);
-      markDesktopSettingsTouched(nextState, "knowledge.retrieval_mode");
-      break;
-    case "maxChunks":
-      nextState.knowledge.maxChunks = numberOrNullInput(text);
-      markDesktopSettingsTouched(nextState, "knowledge.max_chunks");
-      break;
-    case "chunkSize":
-      nextState.knowledge.chunkSize = numberOrNullInput(text);
-      markDesktopSettingsTouched(nextState, "knowledge.chunk_size");
-      break;
-    case "chunkOverlap":
-      nextState.knowledge.chunkOverlap = numberOrNullInput(text);
-      markDesktopSettingsTouched(nextState, "knowledge.chunk_overlap");
-      break;
-    case "rerankEnabled":
-      nextState.knowledge.rerankEnabled = Boolean(value);
-      markDesktopSettingsTouched(nextState, "knowledge.rerank_enabled");
-      break;
-    case "rerankModel":
-      nextState.knowledge.rerankModel = stringOrNullInput(text);
-      markDesktopSettingsTouched(nextState, "knowledge.rerank_model");
-      break;
-    case "rerankApiBase":
-      nextState.knowledge.rerankApiBase = stringOrNullInput(text);
-      markDesktopSettingsTouched(nextState, "knowledge.rerank_api_base");
-      break;
-    case "rerankTopN":
-      nextState.knowledge.rerankTopN = numberOrNullInput(text);
-      markDesktopSettingsTouched(nextState, "knowledge.rerank_top_n");
-      break;
-    case "graphExtractionEnabled":
-      nextState.knowledge.graphExtractionEnabled = Boolean(value);
-      markDesktopSettingsTouched(nextState, "knowledge.graph_extraction_enabled");
-      break;
-    case "graphAutoExtract":
-      nextState.knowledge.graphAutoExtract = Boolean(value);
-      markDesktopSettingsTouched(nextState, "knowledge.graph_auto_extract");
-      break;
-    case "graphExtractionModel":
-      nextState.knowledge.graphExtractionModel = stringOrNullInput(text);
-      markDesktopSettingsTouched(nextState, "knowledge.graph_extraction_model");
-      break;
-    case "graphExtractionMaxTokens":
-      nextState.knowledge.graphExtractionMaxTokens = numberOrNullInput(text);
-      markDesktopSettingsTouched(nextState, "knowledge.graph_extraction_max_tokens");
-      break;
-    case "graphExtractionMaxJobTokens":
-      nextState.knowledge.graphExtractionMaxJobTokens = numberOrNullInput(text);
-      markDesktopSettingsTouched(nextState, "knowledge.graph_extraction_max_job_tokens");
-      break;
-    case "graphExtractionConcurrency":
-      nextState.knowledge.graphExtractionConcurrency = numberOrNullInput(text);
-      markDesktopSettingsTouched(nextState, "knowledge.graph_extraction_concurrency");
-      break;
     case "webEnable":
       nextState.tools.webEnable = Boolean(value);
       markDesktopSettingsTouched(nextState, "tools.web.enable");
@@ -1746,7 +1508,6 @@ function cloneSettingsState(state: DesktopSettingsFormState): DesktopSettingsFor
   return {
     agent: { ...state.agent },
     embedding: { ...state.embedding },
-    knowledge: { ...state.knowledge },
     tools: { ...state.tools },
     gateway: { ...state.gateway },
     channels: { ...state.channels },
@@ -2091,9 +1852,6 @@ function buildDesktopSettingsPaneGroups(
   const secretField = buildDesktopSecretField(state.providerEditor.apiKey);
   const providerEditorProviderId = state.providerEditor.selectedProvider || "deepseek";
   const providerEditorProfileId = state.providerEditor.profileId || providerEditorProviderId;
-  const knowledgeDisabled = !state.knowledge.enabled;
-  const rerankDisabled = knowledgeDisabled || !state.knowledge.rerankEnabled;
-  const graphExtractionDisabled = knowledgeDisabled || !state.knowledge.graphExtractionEnabled;
   return enrichDesktopSettingsPaneGroups([
     {
       id: "general",
@@ -2213,90 +1971,6 @@ function buildDesktopSettingsPaneGroups(
       ],
     },
     {
-      id: "knowledge",
-      label: "Knowledge",
-      fields: [
-        field("enabled", "Enabled", state.knowledge.enabled, { control: "checkbox", disabled: false }),
-        field("autoRetrieve", "Auto retrieve", state.knowledge.autoRetrieve, { control: "checkbox", disabled: knowledgeDisabled }),
-        field("retrievalMode", "Retrieval mode", state.knowledge.retrievalMode, {
-          control: "select",
-          options: fixedOptions(["dense", "sparse", "hybrid"]),
-          disabled: knowledgeDisabled,
-        }),
-        field("maxChunks", "Max chunks", state.knowledge.maxChunks, {
-          control: "number",
-          configurationMode: "numeric",
-          disabled: knowledgeDisabled,
-          min: 1,
-          step: 1,
-        }),
-        field("chunkSize", "Chunk size", state.knowledge.chunkSize, {
-          control: "number",
-          configurationMode: "numeric",
-          disabled: knowledgeDisabled,
-          advanced: true,
-          min: 1,
-          step: 1,
-        }),
-        field("chunkOverlap", "Chunk overlap", state.knowledge.chunkOverlap, {
-          control: "number",
-          configurationMode: "numeric",
-          disabled: knowledgeDisabled,
-          advanced: true,
-          min: 0,
-          step: 1,
-        }),
-        field("rerankEnabled", "Rerank", state.knowledge.rerankEnabled, { control: "checkbox", disabled: knowledgeDisabled, advanced: true }),
-        field("rerankModel", "Rerank model", state.knowledge.rerankModel, { disabled: rerankDisabled, advanced: true }),
-        field("rerankApiBase", "Rerank API base", state.knowledge.rerankApiBase, {
-          validationField: "rerankApiBase",
-          requirement: "optional",
-          configurationMode: "url",
-          disabled: rerankDisabled,
-          advanced: true,
-        }),
-        field("rerankTopN", "Rerank top N", state.knowledge.rerankTopN, {
-          control: "number",
-          configurationMode: "numeric",
-          disabled: rerankDisabled,
-          advanced: true,
-          min: 0,
-          step: 1,
-        }),
-        field("graphExtractionEnabled", "Graph extraction", state.knowledge.graphExtractionEnabled, { control: "checkbox", disabled: knowledgeDisabled }),
-        field("graphAutoExtract", "Auto extract graph", state.knowledge.graphAutoExtract, { control: "checkbox", disabled: graphExtractionDisabled, advanced: true }),
-        field("graphExtractionModel", "Graph extraction model", state.knowledge.graphExtractionModel, {
-          disabled: graphExtractionDisabled,
-          advanced: true,
-          placeholder: "defaults to semantic/chat model",
-        }),
-        field("graphExtractionMaxTokens", "Graph extraction max tokens", state.knowledge.graphExtractionMaxTokens, {
-          control: "number",
-          configurationMode: "numeric",
-          disabled: graphExtractionDisabled,
-          advanced: true,
-          min: 1,
-          step: 1,
-        }),
-        field("graphExtractionMaxJobTokens", "Graph extraction max job tokens", state.knowledge.graphExtractionMaxJobTokens, {
-          control: "number",
-          configurationMode: "numeric",
-          disabled: graphExtractionDisabled,
-          advanced: true,
-          min: 0,
-          step: 1,
-        }),
-        field("graphExtractionConcurrency", "Graph extraction concurrency", state.knowledge.graphExtractionConcurrency, {
-          control: "number",
-          configurationMode: "numeric",
-          disabled: graphExtractionDisabled,
-          advanced: true,
-          min: 1,
-          step: 1,
-        }),
-      ],
-    },
-    {
       id: "tools-approvals",
       label: "Tools & Approvals",
       fields: [
@@ -2343,7 +2017,6 @@ function buildDesktopSettingsPaneGroups(
           placeholder: "~/.tinybot/workspace",
         }),
         field("sessionFiles", "Session files", workbenchFileScopeLabel("session"), { control: "readonly" }),
-        field("knowledgeDocuments", "Knowledge documents", workbenchFileScopeLabel("knowledge"), { control: "readonly" }),
         field("workspaceFiles", "Workspace files", workbenchFileScopeLabel("workspace"), { control: "readonly" }),
       ],
     },
@@ -2570,22 +2243,6 @@ function getDesktopSettingsPaneFieldPersistentPath(
     "general.reasoningEffort": "agents.defaults.reasoningEffort",
     "provider-models.selectedProvider": "desktop.ui.settings.providerEditor.selectedProvider",
     "provider-models.profileId": "agents.defaults.activeProfile",
-    "knowledge.enabled": "knowledge.enabled",
-    "knowledge.autoRetrieve": "knowledge.auto_retrieve",
-    "knowledge.retrievalMode": "knowledge.retrievalMode",
-    "knowledge.maxChunks": "knowledge.max_chunks",
-    "knowledge.chunkSize": "knowledge.chunkSize",
-    "knowledge.chunkOverlap": "knowledge.chunkOverlap",
-    "knowledge.rerankEnabled": "knowledge.rerank_enabled",
-    "knowledge.rerankModel": "knowledge.rerank_model",
-    "knowledge.rerankApiBase": "knowledge.rerank_api_base",
-    "knowledge.rerankTopN": "knowledge.rerank_top_n",
-    "knowledge.graphExtractionEnabled": "knowledge.semanticExtractionEnabled",
-    "knowledge.graphAutoExtract": "knowledge.graph_auto_extract",
-    "knowledge.graphExtractionModel": "knowledge.semanticExtractionModel",
-    "knowledge.graphExtractionMaxTokens": "knowledge.semanticExtractionMaxTokens",
-    "knowledge.graphExtractionMaxJobTokens": "knowledge.semanticExtractionMaxJobTokens",
-    "knowledge.graphExtractionConcurrency": "knowledge.semanticExtractionConcurrency",
     "tools-approvals.webEnable": "tools.web.enable",
     "tools-approvals.execEnable": "tools.exec.enable",
     "tools-approvals.webProxy": "tools.web.proxy",

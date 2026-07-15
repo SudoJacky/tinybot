@@ -2108,7 +2108,7 @@ fn render_memory_recall_context(notes: &[Value], max_chars: usize) -> String {
         "---".to_string(),
         "[MEMORY RECALL]".to_string(),
         String::new(),
-        "Active Memory Notes selected for this request. Keep this separate from Experience and Knowledge Base context.".to_string(),
+        "Active Memory Notes selected for this request. Keep this separate from Experience and other persistent context.".to_string(),
         String::new(),
     ];
     for note in notes {

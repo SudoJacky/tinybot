@@ -1,8 +1,9 @@
 use crate::agent_loop_runtime_protocol::AgentTraceContext;
 use crate::call_rust_state_service;
 use crate::native_agent_bridge::{
-    native_agent_assistant_messages, native_agent_current_user_message, native_agent_model,
-    native_agent_provider, native_agent_run_id, native_agent_string_field, native_agent_usage,
+    cleanup_turn_attachments, materialize_turn_attachments, native_agent_assistant_messages,
+    native_agent_current_user_message, native_agent_model, native_agent_provider,
+    native_agent_run_id, native_agent_string_field, native_agent_usage,
 };
 use crate::worker_agent_runtime::{
     agent_trace_context_from_value, ensure_agent_trace_context, AgentHookInvocation,
@@ -114,9 +115,14 @@ pub(crate) async fn submit_thread_turn_with_services(
     if !spec_object.contains_key("messages") {
         spec_object.insert(
             "messages".to_string(),
-            normalize_thread_turn_messages(input.input),
+            normalize_thread_turn_messages(input.input)?,
         );
     }
+    validate_turn_messages(
+        spec_object
+            .get("messages")
+            .ok_or_else(|| "thread turn spec must include messages".to_string())?,
+    )?;
     let metadata = spec_object
         .entry("metadata".to_string())
         .or_insert_with(|| serde_json::json!({}));
@@ -163,14 +169,19 @@ pub(crate) async fn submit_thread_turn_with_services(
         }));
     }
 
-    start_native_agent_thread_turn(
+    materialize_turn_attachments(&mut spec, &workspace_root)?;
+
+    if let Err(error) = start_native_agent_thread_turn(
         &thread_id,
         &run_id,
         &spec,
         &trace_context,
         workspace_root.clone(),
         config_snapshot.clone(),
-    )?;
+    ) {
+        cleanup_turn_attachments(&spec, &workspace_root);
+        return Err(error);
+    }
     let mut agent_result = run_agent_with_services(
         base_services,
         spec,
@@ -488,22 +499,29 @@ fn thread_working_directory(thread: &serde_json::Value) -> Option<String> {
         .or_else(|| native_agent_string_field(thread, "cwd"))
 }
 
-fn normalize_thread_turn_messages(input: serde_json::Value) -> serde_json::Value {
+const MAX_TURN_ATTACHMENTS: usize = 10;
+const MAX_TURN_ATTACHMENT_BYTES: u64 = 256 * 1024;
+const MAX_TURN_ATTACHMENTS_BYTES: u64 = 1024 * 1024;
+
+fn normalize_thread_turn_messages(input: serde_json::Value) -> Result<serde_json::Value, String> {
     if input
         .as_array()
         .is_some_and(|messages| !messages.is_empty())
     {
-        return input;
+        validate_turn_messages(&input)?;
+        return Ok(input);
     }
     if input
         .get("messages")
         .and_then(serde_json::Value::as_array)
         .is_some_and(|messages| !messages.is_empty())
     {
-        return input
+        let messages = input
             .get("messages")
             .cloned()
             .unwrap_or_else(|| serde_json::json!([]));
+        validate_turn_messages(&messages)?;
+        return Ok(messages);
     }
     let content = input
         .get("content")
@@ -517,7 +535,132 @@ fn normalize_thread_turn_messages(input: serde_json::Value) -> serde_json::Value
                 input.to_string()
             }
         });
-    serde_json::json!([{ "role": "user", "content": content }])
+    let mut message = if input.is_object() {
+        input
+    } else {
+        serde_json::json!({})
+    };
+    let object = message
+        .as_object_mut()
+        .ok_or_else(|| "thread turn input must be a JSON object or string".to_string())?;
+    object.insert(
+        "role".to_string(),
+        serde_json::Value::String("user".to_string()),
+    );
+    object.insert("content".to_string(), serde_json::Value::String(content));
+    object.remove("text");
+    let messages = serde_json::json!([message]);
+    validate_turn_messages(&messages)?;
+    Ok(messages)
+}
+
+fn validate_turn_messages(messages: &serde_json::Value) -> Result<(), String> {
+    let Some(messages) = messages.as_array() else {
+        return Err("thread turn messages must be a JSON array".to_string());
+    };
+    let mut total_bytes = 0_u64;
+    for message in messages {
+        let Some(attachments) = message.get("attachments") else {
+            continue;
+        };
+        let attachments = attachments
+            .as_array()
+            .ok_or_else(|| "turn attachments must be a JSON array".to_string())?;
+        if attachments.len() > MAX_TURN_ATTACHMENTS {
+            return Err(format!(
+                "turn accepts at most {MAX_TURN_ATTACHMENTS} attachments"
+            ));
+        }
+        for (index, attachment) in attachments.iter().enumerate() {
+            if attachment.get("type").and_then(serde_json::Value::as_str) != Some("text") {
+                return Err(format!(
+                    "turn attachment at index {index} must have type text"
+                ));
+            }
+            let name = attachment
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .filter(|value| !value.trim().is_empty() && value.len() <= 255)
+                .ok_or_else(|| format!("turn attachment at index {index} has an invalid name"))?;
+            let content = attachment
+                .get("content")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| format!("turn attachment {name:?} must contain text content"))?;
+            let content_bytes = u64::try_from(content.len()).unwrap_or(u64::MAX);
+            let declared_bytes = attachment
+                .get("sizeBytes")
+                .and_then(serde_json::Value::as_u64)
+                .ok_or_else(|| format!("turn attachment {name:?} must include sizeBytes"))?;
+            if content_bytes > MAX_TURN_ATTACHMENT_BYTES
+                || declared_bytes > MAX_TURN_ATTACHMENT_BYTES
+            {
+                return Err(format!(
+                    "turn attachment {name:?} exceeds the {MAX_TURN_ATTACHMENT_BYTES} byte limit"
+                ));
+            }
+            total_bytes = total_bytes.saturating_add(content_bytes);
+        }
+    }
+    if total_bytes > MAX_TURN_ATTACHMENTS_BYTES {
+        return Err(format!(
+            "turn attachments exceed the {MAX_TURN_ATTACHMENTS_BYTES} byte total limit"
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod turn_attachment_tests {
+    use super::{normalize_thread_turn_messages, validate_turn_messages};
+
+    #[test]
+    fn normalizes_structured_text_attachments_without_losing_content() {
+        let messages = normalize_thread_turn_messages(serde_json::json!({
+            "content": "Review this file.",
+            "attachments": [{
+                "type": "text",
+                "name": "notes.md",
+                "mimeType": "text/markdown",
+                "sizeBytes": 7,
+                "content": "# Notes"
+            }]
+        }))
+        .expect("valid text attachment should normalize");
+
+        assert_eq!(messages[0]["role"], "user");
+        assert_eq!(messages[0]["attachments"][0]["content"], "# Notes");
+    }
+
+    #[test]
+    fn rejects_binary_and_oversized_turn_attachments() {
+        let binary = serde_json::json!([{
+            "role": "user",
+            "content": "Inspect this.",
+            "attachments": [{
+                "type": "binary",
+                "name": "photo.png",
+                "sizeBytes": 4,
+                "content": "data"
+            }]
+        }]);
+        assert!(validate_turn_messages(&binary)
+            .expect_err("binary attachment should fail")
+            .contains("must have type text"));
+
+        let oversized = serde_json::json!([{
+            "role": "user",
+            "content": "Inspect this.",
+            "attachments": [{
+                "type": "text",
+                "name": "large.txt",
+                "sizeBytes": 262_145,
+                "content": "small"
+            }]
+        }]);
+        assert!(validate_turn_messages(&oversized)
+            .expect_err("oversized attachment should fail")
+            .contains("exceeds the 262144 byte limit"));
+    }
 }
 
 fn generate_thread_turn_run_id() -> String {

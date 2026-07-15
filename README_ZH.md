@@ -74,9 +74,7 @@ flowchart TD
     RecallBlock --> AgentContext["ContextBuilder.build_messages"]
 
     Experience["ExperienceStore"] --> ExperienceBlock["[RELEVANT WORKFLOWS / RECOVERIES]"]
-    Knowledge["KnowledgeStore / SessionKnowledgeStore"] --> KnowledgeBlock["Knowledge context"]
     ExperienceBlock --> AgentContext
-    KnowledgeBlock --> AgentContext
 ```
 
 ```mermaid
@@ -90,7 +88,6 @@ flowchart LR
     Legacy["Legacy Markdown/history\nmigration + fallback"] --> Notes
 
     Experience["Experience\nhow to act"] --> AgentPrompt["Agent prompt"]
-    Knowledge["Knowledge\nexternal document evidence"] --> AgentPrompt
     Recall --> AgentPrompt
 
     Views -. "inspection + compatibility" .-> AgentPrompt
@@ -146,27 +143,12 @@ Cowork 现在提供版本化的图/轨迹快照、可复用 JSON 蓝图、预算
 </details>
 
 <details>
-<summary>2026.04.28 新增 beta 版 RAG 关系图。</summary>
-
-![rag_graph_beta_gif](./show/webui_rag_graph_beta1.gif)
-
-![rag_graph_beta](./show/webui_rag_graph_beta1.PNG)
-
-</details>
-
-<details>
 <summary>2026.04.27 新增文档并修复部分问题。</summary>
 
 ![doc_home](./show/webui_doc_home.PNG)
 
 ![startup](./show/webui_startup.PNG)
 
-</details>
-
-<details>
-<summary>2026.04.26 新增 RAG 模块，当前支持文本内容。</summary>
-
-![RAG](./show/webui_RAG.PNG)
 </details>
 
 <details>
@@ -373,9 +355,9 @@ npm run tauri -- dev
 | 界面 | 说明 |
 |------|------|
 | Chat composer | 发送消息、附加文件、停止生成并切换会话 |
-| Settings | 配置 providers、models、tools、knowledge、channels 和 runtime 选项 |
+| Settings | 配置 providers、models、tools、channels 和 runtime 选项 |
 | Gateway & Runtime | 查看本地运行时就绪状态、端点状态和兼容 worker 状态 |
-| Tools / Skills / Knowledge | 查看工具、管理 skills，并操作本地知识库 |
+| Tools / Skills | 查看工具并管理 skills |
 
 ## Skills 系统
 

@@ -98,7 +98,7 @@ const APP_TITLES: Record<TinyOsAppId, string> = {
 
 const TERMINAL_TOOL_RE = /(?:^|[\s._-])(shell|terminal|command|exec|process|powershell|bash)(?:$|[\s._-])/i;
 const BROWSER_TOOL_RE = /(?:^|[\s._-])(browser|web|navigate|screenshot|page)(?:$|[\s._-])/i;
-const MEMORY_TOOL_RE = /(?:^|[\s._-])(memory|knowledge|recall)(?:$|[\s._-])/i;
+const MEMORY_TOOL_RE = /(?:^|[\s._-])(memory|recall)(?:$|[\s._-])/i;
 const PLAN_TOOL_RE = /(?:^|[\s._-])(plan|update_plan|task_progress)(?:$|[\s._-])/i;
 const FILE_TOOL_RE = /(?:^|[\s._-])(file|workspace|path|directory|search|grep|glob|read|write|patch)(?:$|[\s._-])/i;
 

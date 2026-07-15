@@ -505,9 +505,6 @@ mod tests {
                 },
                 "skills": {
                     "enabled": ["planner"]
-                },
-                "knowledge": {
-                    "defaultCategory": "desktop"
                 }
             }),
             read_policy(),
@@ -533,7 +530,6 @@ mod tests {
             "https://docs.example.test"
         );
         assert_eq!(result.value["skills"]["enabled"][0], "planner");
-        assert_eq!(result.value["knowledge"]["defaultCategory"], "desktop");
         assert!(result.value["agents"]["defaults"].get("apiKey").is_none());
         assert!(result.value["channels"].get("token").is_none());
         assert!(result.value["gateway"].get("accessToken").is_none());

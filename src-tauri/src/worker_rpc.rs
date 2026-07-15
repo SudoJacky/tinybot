@@ -12,12 +12,6 @@ use crate::worker_cron::{
     CronJobAddParams, CronJobDueParams, CronJobRecordRunsParams, CronJobRemoveParams, WorkerCronRpc,
 };
 use crate::worker_diagnostics::WorkerDiagnosticsRpc;
-use crate::worker_knowledge::{
-    KnowledgeAddDocumentParams, KnowledgeContextParams, KnowledgeDocumentIdParams,
-    KnowledgeEntityGraphExtractionParams, KnowledgeGraphParams, KnowledgeJobIdParams,
-    KnowledgeListDocumentsParams, KnowledgeQueryParams, KnowledgeRebuildIndexParams,
-    KnowledgeStartIndexJobParams, WorkerKnowledgeRpc,
-};
 use crate::worker_memory::WorkerMemoryRpc;
 use crate::worker_permission_profile::{
     PermissionDecision, PermissionEvaluateToolRequest, PermissionNetworkMode,
@@ -69,7 +63,6 @@ mod config_dispatch;
 mod errors;
 mod form;
 mod interaction_dispatch;
-mod knowledge_dispatch;
 mod mcp;
 mod memory_dispatch;
 mod method;
@@ -107,7 +100,6 @@ pub struct WorkerRpcRouter {
     approval: WorkerApprovalRpc,
     form: WorkerFormRpc,
     memory: WorkerMemoryRpc,
-    knowledge: WorkerKnowledgeRpc,
     task: WorkerTaskRpc,
     cron: WorkerCronRpc,
     background: WorkerBackgroundRpc,
@@ -140,7 +132,6 @@ impl WorkerRpcRouter {
             approval: WorkerApprovalRpc::new(policy.clone()),
             form: WorkerFormRpc::new(policy.clone()),
             memory: WorkerMemoryRpc::new(workspace_root.clone(), policy.clone()),
-            knowledge: WorkerKnowledgeRpc::new(workspace_root.clone(), policy.clone()),
             task: WorkerTaskRpc::new(workspace_root.clone(), policy.clone()),
             cron: WorkerCronRpc::new(workspace_root.clone(), policy.clone()),
             background: WorkerBackgroundRpc::new(workspace_root.clone(), policy.clone()),
@@ -185,7 +176,6 @@ impl WorkerRpcRouter {
             approval: WorkerApprovalRpc::new(policy.clone()),
             form: WorkerFormRpc::new(policy.clone()),
             memory: WorkerMemoryRpc::new(workspace_root.clone(), policy.clone()),
-            knowledge: WorkerKnowledgeRpc::new(workspace_root.clone(), policy.clone()),
             task: WorkerTaskRpc::new(workspace_root.clone(), policy.clone()),
             cron: WorkerCronRpc::new(workspace_root.clone(), policy.clone()),
             background: WorkerBackgroundRpc::new(workspace_root.clone(), policy.clone()),
@@ -294,9 +284,6 @@ impl WorkerRpcRouter {
                 self.dispatch_interaction_method(request)
             }
             method if method.starts_with("memory.") => self.dispatch_memory_method(request),
-            method if method.starts_with("knowledge.") || method == "rag.query" => {
-                self.dispatch_knowledge_method(request)
-            }
             method
                 if method.starts_with("task.")
                     || method.starts_with("cron.")
@@ -317,53 +304,6 @@ impl WorkerRpcRouter {
             method if method.starts_with("runtime.") => self.dispatch_runtime_method(request),
             _ => Err(unknown_method_error(request)),
         }
-    }
-
-    fn query_rag(
-        &self,
-        params: RagQueryParams,
-    ) -> Result<Value, crate::worker_protocol::WorkerProtocolError> {
-        let limit = params.limit.unwrap_or(5).min(20);
-        if limit == 0 {
-            return Ok(serde_json::json!({ "documents": [] }));
-        }
-        let collection = normalize_rag_collection(params.collection)?;
-        let query_terms = rag_query_terms(&params.query);
-        if query_terms.is_empty() {
-            return Err(invalid_rag_request(
-                "query must contain at least one searchable term",
-            ));
-        }
-        let mut documents = Vec::new();
-        for entry in self.workspace.list_files()? {
-            if !is_rag_candidate_path(&entry.path, collection.as_deref()) {
-                continue;
-            }
-            let file = match self.workspace.read_file(&entry.path) {
-                Ok(file) => file,
-                Err(_) => continue,
-            };
-            let score = rag_document_score(&file.path, &file.contents, &query_terms);
-            if score == 0 {
-                continue;
-            }
-            documents.push(serde_json::json!({
-                "id": file.path,
-                "title": rag_document_title(&file.path, &file.contents),
-                "path": file.path,
-                "score": score,
-                "excerpt": rag_document_excerpt(&file.contents, &query_terms),
-            }));
-        }
-        documents.sort_by(|left, right| {
-            let left_score = left.get("score").and_then(Value::as_u64).unwrap_or(0);
-            let right_score = right.get("score").and_then(Value::as_u64).unwrap_or(0);
-            right_score
-                .cmp(&left_score)
-                .then_with(|| left["path"].as_str().cmp(&right["path"].as_str()))
-        });
-        documents.truncate(limit);
-        Ok(serde_json::json!({ "documents": documents }))
     }
 
     fn request_tool_approval(
@@ -1138,15 +1078,6 @@ struct DiagnosticsAppendParams {
 }
 
 #[derive(Deserialize)]
-struct RagQueryParams {
-    query: String,
-    #[serde(default)]
-    collection: Option<String>,
-    #[serde(default)]
-    limit: Option<usize>,
-}
-
-#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SubagentListParams {
     session_key: String,
@@ -1248,16 +1179,6 @@ fn days_from_civil(year: i32, month: u32, day: u32) -> i128 {
     i128::from(era * 146_097 + day_of_era - 719_468)
 }
 
-fn invalid_rag_request(message: impl Into<String>) -> crate::worker_protocol::WorkerProtocolError {
-    crate::worker_protocol::WorkerProtocolError::new(
-        crate::worker_protocol::WorkerProtocolErrorCode::InvalidProtocol,
-        message,
-        serde_json::json!({ "method": "rag.query" }),
-        false,
-        crate::worker_protocol::WorkerProtocolErrorSource::RustCore,
-    )
-}
-
 fn unavailable_subagent_manager() -> crate::worker_protocol::WorkerProtocolError {
     crate::worker_protocol::WorkerProtocolError::new(
         crate::worker_protocol::WorkerProtocolErrorCode::WorkerError,
@@ -1266,106 +1187,6 @@ fn unavailable_subagent_manager() -> crate::worker_protocol::WorkerProtocolError
         false,
         crate::worker_protocol::WorkerProtocolErrorSource::RustCore,
     )
-}
-
-fn normalize_rag_collection(
-    value: Option<String>,
-) -> Result<Option<String>, crate::worker_protocol::WorkerProtocolError> {
-    let Some(value) = value.map(|value| value.trim().replace('\\', "/")) else {
-        return Ok(None);
-    };
-    if value.is_empty() {
-        return Ok(None);
-    }
-    if value.starts_with('/')
-        || value.contains(':')
-        || value.contains('\0')
-        || value
-            .split('/')
-            .any(|part| part.is_empty() || part == "." || part == "..")
-    {
-        return Err(invalid_rag_request(
-            "collection must be a workspace-relative prefix",
-        ));
-    }
-    Ok(Some(value.trim_end_matches('/').to_string()))
-}
-
-fn is_rag_candidate_path(path: &str, collection: Option<&str>) -> bool {
-    if let Some(collection) = collection {
-        let prefix = format!("{collection}/");
-        if path != collection && !path.starts_with(&prefix) {
-            return false;
-        }
-    }
-    let lower = path.to_ascii_lowercase();
-    [
-        ".md", ".mdx", ".txt", ".rst", ".adoc", ".json", ".toml", ".yaml", ".yml", ".ts", ".tsx",
-        ".js", ".jsx", ".rs",
-    ]
-    .iter()
-    .any(|extension| lower.ends_with(extension))
-}
-
-fn rag_query_terms(query: &str) -> Vec<String> {
-    let mut terms: Vec<String> = query
-        .split(|character: char| !character.is_alphanumeric())
-        .map(|term| term.trim().to_ascii_lowercase())
-        .filter(|term| term.len() > 2)
-        .collect();
-    terms.sort();
-    terms.dedup();
-    terms
-}
-
-fn rag_document_score(path: &str, contents: &str, terms: &[String]) -> usize {
-    let haystack = format!("{path}\n{contents}").to_ascii_lowercase();
-    terms
-        .iter()
-        .filter(|term| haystack.contains(term.as_str()))
-        .count()
-}
-
-fn rag_document_title(path: &str, contents: &str) -> String {
-    contents
-        .lines()
-        .find_map(|line| {
-            let trimmed = line.trim();
-            trimmed
-                .strip_prefix("# ")
-                .map(str::trim)
-                .filter(|title| !title.is_empty())
-                .map(str::to_string)
-        })
-        .unwrap_or_else(|| {
-            path.rsplit('/')
-                .next()
-                .and_then(|name| name.split('.').next())
-                .filter(|name| !name.is_empty())
-                .unwrap_or(path)
-                .to_string()
-        })
-}
-
-fn rag_document_excerpt(contents: &str, terms: &[String]) -> String {
-    contents
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.starts_with('#'))
-        .find(|line| {
-            let lower = line.to_ascii_lowercase();
-            terms.iter().any(|term| lower.contains(term.as_str()))
-        })
-        .or_else(|| {
-            contents
-                .lines()
-                .map(str::trim)
-                .find(|line| !line.is_empty())
-        })
-        .unwrap_or("")
-        .chars()
-        .take(500)
-        .collect()
 }
 
 #[cfg(test)]

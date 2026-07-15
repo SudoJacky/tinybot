@@ -4,7 +4,6 @@ import {
   buildDesktopCommandPaletteUx,
   buildDesktopCoworkCockpitUx,
   buildDesktopFileLifecycleUx,
-  buildDesktopKnowledgeTraceUx,
   buildDesktopLoadingPerformanceUx,
   buildDesktopSafeModeRecoveryUx,
   buildDesktopSettingsProviderSetupUx,
@@ -45,7 +44,7 @@ describe("desktop native UX projections", () => {
 
   test("defines workbench shell regions, attention badges, inspector tabs, and contextual help", () => {
     const shell = buildDesktopWorkbenchShellUx({
-      activeModule: "knowledge",
+      activeModule: "workspace",
       selectedEntityId: "doc-1",
       hiddenPanels: ["inspector", "bottom"],
       attention: { taskUpdates: 2, references: 1, blocked: 1, failed: 0 },
@@ -55,9 +54,9 @@ describe("desktop native UX projections", () => {
     });
     expect(shell.regions.map((region) => region.id)).toEqual(["activity-rail", "module-sidebar", "main-work", "inspector", "task-center"]);
     expect(shell.hiddenPanelBadges.map((badge) => badge.label)).toEqual(["2 task updates", "1 reference selected", "1 blocked"]);
-    expect(shell.skeleton?.label).toBe("Loading Knowledge");
+    expect(shell.skeleton?.label).toBe("Loading Workspace");
     expect(shell.inspectorTabs.map((tab) => tab.id)).toEqual(["overview", "tools", "references", "files", "raw"]);
-    expect(shell.contextualHelp.href).toBe("/docs/knowledge");
+    expect(shell.contextualHelp.href).toBe("/docs/webui");
     expect(shell.preferenceBridge).toEqual({ theme: "dark", language: "zh-CN" });
   });
 
@@ -70,14 +69,13 @@ describe("desktop native UX projections", () => {
       ],
       attachments: [
         { id: "tmp-1", source: "session", title: "notes.txt" },
-        { id: "doc-1", source: "knowledge", title: "UX notes" },
         { id: "file-1", source: "workspace", title: "AGENTS.md" },
       ],
       responding: false,
       scroll: { distanceFromBottom: 160, viewportHeight: 800 },
       activities: [{ id: "tool-1", kind: "tool", label: "Read file" }],
     });
-    expect(chat.starters.map((starter) => starter.id)).toEqual(["ask", "analyze-file", "use-knowledge", "plan-cowork", "edit-workspace-file"]);
+    expect(chat.starters.map((starter) => starter.id)).toEqual(["ask", "analyze-file", "plan-cowork", "edit-workspace-file"]);
     expect(chat.sessionGroups.map((group) => `${group.id}:${group.sessions.map((session) => session.key).join(",")}`)).toEqual([
       "pinned:s1",
       "running:s2,s3",
@@ -85,7 +83,6 @@ describe("desktop native UX projections", () => {
     ]);
     expect(chat.attachmentChips.map((chip) => `${chip.sourceLabel}:${chip.title}`)).toEqual([
       "session file:notes.txt",
-      "knowledge document:UX notes",
       "workspace file:AGENTS.md",
     ]);
     expect(chat.stopGeneration.primary).toBe(false);
@@ -98,7 +95,7 @@ describe("desktop native UX projections", () => {
       { id: "a", state: "active", source: "chat", title: "Streaming", actions: [{ id: "cancel", label: "Cancel" }] },
       { id: "b", state: "blocked", source: "approval", title: "Approve", actions: [{ id: "approveOnce", label: "Approve once" }] },
       { id: "c", state: "failed", source: "file", title: "Save failed", actions: [{ id: "retry", label: "Retry" }] },
-      { id: "d", state: "completed", source: "knowledge", title: "Indexed", actions: [{ id: "open", label: "Open" }] },
+      { id: "d", state: "completed", source: "provider", title: "Refreshed", actions: [{ id: "open", label: "Open" }] },
     ]);
     expect(attention.compactLabel).toBe("1 running · 1 blocked · 1 failed");
     expect(attention.autoOpenReason).toBe("blocked");
@@ -113,12 +110,12 @@ describe("desktop native UX projections", () => {
       query: "desktop notes",
       results: [
         { id: "system", groupId: "commands", title: "Documentation", keywords: ["desktop"], updatedAt: "", activeModule: false },
-        { id: "doc", groupId: "knowledgeDocuments", title: "Desktop Notes", keywords: ["desktop", "notes"], updatedAt: "2026-06-01", activeModule: true },
+        { id: "doc", groupId: "workspaceFiles", title: "Desktop Notes", keywords: ["desktop", "notes"], updatedAt: "2026-06-01", activeModule: true },
       ],
     });
     expect(palette.shortcuts).toContain("Cmd+K");
     expect(palette.results[0]).toMatchObject({ id: "doc" });
-    expect(palette.results[0].actions.map((action) => action.id)).toEqual(["open", "focus", "inspect", "useInChat"]);
+    expect(palette.results[0].actions.map((action) => action.id)).toEqual(["open", "focus", "reveal"]);
     expect(palette.refreshPolicy).toMatchObject({ debounceMs: 180, keepCachedResults: true });
   });
 
@@ -131,39 +128,21 @@ describe("desktop native UX projections", () => {
     });
     expect(settings.firstRun.required).toBe(true);
     expect(settings.firstRun.steps.map((step) => step.id)).toEqual(["choose-provider", "enter-key", "test-connection", "pick-default-model", "start-chat"]);
-    expect(settings.intentGroups.map((group) => group.id)).toEqual(["ai-provider-model", "workspace-files", "knowledge", "tools-skills", "gateway-runtime", "diagnostics", "advanced"]);
+    expect(settings.intentGroups.map((group) => group.id)).toEqual(["ai-provider-model", "workspace-files", "tools-skills", "gateway-runtime", "diagnostics", "advanced"]);
     expect(settings.secretStates[0].label).toBe("Saved key will be reused");
     expect(settings.modelDiscoveryByProvider.openai.status).toBe("failed");
     expect(settings.unsavedBar.actions).toEqual(["Save", "Reset", "Test connection"]);
   });
 
-  test("stages knowledge readiness, document badges, query actions, and graph focus", () => {
-    const knowledge = buildDesktopKnowledgeTraceUx({
-      readinessRows: [
-        { id: "retrieval", tone: "ready" },
-        { id: "graph", tone: "warn" },
-      ],
-      documents: [
-        { id: "doc-1", status: "stale", phaseLabel: "Indexing", updatedAt: "2026-06-01" },
-      ],
-      selectedResult: { id: "result-1", docId: "doc-1", entities: ["Tinybot"], relations: ["uses"] },
-    });
-    expect(knowledge.stages.map((stage) => stage.id)).toEqual(["import", "index", "ask", "trace", "use"]);
-    expect(knowledge.readinessMessage).toContain("partial");
-    expect(knowledge.documentBadges[0].badges).toEqual(["Indexing", "Needs rebuild"]);
-    expect(knowledge.queryActions.map((action) => action.id)).toEqual(["useInCurrentChat", "openEvidence", "inspectGraph", "rebuildSource"]);
-    expect(knowledge.graphFocus.rootId).toBe("result-1");
-  });
-
   test("clarifies file lifecycles and workspace conflict actions", () => {
     const files = buildDesktopFileLifecycleUx({
-      destination: "knowledge",
+      destination: "session",
       file: { name: "large.bin", size: 50 * 1024 * 1024, type: "application/octet-stream" },
       workspaceState: "conflict",
       temporarySessionFile: true,
       operation: "save",
     });
-    expect(files.destinationCopy).toBe("Import and index for retrieval");
+    expect(files.destinationCopy).toBe("Attach to this conversation");
     expect(files.validation.accepted).toBe(false);
     expect(files.validation.reason).toContain("size");
     expect(files.workspaceStatus.label).toBe("Conflict detected");
@@ -176,7 +155,7 @@ describe("desktop native UX projections", () => {
     const toolsSkills = buildDesktopToolsSkillsManagementUx({
       tools: [
         { name: "exec_shell", description: "Run command", riskHint: "Requires approval", enabled: true },
-        { name: "knowledge_query", description: "Search knowledge", riskHint: "", enabled: true },
+        { name: "memory_search", description: "Search memory", riskHint: "", enabled: true },
       ],
       skills: [
         { name: "planner", enabled: true, always: false, available: true, status: "needs_validation", deletable: true },
@@ -208,10 +187,10 @@ describe("desktop native UX projections", () => {
   test("defines loading boundaries, virtualization, memoization, and measurement hooks", () => {
     const performance = buildDesktopLoadingPerformanceUx({
       route: "chat",
-      longListCounts: { sessions: 120, knowledgeDocuments: 0, taskRows: 80, coworkTraces: 0 },
+      longListCounts: { sessions: 120, taskRows: 80, coworkTraces: 0 },
     });
     expect(performance.immediate).toEqual(["startup-shell", "chat-shell", "composer", "session-list-metadata", "task-center-shell", "command-palette-shell"]);
-    expect(performance.lazy).toContain("knowledge-graph");
+    expect(performance.lazy).toContain("cowork-cockpit");
     expect(performance.routeHydration.skeleton).toBe("Chat skeleton");
     expect(performance.virtualization.sessions.enabled).toBe(true);
     expect(performance.memoizedProjections).toEqual(["run-chain-items", "task-center-items", "command-palette-data"]);

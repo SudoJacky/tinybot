@@ -6,13 +6,12 @@ import type { TinyOsAgentCancelCommand, TinyOsCommand } from "../chat/tinyOsComm
 export const createGatewaySocketMessage = {
   newChat: () => ({ type: "new_chat" as const }),
   attach: (chatId: string) => ({ type: "attach" as const, chat_id: chatId }),
-  message: (chatId: string, content: string, usePersistentRag?: boolean, model?: string, clientEventId?: string, references?: NativeChatReference[]) => ({
+  message: (chatId: string, content: string, model?: string, clientEventId?: string, references?: NativeChatReference[]) => ({
     type: "message" as const,
     chat_id: chatId,
     ...(clientEventId ? { client_event_id: clientEventId } : {}),
     content,
     ...(references?.length ? { references } : {}),
-    ...(typeof usePersistentRag === "boolean" ? { use_persistent_rag: usePersistentRag } : {}),
     ...(model ? { model } : {}),
   }),
   interrupt: (chatId: string, command: TinyOsAgentCancelCommand) => ({

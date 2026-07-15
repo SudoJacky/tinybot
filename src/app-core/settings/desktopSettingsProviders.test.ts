@@ -50,14 +50,6 @@ describe("desktop settings and provider helpers", () => {
             docs: { command: "docs-mcp" },
           },
         },
-        knowledge: {
-          graph_extraction_enabled: false,
-          graph_auto_extract: true,
-          graph_extraction_model: "graph-model",
-          graph_extraction_max_tokens: 640,
-          graph_extraction_max_job_tokens: 1800,
-          graph_extraction_concurrency: 2,
-        },
       },
       [{ id: "openai", displayName: "OpenAI" }],
     );
@@ -66,12 +58,6 @@ describe("desktop settings and provider helpers", () => {
     expect(state.agent.provider).toBe("openai");
     expect(state.agent.temperature).toBe(0);
     expect(state.embedding.modelName).toBe("text-embedding-v3");
-    expect(state.knowledge.graphExtractionEnabled).toBe(false);
-    expect(state.knowledge.graphAutoExtract).toBe(true);
-    expect(state.knowledge.graphExtractionModel).toBe("graph-model");
-    expect(state.knowledge.graphExtractionMaxTokens).toBe(640);
-    expect(state.knowledge.graphExtractionMaxJobTokens).toBe(1800);
-    expect(state.knowledge.graphExtractionConcurrency).toBe(2);
     expect(state.providerEditor).toMatchObject({
       selectedProvider: "openai",
       profileId: "work",
@@ -107,12 +93,6 @@ describe("desktop settings and provider helpers", () => {
     state.providerEditor.apiBase = "https://api.deepseek.com";
     state.providerEditor.modelsText = "deepseek-chat\ndeepseek-reasoner";
     state.tools.mcpServersText = "{\"search\":{\"command\":\"search-mcp\"}}";
-    state.knowledge.graphExtractionEnabled = true;
-    state.knowledge.graphAutoExtract = true;
-    state.knowledge.graphExtractionModel = "graph-model";
-    state.knowledge.graphExtractionMaxTokens = 640;
-    state.knowledge.graphExtractionMaxJobTokens = 1800;
-    state.knowledge.graphExtractionConcurrency = 3;
 
     const patch = createDesktopSettingsPatch(
       state,
@@ -148,14 +128,6 @@ describe("desktop settings and provider helpers", () => {
           search: { command: "search-mcp" },
         },
       },
-      knowledge: {
-        graph_extraction_enabled: true,
-        graph_auto_extract: true,
-        graph_extraction_model: "graph-model",
-        graph_extraction_max_tokens: 640,
-        graph_extraction_max_job_tokens: 1800,
-        graph_extraction_concurrency: 3,
-      },
     });
     expect((patch.providers as Record<string, unknown>).profiles).toMatchObject({
       legacy: { provider: "deepseek", api_key: "old" },
@@ -177,7 +149,6 @@ describe("desktop settings and provider helpers", () => {
     state.tools.mcpServersText = "[]";
     state.providerEditor.apiBase = "not a url";
     state.embedding.apiBase = "https://embedding.example/v1";
-    state.knowledge.rerankApiBase = "bad-url";
 
     expect(validateDesktopSettingsForm(state)).toEqual([
       { field: "model", errorKey: "modelEmpty" },
@@ -185,7 +156,6 @@ describe("desktop settings and provider helpers", () => {
       { field: "gatewayPort", errorKey: "portRange" },
       { field: "mcpServers", errorKey: "jsonObjectError" },
       { field: "providerApiBase", errorKey: "urlError" },
-      { field: "rerankApiBase", errorKey: "urlError" },
     ]);
   });
 
@@ -339,7 +309,6 @@ describe("desktop settings and provider helpers", () => {
     expect(pane.groups.map((group) => [group.id, group.label])).toEqual([
       ["general", "General"],
       ["provider-models", "Provider & Models"],
-      ["knowledge", "Knowledge"],
       ["tools-approvals", "Tools & MCP"],
       ["files-workspace", "Files & Workspace"],
       ["memory-experience", "Memory & Experience"],
@@ -408,20 +377,17 @@ describe("desktop settings and provider helpers", () => {
     const state = buildDesktopSettingsFormState({
       agents: { defaults: { model: "gpt-4.1-mini", provider: "openai", active_profile: "work" } },
       providers: { profiles: { work: { provider: "openai", api_key: "sk-live", models: ["gpt-4.1-mini"] } } },
-      knowledge: { enabled: true },
       gateway: { port: 18790 },
     }, [{ id: "openai", displayName: "OpenAI", status: "ready" }]);
 
     const withModel = applyDesktopSettingsFieldEdit(state, "model", "gpt-4.1");
     const withApiKey = applyDesktopSettingsFieldEdit(withModel, "apiKey", "********");
     const withReplacementKey = applyDesktopSettingsFieldEdit(withApiKey, "apiKey", "sk-replacement");
-    const withoutKnowledge = applyDesktopSettingsFieldEdit(withReplacementKey, "enabled", false);
-    const withPort = applyDesktopSettingsFieldEdit(withoutKnowledge, "port", "18888");
+    const withPort = applyDesktopSettingsFieldEdit(withReplacementKey, "port", "18888");
     const patch = createDesktopSettingsPatch(withPort, {}, [{ id: "openai", displayName: "OpenAI", status: "ready" }]);
 
     expect(patch.agents).toMatchObject({ defaults: { model: "gpt-4.1" } });
     expect(patch.providers).toMatchObject({ openai: { api_key: "sk-replacement" } });
-    expect(patch.knowledge).toMatchObject({ enabled: false });
     expect(patch.gateway).toMatchObject({ port: 18888 });
   });
 
@@ -440,10 +406,6 @@ describe("desktop settings and provider helpers", () => {
           },
         },
       },
-      knowledge: {
-        enabled: true,
-        hidden_graph_backend_only: { preserve: true },
-      },
       gateway: {
         host: "127.0.0.1",
         port: 18790,
@@ -453,14 +415,10 @@ describe("desktop settings and provider helpers", () => {
     const state = buildDesktopSettingsFormState(existingConfig, [{ id: "openai", displayName: "OpenAI", status: "ready" }]);
 
     const withTimezone = applyDesktopSettingsFieldEdit(state, "timezone", "Asia/Shanghai");
-    const withKnowledgeDisabled = applyDesktopSettingsFieldEdit(state, "enabled", false);
     const withGatewayPort = applyDesktopSettingsFieldEdit(state, "port", "18888");
 
     expect(createDesktopSettingsPatch(withTimezone, existingConfig, [{ id: "openai", displayName: "OpenAI", status: "ready" }])).toEqual({
       agents: { defaults: { timezone: "Asia/Shanghai" } },
-    });
-    expect(createDesktopSettingsPatch(withKnowledgeDisabled, existingConfig, [{ id: "openai", displayName: "OpenAI", status: "ready" }])).toEqual({
-      knowledge: { enabled: false },
     });
     expect(createDesktopSettingsPatch(withGatewayPort, existingConfig, [{ id: "openai", displayName: "OpenAI", status: "ready" }])).toEqual({
       gateway: { port: 18888 },
@@ -581,7 +539,6 @@ describe("desktop settings and provider helpers", () => {
           api_base: "https://api.openai.com/v1",
         },
       },
-      knowledge: { enabled: true, auto_retrieve: false },
       tools: { exec: { enable: true, timeout: 120 }, web: { enable: true, search: { provider: "duckduckgo" } } },
       channels: { send_progress: true, send_tool_hints: false, send_max_retries: 3 },
       gateway: { host: "127.0.0.1", port: 18790, heartbeat: { enabled: true, interval_s: 1800 } },
@@ -595,7 +552,6 @@ describe("desktop settings and provider helpers", () => {
           profiles: { work: { api_key: "sk-replacement" } },
         },
       }],
-      ["knowledge", "autoRetrieve", true, { knowledge: { auto_retrieve: true } }],
       ["tools-approvals", "execTimeout", "90", { tools: { exec: { timeout: 90 } } }],
       ["channels", "sendMaxRetries", "5", { channels: { send_max_retries: 5 } }],
       ["gateway-runtime", "heartbeatIntervalS", "900", { gateway: { heartbeat: { interval_s: 900 } } }],
@@ -625,21 +581,21 @@ describe("desktop settings and provider helpers", () => {
           },
         },
       },
-      knowledge: { enabled: true },
+      channels: { send_progress: true },
     };
     const state = buildDesktopSettingsFormState(existingConfig, providerCatalog);
     const invalidDraft = applyDesktopSettingsFieldEdit(state, "model", "");
-    const invalidWithKnowledgeEdit = applyDesktopSettingsFieldEdit(invalidDraft, "enabled", false);
+    const invalidWithChannelEdit = applyDesktopSettingsFieldEdit(invalidDraft, "sendProgress", false);
 
-    expect(buildDesktopSettingsSavePatch(invalidWithKnowledgeEdit, existingConfig, providerCatalog)).toEqual({
+    expect(buildDesktopSettingsSavePatch(invalidWithChannelEdit, existingConfig, providerCatalog)).toEqual({
       ok: false,
       validationErrors: [{ field: "model", errorKey: "modelEmpty" }],
     });
 
-    const validWithKnowledgeEdit = applyDesktopSettingsFieldEdit(state, "enabled", false);
-    expect(buildDesktopSettingsSavePatch(validWithKnowledgeEdit, existingConfig, providerCatalog)).toEqual({
+    const validWithChannelEdit = applyDesktopSettingsFieldEdit(state, "sendProgress", false);
+    expect(buildDesktopSettingsSavePatch(validWithChannelEdit, existingConfig, providerCatalog)).toEqual({
       ok: true,
-      patch: { knowledge: { enabled: false } },
+      patch: { channels: { send_progress: false } },
     });
   });
 
@@ -733,25 +689,11 @@ describe("desktop settings and provider helpers", () => {
     expect(fields["general.reasoningEffort"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed", advanced: true });
     expect(fields["tools-approvals.mcpServers"]).toMatchObject({ control: "textarea", requirement: "optional", configurationMode: "json", advanced: true });
     expect(fields["tools-approvals.searchProvider"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed", advanced: true });
-    expect(fields["knowledge.retrievalMode"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed" });
-    expect(fields["knowledge.graphExtractionEnabled"]).toMatchObject({ control: "checkbox", requirement: "optional", configurationMode: "toggle" });
-    expect(fields["knowledge.graphAutoExtract"]).toMatchObject({ control: "checkbox", requirement: "optional", configurationMode: "toggle", advanced: true });
-    expect(fields["knowledge.graphExtractionModel"]).toMatchObject({ control: "text", requirement: "optional", configurationMode: "freeform", advanced: true });
-    expect(fields["knowledge.graphExtractionMaxTokens"]).toMatchObject({ control: "number", requirement: "optional", configurationMode: "numeric", advanced: true });
-    expect(fields["knowledge.graphExtractionMaxJobTokens"]).toMatchObject({ control: "number", requirement: "optional", configurationMode: "numeric", advanced: true });
-    expect(fields["knowledge.graphExtractionConcurrency"]).toMatchObject({ control: "number", requirement: "optional", configurationMode: "numeric", advanced: true });
     expect(fields["memory-experience.memory"]).toMatchObject({ control: "readonly", requirement: "readonly", configurationMode: "readonly" });
   });
 
   test("classifies checkbox fields by commit behavior and risk treatment", () => {
     const state = buildDesktopSettingsFormState({
-      knowledge: {
-        enabled: true,
-        auto_retrieve: true,
-        rerank_enabled: false,
-        graph_extraction_enabled: false,
-        graph_auto_extract: false,
-      },
       tools: {
         web: { enable: true },
         exec: { enable: false },
@@ -771,8 +713,6 @@ describe("desktop settings and provider helpers", () => {
       group.fields.map((field) => [`${group.id}.${field.id}`, field] as const),
     ));
 
-    expect(fields["knowledge.enabled"]).toMatchObject({ commitMode: "auto" });
-    expect(fields["knowledge.autoRetrieve"]).toMatchObject({ commitMode: "auto" });
     expect(fields["tools-approvals.webEnable"]).toMatchObject({ commitMode: "auto" });
     expect(fields["channels.sendProgress"]).toMatchObject({ commitMode: "auto" });
     expect(fields["channels.sendToolHints"]).toMatchObject({ commitMode: "auto" });
@@ -786,42 +726,6 @@ describe("desktop settings and provider helpers", () => {
       commitMode: "auto",
       confirmation: expect.objectContaining({ when: "disable" }),
     });
-    expect(fields["knowledge.graphAutoExtract"]).toMatchObject({
-      commitMode: "auto",
-      confirmation: expect.objectContaining({ when: "enable" }),
-    });
-
-    expect(fields["knowledge.rerankEnabled"]).toMatchObject({
-      commitMode: "auto",
-      notice: expect.stringContaining("latency"),
-    });
-    expect(fields["knowledge.graphExtractionEnabled"]).toMatchObject({
-      commitMode: "auto",
-      notice: expect.stringContaining("Graph extraction"),
-    });
-  });
-
-  test("disables dependent Knowledge controls when parent features are off", () => {
-    const state = buildDesktopSettingsFormState({
-      agents: { defaults: { model: "deepseek-chat" } },
-      knowledge: {
-        enabled: false,
-        rerank_enabled: false,
-        graph_extraction_enabled: false,
-      },
-    });
-
-    const pane = buildDesktopSettingsPaneModel(state);
-    const fields = Object.fromEntries(pane.groups.flatMap((group) => group.fields.map((field) => [`${group.id}.${field.id}`, field])));
-
-    expect(fields["knowledge.enabled"]).toMatchObject({ disabled: false });
-    expect(fields["knowledge.autoRetrieve"]).toMatchObject({ disabled: true });
-    expect(fields["knowledge.retrievalMode"]).toMatchObject({ disabled: true });
-    expect(fields["knowledge.maxChunks"]).toMatchObject({ disabled: true });
-    expect(fields["knowledge.rerankModel"]).toMatchObject({ disabled: true });
-    expect(fields["knowledge.rerankApiBase"]).toMatchObject({ disabled: true });
-    expect(fields["knowledge.graphAutoExtract"]).toMatchObject({ disabled: true });
-    expect(fields["knowledge.graphExtractionModel"]).toMatchObject({ disabled: true });
   });
 
   test("adds shared settings metadata to groups and fields", () => {

@@ -17,6 +17,7 @@ import {
 } from "./agentTimelineModel";
 import { logDesktopNativeDebug, summarizeDebugText } from "../native/desktopNativeChatDebug";
 import type { NativeThreadTurnInput, NativeThreadTurnResult } from "../native/desktopNativeThreads";
+import type { DesktopChatAttachment } from "./desktopCommand";
 
 export interface DesktopChatSessionControllerApi {
   listSessions(): Promise<unknown>;
@@ -46,13 +47,20 @@ export type ChatDeleteSessionResult =
   | { status: "unavailable"; deletedSessionKey: string; nextSessionKey: "" }
   | { status: "deleted"; deletedSessionKey: string; nextSessionKey: string };
 
+export type ChatSubmitOptions = {
+  model?: string;
+  references?: NativeChatReference[];
+  attachments?: DesktopChatAttachment[];
+  clientEventId?: string;
+};
+
 export interface DesktopChatSessionController {
   readonly state: NativeChatState;
   loadSessions(): Promise<number>;
   selectSession(sessionKey: string, chatId: string): Promise<void>;
   deleteSession(sessionKey: string): Promise<ChatDeleteSessionResult>;
   patchSession(sessionKey: string, body: unknown): Promise<boolean>;
-  submitMessage(content: string, usePersistentRag?: boolean, model?: string, references?: NativeChatReference[], clientEventId?: string): Promise<ChatSubmitResult>;
+  submitMessage(content: string, options?: ChatSubmitOptions): Promise<ChatSubmitResult>;
   loadTimeline(sessionKey: string): Promise<ChatTimelineSnapshot>;
   reloadTimeline(sessionKey: string): Promise<ChatTimelineSnapshot>;
   applyTimelinePatch(sessionKey: string, payload: unknown): Promise<ChatTimelineSnapshot | null>;
@@ -307,7 +315,7 @@ export function createDesktopChatSessionController({
     return true;
   }
 
-  async function submitMessage(content: string, usePersistentRag = true, model?: string, references?: NativeChatReference[], suppliedClientEventId?: string): Promise<ChatSubmitResult> {
+  async function submitMessage(content: string, options: ChatSubmitOptions = {}): Promise<ChatSubmitResult> {
     const trimmed = content.trim();
     if (!trimmed) {
       logDesktopNativeDebug("session.message.empty", summarizeSessionState());
@@ -316,7 +324,8 @@ export function createDesktopChatSessionController({
     if (!state.activeSessionKey) {
       throw new Error("Cannot submit a turn without an active Thread");
     }
-    const clientEventId = suppliedClientEventId || createClientEventId();
+    const clientEventId = options.clientEventId || createClientEventId();
+    const { attachments, model, references } = options;
     const runId = createRunId();
     const activeSession = state.sessions.find((session) => session.key === state.activeSessionKey);
     const threadId = activeSession?.threadId || state.activeSessionKey;
@@ -328,6 +337,7 @@ export function createDesktopChatSessionController({
         content: trimmed,
         clientEventId,
         ...(references?.length ? { references } : {}),
+        ...(attachments?.length ? { attachments } : {}),
       },
       spec: {
         runId,
@@ -336,7 +346,6 @@ export function createDesktopChatSessionController({
         ...(model ? { model } : {}),
         metadata: {
           clientEventId,
-          usePersistentRag,
           ...(references?.length ? { references } : {}),
         },
       },
@@ -356,7 +365,7 @@ export function createDesktopChatSessionController({
       model: model || "",
       runId,
       threadId,
-      usePersistentRag,
+      attachmentCount: attachments?.length ?? 0,
     });
     return {
       status: "sent",

@@ -80,14 +80,6 @@ pub const NATIVE_TAURI_COMMANDS: &[&str] = &[
     "worker_task_plan_get",
     "worker_task_plan_save",
     "worker_task_plan_delete",
-    "worker_knowledge_documents",
-    "worker_knowledge_add_document",
-    "worker_knowledge_document",
-    "worker_knowledge_delete_document",
-    "worker_knowledge_job",
-    "worker_knowledge_rebuild_index",
-    "worker_knowledge_stats",
-    "worker_knowledge_graph",
     "worker_webui_route",
     "worker_cowork_route",
     "worker_dispatch_tinyos_host_command",
@@ -517,93 +509,6 @@ const WEBUI_ROUTE_INVENTORY: &[NativeRouteInventoryEntry] = &[
         "workspace",
         "native workspace store",
     ),
-    rust_webui(
-        "knowledge_list_documents",
-        "GET",
-        "/v1/knowledge/documents",
-        "knowledge",
-        "native knowledge store",
-    ),
-    rust_webui(
-        "knowledge_add_document",
-        "POST",
-        "/v1/knowledge/documents",
-        "knowledge",
-        "native knowledge store",
-    ),
-    rust_webui(
-        "knowledge_upload_document",
-        "POST",
-        "/v1/knowledge/documents/upload",
-        "knowledge",
-        "native knowledge store",
-    ),
-    rust_webui(
-        "knowledge_get_document",
-        "GET",
-        "/v1/knowledge/documents/{doc_id}",
-        "knowledge",
-        "native knowledge store",
-    ),
-    rust_webui(
-        "knowledge_delete_document",
-        "DELETE",
-        "/v1/knowledge/documents/{doc_id}",
-        "knowledge",
-        "native knowledge store",
-    ),
-    rust_webui(
-        "knowledge_stats",
-        "GET",
-        "/v1/knowledge/stats",
-        "knowledge",
-        "native knowledge store",
-    ),
-    rust_webui(
-        "knowledge_job",
-        "GET",
-        "/v1/knowledge/jobs/{job_id}",
-        "knowledge",
-        "native knowledge jobs",
-    ),
-    rust_webui(
-        "knowledge_rebuild_index",
-        "POST",
-        "/v1/knowledge/rebuild-index",
-        "knowledge",
-        "native knowledge jobs",
-    ),
-    rust_webui(
-        "knowledge_graph",
-        "GET",
-        "/v1/knowledge/graph",
-        "knowledge",
-        "native knowledge graph",
-    ),
-    unsupported_webui(
-        "knowledge_query",
-        "POST",
-        "/v1/knowledge/query",
-        "knowledge",
-        "advanced query path is not implemented in the Rust backend",
-        "add Rust query and GraphRAG execution before enabling",
-    ),
-    unsupported_webui(
-        "knowledge_extract_graph",
-        "POST",
-        "/v1/knowledge/graph/extract",
-        "knowledge",
-        "LLM graph extraction orchestration is not implemented in the Rust backend",
-        "add Rust graph extraction planner and provider calls before enabling",
-    ),
-    unsupported_webui(
-        "knowledge_graphrag",
-        "GET",
-        "/v1/knowledge/graphrag",
-        "knowledge",
-        "GraphRAG read path is not implemented in the Rust backend",
-        "add Rust GraphRAG route before enabling",
-    ),
     unsupported_webui(
         "cowork_route",
         "GET",
@@ -792,8 +697,6 @@ fn tauri_command_group(command: &str) -> &'static str {
         "cron"
     } else if command.contains("cowork") {
         "cowork"
-    } else if command.contains("knowledge") {
-        "knowledge"
     } else if command.contains("thread") {
         "threads"
     } else if command.contains("session") {

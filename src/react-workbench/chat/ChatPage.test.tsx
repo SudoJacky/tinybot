@@ -277,23 +277,23 @@ describe("ChatPage", () => {
 
     fireEvent.click(openButton);
 
-    const canvas = await screen.findByLabelText("Live Canvas");
+    const canvas = screen.getByLabelText("Live Canvas");
     mountWorkbenchCss();
     const canvasHeading = within(canvas).getByRole("heading", { name: "TinyOS" });
     expect(openButton.getAttribute("aria-expanded")).toBe("true");
     expect(getComputedStyle(openButton).minWidth).toBe("44px");
     expect(document.querySelector(".react-chat-page")?.getAttribute("data-live-canvas-open")).toBe("true");
-    expect(within(canvas).getByRole("article", { name: "Terminal window" })).toBeTruthy();
-    expect(within(canvas).getByText("Live follow")).toBeTruthy();
-    await waitFor(() => expect(document.activeElement).toBe(canvasHeading));
+    expect(canvas.querySelector('[aria-label="Terminal window"]')).toBeTruthy();
+    expect(canvas.textContent).toContain("Live follow");
+    expect(document.activeElement).toBe(canvasHeading);
 
-    const closeButton = within(canvas).getByRole("button", { name: "Close Live Canvas panel" });
+    const closeButton = canvas.querySelector<HTMLButtonElement>('[aria-label="Close Live Canvas panel"]')!;
     expect(getComputedStyle(closeButton).minWidth).toBe("44px");
     fireEvent.click(closeButton);
 
-    await waitFor(() => expect(screen.queryByLabelText("Live Canvas")).toBeNull());
-    const restoredButton = screen.getByRole("button", { name: /^Open Live Canvas/ });
-    await waitFor(() => expect(document.activeElement).toBe(restoredButton));
+    expect(canvas.isConnected).toBe(false);
+    expect(openButton.getAttribute("aria-label")).toMatch(/^Open Live Canvas/);
+    expect(document.activeElement).toBe(openButton);
   });
 
   it("attaches a TinyOS file range as a visible composer chip and structured chat reference", async () => {
@@ -577,7 +577,6 @@ describe("ChatPage", () => {
     await waitFor(() => expect(stores.sessionStore.create).toHaveBeenCalledTimes(1));
     await waitFor(() => expectTurnSubmit(stores.chatStore, "s-new", {
       text: "Hello from an empty app",
-      usePersistentRag: true,
     }));
   });
 
@@ -604,7 +603,6 @@ describe("ChatPage", () => {
 
     await waitFor(() => expectTurnSubmit(stores.chatStore, "s-new", {
       text: "Hello from an empty app",
-      usePersistentRag: true,
     }));
     expect(screen.getByRole("heading", { name: "Hello from an empty app" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Hello from an empty app" }).closest(".react-session-row")?.getAttribute("data-active")).toBe("true");
@@ -2153,8 +2151,29 @@ describe("ChatPage", () => {
     await user.type(input, "Hello from React");
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
-    expectTurnSubmit(stores.chatStore, "s1", { text: "Hello from React", usePersistentRag: true });
+    expectTurnSubmit(stores.chatStore, "s1", { text: "Hello from React" });
     expect((input as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("sends selected text files as bounded turn attachments", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const file = new File(["# Notes\nattached"], "notes.md", { type: "text/markdown" });
+    await user.upload(await screen.findByLabelText("File attachments"), file);
+    await user.click(screen.getByRole("button", { name: /send message/i }));
+
+    expectTurnSubmit(stores.chatStore, "s1", {
+      text: "Review the attached files.",
+      attachments: [{
+        type: "text",
+        name: "notes.md",
+        mimeType: "text/markdown",
+        sizeBytes: 16,
+        content: "# Notes\nattached",
+      }],
+    });
   });
 
   it("queues composer text while the active session is running", async () => {
@@ -2257,7 +2276,6 @@ describe("ChatPage", () => {
 
     await waitFor(() => expectTurnSubmit(stores.chatStore, "s1", {
       text: "first queued",
-      usePersistentRag: true,
     }));
     expect(turnSubmitCommands(stores.chatStore)).toHaveLength(1);
     const queuedInputs = screen.getByLabelText("Queued inputs");
@@ -2268,7 +2286,6 @@ describe("ChatPage", () => {
 
     await waitFor(() => expectTurnSubmit(stores.chatStore, "s1", {
       text: "second queued",
-      usePersistentRag: true,
     }));
     expect(turnSubmitCommands(stores.chatStore)).toHaveLength(2);
     expect(screen.queryByLabelText("Queued inputs")).toBeNull();
@@ -2310,7 +2327,6 @@ describe("ChatPage", () => {
 
     await waitFor(() => expectTurnSubmit(stores.chatStore, "s1", {
       text: "queued after full turn",
-      usePersistentRag: true,
     }));
   });
 
@@ -2441,7 +2457,6 @@ describe("ChatPage", () => {
 
     await waitFor(() => expectTurnSubmit(stores.chatStore, "s1", {
       text: "resume first",
-      usePersistentRag: true,
     }));
     const queuedInputs = screen.getByLabelText("Queued inputs");
     expect(queuedInputs.textContent).not.toContain("resume first");
@@ -2685,7 +2700,6 @@ describe("ChatPage", () => {
 
     await waitFor(() => expectTurnSubmit(stores.chatStore, "pending:1", {
       text: "Summarize docs",
-      usePersistentRag: true,
     }));
     expect(screen.queryByRole("heading", { name: "未选择会话" })).toBeNull();
     expect(screen.getByRole("button", { name: "Summarize docs" })).toBeTruthy();
@@ -2782,32 +2796,6 @@ describe("ChatPage", () => {
     expectTurnSubmit(stores.chatStore, "s1", {
       model: "deepseek-reasoner",
       text: "Use a specific model",
-      usePersistentRag: true,
-    });
-  });
-
-  it("keeps the old knowledge RAG toggle in the composer tools menu", async () => {
-    const user = userEvent.setup();
-    const stores = createStores();
-    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
-
-    await screen.findByRole("button", { name: "Planning notes" });
-    await user.click(screen.getByRole("button", { name: "Tools" }));
-
-    const ragToggle = screen.getByRole("menuitemcheckbox", { name: /Knowledge RAG/i });
-    expect(ragToggle.getAttribute("aria-checked")).toBe("true");
-
-    await user.click(ragToggle);
-    await waitFor(() => {
-      expect(screen.getByRole("menuitemcheckbox", { name: /Knowledge RAG/i }).getAttribute("aria-checked")).toBe("false");
-    });
-
-    await user.type(screen.getByRole("textbox", { name: /message/i }), "No retrieved material");
-    await user.click(screen.getByRole("button", { name: /send message/i }));
-
-    expectTurnSubmit(stores.chatStore, "s1", {
-      text: "No retrieved material",
-      usePersistentRag: false,
     });
   });
 
@@ -2889,20 +2877,6 @@ describe("ChatPage", () => {
     expect(stores.chatStore.dispatch).not.toHaveBeenCalled();
   });
 
-  it("closes the composer tools menu when another composer area is clicked", async () => {
-    const user = userEvent.setup();
-    const stores = createStores();
-    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
-
-    await screen.findByRole("button", { name: "Planning notes" });
-    await user.click(screen.getByRole("button", { name: "Tools" }));
-    expect(screen.getByRole("menuitemcheckbox", { name: /Knowledge RAG/i })).toBeTruthy();
-
-    await user.click(screen.getByRole("textbox", { name: /message/i }));
-
-    expect(screen.queryByRole("menuitemcheckbox", { name: /Knowledge RAG/i })).toBeNull();
-  });
-
   it("sends long pasted content through the Claude-style composer", async () => {
     const user = userEvent.setup();
     const stores = createStores();
@@ -2924,7 +2898,6 @@ describe("ChatPage", () => {
 
     expectTurnSubmit(stores.chatStore, "s1", {
       text: `Summarize this\n\nPasted content:\n${pastedText}`,
-      usePersistentRag: true,
     });
     expect(screen.queryByText("Pasted text")).toBeNull();
   });

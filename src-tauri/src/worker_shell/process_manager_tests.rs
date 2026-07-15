@@ -576,6 +576,8 @@ fn cancellation_terminates_the_owned_process() {
 
     assert_eq!(output.status, "cancelled", "{output:?}");
     assert_eq!(rpc.active_process_count(), 0);
+    let cleanup = rpc.shutdown();
+    assert!(cleanup.failures.is_empty(), "{cleanup:?}");
     let metrics_after = crate::runtime::observability::global_agent_runtime_metrics().snapshot();
     assert!(
         metrics_after["counters"]["process.start.completed"]

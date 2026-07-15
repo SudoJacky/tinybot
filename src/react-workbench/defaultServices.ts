@@ -13,7 +13,6 @@ import { DEFAULT_GATEWAY_CONFIG, resolveGatewayConfig } from "../app-core/gatewa
 import { ensureGatewayReady } from "../app-core/gateway/desktopGatewayStartup";
 import { createDesktopNativeConfigApi } from "../app-core/native/desktopNativeConfig";
 import { applyNativeConfigPatch } from "../app-core/native/desktopNativeConfigPatch";
-import { createDesktopNativeKnowledgeApi } from "../app-core/native/desktopNativeKnowledge";
 import { createDesktopNativeSessionsApi } from "../app-core/native/desktopNativeSessions";
 import { createDesktopNativeSkillsApi } from "../app-core/native/desktopNativeSkills";
 import { createDesktopNativeThreadsApi } from "../app-core/native/desktopNativeThreads";
@@ -37,7 +36,6 @@ import type {
   AppServices,
   ChatModelOption,
   ChatEvent,
-  KnowledgeDocumentSummary,
   McpServerSummary,
   SessionSummary,
   SkillSummary,
@@ -64,7 +62,6 @@ export function createDesktopAppServices(): AppServices {
   const config = resolveGatewayConfig(DEFAULT_GATEWAY_CONFIG);
   const nativeMode = hasTauriRuntime();
   const nativeConfig = nativeMode ? createDesktopNativeConfigApi({ invoke }) : undefined;
-  const nativeKnowledge = nativeMode ? createDesktopNativeKnowledgeApi({ invoke }) : undefined;
   const nativeSessions = nativeMode ? createDesktopNativeSessionsApi({ invoke }) : undefined;
   const nativeSkills = nativeMode ? createDesktopNativeSkillsApi({ invoke }) : undefined;
   const nativeThreads = nativeMode ? createDesktopNativeThreadsApi({ invoke }) : undefined;
@@ -254,13 +251,12 @@ export function createDesktopAppServices(): AppServices {
       await controller.selectSession(session.key, session.chatId);
     }
     const input = command.input;
-    const result = await controller.submitMessage(
-      input.text,
-      input.usePersistentRag ?? true,
-      input.model,
-      input.references,
-      command.commandId,
-    );
+    const result = await controller.submitMessage(input.text, {
+      ...(input.model ? { model: input.model } : {}),
+      ...(input.references?.length ? { references: input.references } : {}),
+      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
+      clientEventId: command.commandId,
+    });
     const optimisticText = result.status === "sent" ? result.content : "";
     const optimisticMessage = result.status === "empty"
       ? undefined
@@ -426,16 +422,6 @@ export function createDesktopAppServices(): AppServices {
       async readFile(request) {
         await initialize();
         return normalizeWorkspaceFileChunk(await requireNative(nativeWorkspace, "Workspace").fileChunk(request));
-      },
-    },
-    knowledgeStore: {
-      async listDocuments() {
-        await initialize();
-        return normalizeKnowledgeDocuments(await requireNative(nativeKnowledge, "Knowledge").documents());
-      },
-      async stats() {
-        await initialize();
-        return normalizeStats(await requireNative(nativeKnowledge, "Knowledge").stats());
       },
     },
     toolsStore: {
@@ -727,18 +713,6 @@ function isWorkspaceQueryErrorCode(value: string): value is WorkspaceQueryErrorC
   ].includes(value);
 }
 
-function normalizeKnowledgeDocuments(payload: unknown): KnowledgeDocumentSummary[] {
-  return payloadItems(payload, ["documents", "items"]).map((item, index) => {
-    const id = stringValue(item.id ?? item.doc_id ?? item.document_id ?? item.path) || `document:${index}`;
-    return {
-      id,
-      title: stringValue(item.title ?? item.name ?? item.path) || id,
-      source: stringValue(item.source ?? item.source_path ?? item.path),
-      updatedAtMs: timestampMs(stringValue(item.updated_at ?? item.updatedAt ?? item.created_at)) ?? undefined,
-    };
-  });
-}
-
 function normalizeSkills(payload: unknown): SkillSummary[] {
   return payloadItems(payload, ["skills", "items"]).map((item) => {
     const name = stringValue(item.name ?? item.id ?? item.slug);
@@ -789,22 +763,6 @@ function normalizeMcpServerSummary(item: Record<string, unknown>): McpServerSumm
     toolCount: numberValue(item.toolCount ?? status.toolCount) ?? 0,
     error: stringValue(item.error ?? status.lastError) || undefined,
   };
-}
-
-function normalizeStats(payload: unknown): Array<{ label: string; value: string }> {
-  if (Array.isArray(payload)) {
-    return payload.filter(isRecord).map((item) => ({
-      label: labelFromKey(stringValue(item.label ?? item.name ?? item.key)),
-      value: stringValue(item.value ?? item.count ?? item.total),
-    })).filter((item) => item.label && item.value);
-  }
-  if (!isRecord(payload)) {
-    return [];
-  }
-  const stats = isRecord(payload.stats) ? payload.stats : payload;
-  return Object.entries(stats)
-    .filter(([, value]) => value !== null && value !== undefined && typeof value !== "object")
-    .map(([key, value]) => ({ label: labelFromKey(key), value: stringValue(value) }));
 }
 
 function normalizeSettingsSummary(snapshot: unknown, config: { httpBaseUrl: string; requestTimeoutMs: number; wsUrl: string }) {
@@ -919,12 +877,6 @@ function payloadItems(payload: unknown, keys: string[]): Record<string, unknown>
     }
   }
   return [];
-}
-
-function labelFromKey(value: string): string {
-  return value
-    .replace(/[_-]+/g, " ")
-    .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -86,18 +86,6 @@ export type WorkspaceStore = {
   readFile(request: { cursor?: string; path: string }): Promise<WorkspaceFileChunk>;
 };
 
-export type KnowledgeDocumentSummary = {
-  id: string;
-  title: string;
-  source?: string;
-  updatedAtMs?: number;
-};
-
-export type KnowledgeStore = {
-  listDocuments(): Promise<KnowledgeDocumentSummary[]>;
-  stats(): Promise<Array<{ label: string; value: string }>>;
-};
-
 export type SkillSummary = {
   name: string;
   description?: string;
@@ -176,7 +164,6 @@ export type AppServices = {
   sessionStore: SessionStore;
   chatStore: ChatStore;
   workspaceStore: WorkspaceStore;
-  knowledgeStore: KnowledgeStore;
   toolsStore: ToolsStore;
   settingsStore: SettingsStore;
 };

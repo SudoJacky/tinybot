@@ -1,4 +1,5 @@
 mod agent_flow;
+mod attachments;
 mod history;
 mod persistence;
 mod result_projection;
@@ -8,6 +9,10 @@ mod trace_sink;
 mod webui_continuation;
 
 pub(crate) use agent_flow::run_agent_with_services;
+pub(crate) use attachments::{
+    cleanup_turn_attachments, materialize_turn_attachments, turn_result_needs_attachment_files,
+    TurnAttachmentLease,
+};
 pub(crate) use history::{
     attach_native_agent_latest_usage, hydrate_native_agent_history_for_runtime,
     native_agent_assistant_messages, native_agent_current_user_message, native_agent_message_id,

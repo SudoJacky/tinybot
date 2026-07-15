@@ -52,11 +52,21 @@ describe("desktop native chat session controller", () => {
     const { controller, submitThreadTurn } = createController();
     await controller.loadSessions();
 
-    await expect(controller.submitMessage("hello", true, "model-1", [{
-      kind: "reference",
-      title: "README",
-      detail: "selected file",
-    }])).resolves.toEqual({
+    await expect(controller.submitMessage("hello", {
+      model: "model-1",
+      references: [{
+        kind: "reference",
+        title: "README",
+        detail: "selected file",
+      }],
+      attachments: [{
+        type: "text",
+        name: "notes.md",
+        mimeType: "text/markdown",
+        sizeBytes: 7,
+        content: "# Notes",
+      }],
+    })).resolves.toEqual({
       status: "sent",
       sessionId: "thread-1",
       threadId: "thread-1",
@@ -71,6 +81,13 @@ describe("desktop native chat session controller", () => {
         content: "hello",
         clientEventId: "client-1",
         references: [{ kind: "reference", title: "README", detail: "selected file" }],
+        attachments: [{
+          type: "text",
+          name: "notes.md",
+          mimeType: "text/markdown",
+          sizeBytes: 7,
+          content: "# Notes",
+        }],
       },
       spec: {
         runId: "run-1",
@@ -79,7 +96,6 @@ describe("desktop native chat session controller", () => {
         model: "model-1",
         metadata: {
           clientEventId: "client-1",
-          usePersistentRag: true,
           references: [{ kind: "reference", title: "README", detail: "selected file" }],
         },
       },
@@ -90,7 +106,7 @@ describe("desktop native chat session controller", () => {
     const { controller, submitThreadTurn } = createController();
     await controller.loadSessions();
 
-    await expect(controller.submitMessage("hello", true, undefined, undefined, "command-turn-1")).resolves.toEqual(
+    await expect(controller.submitMessage("hello", { clientEventId: "command-turn-1" })).resolves.toEqual(
       expect.objectContaining({ clientEventId: "command-turn-1", status: "sent" }),
     );
     expect(submitThreadTurn).toHaveBeenCalledWith(expect.objectContaining({

@@ -25,7 +25,6 @@ const DISPOSITION_RULES: DispositionRule[] = [
   { pattern: /^agents\.defaults\.(contextBlockLimit|maxToolResultChars|embedding\..+)$/, disposition: "advanced" },
   { pattern: /^providers\.[^.]+\.(api_key|api_base|enabled|models)$/, disposition: "essential" },
   { pattern: /^providers\.profiles\.[^.]+\.(provider|api_key|api_base|enabled|models)$/, disposition: "essential" },
-  { pattern: /^knowledge\..+$/, disposition: "advanced" },
   { pattern: /^tools\.mcpServers(\.|$)/, disposition: "expert-editor" },
   { pattern: /^tools\.(restrictToWorkspace|ssrfWhitelist)(\.|$)/, disposition: "advanced" },
   { pattern: /^tools\.(web|exec)(\.|$)/, disposition: "advanced" },
@@ -53,14 +52,6 @@ export function canonicalizeDesktopSettingsPersistentPath(path: string): string 
     .replace(/^tools\.ssrf_whitelist(?=\.|$)/, "tools.ssrfWhitelist")
     .replace(/^channels\.send_progress(?=\.|$)/, "channels.sendProgress")
     .replace(/^gateway\.heartbeat\.interval_s$/, "gateway.heartbeat.intervalS")
-    .replace(/^knowledge\.chunk_size$/, "knowledge.chunkSize")
-    .replace(/^knowledge\.chunk_overlap$/, "knowledge.chunkOverlap")
-    .replace(/^knowledge\.retrieval_mode$/, "knowledge.retrievalMode")
-    .replace(/^knowledge\.graph_extraction_enabled$/, "knowledge.semanticExtractionEnabled")
-    .replace(/^knowledge\.graph_extraction_model$/, "knowledge.semanticExtractionModel")
-    .replace(/^knowledge\.graph_extraction_max_tokens$/, "knowledge.semanticExtractionMaxTokens")
-    .replace(/^knowledge\.graph_extraction_max_job_tokens$/, "knowledge.semanticExtractionMaxJobTokens")
-    .replace(/^knowledge\.graph_extraction_concurrency$/, "knowledge.semanticExtractionConcurrency")
     .replace(/^tools\.restrict_to_workspace$/, "tools.restrictToWorkspace")
     .replace(/^channels\.send_tool_hints$/, "channels.sendToolHints")
     .replace(/^channels\.send_max_retries$/, "channels.sendMaxRetries");

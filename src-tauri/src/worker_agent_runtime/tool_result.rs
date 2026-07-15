@@ -152,29 +152,6 @@ impl NativeToolResultEnvelope {
         )
     }
 
-    pub fn knowledge_context(
-        tool_call: &NativeAgentToolCall,
-        summary: String,
-        snippets: Value,
-    ) -> Self {
-        Self::from_parts(
-            "ok",
-            summary.clone(),
-            snippets.to_string(),
-            "knowledge_context",
-            summary,
-            serde_json::json!({
-                "kind": "knowledge_context",
-                "snippets": snippets,
-            }),
-            serde_json::json!([]),
-            serde_json::json!([]),
-            serde_json::json!([]),
-            tool_call,
-            serde_json::json!({ "snippets": snippets }),
-        )
-    }
-
     fn from_parts(
         status: &str,
         summary: String,

@@ -54,12 +54,6 @@ fn route_inventory_classifies_webui_routes_and_tauri_commands() {
             && entry.owner == NativeRouteOwner::RustOwned
     }));
     assert!(webui.iter().any(|entry| {
-        entry.method == Some("POST")
-            && entry.path == "/v1/knowledge/query"
-            && entry.owner == NativeRouteOwner::Unsupported
-            && !entry.replacement_plan.is_empty()
-    }));
-    assert!(webui.iter().any(|entry| {
         entry.method == Some("GET")
             && entry.path == "/api/tools"
             && entry.owner == NativeRouteOwner::RustOwned
@@ -76,13 +70,7 @@ fn route_inventory_classifies_webui_routes_and_tauri_commands() {
 
 #[test]
 fn unsupported_webui_routes_must_have_inventory_entries() {
-    let unsupported_routes = [
-        ("PATCH", "/api/config"),
-        ("POST", "/v1/knowledge/query"),
-        ("POST", "/v1/knowledge/graph/extract"),
-        ("GET", "/v1/knowledge/graphrag"),
-        ("POST", "/api/cowork/sessions"),
-    ];
+    let unsupported_routes = [("PATCH", "/api/config"), ("POST", "/api/cowork/sessions")];
 
     for (method, path) in unsupported_routes {
         let entry = webui_route_inventory_entry(method, path)
@@ -101,7 +89,6 @@ fn unsupported_areas_are_explicitly_inventoried() {
     let tauri = native_tauri_command_inventory();
     let runtime = native_runtime_component_inventory();
 
-    assert_inventory_area(&webui, "knowledge", NativeRouteOwner::Unsupported);
     assert_inventory_area(&webui, "cowork", NativeRouteOwner::Unsupported);
     assert_inventory_area(&runtime, "heartbeat", NativeRouteOwner::Unsupported);
     assert_inventory_area(&runtime, "tools", NativeRouteOwner::RustOwned);

@@ -1,6 +1,5 @@
 use super::NativeAgentRunContext;
 use crate::worker_capability::default_desktop_capability_policy;
-use crate::worker_knowledge::{KnowledgeContextParams, WorkerKnowledgeRpc};
 use crate::worker_memory::WorkerMemoryRpc;
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
@@ -86,10 +85,7 @@ pub(super) struct AgentContextContributorRegistry {
 impl Default for AgentContextContributorRegistry {
     fn default() -> Self {
         Self {
-            contributors: vec![
-                Arc::new(MemoryContextContributor),
-                Arc::new(KnowledgeContextContributor),
-            ],
+            contributors: vec![Arc::new(MemoryContextContributor)],
         }
     }
 }
@@ -239,62 +235,6 @@ impl AgentContextContributor for MemoryContextContributor {
             .cloned()
             .unwrap_or_default();
         Ok(Some(AgentContextContribution::new(content, references)))
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct KnowledgeContextContributor;
-
-impl AgentContextContributor for KnowledgeContextContributor {
-    fn id(&self) -> &str {
-        "builtin.knowledge"
-    }
-
-    fn kind(&self) -> &str {
-        "knowledge"
-    }
-
-    fn enabled(&self, request: &AgentContextRequest) -> Result<bool, String> {
-        Ok(
-            configured_bool(request.config_snapshot(), "knowledge", &["enabled"], false)?
-                && configured_bool(
-                    request.config_snapshot(),
-                    "knowledge",
-                    &["auto_retrieve", "autoRetrieve"],
-                    false,
-                )?,
-        )
-    }
-
-    fn contribute(
-        &self,
-        request: &AgentContextRequest,
-    ) -> Result<Option<AgentContextContribution>, String> {
-        let max_chunks = configured_usize(
-            request.config_snapshot(),
-            "knowledge",
-            &["max_chunks", "maxChunks"],
-            5,
-            20,
-        )?;
-        let result = WorkerKnowledgeRpc::new(
-            request.workspace_root.clone(),
-            default_desktop_capability_policy(),
-        )
-        .context(KnowledgeContextParams {
-            current_message: request.current_message.clone(),
-            session_key: Some(request.session_id.clone()),
-            max_chunks: Some(max_chunks),
-            use_persistent_knowledge: Some(true),
-        })
-        .map_err(|error| error.message)?;
-        if result.context.trim().is_empty() {
-            return Ok(None);
-        }
-        Ok(Some(AgentContextContribution::new(
-            result.context,
-            result.references,
-        )))
     }
 }
 

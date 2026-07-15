@@ -593,17 +593,6 @@ fn canonical_config_segment(parent: &[String], _index: usize, segment: &str) -> 
             other => other.to_string(),
         };
     }
-    if parent == ["knowledge"] {
-        return match segment {
-            "chunk_size" => "chunkSize".to_string(),
-            "chunk_overlap" => "chunkOverlap".to_string(),
-            "retrieval_mode" => "retrievalMode".to_string(),
-            "graph_extraction_enabled" => "semanticExtractionEnabled".to_string(),
-            "graph_extraction_model" => "semanticExtractionModel".to_string(),
-            "graph_extraction_max_tokens" => "semanticExtractionMaxTokens".to_string(),
-            other => other.to_string(),
-        };
-    }
     segment.to_string()
 }
 
@@ -707,19 +696,6 @@ fn validate_config_snapshot(snapshot: &Value) -> Option<String> {
             .is_some_and(|port| (1..=65535).contains(&port));
         if !valid_port {
             return Some("validation_failed: gateway.port".to_string());
-        }
-    }
-    let chunk_size = snapshot
-        .get("knowledge")
-        .and_then(|knowledge| knowledge.get("chunkSize"))
-        .and_then(Value::as_u64);
-    let chunk_overlap = snapshot
-        .get("knowledge")
-        .and_then(|knowledge| knowledge.get("chunkOverlap"))
-        .and_then(Value::as_u64);
-    if let (Some(chunk_size), Some(chunk_overlap)) = (chunk_size, chunk_overlap) {
-        if chunk_overlap >= chunk_size {
-            return Some("validation_failed: knowledge.chunkOverlap".to_string());
         }
     }
     None
@@ -892,9 +868,6 @@ fn plan_config_patch_side_effects(updated_fields: &[String]) -> ConfigPatchSideE
         }
         if field.starts_with("channels.") {
             push_unique(&mut applied, "channelConfigChanged".to_string());
-        }
-        if field.starts_with("knowledge.") {
-            push_unique(&mut applied, "knowledgeConfigChanged".to_string());
         }
         if field == "agents.defaults.workspace" {
             push_unique(&mut restart_required, "workspaceReloadRequired".to_string());

@@ -107,16 +107,6 @@ function canonicalConfigSegment(parent: readonly string[], segment: string): str
   if (parent.length === 2 && parent[0] === "gateway" && parent[1] === "heartbeat" && segment === "interval_s") {
     return "intervalS";
   }
-  if (parent.length === 1 && parent[0] === "knowledge") {
-    return ({
-      chunk_size: "chunkSize",
-      chunk_overlap: "chunkOverlap",
-      retrieval_mode: "retrievalMode",
-      graph_extraction_enabled: "semanticExtractionEnabled",
-      graph_extraction_model: "semanticExtractionModel",
-      graph_extraction_max_tokens: "semanticExtractionMaxTokens",
-    } as Record<string, string>)[segment] ?? segment;
-  }
   return segment;
 }
 

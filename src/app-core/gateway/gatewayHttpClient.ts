@@ -7,7 +7,6 @@ type ClientOptions = {
   config?: GatewayConfig;
   fetchFn?: FetchFn;
   nativeConfig?: NativeConfigApi;
-  nativeKnowledge?: NativeKnowledgeApi;
   nativeSessions?: NativeSessionsApi;
   nativeThreads?: NativeThreadsApi;
   nativeSkills?: NativeSkillsApi;
@@ -116,17 +115,6 @@ export type NativeConfigApi = {
   get: () => Promise<unknown>;
 };
 
-export type NativeKnowledgeApi = {
-  documents: (options?: KnowledgeDocumentsOptions) => Promise<unknown>;
-  addDocument: (body: unknown) => Promise<unknown>;
-  document: (documentId: string) => Promise<unknown>;
-  deleteDocument: (documentId: string) => Promise<unknown>;
-  job: (jobId: string) => Promise<unknown>;
-  rebuildIndex: (type?: string) => Promise<unknown>;
-  stats: () => Promise<unknown>;
-  graph: (options?: KnowledgeGraphOptions) => Promise<unknown>;
-};
-
 export type NativeWorkspaceApi = {
   files: () => Promise<unknown>;
   file: (path: string) => Promise<unknown>;
@@ -168,36 +156,6 @@ export type WebuiApprovalsListOptions = {
   sessionKey?: string;
   chatId?: string;
   channel?: string;
-};
-
-export type KnowledgeDocumentsOptions = {
-  category?: string;
-  limit?: number;
-};
-
-export type KnowledgeGraphOptions = {
-  docId?: string;
-  graphType?: "document" | "entity";
-  limit?: number;
-  edgeLimit?: number;
-  minConfidence?: number;
-  includeOrphans?: boolean;
-};
-
-export type KnowledgeGraphExtractionOptions = {
-  docId?: string;
-  docIds?: string[];
-  scope?: "all" | "selected";
-  dryRun?: boolean;
-  force?: boolean;
-};
-
-export type KnowledgeGraphRagOptions = {
-  docId?: string;
-  minConfidence?: number;
-  level?: number;
-  includeReports?: boolean;
-  includeCovariates?: boolean;
 };
 
 type WebSocketProbe = (url: string, timeoutMs: number) => Promise<ProbeResult>;
@@ -666,136 +624,6 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
           "webui.agentUi.cancelForm",
         );
       },
-    },
-    knowledge: {
-      documents: (documentOptions: KnowledgeDocumentsOptions = {}) => {
-        const path = knowledgeDocumentsPath(documentOptions);
-        return nativeOrGateway(
-          () => options.nativeKnowledge?.documents(documentOptions) ?? options.nativeWebui?.route({ method: "GET", path }),
-          () => request(path),
-          "knowledge.documents",
-          false,
-        );
-      },
-      addDocument: (body: unknown) => nativeOrGateway(
-        () => options.nativeKnowledge?.addDocument(body)
-          ?? options.nativeWebui?.route({ method: "POST", path: "/v1/knowledge/documents", body }),
-        () => request("/v1/knowledge/documents", jsonRequest("POST", body)),
-        "knowledge.addDocument",
-        false,
-      ),
-      document: (documentId: string) => {
-        const path = `/v1/knowledge/documents/${encodePathSegment(documentId)}`;
-        return nativeOrGateway(
-          () => options.nativeKnowledge?.document(documentId) ?? options.nativeWebui?.route({ method: "GET", path }),
-          () => request(path),
-          "knowledge.document",
-          false,
-        );
-      },
-      uploadDocument: (body: FormData) => nativeOrGateway(
-        () => {
-          if (options.nativeKnowledge) {
-            const uploadBody = nativeKnowledgeUploadBody(body);
-            return uploadBody
-              ? uploadBody.then((payload) => options.nativeKnowledge?.addDocument(payload))
-              : Promise.reject(new Error("Native Knowledge uploads only support txt, md, json, and csv files."));
-          }
-          if (!options.nativeWebui) {
-            return undefined;
-          }
-          const uploadBody = nativeKnowledgeUploadBody(body);
-          return uploadBody
-            ? uploadBody.then((payload) => options.nativeWebui?.route({
-              method: "POST",
-              path: "/v1/knowledge/documents/upload?async_index=true",
-              body: payload,
-            }))
-            : Promise.reject(new Error("Native Knowledge uploads only support txt, md, json, and csv files."));
-        },
-        () => request("/v1/knowledge/documents/upload?async_index=true", formRequest("POST", body)),
-        "knowledge.uploadDocument",
-        false,
-      ),
-      deleteDocument: (documentId: string) => {
-        const path = `/v1/knowledge/documents/${encodePathSegment(documentId)}`;
-        return nativeOrGateway(
-          () => options.nativeKnowledge?.deleteDocument(documentId) ?? options.nativeWebui?.route({ method: "DELETE", path }),
-          () => request(path, { method: "DELETE" }),
-          "knowledge.deleteDocument",
-          false,
-        );
-      },
-      job: (jobId: string) => {
-        const path = `/v1/knowledge/jobs/${encodePathSegment(jobId)}`;
-        return nativeOrGateway(
-          () => options.nativeKnowledge?.job(jobId) ?? options.nativeWebui?.route({ method: "GET", path }),
-          () => request(path),
-          "knowledge.job",
-          false,
-        );
-      },
-      rebuildIndex: (type: string = "all") => {
-        const path = `/v1/knowledge/rebuild-index?type=${encodeURIComponent(type)}&async_index=true`;
-        return nativeOrGateway(
-          () => options.nativeKnowledge?.rebuildIndex(type) ?? options.nativeWebui?.route({ method: "POST", path }),
-          () => request(path, { method: "POST" }),
-          "knowledge.rebuildIndex",
-          false,
-        );
-      },
-      stats: () => nativeOrGateway(
-        () => options.nativeKnowledge?.stats() ?? options.nativeWebui?.route({ method: "GET", path: "/v1/knowledge/stats" }),
-        () => request("/v1/knowledge/stats"),
-        "knowledge.stats",
-        false,
-      ),
-      graph: (graphOptions: KnowledgeGraphOptions = {}) => {
-        const path = knowledgeGraphPath(graphOptions);
-        return nativeOrGateway(
-          () => options.nativeKnowledge?.graph(graphOptions) ?? options.nativeWebui?.route({ method: "GET", path }),
-          () => request(path),
-          "knowledge.graph",
-          false,
-        );
-      },
-      extractGraph: (extractOptions: KnowledgeGraphExtractionOptions) => {
-        const body = {
-          ...(extractOptions.docId ? { doc_id: extractOptions.docId } : {}),
-          ...(extractOptions.docIds?.length ? { doc_ids: extractOptions.docIds } : {}),
-          ...(extractOptions.scope ? { scope: extractOptions.scope } : {}),
-          ...(typeof extractOptions.dryRun === "boolean" ? { dry_run: extractOptions.dryRun } : {}),
-          ...(typeof extractOptions.force === "boolean" ? { force: extractOptions.force } : {}),
-        };
-        return nativeOrGateway(
-          () => options.nativeWebui?.route({
-            method: "POST",
-            path: "/v1/knowledge/graph/extract",
-            body,
-          }),
-          () => request("/v1/knowledge/graph/extract", jsonRequest("POST", body)),
-          "knowledge.extractGraph",
-          false,
-        );
-      },
-      graphrag: (graphRagOptions: KnowledgeGraphRagOptions = {}) => {
-        const path = knowledgeGraphRagPath(graphRagOptions);
-        return nativeOrGateway(
-          () => options.nativeWebui?.route({
-            method: "GET",
-            path,
-          }),
-          () => request(path),
-          "knowledge.graphrag",
-          false,
-        );
-      },
-      query: (body: unknown) => nativeOrGateway(
-        () => options.nativeWebui?.route({ method: "POST", path: "/v1/knowledge/query", body }),
-        () => request("/v1/knowledge/query", jsonRequest("POST", body)),
-        "knowledge.query",
-        false,
-      ),
     },
     workspace: {
       files: () => nativeOrGateway(
@@ -1477,38 +1305,6 @@ function nativeTemporaryFileUploadBody(body: FormData): Promise<Record<string, u
   }));
 }
 
-function nativeKnowledgeUploadBody(body: FormData): Promise<Record<string, unknown>> | undefined {
-  const file = body.get("file");
-  if (!(file instanceof File)) {
-    return undefined;
-  }
-  const fileType = canonicalNativeTextFileType(extensionFromName(file.name));
-  if (!fileType) {
-    return undefined;
-  }
-  return file.text().then((content) => {
-    const payload: Record<string, unknown> = {
-      name: file.name,
-      file_type: fileType,
-      content,
-      size_bytes: file.size,
-    };
-    const category = formString(body.get("category"));
-    if (category) {
-      payload.category = category;
-    }
-    const tags = formString(body.get("tags"));
-    if (tags) {
-      payload.tags = tags.split(",").map((tag) => tag.trim()).filter(Boolean);
-    }
-    return payload;
-  });
-}
-
-function formString(value: FormDataEntryValue | null): string | undefined {
-  return typeof value === "string" ? value.trim() : undefined;
-}
-
 function canonicalNativeTextFileType(fileType: string): string | undefined {
   if (fileType === "markdown") {
     return "md";
@@ -1561,59 +1357,6 @@ function normalizeNativeWebuiSessionKey(sessionKey: string): string {
   return sessionKey.startsWith("WebSocket:")
     ? `websocket:${sessionKey.slice("WebSocket:".length)}`
     : sessionKey;
-}
-
-function knowledgeDocumentsPath(options: KnowledgeDocumentsOptions): string {
-  const params = new URLSearchParams();
-  if (options.category) {
-    params.set("category", options.category);
-  }
-  if (typeof options.limit === "number" && Number.isFinite(options.limit)) {
-    params.set("limit", String(options.limit));
-  }
-  const query = params.toString();
-  return query ? `/v1/knowledge/documents?${query}` : "/v1/knowledge/documents";
-}
-
-function knowledgeGraphPath(options: KnowledgeGraphOptions): string {
-  const params = new URLSearchParams();
-  if (options.docId) {
-    params.set("doc_id", options.docId);
-  }
-  if (options.graphType) {
-    params.set("graph_type", options.graphType);
-  }
-  if (typeof options.limit === "number" && Number.isFinite(options.limit)) {
-    params.set("limit", String(options.limit));
-  }
-  if (typeof options.edgeLimit === "number" && Number.isFinite(options.edgeLimit)) {
-    params.set("edge_limit", String(options.edgeLimit));
-  }
-  if (typeof options.minConfidence === "number" && Number.isFinite(options.minConfidence)) {
-    params.set("min_confidence", String(options.minConfidence));
-  }
-  if (typeof options.includeOrphans === "boolean") {
-    params.set("include_orphans", String(options.includeOrphans));
-  }
-  const query = params.toString();
-  return query ? `/v1/knowledge/graph?${query}` : "/v1/knowledge/graph";
-}
-
-function knowledgeGraphRagPath(options: KnowledgeGraphRagOptions): string {
-  const params = new URLSearchParams();
-  if (options.docId) {
-    params.set("doc_id", options.docId);
-  }
-  const minConfidence = typeof options.minConfidence === "number" && Number.isFinite(options.minConfidence)
-    ? options.minConfidence
-    : 0;
-  params.set("min_confidence", String(minConfidence));
-  if (typeof options.level === "number" && Number.isFinite(options.level)) {
-    params.set("level", String(options.level));
-  }
-  params.set("include_reports", String(options.includeReports ?? true));
-  params.set("include_covariates", String(options.includeCovariates ?? true));
-  return `/v1/knowledge/graphrag?${params}`;
 }
 
 function stringifyError(error: unknown): string {
