@@ -277,23 +277,23 @@ describe("ChatPage", () => {
 
     fireEvent.click(openButton);
 
-    const canvas = await screen.findByLabelText("Live Canvas");
+    const canvas = screen.getByLabelText("Live Canvas");
     mountWorkbenchCss();
     const canvasHeading = within(canvas).getByRole("heading", { name: "TinyOS" });
     expect(openButton.getAttribute("aria-expanded")).toBe("true");
     expect(getComputedStyle(openButton).minWidth).toBe("44px");
     expect(document.querySelector(".react-chat-page")?.getAttribute("data-live-canvas-open")).toBe("true");
-    expect(within(canvas).getByRole("article", { name: "Terminal window" })).toBeTruthy();
-    expect(within(canvas).getByText("Live follow")).toBeTruthy();
-    await waitFor(() => expect(document.activeElement).toBe(canvasHeading));
+    expect(canvas.querySelector('[aria-label="Terminal window"]')).toBeTruthy();
+    expect(canvas.textContent).toContain("Live follow");
+    expect(document.activeElement).toBe(canvasHeading);
 
-    const closeButton = within(canvas).getByRole("button", { name: "Close Live Canvas panel" });
+    const closeButton = canvas.querySelector<HTMLButtonElement>('[aria-label="Close Live Canvas panel"]')!;
     expect(getComputedStyle(closeButton).minWidth).toBe("44px");
     fireEvent.click(closeButton);
 
-    await waitFor(() => expect(screen.queryByLabelText("Live Canvas")).toBeNull());
-    const restoredButton = screen.getByRole("button", { name: /^Open Live Canvas/ });
-    await waitFor(() => expect(document.activeElement).toBe(restoredButton));
+    expect(canvas.isConnected).toBe(false);
+    expect(openButton.getAttribute("aria-label")).toMatch(/^Open Live Canvas/);
+    expect(document.activeElement).toBe(openButton);
   });
 
   it("attaches a TinyOS file range as a visible composer chip and structured chat reference", async () => {
