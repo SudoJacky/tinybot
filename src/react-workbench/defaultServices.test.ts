@@ -3,6 +3,8 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { createDesktopAppServices } from "./defaultServices";
 import type { ChatEvent } from "./services";
+import { createDesktopStopCommand, createDesktopTurnSubmitCommand } from "../app-core/chat/desktopCommand";
+import { createTinyOsApprovalResolveCommand } from "../app-core/chat/tinyOsCommandGateway";
 
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -117,13 +119,23 @@ describe("desktop native app services", () => {
     const events: ChatEvent[] = [];
     services.chatStore.subscribe("thread-1", (event) => events.push(event));
 
-    await services.chatStore.send("thread-1", { text: "hello", model: "model-1" });
+    await services.chatStore.dispatch(createDesktopTurnSubmitCommand({
+      commandId: "command-turn-1",
+      message: { text: "hello", model: "model-1" },
+      sessionId: "thread-1",
+      source: { control: "test", surface: "chat" },
+    }));
 
     expect(mocks.invoke).toHaveBeenCalledWith("worker_submit_thread_turn", {
       input: expect.objectContaining({
         threadId: "thread-1",
-        input: expect.objectContaining({ role: "user", content: "hello" }),
-        spec: expect.objectContaining({ sessionId: "thread-1", stream: true, model: "model-1" }),
+        input: expect.objectContaining({ role: "user", content: "hello", clientEventId: "command-turn-1" }),
+        spec: expect.objectContaining({
+          sessionId: "thread-1",
+          stream: true,
+          model: "model-1",
+          metadata: expect.objectContaining({ clientEventId: "command-turn-1" }),
+        }),
       }),
     });
     expect(events).toContainEqual(expect.objectContaining({ type: "message-sent" }));
@@ -174,14 +186,28 @@ describe("desktop native app services", () => {
     const services = createDesktopAppServices();
     await services.sessionStore.list();
 
-    await services.chatStore.stop("thread-1");
-    await services.chatStore.resolveApproval("thread-1", {
+    await services.chatStore.dispatch(createDesktopStopCommand({
+      commandId: "command-stop-1",
+      sessionId: "thread-1",
+      source: { control: "test", surface: "chat" },
+    }));
+    await services.chatStore.dispatch(createTinyOsApprovalResolveCommand({
       action: "approveSession",
       approvalId: "approval-1",
-    });
+      commandId: "command-approval-1",
+      runId: "run-live",
+      sessionId: "thread-1",
+      source: { control: "test", surface: "chat" },
+      threadId: "thread-1",
+      turnId: "run-live",
+    }));
 
     expect(mocks.invoke).toHaveBeenCalledWith("worker_thread_interrupt", {
-      input: { body: expect.objectContaining({ threadId: "thread-1", runId: "run-live" }) },
+      input: { body: expect.objectContaining({
+        threadId: "thread-1",
+        runId: "run-live",
+        clientEventId: "command-stop-1",
+      }) },
     });
     expect(mocks.invoke).toHaveBeenCalledWith("worker_resolve_thread_approval", {
       input: {

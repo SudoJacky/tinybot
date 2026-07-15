@@ -1834,13 +1834,45 @@ button.tinyos-overlay-backdrop:focus-visible {
   transition: border-color var(--motion-duration-fast) var(--motion-ease-standard), box-shadow var(--motion-duration-fast) var(--motion-ease-standard);
 }
 
-.tinyos-launcher[data-magnifying="true"] {
+.tinyos-launcher[data-lens-visible="true"] {
   border-color: rgb(94 234 212 / 24%);
   box-shadow: 0 28px 70px rgb(0 0 0 / 48%), 0 0 42px rgb(94 234 212 / 13%), inset 0 1px 0 rgb(255 255 255 / 18%);
 }
 
+.tinyos-launcher__lens {
+  position: absolute;
+  z-index: 4;
+  inset: -10px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.tinyos-launcher__glass-surface-host {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.tinyos-launcher__glass-surface {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 64px;
+  height: 64px;
+  overflow: hidden;
+  border: 1px solid rgb(207 250 254 / 25%);
+  border-radius: 23px;
+  background: linear-gradient(135deg, rgb(255 255 255 / 10%), rgb(165 243 252 / 3%) 46%, rgb(15 23 42 / 8%));
+  box-shadow: 0 9px 26px rgb(0 0 0 / 24%), inset 0 0 2px 1px rgb(255 255 255 / 25%), inset 0 0 11px 4px rgb(207 250 254 / 9%);
+  opacity: 0;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
 .tinyos-launcher__app {
   position: relative;
+  z-index: 3;
   display: inline-grid;
   width: 42px;
   height: 42px;
@@ -1850,9 +1882,12 @@ button.tinyos-overlay-backdrop:focus-visible {
   border-radius: 12px;
   color: #cbd5e1;
   cursor: pointer;
-  transition: background-color var(--motion-duration-fast) var(--motion-ease-standard), border-color var(--motion-duration-fast) var(--motion-ease-standard), box-shadow var(--motion-duration-fast) var(--motion-ease-standard), color var(--motion-duration-fast) var(--motion-ease-standard);
-  transform-origin: center bottom;
-  will-change: transform;
+  transition: color var(--motion-duration-fast) var(--motion-ease-standard), filter var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.tinyos-launcher__app:hover,
+.tinyos-launcher__app:focus-visible {
+  background: transparent;
 }
 
 .tinyos-launcher__app > span {
@@ -1883,13 +1918,12 @@ button.tinyos-overlay-backdrop:focus-visible {
 .tinyos-launcher__app:hover:not(:disabled),
 .tinyos-launcher__app:focus-visible,
 .tinyos-launcher__app[data-active="true"] {
-  border-color: rgb(94 234 212 / 32%);
-  background: linear-gradient(145deg, rgb(94 234 212 / 16%), rgb(167 139 250 / 13%));
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 14%), 0 8px 20px rgb(0 0 0 / 20%);
   color: #f8fafc;
+  filter: drop-shadow(0 2px 7px rgb(94 234 212 / 34%));
 }
 
 .tinyos-launcher__app:focus-visible {
+  z-index: 5;
   outline: 2px solid var(--color-accent);
   outline-offset: -2px;
 }
@@ -2797,9 +2831,10 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .tinyos-workspace-document {
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
   background: #fffdfa;
 }
 

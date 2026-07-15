@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
 import { gsap } from "gsap";
 import {
   Activity,
@@ -67,6 +67,8 @@ import { TinyOsFilesExplorer } from "./TinyOsFilesExplorer";
 import { TinyOsSideRays } from "./TinyOsSideRays";
 import { TinyOsSystemMonitor, type TinyOsSystemMonitorControls } from "./TinyOsSystemMonitor";
 import type { TinyOsFilesController } from "./useTinyOsFilesController";
+
+const TinyOsGlassSurface = lazy(() => import("./TinyOsGlassSurface"));
 
 const APP_ICONS = {
   artifacts: Archive,
@@ -255,7 +257,6 @@ export function TinyOsShell({
       restoredLayout,
     });
   });
-
   useLayoutEffect(() => {
     const shell = shellRef.current;
     if (!shell || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
@@ -275,64 +276,91 @@ export function TinyOsShell({
 
   useLayoutEffect(() => {
     const launcher = launcherRef.current;
-    if (!launcher || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    const lens = launcher?.querySelector<HTMLElement>(".tinyos-launcher__lens");
+    if (!launcher || !lens) return;
 
-    type DockMotion = { scale: (value: number) => void; y: (value: number) => void };
-    const motions = new Map<HTMLElement, DockMotion>();
-    const dockItems = () => Array.from(launcher.querySelectorAll<HTMLElement>(".tinyos-launcher__app"));
-    const motionFor = (item: HTMLElement) => {
-      const current = motions.get(item);
-      if (current) return current;
-      const motion = {
-        scale: gsap.quickTo(item, "scale", { duration: .24, ease: "power3.out" }),
-        y: gsap.quickTo(item, "y", { duration: .24, ease: "power3.out" }),
-      };
-      motions.set(item, motion);
-      return motion;
-    };
-    const resetDock = () => {
-      const items = dockItems();
-      launcher.removeAttribute("data-magnifying");
-      gsap.killTweensOf(items);
-      motions.clear();
-      gsap.to(items, {
-        clearProps: "transform",
-        duration: .52,
-        ease: "elastic.out(1, .48)",
-        overwrite: true,
-        scale: 1,
-        y: 0,
-        onComplete: () => items.forEach((item) => item.style.removeProperty("z-index")),
-      });
-    };
-    const magnifyDock = (event: globalThis.PointerEvent) => {
-      launcher.setAttribute("data-magnifying", "true");
-      dockItems().forEach((item) => {
-        const bounds = item.getBoundingClientRect();
-        if (bounds.width < 1 || (item instanceof HTMLButtonElement && item.disabled)) return;
-        const distance = Math.abs(event.clientX - bounds.left - bounds.width / 2);
-        const proximity = Math.max(0, 1 - distance / 126);
-        const influence = proximity * proximity * (3 - 2 * proximity);
-        const motion = motionFor(item);
-        motion.scale(1 + influence * .36);
-        motion.y(-influence * 11);
-        item.style.zIndex = `${Math.round(1 + influence * 10)}`;
-      });
-    };
+    let currentItem: HTMLElement | null = null;
+    let resting = false;
 
-    launcher.addEventListener("pointermove", magnifyDock);
-    launcher.addEventListener("pointerleave", resetDock);
+    const activeItem = () => launcher.querySelector<HTMLElement>(".tinyos-launcher__app[data-active=\"true\"]");
+    const clearLensTarget = () => {
+      currentItem?.removeAttribute("data-lens-target");
+    };
+    const publishLensTarget = (item: HTMLElement | null) => {
+      const lensBounds = lens.getBoundingClientRect();
+      const itemBounds = item?.getBoundingClientRect();
+      const visible = Boolean(itemBounds && lensBounds.width > 0);
+      const x = visible && itemBounds
+        ? (itemBounds.left + itemBounds.width / 2 - lensBounds.left) / lensBounds.width
+        : .5;
+      lens.dispatchEvent(new CustomEvent("tinyos:glass-target", { detail: { visible, x } }));
+    };
+    const positionLens = (item: HTMLElement, nextResting: boolean) => {
+      if (item === currentItem && resting === nextResting) return;
+      const lensBounds = lens.getBoundingClientRect();
+      const itemBounds = item.getBoundingClientRect();
+      if (lensBounds.width < 1 || itemBounds.width < 1) return;
+      clearLensTarget();
+      currentItem = item;
+      resting = nextResting;
+      item.setAttribute("data-lens-target", "true");
+      launcher.setAttribute("data-lens-visible", "true");
+      publishLensTarget(item);
+    };
+    const settleLens = () => {
+      const active = activeItem();
+      if (active) {
+        positionLens(active, true);
+        return;
+      }
+      clearLensTarget();
+      currentItem = null;
+      resting = false;
+      launcher.removeAttribute("data-lens-visible");
+      publishLensTarget(null);
+    };
+    const handlePointerMove = (event: globalThis.PointerEvent) => {
+      const target = event.target instanceof Element
+        ? event.target.closest<HTMLElement>(".tinyos-launcher__app")
+        : null;
+      if (target && launcher.contains(target)) {
+        positionLens(target, false);
+      }
+    };
+    const handleFocusIn = (event: globalThis.FocusEvent) => {
+      const target = event.target instanceof Element
+        ? event.target.closest<HTMLElement>(".tinyos-launcher__app")
+        : null;
+      if (target && launcher.contains(target)) positionLens(target, false);
+    };
+    const handleFocusOut = (event: globalThis.FocusEvent) => {
+      if (event.relatedTarget instanceof Node && launcher.contains(event.relatedTarget)) return;
+      settleLens();
+    };
+    const resizeObserver = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(() => {
+      if (currentItem) {
+        const item = currentItem;
+        currentItem = null;
+        positionLens(item, resting);
+      }
+    });
+
+    launcher.addEventListener("pointermove", handlePointerMove);
+    launcher.addEventListener("pointerleave", settleLens);
+    launcher.addEventListener("focusin", handleFocusIn);
+    launcher.addEventListener("focusout", handleFocusOut);
+    resizeObserver?.observe(launcher);
+    settleLens();
     return () => {
-      launcher.removeEventListener("pointermove", magnifyDock);
-      launcher.removeEventListener("pointerleave", resetDock);
-      const items = dockItems();
-      gsap.killTweensOf(items);
-      items.forEach((item) => {
-        item.style.removeProperty("transform");
-        item.style.removeProperty("z-index");
-      });
+      launcher.removeEventListener("pointermove", handlePointerMove);
+      launcher.removeEventListener("pointerleave", settleLens);
+      launcher.removeEventListener("focusin", handleFocusIn);
+      launcher.removeEventListener("focusout", handleFocusOut);
+      resizeObserver?.disconnect();
+      clearLensTarget();
+      launcher.removeAttribute("data-lens-visible");
     };
-  }, [appWindows.length]);
+  }, [appWindows.length, uiState.focusedAppId]);
 
   useEffect(() => {
     const returningToLive = previousHistoryMode.current && !history;
@@ -951,6 +979,11 @@ export function TinyOsShell({
         </div>
 
         <nav aria-label="TinyOS applications" className="tinyos-launcher" ref={launcherRef}>
+          <span aria-hidden="true" className="tinyos-launcher__lens">
+            <Suspense fallback={null}>
+              <TinyOsGlassSurface />
+            </Suspense>
+          </span>
           {APP_ORDER.map((appId, index) => {
             const Icon = APP_ICONS[appId];
             const available = availableApps.has(appId);

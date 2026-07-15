@@ -15,7 +15,7 @@ export type {
   WorkspaceQueryErrorCode,
 } from "../app-core/workspace/workspaceExplorer";
 import type { AgentDefaultsSettingsData } from "../app-core/settings/agentDefaultsSettings";
-import type { NativeChatReference } from "../app-core/chat/nativeChat";
+import type { DesktopChatInput, DesktopCommand } from "../app-core/chat/desktopCommand";
 import type { TinyOsCommand } from "../app-core/chat/tinyOsCommandGateway";
 import type { TinyOsEffectiveCapabilities } from "../app-core/chat/tinyOsCapabilities";
 import type {
@@ -39,12 +39,7 @@ export type SessionSummary = {
   status?: "idle" | "running" | "waiting_approval" | "failed";
 };
 
-export type ChatInput = {
-  text: string;
-  model?: string;
-  references?: NativeChatReference[];
-  usePersistentRag?: boolean;
-};
+export type ChatInput = DesktopChatInput;
 
 export type ChatEvent = {
   type: string;
@@ -58,12 +53,6 @@ export type ChatEvent = {
 
 export type ApprovalAction = "approveOnce" | "approveSession" | "deny";
 
-export type ApprovalResolutionInput = {
-  action: ApprovalAction;
-  approvalId: string;
-  guidance?: string;
-};
-
 export type SessionStore = {
   list(): Promise<SessionSummary[]>;
   create(input?: { title?: string }): Promise<SessionSummary>;
@@ -76,13 +65,8 @@ export type SessionStore = {
 export type ChatStore = {
   load(sessionId: string): Promise<ChatTimelineSnapshot>;
   loadTinyOsCapabilities(sessionId: string): Promise<TinyOsEffectiveCapabilities>;
-  send(sessionId: string, input: ChatInput): Promise<void>;
-  stop(sessionId: string): Promise<void>;
-  dispatchCommand(command: TinyOsCommand): Promise<void>;
-  resolveApproval(sessionId: string, input: ApprovalResolutionInput): Promise<void>;
+  dispatch(command: DesktopCommand): Promise<void>;
   listAgentUiForms(sessionId: string): Promise<AgentUiForm[]>;
-  submitAgentUiForm(formId: string, values: Record<string, unknown>): Promise<void>;
-  cancelAgentUiForm(formId: string): Promise<void>;
   loadDelegateTrace?(selection: { sessionKey: string; delegateId?: string; traceRef?: string }): Promise<unknown>;
   loadArtifact?(selection: { sessionKey: string; delegateId?: string; traceRef?: string; artifactId: string }): Promise<unknown>;
   branchFromMessage(sessionId: string, messageId: string): Promise<SessionSummary>;

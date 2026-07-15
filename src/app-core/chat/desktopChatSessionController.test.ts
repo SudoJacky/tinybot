@@ -86,6 +86,21 @@ describe("desktop native chat session controller", () => {
     });
   });
 
+  test("uses the desktop command id as the Thread client event id", async () => {
+    const { controller, submitThreadTurn } = createController();
+    await controller.loadSessions();
+
+    await expect(controller.submitMessage("hello", true, undefined, undefined, "command-turn-1")).resolves.toEqual(
+      expect.objectContaining({ clientEventId: "command-turn-1", status: "sent" }),
+    );
+    expect(submitThreadTurn).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({ clientEventId: "command-turn-1" }),
+      spec: expect.objectContaining({
+        metadata: expect.objectContaining({ clientEventId: "command-turn-1" }),
+      }),
+    }));
+  });
+
   test("applies typed timeline patches after the Thread timeline is loaded", async () => {
     const { controller } = createController();
     await controller.loadSessions();

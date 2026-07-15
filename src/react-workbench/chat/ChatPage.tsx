@@ -45,6 +45,7 @@ import {
 import { TextType } from "../../components/ui/TextType";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
 import type { ApprovalAction, ChatEvent, ChatInput, ChatModelOption, ChatStore, SessionStore, SessionSummary, SettingsStore, WorkspaceStore } from "../services";
+import { createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
 import { reduceSessionDeleteState } from "../sessions/sessionDeleteState";
 import { canBranchFromMessage, canCopyMessage, type ContextReferenceSummary, type ReactChatMessage, type ToolCallSummary } from "./messageActions";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
@@ -476,7 +477,7 @@ export function ChatPage({
     dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
     if (fromHistory) dispatchLiveCanvas({ type: "return_live" });
     try {
-      await chatStore.dispatchCommand(command);
+      await chatStore.dispatch(command);
     } catch (error) {
       dispatchCommandLifecycle({
         commandId: command.commandId,
@@ -497,7 +498,7 @@ export function ChatPage({
     setTimelineError("");
     dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
     try {
-      await chatStore.dispatchCommand(command);
+      await chatStore.dispatch(command);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       dispatchCommandLifecycle({ commandId: command.commandId, error: message, type: "rejected" });
@@ -1008,6 +1009,14 @@ export function ChatPage({
     setActiveSessionId(branched.id);
   }
 
+  function dispatchTurn(sessionId: string, input: ChatInput, control: string): Promise<void> {
+    return chatStore.dispatch(createDesktopTurnSubmitCommand({
+      message: input,
+      sessionId,
+      source: { control, surface: "chat" },
+    }));
+  }
+
   async function handleComposerSend(
     message: string,
     files: FileWithPreview[],
@@ -1042,12 +1051,12 @@ export function ChatPage({
       optimisticSessionTitlesRef.current.set(sendSession.id, optimisticSession.title);
       setSessions((current) => current.map((session) => session.id === sendSession.id ? optimisticSession : session));
     }
-    await chatStore.send(sendSession.id, {
+    await dispatchTurn(sendSession.id, {
       text: queuedResult.content,
       ...(options.model ? { model: options.model } : {}),
       ...(references.length ? { references } : {}),
       ...(typeof options.usePersistentRag === "boolean" ? { usePersistentRag: options.usePersistentRag } : {}),
-    });
+    }, "composer-send");
     await handleSessionStoreRefresh(optimisticSession);
   }
 
@@ -1086,7 +1095,7 @@ export function ChatPage({
         setTimelineError("");
         dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
         try {
-          await chatStore.dispatchCommand(command);
+          await chatStore.dispatch(command);
         } catch (error) {
           dispatchCommandLifecycle({
             commandId: command.commandId,
@@ -1099,12 +1108,12 @@ export function ChatPage({
       if (action === "restart") {
         const created = await sessionStore.create({ title: deriveSessionTitle(turn.userMessage.text) });
         activateCreatedSession(created);
-        await chatStore.send(created.id, { text: turn.userMessage.text });
+        await dispatchTurn(created.id, { text: turn.userMessage.text }, "recovery-restart");
         await handleSessionStoreRefresh(created);
         return;
       }
       const text = "请从刚才中断的位置继续，沿用现有上下文和计划；先确认当前进度，再完成剩余任务。";
-      await chatStore.send(activeSession.id, { text });
+      await dispatchTurn(activeSession.id, { text }, "recovery-continue");
       await handleSessionStoreRefresh(activeSession);
     } finally {
       setRecoveringTurnId("");
@@ -1210,7 +1219,7 @@ export function ChatPage({
     pauseQueuedInputsForSession(session.id);
     dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
     try {
-      await chatStore.dispatchCommand(command);
+      await chatStore.dispatch(command);
     } catch (error) {
       dispatchCommandLifecycle({
         commandId: command.commandId,
@@ -1262,7 +1271,7 @@ export function ChatPage({
     if (!result.nextInput) {
       return;
     }
-    await chatStore.send(sessionId, toChatInput(result.nextInput as QueuedComposerInput));
+    await dispatchTurn(sessionId, toChatInput(result.nextInput as QueuedComposerInput), `queue-${mode}`);
     updateQueuedInputsBySession((current) => {
       const next = new Map(current);
       if (result.remainingInputs.length) {
@@ -1311,7 +1320,7 @@ export function ChatPage({
     setTimelineError("");
     dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
     try {
-      await chatStore.dispatchCommand(command);
+      await chatStore.dispatch(command);
     } catch (error) {
       dispatchCommandLifecycle({
         commandId: command.commandId,
@@ -1402,7 +1411,7 @@ export function ChatPage({
     setTimelineError("");
     dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
     try {
-      await chatStore.dispatchCommand(command);
+      await chatStore.dispatch(command);
     } catch (error) {
       dispatchCommandLifecycle({
         commandId: command.commandId,
@@ -1437,7 +1446,7 @@ export function ChatPage({
     setTimelineError("");
     dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
     try {
-      await chatStore.dispatchCommand(command);
+      await chatStore.dispatch(command);
     } catch (error) {
       dispatchCommandLifecycle({
         commandId: command.commandId,
@@ -1470,7 +1479,7 @@ export function ChatPage({
     setTimelineError("");
     dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
     try {
-      await chatStore.dispatchCommand(command);
+      await chatStore.dispatch(command);
     } catch (error) {
       dispatchCommandLifecycle({
         commandId: command.commandId,

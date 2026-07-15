@@ -3054,6 +3054,109 @@ fn worker_thread_commands_expose_thread_service_surface() {
 }
 
 #[test]
+fn worker_resolve_thread_approval_uses_runtime_checkpoint_before_thread_projection_catches_up() {
+    let fixture = WorkspaceFixture::new();
+    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let config = serde_json::json!({
+        "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+        "providers": {
+            "fixture": {
+                "responses": [{ "content": "runtime checkpoint approval final" }]
+            }
+        }
+    });
+    let thread_id = "thread-runtime-checkpoint-approval";
+    let session_id = "session-runtime-checkpoint-approval";
+    let run_id = "run-runtime-checkpoint-approval";
+    let approval_id = "approval-runtime-checkpoint-approval";
+    let create_request = next_worker_request_correlation();
+    call_rust_state_service(
+        fixture.root.clone(),
+        config.clone(),
+        WorkerRequest::new(
+            create_request.id("runtime-checkpoint-thread-create"),
+            create_request.trace_id("runtime-checkpoint-thread-create"),
+            "thread.create",
+            serde_json::json!({
+                "threadId": thread_id,
+                "sessionKey": session_id,
+                "title": "Runtime checkpoint approval"
+            }),
+        ),
+        "runtime checkpoint thread create",
+    )
+    .expect("approval thread should create");
+    let start_request = next_worker_request_correlation();
+    call_rust_state_service(
+        fixture.root.clone(),
+        config.clone(),
+        WorkerRequest::new(
+            start_request.id("runtime-checkpoint-thread-start"),
+            start_request.trace_id("runtime-checkpoint-thread-start"),
+            "thread.start_turn",
+            serde_json::json!({
+                "threadId": thread_id,
+                "runId": run_id,
+                "turnId": run_id,
+                "input": { "role": "user", "content": "run shell command" }
+            }),
+        ),
+        "runtime checkpoint thread start",
+    )
+    .expect("approval thread turn should start");
+
+    let runtime_services = lock_runtime(&shared).native_agent_runtime.clone();
+    let awaiting = crate::worker_agent_runtime::run_native_agent_turn_with_services(
+        &runtime_services,
+        serde_json::json!({
+            "runtime": "rust",
+            "runId": run_id,
+            "sessionId": session_id,
+            "threadId": thread_id,
+            "metadata": {
+                "threadId": thread_id,
+                "fakeAwaitingApproval": {
+                    "approvalId": approval_id,
+                    "toolName": "shell.execute"
+                }
+            }
+        }),
+    )
+    .expect("runtime approval checkpoint should exist before thread projection");
+    assert_eq!(awaiting["stopReason"], "awaiting_approval");
+
+    let snapshot = worker_thread_request_with_options(
+        &shared,
+        "runtime-checkpoint-thread-read",
+        "thread.read",
+        serde_json::json!({ "threadId": thread_id }),
+        fixture.root.clone(),
+        config.clone(),
+        Duration::from_millis(10),
+    )
+    .expect("approval thread should remain readable");
+    assert!(snapshot["latestCheckpoint"].is_null());
+
+    let result = worker_resolve_thread_approval_with_options(
+        &shared,
+        WorkerResolveThreadApprovalInput {
+            thread_id: thread_id.to_string(),
+            approval_id: approval_id.to_string(),
+            approved: true,
+            scope: Some("once".to_string()),
+            guidance: None,
+        },
+        fixture.root.clone(),
+        config,
+        Duration::from_millis(10),
+    )
+    .expect("runtime checkpoint should allow approval before thread projection finishes");
+
+    assert_eq!(result["approvalResult"]["stopReason"], "final_response");
+    assert_eq!(result["snapshot"]["thread"]["status"], "idle");
+}
+
+#[test]
 fn worker_resolve_thread_approval_resumes_checkpoint_and_updates_thread() {
     let fixture = WorkspaceFixture::new();
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));

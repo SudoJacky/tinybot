@@ -52,13 +52,8 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
         capabilities.capabilities.agent.cancel = { available: true };
         return capabilities;
       }),
-      send: vi.fn(async () => undefined),
-      stop: vi.fn(async () => undefined),
-      dispatchCommand: vi.fn(async () => undefined),
-      resolveApproval: vi.fn(async () => undefined),
+      dispatch: vi.fn(async () => undefined),
       listAgentUiForms: vi.fn(async () => []),
-      submitAgentUiForm: vi.fn(async () => undefined),
-      cancelAgentUiForm: vi.fn(async () => undefined),
       branchFromMessage: vi.fn(async () => ({ id: "s1", chatId: "chat-1", title: "Branch", updatedAtMs: Date.now() })),
       copyMarkdown: vi.fn(async () => ""),
       subscribe: vi.fn(() => () => undefined),
@@ -662,7 +657,11 @@ describe("DesktopShell", () => {
     expect((stopCommand as HTMLButtonElement).disabled).toBe(false);
     await user.click(stopCommand);
 
-    expect(services.chatStore.stop).toHaveBeenCalledWith("s1");
+    expect(services.chatStore.dispatch).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "agent.stop",
+      source: { control: "keyboard-shortcut", surface: "chat" },
+      target: { sessionId: "s1" },
+    }));
   });
 
   it("runs Stop Generation from the keyboard shortcut for the active running chat", async () => {
@@ -688,7 +687,11 @@ describe("DesktopShell", () => {
     await waitFor(() => expect((stopButton as HTMLButtonElement).disabled).toBe(false));
     fireEvent.keyDown(window, { ctrlKey: true, key: "." });
 
-    expect(services.chatStore.stop).toHaveBeenCalledWith("s1");
+    expect(services.chatStore.dispatch).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "agent.stop",
+      source: { control: "keyboard-shortcut", surface: "chat" },
+      target: { sessionId: "s1" },
+    }));
   });
 
 });

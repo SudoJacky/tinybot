@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { BookOpen, Bot, ChevronRight, Code2, Command, FileText, Folder, MessageSquare, Minus, Settings, Square, Wrench, X } from "lucide-react";
+import { createDesktopStopCommand } from "../../app-core/chat/desktopCommand";
 import { ChatPage } from "../chat/ChatPage";
 import { AgentDefaultsSettingsPage } from "../settings/AgentDefaultsSettingsPage";
 import { ConfigSettingsPage, type ConfigSettingsGroupId } from "../settings/ConfigSettingsPage";
@@ -156,7 +157,10 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
   function stopActiveGeneration() {
     const sessionId = stopGenerationSessionIdRef.current;
     if (sessionId) {
-      void services.chatStore.stop(sessionId);
+      void services.chatStore.dispatch(createDesktopStopCommand({
+        sessionId,
+        source: { control: "keyboard-shortcut", surface: "chat" },
+      }));
     }
   }
 
