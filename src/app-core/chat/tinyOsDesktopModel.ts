@@ -1,4 +1,5 @@
-import type { ChatStep, ChatStepStatus } from "./chatRunModel";
+import type { BackendAgentTurnItem, ChatStep, ChatStepStatus } from "./chatRunModel";
+import { projectTinyOsKernel, type TinyOsKernelProjectionOptions, type TinyOsKernelSnapshot } from "./tinyOsKernelModel";
 
 export type TinyOsAppId =
   | "files"
@@ -8,7 +9,8 @@ export type TinyOsAppId =
   | "memory"
   | "subagents"
   | "artifacts"
-  | "inspector";
+  | "inspector"
+  | "system_monitor";
 
 export type TinyOsTimelineEntry = {
   step: ChatStep;
@@ -16,8 +18,10 @@ export type TinyOsTimelineEntry = {
 };
 
 export type TinyOsCursor = {
+  eventIndex?: number;
   itemId?: string;
   mode: "live_follow" | "history";
+  runId?: string;
   turnId?: string;
 };
 
@@ -57,13 +61,14 @@ export type TinyOsDesktopSnapshot = {
   cursorItemId?: string;
   cursorTurnId?: string;
   dialog?: TinyOsDialog;
+  kernel?: TinyOsKernelSnapshot;
   notifications: TinyOsNotification[];
   operations: TinyOsOperation[];
   truth: "structured";
   windows: TinyOsWindow[];
 };
 
-const APP_ORDER: TinyOsAppId[] = [
+export const TINYOS_PRE_KERNEL_APP_IDS = [
   "files",
   "terminal",
   "browser",
@@ -72,7 +77,12 @@ const APP_ORDER: TinyOsAppId[] = [
   "subagents",
   "artifacts",
   "inspector",
-];
+] as const satisfies readonly TinyOsAppId[];
+
+export const TINYOS_APP_IDS = [
+  ...TINYOS_PRE_KERNEL_APP_IDS,
+  "system_monitor",
+] as const satisfies readonly TinyOsAppId[];
 
 const APP_TITLES: Record<TinyOsAppId, string> = {
   artifacts: "Artifacts",
@@ -82,6 +92,7 @@ const APP_TITLES: Record<TinyOsAppId, string> = {
   memory: "Memory",
   plan: "Plan",
   subagents: "Subagents",
+  system_monitor: "System Monitor",
   terminal: "Terminal",
 };
 
@@ -94,6 +105,7 @@ const FILE_TOOL_RE = /(?:^|[\s._-])(file|workspace|path|directory|search|grep|gl
 export function projectTinyOsDesktop(
   entries: readonly TinyOsTimelineEntry[],
   cursor: TinyOsCursor,
+  kernel?: TinyOsKernelSnapshot,
 ): TinyOsDesktopSnapshot {
   const visibleEntries = entries.slice(0, replayEndIndex(entries, cursor));
   const appEntries = new Map<TinyOsAppId, TinyOsTimelineEntry[]>();
@@ -110,7 +122,7 @@ export function projectTinyOsDesktop(
     routedEntries.push({ appId, entry });
   }
 
-  const windows = APP_ORDER.flatMap((appId): TinyOsWindow[] => {
+  const windows = TINYOS_APP_IDS.flatMap((appId): TinyOsWindow[] => {
     const grouped = appEntries.get(appId);
     if (!grouped?.length) return [];
     return [{
@@ -132,6 +144,7 @@ export function projectTinyOsDesktop(
       cursorTurnId: latestEntry.turnId,
     } : {}),
     ...dialogFromEntries(visibleEntries),
+    ...(kernel ? { kernel } : {}),
     notifications: notificationsFromEntries(visibleEntries),
     operations: recentDistinctOperations(routedEntries).map(({ appId, entry }) => ({
       appId,
@@ -143,6 +156,33 @@ export function projectTinyOsDesktop(
     truth: "structured",
     windows,
   };
+}
+
+export function projectKernelBackedTinyOsDesktop(
+  entries: readonly TinyOsTimelineEntry[],
+  canonicalItems: readonly BackendAgentTurnItem[],
+  cursor: TinyOsCursor,
+  options: TinyOsKernelProjectionOptions = {},
+): TinyOsDesktopSnapshot {
+  const kernel = projectTinyOsKernel(canonicalItems, cursor.mode === "history" && cursor.itemId
+    ? {
+        ...(cursor.eventIndex !== undefined ? { eventIndex: cursor.eventIndex } : {}),
+        itemId: cursor.itemId,
+        mode: "history",
+        ...(cursor.runId ? { runId: cursor.runId } : {}),
+        ...(cursor.turnId ? { turnId: cursor.turnId } : {}),
+      }
+    : { mode: "live" }, options);
+  if (cursor.mode !== "history") return projectTinyOsDesktop(entries, cursor, kernel);
+  const visibleCanonicalKeys = new Set(canonicalItems
+    .slice(0, kernel.cursor.eventIndex + 1)
+    .map((item) => `${item.turnId}:${item.itemId}`));
+  let visibleEntryCount = 0;
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
+    if (visibleCanonicalKeys.has(`${entry.turnId}:${entry.step.id}`)) visibleEntryCount = index + 1;
+  }
+  return projectTinyOsDesktop(entries.slice(0, visibleEntryCount), { mode: "live_follow" }, kernel);
 }
 
 export function tinyOsAppForStep(step: ChatStep): TinyOsAppId | undefined {

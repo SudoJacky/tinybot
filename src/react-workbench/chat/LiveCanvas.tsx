@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from "react";
-import { Bell, Bot, ChevronLeft, ChevronRight, Loader2, Maximize2, Minimize2, MonitorDot, PanelRightClose, PanelRightOpen, Pause, Play, RotateCcw, ShieldCheck, StopCircle, X } from "lucide-react";
+import { Bell, Bot, Loader2, Maximize2, Minimize2, MonitorDot, PanelRightClose, PanelRightOpen, Pause, Play, ShieldCheck, StopCircle, X } from "lucide-react";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
-import { projectTinyOsDesktop, tinyOsAppForStep, type TinyOsTimelineEntry } from "../../app-core/chat/tinyOsDesktopModel";
+import { projectKernelBackedTinyOsDesktop, projectTinyOsDesktop, type TinyOsTimelineEntry } from "../../app-core/chat/tinyOsDesktopModel";
 import { tinyOsLayoutModeForWidth, type TinyOsAgentRequestIntent, type TinyOsAgentRequestReference, type TinyOsContextReference } from "../../app-core/chat/tinyOsUiState";
-import type { ArtifactRef, ChatStep } from "../../app-core/chat/chatRunModel";
+import type { ArtifactRef, BackendAgentTurnItem, ChatStep } from "../../app-core/chat/chatRunModel";
+import type { TinyOsBrowserAction } from "../../app-core/chat/tinyOsCommandGateway";
+import type { TinyOsNativeSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
 import type { ApprovalAction } from "../services";
 import { TinyOsShell } from "./TinyOsShell";
 import type { TinyOsFilesController } from "./useTinyOsFilesController";
 import { isTinyOsCommandInFlight, type TinyOsCommandLifecycle } from "../../app-core/chat/tinyOsCommandGateway";
+import { createTinyOsShellCommandRegistry, defineTinyOsShellCommand, type TinyOsShellCommandAvailability } from "../../app-core/chat/tinyOsShellCommandRegistry";
+import { createTinyOsTimeMachineIndex, type TinyOsTimeMachineBoundary } from "../../app-core/chat/tinyOsTimeMachine";
+import { TinyOsTimeMachine } from "./TinyOsTimeMachine";
 
 export type LiveCanvasMode = "live_follow" | "history";
 export type LiveCanvasEntry = TinyOsTimelineEntry;
@@ -20,10 +25,12 @@ const TINYOS_BOOT_DURATION_MS = 1_000;
 let tinyOsBootedInRuntime = false;
 
 export function LiveCanvas({
+  activeRunId,
   agentUiForms,
   canCancelTerminal = false,
   canDirectEdit = false,
   canExecuteTerminal = false,
+  canInteractBrowser = false,
   canCancelRun,
   canPauseRun,
   canRequestChange,
@@ -31,6 +38,8 @@ export function LiveCanvas({
   canRetryRun,
   canSaveFile = false,
   cancelUnavailableReason,
+  canonicalItems = [],
+  nativeSnapshots = [],
   pauseUnavailableReason,
   commandLifecycle,
   entries,
@@ -47,6 +56,7 @@ export function LiveCanvas({
   onOpenArtifact,
   onAgentRequest,
   onCancelTerminal = async () => undefined,
+  onBrowserInteract = async () => undefined,
   onDeleteFile = async () => undefined,
   onExecuteTerminal = async () => undefined,
   onMoveFile = async () => undefined,
@@ -55,26 +65,33 @@ export function LiveCanvas({
   onReturnToLive,
   onResumeRun,
   onSelectEntry,
+  onSelectBoundary,
   onSubmitForm,
   onSaveFile = async () => undefined,
   onWidthChange,
   resolvingApprovalId,
   requestChangeUnavailableReason,
   directEditUnavailableReason,
+  retryRunId,
+  retryUnavailableReason,
   resumeUnavailableReason,
   runningTerminalRunId,
   saveFileUnavailableReason,
   terminalCancelUnavailableReason,
   terminalExecuteUnavailableReason,
+  browserInteractUnavailableReason,
   selection,
+  selectionEventIndex,
   sessionKey,
   widthPx,
   workspaceKey = "desktop-workspace",
 }: {
+  activeRunId?: string;
   agentUiForms: AgentUiForm[];
   canCancelTerminal?: boolean;
   canDirectEdit?: boolean;
   canExecuteTerminal?: boolean;
+  canInteractBrowser?: boolean;
   canCancelRun: boolean;
   canPauseRun: boolean;
   canRequestChange: boolean;
@@ -82,6 +99,8 @@ export function LiveCanvas({
   canRetryRun: boolean;
   canSaveFile?: boolean;
   cancelUnavailableReason?: string;
+  canonicalItems?: BackendAgentTurnItem[];
+  nativeSnapshots?: TinyOsNativeSnapshot[];
   pauseUnavailableReason?: string;
   commandLifecycle: TinyOsCommandLifecycle;
   entries: LiveCanvasEntry[];
@@ -98,6 +117,7 @@ export function LiveCanvas({
   onOpenArtifact: (artifact: ArtifactRef) => void;
   onAgentRequest: (reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent, fromHistory: boolean) => void;
   onCancelTerminal?: () => Promise<void>;
+  onBrowserInteract?: (input: { action: TinyOsBrowserAction; browserSessionId: string; captureId: string; tabId: string }) => Promise<void>;
   onDeleteFile?: (input: { baseRevision: string; path: string }) => Promise<void>;
   onExecuteTerminal?: (input: { command: string; cwd?: string }) => Promise<void>;
   onMoveFile?: (input: { baseRevision: string; path: string; targetPath: string }) => Promise<void>;
@@ -106,32 +126,106 @@ export function LiveCanvas({
   onReturnToLive: () => void;
   onResumeRun: () => void;
   onSelectEntry: (entry: LiveCanvasEntry) => void;
+  onSelectBoundary?: (boundary: TinyOsTimeMachineBoundary) => void;
   onSubmitForm: (form: AgentUiForm, values: Record<string, unknown>) => void;
   onSaveFile?: (input: { baseRevision?: string; content: string; createOnly: boolean; path: string }) => Promise<void>;
   onWidthChange: (widthPx: number) => void;
   resolvingApprovalId: string;
   requestChangeUnavailableReason?: string;
   directEditUnavailableReason?: string;
+  retryRunId?: string;
+  retryUnavailableReason?: string;
   resumeUnavailableReason?: string;
   runningTerminalRunId?: string;
   saveFileUnavailableReason?: string;
   terminalCancelUnavailableReason?: string;
   terminalExecuteUnavailableReason?: string;
+  browserInteractUnavailableReason?: string;
   selection?: LiveCanvasEntry;
+  selectionEventIndex?: number;
   sessionKey?: string;
   widthPx: number;
   workspaceKey?: string;
 }) {
-  const snapshot = useMemo(() => projectTinyOsDesktop(entries, {
-    itemId: mode === "history" ? selection?.step.id : undefined,
-    mode,
-    turnId: mode === "history" ? selection?.turnId : undefined,
-  }), [entries, mode, selection?.step.id, selection?.turnId]);
+  const timeMachineIndex = useMemo(() => createTinyOsTimeMachineIndex(canonicalItems), [canonicalItems]);
+  const historyEventIndex = mode === "history"
+    ? resolveHistoryEventIndex(timeMachineIndex.boundaries, selectionEventIndex, selection)
+    : timeMachineIndex.eventCount - 1;
+  const historyBoundary = timeMachineIndex.boundaries[historyEventIndex];
+  const snapshot = useMemo(() => {
+    const cursor = mode === "history" && historyBoundary
+      ? {
+          eventIndex: historyBoundary.eventIndex,
+          itemId: historyBoundary.itemId,
+          mode,
+          runId: historyBoundary.runId,
+          turnId: historyBoundary.turnId,
+        } as const
+      : {
+          itemId: mode === "history" ? selection?.step.id : undefined,
+          mode,
+          turnId: mode === "history" ? selection?.turnId : undefined,
+        } as const;
+    return canonicalItems.length || nativeSnapshots.length || (entries.length === 0 && mode === "live_follow")
+      ? projectKernelBackedTinyOsDesktop(entries, canonicalItems, cursor, { nativeSnapshots })
+      : projectTinyOsDesktop(entries, cursor);
+  }, [canonicalItems, entries, historyBoundary, mode, nativeSnapshots, selection?.step.id, selection?.turnId]);
   const actionableDialog = Boolean(snapshot.dialog && mode === "live_follow");
   const commandPending = isTinyOsCommandInFlight(commandLifecycle);
   const commandKind = commandLifecycle.stage === "idle" ? "" : commandLifecycle.command.kind;
   const commandLabel = tinyOsLifecycleCommandLabel(commandKind);
   const commandAction = commandLabel.toLocaleLowerCase();
+  const runtimeCommandRegistry = useMemo(() => {
+    const target = { kind: "run", runId: activeRunId || "unavailable" } as const;
+    const availability = (available: boolean, reason?: string): TinyOsShellCommandAvailability => available
+      ? { available: true }
+      : {
+          available: false,
+          reason: mode === "history"
+            ? "History snapshots are read-only."
+            : commandPending
+              ? "A command is awaiting runtime confirmation."
+              : reason || "The backend reports that this command is unavailable.",
+        };
+    return createTinyOsShellCommandRegistry([
+      defineTinyOsShellCommand({
+        availability: availability(mode === "live_follow" && canPauseRun && !commandPending, pauseUnavailableReason),
+        category: "process",
+        dispatch: onPauseRun,
+        id: "agent.pause",
+        input: { kind: "none" },
+        keywords: ["pause", "agent", "run"],
+        label: "Pause active Agent run",
+        scope: "runtime",
+        target,
+      }),
+      defineTinyOsShellCommand({
+        availability: availability(mode === "live_follow" && canResumeRun && !commandPending, resumeUnavailableReason),
+        category: "process",
+        dispatch: onResumeRun,
+        id: "agent.resume",
+        input: { kind: "none" },
+        keywords: ["resume", "agent", "run"],
+        label: "Resume paused Agent run",
+        scope: "runtime",
+        target,
+      }),
+      defineTinyOsShellCommand({
+        availability: availability(mode === "live_follow" && canCancelRun && !commandPending, cancelUnavailableReason),
+        category: "process",
+        dispatch: onCancelRun,
+        id: "agent.cancel",
+        input: { kind: "none" },
+        keywords: ["cancel", "stop", "agent", "run"],
+        label: "Cancel active Agent run",
+        scope: "runtime",
+        target,
+      }),
+    ], { simulationMode: mode === "history" ? "history" : "live" });
+  }, [activeRunId, canCancelRun, canPauseRun, canResumeRun, cancelUnavailableReason, commandPending, mode, onCancelRun, onPauseRun, onResumeRun, pauseUnavailableReason, resumeUnavailableReason]);
+  const pauseCommand = runtimeCommandRegistry.get("agent.pause")!;
+  const resumeCommand = runtimeCommandRegistry.get("agent.resume")!;
+  const cancelCommand = runtimeCommandRegistry.get("agent.cancel")!;
   const submittingFormId = commandLifecycle.stage !== "idle"
     && (commandLifecycle.command.kind === "form.submit" || commandLifecycle.command.kind === "form.cancel")
     && isTinyOsCommandInFlight(commandLifecycle)
@@ -140,12 +234,102 @@ export function LiveCanvas({
   const skipBoot = Boolean(snapshot.dialog) || prefersReducedMotion();
   const [booting, setBooting] = useState(() => !tinyOsBootedInRuntime && !skipBoot);
   const dragRef = useRef<{ pointerId: number; startWidth: number; startX: number } | undefined>(undefined);
-  const visualEntries = useMemo(() => entries.filter(({ step }) => Boolean(tinyOsAppForStep(step))), [entries]);
-  const selectedVisualIndex = mode === "history" && selection
-    ? visualEntries.findIndex((entry) => entry.turnId === selection.turnId && entry.step.id === selection.step.id)
-    : visualEntries.length - 1;
-  const previousEntry = selectedVisualIndex > 0 ? visualEntries[selectedVisualIndex - 1] : undefined;
-  const nextEntry = selectedVisualIndex >= 0 && selectedVisualIndex < visualEntries.length - 1 ? visualEntries[selectedVisualIndex + 1] : undefined;
+  const previousBoundary = timeMachineIndex.boundaries[historyEventIndex - 1];
+  const nextBoundary = timeMachineIndex.boundaries[historyEventIndex + 1];
+  const selectBoundary = (boundary: TinyOsTimeMachineBoundary) => {
+    if (onSelectBoundary) {
+      onSelectBoundary(boundary);
+      return;
+    }
+    const entry = entries.find((candidate) => candidate.turnId === boundary.turnId && candidate.step.id === boundary.itemId);
+    if (entry) onSelectEntry(entry);
+  };
+  const canvasCommandRegistry = createTinyOsShellCommandRegistry([
+    ...runtimeCommandRegistry.commands,
+    defineTinyOsShellCommand({
+      availability: previousBoundary ? { available: true } : { available: false, reason: "There is no previous canonical event." },
+      category: "history",
+      dispatch: () => {
+        if (previousBoundary) selectBoundary(previousBoundary);
+      },
+      id: "history.previous",
+      input: { kind: "none" },
+      keywords: ["previous", "history", "operation"],
+      label: "Previous canonical event",
+      scope: "local_presentation",
+      target: { kind: "shell" },
+    }),
+    defineTinyOsShellCommand({
+      availability: nextBoundary ? { available: true } : { available: false, reason: "There is no next canonical event." },
+      category: "history",
+      dispatch: () => {
+        if (nextBoundary) selectBoundary(nextBoundary);
+      },
+      id: "history.next",
+      input: { kind: "none" },
+      keywords: ["next", "history", "operation"],
+      label: "Next canonical event",
+      scope: "local_presentation",
+      target: { kind: "shell" },
+    }),
+    ...timeMachineIndex.boundaries.map((boundary) => defineTinyOsShellCommand({
+      availability: { available: true },
+      category: "history",
+      dispatch: () => selectBoundary(boundary),
+      id: `history.select_event:${boundary.eventIndex}` as const,
+      input: { kind: "none" },
+      keywords: [boundary.title, boundary.kind, boundary.status, boundary.runId, boundary.turnId, "history", "event"],
+      label: `Show event ${boundary.eventIndex + 1}: ${boundary.title}`,
+      scope: "local_presentation",
+      target: { itemId: boundary.itemId, kind: "history", turnId: boundary.turnId },
+    })),
+    defineTinyOsShellCommand({
+      availability: mode === "history" ? { available: true } : { available: false, reason: "TinyOS is already following Live." },
+      category: "history",
+      dispatch: onReturnToLive,
+      id: "history.return_live",
+      input: { kind: "none" },
+      keywords: ["return", "live", "history"],
+      label: "Return to live",
+      scope: "local_presentation",
+      target: { kind: "shell" },
+    }),
+    defineTinyOsShellCommand({
+      availability: { available: true },
+      category: "system",
+      dispatch: toggleWorkspaceWidth,
+      id: "shell.workspace_toggle",
+      input: { kind: "none" },
+      keywords: ["workspace", "compact", "width"],
+      label: widthPx <= 520 ? "Expand TinyOS workspace" : "Use compact TinyOS workspace",
+      scope: "local_presentation",
+      target: { kind: "shell" },
+    }),
+    defineTinyOsShellCommand({
+      availability: onExpandedChange ? { available: true } : { available: false, reason: "Expanded TinyOS is unavailable on this surface." },
+      category: "system",
+      dispatch: () => onExpandedChange?.(),
+      id: "shell.expanded_toggle",
+      input: { kind: "none" },
+      keywords: ["expand", "restore", "surface"],
+      label: expanded ? "Exit expanded TinyOS" : "Expand TinyOS to Chat surface",
+      scope: "local_presentation",
+      target: { kind: "shell" },
+    }),
+    defineTinyOsShellCommand({
+      availability: actionableDialog
+        ? { available: false, reason: "Finish the active TinyOS system request before closing." }
+        : { available: true },
+      category: "system",
+      dispatch: onClose,
+      id: "shell.close",
+      input: { kind: "none" },
+      keywords: ["close", "hide", "tinyos"],
+      label: "Close TinyOS",
+      scope: "local_presentation",
+      target: { kind: "shell" },
+    }),
+  ], { simulationMode: mode === "history" ? "history" : "live" });
 
   useEffect(() => {
     tinyOsBootedInRuntime = true;
@@ -195,7 +379,7 @@ export function LiveCanvas({
           aria-label="Close TinyOS overlay"
           className="tinyos-overlay-backdrop"
           type="button"
-          onClick={onClose}
+          onClick={() => void canvasCommandRegistry.execute("shell.close")}
         />
       ) : null}
       <aside aria-label="Live Canvas" className="react-live-canvas tinyos" data-expanded={expanded ? "true" : undefined} data-mode={mode} id="tinybot-live-canvas">
@@ -234,10 +418,10 @@ export function LiveCanvas({
           {mode === "live_follow" ? (
             <button
               aria-label={commandPending && commandKind === "agent.pause" ? "Pause command pending" : "Pause active Agent run"}
-              disabled={!canPauseRun || commandPending}
-              title={commandPending ? "Waiting for runtime confirmation" : canPauseRun ? "Pause at the next safe runtime boundary" : pauseUnavailableReason || "No pausable run"}
+              disabled={!pauseCommand.availability.available}
+              title={pauseCommand.availability.available ? "Pause at the next safe runtime boundary" : pauseCommand.availability.reason}
               type="button"
-              onClick={onPauseRun}
+              onClick={() => void canvasCommandRegistry.execute(pauseCommand.id)}
             >
               {commandPending && commandKind === "agent.pause" ? <Loader2 aria-hidden="true" className="tinyos-command-spinner" size={15} /> : <Pause aria-hidden="true" size={15} />}
               <span>{commandPending && commandKind === "agent.pause" ? "Pausing" : "Pause"}</span>
@@ -246,10 +430,10 @@ export function LiveCanvas({
           {mode === "live_follow" ? (
             <button
               aria-label={commandPending && commandKind === "agent.resume" ? "Resume command pending" : "Resume paused Agent run"}
-              disabled={!canResumeRun || commandPending}
-              title={commandPending ? "Waiting for runtime confirmation" : canResumeRun ? "Resume the same Agent run" : resumeUnavailableReason || "No paused run"}
+              disabled={!resumeCommand.availability.available}
+              title={resumeCommand.availability.available ? "Resume the same Agent run" : resumeCommand.availability.reason}
               type="button"
-              onClick={onResumeRun}
+              onClick={() => void canvasCommandRegistry.execute(resumeCommand.id)}
             >
               {commandPending && commandKind === "agent.resume" ? <Loader2 aria-hidden="true" className="tinyos-command-spinner" size={15} /> : <Play aria-hidden="true" size={15} />}
               <span>{commandPending && commandKind === "agent.resume" ? "Resuming" : "Resume"}</span>
@@ -258,21 +442,13 @@ export function LiveCanvas({
           {mode === "live_follow" ? (
             <button
               aria-label={commandPending && commandKind === "agent.cancel" ? "Cancel command pending" : "Cancel active Agent run"}
-              disabled={!canCancelRun || commandPending}
-              title={commandPending ? "Waiting for runtime confirmation" : canCancelRun ? "Cancel active run" : cancelUnavailableReason || "No cancellable run"}
+              disabled={!cancelCommand.availability.available}
+              title={cancelCommand.availability.available ? "Cancel active run" : cancelCommand.availability.reason}
               type="button"
-              onClick={onCancelRun}
+              onClick={() => void canvasCommandRegistry.execute(cancelCommand.id)}
             >
               {commandPending && commandKind === "agent.cancel" ? <Loader2 aria-hidden="true" className="tinyos-command-spinner" size={15} /> : <StopCircle aria-hidden="true" size={15} />}
               <span>{commandPending && commandKind === "agent.cancel" ? "Cancelling" : "Cancel"}</span>
-            </button>
-          ) : null}
-          <button aria-label="Previous canonical operation" disabled={!previousEntry} title="Previous operation" type="button" onClick={() => previousEntry && onSelectEntry(previousEntry)}><ChevronLeft aria-hidden="true" size={15} /></button>
-          <button aria-label="Next canonical operation" disabled={!nextEntry} title="Next operation" type="button" onClick={() => nextEntry && onSelectEntry(nextEntry)}><ChevronRight aria-hidden="true" size={15} /></button>
-          {mode === "history" ? (
-            <button aria-label="Return to live" title="Return to live" type="button" onClick={onReturnToLive}>
-              <RotateCcw aria-hidden="true" size={15} />
-              <span>Return to live</span>
             </button>
           ) : null}
           <button
@@ -280,17 +456,25 @@ export function LiveCanvas({
             className="tinyos-workspace-toggle"
             title={widthPx <= 520 ? "Workspace layout" : "Compact layout"}
             type="button"
-            onClick={toggleWorkspaceWidth}
+            onClick={() => void canvasCommandRegistry.execute("shell.workspace_toggle")}
           >
             {widthPx <= 520 ? <PanelRightOpen aria-hidden="true" size={15} /> : <PanelRightClose aria-hidden="true" size={15} />}
             <span>{widthPx <= 520 ? "Workspace" : "Compact"}</span>
           </button>
-          {onExpandedChange ? <button aria-label={expanded ? "Exit expanded TinyOS" : "Expand TinyOS to Chat surface"} title={expanded ? "Exit expanded mode" : "Expanded mode"} type="button" onClick={onExpandedChange}>{expanded ? <Minimize2 aria-hidden="true" size={15} /> : <Maximize2 aria-hidden="true" size={15} />}</button> : null}
-          <button aria-label="Close Live Canvas panel" title="Close TinyOS" type="button" onClick={onClose}>
+          {onExpandedChange ? <button aria-label={expanded ? "Exit expanded TinyOS" : "Expand TinyOS to Chat surface"} title={expanded ? "Exit expanded mode" : "Expanded mode"} type="button" onClick={() => void canvasCommandRegistry.execute("shell.expanded_toggle")}>{expanded ? <Minimize2 aria-hidden="true" size={15} /> : <Maximize2 aria-hidden="true" size={15} />}</button> : null}
+          <button aria-label="Close Live Canvas panel" title="Close TinyOS" type="button" onClick={() => void canvasCommandRegistry.execute("shell.close")}>
             <X aria-hidden="true" size={16} />
           </button>
         </div>
       </header>
+
+      <TinyOsTimeMachine
+        currentEventIndex={Math.max(0, historyEventIndex)}
+        index={timeMachineIndex}
+        live={mode === "live_follow"}
+        onReturnToLive={() => void canvasCommandRegistry.execute("history.return_live")}
+        onSelect={(boundary) => void canvasCommandRegistry.execute(`history.select_event:${boundary.eventIndex}`)}
+      />
 
       <TinyOsShell
         key={sessionKey}
@@ -298,10 +482,13 @@ export function LiveCanvas({
         canCancelTerminal={canCancelTerminal}
         canDirectEdit={canDirectEdit}
         canExecuteTerminal={canExecuteTerminal}
+        canInteractBrowser={canInteractBrowser}
         canRequestChange={canRequestChange}
         canRetryRun={canRetryRun}
         canSaveFile={canSaveFile}
+        commandLifecycle={commandLifecycle}
         directEditUnavailableReason={directEditUnavailableReason}
+        browserInteractUnavailableReason={browserInteractUnavailableReason}
         filesController={filesController}
         history={mode === "history"}
         onAttachContext={onAttachContext}
@@ -315,6 +502,7 @@ export function LiveCanvas({
         onOpenArtifact={onOpenArtifact}
         onAgentRequest={(reference, intent) => onAgentRequest(reference, intent, mode === "history")}
         onCancelTerminal={onCancelTerminal}
+        onBrowserInteract={onBrowserInteract}
         onDeleteFile={onDeleteFile}
         onExecuteTerminal={onExecuteTerminal}
         onMoveFile={onMoveFile}
@@ -324,6 +512,9 @@ export function LiveCanvas({
         onSubmitForm={onSubmitForm}
         onSaveFile={onSaveFile}
         requestChangeUnavailableReason={requestChangeUnavailableReason}
+        runtimeCommandRegistry={canvasCommandRegistry}
+        retryRunId={retryRunId}
+        retryUnavailableReason={retryUnavailableReason}
         runningTerminalRunId={runningTerminalRunId}
         saveFileUnavailableReason={saveFileUnavailableReason}
         terminalCancelUnavailableReason={terminalCancelUnavailableReason}
@@ -341,6 +532,19 @@ export function LiveCanvas({
       </aside>
     </>
   );
+}
+
+function resolveHistoryEventIndex(
+  boundaries: readonly TinyOsTimeMachineBoundary[],
+  requestedEventIndex: number | undefined,
+  selection: LiveCanvasEntry | undefined,
+): number {
+  if (requestedEventIndex !== undefined && boundaries[requestedEventIndex]) return requestedEventIndex;
+  for (let index = boundaries.length - 1; index >= 0; index -= 1) {
+    const boundary = boundaries[index];
+    if (boundary.itemId === selection?.step.id && boundary.turnId === selection.turnId) return index;
+  }
+  return boundaries.length - 1;
 }
 
 export function clampTinyOsWidth(widthPx: number): number {

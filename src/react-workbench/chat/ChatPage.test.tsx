@@ -6,6 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatPage } from "./ChatPage";
 import type { ChatEvent, ChatStore, SessionStore, SessionSummary, SettingsStore } from "../services";
+import type { DesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
 import type { ReactChatMessage } from "./messageActions";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import { createTinyOsAgentCancelCommand } from "../../app-core/chat/tinyOsCommandGateway";
@@ -25,6 +26,17 @@ function mountWorkbenchCss(): void {
   document.head.append(style);
 }
 
+function dragTransfer(): DataTransfer {
+  const values = new Map<string, string>();
+  return {
+    dropEffect: "none",
+    effectAllowed: "none",
+    getData: (type: string) => values.get(type) ?? "",
+    setData: (type: string, value: string) => values.set(type, value),
+    get types() { return [...values.keys()]; },
+  } as unknown as DataTransfer;
+}
+
 function effectiveCapabilities(sessionId: string, cancelAvailable = true): TinyOsEffectiveCapabilities {
   const unavailable = { available: false, reasonCode: "runtime_unsupported", reason: "Not supported." };
   const available = { available: true };
@@ -34,8 +46,22 @@ function effectiveCapabilities(sessionId: string, cancelAvailable = true): TinyO
     capabilities: {
       agent: { pause: unavailable, resume: unavailable, cancel: cancelAvailable ? available : unavailable, retry: unavailable },
       files: { read: available, requestChange: unavailable, directEdit: unavailable, save: unavailable },
-      terminal: { inspect: available, execute: unavailable, cancel: unavailable },
-      browser: { structured: available, realCapture: unavailable, interact: unavailable },
+      terminal: {
+        contract: "retained_execution_v1",
+        persistentPty: false,
+        inspect: available,
+        execute: unavailable,
+        cancel: unavailable,
+      },
+      browser: {
+        interactionRequires: "current_real_capture",
+        structured: available,
+        projectionContract: "structured_projection_v1",
+        realCapture: unavailable,
+        sessionContract: "browser_session_v1",
+        sessionSnapshot: false,
+        interact: unavailable,
+      },
     },
   };
 }
@@ -91,18 +117,41 @@ function createStores(options: { sessions?: SessionSummary[] } = {}): { chatStor
     chatStore: {
       load: vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, messages)),
       loadTinyOsCapabilities: vi.fn(async (sessionId) => effectiveCapabilities(sessionId)),
-      send: vi.fn(async () => undefined),
-      stop: vi.fn(async () => undefined),
-      dispatchCommand: vi.fn(async () => undefined),
-      resolveApproval: vi.fn(async () => undefined),
+      dispatch: vi.fn(async () => undefined),
       listAgentUiForms: vi.fn(async () => []),
-      submitAgentUiForm: vi.fn(async () => undefined),
-      cancelAgentUiForm: vi.fn(async () => undefined),
       branchFromMessage: vi.fn(async () => sessions[0]),
       copyMarkdown: vi.fn(async () => "# Planning notes"),
       subscribe: vi.fn(() => () => undefined),
     },
   };
+}
+
+function turnSubmitCommands(chatStore: ChatStore): DesktopTurnSubmitCommand[] {
+  return vi.mocked(chatStore.dispatch).mock.calls
+    .map(([command]) => command)
+    .filter((command): command is DesktopTurnSubmitCommand => command.kind === "turn.submit");
+}
+
+function expectTurnSubmit(chatStore: ChatStore, sessionId: string, input: unknown): void {
+  expect(turnSubmitCommands(chatStore)).toContainEqual(expect.objectContaining({
+    input,
+    kind: "turn.submit",
+    target: { sessionId },
+  }));
+}
+
+function mockTurnSubmit(
+  chatStore: ChatStore,
+  implementation: (command: DesktopTurnSubmitCommand) => void | Promise<void>,
+): void {
+  const fallback = chatStore.dispatch;
+  chatStore.dispatch = vi.fn(async (command) => {
+    if (command.kind === "turn.submit") {
+      await implementation(command);
+      return;
+    }
+    await fallback(command);
+  });
 }
 
 function failedPlanTimeline(sessionId = "s1") {
@@ -285,7 +334,7 @@ describe("ChatPage", () => {
     await user.type(screen.getByRole("textbox", { name: "Message" }), "Explain this line");
     await user.click(screen.getByRole("button", { name: "Send message" }));
 
-    await waitFor(() => expect(stores.chatStore.send).toHaveBeenCalledWith("s1", expect.objectContaining({
+    await waitFor(() => expectTurnSubmit(stores.chatStore, "s1", expect.objectContaining({
       references: [expect.objectContaining({
         evidenceId: "file-reference",
         sourceLine: 1,
@@ -299,6 +348,48 @@ describe("ChatPage", () => {
       text: "Explain this line",
     })));
     expect(screen.queryByText("src/main.ts · L1")).toBeNull();
+  });
+
+  it("attaches a dragged TinyOS file reference to the Chat composer", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    const timeline = timelineFromReactMessages("s1", [{
+      id: "u-tinyos-drag-reference",
+      role: "user" as const,
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+      text: "Inspect this file",
+      status: "complete" as const,
+    }]);
+    timeline.turns[0].steps = [{
+      agentContext: { id: "main", title: "Tinybot", type: "main" },
+      id: "file-drag-reference",
+      kind: "tool_call",
+      sequence: 1,
+      status: "completed",
+      title: "workspace.read_file",
+      toolCall: {
+        argsJson: { path: "src/drag.ts" },
+        id: "file-drag-reference",
+        name: "workspace.read_file",
+        resultPreview: "export const dragged = true;",
+      },
+    }];
+    timeline.turns[0].executionItems = timeline.turns[0].steps;
+    stores.chatStore.load = vi.fn(async () => timeline);
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    await user.click(await screen.findByRole("button", { name: /^Open Live Canvas/ }));
+    const filesWindow = screen.getByLabelText("Files window");
+    await user.click(within(filesWindow).getByRole("button", { name: "export const dragged = true;" }));
+    const source = within(filesWindow).getByRole("button", { name: /Attach src\/drag\.ts/ });
+    const target = document.querySelector<HTMLElement>(".tinyos-composer-drop-target")!;
+    const dataTransfer = dragTransfer();
+
+    fireEvent.dragStart(source, { dataTransfer });
+    fireEvent.dragOver(target, { dataTransfer });
+    fireEvent.drop(target, { dataTransfer });
+
+    expect(within(screen.getByLabelText("Composer attachments")).getByText("src/drag.ts · L1")).toBeTruthy();
   });
 
   it("opens exact timeline items in history and returns to the latest live frame", async () => {
@@ -389,7 +480,7 @@ describe("ChatPage", () => {
     expect(within(canvas).getByText("History")).toBeTruthy();
     expect(within(canvas).getAllByText("src/main.ts").length).toBeGreaterThan(0);
 
-    await user.click(within(canvas).getByRole("button", { name: "Return to live" }));
+    await user.click(within(canvas).getByRole("button", { name: "Return to Live" }));
     expect(within(canvas).getByText("Live follow")).toBeTruthy();
     expect(within(canvas).getByRole("article", { name: "Memory window" })).toBeTruthy();
     expect(within(canvas).getAllByText("memory.search").length).toBeGreaterThan(0);
@@ -484,7 +575,7 @@ describe("ChatPage", () => {
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
     await waitFor(() => expect(stores.sessionStore.create).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(stores.chatStore.send).toHaveBeenCalledWith("s-new", {
+    await waitFor(() => expectTurnSubmit(stores.chatStore, "s-new", {
       text: "Hello from an empty app",
       usePersistentRag: true,
     }));
@@ -511,7 +602,7 @@ describe("ChatPage", () => {
     await user.type(input, "Hello from an empty app");
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
-    await waitFor(() => expect(stores.chatStore.send).toHaveBeenCalledWith("s-new", {
+    await waitFor(() => expectTurnSubmit(stores.chatStore, "s-new", {
       text: "Hello from an empty app",
       usePersistentRag: true,
     }));
@@ -631,7 +722,7 @@ describe("ChatPage", () => {
     await user.click(suggestion);
 
     expect((screen.getByRole("textbox", { name: /message/i }) as HTMLTextAreaElement).value).toBe("规划一个任务并列出执行步骤");
-    expect(stores.chatStore.send).not.toHaveBeenCalled();
+    expect(turnSubmitCommands(stores.chatStore)).toHaveLength(0);
   });
 
   it("keeps the normal bottom composer layout when a session has messages", async () => {
@@ -1098,7 +1189,7 @@ describe("ChatPage", () => {
   it("resolves pending approval steps from the details drawer", async () => {
     const user = userEvent.setup();
     const stores = createStores();
-    const dispatchCommand = vi.fn(async () => undefined);
+    const dispatch = vi.fn(async () => undefined);
     const approvalMessages: ReactChatMessage[] = [{
       id: "a-approval",
       role: "assistant",
@@ -1117,7 +1208,7 @@ describe("ChatPage", () => {
       } as NonNullable<ReactChatMessage["toolCalls"]>[number]],
     }];
     stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, approvalMessages));
-    stores.chatStore.dispatchCommand = dispatchCommand;
+    stores.chatStore.dispatch = dispatch;
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
@@ -1131,7 +1222,7 @@ describe("ChatPage", () => {
 
     await user.click(within(drawer).getByRole("button", { name: "Allow for session" }));
 
-    expect(dispatchCommand).toHaveBeenCalledWith(expect.objectContaining({
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({
       approval: { approvalId: "approval-1", approved: true, scope: "session" },
       kind: "approval.resolve",
       source: { control: "tool-approval", surface: "chat" },
@@ -1182,7 +1273,6 @@ describe("ChatPage", () => {
     });
     stores.chatStore.load = vi.fn(async () => canonical);
     (stores.chatStore as any).listAgentUiForms = vi.fn(async () => [form]);
-    (stores.chatStore as any).cancelAgentUiForm = vi.fn(async () => undefined);
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
@@ -1196,7 +1286,7 @@ describe("ChatPage", () => {
     fireEvent.change(within(card).getByLabelText("Nights"), { target: { value: "4" } });
     await user.click(within(card).getByRole("button", { name: "Save preferences" }));
 
-    expect(stores.chatStore.dispatchCommand).toHaveBeenCalledWith(expect.objectContaining({
+    expect(stores.chatStore.dispatch).toHaveBeenCalledWith(expect.objectContaining({
       form: {
         formId: "travel-preferences-1",
         values: { destination: "Singapore", nights: 4 },
@@ -1248,14 +1338,13 @@ describe("ChatPage", () => {
     const card = await screen.findByRole("form", { name: "Travel preferences" });
     await user.click(within(card).getByRole("button", { name: "Skip" }));
 
-    expect(stores.chatStore.dispatchCommand).toHaveBeenCalledWith(expect.objectContaining({
+    expect(stores.chatStore.dispatch).toHaveBeenCalledWith(expect.objectContaining({
       form: { formId: "travel-preferences-1" },
       kind: "form.cancel",
       source: { control: "chat-form", surface: "chat" },
       target: expect.objectContaining({ runId: "run-1", sessionId: "s1" }),
     }));
     expect(within(card).getByRole("button", { name: "Skip" }).hasAttribute("disabled")).toBe(true);
-    expect(stores.chatStore.cancelAgentUiForm).not.toHaveBeenCalled();
   });
 
   it("renders a resolved canonical form as a read-only submission summary", async () => {
@@ -1733,7 +1822,7 @@ describe("ChatPage", () => {
     const error = await screen.findByRole("alert", { name: "任务执行失败" });
     await user.click(within(error).getByRole("button", { name: "继续执行" }));
 
-    expect(stores.chatStore.send).toHaveBeenCalledWith("s1", {
+    expectTurnSubmit(stores.chatStore, "s1", {
       text: "请从刚才中断的位置继续，沿用现有上下文和计划；先确认当前进度，再完成剩余任务。",
     });
   });
@@ -1753,12 +1842,12 @@ describe("ChatPage", () => {
     const error = await screen.findByRole("alert", { name: "任务执行失败" });
     await user.click(within(error).getByRole("button", { name: "重试当前步骤" }));
 
-    expect(stores.chatStore.dispatchCommand).toHaveBeenCalledWith(expect.objectContaining({
+    expect(stores.chatStore.dispatch).toHaveBeenCalledWith(expect.objectContaining({
       kind: "operation.retry",
       operation: { itemId: "error-failed-plan", turnId: timeline.turns[0].id },
       target: expect.objectContaining({ sessionId: "s1" }),
     }));
-    expect(stores.chatStore.send).not.toHaveBeenCalled();
+    expect(turnSubmitCommands(stores.chatStore)).toHaveLength(0);
   });
 
   it("restarts a failed task in a new titled session", async () => {
@@ -1772,7 +1861,7 @@ describe("ChatPage", () => {
     await user.click(within(error).getByRole("button", { name: "重新开始" }));
 
     expect(stores.sessionStore.create).toHaveBeenCalledWith({ title: "Inspect the project and repo…" });
-    expect(stores.chatStore.send).toHaveBeenCalledWith("s2", { text: "Inspect the project and report findings" });
+    expectTurnSubmit(stores.chatStore, "s2", { text: "Inspect the project and report findings" });
   });
 
   it("loads owner-associated image references through the artifact API before previewing", async () => {
@@ -2064,7 +2153,7 @@ describe("ChatPage", () => {
     await user.type(input, "Hello from React");
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
-    expect(stores.chatStore.send).toHaveBeenCalledWith("s1", { text: "Hello from React", usePersistentRag: true });
+    expectTurnSubmit(stores.chatStore, "s1", { text: "Hello from React", usePersistentRag: true });
     expect((input as HTMLTextAreaElement).value).toBe("");
   });
 
@@ -2084,7 +2173,7 @@ describe("ChatPage", () => {
     const input = await screen.findByRole("textbox", { name: /message/i });
     await user.type(input, "Summarize after this run{enter}");
 
-    expect(stores.chatStore.send).not.toHaveBeenCalled();
+    expect(turnSubmitCommands(stores.chatStore)).toHaveLength(0);
     const queuedInputs = screen.getByLabelText("Queued inputs");
     expect(queuedInputs.textContent).toContain("Summarize after this run");
     expect(queuedInputs.textContent).toContain("Waiting");
@@ -2109,7 +2198,7 @@ describe("ChatPage", () => {
     await user.click(screen.getByRole("button", { name: /delete queued input/i }));
 
     expect(screen.queryByLabelText("Queued inputs")).toBeNull();
-    expect(stores.chatStore.send).not.toHaveBeenCalled();
+    expect(turnSubmitCommands(stores.chatStore)).toHaveLength(0);
   });
 
   it("enforces the queued input limit while running", async () => {
@@ -2162,26 +2251,26 @@ describe("ChatPage", () => {
     const input = await screen.findByRole("textbox", { name: /message/i });
     await user.type(input, "first queued{enter}");
     await user.type(input, "second queued{enter}");
-    expect(stores.chatStore.send).not.toHaveBeenCalled();
+    expect(turnSubmitCommands(stores.chatStore)).toHaveLength(0);
 
     subscribed?.({ type: "agent.event", eventType: "agent.turn.completed" });
 
-    await waitFor(() => expect(stores.chatStore.send).toHaveBeenCalledWith("s1", {
+    await waitFor(() => expectTurnSubmit(stores.chatStore, "s1", {
       text: "first queued",
       usePersistentRag: true,
     }));
-    expect(stores.chatStore.send).toHaveBeenCalledTimes(1);
+    expect(turnSubmitCommands(stores.chatStore)).toHaveLength(1);
     const queuedInputs = screen.getByLabelText("Queued inputs");
     expect(queuedInputs.textContent).not.toContain("first queued");
     expect(queuedInputs.textContent).toContain("second queued");
 
     subscribed?.({ type: "agent.event", eventType: "agent.turn.completed" });
 
-    await waitFor(() => expect(stores.chatStore.send).toHaveBeenCalledWith("s1", {
+    await waitFor(() => expectTurnSubmit(stores.chatStore, "s1", {
       text: "second queued",
       usePersistentRag: true,
     }));
-    expect(stores.chatStore.send).toHaveBeenCalledTimes(2);
+    expect(turnSubmitCommands(stores.chatStore)).toHaveLength(2);
     expect(screen.queryByLabelText("Queued inputs")).toBeNull();
   });
 
@@ -2214,12 +2303,12 @@ describe("ChatPage", () => {
     subscribed?.({ type: "agent.event", eventType: "message.completed" });
 
     expect(stores.sessionStore.list).toHaveBeenCalledTimes(1);
-    expect(stores.chatStore.send).not.toHaveBeenCalled();
+    expect(turnSubmitCommands(stores.chatStore)).toHaveLength(0);
     expect(screen.getByLabelText("Queued inputs").textContent).toContain("queued after full turn");
 
     subscribed?.({ type: "agent.event", eventType: "agent.turn.completed" });
 
-    await waitFor(() => expect(stores.chatStore.send).toHaveBeenCalledWith("s1", {
+    await waitFor(() => expectTurnSubmit(stores.chatStore, "s1", {
       text: "queued after full turn",
       usePersistentRag: true,
     }));
@@ -2249,7 +2338,7 @@ describe("ChatPage", () => {
     subscribed?.({ type: "message.completed" });
 
     expect(screen.queryByTestId("message-assistant-completed")).toBeNull();
-    expect(stores.chatStore.send).not.toHaveBeenCalled();
+    expect(turnSubmitCommands(stores.chatStore)).toHaveLength(0);
     expect(screen.getByLabelText("Queued inputs").textContent).toContain("queued after event message");
   });
 
@@ -2276,7 +2365,7 @@ describe("ChatPage", () => {
 
     subscribed?.({ type: "message.completed" });
 
-    expect(stores.chatStore.send).not.toHaveBeenCalled();
+    expect(turnSubmitCommands(stores.chatStore)).toHaveLength(0);
     expect(stores.sessionStore.list).toHaveBeenCalledTimes(1);
     const queuedInputs = screen.getByLabelText("Queued inputs");
     expect(queuedInputs.textContent).toContain("after approval");
@@ -2311,7 +2400,7 @@ describe("ChatPage", () => {
     subscribed?.({ type: "agent.event", eventType: "agent.turn.failed" });
 
     await waitFor(() => expect(screen.getByLabelText("Queued inputs").textContent).toContain("Paused"));
-    expect(stores.chatStore.send).not.toHaveBeenCalled();
+    expect(turnSubmitCommands(stores.chatStore)).toHaveLength(0);
   });
 
   it("pauses queued inputs on stop and resumes one input manually", async () => {
@@ -2340,17 +2429,17 @@ describe("ChatPage", () => {
     await user.type(input, "resume second{enter}");
     await user.click(screen.getByRole("button", { name: "Stop generation" }));
 
-    expect(stores.chatStore.dispatchCommand).toHaveBeenCalledWith(expect.objectContaining({
+    expect(stores.chatStore.dispatch).toHaveBeenCalledWith(expect.objectContaining({
       kind: "agent.cancel",
       source: { control: "stop-response", surface: "chat" },
       target: expect.objectContaining({ sessionId: "s1" }),
     }));
     await waitFor(() => expect(screen.getByLabelText("Queued inputs").textContent).toContain("Paused"));
-    expect(stores.chatStore.send).not.toHaveBeenCalled();
+    expect(turnSubmitCommands(stores.chatStore)).toHaveLength(0);
 
     await user.click(screen.getByRole("button", { name: "Resume queue" }));
 
-    await waitFor(() => expect(stores.chatStore.send).toHaveBeenCalledWith("s1", {
+    await waitFor(() => expectTurnSubmit(stores.chatStore, "s1", {
       text: "resume first",
       usePersistentRag: true,
     }));
@@ -2423,7 +2512,7 @@ describe("ChatPage", () => {
       subscribed = listener;
       return () => undefined;
     });
-    stores.chatStore.send = vi.fn(async () => {
+    mockTurnSubmit(stores.chatStore, async () => {
       sent = true;
       subscribed?.({ type: "message-sent", message: optimisticMessages[0] });
     });
@@ -2453,7 +2542,7 @@ describe("ChatPage", () => {
       subscribed = listener;
       return () => undefined;
     });
-    stores.chatStore.send = vi.fn(async () => {
+    mockTurnSubmit(stores.chatStore, async () => {
       subscribed?.({ type: "message-sent", message: optimisticMessage });
     });
 
@@ -2506,7 +2595,7 @@ describe("ChatPage", () => {
       subscribed = listener;
       return () => undefined;
     });
-    stores.chatStore.send = vi.fn(async () => {
+    mockTurnSubmit(stores.chatStore, async () => {
       subscribed?.({ type: "message-sent", message: optimisticMessage });
     });
 
@@ -2594,7 +2683,7 @@ describe("ChatPage", () => {
     await user.type(input, "Summarize docs");
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
-    await waitFor(() => expect(stores.chatStore.send).toHaveBeenCalledWith("pending:1", {
+    await waitFor(() => expectTurnSubmit(stores.chatStore, "pending:1", {
       text: "Summarize docs",
       usePersistentRag: true,
     }));
@@ -2631,7 +2720,7 @@ describe("ChatPage", () => {
       subscribed = listener;
       return () => undefined;
     });
-    stores.chatStore.send = vi.fn(() => new Promise<void>((resolve) => {
+    mockTurnSubmit(stores.chatStore, () => new Promise<void>((resolve) => {
       resolveSend = resolve;
     }));
 
@@ -2690,7 +2779,7 @@ describe("ChatPage", () => {
     await user.type(screen.getByRole("textbox", { name: /message/i }), "Use a specific model");
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
-    expect(stores.chatStore.send).toHaveBeenCalledWith("s1", {
+    expectTurnSubmit(stores.chatStore, "s1", {
       model: "deepseek-reasoner",
       text: "Use a specific model",
       usePersistentRag: true,
@@ -2716,7 +2805,7 @@ describe("ChatPage", () => {
     await user.type(screen.getByRole("textbox", { name: /message/i }), "No retrieved material");
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
-    expect(stores.chatStore.send).toHaveBeenCalledWith("s1", {
+    expectTurnSubmit(stores.chatStore, "s1", {
       text: "No retrieved material",
       usePersistentRag: false,
     });
@@ -2740,7 +2829,7 @@ describe("ChatPage", () => {
 
     await user.click(await screen.findByRole("button", { name: "Stop generation" }));
 
-    expect(stores.chatStore.dispatchCommand).toHaveBeenCalledWith(expect.objectContaining({
+    expect(stores.chatStore.dispatch).toHaveBeenCalledWith(expect.objectContaining({
       kind: "agent.cancel",
       source: { control: "stop-response", surface: "chat" },
       target: expect.objectContaining({ sessionId: "s1" }),
@@ -2770,7 +2859,7 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     await user.click(await screen.findByRole("button", { name: "Pause" }));
-    expect(stores.chatStore.dispatchCommand).toHaveBeenCalledWith(expect.objectContaining({
+    expect(stores.chatStore.dispatch).toHaveBeenCalledWith(expect.objectContaining({
       kind: "agent.pause",
       source: { control: "chat-pause", surface: "chat" },
       target: expect.objectContaining({ runId: run.id, sessionId: "s1" }),
@@ -2797,7 +2886,7 @@ describe("ChatPage", () => {
     const stop = await screen.findByRole("button", { name: /Stop generation unavailable/ });
     expect((stop as HTMLButtonElement).disabled).toBe(true);
     await waitFor(() => expect(stop.getAttribute("title")).toBe("Not supported."));
-    expect(stores.chatStore.dispatchCommand).not.toHaveBeenCalled();
+    expect(stores.chatStore.dispatch).not.toHaveBeenCalled();
   });
 
   it("closes the composer tools menu when another composer area is clicked", async () => {
@@ -2833,7 +2922,7 @@ describe("ChatPage", () => {
     await user.type(input, "Summarize this");
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
-    expect(stores.chatStore.send).toHaveBeenCalledWith("s1", {
+    expectTurnSubmit(stores.chatStore, "s1", {
       text: `Summarize this\n\nPasted content:\n${pastedText}`,
       usePersistentRag: true,
     });

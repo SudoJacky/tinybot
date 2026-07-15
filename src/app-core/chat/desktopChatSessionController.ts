@@ -52,7 +52,7 @@ export interface DesktopChatSessionController {
   selectSession(sessionKey: string, chatId: string): Promise<void>;
   deleteSession(sessionKey: string): Promise<ChatDeleteSessionResult>;
   patchSession(sessionKey: string, body: unknown): Promise<boolean>;
-  submitMessage(content: string, usePersistentRag?: boolean, model?: string, references?: NativeChatReference[]): Promise<ChatSubmitResult>;
+  submitMessage(content: string, usePersistentRag?: boolean, model?: string, references?: NativeChatReference[], clientEventId?: string): Promise<ChatSubmitResult>;
   loadTimeline(sessionKey: string): Promise<ChatTimelineSnapshot>;
   reloadTimeline(sessionKey: string): Promise<ChatTimelineSnapshot>;
   applyTimelinePatch(sessionKey: string, payload: unknown): Promise<ChatTimelineSnapshot | null>;
@@ -307,7 +307,7 @@ export function createDesktopChatSessionController({
     return true;
   }
 
-  async function submitMessage(content: string, usePersistentRag = true, model?: string, references?: NativeChatReference[]): Promise<ChatSubmitResult> {
+  async function submitMessage(content: string, usePersistentRag = true, model?: string, references?: NativeChatReference[], suppliedClientEventId?: string): Promise<ChatSubmitResult> {
     const trimmed = content.trim();
     if (!trimmed) {
       logDesktopNativeDebug("session.message.empty", summarizeSessionState());
@@ -316,7 +316,7 @@ export function createDesktopChatSessionController({
     if (!state.activeSessionKey) {
       throw new Error("Cannot submit a turn without an active Thread");
     }
-    const clientEventId = createClientEventId();
+    const clientEventId = suppliedClientEventId || createClientEventId();
     const runId = createRunId();
     const activeSession = state.sessions.find((session) => session.key === state.activeSessionKey);
     const threadId = activeSession?.threadId || state.activeSessionKey;

@@ -3,14 +3,12 @@ import { listen } from "@tauri-apps/api/event";
 import { createDesktopChatSessionController } from "../app-core/chat/desktopChatSessionController";
 import type { NativeChatReference, NativeChatSession } from "../app-core/chat/nativeChat";
 import {
-  AGENT_UI_FORM_STATUSES,
-  buildAgentUiFormCancelRequest,
-  buildAgentUiFormSubmitRequest,
   createAgentUiEventState,
   normalizeAgentUiEvents,
   reduceAgentUiEventState,
   type AgentUiForm,
 } from "../app-core/agent-ui/agentUiEvents";
+import type { DesktopCommand, DesktopTurnSubmitCommand } from "../app-core/chat/desktopCommand";
 import { DEFAULT_GATEWAY_CONFIG, resolveGatewayConfig } from "../app-core/gateway/gatewayConfig";
 import { ensureGatewayReady } from "../app-core/gateway/desktopGatewayStartup";
 import { createDesktopNativeConfigApi } from "../app-core/native/desktopNativeConfig";
@@ -247,6 +245,64 @@ export function createDesktopAppServices(): AppServices {
     notifySession(command.target.sessionId, { commandId: command.commandId, type: "command.canonical-updated" });
   }
 
+  async function dispatchTurnSubmit(command: DesktopTurnSubmitCommand): Promise<void> {
+    await initialize();
+    const sessionId = command.target.sessionId;
+    const session = controller.state.sessions.find((item) => item.key === sessionId);
+    if (!session) throw new Error(`Cannot send to unknown Thread ${sessionId}`);
+    if (controller.state.activeSessionKey !== session.key) {
+      await controller.selectSession(session.key, session.chatId);
+    }
+    const input = command.input;
+    const result = await controller.submitMessage(
+      input.text,
+      input.usePersistentRag ?? true,
+      input.model,
+      input.references,
+      command.commandId,
+    );
+    const optimisticText = result.status === "sent" ? result.content : "";
+    const optimisticMessage = result.status === "empty"
+      ? undefined
+      : createOptimisticUserMessage(result.clientEventId, optimisticText, input.references);
+    notifySession(sessionId, {
+      type: "message-sent",
+      ...(optimisticMessage ? { message: optimisticMessage } : {}),
+    });
+  }
+
+  async function dispatchDesktopCommand(command: DesktopCommand): Promise<void> {
+    if (command.kind === "turn.submit") {
+      await dispatchTurnSubmit(command);
+      return;
+    }
+    if (command.kind === "agent.stop") {
+      await initialize();
+      const sessionId = command.target.sessionId;
+      const timeline = await controller.loadTimeline(sessionId);
+      const turn = [...timeline.turns].reverse().find((candidate) => (
+        candidate.status === "pending"
+        || candidate.status === "running"
+        || candidate.status === "awaiting_approval"
+        || candidate.status === "awaiting_user"
+      ));
+      if (!turn) throw new Error("Cannot cancel: the session has no active run");
+      const cancelCommand = createTinyOsAgentCancelCommand({
+        commandId: command.commandId,
+        issuedAt: command.issuedAt,
+        runId: turn.id,
+        sessionId,
+        source: command.source,
+        threadId: turn.canonicalItems?.find((item) => item.threadId)?.threadId,
+        turnId: turn.id,
+      });
+      notifySession(sessionId, { command: cancelCommand, type: "command.dispatched" });
+      await dispatchTinyOsCommand(cancelCommand);
+      return;
+    }
+    await dispatchTinyOsCommand(command);
+  }
+
   return {
     sessionStore: {
       async list() {
@@ -311,114 +367,12 @@ export function createDesktopAppServices(): AppServices {
           sessionId,
         );
       },
-      async send(sessionId, input) {
-        await initialize();
-        const session = controller.state.sessions.find((item) => item.key === sessionId);
-        if (!session) throw new Error(`Cannot send to unknown Thread ${sessionId}`);
-        if (controller.state.activeSessionKey !== session.key) {
-          await controller.selectSession(session.key, session.chatId);
-        }
-        const result = await controller.submitMessage(input.text, input.usePersistentRag ?? true, input.model, input.references);
-        const optimisticText = result.status === "sent" ? result.content : "";
-        const optimisticMessage = result.status === "empty"
-          ? undefined
-          : createOptimisticUserMessage(result.clientEventId, optimisticText, input.references);
-        notifySession(sessionId, {
-          type: "message-sent",
-          ...(optimisticMessage ? { message: optimisticMessage } : {}),
-        });
-      },
-      async dispatchCommand(command) {
-        await dispatchTinyOsCommand(command);
-      },
-      async stop(sessionId) {
-        await initialize();
-        const timeline = await controller.loadTimeline(sessionId);
-        const turn = [...timeline.turns].reverse().find((candidate) => (
-          candidate.status === "pending"
-          || candidate.status === "running"
-          || candidate.status === "awaiting_approval"
-          || candidate.status === "awaiting_user"
-        ));
-        if (!turn) throw new Error("Cannot cancel: the session has no active run");
-        const command = createTinyOsAgentCancelCommand({
-          runId: turn.id,
-          sessionId,
-          source: { control: "keyboard-shortcut", surface: "chat" },
-          threadId: turn.canonicalItems?.find((item) => item.threadId)?.threadId,
-          turnId: turn.id,
-        });
-        notifySession(sessionId, { command, type: "command.dispatched" });
-        await dispatchTinyOsCommand(command);
-      },
-      async resolveApproval(sessionId, input) {
-        await initialize();
-        try {
-          const session = controller.state.sessions.find((candidate) => candidate.key === sessionId);
-          if (!session) throw new Error(`Cannot resolve approval for unknown Thread ${sessionId}`);
-          await requireNative(nativeThreads, "Thread").resolveApproval({
-            threadId: session.threadId || session.key,
-            approvalId: input.approvalId,
-            approved: input.action !== "deny",
-            scope: input.action === "approveSession" ? "session" : "once",
-            ...(input.guidance ? { guidance: input.guidance } : {}),
-          });
-        } finally {
-          await controller.reloadTimeline(sessionId);
-        }
-        await controller.loadSessions();
-        notifySession(sessionId, { type: "approval-resolved" });
+      async dispatch(command) {
+        await dispatchDesktopCommand(command);
       },
       async listAgentUiForms(sessionId) {
         await initialize();
         return Array.from(agentUiState.forms.values()).filter((form) => formMatchesSession(form, sessionId));
-      },
-      async submitAgentUiForm(formId, values) {
-        await initialize();
-        const form = agentUiState.forms.get(formId);
-        if (!form) {
-          return;
-        }
-        const request = buildAgentUiFormSubmitRequest(form, values);
-        if (!request) {
-          return;
-        }
-        await requireNative(nativeThreads, "Thread").submitForm({
-          threadId: threadIdForForm(form),
-          formId,
-          values: request.values,
-          action: "submit",
-        });
-        agentUiState.forms.set(formId, {
-          ...form,
-          status: AGENT_UI_FORM_STATUSES.submitted,
-          submitting: false,
-          values: { ...values },
-        });
-        notifyAll({ type: "agent-ui.form" });
-      },
-      async cancelAgentUiForm(formId) {
-        await initialize();
-        const form = agentUiState.forms.get(formId);
-        if (!form) {
-          return;
-        }
-        const request = buildAgentUiFormCancelRequest(form);
-        if (!request) {
-          return;
-        }
-        await requireNative(nativeThreads, "Thread").submitForm({
-          threadId: threadIdForForm(form),
-          formId,
-          values: {},
-          action: "cancel",
-        });
-        agentUiState.forms.set(formId, {
-          ...form,
-          status: AGENT_UI_FORM_STATUSES.cancelled,
-          submitting: false,
-        });
-        notifyAll({ type: "agent-ui.form" });
       },
       async loadDelegateTrace(selection) {
         await initialize();
@@ -885,17 +839,6 @@ function formMatchesSession(form: AgentUiForm, sessionId: string): boolean {
   return sessionKey === sessionId
     || chatId === sessionId
     || (Boolean(chatId) && sessionId.endsWith(`:${chatId}`));
-}
-
-function threadIdForForm(form: AgentUiForm): string {
-  const threadId = stringValue(
-    form.correlation.thread_id
-    ?? form.correlation.threadId
-    ?? form.correlation.session_key
-    ?? form.correlation.sessionKey,
-  );
-  if (!threadId) throw new Error(`Agent UI form ${form.form_id} is missing thread correlation`);
-  return threadId;
 }
 
 function nativeThreadMetadataPatch(body: unknown): Record<string, unknown> {

@@ -191,10 +191,12 @@ describe("TinyOS command lifecycle", () => {
     });
     const browser = createTinyOsBrowserInteractCommand({
       action: { type: "click", x: 12, y: 34 },
+      browserSessionId: "browser-session-1",
       captureId: "capture-1",
       commandId: "command-browser-1",
       sessionId: "websocket:chat-1",
       source,
+      tabId: "tab-1",
     });
 
     expect(save).toMatchObject({ kind: "file.save", file: { confirmed: true, baseRevision: "metadata:12:34" } });
@@ -207,7 +209,13 @@ describe("TinyOS command lifecycle", () => {
     expect(cancel).toMatchObject({ kind: "terminal.cancel", target: { runId: execute.target.runId } });
     expect(browser).toMatchObject({
       kind: "browser.interact",
-      browser: { captureId: "capture-1", confirmed: true, action: { type: "click", x: 12, y: 34 } },
+      browser: {
+        browserSessionId: "browser-session-1",
+        captureId: "capture-1",
+        confirmed: true,
+        tabId: "tab-1",
+        action: { type: "click", x: 12, y: 34 },
+      },
     });
   });
 

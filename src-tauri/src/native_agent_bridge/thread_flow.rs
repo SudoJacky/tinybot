@@ -228,24 +228,32 @@ pub(crate) async fn resolve_thread_approval_with_services(
         .get("thread")
         .cloned()
         .ok_or_else(|| "thread approval target read returned no thread".to_string())?;
-    let thread_checkpoint = target_snapshot
+    let thread_id = thread_thread_id(&thread)?;
+    let session_id = thread_session_key(&thread).unwrap_or_else(|| thread_id.clone());
+    let approval_checkpoint = target_snapshot
         .get("latestCheckpoint")
         .and_then(|checkpoint| checkpoint.get("restorePayload"))
         .cloned()
-        .ok_or_else(|| "thread approval target has no canonical checkpoint".to_string())?;
-    let thread_id = thread_thread_id(&thread)?;
-    let session_id = thread_session_key(&thread).unwrap_or_else(|| thread_id.clone());
+        .or_else(|| {
+            base_services
+                .restore_checkpoint(&session_id)
+                .get("checkpoint")
+                .filter(|checkpoint| !checkpoint.is_null())
+                .cloned()
+        });
     let approval_id = input.approval_id.clone();
     let approved = input.approved;
     let scope = input.scope.clone();
     let guidance = input.guidance.clone();
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "session_key": session_id.clone(),
         "thread_id": thread_id.clone(),
         "scope": input.scope,
         "guidance": input.guidance,
-        "threadCheckpoint": thread_checkpoint,
     });
+    if let Some(checkpoint) = approval_checkpoint {
+        body["threadCheckpoint"] = checkpoint;
+    }
     let mut result = resolve_approval_body_with_services(
         base_services,
         input.approval_id,

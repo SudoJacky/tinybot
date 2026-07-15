@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
   AlertCircle,
+  Activity,
   ArrowLeft,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Clock3,
   FilePlus2,
   FileText,
   Folder,
@@ -16,10 +18,17 @@ import {
   RefreshCw,
   Save,
   Search,
+  ShieldCheck,
+  Star,
   Trash2,
   X,
 } from "lucide-react";
 import { resourceValue, type TinyOsDirectoryView, type TinyOsResourceState } from "../../app-core/chat/tinyOsFilesModel";
+import { tinyOsWorkspaceResourceId } from "../../app-core/chat/tinyOsFilesModel";
+import type { TinyOsCommandLifecycle } from "../../app-core/chat/tinyOsCommandGateway";
+import type { TinyOsKernelSnapshot } from "../../app-core/chat/tinyOsKernelModel";
+import type { TinyOsShellCommandRegistry } from "../../app-core/chat/tinyOsShellCommandRegistry";
+import { writeTinyOsReferenceTransfer } from "../../app-core/chat/tinyOsReferenceTransfer";
 import type { TinyOsContextReference, TinyOsLayoutMode } from "../../app-core/chat/tinyOsUiState";
 import type { WorkspaceDirectoryEntry } from "../../app-core/workspace/workspaceExplorer";
 import type { TinyOsFilesController } from "./useTinyOsFilesController";
@@ -28,9 +37,12 @@ export function TinyOsFilesExplorer({
   canDirectEdit = false,
   canRequestChange,
   canSave = false,
+  commandLifecycle = { stage: "idle" },
+  commandRegistry,
   controller,
   directEditUnavailableReason,
   layoutMode,
+  kernel,
   onAttachContext,
   onRequestExplanation,
   onRequestModification,
@@ -43,9 +55,12 @@ export function TinyOsFilesExplorer({
   canDirectEdit?: boolean;
   canRequestChange: boolean;
   canSave?: boolean;
+  commandLifecycle?: TinyOsCommandLifecycle;
+  commandRegistry?: TinyOsShellCommandRegistry;
   controller: TinyOsFilesController;
   directEditUnavailableReason?: string;
   layoutMode: TinyOsLayoutMode;
+  kernel?: TinyOsKernelSnapshot;
   onAttachContext: (reference: TinyOsContextReference) => void;
   onRequestExplanation: (reference: TinyOsContextReference) => void;
   onRequestModification: (reference: TinyOsContextReference) => void;
@@ -62,6 +77,8 @@ export function TinyOsFilesExplorer({
   const [newFilePath, setNewFilePath] = useState("");
   const [creatingFile, setCreatingFile] = useState(false);
   const [createError, setCreateError] = useState("");
+  const [favoritePaths, setFavoritePaths] = useState<Set<string>>(() => new Set());
+  const [localView, setLocalView] = useState<"favorites" | "recent" | "tree">("tree");
   const compactDocument = layoutMode === "compact" && state.compactSurface === "document";
   const showTree = layoutMode !== "compact" || !compactDocument;
   const showDocument = layoutMode !== "compact" || compactDocument;
@@ -84,6 +101,9 @@ export function TinyOsFilesExplorer({
         <aside aria-label="Workspace Explorer" className="tinyos-workspace-explorer__tree">
           <header>
             <span><FolderOpen aria-hidden="true" size={14} /><strong>Workspace</strong></span>
+            <button aria-label="Show workspace tree" aria-pressed={localView === "tree"} title="Workspace tree" type="button" onClick={() => setLocalView("tree")}><Folder aria-hidden="true" size={13} /></button>
+            <button aria-label="Show recent files" aria-pressed={localView === "recent"} title="Recent files" type="button" onClick={() => setLocalView("recent")}><Clock3 aria-hidden="true" size={13} /></button>
+            <button aria-label="Show favorite files" aria-pressed={localView === "favorites"} title="Favorite files" type="button" onClick={() => setLocalView("favorites")}><Star aria-hidden="true" size={13} /></button>
             <button aria-label="Create workspace file" disabled={!canSave} title={canSave ? "Create an empty workspace file" : saveUnavailableReason} type="button" onClick={() => setCreatingFile((current) => !current)}><FilePlus2 aria-hidden="true" size={13} /></button>
             <button aria-label="Refresh current directory" title="Refresh directory" type="button" onClick={() => void controller.refreshDirectory(currentDirectory)}><RefreshCw aria-hidden="true" size={13} /></button>
           </header>
@@ -110,7 +130,13 @@ export function TinyOsFilesExplorer({
             <Search aria-hidden="true" size={12} />
             <input aria-label={`Filter ${displayPath(currentDirectory)}`} placeholder="Filter current folder" value={filter} onChange={(event) => setFilter(event.currentTarget.value)} />
           </form>
-          <WorkspaceTree controller={controller} currentDirectory={currentDirectory} onSelectDirectory={selectDirectory} />
+          {localView === "tree" ? <WorkspaceTree controller={controller} currentDirectory={currentDirectory} onSelectDirectory={selectDirectory} /> : (
+            <LocalFileView
+              label={localView === "recent" ? "Recent files" : "Favorite files"}
+              paths={localView === "recent" ? [...state.mruPaths].reverse() : [...favoritePaths]}
+              onOpen={(path) => void controller.openFile(path)}
+            />
+          )}
           <div aria-live="polite" className="tinyos-workspace-explorer__status">
             {directory?.filter ? `Filtered ${displayPath(currentDirectory)} by “${directory.filter}”` : displayPath(currentDirectory)}
           </div>
@@ -121,9 +147,12 @@ export function TinyOsFilesExplorer({
           canDirectEdit={canDirectEdit}
           canRequestChange={canRequestChange}
           canSave={canSave}
+          commandRegistry={commandRegistry}
           controller={controller}
           compact={layoutMode === "compact"}
           directEditUnavailableReason={directEditUnavailableReason}
+          favorite={Boolean(state.activePath && favoritePaths.has(state.activePath))}
+          kernel={kernel}
           onAttachContext={onAttachContext}
           onBrowseDirectory={browseDirectory}
           onRequestExplanation={onRequestExplanation}
@@ -131,11 +160,69 @@ export function TinyOsFilesExplorer({
           onDeleteFile={onDeleteFile}
           onMoveFile={onMoveFile}
           onSaveFile={onSaveFile}
+          onToggleFavorite={() => state.activePath && setFavoritePaths((current) => {
+            const next = new Set(current);
+            if (next.has(state.activePath!)) next.delete(state.activePath!);
+            else next.add(state.activePath!);
+            return next;
+          })}
           requestChangeUnavailableReason={requestChangeUnavailableReason}
           saveUnavailableReason={saveUnavailableReason}
         />
       ) : null}
+      <TinyOsFileOperationQueue lifecycle={commandLifecycle} />
     </div>
+  );
+}
+
+function LocalFileView({ label, onOpen, paths }: { label: string; onOpen: (path: string) => void; paths: string[] }) {
+  return (
+    <div aria-label={label} className="tinyos-workspace-local-view">
+      {paths.length ? paths.map((path) => <button key={path} title={path} type="button" onClick={() => onOpen(path)}><FileText aria-hidden="true" size={13} /><span>{fileName(path)}</span><small>{path}</small></button>) : <ExplorerMessage text={`No ${label.toLocaleLowerCase()} yet.`} />}
+    </div>
+  );
+}
+
+type TinyOsFileOperationView = {
+  commandId: string;
+  detail?: string;
+  kind: "delete" | "move" | "save";
+  path: string;
+  state: "acknowledged" | "awaiting_runtime" | "completed" | "conflict" | "dispatching" | "failed";
+};
+
+function TinyOsFileOperationQueue({ lifecycle }: { lifecycle: TinyOsCommandLifecycle }) {
+  const [operations, setOperations] = useState<TinyOsFileOperationView[]>([]);
+  useEffect(() => {
+    if (lifecycle.stage === "idle") return;
+    const command = lifecycle.command;
+    if (command.kind !== "file.save" && command.kind !== "file.move" && command.kind !== "file.delete") return;
+    const error = lifecycle.stage === "rejected" || lifecycle.stage === "timed_out" ? lifecycle.error : undefined;
+    const state: TinyOsFileOperationView["state"] = lifecycle.stage === "sending"
+      ? "dispatching"
+      : lifecycle.stage === "waiting_for_canonical"
+        ? "awaiting_runtime"
+        : lifecycle.stage === "acknowledged"
+          ? "acknowledged"
+          : lifecycle.stage === "completed"
+            ? lifecycle.completion.status === "completed" ? "completed" : "failed"
+            : error?.toLocaleLowerCase().includes("version conflict") ? "conflict" : "failed";
+    const next: TinyOsFileOperationView = {
+      commandId: command.commandId,
+      detail: error,
+      kind: command.kind.replace("file.", "") as TinyOsFileOperationView["kind"],
+      path: command.file.path,
+      state,
+    };
+    setOperations((current) => [next, ...current.filter((operation) => operation.commandId !== next.commandId)].slice(0, 5));
+  }, [lifecycle]);
+
+  if (!operations.length) return null;
+  return (
+    <aside aria-label="File operation queue" className="tinyos-file-operation-queue">
+      <header><strong>File operations</strong><span>{operations.length}</span></header>
+      {operations.map((operation) => <article data-state={operation.state} key={operation.commandId}><span><strong>{operation.kind}</strong><small>{operation.path}</small></span><span>{operation.state.replace("_", " ")}</span>{operation.detail ? <small title={operation.detail}>{operation.detail}</small> : null}</article>)}
+    </aside>
   );
 }
 
@@ -227,6 +314,8 @@ function TreeEntry({
         className="tinyos-workspace-tree__entry"
         data-active={(isDirectory ? currentDirectory === entry.path : state.activePath === entry.path) ? "true" : undefined}
         data-kind={entry.kind}
+        data-provenance="native_query"
+        data-resource-id={tinyOsWorkspaceResourceId(state.workspaceKey ?? "workspace", entry.path)}
         role="treeitem"
         style={{ paddingInlineStart: `${8 + depth * 14}px` }}
         title={entry.path}
@@ -260,9 +349,12 @@ function WorkspaceDocument({
   canDirectEdit,
   canRequestChange,
   canSave,
+  commandRegistry,
   compact,
   controller,
   directEditUnavailableReason,
+  favorite,
+  kernel,
   onAttachContext,
   onBrowseDirectory,
   onDeleteFile,
@@ -270,15 +362,19 @@ function WorkspaceDocument({
   onRequestExplanation,
   onRequestModification,
   onSaveFile,
+  onToggleFavorite,
   requestChangeUnavailableReason,
   saveUnavailableReason,
 }: {
   canDirectEdit: boolean;
   canRequestChange: boolean;
   canSave: boolean;
+  commandRegistry?: TinyOsShellCommandRegistry;
   compact: boolean;
   controller: TinyOsFilesController;
   directEditUnavailableReason?: string;
+  favorite: boolean;
+  kernel?: TinyOsKernelSnapshot;
   onAttachContext: (reference: TinyOsContextReference) => void;
   onBrowseDirectory: (path: string) => void;
   onDeleteFile: (input: { baseRevision: string; path: string }) => Promise<void>;
@@ -286,6 +382,7 @@ function WorkspaceDocument({
   onRequestExplanation: (reference: TinyOsContextReference) => void;
   onRequestModification: (reference: TinyOsContextReference) => void;
   onSaveFile: (input: { baseRevision?: string; content: string; createOnly: boolean; path: string }) => Promise<void>;
+  onToggleFavorite: () => void;
   requestChangeUnavailableReason?: string;
   saveUnavailableReason?: string;
 }) {
@@ -312,6 +409,8 @@ function WorkspaceDocument({
   const [moving, setMoving] = useState(false);
   const [deleteConfirmed, setDeleteConfirmed] = useState(false);
   const [mutationError, setMutationError] = useState("");
+  const [mutationConflict, setMutationConflict] = useState<{ baseRevision: string; currentRevision?: string; message: string }>();
+  const [openWith, setOpenWith] = useState(false);
   const activeMatchRef = useRef<HTMLLIElement>(null);
 
   useEffect(() => {
@@ -321,6 +420,8 @@ function WorkspaceDocument({
     setMoving(false);
     setDeleteConfirmed(false);
     setMutationError("");
+    setMutationConflict(undefined);
+    setOpenWith(false);
   }, [path]);
   useEffect(() => activeMatchRef.current?.scrollIntoView({ block: "center" }), [matchLine]);
 
@@ -353,10 +454,17 @@ function WorkspaceDocument({
   const editing = editingPath === path;
   const draft = drafts[path] ?? document?.content ?? "";
   const dirty = Boolean(document && draft !== document.content);
+  const kernelResource = document && kernel?.resources.find((candidate) => candidate.path?.replace(/\\/g, "/") === path.replace(/\\/g, "/"));
+  const relatedProcesses = kernelResource
+    ? kernel?.processes.filter((process) => kernelResource.relatedProcessIds.includes(process.id)) ?? []
+    : [];
+  const resourceId = document?.resourceId ?? tinyOsWorkspaceResourceId(state.workspaceKey ?? "workspace", path);
+  const openWithCommands = commandRegistry?.commands.filter((command) => command.target.kind === "resource" && command.target.resourceId === resourceId) ?? [];
 
   async function saveDraft() {
     if (!document || !dirty) return;
     setMutationError("");
+    setMutationConflict(undefined);
     try {
       await onSaveFile({ baseRevision: document.revision, content: draft, createOnly: false, path });
       setDrafts((current) => {
@@ -368,7 +476,9 @@ function WorkspaceDocument({
       setReviewing(false);
       await controller.refreshFile(path);
     } catch (error) {
-      setMutationError(error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      setMutationError(message);
+      setMutationConflict(fileVersionConflict(message, document.revision));
     }
   }
 
@@ -378,7 +488,7 @@ function WorkspaceDocument({
         {compact ? <button aria-label="Back to workspace" title="Back to workspace" type="button" onClick={controller.showTree}><ArrowLeft aria-hidden="true" size={13} /></button> : null}
         {state.openPaths.map((openPath) => (
           <span data-active={openPath === path ? "true" : undefined} key={openPath}>
-            <button aria-selected={openPath === path} role="tab" title={openPath} type="button" onClick={() => controller.activateFile(openPath)}>{fileName(openPath)}</button>
+            <button aria-selected={openPath === path} data-provenance="native_query" data-resource-id={tinyOsWorkspaceResourceId(state.workspaceKey ?? "workspace", openPath)} role="tab" title={openPath} type="button" onClick={() => controller.activateFile(openPath)}>{fileName(openPath)}</button>
             <button aria-label={`Close ${openPath}`} title={`Close ${openPath}`} type="button" onClick={() => controller.closeFile(openPath)}><X aria-hidden="true" size={11} /></button>
           </span>
         ))}
@@ -386,6 +496,8 @@ function WorkspaceDocument({
       <div className="tinyos-workspace-document__path">
         <nav aria-label="File breadcrumb">{breadcrumbPaths(path).map(({ label, value }) => <button aria-current={value === path ? "page" : undefined} disabled={value === path} key={value} title={value} type="button" onClick={() => onBrowseDirectory(value)}>{label}</button>)}</nav>
         <button aria-label={`Refresh ${path}`} title="Refresh file" type="button" onClick={() => void controller.refreshFile(path)}><RefreshCw aria-hidden="true" size={13} /></button>
+        <button aria-label={favorite ? `Remove ${path} from favorites` : `Add ${path} to favorites`} aria-pressed={favorite} title={favorite ? "Remove favorite" : "Add favorite"} type="button" onClick={onToggleFavorite}><Star aria-hidden="true" fill={favorite ? "currentColor" : "none"} size={13} /></button>
+        <button aria-expanded={openWith} disabled={!openWithCommands.length} title={openWithCommands.length ? "Open with a registered TinyOS handler" : "No registered handler is available"} type="button" onClick={() => setOpenWith((current) => !current)}>Open With</button>
         <button
           aria-label={editing ? `Close editor for ${path}` : `Edit ${path}`}
           disabled={!editing && (!canDirectEdit || document?.contentType !== "text" || Boolean(document?.nextCursor))}
@@ -400,6 +512,20 @@ function WorkspaceDocument({
           }}
         ><PencilLine aria-hidden="true" size={12} />{editing ? "Close editor" : "Edit draft"}</button>
       </div>
+      {openWith ? (
+        <div aria-label={`Open ${path} with`} className="tinyos-file-open-with" role="menu">
+          {openWithCommands.map((command) => <button disabled={!command.availability.available} key={command.id} role="menuitem" title={command.availability.available ? command.label : command.availability.reason} type="button" onClick={() => void commandRegistry?.execute(command.id).then((result) => result.status === "executed" && setOpenWith(false))}>{command.label}</button>)}
+        </div>
+      ) : null}
+      {document ? (
+        <dl aria-label="File resource identity" className="tinyos-file-resource-meta" role="group">
+          <div><dt>Resource</dt><dd><code>{resourceId}</code></dd></div>
+          <div><dt>Revision</dt><dd><code>{document.revision}</code></dd></div>
+          <div><dt>Access</dt><dd>{canSave ? "read / write commands" : document.access.replace("_", " ")}</dd></div>
+          <div><dt>Provenance</dt><dd><ShieldCheck aria-hidden="true" size={11} />{document.provenance.kind} · {document.provenance.sourceId}</dd></div>
+          <div><dt>Occupancy</dt><dd><Activity aria-hidden="true" size={11} />{relatedProcesses.length ? `${relatedProcesses.length} related process${relatedProcesses.length === 1 ? "" : "es"}` : "No correlated process evidence"}</dd></div>
+        </dl>
+      ) : null}
       <div className="tinyos-workspace-document__search">
         <Search aria-hidden="true" size={12} />
         <input aria-label="Search loaded file content" placeholder="Search loaded content" value={search.query} onChange={(event) => controller.setSearch(path, event.currentTarget.value, 0)} />
@@ -454,7 +580,7 @@ function WorkspaceDocument({
         {document?.nextCursor ? <button type="button" onClick={() => void controller.loadMoreFile(path)}>Load more</button> : null}
         {search.query && document?.nextCursor ? <span>Search covers loaded content only</span> : null}
         {selectedReference ? (
-          <button type="button" onClick={() => onAttachContext(selectedReference)}><Paperclip aria-hidden="true" size={11} />Attach L{selectedReference.startLine}{selectedReference.endLine === selectedReference.startLine ? "" : `–${selectedReference.endLine}`}</button>
+          <button draggable="true" title="Attach to Chat or drag this structured file reference" type="button" onClick={() => onAttachContext(selectedReference)} onDragStart={(event) => writeTinyOsReferenceTransfer(event.dataTransfer, { kind: "context", reference: selectedReference })}><Paperclip aria-hidden="true" size={11} />Attach L{selectedReference.startLine}{selectedReference.endLine === selectedReference.startLine ? "" : `–${selectedReference.endLine}`}</button>
         ) : null}
         {selectedReference ? (
           <button
@@ -480,13 +606,18 @@ function WorkspaceDocument({
               if (!targetPath) return;
               setMutationError("");
               void onMoveFile({ baseRevision: document.revision, path, targetPath }).then(async () => {
+                setMutationConflict(undefined);
                 setMoving(false);
                 setMoveTarget("");
                 controller.closeFile(path);
                 await controller.refreshDirectory(parentDirectory(path));
                 await controller.refreshDirectory(parentDirectory(targetPath));
                 await controller.revealFile(targetPath);
-              }).catch((error) => setMutationError(error instanceof Error ? error.message : String(error)));
+              }).catch((error) => {
+                const message = error instanceof Error ? error.message : String(error);
+                setMutationError(message);
+                setMutationConflict(fileVersionConflict(message, document.revision));
+              });
             }}>
               <input aria-label={`Move ${path} to`} autoFocus placeholder="new/path/name" value={moveTarget} onChange={(event) => setMoveTarget(event.currentTarget.value)} />
               <button disabled={!canSave || !moveTarget.trim()} type="submit">Move</button>
@@ -507,15 +638,29 @@ function WorkspaceDocument({
               }
               setMutationError("");
               void onDeleteFile({ baseRevision: document.revision, path }).then(async () => {
+                setMutationConflict(undefined);
                 controller.closeFile(path);
                 await controller.refreshDirectory(parentDirectory(path));
-              }).catch((error) => setMutationError(error instanceof Error ? error.message : String(error)));
+              }).catch((error) => {
+                const message = error instanceof Error ? error.message : String(error);
+                setMutationError(message);
+                setMutationConflict(fileVersionConflict(message, document.revision));
+              });
             }}
           ><Trash2 aria-hidden="true" size={11} />{deleteConfirmed ? "Confirm delete" : "Delete"}</button>
         ) : null}
+        {document?.contentType === "text" && !editing ? <span title="TinyOS has no recoverable-delete contract">Permanent delete · Trash unavailable</span> : null}
         <span>{document ? `${formatBytes(document.content.length)} loaded / ${formatBytes(document.sizeBytes)}` : ""}</span>
       </footer>
       {mutationError ? <p className="tinyos-file-mutation-error" role="alert">{mutationError}</p> : null}
+      {mutationConflict ? (
+        <section aria-label="File revision conflict" className="tinyos-file-conflict">
+          <header><AlertCircle aria-hidden="true" size={14} /><strong>Stale base revision</strong></header>
+          <p>The reviewed draft is preserved. TinyOS will not overwrite the newer native file.</p>
+          <dl><div><dt>Draft base</dt><dd><code>{mutationConflict.baseRevision}</code></dd></div><div><dt>Current native</dt><dd><code>{mutationConflict.currentRevision ?? "Reported without a revision"}</code></dd></div></dl>
+          <button type="button" onClick={() => void controller.refreshFile(path)}>Refresh native revision</button>
+        </section>
+      ) : null}
     </section>
   );
 }
@@ -607,6 +752,12 @@ function lineChangeSummary(before: string, after: string): string {
   const unchanged = beforeLines.filter((line, index) => line === afterLines[index]).length;
   const changed = Math.max(beforeLines.length, afterLines.length) - unchanged;
   return `${changed} changed line${changed === 1 ? "" : "s"} · ${before.length} → ${after.length} bytes`;
+}
+
+function fileVersionConflict(message: string, baseRevision: string): { baseRevision: string; currentRevision?: string; message: string } | undefined {
+  if (!message.toLocaleLowerCase().includes("version conflict")) return undefined;
+  const currentRevision = message.match(/["']revision["']\s*:\s*["']([^"']+)["']/i)?.[1];
+  return { baseRevision, ...(currentRevision ? { currentRevision } : {}), message };
 }
 
 function boundedSelectionText(value: string): string {

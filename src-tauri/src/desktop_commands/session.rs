@@ -414,23 +414,7 @@ fn recover_interrupted_tinyos_host_operations(
         .filter(|process| process.running)
         .filter_map(|process| process.run_id)
         .collect::<std::collections::HashSet<_>>();
-    let interrupted = runs
-        .get("runs")
-        .and_then(serde_json::Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|run| {
-            let run_id = run.get("runId").and_then(serde_json::Value::as_str)?;
-            let active = matches!(
-                run.get("status").and_then(serde_json::Value::as_str),
-                Some("running" | "waiting")
-            );
-            let host_run = run_id.starts_with("tinyos-host-");
-            let terminal_live =
-                run_id.starts_with("tinyos-host-terminal-") && live_process_runs.contains(run_id);
-            (active && host_run && !terminal_live).then(|| run_id.to_string())
-        })
-        .collect::<Vec<_>>();
+    let interrupted = interrupted_tinyos_host_run_ids(runs, &live_process_runs);
     for run_id in &interrupted {
         let request_id = next_worker_request_correlation();
         call_rust_state_service(
@@ -475,6 +459,28 @@ fn recover_interrupted_tinyos_host_operations(
         )?;
     }
     Ok(!interrupted.is_empty())
+}
+
+pub(crate) fn interrupted_tinyos_host_run_ids(
+    runs: &serde_json::Value,
+    live_process_runs: &std::collections::HashSet<String>,
+) -> Vec<String> {
+    runs.get("runs")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|run| {
+            let run_id = run.get("runId").and_then(serde_json::Value::as_str)?;
+            let active = matches!(
+                run.get("status").and_then(serde_json::Value::as_str),
+                Some("running" | "waiting")
+            );
+            let host_run = run_id.starts_with("tinyos-host-");
+            let terminal_live =
+                run_id.starts_with("tinyos-host-terminal-") && live_process_runs.contains(run_id);
+            (active && host_run && !terminal_live).then(|| run_id.to_string())
+        })
+        .collect()
 }
 
 pub(crate) fn build_worker_session_effective_capabilities(
@@ -607,17 +613,20 @@ pub(crate) fn build_worker_session_effective_capabilities(
             "run_active",
             "Terminal execution is unavailable while another run is active.",
         )
-    } else if policy.allows(&WorkerCapability::ShellExecute) && workspace_available {
-        available_capability()
     } else if !workspace_available {
         unavailable_capability(
             "workspace_unavailable",
             "The configured workspace root is unavailable.",
         )
-    } else {
+    } else if !policy.allows(&WorkerCapability::ShellExecute) {
         unavailable_capability(
             "permission_denied",
             "Shell execution permission is not granted.",
+        )
+    } else {
+        unavailable_capability(
+            "network_enforcement_unavailable",
+            "Terminal execution requires denied-network enforcement, which is unavailable in the current native shell backend.",
         )
     };
     let terminal_cancel = if evaluated_is_terminal_run && evaluated_run_status == Some("running") {
@@ -647,13 +656,19 @@ pub(crate) fn build_worker_session_effective_capabilities(
                 "save": workspace_write,
             },
             "terminal": {
+                "contract": "retained_execution_v1",
+                "persistentPty": false,
                 "inspect": available_capability(),
                 "execute": terminal_execute,
                 "cancel": terminal_cancel,
             },
             "browser": {
+                "interactionRequires": "current_real_capture",
                 "structured": available_capability(),
+                "projectionContract": "structured_projection_v1",
                 "realCapture": unavailable_capability("backend_unavailable", "No real browser capture backend is configured."),
+                "sessionContract": "browser_session_v1",
+                "sessionSnapshot": false,
                 "interact": unavailable_capability("backend_unavailable", "No real browser interaction backend is configured."),
             },
         },

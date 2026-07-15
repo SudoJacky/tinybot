@@ -1003,6 +1003,26 @@ the references on the new canonical `user_message`, emits the correlated command
 and completes at the new run's terminal canonical item. Requests issued from a History view still
 create this new live run and never mutate the historical snapshot.
 
+TinyOS Time Machine indexes every raw canonical item revision as an exact event boundary. History
+reconstruction passes that event index together with run, turn, and item identity to projector
+version `1`; an identity mismatch is an error rather than a nearest-match fallback. A boundary with
+an invalid or missing timestamp is explicitly shown as unavailable, and native snapshots observed
+after a historical boundary are excluded so current native state cannot leak backward in time.
+
+Replay is local presentation state and advances only through those indexed canonical boundaries.
+Every runtime-scoped command in the shared shell registry is denied in History with
+`reasonCode: "history_read_only"`; window, navigation, evidence pinning, and Return-to-Live commands
+remain local. Inspector pins retain their event index, timestamp availability, resource identity,
+revision, and provenance so two boundaries are compared without merging evidence. Layout
+preferences survive History navigation and Return to Live re-evaluates the current backend
+capabilities instead of retaining historical availability.
+
+Replay checkpoint data is disposable and keyed by projector version and event index. Incompatible
+checkpoint data is discarded and rebuilt from canonical events. The automated large-timeline guard
+samples the first, middle, and final boundaries of a 2,000-event replay against a 250 ms target. The
+current projector remains below that threshold, so Time Machine does not create or persist replay
+checkpoints yet.
+
 TinyOS controlled-host actions use the same `tinybot.command.v1` gateway and dedicated
 `tinyos-host-*` run identities. They are never inferred from local window state:
 
@@ -1013,8 +1033,10 @@ TinyOS controlled-host actions use the same `tinybot.command.v1` gateway and ded
 - `terminal.execute` carries the exact `command`, optional workspace-relative `cwd`, and
   `confirmed`;
 - `terminal.cancel` targets the running `tinyos-host-terminal-*` run;
-- `browser.interact` defines the correlated `capture_id` and typed action contract, but currently
-  fails closed because the desktop has no real browser interaction backend.
+- `browser.interact` requires the correlated `browser_session_id`, `tab_id`, `capture_id`, explicit
+  confirmation, and a typed `click`, `navigate`, or `type` action. The native boundary validates
+  those identities and action parameters before failing closed because the desktop has no real
+  browser interaction backend.
 
 File changes are workspace-bound and revision guarded. The frontend keeps edits as local drafts,
 shows the before/after content before enabling save, and submits the revision returned by the
@@ -1031,10 +1053,32 @@ to the host run and records a canonical cancelled terminal outcome. On capabilit
 a restart, a persisted active `tinyos-host-*` run without a matching live terminal process is
 marked failed with an explicit interrupted-recovery event instead of remaining active indefinitely.
 
-TinyOS browser surfaces label backend raster evidence as `Real capture` and all other projections as
-`Structured simulation`. `browser.realCapture` and `browser.interact` remain unavailable with
-`reasonCode: "backend_unavailable"`; clients must not convert structured browser metadata into a
-claim of real capture or successful host interaction.
+The delivered Terminal contract is `retained_execution_v1`, not a persistent PTY session. Every
+reviewed command creates one non-TTY `tinyos-host-terminal-*` execution; cwd, command history, and
+foreground process state do not carry implicitly into a later execution. Canonical Tool result data
+for this contract includes the native `processId`, `executionContract`, `tty`, `sandboxMode`,
+`networkMode`, `exitCode`, `startedAtMs`, `lastActivityMs`, `durationMs`, `stdoutBytes`,
+`stderrBytes`, `truncated`, and `droppedBytes` fields alongside the bounded sanitized stdout/stderr.
+Clients may retain those canonical executions as tabs and history, but must not label them as live
+shell sessions. A future long-lived PTY requires a new versioned capability and lifecycle contract.
+
+TinyOS Browser separates three evidence states. `Structured projection` is canonical timeline
+metadata without raster evidence. `Local preview` is a raster artifact without an owning native
+browser session. `Real capture` requires a `browser_session_v1` snapshot whose current, non-stale
+capture identity matches the raster artifact. Structured entries and local previews never create
+synthetic tabs, navigation history, or successful host interactions.
+
+`browser_session_v1` snapshots bind `browserSessionId`, `sessionId`, `runId`, `activeTabId`, tab
+history, per-tab capture history, and the backend-authored `click`/`navigate`/`type` interaction
+decisions. An interaction must target the same session, an existing tab, and that tab's exact
+current non-stale capture. A stale capture stays visible for diagnosis, but controls remain disabled
+and the client offers recovery to the current capture instead of silently retargeting the command.
+
+The current effective capability declares `projectionContract: "structured_projection_v1"`,
+`sessionContract: "browser_session_v1"`, `interactionRequires: "current_real_capture"`, and
+`sessionSnapshot: false`. `browser.realCapture` and `browser.interact` remain unavailable with
+`reasonCode: "backend_unavailable"`; a future backend must publish a valid session snapshot and
+enable each action before the client can dispatch it.
 
 `GET /api/sessions/{key}/effective-capabilities` and the native
 `worker_session_effective_capabilities` command return `tinybot.effective_capabilities.v1` decisions.
@@ -1042,8 +1086,14 @@ Unavailable decisions include both `reasonCode` and a user-facing `reason`; the 
 the evaluated run used for the decision when present. Retry is available only when that latest run
 is failed and no active run supersedes it. `files.requestChange` is available when workspace read
 access is granted, the workspace root is available, and no run is active.
+The `terminal` capability group also declares `contract: "retained_execution_v1"` and
+`persistentPty: false`; clients reject a different or missing execution contract instead of
+silently treating it as the delivered retained-execution model.
 `files.directEdit`, `files.save`, and `terminal.execute` additionally require their corresponding
-desktop capability, an available workspace, and no active run. `terminal.cancel` is available only
+desktop capability, an available workspace, and no active run. The current native shell backend
+cannot enforce denied-network execution, so `terminal.execute` fails closed with
+`reasonCode: "network_enforcement_unavailable"` instead of starting a less restricted process.
+`terminal.cancel` is available only
 for a running `tinyos-host-terminal-*` run. The generic Agent cancel control remains unavailable for
 host-operation runs so the owning TinyOS application remains the single control surface.
 `agent.pause` is available for a running run; `agent.resume` is available only when the evaluated
@@ -1292,6 +1342,8 @@ Thread statuses:
 | `worker_workspace_files` | none | `{ files: WorkspaceFileEntry[] }` |
 | `worker_workspace_file` | `{ input: { path } }` | `WorkspaceReadFileResult` |
 | `worker_workspace_put_file` | `{ input: { path, body } }` | `WorkspaceWriteResult` |
+| `worker_workspace_directory` | `{ input: { path, cursor?, nameQuery? } }` | Worker response containing `WorkspaceDirectoryPage` |
+| `worker_workspace_file_chunk` | `{ input: { path, cursor? } }` | Worker response containing `WorkspaceFileChunk` |
 
 Lower-level workspace RPC also supports:
 
@@ -1320,6 +1372,51 @@ Lower-level workspace RPC also supports:
   "truncated": false
 }
 ```
+
+TinyOS Files uses revision-bound, paginated read commands instead of loading an unbounded workspace
+tree or file. `worker_workspace_directory` returns a Worker response whose `result` has this shape:
+
+```json
+{
+  "path": "src",
+  "workspace_key": "D:/code/tinybot",
+  "listing_revision": "...",
+  "entries": [
+    {
+      "path": "src/app-core",
+      "kind": "directory",
+      "size_bytes": null,
+      "updated_at": "2026-07-14T00:00:00Z"
+    }
+  ],
+  "next_cursor": null
+}
+```
+
+Directories sort before files, entries are then ordered by normalized path, and `nameQuery` filters
+entry names before pagination. A continuation cursor is bound to `listing_revision`; using it after
+the directory changes fails visibly with query code `listing_changed`.
+
+`worker_workspace_file_chunk` returns a Worker response whose `result` has this shape:
+
+```json
+{
+  "path": "src/main.ts",
+  "content_type": "text",
+  "revision": "...",
+  "size_bytes": 1024,
+  "updated_at": "2026-07-14T00:00:00Z",
+  "content": "...",
+  "line_start": 1,
+  "line_end": 40,
+  "next_cursor": null
+}
+```
+
+Binary files return `content_type: "binary"` without invented text content or line numbers. File
+continuation cursors are bound to `revision`; using one after the file changes fails visibly with
+query code `source_changed`. Other workspace query failures retain their protocol error, path, and
+retryable metadata rather than returning an empty successful page.
 
 `workspace.apply_patch` accepts:
 

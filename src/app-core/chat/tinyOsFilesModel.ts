@@ -21,11 +21,14 @@ export type TinyOsDirectoryView = {
 };
 
 export type TinyOsDocumentView = {
+  access: "read_only" | "read_write";
   content: string;
   contentType: WorkspaceFileChunk["contentType"];
   lineEnd?: number;
   nextCursor?: string;
   path: string;
+  provenance: { kind: "native_query"; sourceId: string };
+  resourceId: string;
   revision: string;
   sizeBytes: number;
   stale: boolean;
@@ -62,7 +65,7 @@ export type TinyOsFilesAction =
   | { append: boolean; page: WorkspaceDirectoryPage; requestId: string; type: "directory_loaded" }
   | { error: WorkspaceQueryError; path: string; requestId: string; type: "directory_failed" }
   | { path: string; requestId: string; type: "file_loading" }
-  | { append: boolean; chunk: WorkspaceFileChunk; requestId: string; type: "file_loaded" }
+  | { append: boolean; chunk: WorkspaceFileChunk; requestId: string; type: "file_loaded"; workspaceKey: string }
   | { error: WorkspaceQueryError; path: string; requestId: string; type: "file_failed" }
   | { path: string; type: "activate_file" }
   | { path: string; type: "close_file" }
@@ -202,7 +205,7 @@ export function reduceTinyOsFilesState(state: TinyOsFilesState, action: TinyOsFi
       const current = state.documents[action.chunk.path];
       if (!matchesRequest(current, action.requestId)) return state;
       const previous = resourceValue(current);
-      const next = documentView(action.chunk, action.append ? previous : undefined);
+      const next = documentView(action.chunk, action.workspaceKey, action.append ? previous : undefined);
       return {
         ...state,
         documents: { ...state.documents, [action.chunk.path]: { status: "ready", value: next } },
@@ -281,18 +284,25 @@ function directoryView(page: WorkspaceDirectoryPage, filter: string): TinyOsDire
   };
 }
 
-function documentView(chunk: WorkspaceFileChunk, previous?: TinyOsDocumentView): TinyOsDocumentView {
+function documentView(chunk: WorkspaceFileChunk, workspaceKey: string, previous?: TinyOsDocumentView): TinyOsDocumentView {
   return {
+    access: "read_only",
     content: `${previous?.content ?? ""}${chunk.content ?? ""}`,
     contentType: chunk.contentType,
     lineEnd: chunk.lineEnd ?? previous?.lineEnd,
     nextCursor: chunk.nextCursor,
     path: chunk.path,
+    provenance: { kind: "native_query", sourceId: workspaceKey },
+    resourceId: tinyOsWorkspaceResourceId(workspaceKey, chunk.path),
     revision: chunk.revision,
     sizeBytes: chunk.sizeBytes,
     stale: false,
     updatedAt: chunk.updatedAt,
   };
+}
+
+export function tinyOsWorkspaceResourceId(workspaceKey: string, path: string): string {
+  return `workspace:${workspaceKey}:${path.replace(/\\/g, "/")}`;
 }
 
 function appStatusForError(error: WorkspaceQueryError): TinyOsFilesState["appStatus"] {

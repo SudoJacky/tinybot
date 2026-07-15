@@ -1521,19 +1521,177 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 /* TinyOS Live Canvas */
 .react-live-canvas.tinyos {
-  grid-template-rows: 58px minmax(0, 1fr);
+  grid-template-rows: 58px auto minmax(0, 1fr);
   container-type: inline-size;
-  background: #f3efe7;
+  background: #07111d;
   color: var(--color-body);
+}
+
+.tinyos-time-machine {
+  display: grid;
+  gap: 7px;
+  border-bottom: 1px solid rgb(72 59 45 / 10%);
+  background: rgb(250 248 243 / 92%);
+  padding: 8px 12px;
+  box-shadow: 0 4px 12px rgb(72 59 45 / 5%);
+}
+
+.tinyos-time-machine[data-empty="true"] {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
+.tinyos-time-machine__heading,
+.tinyos-time-machine__controls,
+.tinyos-time-machine__boundary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.tinyos-time-machine__heading {
+  justify-content: space-between;
+}
+
+.tinyos-time-machine__heading > div {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.tinyos-time-machine__heading small,
+.tinyos-time-machine__heading > span,
+.tinyos-time-machine__groups small,
+.tinyos-time-machine__boundary {
+  color: var(--color-muted);
+  font-size: 9px;
+}
+
+.tinyos-time-machine__heading strong {
+  color: var(--color-ink);
+  font-size: 11px;
+}
+
+.tinyos-time-machine__controls > button,
+.tinyos-time-machine__groups button,
+.tinyos-time-machine__speed select {
+  border: 1px solid var(--color-hairline);
+  border-radius: 7px;
+  background: rgb(255 255 255 / 68%);
+  color: var(--color-body);
+  cursor: pointer;
+}
+
+.tinyos-time-machine__controls > button {
+  display: inline-flex;
+  min-width: 30px;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 8px;
+}
+
+.tinyos-time-machine__controls > button:focus-visible,
+.tinyos-time-machine__groups button:focus-visible,
+.tinyos-time-machine__speed select:focus-visible,
+.tinyos-time-machine input[type="range"]:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.tinyos-time-machine__controls > button:disabled {
+  cursor: not-allowed;
+  opacity: .42;
+}
+
+.tinyos-time-machine__controls > label:not(.tinyos-time-machine__speed) {
+  display: grid;
+  min-width: 100px;
+  flex: 1;
+  gap: 2px;
+}
+
+.tinyos-time-machine__controls label > span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.tinyos-time-machine input[type="range"] {
+  width: 100%;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.tinyos-time-machine__speed select {
+  min-height: 30px;
+  padding: 0 5px;
+  font-size: 9px;
+}
+
+.tinyos-time-machine__live {
+  white-space: nowrap;
+}
+
+.tinyos-time-machine__groups {
+  display: flex;
+  min-width: 0;
+  margin: 0;
+  gap: 5px;
+  overflow-x: auto;
+  padding: 0;
+  list-style: none;
+  scrollbar-width: thin;
+}
+
+.tinyos-time-machine__groups button {
+  display: grid;
+  flex: 0 0 auto;
+  justify-items: start;
+  gap: 1px;
+  padding: 4px 7px;
+  text-align: left;
+}
+
+.tinyos-time-machine__groups button[aria-current="true"] {
+  border-color: color-mix(in srgb, var(--color-primary) 36%, var(--color-hairline));
+  background: color-mix(in srgb, var(--color-primary) 9%, white);
+  color: var(--color-primary);
+}
+
+.tinyos-time-machine__boundary {
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.tinyos-time-machine__boundary > span:first-child {
+  overflow: hidden;
+  max-width: 220px;
+  color: var(--color-ink);
+  font-weight: 600;
+  text-overflow: ellipsis;
+}
+
+.tinyos-time-machine__boundary [data-unavailable="true"] {
+  color: #8a5d1e;
 }
 
 .tinyos-system-bar.react-live-canvas__header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 10px;
-  background: color-mix(in srgb, var(--color-canvas) 94%, transparent);
-  padding: 0 12px;
-  backdrop-filter: blur(16px);
+  border-bottom-color: rgb(72 59 45 / 10%);
+  background: rgb(250 248 243 / 88%);
+  padding: 0 14px;
+  box-shadow: 0 1px 0 rgb(255 255 255 / 64%);
+  backdrop-filter: blur(22px) saturate(1.2);
 }
 
 .tinyos-system-bar__identity,
@@ -1547,11 +1705,13 @@ button.tinyos-overlay-backdrop:focus-visible {
 .tinyos-system-bar__identity > svg {
   flex: 0 0 auto;
   color: var(--color-primary);
+  filter: drop-shadow(0 2px 5px rgb(204 120 92 / 24%));
 }
 
 .tinyos-system-bar__identity h2 {
   flex: 0 0 auto;
-  font-size: 14px;
+  font-size: 15px;
+  letter-spacing: -.025em;
 }
 
 .tinyos-system-bar__status {
@@ -1562,6 +1722,10 @@ button.tinyos-overlay-backdrop:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  border: 1px solid rgb(75 67 57 / 8%);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 42%);
+  padding: 4px 7px;
   white-space: nowrap;
 }
 
@@ -1590,8 +1754,8 @@ button.tinyos-overlay-backdrop:focus-visible {
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-hairline));
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-primary) 7%, #fff);
-  padding: 4px 7px;
+  background: color-mix(in srgb, var(--color-primary) 6%, rgb(255 255 255 / 72%));
+  padding: 4px 8px;
   color: color-mix(in srgb, var(--color-primary) 82%, var(--color-body)) !important;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1637,76 +1801,152 @@ button.tinyos-overlay-backdrop:focus-visible {
 }
 
 .tinyos-shell {
+  --tinyos-dock-surface: rgb(8 18 31 / 76%);
+  --tinyos-window-surface: rgb(250 252 255 / 91%);
+  --tinyos-cyan: #5eead4;
+  --tinyos-violet: #a78bfa;
+  position: relative;
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: #eee8df;
+  background: #07111d;
 }
 
 .tinyos-launcher {
-  z-index: 12;
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  z-index: 24;
   display: flex;
-  grid-row: 1 / 3;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 2px;
-  min-height: 0;
-  overflow: auto;
-  border-right: 1px solid rgb(82 72 58 / 11%);
-  background: #f8f5ef;
-  padding: 10px 6px;
+  max-width: calc(100% - 24px);
+  align-items: center;
+  gap: 4px;
+  overflow: visible;
+  border: 1px solid rgb(255 255 255 / 15%);
+  border-radius: 18px;
+  background: var(--tinyos-dock-surface);
+  padding: 6px;
+  box-shadow: 0 24px 60px rgb(0 0 0 / 42%), 0 0 34px rgb(94 234 212 / 8%), inset 0 1px 0 rgb(255 255 255 / 16%);
+  transform: translateX(-50%);
+  backdrop-filter: blur(26px) saturate(1.55);
+  transition: border-color var(--motion-duration-fast) var(--motion-ease-standard), box-shadow var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.tinyos-launcher[data-lens-visible="true"] {
+  border-color: rgb(94 234 212 / 24%);
+  box-shadow: 0 28px 70px rgb(0 0 0 / 48%), 0 0 42px rgb(94 234 212 / 13%), inset 0 1px 0 rgb(255 255 255 / 18%);
+}
+
+.tinyos-launcher__lens {
+  position: absolute;
+  z-index: 4;
+  inset: -10px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.tinyos-launcher__glass-surface-host {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.tinyos-launcher__glass-surface {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 64px;
+  height: 64px;
+  overflow: hidden;
+  border: 1px solid rgb(207 250 254 / 25%);
+  border-radius: 23px;
+  background: linear-gradient(135deg, rgb(255 255 255 / 10%), rgb(165 243 252 / 3%) 46%, rgb(15 23 42 / 8%));
+  box-shadow: 0 9px 26px rgb(0 0 0 / 24%), inset 0 0 2px 1px rgb(255 255 255 / 25%), inset 0 0 11px 4px rgb(207 250 254 / 9%);
+  opacity: 0;
+  pointer-events: none;
+  will-change: transform, opacity;
 }
 
 .tinyos-launcher__app {
   position: relative;
-  display: grid;
-  min-width: 0;
-  min-height: 52px;
+  z-index: 3;
+  display: inline-grid;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
   place-items: center;
-  gap: 3px;
-  border-radius: 10px;
-  color: #777168;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  color: #cbd5e1;
   cursor: pointer;
-  transition: background-color var(--motion-duration-fast) var(--motion-ease-standard), color var(--motion-duration-fast) var(--motion-ease-standard);
+  transition: color var(--motion-duration-fast) var(--motion-ease-standard), filter var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.tinyos-launcher__app:hover,
+.tinyos-launcher__app:focus-visible {
+  background: transparent;
 }
 
 .tinyos-launcher__app > span {
-  overflow: hidden;
-  max-width: 100%;
-  font-size: 8px;
-  text-overflow: ellipsis;
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  z-index: 2;
+  border: 1px solid rgb(255 255 255 / 13%);
+  border-radius: 7px;
+  background: rgb(8 18 31 / 94%);
+  padding: 5px 7px;
+  box-shadow: 0 12px 30px rgb(0 0 0 / 34%);
+  color: #f8fafc;
+  font-size: 9px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 4px);
+  transition: opacity var(--motion-duration-fast) var(--motion-ease-standard), transform var(--motion-duration-fast) var(--motion-ease-standard);
   white-space: nowrap;
+}
+
+.tinyos-launcher__app:hover > span,
+.tinyos-launcher__app:focus-visible > span {
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
 
 .tinyos-launcher__app:hover:not(:disabled),
 .tinyos-launcher__app:focus-visible,
 .tinyos-launcher__app[data-active="true"] {
-  background: color-mix(in srgb, var(--color-primary) 9%, #fff);
-  color: var(--color-primary);
+  color: #f8fafc;
+  filter: drop-shadow(0 2px 7px rgb(94 234 212 / 34%));
 }
 
 .tinyos-launcher__app:focus-visible {
+  z-index: 5;
   outline: 2px solid var(--color-accent);
   outline-offset: -2px;
 }
 
 .tinyos-launcher__app:disabled {
   cursor: default;
-  opacity: .42;
+  opacity: .36;
 }
 
 .tinyos-launcher__state {
   position: absolute;
-  top: 7px;
-  right: 8px;
-  color: #8f8a80;
+  bottom: 3px;
+  left: 50%;
+  color: #64748b;
+  transform: translateX(-50%);
 }
 
-.tinyos-launcher__reset {
-  margin-top: auto;
+.tinyos-launcher__divider {
+  width: 1px;
+  height: 26px;
+  flex: 0 0 1px;
+  margin: 0 2px;
+  background: rgb(255 255 255 / 14%);
 }
 
 .tinyos-launcher__app[data-status="running"] .tinyos-launcher__state {
@@ -1718,21 +1958,151 @@ button.tinyos-overlay-backdrop:focus-visible {
   color: var(--color-error);
 }
 
+.tinyos-desktop__system-tools {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 23;
+  display: flex;
+  gap: 3px;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 11px;
+  background: rgb(8 18 31 / 68%);
+  padding: 3px;
+  box-shadow: 0 12px 30px rgb(0 0 0 / 24%), inset 0 1px 0 rgb(255 255 255 / 10%);
+  backdrop-filter: blur(20px) saturate(1.4);
+}
+
+.tinyos-desktop__system-tools > button {
+  position: relative;
+  display: inline-grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  color: #cbd5e1;
+  cursor: pointer;
+}
+
+.tinyos-desktop__system-tools > button:hover:not(:disabled),
+.tinyos-desktop__system-tools > button:focus-visible {
+  background: rgb(94 234 212 / 13%);
+  color: var(--tinyos-cyan);
+}
+
+.tinyos-desktop__system-tools > button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.tinyos-desktop__system-tools > button[data-attention="true"]::after {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border: 1px solid #fff;
+  border-radius: 50%;
+  background: var(--color-error);
+  content: "";
+}
+
+.tinyos-desktop__system-tools > button:disabled {
+  cursor: default;
+  opacity: .38;
+}
+
 .tinyos-desktop {
   position: relative;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: #eee8df;
+  background:
+    radial-gradient(circle at 18% 8%, rgb(56 189 248 / 12%) 0, transparent 34%),
+    radial-gradient(circle at 82% 78%, rgb(167 139 250 / 13%) 0, transparent 36%),
+    linear-gradient(145deg, #0b1b2b 0%, #07131f 48%, #0d1727 100%);
   isolation: isolate;
+  box-shadow: inset 0 0 80px rgb(0 0 0 / 32%);
 }
 
 .tinyos-desktop::before {
   position: absolute;
   inset: 0;
-  z-index: -1;
-  background: rgb(204 120 92 / 3%);
+  z-index: 0;
+  background-image:
+    linear-gradient(rgb(148 163 184 / 5%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(148 163 184 / 5%) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: linear-gradient(to bottom, rgb(0 0 0 / 56%), transparent 78%);
   content: "";
+  pointer-events: none;
+}
+
+.tinyos-desktop__side-rays {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background:
+    conic-gradient(from 225deg at 104% -8%, transparent 0 38deg, rgb(94 234 212 / 16%) 48deg, transparent 57deg),
+    conic-gradient(from 214deg at 108% -12%, transparent 0 25deg, rgb(167 139 250 / 14%) 36deg, transparent 49deg);
+  opacity: .72;
+  pointer-events: none;
+  transition: opacity 420ms var(--motion-ease-standard);
+}
+
+.tinyos-desktop__side-rays > canvas {
+  display: block;
+  mix-blend-mode: screen;
+}
+
+.tinyos-desktop[data-has-windows="true"] .tinyos-desktop__side-rays {
+  opacity: .46;
+}
+
+.tinyos-desktop__environment {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  left: 16px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: rgb(226 232 240 / 66%);
+  pointer-events: none;
+}
+
+.tinyos-desktop__brand,
+.tinyos-desktop__brand > span {
+  display: inline-flex;
+  align-items: center;
+}
+
+.tinyos-desktop__brand {
+  gap: 6px;
+}
+
+.tinyos-desktop__brand strong {
+  color: rgb(248 250 252 / 90%);
+  font-size: 10px;
+  letter-spacing: -.01em;
+}
+
+.tinyos-desktop__brand small {
+  border-left: 1px solid rgb(226 232 240 / 20%);
+  padding-left: 7px;
+  font-size: 8px;
+}
+
+.tinyos-desktop__mode {
+  border: 1px solid rgb(255 255 255 / 11%);
+  border-radius: 999px;
+  background: rgb(8 18 31 / 32%);
+  padding: 4px 7px;
+  font-size: 8px;
+  backdrop-filter: blur(8px);
 }
 
 .tinyos-desktop__empty {
@@ -1741,20 +2111,30 @@ button.tinyos-overlay-backdrop:focus-visible {
   display: grid;
   place-content: center;
   justify-items: center;
-  gap: 8px;
-  padding: 28px;
-  color: #777168;
+  gap: 9px;
+  padding: 28px 28px 92px;
+  color: #cbd5e1;
   text-align: center;
 }
 
+.tinyos-desktop__empty > svg {
+  box-sizing: content-box;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 15px;
+  background: rgb(255 255 255 / 7%);
+  padding: 13px;
+  box-shadow: 0 18px 50px rgb(0 0 0 / 24%), inset 0 1px 0 rgb(255 255 255 / 13%);
+}
+
 .tinyos-desktop__empty strong {
-  color: var(--color-ink);
-  font-size: 14px;
+  color: #f8fafc;
+  font-size: 15px;
+  letter-spacing: -.02em;
 }
 
 .tinyos-desktop__empty span {
-  max-width: 260px;
-  font-size: 11px;
+  max-width: 290px;
+  font-size: 10px;
   line-height: 1.55;
 }
 
@@ -1766,18 +2146,19 @@ button.tinyos-overlay-backdrop:focus-visible {
   left: 5%;
   z-index: 2;
   display: grid;
-  grid-template-rows: 40px minmax(0, 1fr);
+  grid-template-rows: 44px minmax(0, 1fr);
   min-width: 0;
   min-height: 180px;
   overflow: hidden;
-  border: 1px solid rgb(75 67 57 / 16%);
-  border-radius: 13px;
-  background: rgb(252 250 246 / 96%);
-  box-shadow: 0 16px 34px rgb(66 53 40 / 12%);
-  opacity: .82;
-  transform: scale(.985);
+  border: 1px solid rgb(255 255 255 / 42%);
+  border-radius: 16px;
+  background: var(--tinyos-window-surface);
+  box-shadow: 0 24px 58px rgb(0 0 0 / 30%), inset 0 1px 0 rgb(255 255 255 / 78%);
+  opacity: .86;
+  transform: scale(.99);
   transform-origin: center;
   transition: opacity var(--motion-duration-medium) var(--motion-ease-standard), transform var(--motion-duration-medium) var(--motion-ease-standard), box-shadow var(--motion-duration-medium) var(--motion-ease-standard);
+  backdrop-filter: blur(22px) saturate(1.08);
   will-change: left, top, width, height;
 }
 
@@ -1792,8 +2173,22 @@ button.tinyos-overlay-backdrop:focus-visible {
 .tinyos-window[data-active="true"] {
   z-index: 9;
   opacity: 1;
-  box-shadow: 0 20px 44px rgb(66 53 40 / 18%);
+  border-color: rgb(148 226 255 / 56%);
+  box-shadow: 0 30px 78px rgb(0 0 0 / 42%), 0 0 34px rgb(94 234 212 / 10%), 0 2px 8px rgb(0 0 0 / 18%), inset 0 1px 0 rgb(255 255 255 / 86%);
   transform: none;
+}
+
+.tinyos-window[data-active="true"]::after {
+  position: absolute;
+  top: 0;
+  right: 18px;
+  left: 18px;
+  z-index: 2;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--tinyos-cyan), var(--tinyos-violet), transparent);
+  box-shadow: 0 0 12px rgb(94 234 212 / 48%);
+  content: "";
+  pointer-events: none;
 }
 
 .tinyos-window__titlebar {
@@ -1801,9 +2196,10 @@ button.tinyos-overlay-backdrop:focus-visible {
   grid-template-columns: auto minmax(0, 1fr) auto 32px 32px 32px;
   align-items: center;
   gap: 6px;
-  border-bottom: 1px solid rgb(75 67 57 / 11%);
-  background: #fdfbf7;
-  padding: 0 6px 0 11px;
+  border-bottom: 1px solid rgb(75 67 57 / 9%);
+  background: linear-gradient(180deg, rgb(255 255 255 / 86%), rgb(245 248 252 / 76%));
+  padding: 0 6px 0 12px;
+  backdrop-filter: blur(18px);
   user-select: none;
   cursor: move;
   touch-action: none;
@@ -1819,7 +2215,12 @@ button.tinyos-overlay-backdrop:focus-visible {
   align-items: center;
   gap: 6px;
   color: var(--color-ink);
-  font-size: 11px;
+  font-size: 10px;
+}
+
+.tinyos-window__titlebar > span:first-child > svg {
+  color: color-mix(in srgb, var(--tinyos-cyan) 68%, var(--color-primary));
+  filter: drop-shadow(0 2px 5px rgb(34 211 238 / 22%));
 }
 
 .tinyos-window__source {
@@ -1834,10 +2235,10 @@ button.tinyos-overlay-backdrop:focus-visible {
 .tinyos-window__titlebar > button,
 .tinyos-inspector header button {
   display: inline-grid;
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   place-items: center;
-  border-radius: 7px;
+  border-radius: 9px;
   color: var(--color-muted);
   cursor: pointer;
 }
@@ -1859,6 +2260,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 .tinyos-window__content {
   min-height: 0;
   overflow: auto;
+  background: rgb(255 255 255 / 72%);
 }
 
 .tinyos-window__resize-handle {
@@ -2132,6 +2534,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 }
 
 .tinyos-workspace-explorer {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(150px, 30%) minmax(0, 1fr);
   height: 100%;
@@ -2165,8 +2568,17 @@ button.tinyos-overlay-backdrop:focus-visible {
 }
 
 .tinyos-workspace-explorer__tree > header {
-  justify-content: space-between;
+  justify-content: flex-start;
   color: var(--color-muted);
+}
+
+.tinyos-workspace-explorer__tree > header > span:first-child {
+  margin-right: auto;
+}
+
+.tinyos-workspace-explorer__tree > header > button[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--color-primary) 10%, white);
+  color: var(--color-primary);
 }
 
 .tinyos-workspace-explorer__tree > header > span {
@@ -2214,6 +2626,40 @@ button.tinyos-overlay-backdrop:focus-visible {
   overflow: auto;
   padding: 3px 5px;
 }
+
+.tinyos-workspace-local-view {
+  min-height: 0;
+  overflow: auto;
+  padding: 5px;
+}
+
+.tinyos-workspace-local-view > button {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+  border-radius: 6px;
+  padding: 6px;
+  color: var(--color-body);
+  text-align: left;
+}
+
+.tinyos-workspace-local-view > button:hover,
+.tinyos-workspace-local-view > button:focus-visible {
+  background: color-mix(in srgb, var(--color-primary) 9%, white);
+}
+
+.tinyos-workspace-local-view > button > span,
+.tinyos-workspace-local-view > button > small {
+  grid-column: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tinyos-workspace-local-view > button > span { font-size: 9px; }
+.tinyos-workspace-local-view > button > small { color: var(--color-muted); font-size: 7px; }
 
 .tinyos-workspace-tree__entry {
   display: flex;
@@ -2289,11 +2735,106 @@ button.tinyos-overlay-backdrop:focus-visible {
   color: var(--color-primary);
 }
 
+.tinyos-file-open-with {
+  position: absolute;
+  top: 69px;
+  right: 8px;
+  z-index: 8;
+  display: grid;
+  width: min(250px, calc(100% - 16px));
+  gap: 2px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 9px;
+  background: #fffdfa;
+  padding: 5px;
+  box-shadow: 0 14px 36px rgb(45 36 28 / 18%);
+}
+
+.tinyos-file-open-with > button {
+  border-radius: 6px;
+  padding: 7px;
+  font-size: 9px;
+  text-align: left;
+}
+
+.tinyos-file-open-with > button:hover,
+.tinyos-file-open-with > button:focus-visible { background: color-mix(in srgb, var(--color-primary) 8%, white); }
+
+.tinyos-file-resource-meta {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  border-bottom: 1px solid rgb(75 67 57 / 10%);
+  background: rgb(75 67 57 / 8%);
+}
+
+.tinyos-file-resource-meta > div {
+  min-width: 0;
+  background: #faf7f1;
+  padding: 5px 7px;
+}
+
+.tinyos-file-resource-meta dt { color: var(--color-muted); font-size: 7px; text-transform: uppercase; }
+.tinyos-file-resource-meta dd { display: flex; min-width: 0; align-items: center; gap: 4px; margin: 2px 0 0; overflow: hidden; color: var(--color-body); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.tinyos-file-resource-meta code { overflow: hidden; text-overflow: ellipsis; }
+
+.tinyos-file-operation-queue {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  z-index: 12;
+  display: grid;
+  width: min(310px, calc(100% - 16px));
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--color-hairline);
+  border-radius: 10px;
+  background: rgb(255 253 249 / 97%);
+  padding: 5px;
+  box-shadow: 0 14px 36px rgb(45 36 28 / 18%);
+}
+
+.tinyos-file-operation-queue > header,
+.tinyos-file-operation-queue > article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 6px;
+}
+
+.tinyos-file-operation-queue > header { border-bottom: 1px solid var(--color-hairline); font-size: 9px; }
+.tinyos-file-operation-queue > article { border-radius: 6px; font-size: 8px; }
+.tinyos-file-operation-queue > article[data-state="conflict"],
+.tinyos-file-operation-queue > article[data-state="failed"] { background: color-mix(in srgb, var(--color-error) 7%, white); color: var(--color-error); }
+.tinyos-file-operation-queue strong,
+.tinyos-file-operation-queue small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tinyos-file-operation-queue small { color: var(--color-muted); font-size: 7px; }
+.tinyos-file-operation-queue > article > small { grid-column: 1 / -1; }
+
+.tinyos-file-conflict {
+  margin: 7px;
+  border: 1px solid color-mix(in srgb, var(--color-error) 30%, var(--color-hairline));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--color-error) 5%, white);
+  padding: 9px;
+}
+
+.tinyos-file-conflict > header { display: flex; align-items: center; gap: 6px; color: var(--color-error); font-size: 10px; }
+.tinyos-file-conflict > p { margin: 5px 0; color: var(--color-body); font-size: 8px; }
+.tinyos-file-conflict dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin: 0; }
+.tinyos-file-conflict dl > div { min-width: 0; border: 1px solid var(--color-hairline); border-radius: 6px; padding: 5px; }
+.tinyos-file-conflict dt { color: var(--color-muted); font-size: 7px; }
+.tinyos-file-conflict dd { margin: 2px 0 0; overflow: hidden; font-size: 8px; text-overflow: ellipsis; }
+.tinyos-file-conflict > button { margin-top: 6px; border-radius: 6px; background: color-mix(in srgb, var(--color-primary) 9%, white); padding: 5px 7px; color: var(--color-primary); font-size: 8px; }
+
 .tinyos-workspace-document {
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
   background: #fffdfa;
 }
 
@@ -2403,10 +2944,6 @@ button.tinyos-overlay-backdrop:focus-visible {
   background: rgb(239 184 80 / 15%);
 }
 
-.tinyos-workspace-document__code li[data-current-match="true"] {
-  box-shadow: inset 3px 0 #df9830;
-}
-
 .tinyos-workspace-document__footer {
   display: flex;
   min-width: 0;
@@ -2488,7 +3025,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .tinyos-terminal {
   display: grid;
-  grid-template-rows: 34px 34px minmax(0, 1fr) 28px;
+  grid-template-rows: 34px auto 34px minmax(0, 1fr) 28px;
   height: 100%;
   min-height: 0;
   overflow: auto;
@@ -2601,10 +3138,6 @@ button.tinyos-overlay-backdrop:focus-visible {
   background: rgb(239 184 80 / 17%);
 }
 
-.tinyos-terminal__output li[data-current-match="true"] {
-  box-shadow: inset 3px 0 #efb850;
-}
-
 .tinyos-terminal__output li[data-selected="true"] {
   background: rgb(92 142 220 / 19%);
 }
@@ -2621,11 +3154,48 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .tinyos-browser {
   display: grid;
-  grid-template-rows: 38px minmax(0, 1fr);
+  grid-template-rows: auto auto auto auto minmax(120px, 1fr) auto auto;
   height: 100%;
   min-height: 0;
   background: #fff;
+  overflow: hidden;
 }
+
+.tinyos-browser__tabs,
+.tinyos-browser__captures {
+  display: flex;
+  min-width: 0;
+  gap: 4px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--color-hairline);
+  padding: 5px 7px;
+}
+
+.tinyos-browser__tabs button,
+.tinyos-browser__captures button {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  border-radius: 6px;
+  padding: 5px 7px;
+  white-space: nowrap;
+}
+
+.tinyos-browser__tabs button[aria-selected="true"],
+.tinyos-browser__captures button[aria-current="true"] {
+  background: color-mix(in srgb, var(--color-primary) 10%, white);
+  color: var(--color-primary);
+}
+
+.tinyos-browser__captures button {
+  display: grid;
+  justify-items: start;
+  font-size: 9px;
+}
+
+.tinyos-browser__captures button[data-stale="true"] { color: var(--color-muted); }
+.tinyos-browser__captures small { font-size: 8px; }
 
 .tinyos-browser__bar {
   display: flex;
@@ -2636,26 +3206,49 @@ button.tinyos-overlay-backdrop:focus-visible {
   padding: 0 9px;
 }
 
-.tinyos-browser__bar > span {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #d2cec6;
+.tinyos-browser__bar > button,
+.tinyos-browser__bar form button,
+.tinyos-browser__type button {
+  min-height: 26px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 6px;
+  background: #fff;
+  padding: 0 7px;
 }
 
-.tinyos-browser__bar > strong {
-  overflow: hidden;
-  border-radius: 999px;
-  background: #f3f1ed;
-  padding: 5px 9px;
+.tinyos-browser__bar form {
+  display: flex;
+  min-width: 80px;
+  flex: 1;
+  gap: 4px;
+}
+
+.tinyos-browser__bar input,
+.tinyos-browser__type input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid var(--color-hairline);
+  border-radius: 6px;
+  background: #f7f6f3;
+  padding: 5px 8px;
+  font-size: 9px;
+}
+
+.tinyos-browser__identity {
+  display: flex;
+  min-width: 0;
+  gap: 9px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--color-hairline);
+  padding: 6px 9px;
   color: var(--color-muted);
   font-size: 8px;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.tinyos-browser > button {
+.tinyos-browser__identity span { display: grid; gap: 2px; white-space: nowrap; }
+.tinyos-browser__identity strong { color: var(--color-ink); font-size: 8px; }
+
+.tinyos-browser__capture {
   min-width: 0;
   min-height: 0;
   overflow: auto;
@@ -2681,6 +3274,26 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .tinyos-browser__page strong { color: var(--color-ink); font-size: 13px; }
 .tinyos-browser__page p { max-width: 280px; margin: 0; font-size: 10px; line-height: 1.55; }
+
+.tinyos-browser__stale,
+.tinyos-browser__readonly,
+.tinyos-browser__error {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  border-bottom: 1px solid var(--color-hairline);
+  padding: 7px 9px;
+  font-size: 9px;
+}
+
+.tinyos-browser__stale { background: #fff7e5; color: #855b12; }
+.tinyos-browser__stale span,
+.tinyos-browser__readonly span { display: grid; min-width: 0; flex: 1; }
+.tinyos-browser__stale button { border-radius: 6px; background: #fff; padding: 4px 7px; }
+.tinyos-browser__readonly { color: var(--color-muted); }
+.tinyos-browser__error { background: #fff1ef; color: var(--color-error); }
+.tinyos-browser__type { display: flex; gap: 5px; border-top: 1px solid var(--color-hairline); padding: 6px 9px; }
 
 .tinyos-plan,
 .tinyos-memory,
@@ -2778,6 +3391,337 @@ button.tinyos-overlay-backdrop:focus-visible {
 .tinyos-notifications strong { color: var(--color-ink); font-size: 9px; }
 .tinyos-notifications small { margin-top: 2px; color: var(--color-muted); font-size: 8px; }
 
+.tinyos-shell-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 36;
+  display: grid;
+  place-items: center;
+  padding: 14px;
+}
+
+.tinyos-terminal__identity {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  border-bottom: 1px solid #2a2d34;
+  background: #2a2d34;
+}
+
+.tinyos-terminal__identity > div {
+  min-width: 0;
+  background: #202329;
+  padding: 5px 7px;
+}
+
+.tinyos-terminal__identity dt { color: #818894; font-size: 7px; text-transform: uppercase; }
+.tinyos-terminal__identity dd { display: flex; min-width: 0; align-items: center; gap: 4px; margin: 2px 0 0; overflow: hidden; color: #c4c8d0; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.tinyos-terminal__identity code { overflow: hidden; text-overflow: ellipsis; }
+
+.tinyos-shell-overlay__backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: rgb(48 40 33 / 24%);
+  cursor: default;
+  backdrop-filter: blur(5px);
+}
+
+.tinyos-shell-overlay__panel {
+  position: relative;
+  display: grid;
+  width: min(560px, 100%);
+  max-height: min(520px, 100%);
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgb(75 67 57 / 16%);
+  border-radius: 16px;
+  background: rgb(255 253 249 / 98%);
+  box-shadow: 0 28px 80px rgb(45 36 28 / 28%), inset 0 1px 0 rgb(255 255 255 / 88%);
+  animation: tinyos-dialog-enter var(--motion-duration-medium) var(--motion-ease-standard) both;
+}
+
+.tinyos-shell-overlay[data-overlay="switcher"] .tinyos-shell-overlay__panel {
+  width: min(440px, 100%);
+}
+
+.tinyos-shell-overlay__panel > header {
+  display: flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid var(--color-hairline);
+  padding: 9px 12px;
+}
+
+.tinyos-shell-overlay__panel > header > span {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  color: var(--color-ink);
+  font-size: 11px;
+}
+
+.tinyos-shell-overlay__panel > header > small {
+  color: var(--color-muted);
+  font-size: 9px;
+}
+
+.tinyos-shell-overlay__panel > header > button {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--color-muted);
+}
+
+.tinyos-shell-overlay__panel button:focus-visible,
+.tinyos-shell-overlay__panel input:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.tinyos-window-switcher {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 7px;
+  overflow: auto;
+  padding: 12px;
+}
+
+.tinyos-window-switcher > button {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 11px;
+  padding: 10px;
+  text-align: left;
+}
+
+.tinyos-window-switcher > button[data-selected="true"] {
+  border-color: color-mix(in srgb, var(--color-primary) 48%, var(--color-hairline));
+  background: color-mix(in srgb, var(--color-primary) 8%, white);
+  color: var(--color-primary);
+}
+
+.tinyos-window-switcher span,
+.tinyos-window-switcher strong,
+.tinyos-window-switcher small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tinyos-window-switcher strong { color: var(--color-ink); font-size: 10px; }
+.tinyos-window-switcher small { margin-top: 2px; color: var(--color-muted); font-size: 8px; }
+
+.tinyos-window-overview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  overflow: auto;
+  padding: 12px;
+}
+
+.tinyos-window-overview > button {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 12px;
+  padding: 8px;
+  text-align: left;
+}
+
+.tinyos-window-overview > button:hover,
+.tinyos-window-overview > button:focus-visible {
+  border-color: color-mix(in srgb, var(--color-primary) 42%, var(--color-hairline));
+}
+
+.tinyos-window-overview__preview {
+  display: grid;
+  min-height: 74px;
+  place-items: center;
+  border-radius: 8px;
+  background: linear-gradient(145deg, #eee9e0, #e2d8ca);
+  color: #655f57;
+}
+
+.tinyos-window-overview__preview small { font-size: 8px; }
+.tinyos-window-overview > button > span:last-child strong,
+.tinyos-window-overview > button > span:last-child small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tinyos-window-overview > button > span:last-child strong { color: var(--color-ink); font-size: 10px; }
+.tinyos-window-overview > button > span:last-child small { margin-top: 2px; color: var(--color-muted); font-size: 8px; }
+
+.tinyos-command-palette__search {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  justify-content: stretch !important;
+}
+
+.tinyos-command-palette__search input {
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--color-ink);
+  font-size: 11px;
+}
+
+.tinyos-command-palette__search kbd {
+  border: 1px solid var(--color-hairline);
+  border-radius: 5px;
+  padding: 2px 5px;
+  color: var(--color-muted);
+  font-size: 8px;
+}
+
+.tinyos-command-palette__results {
+  display: grid;
+  max-height: 390px;
+  overflow: auto;
+  padding: 6px;
+}
+
+.tinyos-command-palette__results > button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(90px, 38%);
+  align-items: center;
+  gap: 10px;
+  border-radius: 8px;
+  padding: 8px;
+  text-align: left;
+}
+
+.tinyos-command-palette__results > button:hover:not(:disabled),
+.tinyos-command-palette__results > button:focus-visible {
+  background: color-mix(in srgb, var(--color-primary) 8%, white);
+}
+
+.tinyos-command-palette__results > button:disabled { opacity: .58; }
+.tinyos-command-palette__results span,
+.tinyos-command-palette__results strong,
+.tinyos-command-palette__results small { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tinyos-command-palette__results strong { color: var(--color-ink); font-size: 10px; }
+.tinyos-command-palette__results small { color: var(--color-muted); font-size: 8px; }
+.tinyos-command-palette__results > button > small { text-align: right; }
+.tinyos-shell-overlay__empty { margin: 0; padding: 24px; color: var(--color-muted); font-size: 10px; text-align: center; }
+
+.tinyos-notification-center {
+  display: grid;
+  gap: 7px;
+  overflow: auto;
+  padding: 10px;
+}
+
+.tinyos-notification-center article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 11px;
+  padding: 5px;
+}
+
+.tinyos-notification-center article[data-read="true"] { opacity: .62; }
+.tinyos-notification-center article > button:first-child { display: grid; min-width: 0; grid-template-columns: 24px minmax(0, 1fr); align-items: center; gap: 7px; padding: 6px; text-align: left; }
+.tinyos-notification-center article > button:last-child { border: 1px solid var(--color-hairline); border-radius: 7px; padding: 5px 7px; color: var(--color-muted); font-size: 8px; }
+.tinyos-notification-center article > button:last-child:disabled { opacity: .7; }
+.tinyos-notification-center span,
+.tinyos-notification-center strong,
+.tinyos-notification-center small,
+.tinyos-notification-center code { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tinyos-notification-center strong { color: var(--color-ink); font-size: 10px; }
+.tinyos-notification-center small { margin-top: 2px; color: var(--color-muted); font-size: 8px; }
+.tinyos-notification-center code { margin-top: 4px; color: var(--color-muted); font-size: 7px; }
+
+.tinyos-transfer-status {
+  position: absolute;
+  right: 12px;
+  bottom: 78px;
+  z-index: 35;
+  max-width: min(320px, calc(100% - 24px));
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-hairline));
+  border-radius: 9px;
+  background: rgb(255 253 249 / 97%);
+  padding: 8px 10px;
+  box-shadow: 0 12px 28px rgb(62 47 34 / 16%);
+  color: var(--color-ink);
+  font-size: 9px;
+}
+
+.tinyos-transfer-status[data-kind="error"] {
+  border-color: color-mix(in srgb, var(--color-error) 35%, var(--color-hairline));
+  color: var(--color-error);
+}
+
+.tinyos-context-menu-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 39;
+}
+
+.tinyos-context-menu-layer__backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  cursor: default;
+}
+
+.tinyos-context-menu {
+  position: absolute;
+  display: grid;
+  width: 212px;
+  gap: 2px;
+  border: 1px solid rgb(75 67 57 / 16%);
+  border-radius: 11px;
+  background: rgb(255 253 249 / 98%);
+  padding: 5px;
+  box-shadow: 0 18px 48px rgb(45 36 28 / 24%);
+  backdrop-filter: blur(20px);
+}
+
+.tinyos-context-menu > button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  border-radius: 7px;
+  padding: 7px 8px;
+  color: var(--color-ink);
+  font-size: 9px;
+  text-align: left;
+}
+
+.tinyos-context-menu > button:hover:not(:disabled),
+.tinyos-context-menu > button:focus-visible {
+  background: color-mix(in srgb, var(--color-primary) 9%, white);
+}
+
+.tinyos-context-menu > button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.tinyos-context-menu > button:disabled { opacity: .48; }
+.tinyos-context-menu > button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tinyos-context-menu > button > small { color: var(--color-muted); font-size: 7px; }
+
 .tinyos-system-dialog {
   position: absolute;
   top: 52%;
@@ -2873,18 +3817,23 @@ button.tinyos-overlay-backdrop:focus-visible {
 .tinyos-inspector article > section > strong { color: var(--color-muted); font-size: 8px; text-transform: uppercase; }
 .tinyos-inspector article > section > pre { margin-top: 5px; border-radius: 8px; background: #f4f1eb; }
 .tinyos-inspector article > section > button { display: block; margin-top: 5px; color: var(--color-primary); font-size: 9px; cursor: pointer; }
+.tinyos-inspector__resource { display: grid; gap: 4px; margin: 6px 0 0; border: 1px solid var(--color-hairline); border-radius: 8px; background: #f8f5ef; padding: 7px; }
+.tinyos-inspector__resource > div { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 6px; }
+.tinyos-inspector__resource dt { color: var(--color-muted); font-size: 8px; text-transform: uppercase; }
+.tinyos-inspector__resource dd { min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--color-body); font-size: 9px; }
 .tinyos-inspector article > footer { margin-top: 12px; border-top: 1px solid var(--color-hairline); padding-top: 8px; color: var(--color-muted); font-size: 8px; }
 
 .tinyos-operation-shelf {
   position: relative;
   z-index: 13;
   display: grid;
-  grid-column: 2;
+  grid-column: 1;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 7px;
-  border-top: 1px solid rgb(82 72 58 / 11%);
-  background: #faf8f3;
-  padding: 7px 9px;
+  border-top: 1px solid rgb(72 59 45 / 10%);
+  background: rgb(248 245 239 / 94%);
+  padding: 7px 10px;
+  box-shadow: 0 -1px 0 rgb(255 255 255 / 62%);
 }
 
 .tinyos-operation-shelf__select {
@@ -2893,10 +3842,10 @@ button.tinyos-overlay-backdrop:focus-visible {
   align-items: center;
   gap: 4px;
   min-width: 0;
-  min-height: 52px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 10px;
-  background: #fffdfa;
+  min-height: 48px;
+  border: 1px solid rgb(75 67 57 / 11%);
+  border-radius: 11px;
+  background: rgb(255 253 249 / 76%);
   padding: 6px 9px;
   text-align: left;
   cursor: pointer;
@@ -3025,18 +3974,81 @@ button.tinyos-overlay-backdrop:focus-visible {
   }
 }
 
-@container (max-width: 520px) {
+@container (max-width: 720px) {
   .tinyos-system-bar__status > span:not(:first-child),
-  .tinyos-workspace-toggle > span {
+  .react-live-canvas__header-actions > button > span {
     display: none;
   }
 
+  .react-live-canvas__header-actions > button:disabled {
+    display: none;
+  }
+
+  .react-live-canvas__header-actions > button:first-child:not(:last-child),
+  .react-live-canvas__header-actions > button.tinyos-workspace-toggle {
+    width: 44px;
+    padding: 0;
+  }
+}
+
+@container (max-width: 520px) {
+  .tinyos-system-bar__status,
+  .tinyos-truth-badge {
+    display: none;
+  }
+
+  .tinyos-system-bar.react-live-canvas__header {
+    grid-template-columns: minmax(70px, 1fr) auto;
+    gap: 6px;
+    padding-inline: 10px;
+  }
+
+  .tinyos-system-bar__identity {
+    overflow: hidden;
+  }
+
   .tinyos-shell {
-    grid-template-columns: 58px minmax(0, 1fr);
+    --tinyos-dock-surface: rgb(8 18 31 / 86%);
+  }
+
+  .tinyos-shell-overlay {
+    padding: 8px;
+  }
+
+  .tinyos-shell-overlay__panel {
+    max-height: calc(100% - 8px);
+    border-radius: 13px;
+  }
+
+  .tinyos-window-overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tinyos-window-overview__preview {
+    min-height: 58px;
+  }
+
+  .tinyos-file-resource-meta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tinyos-terminal__identity {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tinyos-command-palette__results > button {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tinyos-command-palette__results > button > small {
+    text-align: left;
   }
 
   .tinyos-launcher__app {
-    min-height: 48px;
+    width: 38px;
+    height: 38px;
+    min-height: 38px;
+    flex-basis: 38px;
   }
 
   .tinyos-window:not([data-active="true"]) {
@@ -3077,7 +4089,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   }
 
   .tinyos-operation-shelf {
-    grid-column: 2;
+    grid-column: 1;
   }
 
   .tinyos-operation-shelf__select {
@@ -3088,6 +4100,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   .tinyos-operation-shelf__select > span:nth-child(5) {
     display: none;
   }
+
 }
 
 @container (max-width: 430px) {
@@ -3096,8 +4109,24 @@ button.tinyos-overlay-backdrop:focus-visible {
     display: none;
   }
 
-  .tinyos-shell {
-    grid-template-columns: 50px minmax(0, 1fr);
+  .tinyos-launcher {
+    bottom: 10px;
+    max-width: calc(100% - 12px);
+    gap: 2px;
+    border-radius: 16px;
+    padding: 5px;
+  }
+
+  .tinyos-launcher__app {
+    width: 34px;
+    height: 36px;
+    min-height: 36px;
+    flex-basis: 34px;
+    border-radius: 10px;
+  }
+
+  .tinyos-launcher__divider {
+    margin: 0 1px;
   }
 }
 
@@ -3653,6 +4682,28 @@ button.tinyos-overlay-backdrop:focus-visible {
   width: min(860px, calc(100% - 48px));
   margin: 0 auto;
   padding: 14px 0 18px;
+}
+
+.tinyos-composer-drop-target {
+  position: relative;
+  display: grid;
+  width: 100%;
+  min-width: 0;
+}
+
+.tinyos-composer-drop-error {
+  position: absolute;
+  right: max(24px, calc((100% - 860px) / 2));
+  bottom: 8px;
+  left: max(24px, calc((100% - 860px) / 2));
+  z-index: 2;
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--color-error) 30%, var(--color-hairline));
+  border-radius: 8px;
+  background: #fff;
+  padding: 6px 8px;
+  color: var(--color-error);
+  font-size: 10px;
 }
 
 .react-composer--raised {
@@ -6957,6 +8008,11 @@ button.tinyos-overlay-backdrop:focus-visible {
   .react-session-row__particles {
     display: none;
   }
+
+  .tinyos-desktop__side-rays {
+    opacity: .5;
+  }
+
 }
 
 .tinyos-workspace-explorer__create,
@@ -7094,4 +8150,489 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .tinyos-browser[data-truth="real_capture"] .tinyos-browser__bar b {
   color: var(--color-warning);
+}
+
+.tinyos-terminal-command__contract {
+  color: var(--color-muted);
+}
+
+.tinyos-terminal-lifecycle {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-primary) 7%, transparent);
+  padding: 5px 7px;
+}
+
+.tinyos-terminal-lifecycle > span { overflow: hidden; color: var(--color-muted); text-overflow: ellipsis; white-space: nowrap; }
+.tinyos-terminal-lifecycle[data-state="failed"],
+.tinyos-terminal-lifecycle[data-state="cancelled"] { background: color-mix(in srgb, var(--color-error) 7%, transparent); color: var(--color-error); }
+
+.tinyos-system-monitor {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  color: var(--color-ink);
+}
+
+.tinyos-window[data-app="system_monitor"] .tinyos-window__content {
+  container-type: inline-size;
+}
+
+.tinyos-system-monitor__summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  border-bottom: 1px solid var(--color-hairline);
+  background: var(--color-hairline);
+}
+
+.tinyos-system-monitor__summary > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  background: rgb(255 253 249 / 94%);
+  padding: 10px 12px;
+}
+
+.tinyos-system-monitor__summary strong {
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.03em;
+}
+
+.tinyos-system-monitor__summary small {
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tinyos-system-monitor__summary > span[data-attention="true"] strong {
+  color: var(--color-error);
+}
+
+.tinyos-system-monitor__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--color-hairline);
+  background: rgb(247 244 238 / 92%);
+  padding: 7px 8px;
+  scrollbar-width: thin;
+}
+
+.tinyos-system-monitor__search {
+  display: flex;
+  min-width: 176px;
+  flex: 1 0 176px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-canvas);
+  padding: 0 8px;
+  color: var(--color-muted);
+}
+
+.tinyos-system-monitor__search input {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--color-ink);
+  font-size: 11px;
+}
+
+.tinyos-system-monitor__toolbar select,
+.tinyos-system-monitor__view button {
+  height: 34px;
+  flex: 0 0 auto;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-canvas);
+  color: var(--color-muted);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.tinyos-system-monitor__toolbar select {
+  max-width: 132px;
+  padding: 0 24px 0 8px;
+}
+
+.tinyos-system-monitor__view {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.tinyos-system-monitor__view button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+}
+
+.tinyos-system-monitor__view button[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--color-primary) 24%, var(--color-hairline));
+  background: color-mix(in srgb, var(--color-primary) 9%, var(--color-canvas));
+  color: var(--color-primary);
+}
+
+.tinyos-system-monitor__search:focus-within,
+.tinyos-system-monitor__toolbar select:focus-visible,
+.tinyos-system-monitor__view button:focus-visible,
+.tinyos-process-list button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.tinyos-system-monitor__body {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-columns: minmax(280px, 1.2fr) minmax(210px, .8fr);
+}
+
+.tinyos-process-list {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: rgb(255 253 249 / 72%);
+}
+
+.tinyos-process-list__head,
+.tinyos-process-list li > button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 92px 96px;
+  align-items: center;
+  gap: 8px;
+}
+
+.tinyos-process-list__head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  min-height: 28px;
+  border-bottom: 1px solid var(--color-hairline);
+  background: rgb(247 244 238 / 96%);
+  padding: 0 10px;
+  color: var(--color-muted);
+  font-size: 8px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  backdrop-filter: blur(10px);
+}
+
+.tinyos-process-list ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tinyos-process-list li > button {
+  width: 100%;
+  min-height: 44px;
+  border-bottom: 1px solid rgb(75 67 57 / 7%);
+  padding: 5px 10px 5px calc(10px + var(--tinyos-process-depth, 0) * 14px);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--motion-duration-fast) var(--motion-ease-standard), color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.tinyos-process-list li > button:hover,
+.tinyos-process-list li > button[data-selected="true"] {
+  background: color-mix(in srgb, var(--color-primary) 8%, rgb(255 255 255 / 76%));
+}
+
+.tinyos-process-list__identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.tinyos-process-list__identity > svg {
+  flex: 0 0 auto;
+  color: var(--color-primary);
+}
+
+.tinyos-process-list__identity > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.tinyos-process-list__identity strong,
+.tinyos-process-list__identity code,
+.tinyos-process-list__source {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tinyos-process-list__identity strong {
+  font-size: 10px;
+}
+
+.tinyos-process-list__identity code,
+.tinyos-process-list__source {
+  color: var(--color-muted);
+  font-size: 8px;
+}
+
+.tinyos-process-state {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  border-radius: 999px;
+  background: #f0eee9;
+  padding: 3px 6px;
+  color: #625d55;
+  font-size: 8px;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.tinyos-process-state[data-state="running"] { background: #e8f4ff; color: #21638c; }
+.tinyos-process-state[data-state="completed"] { background: #e7f6eb; color: #267b46; }
+.tinyos-process-state[data-state="waiting_for_user"],
+.tinyos-process-state[data-state="blocked"],
+.tinyos-process-state[data-state="failed"],
+.tinyos-process-state[data-state="cancelled"] { background: #fff0ed; color: #9a3d2e; }
+.tinyos-process-state[data-state="paused"] { background: #fff5db; color: #815e13; }
+
+.tinyos-process-detail {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  border-left: 1px solid var(--color-hairline);
+  background: rgb(249 247 242 / 94%);
+  padding: 11px;
+}
+
+.tinyos-process-detail > header,
+.tinyos-process-detail > header > span,
+.tinyos-process-detail section p,
+.tinyos-process-detail section p > span {
+  display: flex;
+  align-items: center;
+}
+
+.tinyos-process-detail > header {
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.tinyos-process-detail > header > span {
+  min-width: 0;
+  gap: 6px;
+}
+
+.tinyos-process-detail > header strong {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tinyos-process-detail dl {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 6px 8px;
+  margin: 0;
+  font-size: 9px;
+}
+
+.tinyos-process-detail dt {
+  color: var(--color-muted);
+}
+
+.tinyos-process-detail dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.tinyos-process-detail code {
+  font-size: 8px;
+}
+
+.tinyos-process-actions {
+  margin-top: 12px;
+  border-top: 1px solid var(--color-hairline);
+  padding-top: 9px;
+}
+
+.tinyos-process-actions > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.tinyos-process-actions button {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 7px;
+  background: var(--color-canvas);
+  padding: 0 7px;
+  color: var(--color-body);
+  font-size: 8px;
+  cursor: pointer;
+}
+
+.tinyos-process-actions button:hover:not(:disabled),
+.tinyos-process-actions button:focus-visible {
+  border-color: color-mix(in srgb, var(--color-primary) 34%, var(--color-hairline));
+  color: var(--color-primary);
+}
+
+.tinyos-process-actions button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.tinyos-process-actions button:disabled {
+  cursor: not-allowed;
+  opacity: .42;
+}
+
+.tinyos-process-command-state {
+  display: grid;
+  gap: 2px;
+  margin: 9px 0 0;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--color-accent) 7%, transparent);
+  padding: 7px;
+  font-size: 8px;
+}
+
+.tinyos-process-command-state strong {
+  font-size: 9px;
+}
+
+.tinyos-process-command-state span {
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+}
+
+.tinyos-process-command-state[data-state="error"] {
+  background: color-mix(in srgb, var(--color-error) 8%, transparent);
+  color: var(--color-error);
+}
+
+.tinyos-process-command-state[data-state="success"] {
+  background: color-mix(in srgb, #267b46 9%, transparent);
+  color: #267b46;
+}
+
+.tinyos-process-detail section {
+  margin-top: 12px;
+  border-top: 1px solid var(--color-hairline);
+  padding-top: 9px;
+}
+
+.tinyos-process-detail h4 {
+  margin: 0 0 6px;
+  color: var(--color-muted);
+  font-size: 8px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.tinyos-process-detail section p {
+  gap: 6px;
+  margin: 5px 0;
+  font-size: 9px;
+}
+
+.tinyos-process-detail section p > span {
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.tinyos-process-detail section p code,
+.tinyos-process-detail section p small,
+.tinyos-process-detail section > small {
+  color: var(--color-muted);
+  font-size: 8px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.tinyos-process-detail__warning {
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--color-error) 7%, transparent);
+  padding: 6px;
+  color: var(--color-error);
+}
+
+.tinyos-system-monitor__empty {
+  margin: 0;
+  padding: 18px;
+  color: var(--color-muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+@container (max-width: 520px) {
+  .tinyos-terminal-command {
+    align-items: stretch;
+  }
+
+  .tinyos-terminal-command label {
+    flex-basis: 100%;
+  }
+
+  .tinyos-terminal-command > div {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .tinyos-system-monitor__summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tinyos-system-monitor__toolbar {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+
+  .tinyos-system-monitor__search {
+    flex-basis: 100%;
+  }
+
+  .tinyos-system-monitor__body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(180px, 1fr) minmax(180px, .9fr);
+  }
+
+  .tinyos-process-detail {
+    border-top: 1px solid var(--color-hairline);
+    border-left: 0;
+  }
+
+  .tinyos-process-list__head,
+  .tinyos-process-list li > button {
+    grid-template-columns: minmax(0, 1fr) 90px;
+  }
+
+  .tinyos-process-list__head > span:last-child,
+  .tinyos-process-list__source {
+    display: none;
+  }
 }
