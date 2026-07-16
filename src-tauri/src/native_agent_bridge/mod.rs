@@ -38,6 +38,8 @@ pub(crate) use thread_flow::{
     SubmitThreadTurnInput,
 };
 pub(crate) use tool_dispatcher::native_agent_services_with_tool_executor;
+#[cfg(test)]
+pub(crate) use tool_dispatcher::{dispatch_agent_browser_interact, dispatch_agent_browser_observe};
 pub(crate) use trace_sink::{
     desktop_agent_event_sink, native_agent_trace_sink, NativeAgentRunTraceSink,
 };

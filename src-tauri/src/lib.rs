@@ -4,7 +4,10 @@ use serde::Serialize;
 use std::{
     collections::VecDeque,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     time::Duration,
 };
 use tauri::{Emitter, Manager, Runtime, State, WindowEvent};
@@ -23,6 +26,7 @@ mod desktop_update;
 mod mcp_capability_catalog;
 pub mod native_agent_bridge;
 pub mod native_backend_contract;
+mod native_browser;
 pub mod native_provider_runtime;
 mod runtime;
 pub mod settings_registry;
@@ -165,6 +169,13 @@ use crate::desktop_menu::{
 };
 use crate::native_agent_bridge::{native_agent_run_record, persist_native_agent_run_start};
 use crate::native_backend_contract::NativeCompatibilityFallbackDiagnostic;
+use crate::native_browser::{
+    browser_activate_tab, browser_back, browser_capabilities, browser_close_session,
+    browser_close_tab, browser_create_session, browser_create_tab, browser_delete_profile,
+    browser_forward, browser_interact, browser_metrics, browser_navigate, browser_observe,
+    browser_reload, browser_resolve_policy_request, browser_restart_tab, browser_snapshot,
+    browser_stop, browser_update_surface,
+};
 use crate::runtime::lifecycle::RuntimeLifecycleStatus;
 use crate::runtime::mcp::McpRuntime;
 use crate::system_prompt::{load_or_create_system_prompt, SYSTEM_PROMPT_FILE_NAME};
@@ -461,6 +472,7 @@ pub fn run() {
     }));
     let close_state = gateway_state.clone();
     let setup_state = gateway_state.clone();
+    let close_started = Arc::new(AtomicBool::new(false));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -468,6 +480,15 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(gateway_state)
         .setup(move |app| {
+            let browser_runtime = native_browser::create_runtime(app.handle())?;
+            {
+                let mut runtime = lock_runtime(&setup_state);
+                runtime.native_agent_runtime = runtime
+                    .native_agent_runtime
+                    .clone()
+                    .with_browser_runtime(browser_runtime.clone());
+            }
+            app.manage(browser_runtime);
             install_desktop_application_menu(app)?;
             match ensure_default_config_file(&default_tinybot_config_path()) {
                 Ok(diagnostics) => {
@@ -615,10 +636,49 @@ pub fn run() {
             pick_upload_file,
             reveal_workspace_file,
             save_export_file
+            ,browser_capabilities
+            ,browser_metrics
+            ,browser_snapshot
+            ,browser_create_session
+            ,browser_close_session
+            ,browser_create_tab
+            ,browser_activate_tab
+            ,browser_close_tab
+            ,browser_navigate
+            ,browser_back
+            ,browser_forward
+            ,browser_reload
+            ,browser_stop
+            ,browser_restart_tab
+            ,browser_update_surface
+            ,browser_observe
+            ,browser_interact
+            ,browser_resolve_policy_request
+            ,browser_delete_profile
         ])
-        .on_window_event(move |_window, event| {
-            if matches!(event, WindowEvent::CloseRequested { .. }) {
-                let _ = stop_owned_gateway(&close_state, false);
+        .on_window_event(move |window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                if !close_started.swap(true, Ordering::AcqRel) {
+                    api.prevent_close();
+                    let browser_runtime = window
+                        .app_handle()
+                        .state::<native_browser::SharedBrowserRuntime>()
+                        .inner()
+                        .clone();
+                    let close_state = close_state.clone();
+                    let window = window.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(error) = browser_runtime.shutdown().await {
+                            eprintln!("native browser shutdown cleanup failed: {error}");
+                        }
+                        let _ = stop_owned_gateway(&close_state, false);
+                        if let Err(error) = window.destroy() {
+                            eprintln!("failed to destroy desktop window after cleanup: {error}");
+                        }
+                    });
+                } else {
+                    api.prevent_close();
+                }
             }
         })
         .on_menu_event(|app, event| {
@@ -631,6 +691,18 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(feature = "native-browser-integration")]
+pub fn run_native_browser_integration() -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        native_browser::integration::run()
+    }
+    #[cfg(not(windows))]
+    {
+        Err("The native browser integration harness is available only on Windows".to_string())
+    }
 }
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BackendAgentTurnItem, ChatStep } from "./chatRunModel";
-import { projectKernelBackedTinyOsDesktop, projectTinyOsDesktop, tinyOsAppForStep, type TinyOsTimelineEntry } from "./tinyOsDesktopModel";
+import { filterTinyOsDesktopByAgent, projectKernelBackedTinyOsDesktop, projectTinyOsDesktop, tinyOsAppForStep, type TinyOsTimelineEntry } from "./tinyOsDesktopModel";
+import type { TinyOsKernelSnapshot } from "./tinyOsKernelModel";
 
 function step(id: string, overrides: Partial<ChatStep> = {}): ChatStep {
   return {
@@ -119,6 +120,54 @@ describe("TinyOS desktop projector", () => {
       cursor: { eventCount: 1, eventIndex: 0, mode: "live" },
       processes: expect.arrayContaining([expect.objectContaining({ kind: "tool_operation", state: "running" })]),
       truth: "derived",
+    });
+  });
+
+  it("scopes windows, processes, resources, notifications, and operations by canonical Agent ownership", () => {
+    const mainEntry = entry("turn-1", step("main-read", {
+      agentContext: { id: "main", title: "Tinybot", type: "main" },
+      toolCall: { id: "main-read", name: "workspace.read_file" },
+    }));
+    const childEntry = entry("turn-1", step("child-shell", {
+      agentContext: { id: "main", title: "Tinybot", type: "main" },
+      status: "failed",
+      toolCall: { id: "child-shell", name: "shell.exec" },
+    }));
+    const desktop = projectTinyOsDesktop([mainEntry, childEntry], { mode: "live_follow" });
+    const provenance = { kind: "canonical_event" as const, sourceId: "source" };
+    const kernel: TinyOsKernelSnapshot = {
+      agentGroups: [{ agentId: "agent-main", id: "group-main", processIds: ["process-main"], provenance, state: "completed", title: "Main" }, {
+        agentId: "agent-child", id: "group-child", parentAgentId: "agent-main", processIds: ["process-child"], provenance, state: "failed", title: "Child" },
+      ],
+      browserSessions: [],
+      capabilities: [],
+      cursor: { eventCount: 2, eventIndex: 1, mode: "live" },
+      discrepancies: [],
+      metrics: [],
+      notifications: [{ id: "main-note", kind: "info", message: "main", processId: "process-main", provenance, title: "Main" }, {
+        id: "child-note", kind: "error", message: "child", processId: "process-child", provenance, resourceId: "resource-child", title: "Child" },
+      ],
+      processes: [{ correlation: { itemId: "main-read", runId: "run-1", sessionId: "session-1", turnId: "turn-1" }, id: "process-main", kind: "tool_operation", ownerAgentId: "agent-main", provenance, state: "completed", title: "Main read" }, {
+        applicationId: "terminal", correlation: { itemId: "child-shell", runId: "run-1", sessionId: "session-1", turnId: "turn-1" }, id: "process-child", kind: "tool_operation", ownerAgentId: "agent-child", provenance, state: "failed", title: "Child shell" },
+      ],
+      resources: [{ access: "read_only", id: "resource-main", kind: "file", provenance, relatedProcessIds: ["process-main"], title: "Main file" }, {
+        access: "execute", id: "resource-child", kind: "terminal_execution", provenance, relatedProcessIds: ["process-child"], title: "Child terminal" },
+      ],
+      truth: "derived",
+    };
+
+    const scoped = filterTinyOsDesktopByAgent({ ...desktop, kernel }, "agent-child");
+
+    expect(scoped.windows).toEqual([
+      expect.objectContaining({ appId: "terminal", sourceItemIds: ["child-shell"] }),
+    ]);
+    expect(scoped.operations.map(({ entry }) => entry.step.id)).toEqual(["child-shell"]);
+    expect(scoped.notifications.map(({ entry }) => entry.step.id)).toEqual(["child-shell"]);
+    expect(scoped.kernel).toMatchObject({
+      agentGroups: [{ agentId: "agent-child" }],
+      notifications: [{ id: "child-note" }],
+      processes: [{ id: "process-child" }],
+      resources: [{ id: "resource-child" }],
     });
   });
 });

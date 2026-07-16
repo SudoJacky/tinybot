@@ -267,32 +267,32 @@ describe("ChatPage", () => {
     expect(screen.queryByText(/Agent · rust/i)).toBeNull();
   });
 
-  it("opens and closes the Live Canvas from the Chat header with focus restoration", async () => {
+  it("opens and closes TinyOS from the Chat header with focus restoration", async () => {
     const stores = createStores();
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
-    const openButton = await screen.findByRole("button", { name: /^Open Live Canvas/ });
+    const openButton = await screen.findByRole("button", { name: /^Open TinyOS/ });
     expect(openButton.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.queryByLabelText("Live Canvas")).toBeNull();
+    expect(screen.queryByLabelText("TinyOS shared desktop")).toBeNull();
 
     fireEvent.click(openButton);
 
-    const canvas = screen.getByLabelText("Live Canvas");
+    const canvas = screen.getByLabelText("TinyOS shared desktop");
     mountWorkbenchCss();
     const canvasHeading = within(canvas).getByRole("heading", { name: "TinyOS" });
     expect(openButton.getAttribute("aria-expanded")).toBe("true");
     expect(getComputedStyle(openButton).minWidth).toBe("44px");
     expect(document.querySelector(".react-chat-page")?.getAttribute("data-live-canvas-open")).toBe("true");
     expect(canvas.querySelector('[aria-label="Terminal window"]')).toBeTruthy();
-    expect(canvas.textContent).toContain("Live follow");
+    expect(canvas.textContent).toContain("Live workspace");
     expect(document.activeElement).toBe(canvasHeading);
 
-    const closeButton = canvas.querySelector<HTMLButtonElement>('[aria-label="Close Live Canvas panel"]')!;
+    const closeButton = canvas.querySelector<HTMLButtonElement>('[aria-label="Close TinyOS desktop"]')!;
     expect(getComputedStyle(closeButton).minWidth).toBe("44px");
     fireEvent.click(closeButton);
 
     expect(canvas.isConnected).toBe(false);
-    expect(openButton.getAttribute("aria-label")).toMatch(/^Open Live Canvas/);
+    expect(openButton.getAttribute("aria-label")).toMatch(/^Open TinyOS/);
     expect(document.activeElement).toBe(openButton);
   });
 
@@ -324,7 +324,7 @@ describe("ChatPage", () => {
     stores.chatStore.load = vi.fn(async () => timeline);
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
-    await user.click(await screen.findByRole("button", { name: /^Open Live Canvas/ }));
+    await user.click(await screen.findByRole("button", { name: /^Open TinyOS/ }));
     const filesWindow = screen.getByLabelText("Files window");
     await user.click(within(filesWindow).getByRole("button", { name: "const value = 1;" }));
     await user.click(within(filesWindow).getByRole("button", { name: "Attach src/main.ts · L1" }));
@@ -378,7 +378,7 @@ describe("ChatPage", () => {
     stores.chatStore.load = vi.fn(async () => timeline);
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
-    await user.click(await screen.findByRole("button", { name: /^Open Live Canvas/ }));
+    await user.click(await screen.findByRole("button", { name: /^Open TinyOS/ }));
     const filesWindow = screen.getByLabelText("Files window");
     await user.click(within(filesWindow).getByRole("button", { name: "export const dragged = true;" }));
     const source = within(filesWindow).getByRole("button", { name: /Attach src\/drag\.ts/ });
@@ -447,14 +447,14 @@ describe("ChatPage", () => {
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
-    await user.click(await screen.findByRole("button", { name: /^Open Live Canvas/ }));
-    let canvas = screen.getByLabelText("Live Canvas");
-    expect(within(canvas).getByText("Live follow")).toBeTruthy();
+    await user.click(await screen.findByRole("button", { name: /^Open TinyOS/ }));
+    let canvas = screen.getByLabelText("TinyOS shared desktop");
+    expect(within(canvas).getAllByText("Live workspace").length).toBeGreaterThan(0);
     expect(within(canvas).getByRole("heading", { name: "Execution plan" })).toBeTruthy();
     expect(within(canvas).getByText("Verify output")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Open details for workspace.read_file" }));
-    canvas = screen.getByLabelText("Live Canvas");
+    canvas = screen.getByLabelText("TinyOS shared desktop");
     expect(within(canvas).getByText("History")).toBeTruthy();
     expect(within(canvas).getByRole("article", { name: "Files window" })).toBeTruthy();
     expect(within(canvas).getAllByText("workspace.read_file").length).toBeGreaterThan(0);
@@ -481,7 +481,7 @@ describe("ChatPage", () => {
     expect(within(canvas).getAllByText("src/main.ts").length).toBeGreaterThan(0);
 
     await user.click(within(canvas).getByRole("button", { name: "Return to Live" }));
-    expect(within(canvas).getByText("Live follow")).toBeTruthy();
+    expect(within(canvas).getAllByText("Live workspace").length).toBeGreaterThan(0);
     expect(within(canvas).getByRole("article", { name: "Memory window" })).toBeTruthy();
     expect(within(canvas).getAllByText("memory.search").length).toBeGreaterThan(0);
     expect(within(canvas).getByRole("heading", { name: "TinyOS" })).toBeTruthy();
