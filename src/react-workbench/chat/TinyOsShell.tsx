@@ -97,7 +97,7 @@ const APP_LABELS: Record<TinyOsAppId, string> = {
   terminal: "Terminal",
 };
 
-const APP_ORDER: TinyOsAppId[] = ["files", "terminal", "system_monitor", "browser", "plan", "memory", "subagents", "artifacts", "inspector"];
+const APP_ORDER: TinyOsAppId[] = ["files", "terminal", "browser", "plan", "memory", "subagents", "artifacts", "inspector"];
 const tinyOsSessionUiState = new Map<string, ReturnType<typeof createTinyOsUiState>>();
 type TinyOsShellOverlay = "notifications" | "overview" | "palette" | "switcher";
 type TinyOsContextMenuState = { commandIds: TinyOsShellCommandId[]; label: string; x: number; y: number };
@@ -222,22 +222,13 @@ export function TinyOsShell({
     }
   }, [agentFilterId, agentGroups]);
   const appWindows = useMemo(() => {
-    const windows = [...snapshot.windows];
+    const windows = snapshot.windows.filter(({ appId }) => appId !== "system_monitor");
     const hasScopedFile = !agentFilterId || snapshot.kernel?.resources.some(({ kind }) => kind === "file" || kind === "directory");
     const hasScopedTerminal = !agentFilterId
       || snapshot.kernel?.processes.some(({ applicationId }) => applicationId === "terminal")
       || snapshot.kernel?.resources.some(({ kind }) => kind === "terminal_execution" || kind === "terminal_session");
     if (filesController && hasScopedFile && !windows.some(({ appId }) => appId === "files")) {
       windows.unshift({ appId: "files", entries: [], id: "tinyos-window-files", sourceItemIds: [], title: "Files" });
-    }
-    if (snapshot.kernel && !windows.some(({ appId }) => appId === "system_monitor")) {
-      windows.push({
-        appId: "system_monitor",
-        entries: [],
-        id: "tinyos-window-system-monitor",
-        sourceItemIds: snapshot.kernel.processes.flatMap((process) => process.correlation.itemId ? [process.correlation.itemId] : []),
-        title: "System Monitor",
-      });
     }
     if (sessionKey && hasScopedTerminal && !windows.some(({ appId }) => appId === "terminal")) {
       windows.push({ appId: "terminal", entries: [], id: "tinyos-window-terminal", sourceItemIds: [], title: "Terminal" });
@@ -987,7 +978,7 @@ export function TinyOsShell({
       >
         <TinyOsSideRays />
         <div aria-hidden="true" className="tinyos-desktop__environment">
-          <span className="tinyos-desktop__brand"><MonitorDot size={17} /><strong>TinyOS</strong><small>Agent workspace</small></span>
+          <span className="tinyos-desktop__brand"><MonitorDot size={17} /><strong>TinyOS</strong><small>Shared workspace</small></span>
           <span className="tinyos-desktop__mode">{history ? "History snapshot" : "Live workspace"}</span>
         </div>
         <div aria-label="TinyOS system tools" className="tinyos-desktop__system-tools" role="toolbar">
@@ -1706,7 +1697,7 @@ function TinyOsAppContent({ activeTabId, browserRuntime, browserSurfaceVisible, 
         : <EmptyCopy text="Workspace Explorer is unavailable." />
       : <TinyOsFiles activeTabId={activeTabId} canRequestChange={canRequestChange} window={window} onAgentRequest={onAgentRequest} onAttachContext={onAttachContext} onTabChange={onTabChange} requestChangeUnavailableReason={requestChangeUnavailableReason} />;
     case "terminal": return <div className="tinyos-terminal-host"><TinyOsTerminalHostControls commandLifecycle={commandLifecycle} commandRegistry={commandRegistry} runningRunId={runningTerminalRunId} />{window.entries.length ? <TinyOsTerminal activeTabId={activeTabId} canRequestChange={canRequestChange} kernel={kernel} window={window} onAgentRequest={onAgentRequest} onAttachContext={onAttachContext} onTabChange={onTabChange} requestChangeUnavailableReason={requestChangeUnavailableReason} /> : <EmptyCopy text="Run a reviewed command to create a retained canonical execution. TinyOS does not present this as a persistent PTY session." />}</div>;
-    case "browser": return <TinyOsBrowser browserRuntime={browserRuntime} commandRegistry={commandRegistry} kernel={kernel} surfaceVisible={browserSurfaceVisible} window={window} onOpenArtifact={onOpenArtifact} />;
+    case "browser": return <TinyOsBrowser browserRuntime={browserRuntime} kernel={kernel} surfaceVisible={browserSurfaceVisible} />;
     case "plan": return <TinyOsPlan canRequestChange={canRequestChange} entry={[...window.entries].reverse().find(({ step }) => Boolean(step.plan)) ?? window.entries[window.entries.length - 1]} onAgentRequest={onAgentRequest} requestChangeUnavailableReason={requestChangeUnavailableReason} />;
     case "memory": return <TinyOsMemory window={window} />;
     case "subagents": return <TinyOsSubagents window={window} />;
@@ -1923,75 +1914,29 @@ function TinyOsTerminal({ activeTabId, canRequestChange, kernel, onAgentRequest,
   );
 }
 
-function TinyOsBrowser({ browserRuntime, commandRegistry, kernel, surfaceVisible, window, onOpenArtifact }: {
+function TinyOsBrowser({ browserRuntime, kernel, surfaceVisible }: {
   browserRuntime?: NativeBrowserRuntimeApi;
-  commandRegistry: TinyOsShellCommandRegistry;
   kernel?: TinyOsKernelSnapshot;
-  onOpenArtifact: (artifact: ArtifactRef) => void;
   surfaceVisible: boolean;
-  window: TinyOsWindow;
 }) {
-  const latest = window.entries[window.entries.length - 1];
   const session = kernel?.browserSessions[0];
   const [selectedTabId, setSelectedTabId] = useState(session?.activeTabId);
   const activeTabId = session?.tabs.some(({ tabId }) => tabId === selectedTabId) ? selectedTabId : session?.activeTabId;
   const tab = session?.tabs.find(({ tabId }) => tabId === activeTabId);
-  const [selectedCaptureId, setSelectedCaptureId] = useState(tab?.currentCaptureId);
-  const selectedCapture = tab?.captures.find(({ captureId }) => captureId === selectedCaptureId)
-    ?? tab?.captures.find(({ captureId }) => captureId === tab.currentCaptureId);
-  const target = session && tab && selectedCapture ? {
-    browserSessionId: session.browserSessionId,
-    captureId: selectedCapture.captureId,
-    tabId: tab.tabId,
-  } : undefined;
-  const validation = target ? validateTinyOsBrowserInteractionTarget(session, target) : undefined;
-  const currentCapture = validation?.status === "rejected" ? validation.currentCapture : selectedCapture;
-  const artifacts = window.entries.flatMap(({ step }) => step.artifacts ?? []);
-  const standaloneCapture = [...artifacts].reverse().find((artifact) => artifact.kind === "browser_snapshot");
-  const captureArtifact = selectedCapture
-    ? artifacts.find((artifact) => artifact.kind === "browser_snapshot" && artifact.id === selectedCapture.captureId)
-    : standaloneCapture;
-  const image = selectedCapture?.dataUrl && safeRasterDataUrl(selectedCapture.dataUrl)
-    ? selectedCapture.dataUrl
-    : captureArtifact?.preview && safeRasterDataUrl(captureArtifact.preview) ? captureArtifact.preview : undefined;
-  const truth = session ? (image ? "real_capture" : "native_session") : image ? "local_preview" : "structured_projection";
-  const canonicalUrl = latest ? browserLocation(latest.step) : "";
-  const [url, setUrl] = useState(tab?.url ?? canonicalUrl);
-  const [typedText, setTypedText] = useState("");
+  const [address, setAddress] = useState(tab?.url ?? "");
   const [error, setError] = useState("");
-  const clickCommand = requiredShellCommand(commandRegistry, "browser.click");
-  const navigateCommand = requiredShellCommand(commandRegistry, "browser.navigate");
-  const typeCommand = requiredShellCommand(commandRegistry, "browser.type");
-  const directRuntimeAvailable = Boolean(browserRuntime && session && tab && session.runtimeKind === "windows_webview2");
-  const navigationAvailable = directRuntimeAvailable || navigateCommand.availability.available;
-  const currentEvidenceSelected = !selectedCaptureId || selectedCaptureId === tab?.currentCaptureId;
-  const liveSurfaceVisible = directRuntimeAvailable && surfaceVisible && currentEvidenceSelected && tab?.rendererLifecycle !== "failed";
-  const insecureHttp = tab?.url.startsWith("http://") ?? false;
+  const liveRuntimeAvailable = Boolean(browserRuntime && session && tab && session.runtimeKind === "windows_webview2");
+  const liveSurfaceVisible = liveRuntimeAvailable && surfaceVisible && tab?.rendererLifecycle !== "failed";
 
   useEffect(() => {
     setSelectedTabId(session?.activeTabId);
   }, [session?.activeTabId, session?.browserSessionId, session?.revision]);
   useEffect(() => {
-    setSelectedCaptureId(tab?.currentCaptureId);
-    setUrl(tab?.url ?? canonicalUrl);
+    setAddress(tab?.url ?? "");
     setError("");
-  }, [canonicalUrl, latest?.step.id, tab?.currentCaptureId, tab?.tabId, tab?.url]);
+  }, [tab?.tabId, tab?.url]);
 
-  async function executeBrowserCommand(commandId: "browser.click" | "browser.navigate" | "browser.type", values: Record<string, string>) {
-    if (!target) {
-      setError("A compatible native browser session, tab, and capture are required.");
-      return;
-    }
-    setError("");
-    try {
-      const execution = await commandRegistry.execute(commandId, { ...target, ...values });
-      if (execution.status === "rejected") setError(execution.reason);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-    }
-  }
-
-  async function executeDirect(operation: () => Promise<unknown>) {
+  async function execute(operation: () => Promise<unknown>) {
     setError("");
     try {
       await operation();
@@ -2000,77 +1945,129 @@ function TinyOsBrowser({ browserRuntime, commandRegistry, kernel, surfaceVisible
     }
   }
 
-  return (
-    <div className="tinyos-browser" data-truth={truth}>
-      {session ? <div aria-label="Native browser tabs" className="tinyos-browser__tabs" role="tablist">
-        {session.tabs.map((candidate) => <button aria-selected={candidate.tabId === tab?.tabId} key={candidate.tabId} role="tab" type="button" onClick={() => {
-          setSelectedTabId(candidate.tabId);
-          if (browserRuntime) void executeDirect(() => browserRuntime.activateTab(session.browserSessionId, candidate.tabId));
-        }}>{candidate.loading ? <Circle aria-hidden="true" size={9} /> : null}<span>{candidate.title}</span></button>)}
-        <button aria-label="New browser tab" disabled={!browserRuntime} type="button" onClick={() => browserRuntime && void executeDirect(() => browserRuntime.createTab(session.browserSessionId))}><Plus aria-hidden="true" size={12} /></button>
-        <button aria-label="Close current browser tab" disabled={!browserRuntime || !tab || session.tabs.length <= 1} type="button" onClick={() => browserRuntime && tab && void executeDirect(() => browserRuntime.closeTab(session.browserSessionId, tab.tabId))}><X aria-hidden="true" size={12} /></button>
-      </div> : null}
-      <div className="tinyos-browser__bar">
-        <button aria-label="Browser back" disabled={!navigationAvailable || !(tab?.canGoBack ?? Boolean(tab?.activeHistoryIndex))} title="Back" type="button" onClick={() => {
-          if (browserRuntime && session && tab) void executeDirect(() => browserRuntime.back(session.browserSessionId, tab.tabId));
-          else if (tab?.activeHistoryIndex) void executeBrowserCommand("browser.navigate", { url: tab.history[tab.activeHistoryIndex - 1]?.url ?? tab.url });
-        }}><ChevronLeft aria-hidden="true" size={13} /></button>
-        <button aria-label="Browser forward" disabled={!navigationAvailable || !(tab?.canGoForward ?? Boolean(tab && tab.activeHistoryIndex < tab.history.length - 1))} title="Forward" type="button" onClick={() => {
-          if (browserRuntime && session && tab) void executeDirect(() => browserRuntime.forward(session.browserSessionId, tab.tabId));
-          else if (tab) void executeBrowserCommand("browser.navigate", { url: tab.history[tab.activeHistoryIndex + 1]?.url ?? tab.url });
-        }}><ChevronRight aria-hidden="true" size={13} /></button>
-        <button aria-label="Reload browser" disabled={!navigationAvailable} title="Reload" type="button" onClick={() => {
-          if (browserRuntime && session && tab) void executeDirect(() => browserRuntime.reload(session.browserSessionId, tab.tabId));
-          else if (tab) void executeBrowserCommand("browser.navigate", { url: tab.url });
-        }}><RotateCcw aria-hidden="true" size={12} /></button>
-        {tab?.rendererLifecycle === "failed" ? <button aria-label="Restart crashed browser" disabled={!browserRuntime || !session} title="Restart crashed renderer" type="button" onClick={() => browserRuntime && session && void executeDirect(() => browserRuntime.restartTab(session.browserSessionId, tab.tabId))}><Play aria-hidden="true" size={12} /></button> : null}
-        {insecureHttp ? <AlertTriangle aria-label="Insecure HTTP connection" className="tinyos-browser__insecure" size={13} /> : <Globe2 aria-hidden="true" size={13} />}
-        <form onSubmit={(event) => {
-          event.preventDefault();
-          if (browserRuntime && session && tab) void executeDirect(() => browserRuntime.navigate(session.browserSessionId, tab.tabId, url));
-          else void executeBrowserCommand("browser.navigate", { url });
-        }}><input aria-label="Browser URL" disabled={!navigationAvailable} value={url} onChange={(event) => setUrl(event.currentTarget.value)} /><button disabled={!url.trim() || !navigationAvailable} type="submit">Go</button></form>
-        <b>{liveSurfaceVisible ? "Live native surface" : browserRuntime && image ? "Live surface paused · real capture" : truth === "real_capture" ? "Real capture" : truth === "native_session" ? "Native session · capture unavailable" : truth === "local_preview" ? "Local preview" : "Structured projection"}</b>
-      </div>
-      {session && tab ? <section aria-label="Browser session identity" className="tinyos-browser__identity">
-        <span><strong>Session</strong><code>{session.browserSessionId}</code></span>
-        <span><strong>Tab</strong><code>{tab.tabId}</code></span>
-        <span><strong>Capture</strong><code>{selectedCapture?.captureId ?? "Unavailable"}</code></span>
-        <span><strong>Observed</strong><time>{selectedCapture?.observedAt ?? session.observedAt}</time></span>
-        <span><strong>Provenance</strong>{session.provenance.kind}</span>
-        <span><strong>State</strong>{tab.loading ? "loading" : "ready"}</span>
-        <span><strong>Control</strong>{session.control?.state?.replace(/_/g, " ") ?? "idle"}</span>
-        <span><strong>Profile</strong>{session.profilePersistence ?? "unavailable"} · {session.profileId ?? "unavailable"}</span>
-      </section> : null}
-      {session?.pendingPolicyRequest ? <section aria-label="Browser policy confirmation" className="tinyos-browser__policy" role="alertdialog">
-        <div><ShieldCheck aria-hidden="true" size={14} /><span><strong>{session.pendingPolicyRequest.kind === "popup" ? "Open popup as a managed tab?" : "Open external application?"}</strong><code>{session.pendingPolicyRequest.safeUrl}</code></span></div>
-        <div><button disabled={!browserRuntime} type="button" onClick={() => browserRuntime && void executeDirect(() => browserRuntime.resolvePolicyRequest(session.browserSessionId, session.pendingPolicyRequest!.requestId, false))}>Deny</button><button disabled={!browserRuntime} type="button" onClick={() => browserRuntime && void executeDirect(() => browserRuntime.resolvePolicyRequest(session.browserSessionId, session.pendingPolicyRequest!.requestId, true))}>Allow once</button></div>
-      </section> : null}
-      {tab?.captures.length ? <nav aria-label="Browser capture history" className="tinyos-browser__captures">
-        {tab.captures.map((capture) => <button aria-current={capture.captureId === selectedCapture?.captureId ? "true" : undefined} data-stale={capture.stale ? "true" : undefined} key={capture.captureId} type="button" onClick={() => setSelectedCaptureId(capture.captureId)}><span>{capture.captureId}</span><small>{capture.stale ? "Stale evidence" : capture.captureId === tab.currentCaptureId ? "Current capture" : "Retained capture"}</small></button>)}
-      </nav> : null}
-      {validation?.status === "rejected" ? <div className="tinyos-browser__stale" role="alert"><AlertTriangle aria-hidden="true" size={14} /><span><strong>{validation.reasonCode === "capture_stale" ? "Stale capture" : "Capture unavailable"}</strong>{validation.reason}</span>{currentCapture ? <button type="button" onClick={() => setSelectedCaptureId(currentCapture.captureId)}>Show current capture</button> : null}</div> : null}
-      {session && tab && liveSurfaceVisible ? <BrowserSurfaceHost browserRuntime={browserRuntime} onError={setError} session={session} tabId={tab.tabId} visible /> : null}
-      {!liveSurfaceVisible && image ? <button aria-label={validation?.status === "accepted" && clickCommand.availability.available ? "Interact with current browser capture" : "Open browser capture artifact"} className="tinyos-browser__capture" type="button" onClick={(event) => {
-        if (validation?.status !== "accepted" || !clickCommand.availability.available) {
-          if (captureArtifact) onOpenArtifact(captureArtifact);
-          return;
-        }
-        const bounds = event.currentTarget.getBoundingClientRect();
-        const viewportWidth = selectedCapture?.viewportWidth ?? bounds.width;
-        const viewportHeight = selectedCapture?.viewportHeight ?? bounds.height;
-        const relativeX = Math.max(0, event.clientX - bounds.left);
-        const relativeY = Math.max(0, event.clientY - bounds.top);
-        void executeBrowserCommand("browser.click", {
-          x: String(Math.round(bounds.width > 0 ? (relativeX / bounds.width) * viewportWidth : relativeX)),
-          y: String(Math.round(bounds.height > 0 ? (relativeY / bounds.height) * viewportHeight : relativeY)),
-        });
-      }}><img alt={captureArtifact?.title || "Browser capture"} src={image} /></button> : !liveSurfaceVisible ? <div className="tinyos-browser__page"><Globe2 aria-hidden="true" size={28} /><strong>{tab?.title ?? latest?.step.title ?? "Browser session"}</strong><p>{tab ? "The native session snapshot has no compatible raster capture to display." : latest?.step.summary || "No real browser session or capture is attached. This is a structured projection."}</p></div> : null}
-      <form className="tinyos-browser__type" onSubmit={(event) => { event.preventDefault(); void executeBrowserCommand("browser.type", { text: typedText }); }}><input aria-label="Text for browser" disabled={!typeCommand.availability.available || validation?.status !== "accepted"} placeholder="Type into the focused browser target" value={typedText} onChange={(event) => setTypedText(event.currentTarget.value)} /><button disabled={!typedText.trim() || !typeCommand.availability.available || validation?.status !== "accepted"} title={typeCommand.availability.available ? "Type into current capture" : typeCommand.availability.reason} type="submit">Type</button></form>
-      {!session ? <p className="tinyos-browser__readonly" role="status"><ShieldCheck aria-hidden="true" size={13} /><span><strong>Read-only projection</strong>{clickCommand.availability.available ? "A compatible native session snapshot is required." : clickCommand.availability.reason}</span></p> : null}
-      {error ? <p className="tinyos-browser__error" role="alert">{error}</p> : null}
+  function activateTab(tabId: string) {
+    if (!browserRuntime || !session) return;
+    setSelectedTabId(tabId);
+    void execute(() => browserRuntime.activateTab(session.browserSessionId, tabId));
+  }
+
+  function handleTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, tabId: string) {
+    if (!session || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const currentIndex = Math.max(0, session.tabs.findIndex((candidate) => candidate.tabId === tabId));
+    const nextIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? session.tabs.length - 1
+        : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + session.tabs.length) % session.tabs.length;
+    const nextTabId = session.tabs[nextIndex]?.tabId;
+    if (nextTabId) activateTab(nextTabId);
+  }
+
+  function navigateToAddress() {
+    if (!browserRuntime || !session || !tab) return;
+    try {
+      const destination = normalizeBrowserAddress(address);
+      setAddress(destination);
+      void execute(() => browserRuntime.navigate(session.browserSessionId, tab.tabId, destination));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  }
+
+  async function retryFailedSession() {
+    if (!browserRuntime || !session) return;
+    await execute(async () => {
+      await browserRuntime.closeSession(session.browserSessionId);
+      await browserRuntime.createSession({
+        ownerSessionId: session.sessionId,
+        persistence: session.profilePersistence ?? "persistent",
+        ...(session.profileId ? { profileId: session.profileId } : {}),
+      });
+    });
+  }
+
+  if (!browserRuntime) {
+    return <BrowserUnavailable message="The live browser is unavailable in this desktop build." />;
+  }
+  if (!session) {
+    return <div aria-live="polite" className="tinyos-browser tinyos-browser--starting" role="status"><Globe2 aria-hidden="true" size={24} /><strong>Starting shared browser…</strong><span>Preparing a private browser profile for this chat.</span></div>;
+  }
+  if (!liveRuntimeAvailable || !tab) {
+    return <BrowserUnavailable message="The native WebView2 browser could not be attached. Rebuild TinyBot with the native browser runtime enabled." />;
+  }
+
+  const controlCopy = browserControlCopy(session.control?.state);
+  const insecureHttp = tab.url.startsWith("http://");
+
+  return <div className="tinyos-browser">
+    <div aria-label="Browser tabs" className="tinyos-browser__tabs" role="tablist">
+      {session.tabs.map((candidate) => {
+        const selected = candidate.tabId === tab.tabId;
+        const title = browserTabTitle(candidate.title, candidate.url);
+        return <div className="tinyos-browser__tab" data-selected={selected ? "true" : undefined} key={candidate.tabId} role="presentation">
+          <button aria-controls="tinyos-browser-page" aria-selected={selected} id={`tinyos-browser-tab-${candidate.tabId}`} role="tab" tabIndex={selected ? 0 : -1} title={candidate.title || candidate.url} type="button" onClick={() => activateTab(candidate.tabId)} onKeyDown={(event) => handleTabKeyDown(event, candidate.tabId)}>
+            {candidate.loading ? <Circle aria-label="Loading" className="tinyos-browser__spinner" size={10} /> : <Globe2 aria-hidden="true" size={11} />}<span>{title}</span>
+          </button>
+          <button aria-label={`Close ${title} tab`} disabled={session.tabs.length <= 1} tabIndex={selected ? 0 : -1} type="button" onClick={() => void execute(() => browserRuntime.closeTab(session.browserSessionId, candidate.tabId))}><X aria-hidden="true" size={11} /></button>
+        </div>;
+      })}
+      <button aria-label="New browser tab" className="tinyos-browser__new-tab" title="New tab" type="button" onClick={() => void execute(() => browserRuntime.createTab(session.browserSessionId))}><Plus aria-hidden="true" size={13} /></button>
     </div>
-  );
+    <div className="tinyos-browser__bar">
+      <button aria-label="Browser back" disabled={!(tab.canGoBack ?? Boolean(tab.activeHistoryIndex))} title="Back" type="button" onClick={() => void execute(() => browserRuntime.back(session.browserSessionId, tab.tabId))}><ChevronLeft aria-hidden="true" size={15} /></button>
+      <button aria-label="Browser forward" disabled={!(tab.canGoForward ?? tab.activeHistoryIndex < tab.history.length - 1)} title="Forward" type="button" onClick={() => void execute(() => browserRuntime.forward(session.browserSessionId, tab.tabId))}><ChevronRight aria-hidden="true" size={15} /></button>
+      <button aria-label={tab.loading ? "Stop loading" : "Reload browser"} title={tab.loading ? "Stop" : "Reload"} type="button" onClick={() => void execute(() => tab.loading ? browserRuntime.stop(session.browserSessionId, tab.tabId) : browserRuntime.reload(session.browserSessionId, tab.tabId))}>{tab.loading ? <X aria-hidden="true" size={13} /> : <RotateCcw aria-hidden="true" size={13} />}</button>
+      {insecureHttp ? <AlertTriangle aria-label="Insecure HTTP connection" className="tinyos-browser__insecure" size={13} /> : <Globe2 aria-hidden="true" size={13} />}
+      <form onSubmit={(event) => { event.preventDefault(); navigateToAddress(); }}>
+        <input aria-label="Browser address" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={address} onChange={(event) => setAddress(event.currentTarget.value)} />
+        <button disabled={!address.trim()} type="submit">Go</button>
+      </form>
+      {controlCopy ? <span aria-live="polite" className="tinyos-browser__control" data-state={session.control?.state}>{controlCopy}</span> : null}
+    </div>
+    {session.pendingPolicyRequest ? <section aria-label="Browser policy confirmation" className="tinyos-browser__policy" role="alert">
+      <div><ShieldCheck aria-hidden="true" size={14} /><span><strong>{session.pendingPolicyRequest.kind === "popup" ? "Open popup as a managed tab?" : "Open external application?"}</strong><code>{session.pendingPolicyRequest.safeUrl}</code></span></div>
+      <div><button type="button" onClick={() => void execute(() => browserRuntime.resolvePolicyRequest(session.browserSessionId, session.pendingPolicyRequest!.requestId, false))}>Deny</button><button type="button" onClick={() => void execute(() => browserRuntime.resolvePolicyRequest(session.browserSessionId, session.pendingPolicyRequest!.requestId, true))}>Allow once</button></div>
+    </section> : null}
+    {tab.rendererLifecycle === "failed"
+      ? <div className="tinyos-browser__unavailable" role="alert"><AlertTriangle aria-hidden="true" size={22} /><strong>{session.lifecycle === "failed" ? "Browser failed to start" : "This tab stopped responding"}</strong><span>{session.control?.reason || (session.lifecycle === "failed" ? "Retry the shared browser session." : "Restart it to continue in the same shared browser session.")}</span><button type="button" onClick={() => void (session.lifecycle === "failed" ? retryFailedSession() : execute(() => browserRuntime.restartTab(session.browserSessionId, tab.tabId)))}>{session.lifecycle === "failed" ? "Retry browser" : "Restart tab"}</button></div>
+      : <BrowserSurfaceHost browserRuntime={browserRuntime} onError={setError} session={session} tabId={tab.tabId} visible={liveSurfaceVisible} />}
+    {error ? <p className="tinyos-browser__error" role="alert">{error}</p> : null}
+  </div>;
+}
+
+function BrowserUnavailable({ message }: { message: string }) {
+  return <div className="tinyos-browser tinyos-browser__unavailable" role="alert"><AlertTriangle aria-hidden="true" size={24} /><strong>Live browser unavailable</strong><span>{message}</span></div>;
+}
+
+function browserTabTitle(title: string, url: string): string {
+  if (title.trim() && title !== "about:blank") return title;
+  if (!url || url === "about:blank") return "New tab";
+  try {
+    return new URL(url).hostname || url;
+  } catch {
+    return url;
+  }
+}
+
+function normalizeBrowserAddress(value: string): string {
+  const address = value.trim();
+  if (!address) throw new Error("Enter a web address.");
+  if (/^(?:https?:\/\/|about:blank$)/i.test(address)) return address;
+  if (/^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:[/?#]|$)/i.test(address)) return `http://${address}`;
+  if (!address.includes(" ") && address.includes(".")) return `https://${address}`;
+  throw new Error("Enter a valid HTTP or HTTPS web address.");
+}
+
+function browserControlCopy(state?: "idle" | "agent_active" | "user_required" | "interrupted" | "failed" | "recovering"): string {
+  switch (state) {
+    case "agent_active": return "Agent is using this tab";
+    case "user_required": return "Your input is needed";
+    case "interrupted": return "You took control";
+    case "failed": return "Agent action failed";
+    case "recovering": return "Browser recovering";
+    default: return "";
+  }
 }
 
 function BrowserSurfaceHost({ browserRuntime, onError, session, tabId, visible }: {
@@ -2134,7 +2131,7 @@ function BrowserSurfaceHost({ browserRuntime, onError, session, tabId, visible }
     };
   }, [browserRuntime, onError, session.browserSessionId, surfaceId, tabId, visible]);
 
-  return <div aria-label="Native browser live surface" className="tinyos-browser__surface-host" data-live={visible ? "true" : undefined} ref={hostRef}><span>{visible ? "Native WebView2 surface" : "Live surface paused"}</span></div>;
+  return <div aria-label="Browser page" aria-labelledby={`tinyos-browser-tab-${tabId}`} className="tinyos-browser__surface-host" data-live={visible ? "true" : undefined} id="tinyos-browser-page" ref={hostRef} role="tabpanel"><span aria-live="polite">{visible ? "Loading live page…" : "Browser temporarily hidden"}</span></div>;
 }
 
 function TinyOsPlan({ canRequestChange, entry, onAgentRequest, requestChangeUnavailableReason }: { canRequestChange: boolean; entry: TinyOsTimelineEntry; onAgentRequest: (reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent) => void; requestChangeUnavailableReason?: string }) {
@@ -2376,7 +2373,7 @@ function TinyOsOperationShelf({
             </button>
           ) : null}
         </>
-      ) : <span className="tinyos-operation-shelf__empty">Visualized from canonical events</span>}
+      ) : <span className="tinyos-operation-shelf__empty">Shared workspace ready</span>}
     </nav>
   );
 }
@@ -2608,11 +2605,6 @@ function browserActionFromCommandInput(
   return { type: "click", x, y };
 }
 
-function browserLocation(step: ChatStep): string {
-  const args = recordValue(step.toolCall?.argsJson);
-  return firstString(args.url, args.href, args.location, step.summary) || "Structured browser activity";
-}
-
 function statusLabel(status: ChatStepStatus): string {
   return status.replace(/_/g, " ");
 }
@@ -2648,8 +2640,4 @@ function sanitizedJsonPreview(value: unknown): string {
     ]));
   };
   return jsonPreview(redact(value));
-}
-
-function safeRasterDataUrl(value: string): boolean {
-  return /^data:image\/(?:png|jpeg|gif|webp);base64,[a-z0-9+/=]+$/i.test(value);
 }

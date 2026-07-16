@@ -51,6 +51,10 @@ pub enum WorkerCapability {
     ChannelConnector,
     #[serde(rename = "shell.execute")]
     ShellExecute,
+    #[serde(rename = "browser.observe")]
+    BrowserObserve,
+    #[serde(rename = "browser.interact")]
+    BrowserInteract,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -81,7 +85,7 @@ impl CapabilityPolicy {
 }
 
 pub fn default_desktop_capability_policy() -> CapabilityPolicy {
-    CapabilityPolicy::new([
+    let capabilities = vec![
         WorkerCapability::ConfigRead,
         WorkerCapability::ProviderSecretRead,
         WorkerCapability::FsWorkspaceRead,
@@ -104,7 +108,16 @@ pub fn default_desktop_capability_policy() -> CapabilityPolicy {
         WorkerCapability::ChannelConnector,
         WorkerCapability::SessionMetadataRead,
         WorkerCapability::SessionWrite,
-    ])
+    ];
+    #[cfg(all(windows, feature = "native-browser-runtime"))]
+    let capabilities = capabilities
+        .into_iter()
+        .chain([
+            WorkerCapability::BrowserObserve,
+            WorkerCapability::BrowserInteract,
+        ])
+        .collect::<Vec<_>>();
+    CapabilityPolicy::new(capabilities)
 }
 
 #[cfg(test)]
@@ -134,6 +147,8 @@ mod tests {
         assert!(!policy.allows(&WorkerCapability::BackgroundWrite));
         assert!(!policy.allows(&WorkerCapability::McpCall));
         assert!(!policy.allows(&WorkerCapability::ShellExecute));
+        assert!(!policy.allows(&WorkerCapability::BrowserObserve));
+        assert!(!policy.allows(&WorkerCapability::BrowserInteract));
     }
 
     #[test]

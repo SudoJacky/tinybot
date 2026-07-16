@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Tinybot lightweight desktop host"
 authors = ["Tinybot contributors"]
 edition = "2021"
+default-run = "tinybot-desktop"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -14,12 +15,23 @@ edition = "2021"
 name = "tinybot_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+default = ["native-browser-runtime"]
+native-browser-runtime = []
+native-browser-integration = ["native-browser-runtime", "dep:axum"]
+
+[[bin]]
+name = "native-browser-integration"
+path = "src/native_browser_integration.rs"
+required-features = ["native-browser-integration"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
 async-trait = "0.1"
 async-openai = { version = "0.41.1", default-features = false, features = ["native-tls", "chat-completion", "model", "responses", "byot"] }
+axum = { version = "0.8", optional = true }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 futures-util = "0.3"
 http = "1"

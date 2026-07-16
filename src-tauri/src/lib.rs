@@ -481,6 +481,13 @@ pub fn run() {
         .manage(gateway_state)
         .setup(move |app| {
             let browser_runtime = native_browser::create_runtime(app.handle())?;
+            {
+                let mut runtime = lock_runtime(&setup_state);
+                runtime.native_agent_runtime = runtime
+                    .native_agent_runtime
+                    .clone()
+                    .with_browser_runtime(browser_runtime.clone());
+            }
             app.manage(browser_runtime);
             install_desktop_application_menu(app)?;
             match ensure_default_config_file(&default_tinybot_config_path()) {
@@ -684,6 +691,18 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(feature = "native-browser-integration")]
+pub fn run_native_browser_integration() -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        native_browser::integration::run()
+    }
+    #[cfg(not(windows))]
+    {
+        Err("The native browser integration harness is available only on Windows".to_string())
+    }
 }
 
 #[cfg(test)]

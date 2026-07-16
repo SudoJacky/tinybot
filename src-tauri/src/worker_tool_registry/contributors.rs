@@ -108,7 +108,7 @@ pub(super) fn default_tool_contributors() -> Vec<Arc<dyn ToolContributor>> {
         match entry.namespace.as_str() {
             "tool_registry" | "interaction" | "planning" => control_tools.push(entry),
             "memory" => context_tools.push(entry),
-            "shell" | "subagent" => runtime_tools.push(entry),
+            "browser" | "shell" | "subagent" => runtime_tools.push(entry),
             namespace => panic!(
                 "core tool `{}` has no contributor for namespace `{namespace}`",
                 entry.tool_id

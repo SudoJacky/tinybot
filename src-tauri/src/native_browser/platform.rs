@@ -8,6 +8,10 @@ use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 
 pub(crate) type BrowserPlatformEventSink = Arc<dyn Fn(BrowserPlatformEvent) + Send + Sync>;
 
+#[cfg_attr(
+    all(windows, not(feature = "native-browser-runtime")),
+    allow(dead_code)
+)]
 #[derive(Clone, Debug)]
 pub(crate) enum BrowserPlatformEvent {
     NavigationStarted {
@@ -76,6 +80,10 @@ pub(crate) struct BrowserPlatformTabState {
     pub device_scale: f64,
 }
 
+#[cfg_attr(
+    all(windows, not(feature = "native-browser-runtime")),
+    allow(dead_code)
+)]
 #[derive(Clone, Debug)]
 pub(crate) struct BrowserPlatformSurface {
     pub tab_id: BrowserTabId,
@@ -109,6 +117,10 @@ pub(crate) struct BrowserPlatformSemanticNode {
     pub protected_reason: Option<String>,
 }
 
+#[cfg_attr(
+    all(windows, not(feature = "native-browser-runtime")),
+    allow(dead_code)
+)]
 #[derive(Clone, Debug)]
 pub(crate) enum BrowserPlatformAction {
     Browser(BrowserAction),

@@ -301,6 +301,13 @@ export function ChatPage({
   const liveCanvasToggleRef = useRef<HTMLButtonElement | null>(null);
   const liveCanvasWasOpenRef = useRef(false);
   const stickToLatestRef = useRef(true);
+
+  useEffect(() => {
+    const clampWidthToViewport = () => setTinyOsWidth((current) => clampTinyOsWidth(current));
+    window.addEventListener("resize", clampWidthToViewport);
+    return () => window.removeEventListener("resize", clampWidthToViewport);
+  }, []);
+
   const resolvedSessionSidebarCollapsed = sessionSidebarCollapsed ?? localSessionSidebarCollapsed;
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId) ?? sessions[0],
@@ -1643,17 +1650,17 @@ export function ChatPage({
               aria-controls="tinybot-live-canvas"
               aria-expanded={liveCanvasOpen}
               aria-label={liveCanvasOpen
-                ? "Close Live Canvas"
+                ? "Close TinyOS"
                 : latestLiveCanvasAttention
-                  ? "Open Live Canvas, attention required"
+                  ? "Open TinyOS, attention required"
                   : liveCanvasEntries.length
-                    ? "Open Live Canvas, Agent activity available"
-                    : "Open Live Canvas"}
+                    ? "Open TinyOS, Agent activity available"
+                    : "Open TinyOS"}
               className="react-live-canvas-toggle"
               data-active={liveCanvasOpen ? "true" : undefined}
               data-attention={latestLiveCanvasAttention ? "true" : undefined}
               data-has-activity={liveCanvasEntries.length ? "true" : undefined}
-              title={liveCanvasOpen ? "Close Live Canvas" : "Open Live Canvas"}
+              title={liveCanvasOpen ? "Close TinyOS" : "Open TinyOS"}
               type="button"
               onClick={() => dispatchLiveCanvas({ type: "toggle" })}
             >
@@ -2556,9 +2563,9 @@ function ExecutionTimeline({
           <div className="react-execution-timeline__item" data-kind={step.kind} data-status={step.status} key={step.id}>
             {step.kind === "tool_call" || step.kind === "approval" ? null : (
               <button
-                aria-label={`View ${step.title} in Live Canvas`}
+                aria-label={`View ${step.title} in TinyOS`}
                 className="react-execution-timeline__canvas-button"
-                title="View in Live Canvas"
+                title="View in TinyOS"
                 type="button"
                 onClick={() => onOpenLiveCanvas(step)}
               >

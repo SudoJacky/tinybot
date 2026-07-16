@@ -1,15 +1,20 @@
 mod commands;
+#[cfg(all(windows, feature = "native-browser-integration"))]
+pub(crate) mod integration;
 mod manager;
 mod model;
 mod platform;
-#[cfg(not(windows))]
+#[cfg(any(test, all(windows, feature = "native-browser-integration")))]
+mod test_fixture;
 mod unsupported;
-#[cfg(windows)]
+#[cfg(all(windows, feature = "native-browser-runtime"))]
 mod windows;
 
 pub(crate) use manager::SharedBrowserRuntime;
 use manager::{BrowserDiagnosticSink, BrowserSessionManager, BrowserSnapshotSink};
-pub(crate) use model::BrowserInteractionInput;
+pub(crate) use model::{
+    BrowserCreateSessionInput, BrowserInteractionInput, BrowserNativeSnapshot, BrowserObserveInput,
+};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -55,10 +60,12 @@ pub(crate) fn create_runtime(app: &AppHandle) -> Result<SharedBrowserRuntime, St
         }
     });
 
-    #[cfg(windows)]
+    #[cfg(all(windows, feature = "native-browser-runtime"))]
     let adapter = windows::WindowsBrowserRuntime::new(app.clone(), profile_root.clone())?;
+    #[cfg(all(windows, not(feature = "native-browser-runtime")))]
+    let adapter = Arc::new(unsupported::UnsupportedBrowserRuntime::feature_disabled());
     #[cfg(not(windows))]
-    let adapter = Arc::new(unsupported::UnsupportedBrowserRuntime);
+    let adapter = Arc::new(unsupported::UnsupportedBrowserRuntime::platform_unsupported());
 
     Ok(BrowserSessionManager::new(
         adapter,

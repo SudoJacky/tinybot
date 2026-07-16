@@ -999,6 +999,13 @@ the references on the new canonical `user_message`, emits the correlated command
 and completes at the new run's terminal canonical item. Requests issued from a History view still
 create this new live run and never mutate the historical snapshot.
 
+TinyOS is the Tinybot feature that presents these capabilities as a lightweight virtual desktop
+shared by the user and Agent. Files, terminal sessions, browser tabs, and generated artifacts refer
+to the same underlying workspace objects for both participants. The user can work with those
+objects without leaving Tinybot and attach bounded references from the desktop directly to Chat.
+TinyOS surfaces concise presence cues such as viewing a file, browsing a page, running a command,
+or creating an artifact; it is not defined as a tool-call monitor or replay console.
+
 TinyOS Time Machine indexes every raw canonical item revision as an exact event boundary. History
 reconstruction passes that event index together with run, turn, and item identity to projector
 version `1`; an identity mismatch is an error rather than a nearest-match fallback. A boundary with
@@ -1029,10 +1036,10 @@ TinyOS controlled-host actions use the same `tinybot.command.v1` gateway and ded
 - `terminal.execute` carries the exact `command`, optional workspace-relative `cwd`, and
   `confirmed`;
 - `terminal.cancel` targets the running `tinyos-host-terminal-*` run;
-- `browser.interact` requires the correlated `browser_session_id`, `tab_id`, `capture_id`, explicit
-  confirmation, and a typed `click`, `navigate`, or `type` action. The native boundary validates
-  those identities and action parameters before failing closed because the desktop has no real
-  browser interaction backend.
+- `browser.interact` requires the correlated `browser_session_id`, `tab_id`, control epoch,
+  observation/capture identity where required, explicit confirmation, and a typed browser action.
+  The native boundary validates those identities and routes the action to the same managed WebView2
+  session projected by TinyOS when the Windows native browser feature is available.
 
 File changes are workspace-bound and revision guarded. The frontend keeps edits as local drafts,
 shows the before/after content before enabling save, and submits the revision returned by the
@@ -1058,23 +1065,24 @@ for this contract includes the native `processId`, `executionContract`, `tty`, `
 Clients may retain those canonical executions as tabs and history, but must not label them as live
 shell sessions. A future long-lived PTY requires a new versioned capability and lifecycle contract.
 
-TinyOS Browser separates three evidence states. `Structured projection` is canonical timeline
-metadata without raster evidence. `Local preview` is a raster artifact without an owning native
-browser session. `Real capture` requires a `browser_session_v1` snapshot whose current, non-stale
-capture identity matches the raster artifact. Structured entries and local previews never create
-synthetic tabs, navigation history, or successful host interactions.
+TinyOS Browser is a live-only view of the managed native WebView2 session. The user sees and directly
+operates the same page and ordered tab set as the Agent, with normal address navigation, back,
+forward, reload, stop, tab creation, tab activation, tab closing, and persistent-profile login
+state. The client never substitutes a timeline projection, local raster preview, or stale capture
+when the live native surface is unavailable; it shows an explicit unavailable state instead.
 
-`browser_session_v1` snapshots bind `browserSessionId`, `sessionId`, `runId`, `activeTabId`, tab
-history, per-tab capture history, and the backend-authored `click`/`navigate`/`type` interaction
-decisions. An interaction must target the same session, an existing tab, and that tab's exact
-current non-stale capture. A stale capture stays visible for diagnosis, but controls remain disabled
-and the client offers recovery to the current capture instead of silently retargeting the command.
+`browser_session_v1` snapshots bind `browserSessionId`, `sessionId`, `runId`, `activeTabId`, ordered
+tabs and navigation state, persistent profile identity, native-surface placement, and shared-control
+state. Captures and semantic observations remain backend evidence for validated Agent actions and
+diagnostics, but are not rendered as a user-facing browser fallback. An Agent interaction must
+target the same session and existing tab, plus the exact observation or capture identity required
+by that action.
 
-The current effective capability declares `projectionContract: "structured_projection_v1"`,
-`sessionContract: "browser_session_v1"`, `interactionRequires: "current_real_capture"`, and
-`sessionSnapshot: false`. `browser.realCapture` and `browser.interact` remain unavailable with
-`reasonCode: "backend_unavailable"`; a future backend must publish a valid session snapshot and
-enable each action before the client can dispatch it.
+The effective capability declares `projectionContract: "structured_projection_v1"`,
+`sessionContract: "browser_session_v1"`, and `interactionRequires: "current_real_capture"`.
+`sessionSnapshot`, `browser.realCapture`, and `browser.interact` reflect the managed native runtime.
+They are available only in a supported Windows build with `native-browser-runtime`; otherwise the
+desktop reports the exact feature/platform unavailable reason and does not create a fallback browser.
 
 `GET /api/sessions/{key}/effective-capabilities` and the native
 `worker_session_effective_capabilities` command return `tinybot.effective_capabilities.v1` decisions.
@@ -2174,10 +2182,30 @@ const snapshot = await invoke("get_settings_snapshot");
 
 ## Native Browser session runtime
 
-Windows desktop builds expose a backend-owned WebView2 runtime. The remote child webviews are not
-members of the Tauri capability set, `withGlobalTauri` is disabled, and page content receives no
-TinyBot IPC or privileged host object. Non-Windows builds return explicit unavailable capability
-decisions rather than synthetic browser state.
+The backend-owned WebView2 runtime is part of the default Windows desktop build. A deliberately
+minimal build compiled with `--no-default-features` returns unavailable decisions with reason code
+`feature_disabled`. The remote child webviews are not members of the Tauri capability set,
+`withGlobalTauri` is disabled, and page content receives no TinyBot IPC or privileged host object.
+Non-Windows builds return unavailable decisions with reason code `platform_unsupported` rather than
+synthetic browser state.
+
+The native Agent registry exposes `browser.observe` as a model tool and `browser.interact` as a
+deferred, per-request-approved tool only in supported feature builds. Both are dispatched directly
+to the `SharedBrowserRuntime` installed in Tauri state; they do not pass through a second Worker RPC
+browser implementation. `browser.observe` creates or reuses the browser session owned by the current
+chat and returns its active identities. `browser.interact` rejects sessions or tabs not owned by that
+chat and requires the current control epoch plus observation/capture identity where applicable.
+Agent cancellation is forwarded to the matching in-flight browser command. Capture `dataUrl` bytes
+remain available inside native snapshots for Agent observation but are neither rendered as a TinyOS
+fallback nor returned in model tool results, avoiding duplicate large images in provider context.
+Browser-like MCP tools and provider web search are separate capabilities and are not projected into
+TinyOS unless they explicitly use this native tool contract.
+
+The TinyOS Browser application provides lightweight browser chrome around the native child WebView:
+an address bar, navigation controls, ordered tabs, and a compact shared-control indicator. Direct
+user input and Agent commands operate the same WebView and persistent profile, so navigation,
+cookies, and authenticated page state remain synchronized. A missing or failed native surface is a
+visible runtime error; screenshots and structured observations are never used as replacement pages.
 
 The public commands are:
 
@@ -2219,7 +2247,9 @@ denied schemes and downloads are blocked with exact reason codes. Uploads, nativ
 protected authentication, payment verification, and similar protected UI use the visible
 `user_required` handoff. Persistent profiles live under the application browser profile root;
 incognito profiles use physically separate ephemeral directories and are deleted on close. A
-cleanup failure is returned and counted instead of being hidden.
+cleanup failure is returned and counted instead of being hidden. On Windows, deletion waits for the
+WebView2 browser-process exit signal or the recorded browser PID to terminate before removing the
+user-data directory, with bounded timeouts at both stages.
 
 Captures retain at most 12 observations per tab. Semantic observations retain at most 500 visible
 interactive nodes, cap selector depth and accessible text, identify top/child frame provenance, and
@@ -2228,4 +2258,13 @@ diagnostics redact URL credentials, query strings, and fragments and never log h
 form values, response bodies, screenshots, or semantic payloads. The React Browser chrome is covered
 by DOM tests; the remote child-WebView DOM, WebView2 process lifecycle, DPI, focus, and native surface
 stacking require Windows native integration coverage.
+
+The deterministic native-browser fixture uses an owned loopback server on a random port and never
+depends on the public internet. On an interactive Windows desktop with WebView2 installed, run the
+production-adapter smoke path with `cargo run -j 4 --features native-browser-integration --bin
+native-browser-integration`. The harness drives the public Rust browser commands and exits after
+verifying real capture, bounded semantic privacy, remote-page IPC isolation, navigation history and
+session cleanup. It also drives click/fill/type/key/wait/scroll commands, stale-observation
+rejection, and protected file-picker handoff. It does not replace the remaining DPI, stacking,
+crash and full lifecycle matrix.
 

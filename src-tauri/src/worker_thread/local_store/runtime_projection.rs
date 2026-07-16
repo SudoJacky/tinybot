@@ -4,6 +4,7 @@ use crate::agent_loop_runtime_protocol::{
 };
 use crate::worker_thread::types::{ThreadItem, ThreadItemKind};
 use serde_json::Value;
+use std::collections::HashMap;
 
 pub(super) fn trace_event_from_thread_item(item: &ThreadItem) -> Option<Value> {
     let (payload, fallback_event_name) = match &item.kind {
@@ -118,11 +119,56 @@ pub(super) fn runtime_events_from_thread_items(
     session_id: &str,
     run_id: &str,
 ) -> Vec<AgentRuntimeEventEnvelope> {
-    items
+    let mut events = items
         .iter()
         .filter(|item| item.run_id.as_deref() == Some(run_id))
         .filter_map(|item| runtime_event_from_thread_item(item, session_id, run_id))
-        .collect()
+        .collect::<Vec<_>>();
+    normalize_interaction_resolution_order(&mut events);
+    events
+}
+
+fn normalize_interaction_resolution_order(events: &mut [AgentRuntimeEventEnvelope]) {
+    let mut positions = HashMap::<(String, String), Vec<usize>>::new();
+    for (index, event) in events.iter().enumerate() {
+        if let Some((kind, interaction_id, _)) = interaction_order_key(event) {
+            positions
+                .entry((kind.to_string(), interaction_id.to_string()))
+                .or_default()
+                .push(index);
+        }
+    }
+    for indexes in positions.into_values() {
+        let mut ordered = indexes
+            .iter()
+            .map(|index| events[*index].clone())
+            .collect::<Vec<_>>();
+        ordered.sort_by_key(|event| {
+            interaction_order_key(event)
+                .map(|(_, _, rank)| rank)
+                .unwrap_or_default()
+        });
+        for (index, event) in indexes.into_iter().zip(ordered) {
+            events[index] = event;
+        }
+    }
+}
+
+fn interaction_order_key(event: &AgentRuntimeEventEnvelope) -> Option<(&str, &str, u8)> {
+    let (kind, id_keys, rank) = match event.event_name.as_str() {
+        "agent.awaiting_approval" => ("approval", &["approvalId", "approval_id"][..], 0),
+        "agent.approval.decision" => ("approval", &["approvalId", "approval_id"][..], 1),
+        "agent.awaiting_form" => ("form", &["formId", "form_id"][..], 0),
+        "agent.form.resolution" => ("form", &["formId", "form_id"][..], 1),
+        _ => return None,
+    };
+    id_keys.iter().find_map(|key| {
+        event
+            .payload
+            .get(*key)
+            .and_then(Value::as_str)
+            .map(|interaction_id| (kind, interaction_id, rank))
+    })
 }
 
 pub(super) fn turn_items_from_thread_items(
@@ -159,4 +205,66 @@ fn string_from_trace_payload(payload: &Value, keys: &[&str]) -> Option<String> {
             .and_then(Value::as_str)
             .map(str::to_string)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{runtime_events_from_thread_items, turn_items_from_thread_items};
+    use crate::agent_loop_runtime_protocol::AgentTurnItemStatus;
+    use crate::worker_thread::types::{ThreadItem, ThreadItemKind};
+    use serde_json::json;
+
+    fn approval_item(
+        item_id: &str,
+        sequence: u64,
+        event_name: &str,
+        approval_id: &str,
+    ) -> ThreadItem {
+        ThreadItem {
+            item_id: item_id.to_string(),
+            thread_id: "thread-1".to_string(),
+            run_id: Some("run-1".to_string()),
+            turn_id: Some("run-1".to_string()),
+            parent_item_id: None,
+            sequence,
+            created_at: sequence.to_string(),
+            kind: ThreadItemKind::Event(json!({
+                "eventName": event_name,
+                "payload": {
+                    "approvalId": approval_id,
+                    "status": if event_name == "agent.approval.decision" {
+                        "completed"
+                    } else {
+                        "waiting"
+                    }
+                }
+            })),
+        }
+    }
+
+    #[test]
+    fn persisted_approval_resolution_is_replayed_after_its_request() {
+        let approval_id = "approval:run-1:call-1";
+        let items = vec![
+            approval_item(
+                "thread-runtime:thread-1:run-1:event:1",
+                1,
+                "agent.approval.decision",
+                approval_id,
+            ),
+            approval_item(
+                "thread-runtime:thread-1:run-1:event:209",
+                209,
+                "agent.awaiting_approval",
+                approval_id,
+            ),
+        ];
+
+        let events = runtime_events_from_thread_items(&items, "thread-1", "run-1");
+        assert_eq!(events[0].event_name, "agent.awaiting_approval");
+        assert_eq!(events[1].event_name, "agent.approval.decision");
+        let projected = turn_items_from_thread_items(&items, "thread-1", "run-1");
+        assert_eq!(projected.len(), 1);
+        assert_eq!(projected[0].status, AgentTurnItemStatus::Completed);
+    }
 }

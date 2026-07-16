@@ -80,6 +80,7 @@ struct BrowserPendingPolicyRequest {
 
 #[derive(Clone)]
 struct BrowserActiveCancellation {
+    command_id: BrowserCommandId,
     notify: Arc<tokio::sync::Notify>,
     outcome: Arc<Mutex<Option<BrowserCancellationOutcome>>>,
 }
@@ -199,6 +200,37 @@ impl BrowserSessionManager {
         snapshot_from_state(&self.lock_state(), session_id, self.adapter.as_ref())
     }
 
+    pub(crate) fn cancel_agent_command(
+        &self,
+        tab_id: &BrowserTabId,
+        command_id: &BrowserCommandId,
+    ) -> bool {
+        let cancellation = self
+            .active_cancellations
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(tab_id)
+            .filter(|cancellation| &cancellation.command_id == command_id)
+            .cloned();
+        if let Some(cancellation) = cancellation {
+            let mut outcome = cancellation
+                .outcome
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if outcome.is_none() {
+                *outcome = Some(BrowserCancellationOutcome {
+                    status: BrowserCommandStatus::Cancelled,
+                    reason_code: "agent_cancelled".to_string(),
+                    reason: "Agent browser command was cancelled".to_string(),
+                });
+                drop(outcome);
+                cancellation.notify.notify_waiters();
+                return true;
+            }
+        }
+        false
+    }
+
     pub(crate) async fn create_session(
         self: &Arc<Self>,
         input: BrowserCreateSessionInput,
@@ -313,10 +345,7 @@ impl BrowserSessionManager {
                     let tab = session.tabs.get_mut(&tab_id).ok_or_else(|| {
                         "Browser initial tab disappeared during creation".to_string()
                     })?;
-                    tab.lifecycle = tab.lifecycle.transition_to(BrowserTabLifecycle::Ready)?;
-                    tab.renderer_lifecycle = tab
-                        .renderer_lifecycle
-                        .transition_to(BrowserRendererLifecycle::Running)?;
+                    complete_tab_creation(tab)?;
                     tab.loading = false;
                     tab.url = platform.url;
                     tab.title = platform.title;
@@ -345,6 +374,8 @@ impl BrowserSessionManager {
                     let mut state = self.lock_state();
                     if let Some(session) = state.sessions.get_mut(&session_id) {
                         session.lifecycle = BrowserSessionLifecycle::Failed;
+                        session.control.state = BrowserControlState::Failed;
+                        session.control.reason = Some(error.clone());
                         if let Some(tab) = session.tabs.get_mut(&tab_id) {
                             tab.lifecycle = BrowserTabLifecycle::Crashed;
                             tab.renderer_lifecycle = BrowserRendererLifecycle::Failed;
@@ -409,10 +440,7 @@ impl BrowserSessionManager {
                     .tabs
                     .get_mut(&tab_id)
                     .ok_or_else(|| "Browser tab closed during creation".to_string())?;
-                tab.lifecycle = tab.lifecycle.transition_to(BrowserTabLifecycle::Ready)?;
-                tab.renderer_lifecycle = tab
-                    .renderer_lifecycle
-                    .transition_to(BrowserRendererLifecycle::Running)?;
+                complete_tab_creation(tab)?;
                 tab.loading = false;
                 tab.url = platform.url;
                 tab.title = platform.title;
@@ -714,10 +742,7 @@ impl BrowserSessionManager {
                 .get_mut(session_id)
                 .ok_or_else(|| "Browser session closed during renderer restart".to_string())?;
             let tab = require_tab_mut(session, tab_id)?;
-            tab.lifecycle = tab.lifecycle.transition_to(BrowserTabLifecycle::Ready)?;
-            tab.renderer_lifecycle = tab
-                .renderer_lifecycle
-                .transition_to(BrowserRendererLifecycle::Running)?;
+            complete_tab_creation(tab)?;
             tab.loading = false;
             tab.url = platform.url;
             tab.title = platform.title;
@@ -1170,6 +1195,7 @@ impl BrowserSessionManager {
         let _command_guard = command_lock.lock().await;
         let started = Instant::now();
         let cancellation = BrowserActiveCancellation {
+            command_id: input.command_id.clone(),
             notify: Arc::new(tokio::sync::Notify::new()),
             outcome: Arc::new(Mutex::new(None)),
         };
@@ -2391,6 +2417,32 @@ fn new_tab_record(
     }
 }
 
+fn complete_tab_creation(tab: &mut BrowserTabRecord) -> Result<(), String> {
+    tab.lifecycle = match tab.lifecycle {
+        BrowserTabLifecycle::Creating | BrowserTabLifecycle::Loading => {
+            tab.lifecycle.transition_to(BrowserTabLifecycle::Ready)?
+        }
+        BrowserTabLifecycle::Ready => BrowserTabLifecycle::Ready,
+        lifecycle => {
+            return Err(format!(
+                "Browser tab creation completed from invalid lifecycle {lifecycle:?}"
+            ));
+        }
+    };
+    tab.renderer_lifecycle = match tab.renderer_lifecycle {
+        BrowserRendererLifecycle::Starting | BrowserRendererLifecycle::Restarting => tab
+            .renderer_lifecycle
+            .transition_to(BrowserRendererLifecycle::Running)?,
+        BrowserRendererLifecycle::Running => BrowserRendererLifecycle::Running,
+        lifecycle => {
+            return Err(format!(
+                "Browser renderer creation completed from invalid lifecycle {lifecycle:?}"
+            ));
+        }
+    };
+    Ok(())
+}
+
 fn ready_session<'a>(
     state: &'a BrowserRuntimeState,
     session_id: &BrowserSessionId,
@@ -2772,6 +2824,21 @@ mod tests {
         )
     }
 
+    #[test]
+    fn creation_completion_accepts_a_navigation_event_that_already_made_the_tab_ready() {
+        let mut tab = new_tab_record(
+            BrowserTabId("tab-race".to_string()),
+            BrowserNavigationId("navigation-race".to_string()),
+            "http://127.0.0.1/",
+        );
+        tab.lifecycle = BrowserTabLifecycle::Ready;
+
+        complete_tab_creation(&mut tab).unwrap();
+
+        assert_eq!(tab.lifecycle, BrowserTabLifecycle::Ready);
+        assert_eq!(tab.renderer_lifecycle, BrowserRendererLifecycle::Running);
+    }
+
     #[tokio::test]
     async fn session_lifecycle_and_observation_are_revisioned() {
         let manager = manager(Arc::new(FakeAdapter::default()));
@@ -2802,6 +2869,58 @@ mod tests {
             .unwrap()
             .starts_with("data:image/png;base64,"));
         assert_eq!(observed.semantic.unwrap().nodes[0].name, "Submit");
+    }
+
+    #[tokio::test]
+    async fn agent_browser_tools_reuse_the_chat_owned_session() {
+        let manager = manager(Arc::new(FakeAdapter::default()));
+        let observed = crate::native_agent_bridge::dispatch_agent_browser_observe(
+            &manager,
+            "chat-shared-browser",
+            serde_json::json!({}),
+        )
+        .await
+        .unwrap();
+        let snapshot = &observed["snapshot"]["data"];
+        let browser_session_id = snapshot["browserSessionId"].as_str().unwrap();
+        let tab_id = snapshot["activeTabId"].as_str().unwrap();
+        let control_epoch = snapshot["control"]["controlEpoch"].as_u64().unwrap();
+        let observation_revision = snapshot["tabs"][0]["observationRevision"].as_u64().unwrap();
+
+        let result = crate::native_agent_bridge::dispatch_agent_browser_interact(
+            &manager,
+            "chat-shared-browser",
+            None,
+            serde_json::json!({
+                "browserSessionId": browser_session_id,
+                "tabId": tab_id,
+                "commandId": "agent-browser-command",
+                "controlEpoch": control_epoch,
+                "observationRevision": observation_revision,
+                "action": { "type": "scroll", "deltaX": 0, "deltaY": 120 }
+            }),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result["status"], "completed");
+        assert_eq!(
+            manager
+                .snapshot_for_owner("chat-shared-browser")
+                .unwrap()
+                .data
+                .browser_session_id
+                .as_str(),
+            browser_session_id
+        );
+        let ownership_error = crate::native_agent_bridge::dispatch_agent_browser_observe(
+            &manager,
+            "other-chat",
+            serde_json::json!({ "browserSessionId": browser_session_id }),
+        )
+        .await
+        .expect_err("another chat must not attach to the shared browser session");
+        assert!(ownership_error.contains("not owned by this chat"));
     }
 
     #[tokio::test]
@@ -2892,6 +3011,11 @@ mod tests {
             .snapshot_for_owner("thread-create-failure")
             .expect("failed session should remain observable");
         assert_eq!(snapshot.data.lifecycle, BrowserSessionLifecycle::Failed);
+        assert_eq!(snapshot.data.control.state, BrowserControlState::Failed);
+        assert_eq!(
+            snapshot.data.control.reason.as_deref(),
+            Some("fixture WebView initialization failed")
+        );
         assert!(!snapshot.data.interaction.navigate);
         assert!(!snapshot.data.interaction.click);
         assert!(!snapshot.data.interaction.semantic);

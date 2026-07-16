@@ -498,6 +498,74 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             }),
         ),
         tool(
+            "browser.observe",
+            "browser",
+            "Observe TinyOS browser",
+            "Create or inspect the browser session owned by this chat. Returns the active session, tab, control epoch, capture, and bounded semantic targets. Use this before browser.interact.",
+            ToolExposure::Model,
+            false,
+            runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
+            vec![WorkerCapability::BrowserObserve],
+            approval(false, None, None),
+            json!({
+                "type": "object",
+                "properties": {
+                    "browserSessionId": { "type": "string" },
+                    "tabId": { "type": "string" },
+                    "capture": { "type": "boolean", "default": true },
+                    "semantic": { "type": "boolean", "default": true }
+                },
+                "additionalProperties": false
+            }),
+        ),
+        tool(
+            "browser.interact",
+            "browser",
+            "Interact with TinyOS browser",
+            "Operate the current chat's shared TinyOS browser session. Call browser.observe first and pass its current session, tab, control epoch, and observation or capture identity. Never opens a detached browser.",
+            ToolExposure::Deferred,
+            false,
+            runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
+            vec![
+                WorkerCapability::BrowserInteract,
+                WorkerCapability::ApprovalRequest,
+            ],
+            approval(true, Some("browser"), Some("per_request")),
+            json!({
+                "type": "object",
+                "required": ["browserSessionId", "tabId", "controlEpoch", "action"],
+                "properties": {
+                    "browserSessionId": { "type": "string" },
+                    "tabId": { "type": "string" },
+                    "controlEpoch": { "type": "integer", "minimum": 0 },
+                    "captureId": { "type": "string" },
+                    "observationRevision": { "type": "integer", "minimum": 0 },
+                    "action": {
+                        "type": "object",
+                        "required": ["type"],
+                        "properties": {
+                            "type": {
+                                "type": "string",
+                                "enum": ["navigate", "back", "forward", "reload", "stop", "click", "clickTarget", "type", "fill", "key", "scroll", "wait", "userHandoff", "resume"]
+                            },
+                            "url": { "type": "string" },
+                            "x": { "type": "number" },
+                            "y": { "type": "number" },
+                            "targetRef": { "type": "string" },
+                            "text": { "type": "string" },
+                            "key": { "type": "string" },
+                            "deltaX": { "type": "number" },
+                            "deltaY": { "type": "number" },
+                            "timeoutMs": { "type": "integer", "minimum": 0, "maximum": 15000 },
+                            "reason": { "type": "string" }
+                        },
+                        "additionalProperties": false
+                    }
+                },
+                "additionalProperties": false
+            }),
+        ),
+        tool(
             "shell.execute",
             "shell",
             "Execute shell command",
@@ -919,6 +987,38 @@ mod tests {
             ToolExecutionTarget::WorkerRpc {
                 method: "workspace.apply_patch".to_string()
             }
+        );
+    }
+
+    #[test]
+    fn browser_tools_separate_observation_from_approved_interaction() {
+        let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
+            WorkerCapability::BrowserObserve,
+            WorkerCapability::BrowserInteract,
+            WorkerCapability::ApprovalRequest,
+        ]));
+        let observe = registry
+            .get_tool("browser.observe")
+            .expect("browser.observe should be registered");
+        let interact = registry
+            .get_tool("browser.interact")
+            .expect("browser.interact should be registered");
+
+        assert_eq!(observe.exposure, ToolExposure::Model);
+        assert!(observe.available);
+        assert!(!observe.approval.required);
+        assert!(observe.runtime_policy.mutates_session);
+        assert_eq!(interact.exposure, ToolExposure::Deferred);
+        assert!(interact.available);
+        assert!(interact.approval.required);
+        assert_eq!(interact.approval.scope, Some("browser"));
+        assert_eq!(
+            interact.runtime_policy.cancellation_mode,
+            ToolCancellationMode::DetachForbidden
+        );
+        assert_eq!(
+            interact.input_schema["required"],
+            json!(["browserSessionId", "tabId", "controlEpoch", "action"])
         );
     }
 

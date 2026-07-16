@@ -14,7 +14,10 @@ use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     path::{Component, Path, PathBuf},
-    sync::{Arc, Mutex, RwLock},
+    sync::{
+        atomic::{AtomicBool, AtomicU32, Ordering},
+        Arc, Mutex, RwLock,
+    },
     time::{Duration, Instant},
 };
 use tauri::{
@@ -23,14 +26,22 @@ use tauri::{
 };
 use tokio::sync::{mpsc, oneshot};
 use webview2_com::{
-    CallDevToolsProtocolMethodCompletedHandler, Microsoft::Web::WebView2::Win32::ICoreWebView2,
+    BrowserProcessExitedEventHandler, CallDevToolsProtocolMethodCompletedHandler,
+    Microsoft::Web::WebView2::Win32::{ICoreWebView2, ICoreWebView2Environment5},
     ProcessFailedEventHandler, WebMessageReceivedEventHandler,
 };
-use windows::core::{HSTRING, PWSTR};
+use windows::core::{Interface, HSTRING, PWSTR};
+use windows_sys::Win32::{
+    Foundation::{CloseHandle, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT},
+    System::Threading::{OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE},
+};
 
 const DIRECT_INPUT_MESSAGE: &str = "tinybot-browser-direct-input-v1";
 const MAX_SEMANTIC_NODES: usize = 500;
 const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(15);
+const BROWSER_PROCESS_EXIT_TIMEOUT: Duration = Duration::from_secs(30);
+const PROFILE_DELETE_RETRY_DELAY: Duration = Duration::from_millis(50);
+const PROFILE_DELETE_TIMEOUT: Duration = Duration::from_secs(5);
 
 const DIRECT_INPUT_SCRIPT: &str = r#"
 (() => {
@@ -158,10 +169,47 @@ impl NavigationCompletion {
     }
 }
 
+#[derive(Default)]
+struct BrowserProcessExitCompletion {
+    process_id: AtomicU32,
+    exited: AtomicBool,
+    notify: tokio::sync::Notify,
+}
+
+impl BrowserProcessExitCompletion {
+    fn mark_registered(&self, process_id: u32) {
+        self.process_id.store(process_id, Ordering::Release);
+    }
+
+    fn mark_exited(&self) {
+        self.exited.store(true, Ordering::Release);
+        self.notify.notify_waiters();
+    }
+
+    fn process_id(&self) -> u32 {
+        self.process_id.load(Ordering::Acquire)
+    }
+
+    fn is_exited(&self) -> bool {
+        self.exited.load(Ordering::Acquire)
+    }
+
+    async fn wait_for_event(&self) {
+        loop {
+            let notified = self.notify.notified();
+            if self.is_exited() {
+                return;
+            }
+            notified.await;
+        }
+    }
+}
+
 pub(crate) struct WindowsBrowserRuntime {
     app: AppHandle,
     profile_root: PathBuf,
     tabs: RwLock<HashMap<BrowserTabId, BrowserTabHandle>>,
+    profile_exits: Mutex<HashMap<PathBuf, Arc<BrowserProcessExitCompletion>>>,
     event_sink: RwLock<Option<BrowserPlatformEventSink>>,
 }
 
@@ -177,6 +225,7 @@ impl WindowsBrowserRuntime {
             app,
             profile_root,
             tabs: RwLock::new(HashMap::new()),
+            profile_exits: Mutex::new(HashMap::new()),
             event_sink: RwLock::new(None),
         }))
     }
@@ -202,6 +251,21 @@ impl WindowsBrowserRuntime {
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .remove(tab_id)
+    }
+
+    fn profile_exit_completion(&self, path: &Path) -> Arc<BrowserProcessExitCompletion> {
+        let mut completions = self
+            .profile_exits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(completion) = completions.get(path) {
+            if !completion.is_exited() {
+                return completion.clone();
+            }
+        }
+        let completion = Arc::new(BrowserProcessExitCompletion::default());
+        completions.insert(path.to_path_buf(), completion.clone());
+        completion
     }
 }
 
@@ -235,6 +299,7 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
         tokio::fs::create_dir_all(&request.profile.data_directory)
             .await
             .map_err(|error| format!("Failed to create browser profile directory: {error}"))?;
+        let process_exit = self.profile_exit_completion(&request.profile.data_directory);
 
         let tab_id = request.tab_id.clone();
         let navigation_tab_id = tab_id.clone();
@@ -372,11 +437,13 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .clone()
         };
-        register_webview2_events(&webview, tab_id.clone(), event_sink).await?;
+        register_webview2_events(&webview, tab_id.clone(), event_sink, process_exit).await?;
 
-        if let Err(error) = navigation_completion.wait_after(0).await {
-            let _ = webview.close();
-            return Err(error);
+        if url.as_str() != "about:blank" {
+            if let Err(error) = navigation_completion.wait_after(0).await {
+                let _ = webview.close();
+                return Err(error);
+            }
         }
 
         self.insert_tab(
@@ -402,10 +469,23 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
         let Some(handle) = self.remove_tab(tab_id) else {
             return Ok(());
         };
-        handle
-            .webview
-            .close()
-            .map_err(|error| format!("Failed to close native browser tab {tab_id}: {error}"))
+        let tab_label = tab_id.to_string();
+        let close_label = tab_label.clone();
+        let (closed_tx, closed_rx) = oneshot::channel();
+        self.app
+            .run_on_main_thread(move || {
+                let result = handle.webview.close().map_err(|error| {
+                    format!("Failed to close native browser tab {close_label}: {error}")
+                });
+                drop(handle);
+                let _ = closed_tx.send(result);
+            })
+            .map_err(|error| {
+                format!("Failed to schedule native browser tab {tab_label} cleanup: {error}")
+            })?;
+        closed_rx
+            .await
+            .map_err(|_| format!("Native browser tab {tab_label} cleanup was interrupted"))?
     }
 
     async fn set_surface(&self, surface: BrowserPlatformSurface) -> Result<(), String> {
@@ -573,13 +653,107 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
                 profile.profile_id
             ));
         }
-        if profile.data_directory.exists() {
-            tokio::fs::remove_dir_all(&profile.data_directory)
-                .await
-                .map_err(|error| format!("Failed to remove incognito browser profile: {error}"))?;
+        let process_exit = self
+            .profile_exits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(&profile.data_directory)
+            .cloned();
+        if let Some(process_exit) = process_exit {
+            if process_exit.process_id() != 0 && !process_exit.is_exited() {
+                wait_for_browser_process_release(process_exit.clone())
+                    .await
+                    .map_err(|error| {
+                        format!(
+                            "WebView2 browser process did not release profile {}: {error}",
+                            profile.profile_id
+                        )
+                    })?;
+            }
         }
+        remove_profile_directory(&profile.data_directory).await?;
+        self.profile_exits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(&profile.data_directory);
         Ok(())
     }
+}
+
+async fn wait_for_browser_process_release(
+    completion: Arc<BrowserProcessExitCompletion>,
+) -> Result<(), String> {
+    let process_id = completion.process_id();
+    let process_wait = tokio::task::spawn_blocking(move || wait_for_process_exit(process_id));
+    tokio::select! {
+        _ = completion.wait_for_event() => Ok(()),
+        result = process_wait => {
+            result
+                .map_err(|error| format!("browser process wait task failed: {error}"))??;
+            completion.mark_exited();
+            Ok(())
+        }
+    }
+}
+
+fn wait_for_process_exit(process_id: u32) -> Result<(), String> {
+    let process = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, process_id) };
+    if process.is_null() {
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error() == Some(87) {
+            return Ok(());
+        }
+        return Err(format!(
+            "failed to open browser process {process_id}: {error}"
+        ));
+    }
+    let wait =
+        unsafe { WaitForSingleObject(process, BROWSER_PROCESS_EXIT_TIMEOUT.as_millis() as u32) };
+    let wait_error = (wait == WAIT_FAILED).then(std::io::Error::last_os_error);
+    unsafe {
+        CloseHandle(process);
+    }
+    match wait {
+        WAIT_OBJECT_0 => Ok(()),
+        WAIT_TIMEOUT => Err(format!(
+            "process {process_id} remained alive for {} ms",
+            BROWSER_PROCESS_EXIT_TIMEOUT.as_millis()
+        )),
+        WAIT_FAILED => Err(format!(
+            "waiting for process {process_id} failed: {}",
+            wait_error.unwrap_or_else(std::io::Error::last_os_error)
+        )),
+        status => Err(format!(
+            "waiting for process {process_id} returned unexpected status {status}"
+        )),
+    }
+}
+
+async fn remove_profile_directory(path: &Path) -> Result<(), String> {
+    let started = Instant::now();
+    loop {
+        match tokio::fs::remove_dir_all(path).await {
+            Ok(()) => return Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error)
+                if transient_profile_delete_error(&error)
+                    && started.elapsed() < PROFILE_DELETE_TIMEOUT =>
+            {
+                tokio::time::sleep(PROFILE_DELETE_RETRY_DELAY).await;
+            }
+            Err(error) => {
+                return Err(format!(
+                    "Failed to remove browser profile {} after {} ms: {error}",
+                    path.display(),
+                    started.elapsed().as_millis()
+                ));
+            }
+        }
+    }
+}
+
+fn transient_profile_delete_error(error: &std::io::Error) -> bool {
+    matches!(error.raw_os_error(), Some(5 | 32 | 33 | 145))
 }
 
 async fn interact_browser_action(
@@ -797,6 +971,7 @@ async fn register_webview2_events(
     webview: &Webview<Wry>,
     tab_id: BrowserTabId,
     sink: Option<BrowserPlatformEventSink>,
+    process_exit: Arc<BrowserProcessExitCompletion>,
 ) -> Result<(), String> {
     let (tx, rx) = oneshot::channel();
     webview
@@ -842,6 +1017,24 @@ async fn register_webview2_events(
                 let mut failed_token = 0;
                 unsafe { core.add_ProcessFailed(&failed_handler, &mut failed_token) }
                     .map_err(|error| error.to_string())?;
+
+                let mut browser_process_id = 0;
+                unsafe { core.BrowserProcessId(&mut browser_process_id) }
+                    .map_err(|error| error.to_string())?;
+                let environment = platform
+                    .environment()
+                    .cast::<ICoreWebView2Environment5>()
+                    .map_err(|error| error.to_string())?;
+                let exit_completion = process_exit.clone();
+                let exit_handler =
+                    BrowserProcessExitedEventHandler::create(Box::new(move |_sender, _args| {
+                        exit_completion.mark_exited();
+                        Ok(())
+                    }));
+                let mut exit_token = 0;
+                unsafe { environment.add_BrowserProcessExited(&exit_handler, &mut exit_token) }
+                    .map_err(|error| error.to_string())?;
+                process_exit.mark_registered(browser_process_id);
                 Ok(())
             })();
             let _ = tx.send(result);
@@ -948,6 +1141,25 @@ mod tests {
         assert!(!waiter.is_finished());
         completion.mark_completed();
         waiter.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn profile_directory_cleanup_is_idempotent() {
+        let path = std::env::temp_dir().join(format!(
+            "tinybot-browser-profile-cleanup-{}",
+            std::process::id()
+        ));
+        tokio::fs::create_dir_all(path.join("nested"))
+            .await
+            .unwrap();
+        tokio::fs::write(path.join("nested/state"), b"fixture")
+            .await
+            .unwrap();
+
+        remove_profile_directory(&path).await.unwrap();
+        remove_profile_directory(&path).await.unwrap();
+
+        assert!(!path.exists());
     }
 
     #[test]

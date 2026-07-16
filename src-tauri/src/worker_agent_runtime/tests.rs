@@ -728,6 +728,34 @@ fn chat_completion_request_injects_available_model_tools() {
     );
 }
 
+#[cfg(all(windows, feature = "native-browser-runtime"))]
+#[test]
+fn feature_build_exposes_shared_browser_observation_but_defers_interaction() {
+    let context = NativeAgentRunContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "runId": "run-browser-tools",
+            "sessionId": "websocket:chat-browser-tools",
+            "model": "fixture-model",
+            "messages": [{ "role": "user", "content": "inspect the shared browser" }]
+        }),
+        json!({}),
+    );
+
+    let request = agent_chat_completion_request(&context)
+        .expect("feature build should expose the shared browser observation tool");
+    let names = request["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|tool| tool["function"]["name"].as_str())
+        .collect::<Vec<_>>();
+
+    assert!(names.contains(&"browser_observe"));
+    assert!(!names.contains(&"browser_interact"));
+    assert!(names.contains(&"tool_search"));
+}
+
 #[test]
 fn tool_search_activates_dispatches_and_expires_a_deferred_tool() {
     struct SearchThenFinishProvider {
