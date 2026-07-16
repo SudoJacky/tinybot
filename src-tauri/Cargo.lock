@@ -4675,7 +4675,9 @@ name = "tinybot-desktop"
 version = "0.1.0"
 dependencies = [
  "async-openai",
+ "async-trait",
  "axum",
+ "chrono",
  "futures-util",
  "http",
  "libc",
@@ -4695,6 +4697,8 @@ dependencies = [
  "tokio",
  "tokio-util",
  "url",
+ "webview2-com",
+ "windows 0.61.3",
  "windows-sys 0.61.2",
 ]
 

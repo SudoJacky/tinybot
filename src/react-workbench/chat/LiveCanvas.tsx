@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from "react";
-import { Bell, Bot, Loader2, Maximize2, Minimize2, MonitorDot, PanelRightClose, PanelRightOpen, Pause, Play, ShieldCheck, StopCircle, X } from "lucide-react";
+import { Bell, Bot, Loader2, Maximize2, Minimize2, MonitorDot, Pause, Play, StopCircle, X } from "lucide-react";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
-import { projectKernelBackedTinyOsDesktop, projectTinyOsDesktop, type TinyOsTimelineEntry } from "../../app-core/chat/tinyOsDesktopModel";
+import { projectKernelBackedTinyOsDesktop, projectTinyOsDesktop, type TinyOsDesktopSnapshot, type TinyOsTimelineEntry } from "../../app-core/chat/tinyOsDesktopModel";
 import { tinyOsLayoutModeForWidth, type TinyOsAgentRequestIntent, type TinyOsAgentRequestReference, type TinyOsContextReference } from "../../app-core/chat/tinyOsUiState";
 import type { ArtifactRef, BackendAgentTurnItem, ChatStep } from "../../app-core/chat/chatRunModel";
 import type { TinyOsBrowserAction } from "../../app-core/chat/tinyOsCommandGateway";
@@ -13,14 +13,14 @@ import { isTinyOsCommandInFlight, type TinyOsCommandLifecycle } from "../../app-
 import { createTinyOsShellCommandRegistry, defineTinyOsShellCommand, type TinyOsShellCommandAvailability } from "../../app-core/chat/tinyOsShellCommandRegistry";
 import { createTinyOsTimeMachineIndex, type TinyOsTimeMachineBoundary } from "../../app-core/chat/tinyOsTimeMachine";
 import { TinyOsTimeMachine } from "./TinyOsTimeMachine";
+import type { NativeBrowserRuntimeApi } from "../../app-core/native/desktopNativeBrowser";
 
 export type LiveCanvasMode = "live_follow" | "history";
 export type LiveCanvasEntry = TinyOsTimelineEntry;
 
 const MIN_TINYOS_WIDTH = 380;
-const MAX_TINYOS_WIDTH = 720;
-const COMPACT_TINYOS_WIDTH = 480;
-const WORKSPACE_TINYOS_WIDTH = 680;
+const TINYOS_DESKTOP_RESERVED_WIDTH = 520;
+const TINYOS_OVERLAY_RESERVED_WIDTH = 64;
 const TINYOS_BOOT_DURATION_MS = 1_000;
 let tinyOsBootedInRuntime = false;
 
@@ -80,6 +80,7 @@ export function LiveCanvas({
   terminalCancelUnavailableReason,
   terminalExecuteUnavailableReason,
   browserInteractUnavailableReason,
+  browserRuntime,
   selection,
   selectionEventIndex,
   sessionKey,
@@ -117,7 +118,7 @@ export function LiveCanvas({
   onOpenArtifact: (artifact: ArtifactRef) => void;
   onAgentRequest: (reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent, fromHistory: boolean) => void;
   onCancelTerminal?: () => Promise<void>;
-  onBrowserInteract?: (input: { action: TinyOsBrowserAction; browserSessionId: string; captureId: string; tabId: string }) => Promise<void>;
+  onBrowserInteract?: (input: { action: TinyOsBrowserAction; browserSessionId: string; captureId: string; controlEpoch: number; observationRevision: number; tabId: string }) => Promise<void>;
   onDeleteFile?: (input: { baseRevision: string; path: string }) => Promise<void>;
   onExecuteTerminal?: (input: { command: string; cwd?: string }) => Promise<void>;
   onMoveFile?: (input: { baseRevision: string; path: string; targetPath: string }) => Promise<void>;
@@ -141,6 +142,7 @@ export function LiveCanvas({
   terminalCancelUnavailableReason?: string;
   terminalExecuteUnavailableReason?: string;
   browserInteractUnavailableReason?: string;
+  browserRuntime?: NativeBrowserRuntimeApi;
   selection?: LiveCanvasEntry;
   selectionEventIndex?: number;
   sessionKey?: string;
@@ -170,6 +172,7 @@ export function LiveCanvas({
       ? projectKernelBackedTinyOsDesktop(entries, canonicalItems, cursor, { nativeSnapshots })
       : projectTinyOsDesktop(entries, cursor);
   }, [canonicalItems, entries, historyBoundary, mode, nativeSnapshots, selection?.step.id, selection?.turnId]);
+  const agentActivity = tinyOsAgentActivity(snapshot);
   const actionableDialog = Boolean(snapshot.dialog && mode === "live_follow");
   const commandPending = isTinyOsCommandInFlight(commandLifecycle);
   const commandKind = commandLifecycle.stage === "idle" ? "" : commandLifecycle.command.kind;
@@ -295,17 +298,6 @@ export function LiveCanvas({
       target: { kind: "shell" },
     }),
     defineTinyOsShellCommand({
-      availability: { available: true },
-      category: "system",
-      dispatch: toggleWorkspaceWidth,
-      id: "shell.workspace_toggle",
-      input: { kind: "none" },
-      keywords: ["workspace", "compact", "width"],
-      label: widthPx <= 520 ? "Expand TinyOS workspace" : "Use compact TinyOS workspace",
-      scope: "local_presentation",
-      target: { kind: "shell" },
-    }),
-    defineTinyOsShellCommand({
       availability: onExpandedChange ? { available: true } : { available: false, reason: "Expanded TinyOS is unavailable on this surface." },
       category: "system",
       dispatch: () => onExpandedChange?.(),
@@ -362,12 +354,8 @@ export function LiveCanvas({
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "Home" && event.key !== "End") return;
     event.preventDefault();
     if (event.key === "Home") onWidthChange(MIN_TINYOS_WIDTH);
-    else if (event.key === "End") onWidthChange(MAX_TINYOS_WIDTH);
+    else if (event.key === "End") onWidthChange(tinyOsMaxWidth());
     else onWidthChange(clampTinyOsWidth(widthPx + (event.key === "ArrowLeft" ? 24 : -24)));
-  }
-
-  function toggleWorkspaceWidth() {
-    onWidthChange(widthPx <= 520 ? WORKSPACE_TINYOS_WIDTH : COMPACT_TINYOS_WIDTH);
   }
 
   return (
@@ -382,11 +370,11 @@ export function LiveCanvas({
           onClick={() => void canvasCommandRegistry.execute("shell.close")}
         />
       ) : null}
-      <aside aria-label="Live Canvas" className="react-live-canvas tinyos" data-expanded={expanded ? "true" : undefined} data-mode={mode} id="tinybot-live-canvas">
+      <aside aria-label="TinyOS shared desktop" className="react-live-canvas tinyos" data-expanded={expanded ? "true" : undefined} data-mode={mode} id="tinybot-live-canvas">
       <div
         aria-label="Resize TinyOS"
         aria-orientation="vertical"
-        aria-valuemax={MAX_TINYOS_WIDTH}
+        aria-valuemax={tinyOsMaxWidth()}
         aria-valuemin={MIN_TINYOS_WIDTH}
         aria-valuenow={Math.round(widthPx)}
         className="tinyos-resize-handle"
@@ -401,11 +389,11 @@ export function LiveCanvas({
         <div className="tinyos-system-bar__identity">
           <MonitorDot aria-hidden="true" size={17} />
           <h2 ref={headingRef} tabIndex={-1}>TinyOS</h2>
-          <span className="tinyos-truth-badge"><ShieldCheck aria-hidden="true" size={12} />Structured simulation</span>
+          <span className="tinyos-truth-badge">Shared desktop</span>
         </div>
         <div className="tinyos-system-bar__status">
-          <span data-live={mode === "live_follow" ? "true" : undefined}>{mode === "live_follow" ? "Live follow" : "History"}</span>
-          {snapshot.agentTitle ? <span><Bot aria-hidden="true" size={12} />{snapshot.agentTitle}</span> : null}
+          <span data-live={mode === "live_follow" ? "true" : undefined}>{mode === "live_follow" ? "Live workspace" : "History"}</span>
+          {mode === "live_follow" ? <span className="tinyos-agent-activity"><Bot aria-hidden="true" size={12} />{agentActivity}</span> : snapshot.agentTitle ? <span><Bot aria-hidden="true" size={12} />{snapshot.agentTitle}</span> : null}
           {snapshot.dialog || snapshot.notifications.length ? <span className="tinyos-attention" title="TinyOS notifications"><Bell aria-hidden="true" size={13} />{actionableDialog ? "Action needed" : snapshot.dialog ? "Historical request" : snapshot.notifications.length}</span> : null}
           {commandLifecycle.stage === "sending" ? <span>Sending {commandAction}…</span> : null}
           {commandLifecycle.stage === "waiting_for_canonical" ? <span>Awaiting runtime</span> : null}
@@ -451,18 +439,8 @@ export function LiveCanvas({
               <span>{commandPending && commandKind === "agent.cancel" ? "Cancelling" : "Cancel"}</span>
             </button>
           ) : null}
-          <button
-            aria-label={widthPx <= 520 ? "Expand TinyOS workspace" : "Use compact TinyOS workspace"}
-            className="tinyos-workspace-toggle"
-            title={widthPx <= 520 ? "Workspace layout" : "Compact layout"}
-            type="button"
-            onClick={() => void canvasCommandRegistry.execute("shell.workspace_toggle")}
-          >
-            {widthPx <= 520 ? <PanelRightOpen aria-hidden="true" size={15} /> : <PanelRightClose aria-hidden="true" size={15} />}
-            <span>{widthPx <= 520 ? "Workspace" : "Compact"}</span>
-          </button>
           {onExpandedChange ? <button aria-label={expanded ? "Exit expanded TinyOS" : "Expand TinyOS to Chat surface"} title={expanded ? "Exit expanded mode" : "Expanded mode"} type="button" onClick={() => void canvasCommandRegistry.execute("shell.expanded_toggle")}>{expanded ? <Minimize2 aria-hidden="true" size={15} /> : <Maximize2 aria-hidden="true" size={15} />}</button> : null}
-          <button aria-label="Close Live Canvas panel" title="Close TinyOS" type="button" onClick={() => void canvasCommandRegistry.execute("shell.close")}>
+          <button aria-label="Close TinyOS desktop" title="Close TinyOS" type="button" onClick={() => void canvasCommandRegistry.execute("shell.close")}>
             <X aria-hidden="true" size={16} />
           </button>
         </div>
@@ -489,6 +467,7 @@ export function LiveCanvas({
         commandLifecycle={commandLifecycle}
         directEditUnavailableReason={directEditUnavailableReason}
         browserInteractUnavailableReason={browserInteractUnavailableReason}
+        browserRuntime={browserRuntime}
         filesController={filesController}
         history={mode === "history"}
         onAttachContext={onAttachContext}
@@ -525,7 +504,7 @@ export function LiveCanvas({
         <div aria-label="TinyOS starting" aria-live="polite" className="tinyos-boot" role="status">
           <div className="tinyos-boot__mark"><MonitorDot aria-hidden="true" size={30} /></div>
           <strong>TinyOS</strong>
-          <span>Structured simulation</span>
+          <span>Shared desktop</span>
           <i aria-hidden="true"><b /></i>
         </div>
       ) : null}
@@ -547,8 +526,19 @@ function resolveHistoryEventIndex(
   return boundaries.length - 1;
 }
 
-export function clampTinyOsWidth(widthPx: number): number {
-  return Math.min(MAX_TINYOS_WIDTH, Math.max(MIN_TINYOS_WIDTH, Math.round(widthPx)));
+export function clampTinyOsWidth(widthPx: number, viewportWidth = currentViewportWidth()): number {
+  return Math.min(tinyOsMaxWidth(viewportWidth), Math.max(MIN_TINYOS_WIDTH, Math.round(widthPx)));
+}
+
+function tinyOsMaxWidth(viewportWidth = currentViewportWidth()): number {
+  const reservedWidth = viewportWidth >= 1_280
+    ? TINYOS_DESKTOP_RESERVED_WIDTH
+    : TINYOS_OVERLAY_RESERVED_WIDTH;
+  return Math.max(MIN_TINYOS_WIDTH, Math.floor(viewportWidth - reservedWidth));
+}
+
+function currentViewportWidth(): number {
+  return typeof window === "undefined" ? 1_240 : window.innerWidth;
 }
 
 export function liveCanvasEntryForStep(turnId: string, step: ChatStep): LiveCanvasEntry {
@@ -577,5 +567,70 @@ function tinyOsLifecycleCommandLabel(commandKind: string): string {
     case "terminal.cancel": return "Terminal cancellation";
     case "browser.interact": return "Browser interaction";
     default: return "Cancellation";
+  }
+}
+
+function tinyOsAgentActivity(snapshot: TinyOsDesktopSnapshot): string {
+  const operation = snapshot.operations[snapshot.operations.length - 1];
+  const browserSession = snapshot.kernel?.browserSessions[snapshot.kernel.browserSessions.length - 1];
+  const browserTab = browserSession?.tabs.find(({ tabId }) => tabId === browserSession.activeTabId);
+  if (!operation) {
+    return browserTab?.url && browserTab.url !== "about:blank"
+      ? `Browsing ${browserActivityTarget(browserTab.url)}`
+      : "Ready to work together";
+  }
+
+  const step = operation.entry.step;
+  const args = activityRecord(step.toolCall?.argsJson);
+  const active = step.status === "pending" || step.status === "running" || step.status === "blocked";
+  switch (operation.appId) {
+    case "files": {
+      const path = activityText(args.path, args.file_path, args.file, args.target_path, operation.title);
+      const mutation = /(?:write|save|edit|patch|apply|create|delete|move|rename)/i.test(step.toolCall?.name ?? "");
+      return mutation
+        ? `${active ? "Updating" : "Updated"} ${activityLabel(path)}`
+        : `${active ? "Viewing" : "Viewed"} ${activityLabel(path)}`;
+    }
+    case "browser": {
+      const target = browserTab?.url || activityText(args.url, args.href, operation.title);
+      return `Browsing ${browserActivityTarget(target)}`;
+    }
+    case "terminal": {
+      const command = activityText(args.command, args.cmd, args.script, operation.title);
+      return `${active ? "Running" : "Ran"} ${activityLabel(command)}`;
+    }
+    case "artifacts": {
+      const artifact = step.artifacts?.[step.artifacts.length - 1]?.title ?? operation.title;
+      return `${active ? "Creating" : "Created"} ${activityLabel(artifact)}`;
+    }
+    case "plan":
+      return active ? "Updating the plan" : "Plan updated";
+    case "memory":
+      return "Reviewing relevant context";
+    case "subagents":
+      return `Working with ${activityLabel(step.delegate?.title ?? "a subagent")}`;
+    default:
+      return `${active ? "Working in" : "Finished in"} ${activityLabel(operation.title)}`;
+  }
+}
+
+function activityRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function activityText(...values: unknown[]): string {
+  return values.find((value): value is string => typeof value === "string" && Boolean(value.trim()))?.trim() ?? "workspace";
+}
+
+function activityLabel(value: string): string {
+  return value.length > 52 ? `${value.slice(0, 49)}…` : value;
+}
+
+function browserActivityTarget(value: string): string {
+  try {
+    const url = new URL(value);
+    return activityLabel(url.hostname || value);
+  } catch {
+    return activityLabel(value);
   }
 }

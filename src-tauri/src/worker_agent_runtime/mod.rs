@@ -125,7 +125,7 @@ impl NativeAgentCancellationContext {
         child
     }
 
-    async fn cancelled(&self) {
+    pub(crate) async fn cancelled(&self) {
         while !self.is_cancelled() {
             tokio::time::sleep(std::time::Duration::from_millis(5)).await;
         }
@@ -459,6 +459,7 @@ pub struct NativeAgentRuntimeServices {
     trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
     mcp_runtime: McpRuntime,
     shell_runtime: WorkerShellRuntime,
+    browser_runtime: Option<crate::native_browser::SharedBrowserRuntime>,
     task_runtime: AgentTaskRuntime,
     hooks: hooks::AgentHookPipeline,
     context_contributors: context_contributors::AgentContextContributorRegistry,
@@ -485,6 +486,7 @@ impl NativeAgentRuntimeServices {
             trace_sink: None,
             mcp_runtime: McpRuntime::new(),
             shell_runtime: WorkerShellRuntime::default(),
+            browser_runtime: None,
             task_runtime: AgentTaskRuntime::new(),
             hooks: hooks::AgentHookPipeline::default(),
             context_contributors: context_contributors::AgentContextContributorRegistry::default(),
@@ -582,6 +584,18 @@ impl NativeAgentRuntimeServices {
 
     pub(crate) fn shell_runtime(&self) -> WorkerShellRuntime {
         self.shell_runtime.clone()
+    }
+
+    pub(crate) fn with_browser_runtime(
+        mut self,
+        runtime: crate::native_browser::SharedBrowserRuntime,
+    ) -> Self {
+        self.browser_runtime = Some(runtime);
+        self
+    }
+
+    pub(crate) fn browser_runtime(&self) -> Option<crate::native_browser::SharedBrowserRuntime> {
+        self.browser_runtime.clone()
     }
 
     pub(crate) fn task_runtime(&self) -> AgentTaskRuntime {

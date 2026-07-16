@@ -202,8 +202,15 @@ export type TinyOsTerminalCancelCommand = {
 
 export type TinyOsBrowserAction =
   | { type: "click"; x: number; y: number }
+  | { type: "clickTarget"; targetRef: string }
   | { type: "navigate"; url: string }
-  | { type: "type"; text: string };
+  | { type: "type"; text: string }
+  | { type: "fill"; targetRef: string; text: string }
+  | { type: "key"; key: string }
+  | { type: "scroll"; deltaX: number; deltaY: number }
+  | { type: "wait"; targetRef?: string; text?: string; timeoutMs: number }
+  | { type: "back" | "forward" | "reload" | "stop" | "resume" }
+  | { type: "userHandoff"; reason: string };
 
 export type TinyOsBrowserInteractCommand = {
   schemaVersion: "tinybot.command.v1";
@@ -217,6 +224,8 @@ export type TinyOsBrowserInteractCommand = {
     browserSessionId: string;
     captureId: string;
     confirmed: true;
+    controlEpoch: number;
+    observationRevision: number;
     tabId: string;
   };
 };
@@ -298,6 +307,8 @@ export function toNativeTinyOsHostCommandFrame(sessionId: string, command: TinyO
     browser_session_id: command.browser.browserSessionId,
     capture_id: command.browser.captureId,
     confirmed: command.browser.confirmed,
+    control_epoch: command.browser.controlEpoch,
+    observation_revision: command.browser.observationRevision,
     tab_id: command.browser.tabId,
   };
   throw new Error(`Unsupported Native host command: ${command.kind}`);
@@ -664,11 +675,13 @@ export function createTinyOsBrowserInteractCommand(input: {
   action: TinyOsBrowserAction;
   browserSessionId: string;
   captureId: string;
+  controlEpoch: number;
   commandId?: string;
   issuedAt?: string;
   sessionId: string;
   source: TinyOsCommandSource;
   tabId: string;
+  observationRevision: number;
   threadId?: string;
 }): TinyOsBrowserInteractCommand {
   return {
@@ -683,6 +696,8 @@ export function createTinyOsBrowserInteractCommand(input: {
       browserSessionId: requiredHostText(input.browserSessionId, "Browser session id"),
       captureId: requiredHostText(input.captureId, "Browser capture id"),
       confirmed: true,
+      controlEpoch: requiredNonNegativeInteger(input.controlEpoch, "Browser control epoch"),
+      observationRevision: requiredNonNegativeInteger(input.observationRevision, "Browser observation revision"),
       tabId: requiredHostText(input.tabId, "Browser tab id"),
     },
   };
@@ -832,6 +847,11 @@ function requiredHostText(value: string, label: string): string {
   const normalized = value.trim();
   if (!normalized) throw new Error(`${label} is required.`);
   return normalized;
+}
+
+function requiredNonNegativeInteger(value: number, label: string): number {
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error(`${label} must be a non-negative integer.`);
+  return value;
 }
 
 function recordValue(value: unknown): Record<string, unknown> {

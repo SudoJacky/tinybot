@@ -185,6 +185,74 @@ export function projectKernelBackedTinyOsDesktop(
   return projectTinyOsDesktop(entries.slice(0, visibleEntryCount), { mode: "live_follow" }, kernel);
 }
 
+export function filterTinyOsDesktopByAgent(
+  snapshot: TinyOsDesktopSnapshot,
+  agentId: string,
+): TinyOsDesktopSnapshot {
+  if (!agentId) return snapshot;
+
+  const kernel = snapshot.kernel;
+  const processes = kernel?.processes.filter((process) => process.ownerAgentId === agentId) ?? [];
+  const processIds = new Set(processes.map(({ id }) => id));
+  const resources = kernel?.resources.filter((resource) => (
+    resource.relatedProcessIds.some((processId) => processIds.has(processId))
+  )) ?? [];
+  const resourceIds = new Set(resources.map(({ id }) => id));
+  const applicationIds = new Set(processes.flatMap(({ applicationId }) => applicationId ? [applicationId] : []));
+  const browserSessionIds = new Set(processes.flatMap(({ correlation }) => (
+    correlation.browserSessionId ? [correlation.browserSessionId] : []
+  )));
+  const ownsEntry = ({ step, turnId }: TinyOsTimelineEntry): boolean => {
+    const matchesEntry = (process: TinyOsKernelSnapshot["processes"][number]) => (
+      process.correlation.itemId === step.id
+      && (!process.correlation.turnId || process.correlation.turnId === turnId)
+    );
+    const correlated = kernel?.processes.find((process) => (
+      process.kind !== "agent_run" && process.kind !== "agent_turn" && matchesEntry(process)
+    )) ?? kernel?.processes.find(matchesEntry);
+    return correlated ? correlated.ownerAgentId === agentId : step.agentContext.id === agentId;
+  };
+  const windows = snapshot.windows.flatMap((window): TinyOsWindow[] => {
+    const entries = window.entries.filter(ownsEntry);
+    if (!entries.length && !applicationIds.has(window.appId)) return [];
+    return [{
+      ...window,
+      entries,
+      sourceItemIds: entries.map(({ step }) => step.id),
+    }];
+  });
+  const activeAppId = snapshot.activeAppId && windows.some(({ appId }) => appId === snapshot.activeAppId)
+    ? snapshot.activeAppId
+    : windows[windows.length - 1]?.appId;
+
+  return {
+    ...snapshot,
+    ...(activeAppId ? { activeAppId } : { activeAppId: undefined }),
+    ...(kernel ? {
+      kernel: {
+        ...kernel,
+        agentGroups: kernel.agentGroups.filter((group) => group.agentId === agentId),
+        browserSessions: kernel.browserSessions.filter(({ browserSessionId }) => browserSessionIds.has(browserSessionId)),
+        capabilities: kernel.capabilities.filter(({ processId }) => !processId || processIds.has(processId)),
+        metrics: kernel.metrics.filter(({ processId, resourceId }) => (
+          (!processId && !resourceId)
+          || Boolean(processId && processIds.has(processId))
+          || Boolean(resourceId && resourceIds.has(resourceId))
+        )),
+        notifications: kernel.notifications.filter(({ processId, resourceId }) => (
+          Boolean(processId && processIds.has(processId))
+          || Boolean(resourceId && resourceIds.has(resourceId))
+        )),
+        processes,
+        resources,
+      },
+    } : {}),
+    notifications: snapshot.notifications.filter(({ entry }) => ownsEntry(entry)),
+    operations: snapshot.operations.filter(({ entry }) => ownsEntry(entry)),
+    windows,
+  };
+}
+
 export function tinyOsAppForStep(step: ChatStep): TinyOsAppId | undefined {
   return appForStep(step, new Map());
 }

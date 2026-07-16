@@ -1,6 +1,7 @@
 use crate::agent_loop_runtime_protocol::AgentRuntimeEventEnvelope;
 use crate::desktop_commands::agent::worker_run_agent_with_live_trace_sink_async;
 use crate::native_agent_bridge::{desktop_agent_event_sink, persist_native_agent_run_start};
+use crate::native_browser::{BrowserInteractionInput, SharedBrowserRuntime};
 use crate::worker_agent_runtime::NativeAgentTraceSink;
 use crate::worker_capability::default_desktop_capability_policy;
 use crate::worker_permission_profile::{PermissionNetworkMode, ShellSandboxMode};
@@ -52,6 +53,7 @@ pub(crate) struct WorkerTransportWebSocketDispatchOptions {
 pub(crate) async fn worker_dispatch_tinyos_host_command<R: Runtime + 'static>(
     input: WorkerTransportWebSocketDispatchInput,
     state: State<'_, SharedGateway>,
+    browser_runtime: State<'_, SharedBrowserRuntime>,
     app: tauri::AppHandle<R>,
 ) -> Result<serde_json::Value, String> {
     let shared = state.inner().clone();
@@ -65,6 +67,7 @@ pub(crate) async fn worker_dispatch_tinyos_host_command<R: Runtime + 'static>(
         config_snapshot,
         Duration::from_secs(60),
         Some(live_trace_sink),
+        Some(browser_runtime.inner().clone()),
     )
     .await
 }
@@ -85,6 +88,7 @@ pub(crate) fn worker_transport_dispatch_websocket_message_with_options(
             config_snapshot,
             timeout,
             None,
+            None,
         ),
     )
 }
@@ -96,6 +100,7 @@ async fn worker_transport_dispatch_websocket_message_with_live_trace_sink_async(
     config_snapshot: serde_json::Value,
     timeout: Duration,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
+    browser_runtime: Option<SharedBrowserRuntime>,
 ) -> Result<serde_json::Value, String> {
     validate_tinyos_host_command_frame(&input.frame)?;
     let Some(transport_result) = native_websocket_transport_result(&input) else {
@@ -108,6 +113,7 @@ async fn worker_transport_dispatch_websocket_message_with_live_trace_sink_async(
         config_snapshot,
         live_trace_sink,
         timeout,
+        browser_runtime,
     )
     .await
 }
@@ -244,6 +250,16 @@ pub(crate) fn native_websocket_transport_result(
             .or_else(|| frame.get("captureId"))
             .cloned()
             .unwrap_or(serde_json::Value::Null);
+        transport["controlEpoch"] = frame
+            .get("control_epoch")
+            .or_else(|| frame.get("controlEpoch"))
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        transport["observationRevision"] = frame
+            .get("observation_revision")
+            .or_else(|| frame.get("observationRevision"))
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
         transport["tabId"] = frame
             .get("tab_id")
             .or_else(|| frame.get("tabId"))
@@ -267,6 +283,7 @@ async fn dispatch_tinyos_command(
     config_snapshot: serde_json::Value,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
     timeout: Duration,
+    browser_runtime: Option<SharedBrowserRuntime>,
 ) -> Result<serde_json::Value, String> {
     match transport
         .get("commandKind")
@@ -323,7 +340,16 @@ async fn dispatch_tinyos_command(
             )
             .await
         }
-        Some("browser.interact") => dispatch_tinyos_browser_command(transport),
+        Some("browser.interact") => {
+            dispatch_tinyos_browser_command(
+                transport,
+                workspace_root,
+                config_snapshot,
+                live_trace_sink,
+                browser_runtime,
+            )
+            .await
+        }
         command_kind => Err(format!(
             "unsupported TinyOS command kind: {}",
             command_kind.unwrap_or("missing")
@@ -1650,8 +1676,12 @@ fn append_tinyos_terminal_event(
     )
 }
 
-fn dispatch_tinyos_browser_command(
-    transport: serde_json::Value,
+async fn dispatch_tinyos_browser_command(
+    mut transport: serde_json::Value,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
+    browser_runtime: Option<SharedBrowserRuntime>,
 ) -> Result<serde_json::Value, String> {
     let run_id = required_transport_string(&transport, "runId")?;
     let command_kind = required_transport_string(&transport, "commandKind")?;
@@ -1667,58 +1697,96 @@ fn dispatch_tinyos_browser_command(
     {
         return Err("browser.interact requires explicit user confirmation".to_string());
     }
-    required_transport_string(&transport, "sessionId")?;
-    required_transport_string(&transport, "commandId")?;
-    required_transport_string(&transport, "browserSessionId")?;
-    required_transport_string(&transport, "tabId")?;
-    required_transport_string(&transport, "captureId")?;
+    let session_id = required_transport_string(&transport, "sessionId")?;
+    let command_id = required_transport_string(&transport, "commandId")?;
+    let browser_session_id = required_transport_string(&transport, "browserSessionId")?;
+    let tab_id = required_transport_string(&transport, "tabId")?;
+    let input: BrowserInteractionInput = serde_json::from_value(serde_json::json!({
+        "browserSessionId": browser_session_id,
+        "tabId": tab_id,
+        "commandId": command_id,
+        "controlEpoch": transport.get("controlEpoch").cloned().unwrap_or(serde_json::Value::Null),
+        "captureId": transport.get("captureId").cloned().unwrap_or(serde_json::Value::Null),
+        "observationRevision": transport.get("observationRevision").cloned().unwrap_or(serde_json::Value::Null),
+        "action": transport.get("action").cloned().unwrap_or(serde_json::Value::Null),
+    }))
+    .map_err(|error| format!("browser.interact payload is invalid: {error}"))?;
+    let browser_runtime = browser_runtime.ok_or_else(|| {
+        "browser.interact is unavailable because the native browser runtime is not managed"
+            .to_string()
+    })?;
 
-    let action = transport
-        .get("action")
-        .and_then(serde_json::Value::as_object)
-        .ok_or_else(|| "browser.interact requires an action object".to_string())?;
-    let action_type = action
-        .get("type")
+    persist_tinyos_command_acknowledgement(
+        workspace_root.clone(),
+        config_snapshot.clone(),
+        &session_id,
+        &run_id,
+        &command_id,
+        &transport,
+    )?;
+    let result = match browser_runtime.interact(input).await {
+        Ok(result) => result,
+        Err(error) => {
+            fail_tinyos_host_operation(
+                workspace_root,
+                config_snapshot,
+                live_trace_sink,
+                &session_id,
+                &run_id,
+                &command_id,
+                &error,
+            )?;
+            return Err(format!("browser.interact failed: {error}"));
+        }
+    };
+    let result_value = serde_json::to_value(&result)
+        .map_err(|error| format!("browser.interact result serialization failed: {error}"))?;
+    let status = result_value
+        .get("status")
         .and_then(serde_json::Value::as_str)
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| "browser.interact action is missing type".to_string())?;
-    match action_type {
-        "click" => {
-            for coordinate in ["x", "y"] {
-                action
-                    .get(coordinate)
-                    .and_then(serde_json::Value::as_f64)
-                    .filter(|value| value.is_finite() && *value >= 0.0)
-                    .ok_or_else(|| {
-                        format!("browser.interact click requires a non-negative {coordinate}")
-                    })?;
-            }
-        }
-        "navigate" => {
-            action
-                .get("url")
-                .and_then(serde_json::Value::as_str)
-                .filter(|value| !value.trim().is_empty())
-                .ok_or_else(|| "browser.interact navigate requires url".to_string())?;
-        }
-        "type" => {
-            action
-                .get("text")
-                .and_then(serde_json::Value::as_str)
-                .filter(|value| !value.is_empty())
-                .ok_or_else(|| "browser.interact type requires text".to_string())?;
-        }
-        unsupported => {
-            return Err(format!(
-                "browser.interact action type `{unsupported}` is unsupported"
-            ));
-        }
-    }
-
-    Err(
-        "browser.interact is unavailable because no real browser capture backend is configured"
+        .unwrap_or("failed");
+    let succeeded = matches!(status, "completed" | "user_required");
+    let summary = match status {
+        "completed" => "Browser interaction completed".to_string(),
+        "user_required" => "Browser interaction requires direct user input".to_string(),
+        _ => result_value
+            .get("reason")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("Browser interaction failed")
             .to_string(),
-    )
+    };
+    append_tinyos_host_event(
+        workspace_root.clone(),
+        config_snapshot.clone(),
+        live_trace_sink,
+        &session_id,
+        &run_id,
+        serde_json::json!({
+            "eventId": format!("{run_id}:host-result:{command_id}"),
+            "itemId": command_id,
+            "eventName": "agent.tool.result",
+            "payload": {
+                "approvalDecision": "user_confirmed",
+                "capabilityDecision": "available",
+                "commandId": command_id,
+                "envelope": { "status": if succeeded { "completed" } else { "failed" }, "summary": summary },
+                "result": result_value,
+                "summary": summary,
+                "toolCallId": command_id,
+                "toolName": "browser.interact",
+            }
+        }),
+    )?;
+    mark_tinyos_host_run(
+        workspace_root,
+        config_snapshot,
+        &session_id,
+        &run_id,
+        if succeeded { "completed" } else { "failed" },
+        Some(summary),
+    )?;
+    set_tinyos_command_frames(&mut transport, &command_id, &run_id);
+    Ok(serde_json::json!({ "transport": transport, "operation": result }))
 }
 
 pub(crate) fn tinyos_terminal_result_payload(

@@ -4,6 +4,7 @@ import type { BackendAgentTurnItem, CanonicalTurnItemKind } from "./chatRunModel
 import {
   assertTinyOsMetricSupported,
   assertTinyOsResourceMutationReady,
+  createTinyOsAgentGroupId,
   createTinyOsDerivedMetric,
   createTinyOsProcessId,
   mergeTinyOsProcessObservation,
@@ -45,6 +46,7 @@ function timeline(): BackendAgentTurnItem[] {
   return [
     item("user-1", "user_message", "completed", { content: "Build it", type: "user_message" }, { sequence: 1 }),
     item("tool-1", "tool_call", "running", {
+      agentId: "agent-main",
       args: {},
       name: "workspace.read_file",
       result: null,
@@ -62,7 +64,12 @@ function timeline(): BackendAgentTurnItem[] {
     item("subagent-1", "subagent_lifecycle", "completed", {
       action: "completed",
       agentId: "agent-child",
+      childRunId: "run-child",
+      name: "Reviewer",
+      parentAgentId: "agent-main",
+      parentRunId: "run-1",
       status: "completed",
+      task: "Review the implementation",
       type: "subagent_lifecycle",
     }, { sequence: 4 }),
     item("answer-1", "assistant_message", "completed", {
@@ -99,6 +106,8 @@ describe("TinyOS simulation kernel", () => {
     const tool = snapshot.processes.find((process) => process.kind === "tool_operation");
     const approval = snapshot.processes.find((process) => process.kind === "user_input_wait");
     const subagent = snapshot.processes.find((process) => process.kind === "subagent");
+    const mainGroup = snapshot.agentGroups.find(({ agentId }) => agentId === "agent-main");
+    const subagentGroup = snapshot.agentGroups.find(({ agentId }) => agentId === "agent-child");
 
     expect(snapshot).toMatchObject({
       cursor: { eventCount: 5, eventIndex: 4, mode: "live" },
@@ -110,6 +119,24 @@ describe("TinyOS simulation kernel", () => {
     expect(tool?.parentProcessId).not.toBe(tool?.id);
     expect(approval).toMatchObject({ parentProcessId: tool?.id, state: "waiting_for_user" });
     expect(subagent).toMatchObject({ parentProcessId: turn?.id, state: "completed" });
+    expect(mainGroup).toMatchObject({
+      agentId: "agent-main",
+      id: createTinyOsAgentGroupId("session-1", "agent-main"),
+      state: "completed",
+    });
+    expect(mainGroup?.processIds).toEqual(expect.arrayContaining([run?.id, turn?.id, tool?.id]));
+    expect(subagentGroup).toMatchObject({
+      agentId: "agent-child",
+      assignedWork: "Review the implementation",
+      childRunId: "run-child",
+      id: createTinyOsAgentGroupId("session-1", "agent-child"),
+      parentAgentId: "agent-main",
+      parentProcessId: turn?.id,
+      processIds: [subagent?.id],
+      provenance: { kind: "canonical_event", sourceId: "subagent-1" },
+      state: "completed",
+      title: "Reviewer",
+    });
   });
 
   it("reconstructs the same identities after reload and at a History boundary", () => {
@@ -120,6 +147,7 @@ describe("TinyOS simulation kernel", () => {
     const history = projectTinyOsKernel(reloaded, { eventIndex: 2, itemId: "approval-1", mode: "history" });
 
     expect(liveAfterReload.processes.map((process) => process.id)).toEqual(live.processes.map((process) => process.id));
+    expect(liveAfterReload.agentGroups).toEqual(live.agentGroups);
     expect(history.cursor).toMatchObject({
       boundary: { itemId: "approval-1", sequence: 3 },
       eventCount: 5,
@@ -397,6 +425,7 @@ describe("TinyOS simulation kernel", () => {
 
   it("handles empty and partial canonical input without inventing state", () => {
     expect(projectTinyOsKernel([])).toEqual({
+      agentGroups: [],
       browserSessions: [],
       capabilities: [],
       cursor: { eventCount: 0, eventIndex: -1, mode: "live" },

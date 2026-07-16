@@ -370,7 +370,7 @@ export type CanonicalTurnItemData = Record<string, unknown> & (
   | { type: "tool_call"; toolCallId: string; name: string; status: string; args: unknown; result: unknown; detailId?: string | null; timing: unknown }
   | { type: "approval"; approvalId: string; toolCallId?: string | null; status: string; reason?: string | null; decision?: string | null; scope?: string | null; guidance?: string | null; detailId?: string | null }
   | { type: "form"; formId: string; status: string; title?: string | null; action?: string | null; fieldIds: string[]; values: unknown; errors?: Record<string, string> | null; detailId?: string | null }
-  | { type: "subagent_lifecycle"; agentId: string; action: string; status: string; message?: string | null; childRunId?: string | null; traceRef?: string | null }
+  | { type: "subagent_lifecycle"; agentId: string; action: string; status: string; message?: string | null; childRunId?: string | null; childThreadId?: string | null; parentAgentId?: string | null; parentRunId?: string | null; name?: string | null; task?: string | null; traceRef?: string | null }
   | { type: "subagent_message"; agentId: string; messageId: string; content: string; visibility: string }
   | { type: "plan_progress"; id: string; explanation?: string | null; steps: Array<{ step: string; status: "pending" | "in_progress" | "completed" }>; summary: string; completed: number; total: number; currentStep?: string | null }
   | { type: "context_compaction"; id: string; summary: string; droppedItemCount: number; estimatedTokensBefore?: number | null; estimatedTokensAfter?: number | null }

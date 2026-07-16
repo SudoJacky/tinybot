@@ -17,6 +17,7 @@ import { createDesktopNativeSessionsApi } from "../app-core/native/desktopNative
 import { createDesktopNativeSkillsApi } from "../app-core/native/desktopNativeSkills";
 import { createDesktopNativeThreadsApi } from "../app-core/native/desktopNativeThreads";
 import { createDesktopNativeHostCommandApi } from "../app-core/native/desktopNativeHostCommand";
+import { createDesktopNativeBrowserApi, normalizeNativeBrowserSnapshot } from "../app-core/native/desktopNativeBrowser";
 import { toDesktopNativeTauriEventName } from "../app-core/native/desktopNativeTauriEvents";
 import { createDesktopNativeWebuiApi } from "../app-core/native/desktopNativeWebui";
 import { createDesktopNativeWorkspaceApi } from "../app-core/native/desktopNativeWorkspace";
@@ -66,6 +67,7 @@ export function createDesktopAppServices(): AppServices {
   const nativeSkills = nativeMode ? createDesktopNativeSkillsApi({ invoke }) : undefined;
   const nativeThreads = nativeMode ? createDesktopNativeThreadsApi({ invoke }) : undefined;
   const nativeHostCommands = nativeMode ? createDesktopNativeHostCommandApi({ invoke }) : undefined;
+  const nativeBrowser = nativeMode ? createDesktopNativeBrowserApi({ invoke }) : undefined;
   const nativeWebui = nativeMode ? createDesktopNativeWebuiApi({ invoke }) : undefined;
   const nativeWorkspace = nativeMode ? createDesktopNativeWorkspaceApi({ invoke }) : undefined;
   let initialized: Promise<void> | null = null;
@@ -123,6 +125,17 @@ export function createDesktopAppServices(): AppServices {
       }),
       listen(toDesktopNativeTauriEventName("agent.awaiting_form"), (event) => {
         reduceNativeAgentFormEvent(normalizeNativeBackendEventPayload(event.payload));
+      }),
+      listen("tinyos:browser-snapshot", (event) => {
+        try {
+          const browserSnapshot = normalizeNativeBrowserSnapshot(event.payload);
+          notifySession(browserSnapshot.data.sessionId, { browserSnapshot, type: "browser.snapshot" });
+        } catch (error) {
+          notifyAll({
+            error: error instanceof Error ? error.message : String(error),
+            type: "browser.snapshot.error",
+          });
+        }
       }),
     ]);
   }
@@ -348,6 +361,7 @@ export function createDesktopAppServices(): AppServices {
       },
     },
     chatStore: {
+      browserRuntime: nativeBrowser,
       async load(sessionId) {
         await initialize();
         const session = controller.state.sessions.find((item) => item.key === sessionId);

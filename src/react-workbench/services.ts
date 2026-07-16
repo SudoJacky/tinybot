@@ -28,6 +28,8 @@ import type {
   DesktopSettingsPaneModel,
   DesktopSettingsPaneSaveDetails,
 } from "../app-core/settings/desktopSettingsProviders";
+import type { NativeBrowserRuntimeApi } from "../app-core/native/desktopNativeBrowser";
+import type { TinyOsNativeBrowserSession, TinyOsNativeSnapshot } from "../app-core/chat/tinyOsNativeSnapshot";
 
 export type SessionSummary = {
   id: string;
@@ -42,6 +44,7 @@ export type SessionSummary = {
 export type ChatInput = DesktopChatInput;
 
 export type ChatEvent = {
+  browserSnapshot?: TinyOsNativeSnapshot<TinyOsNativeBrowserSession>;
   type: string;
   command?: TinyOsCommand;
   commandId?: string;
@@ -63,6 +66,7 @@ export type SessionStore = {
 };
 
 export type ChatStore = {
+  browserRuntime?: NativeBrowserRuntimeApi;
   load(sessionId: string): Promise<ChatTimelineSnapshot>;
   loadTinyOsCapabilities(sessionId: string): Promise<TinyOsEffectiveCapabilities>;
   dispatch(command: DesktopCommand): Promise<void>;

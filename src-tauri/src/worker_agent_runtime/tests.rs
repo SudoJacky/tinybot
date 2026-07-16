@@ -728,6 +728,34 @@ fn chat_completion_request_injects_available_model_tools() {
     );
 }
 
+#[cfg(all(windows, feature = "native-browser-runtime"))]
+#[test]
+fn feature_build_exposes_shared_browser_observation_but_defers_interaction() {
+    let context = NativeAgentRunContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "runId": "run-browser-tools",
+            "sessionId": "websocket:chat-browser-tools",
+            "model": "fixture-model",
+            "messages": [{ "role": "user", "content": "inspect the shared browser" }]
+        }),
+        json!({}),
+    );
+
+    let request = agent_chat_completion_request(&context)
+        .expect("feature build should expose the shared browser observation tool");
+    let names = request["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|tool| tool["function"]["name"].as_str())
+        .collect::<Vec<_>>();
+
+    assert!(names.contains(&"browser_observe"));
+    assert!(!names.contains(&"browser_interact"));
+    assert!(names.contains(&"tool_search"));
+}
+
 #[test]
 fn tool_search_activates_dispatches_and_expires_a_deferred_tool() {
     struct SearchThenFinishProvider {
@@ -7454,16 +7482,20 @@ fn async_provider_run_pauses_at_safe_boundary_and_resumes_same_run() {
         release_sender
             .send(())
             .expect("provider release should send");
-        for _ in 0..200 {
-            if services
-                .task_runtime()
-                .status("run-safe-boundary-pause")
-                .is_some_and(|status| status.phase == "paused")
-            {
-                break;
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if services
+                    .task_runtime()
+                    .status("run-safe-boundary-pause")
+                    .is_some_and(|status| status.phase == "paused")
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(1)).await;
             }
-            tokio::task::yield_now().await;
-        }
+        })
+        .await
+        .expect("run should pause at a safe boundary before the timeout");
         let paused_status = services
             .task_runtime()
             .status("run-safe-boundary-pause")
