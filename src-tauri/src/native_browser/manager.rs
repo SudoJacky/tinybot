@@ -564,7 +564,7 @@ impl BrowserSessionManager {
             return Err(error);
         }
         self.remove_command_lock(tab_id);
-        {
+        let cleared_surface = {
             let mut state = self.lock_state();
             let session = state
                 .sessions
@@ -579,10 +579,31 @@ impl BrowserSessionManager {
                     .cloned()
                     .ok_or_else(|| "Browser session lost every tab".to_string())?;
             }
+            let cleared_surface = session.surface.tab_id.as_ref() == Some(tab_id);
+            if cleared_surface {
+                session.surface.lifecycle = match session.surface.lifecycle {
+                    BrowserSurfaceLifecycle::Attaching | BrowserSurfaceLifecycle::Visible => {
+                        session
+                            .surface
+                            .lifecycle
+                            .transition_to(BrowserSurfaceLifecycle::Hidden)?
+                    }
+                    BrowserSurfaceLifecycle::Failed => session
+                        .surface
+                        .lifecycle
+                        .transition_to(BrowserSurfaceLifecycle::Detached)?,
+                    lifecycle => lifecycle,
+                };
+                session.surface.surface_id = None;
+                session.surface.tab_id = None;
+                session.surface.rect = None;
+                session.surface.reason = Some("The attached browser tab was closed".to_string());
+            }
             increment_counter(&mut state, "browser.tab.close.completed");
             record_duration(&mut state, "browser.tab.close", started.elapsed());
             bump_revision(&mut state);
-        }
+            cleared_surface
+        };
         self.diagnostic(
             "browser.tab.closed",
             Some(session_id.clone()),
@@ -590,7 +611,7 @@ impl BrowserSessionManager {
             None,
             None,
             None,
-            BTreeMap::new(),
+            diagnostic_details([("surface_cleared", serde_json::Value::Bool(cleared_surface))]),
         );
         self.publish_snapshot(session_id);
         self.snapshot(session_id)
@@ -2635,6 +2656,7 @@ pub(crate) fn now_timestamp() -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::super::model::{BrowserSurfaceId, BrowserSurfaceRect};
     use super::super::platform::{
         available_windows_capabilities, BrowserPlatformEventSink, BrowserPlatformObservation,
         BrowserPlatformSemanticNode, BrowserPlatformTabState,
@@ -2648,6 +2670,7 @@ mod tests {
         sink: RwLock<Option<BrowserPlatformEventSink>>,
         closed: Mutex<Vec<BrowserTabId>>,
         created: Mutex<Vec<BrowserTabId>>,
+        surfaces: Mutex<Vec<BrowserPlatformSurface>>,
         created_profile_paths: Mutex<Vec<PathBuf>>,
         deleted_profiles: Mutex<Vec<BrowserProfileId>>,
         interactions: Mutex<Vec<BrowserPlatformAction>>,
@@ -2697,7 +2720,11 @@ mod tests {
             self.closed.lock().unwrap().push(tab_id.clone());
             Ok(())
         }
-        async fn set_surface(&self, _surface: BrowserPlatformSurface) -> Result<(), String> {
+        async fn set_surface(&self, surface: BrowserPlatformSurface) -> Result<(), String> {
+            if self.closed.lock().unwrap().contains(&surface.tab_id) {
+                return Err("Cannot update the surface for a closed browser tab".to_string());
+            }
+            self.surfaces.lock().unwrap().push(surface);
             Ok(())
         }
         async fn navigate(&self, tab_id: &BrowserTabId, url: &str) -> Result<(), String> {
@@ -3181,6 +3208,88 @@ mod tests {
             .unwrap();
         assert_eq!(closed.data.tabs.len(), 1);
         assert_eq!(adapter.closed.lock().unwrap().as_slice(), &[second_tab]);
+    }
+
+    #[tokio::test]
+    async fn closing_the_visible_tab_clears_its_surface_before_showing_the_replacement() {
+        let adapter = Arc::new(FakeAdapter::default());
+        let manager = manager(adapter.clone());
+        let first = manager
+            .create_session(BrowserCreateSessionInput {
+                owner_session_id: "thread-visible-tab-close".to_string(),
+                profile_id: None,
+                persistence: BrowserProfilePersistence::Persistent,
+                initial_url: None,
+            })
+            .await
+            .unwrap();
+        let first_tab = first.data.active_tab_id.clone();
+        let second = manager
+            .create_tab(BrowserCreateTabInput {
+                browser_session_id: first.data.browser_session_id.clone(),
+                url: Some("https://example.com/second".to_string()),
+            })
+            .await
+            .unwrap();
+        let second_tab = second.data.active_tab_id.clone();
+        manager
+            .update_surface(BrowserSurfaceUpdate {
+                browser_session_id: first.data.browser_session_id.clone(),
+                tab_id: second_tab.clone(),
+                surface_id: BrowserSurfaceId::new("visible-tab-close-surface").unwrap(),
+                layout_revision: 1,
+                rect: BrowserSurfaceRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 800.0,
+                    height: 600.0,
+                    device_scale: 1.0,
+                },
+                visible: true,
+                live: true,
+                topmost: true,
+                unobscured: true,
+            })
+            .await
+            .unwrap();
+
+        let closed = manager
+            .close_tab(&first.data.browser_session_id, &second_tab)
+            .await
+            .unwrap();
+        assert_eq!(closed.data.active_tab_id, first_tab);
+        assert_eq!(closed.data.surface.tab_id, None);
+
+        let updated = manager
+            .update_surface(BrowserSurfaceUpdate {
+                browser_session_id: first.data.browser_session_id.clone(),
+                tab_id: first_tab.clone(),
+                surface_id: BrowserSurfaceId::new("visible-tab-close-surface").unwrap(),
+                layout_revision: 2,
+                rect: BrowserSurfaceRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 800.0,
+                    height: 600.0,
+                    device_scale: 1.0,
+                },
+                visible: true,
+                live: true,
+                topmost: true,
+                unobscured: true,
+            })
+            .await
+            .unwrap();
+        assert_eq!(updated.data.surface.tab_id.as_ref(), Some(&first_tab));
+        assert_eq!(
+            adapter
+                .surfaces
+                .lock()
+                .unwrap()
+                .last()
+                .map(|surface| &surface.tab_id),
+            Some(&first_tab)
+        );
     }
 
     #[tokio::test]

@@ -2078,7 +2078,9 @@ function BrowserSurfaceHost({ browserRuntime, onError, session, tabId, visible }
   visible: boolean;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
-  const layoutRevision = useRef(0);
+  const nativeLayoutRevision = session.surface?.layoutRevision ?? 0;
+  const layoutRevision = useRef(nativeLayoutRevision);
+  layoutRevision.current = Math.max(layoutRevision.current, nativeLayoutRevision);
   const pendingUpdates = useRef<Promise<void>>(Promise.resolve());
   const surfaceId = useMemo(() => `tinyos-browser-surface-${session.browserSessionId}`, [session.browserSessionId]);
 

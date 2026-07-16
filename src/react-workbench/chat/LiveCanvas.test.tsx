@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { createRef } from "react";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
@@ -166,7 +166,7 @@ function browserRuntimeMock() {
   const navigate = vi.fn(async () => snapshot);
   const reload = vi.fn(async () => undefined);
   const stop = vi.fn(async () => undefined);
-  const updateSurface = vi.fn(async () => snapshot);
+  const updateSurface = vi.fn(async (_input: Parameters<NativeBrowserRuntimeApi["updateSurface"]>[0]) => snapshot);
   const api = {
     activateTab,
     back,
@@ -858,6 +858,30 @@ describe("LiveCanvas TinyOS", () => {
     expect(runtime.stop).toHaveBeenCalledWith("browser-session-1", "tab-2");
     await userEvent.click(within(browser).getByRole("button", { name: "Close Second tab" }));
     expect(runtime.closeTab).toHaveBeenCalledWith("browser-session-1", "tab-2");
+  });
+
+  it("continues native browser surface revisions after the host remounts", async () => {
+    const runtime = browserRuntimeMock();
+    const snapshot = browserSessionSnapshot();
+    snapshot.data.surface = {
+      layoutRevision: 41,
+      lifecycle: "visible",
+      rect: { deviceScale: 1, height: 600, width: 800, x: 0, y: 0 },
+      surfaceId: "tinyos-browser-surface-browser-session-1",
+      tabId: "tab-1",
+    };
+    const browserEntry = entry(step({ id: "browser-native-remount", kind: "browser" }));
+    render(<LiveCanvas {...canvasProps([browserEntry], {
+      browserRuntime: runtime.api,
+      nativeSnapshots: [snapshot],
+    })} />);
+
+    await waitFor(() => expect(runtime.updateSurface).toHaveBeenCalled());
+    expect(runtime.updateSurface.mock.calls[0]?.[0]).toMatchObject({
+      browserSessionId: "browser-session-1",
+      layoutRevision: 42,
+      tabId: "tab-1",
+    });
   });
 
   it("switches applications with keyboard shortcuts and restores session UI state", async () => {
