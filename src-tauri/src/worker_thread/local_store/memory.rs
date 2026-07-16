@@ -618,21 +618,27 @@ impl ThreadStore for MemoryThreadStore {
             .find(|thread| thread.thread_id == request.thread_id)
             .cloned()
             .ok_or_else(|| unknown_thread_error(&request.thread_id))?;
-        let mut copied_items = state
+        let source_items = state
             .items
             .get(&source.thread_id)
             .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|item| {
-                request
-                    .fork_after_sequence
-                    .is_none_or(|seq| item.sequence <= seq)
-            })
+            .unwrap_or_default();
+        let fork_after_sequence = request.fork_after_sequence.unwrap_or(u64::MAX);
+        let mut copied_items = source_items
+            .iter()
+            .filter(|item| item.sequence <= fork_after_sequence)
             .filter(|item| {
                 request.include_checkpoints
                     || !matches!(item.kind, super::ThreadItemKind::CheckpointCreated(_))
             })
+            .filter(|item| {
+                super::fork::context_compaction_survives_fork(
+                    item,
+                    &source_items,
+                    fork_after_sequence,
+                )
+            })
+            .cloned()
             .collect::<Vec<_>>();
         let thread_id = generate_thread_id();
         for item in &mut copied_items {

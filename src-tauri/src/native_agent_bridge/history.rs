@@ -153,10 +153,10 @@ fn native_agent_session_history_messages(
         WorkerRequest::new(
             request_id.id("session-history-for-agent-run"),
             request_id.trace_id("session-history-for-agent-run"),
-            "session.get_history",
+            "session.get_agent_context",
             serde_json::json!({ "session_id": session_id, "limit": 500 }),
         ),
-        "native agent session history hydration",
+        "native agent context hydration",
     )?;
     Ok(history
         .get("messages")

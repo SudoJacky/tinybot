@@ -743,6 +743,18 @@ pub(crate) fn apply_native_agent_thread_result(
             };
             let event_identity = native_agent_string_field(event, "eventId")
                 .unwrap_or_else(|| format!("{event_name}:{index}"));
+            let mut payload = event
+                .get("payload")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+            if event_name == "agent.context.compacted" {
+                if let Some(context_checkpoint) = result
+                    .get("contextCheckpoint")
+                    .filter(|checkpoint| !checkpoint.is_null())
+                {
+                    payload["contextCheckpoint"] = context_checkpoint.clone();
+                }
+            }
             let operation = apply_native_agent_thread_op(
                 thread_id,
                 Some(format!(
@@ -755,7 +767,7 @@ pub(crate) fn apply_native_agent_thread_result(
                     "eventName": event_name,
                     "source": event.get("source").cloned().unwrap_or(serde_json::Value::Null),
                     "visibility": event.get("visibility").cloned().unwrap_or(serde_json::Value::Null),
-                    "payload": event.get("payload").cloned().unwrap_or(serde_json::Value::Null),
+                    "payload": payload,
                 }),
                 workspace_root.clone(),
                 config_snapshot.clone(),

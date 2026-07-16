@@ -38,6 +38,19 @@ const PRESERVED_MESSAGE_FIELDS: &[&str] = &[
 ];
 
 pub fn replay_thread(lines: &[ThreadLogLine]) -> Result<ThreadReplay, WorkerProtocolError> {
+    replay_thread_with_mode(lines, true)
+}
+
+pub fn replay_thread_transcript(
+    lines: &[ThreadLogLine],
+) -> Result<ThreadReplay, WorkerProtocolError> {
+    replay_thread_with_mode(lines, false)
+}
+
+fn replay_thread_with_mode(
+    lines: &[ThreadLogLine],
+    apply_context_checkpoints: bool,
+) -> Result<ThreadReplay, WorkerProtocolError> {
     let mut replay = ThreadReplay::default();
     for line in lines {
         match &line.item {
@@ -46,9 +59,14 @@ pub fn replay_thread(lines: &[ThreadLogLine]) -> Result<ThreadReplay, WorkerProt
                 apply_response_item(&mut replay, item, &line.timestamp)
             }
             ThreadLogItem::EventMsg(event) => apply_event(&mut replay, event, &line.timestamp)?,
-            ThreadLogItem::Compacted(compacted) => {
+            ThreadLogItem::Compacted(compacted)
+                if apply_context_checkpoints
+                    || compacted.get("preserveTranscript").and_then(Value::as_bool)
+                        != Some(true) =>
+            {
                 apply_compacted(&mut replay, compacted, &line.timestamp)?
             }
+            ThreadLogItem::Compacted(_) => {}
             ThreadLogItem::TurnContext(_)
             | ThreadLogItem::WorldState(_)
             | ThreadLogItem::InterAgentCommunication(_) => {}

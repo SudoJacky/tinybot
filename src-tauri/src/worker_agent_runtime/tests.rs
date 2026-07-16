@@ -2618,6 +2618,57 @@ fn agent_chat_request_trims_old_messages_to_context_window() {
 }
 
 #[test]
+fn context_window_trimming_does_not_orphan_tool_results() {
+    let context = NativeAgentRunContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "runId": "run-context-tool-unit",
+            "sessionId": "session-context-tool-unit",
+            "messages": [
+                { "role": "user", "content": "old message ".repeat(200) },
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "context-tool-1",
+                        "type": "function",
+                        "function": {
+                            "name": "workspace.read_file",
+                            "arguments": format!(r#"{{"path":"{}"}}"#, "long/".repeat(80))
+                        }
+                    }]
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "context-tool-1",
+                    "name": "workspace.read_file",
+                    "content": "small result"
+                },
+                { "role": "user", "content": "current question" }
+            ]
+        }),
+        json!({
+            "agents": {
+                "defaults": {
+                    "provider": "fixture",
+                    "model": "fixture-model",
+                    "contextWindowTokens": 60
+                }
+            }
+        }),
+    );
+
+    let request = agent_chat_completion_request(&context).expect("request should build");
+    let messages = request["messages"]
+        .as_array()
+        .expect("messages should be an array");
+
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["role"], "user");
+    assert_eq!(messages[0]["content"], "current question");
+}
+
+#[test]
 fn system_prompt_survives_context_window_trimming() {
     let mut context = NativeAgentRunContext::from_spec(
         json!({
@@ -2738,9 +2789,10 @@ fn agent_chat_request_compacts_old_messages_when_strategy_is_compact() {
                 "defaults": {
                     "provider": "fixture",
                     "model": "fixture-model",
-                    "contextWindowTokens": 80,
+                    "contextWindowTokens": 800,
                     "contextWindowStrategy": "compact",
-                    "compactTriggerPercent": 50
+                    "compactTriggerPercent": 50,
+                    "compactSummaryMaxTokens": 32
                 }
             },
             "providers": { "fixture": { "responses": [{ "content": "summary of earlier turns" }] } }
@@ -2762,6 +2814,39 @@ fn agent_chat_request_compacts_old_messages_when_strategy_is_compact() {
 }
 
 #[test]
+fn context_compaction_fails_when_one_atomic_unit_exceeds_summary_budget() {
+    let context = NativeAgentRunContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "runId": "run-context-compact-oversized-unit",
+            "sessionId": "session-context-compact-oversized-unit",
+            "messages": [
+                { "role": "user", "content": "indivisible context ".repeat(500) },
+                { "role": "user", "content": "current question" }
+            ]
+        }),
+        json!({
+            "agents": { "defaults": {
+                "provider": "fixture",
+                "model": "fixture-model",
+                "contextWindowTokens": 120,
+                "contextWindowStrategy": "compact",
+                "compactTriggerPercent": 50
+            }},
+            "providers": { "fixture": {
+                "responses": [{ "content": "must not be requested" }]
+            }}
+        }),
+    );
+
+    let error = agent_chat_completion_request(&context)
+        .expect_err("an oversized atomic context unit should fail before provider dispatch");
+
+    assert!(error.contains("single context unit"));
+    assert!(error.contains("summary request budget"));
+}
+
+#[test]
 fn agent_run_emits_context_compaction_event_when_old_messages_are_summarized() {
     let result = run_native_agent_turn_with_config(
         &NativeAgentRuntimeServices::default(),
@@ -2780,9 +2865,10 @@ fn agent_run_emits_context_compaction_event_when_old_messages_are_summarized() {
                 "defaults": {
                     "provider": "fixture",
                     "model": "fixture-model",
-                    "contextWindowTokens": 80,
+                    "contextWindowTokens": 800,
                     "contextWindowStrategy": "compact",
-                    "compactTriggerPercent": 50
+                    "compactTriggerPercent": 50,
+                    "compactSummaryMaxTokens": 32
                 }
             },
             "providers": {
@@ -2808,12 +2894,273 @@ fn agent_run_emits_context_compaction_event_when_old_messages_are_summarized() {
     assert_eq!(compact_event["payload"]["droppedMessageCount"], 2);
     assert_eq!(compact_event["payload"]["retainedMessageCount"], 1);
     assert_eq!(compact_event["payload"]["replacementMessageCount"], 2);
-    assert_eq!(compact_event["payload"]["contextWindowTokens"], 80);
+    assert_eq!(compact_event["payload"]["contextWindowTokens"], 800);
     assert_eq!(
         compact_event["payload"]["agentItem"]["type"],
         "context_compaction"
     );
     assert_eq!(compact_event["payload"]["agentItem"]["droppedItemCount"], 2);
+    assert_eq!(compact_event["payload"]["trigger"], "auto");
+    assert_eq!(compact_event["payload"]["reason"], "context_limit");
+    assert_eq!(compact_event["payload"]["method"], "summary");
+    assert_eq!(result["contextCheckpoint"]["schemaVersion"], 1);
+    assert!(result["contextCheckpoint"]["replacementHistory"]
+        .as_array()
+        .is_some_and(|messages| messages.iter().any(|message| {
+            message["content"]
+                .as_str()
+                .is_some_and(|content| content.contains("summary of earlier turns"))
+        })));
+}
+
+#[test]
+fn context_compaction_summarizes_oversized_history_in_bounded_layers() {
+    let mut messages = (0..6)
+        .map(|index| {
+            json!({
+                "role": "user",
+                "content": format!("old context {index}: {}", "x".repeat(1600))
+            })
+        })
+        .collect::<Vec<_>>();
+    messages.push(json!({ "role": "user", "content": "current question" }));
+    let result = run_native_agent_turn_with_config(
+        &NativeAgentRuntimeServices::default(),
+        json!({
+            "runtime": "rust",
+            "runId": "run-context-layered-summary",
+            "sessionId": "session-context-layered-summary",
+            "messages": messages
+        }),
+        json!({
+            "agents": { "defaults": {
+                "provider": "fixture",
+                "model": "fixture-model",
+                "contextWindowTokens": 1000,
+                "contextWindowStrategy": "compact",
+                "compactTriggerPercent": 50,
+                "compactSummaryMaxTokens": 250
+            }},
+            "providers": { "fixture": {
+                "responses": [{ "content": "bounded partial summary" }]
+            }}
+        }),
+    )
+    .expect("layered summary should fit every provider request");
+
+    let compact_event = result["events"]
+        .as_array()
+        .expect("events should be present")
+        .iter()
+        .find(|event| event["eventName"] == "agent.context.compacted")
+        .expect("compaction event should be present");
+    assert!(compact_event["payload"]["summaryRequestCount"]
+        .as_u64()
+        .is_some_and(|count| count > 1));
+    assert!(result["contextCheckpoint"]["replacementHistory"]
+        .as_array()
+        .is_some_and(|replacement| replacement.iter().any(|message| {
+            message["content"]
+                .as_str()
+                .is_some_and(|content| content.contains("bounded partial summary"))
+        })));
+}
+
+#[test]
+fn context_compaction_masks_large_tool_output_without_splitting_its_call() {
+    let result = run_native_agent_turn_with_config(
+        &NativeAgentRuntimeServices::default(),
+        json!({
+            "runtime": "rust",
+            "runId": "run-context-tool-mask",
+            "sessionId": "session-context-tool-mask",
+            "messages": [
+                { "role": "user", "content": "old message ".repeat(300) },
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "context-tool-mask-1",
+                        "type": "function",
+                        "function": {
+                            "name": "workspace.read_file",
+                            "arguments": r#"{"path":"large.log"}"#
+                        }
+                    }]
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "context-tool-mask-1",
+                    "name": "workspace.read_file",
+                    "content": format!("HEAD-{}-TAIL", "x".repeat(4000))
+                },
+                { "role": "user", "content": "current question" }
+            ]
+        }),
+        json!({
+            "agents": { "defaults": {
+                "provider": "fixture",
+                "model": "fixture-model",
+                "contextWindowTokens": 1400,
+                "contextWindowStrategy": "compact",
+                "compactTriggerPercent": 50,
+                "compactSummaryMaxTokens": 64
+            }},
+            "providers": { "fixture": {
+                "responses": [
+                    { "content": "summary before the tool call" },
+                    { "content": "finished with masked tool output" }
+                ]
+            }}
+        }),
+    )
+    .expect("compacted run should succeed");
+
+    let compact_event = result["events"]
+        .as_array()
+        .expect("events should be present")
+        .iter()
+        .find(|event| event["eventName"] == "agent.context.compacted")
+        .expect("compaction event should be present");
+    assert_eq!(compact_event["payload"]["maskedToolOutputCount"], 1);
+
+    let replacement = result["contextCheckpoint"]["replacementHistory"]
+        .as_array()
+        .expect("replacement history should be present");
+    assert!(replacement.iter().any(|message| {
+        message["role"] == "assistant"
+            && message["tool_calls"].as_array().is_some_and(|tool_calls| {
+                tool_calls
+                    .iter()
+                    .any(|call| call["id"] == "context-tool-mask-1")
+            })
+    }));
+    let tool_message = replacement
+        .iter()
+        .find(|message| message["role"] == "tool")
+        .expect("tool call unit should be retained together");
+    let content = tool_message["content"]
+        .as_str()
+        .expect("masked tool content should be text");
+    assert!(content.starts_with("HEAD-"));
+    assert!(content.contains("tool output compacted"));
+    assert!(content.ends_with("-TAIL"));
+}
+
+#[test]
+fn compacted_context_becomes_the_next_tool_iteration_baseline() {
+    struct ToolThenFinishProvider {
+        calls: AtomicUsize,
+        contexts: Arc<Mutex<Vec<Vec<Value>>>>,
+    }
+
+    impl NativeAgentProvider for ToolThenFinishProvider {
+        fn complete(
+            &self,
+            context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            self.contexts
+                .lock()
+                .expect("provider context lock should not be poisoned")
+                .push(context.messages.clone());
+            if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                Ok(NativeAgentProviderResponse {
+                    final_content: String::new(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![NativeAgentToolCall {
+                        id: "compact-read-1".to_string(),
+                        name: "workspace.read_file".to_string(),
+                        arguments_json: r#"{"path":"README.md"}"#.to_string(),
+                        result: Value::Null,
+                    }],
+                })
+            } else {
+                Ok(NativeAgentProviderResponse {
+                    final_content: "finished after compact".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: Vec::new(),
+                })
+            }
+        }
+    }
+
+    struct ReadDispatcher;
+
+    impl NativeAgentToolDispatcher for ReadDispatcher {
+        fn dispatch(
+            &self,
+            _context: &NativeAgentRunContext,
+            tool_call: &NativeAgentToolCall,
+        ) -> Result<NativeAgentToolResult, String> {
+            Ok(NativeAgentToolResult::generic_success(
+                tool_call,
+                json!({ "content": "small tool result" }),
+            ))
+        }
+    }
+
+    let contexts = Arc::new(Mutex::new(Vec::new()));
+    let services = NativeAgentRuntimeServices {
+        provider: Arc::new(ToolThenFinishProvider {
+            calls: AtomicUsize::new(0),
+            contexts: contexts.clone(),
+        }),
+        tools: Arc::new(ReadDispatcher),
+        test_tool_registry_entries: Some(test_registry_without_approval(&["workspace.read_file"])),
+        ..NativeAgentRuntimeServices::default()
+    };
+    let result = run_native_agent_turn_with_config(
+        &services,
+        json!({
+            "runtime": "rust",
+            "runId": "run-durable-context-compact",
+            "sessionId": "session-durable-context-compact",
+            "messages": [
+                { "role": "user", "content": "old context ".repeat(300) },
+                { "role": "assistant", "content": "old answer ".repeat(300) },
+                { "role": "user", "content": "current question" }
+            ]
+        }),
+        json!({
+            "agents": { "defaults": {
+                "provider": "fixture",
+                "model": "fixture-model",
+                "contextWindowTokens": 1200,
+                "contextWindowStrategy": "compact",
+                "compactTriggerPercent": 80,
+                "compactSummaryMaxTokens": 64
+            }},
+            "providers": { "fixture": {
+                "responses": [{ "content": "durable summary" }]
+            }}
+        }),
+    )
+    .expect("tool loop should finish");
+
+    let compact_events = result["events"]
+        .as_array()
+        .expect("events should be present")
+        .iter()
+        .filter(|event| event["eventName"] == "agent.context.compacted")
+        .count();
+    assert_eq!(compact_events, 1);
+    let contexts = contexts
+        .lock()
+        .expect("provider context lock should not be poisoned");
+    assert_eq!(contexts.len(), 2);
+    assert!(contexts[1].iter().any(|message| {
+        message["content"]
+            .as_str()
+            .is_some_and(|content| content.contains("durable summary"))
+    }));
+    assert!(!contexts[1]
+        .iter()
+        .any(|message| message.to_string().contains("old context")));
+    assert!(result["contextCheckpoint"]["replacementHistory"]
+        .as_array()
+        .is_some_and(|messages| messages.iter().any(|message| message["role"] == "tool")));
 }
 
 #[test]

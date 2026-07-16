@@ -166,6 +166,13 @@ impl LocalThreadStore {
         self.sqlite_path().exists()
     }
 
+    pub(super) fn context_items(
+        &self,
+        thread_id: &str,
+    ) -> Result<Vec<ThreadItem>, WorkerProtocolError> {
+        self.read_items(thread_id)
+    }
+
     pub fn append_items_with_client_event_id(
         &self,
         thread_id: &str,
@@ -2765,6 +2772,127 @@ mod tests {
             .items
             .iter()
             .all(|item| item.thread_id == fork.thread_id));
+    }
+
+    #[test]
+    fn local_thread_store_fork_only_inherits_compaction_from_complete_run_segment() {
+        let root = temp_root("fork-compaction-segment");
+        let _cleanup = Cleanup(root.clone());
+        let store = LocalThreadStore::new(root);
+        let thread = store.create_thread(CreateThreadRequest::default()).unwrap();
+        store
+            .append_items(
+                &thread.thread_id,
+                vec![
+                    ThreadItem {
+                        item_id: String::new(),
+                        thread_id: String::new(),
+                        run_id: Some("run-old".to_string()),
+                        turn_id: Some("run-old".to_string()),
+                        parent_item_id: None,
+                        sequence: 0,
+                        created_at: String::new(),
+                        kind: ThreadItemKind::UserMessage(json!({ "content": "old user" })),
+                    },
+                    ThreadItem {
+                        item_id: String::new(),
+                        thread_id: String::new(),
+                        run_id: Some("run-compact".to_string()),
+                        turn_id: Some("run-compact".to_string()),
+                        parent_item_id: None,
+                        sequence: 0,
+                        created_at: String::new(),
+                        kind: ThreadItemKind::ContextCompaction(json!({
+                            "contextCheckpoint": {
+                                "replacementHistory": [
+                                    { "role": "assistant", "content": "summary" },
+                                    { "role": "assistant", "content": "future answer" }
+                                ]
+                            }
+                        })),
+                    },
+                    ThreadItem {
+                        item_id: String::new(),
+                        thread_id: String::new(),
+                        run_id: Some("run-compact".to_string()),
+                        turn_id: Some("run-compact".to_string()),
+                        parent_item_id: None,
+                        sequence: 0,
+                        created_at: String::new(),
+                        kind: ThreadItemKind::AssistantMessageCompleted(
+                            json!({ "content": "future answer" }),
+                        ),
+                    },
+                ],
+            )
+            .unwrap();
+
+        let mid_run_fork = store
+            .fork_thread(ForkThreadRequest {
+                thread_id: thread.thread_id.clone(),
+                client_event_id: None,
+                title: None,
+                fork_after_sequence: Some(2),
+                include_children: false,
+                include_checkpoints: false,
+            })
+            .unwrap();
+        let mid_run_snapshot = store
+            .read_thread(ReadThreadRequest {
+                thread_id: mid_run_fork.thread_id.clone(),
+                cursor: None,
+                before_sequence: None,
+                checkpoint_sequence: None,
+                checkpoint_id: None,
+                limit: None,
+            })
+            .unwrap();
+        assert!(mid_run_snapshot
+            .items
+            .iter()
+            .all(|item| !matches!(item.kind, ThreadItemKind::ContextCompaction(_))));
+        let mid_run_context =
+            crate::worker_thread::session_adapter::get_agent_context_from_threads(
+                &store,
+                &mid_run_fork.thread_id,
+                100,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            mid_run_context
+                .messages
+                .iter()
+                .map(|message| message["content"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["old user"]
+        );
+
+        let completed_run_fork = store
+            .fork_thread(ForkThreadRequest {
+                thread_id: thread.thread_id,
+                client_event_id: None,
+                title: None,
+                fork_after_sequence: Some(3),
+                include_children: false,
+                include_checkpoints: false,
+            })
+            .unwrap();
+        let completed_run_context =
+            crate::worker_thread::session_adapter::get_agent_context_from_threads(
+                &store,
+                &completed_run_fork.thread_id,
+                100,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            completed_run_context.messages,
+            vec![
+                json!({ "role": "assistant", "content": "summary" }),
+                json!({ "role": "assistant", "content": "future answer" })
+            ]
+        );
     }
 
     #[test]

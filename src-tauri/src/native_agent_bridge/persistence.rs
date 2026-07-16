@@ -404,6 +404,10 @@ pub(crate) fn persist_native_agent_turn_if_final(
                 "context_metadata": {
                     "runtime": "rust",
                     "historyMessageCount": native_agent_user_messages(&spec).len(),
+                    "contextCheckpoint": result
+                        .get("contextCheckpoint")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null),
                 }
             }),
         ),

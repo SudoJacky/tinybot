@@ -1220,6 +1220,20 @@ fn runtime_event_item(
     visibility: Option<String>,
     payload: Value,
 ) -> ThreadItem {
+    let event_payload = json!({
+        "eventName": event_name,
+        "runId": run_id,
+        "turnId": turn_id,
+        "source": source,
+        "visibility": visibility,
+        "payload": payload,
+        "threadSource": "thread.apply_op"
+    });
+    let kind = match event_payload.get("eventName").and_then(Value::as_str) {
+        Some("agent.context.compacted") => ThreadItemKind::ContextCompaction(event_payload),
+        Some("agent.context.trimmed") => ThreadItemKind::ContextTrimmed(event_payload),
+        _ => ThreadItemKind::Event(event_payload),
+    };
     ThreadItem {
         item_id: format!(
             "thread-runtime:{thread_id}:{run_id}:event:{}",
@@ -1231,15 +1245,7 @@ fn runtime_event_item(
         parent_item_id: None,
         sequence: 0,
         created_at: String::new(),
-        kind: ThreadItemKind::Event(json!({
-            "eventName": event_name,
-            "runId": run_id,
-            "turnId": turn_id,
-            "source": source,
-            "visibility": visibility,
-            "payload": payload,
-            "threadSource": "thread.apply_op"
-        })),
+        kind,
     }
 }
 

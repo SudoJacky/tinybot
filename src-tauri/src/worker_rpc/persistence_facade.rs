@@ -42,6 +42,26 @@ impl WorkerRpcRouter {
                 let projection = self.session.get_history(&params.session_id, limit)?;
                 serde_json::to_value(projection).map_err(serialization_error)
             }
+            "session.get_agent_context" => {
+                let params: SessionHistoryParams = parse_params(request)?;
+                let limit = params.limit.unwrap_or(500);
+                if self.thread.has_thread_store() {
+                    if let Some(projection) = self
+                        .thread
+                        .get_agent_context_from_threads(&params.session_id, limit)?
+                    {
+                        return serde_json::to_value(projection).map_err(serialization_error);
+                    }
+                }
+                if let Some(projection) = self
+                    .thread_log
+                    .get_agent_context(&params.session_id, limit)?
+                {
+                    return serde_json::to_value(projection).map_err(serialization_error);
+                }
+                let projection = self.session.get_history(&params.session_id, limit)?;
+                serde_json::to_value(projection).map_err(serialization_error)
+            }
             "session.list_metadata" => {
                 let thread_log_sessions = self.thread_log.list_session_metadata()?;
                 let sessions = self.session.list_metadata()?;
@@ -256,11 +276,15 @@ impl WorkerRpcRouter {
                     "session.persist_turn",
                 )?;
                 let _legacy_clear_checkpoint = params.clear_checkpoint;
-                let _legacy_context_metadata = params.context_metadata();
+                let context_checkpoint = params
+                    .context_metadata()
+                    .and_then(|metadata| metadata.get("contextCheckpoint").cloned())
+                    .filter(|checkpoint| !checkpoint.is_null());
                 let result = self.thread_log.persist_session_turn(
                     &params.session_id,
                     &params.run_id,
                     params.messages,
+                    context_checkpoint,
                 )?;
                 serde_json::to_value(result).map_err(serialization_error)
             }

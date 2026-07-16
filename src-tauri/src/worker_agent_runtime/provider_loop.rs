@@ -430,9 +430,14 @@ async fn run_native_agent_turn_with_instructions_async(
             if let Some(tokens) = payload.get("estimatedTokensAfter").and_then(Value::as_i64) {
                 context.metrics().set_gauge("context.tokens.after", tokens);
             }
+            if action.event_name == "agent.context.compacted" {
+                state.install_compacted_context(projection.messages.clone(), &payload);
+                context.messages = state.messages.clone();
+                context.spec["messages"] = Value::Array(state.messages.clone());
+                context.metrics().increment("compaction.completed");
+            }
             state.emit_event(action.event_name, payload);
             if action.event_name == "agent.context.compacted" {
-                context.metrics().increment("compaction.completed");
                 let invocation = AgentHookInvocation::lifecycle(
                     AgentHookStage::CompactionComplete,
                     context.trace_context.clone(),
@@ -738,7 +743,10 @@ async fn run_native_agent_turn_with_instructions_async(
             .await;
             match outcome {
                 NativeAgentToolExecutionOutcome::Continue => {}
-                NativeAgentToolExecutionOutcome::Finished(result) => return Ok(result),
+                NativeAgentToolExecutionOutcome::Finished(mut result) => {
+                    state.attach_context_checkpoint(&mut result, None);
+                    return Ok(result);
+                }
             }
 
             if let Some(message) = state.drain_pending_guidance() {
@@ -811,21 +819,27 @@ async fn run_native_agent_turn_with_instructions_async(
         let runtime_events = state.runtime_events();
         let events = state.legacy_events();
 
-        return Ok(serde_json::json!({
+        let final_message = serde_json::json!({
+            "role": "assistant",
+            "content": final_content
+        });
+        let context_checkpoint = state.finalized_context_checkpoint(Some(final_message.clone()));
+        let mut result = serde_json::json!({
             "runtime": "rust",
             "runId": context.run_id,
             "sessionId": context.session_id,
-            "finalContent": final_content,
+            "finalContent": final_message["content"],
             "stopReason": "final_response",
-            "messages": [{
-                "role": "assistant",
-                "content": final_content
-            }],
+            "messages": [final_message.clone()],
             "toolsUsed": state.tools_used,
             "completedToolResults": state.completed_tool_results,
             "events": events,
             "runtimeEvents": runtime_events,
-        }));
+        });
+        if let Some(context_checkpoint) = context_checkpoint {
+            result["contextCheckpoint"] = context_checkpoint;
+        }
+        return Ok(result);
     }
 
     let error = "Rust agent runtime reached max iterations before final response.";
@@ -844,7 +858,8 @@ async fn run_native_agent_turn_with_instructions_async(
         .clear_for_run(&context.session_id, &context.run_id);
     let runtime_events = state.runtime_events();
     let events = state.legacy_events();
-    Ok(serde_json::json!({
+    let context_checkpoint = state.finalized_context_checkpoint(None);
+    let mut result = serde_json::json!({
         "runtime": "rust",
         "runId": context.run_id,
         "sessionId": context.session_id,
@@ -856,7 +871,11 @@ async fn run_native_agent_turn_with_instructions_async(
         "error": error,
         "events": events,
         "runtimeEvents": runtime_events,
-    }))
+    });
+    if let Some(context_checkpoint) = context_checkpoint {
+        result["contextCheckpoint"] = context_checkpoint;
+    }
+    Ok(result)
 }
 
 async fn honor_pause_request(
@@ -946,7 +965,7 @@ fn provider_failure_result(
         .clear_for_run(&context.session_id, &context.run_id);
     let runtime_events = state.runtime_events();
     let events = state.legacy_events();
-    serde_json::json!({
+    let mut result = serde_json::json!({
         "runtime": "rust",
         "runId": context.run_id,
         "sessionId": context.session_id,
@@ -958,7 +977,9 @@ fn provider_failure_result(
         "error": message,
         "events": events,
         "runtimeEvents": runtime_events,
-    })
+    });
+    state.attach_context_checkpoint(&mut result, None);
+    result
 }
 
 fn hook_denied_result(
@@ -985,7 +1006,7 @@ fn hook_denied_result(
         .clear_for_run(&context.session_id, &context.run_id);
     let runtime_events = state.runtime_events();
     let events = state.legacy_events();
-    serde_json::json!({
+    let mut result = serde_json::json!({
         "runtime": "rust",
         "runId": context.run_id,
         "sessionId": context.session_id,
@@ -997,7 +1018,9 @@ fn hook_denied_result(
         "error": reason,
         "events": events,
         "runtimeEvents": runtime_events,
-    })
+    });
+    state.attach_context_checkpoint(&mut result, None);
+    result
 }
 
 fn append_hook_evaluation_to_result(

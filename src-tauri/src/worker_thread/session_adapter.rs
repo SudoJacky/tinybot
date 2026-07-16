@@ -109,6 +109,97 @@ pub fn get_session_history_from_threads(
     }))
 }
 
+pub fn get_agent_context_from_threads(
+    store: &LocalThreadStore,
+    session_id: &str,
+    limit: usize,
+) -> Result<Option<SessionHistoryProjection>, WorkerProtocolError> {
+    let Some(thread) = find_thread_for_session(store, session_id)? else {
+        return Ok(None);
+    };
+    let items = store.context_items(&thread.thread_id)?;
+    let checkpoint = items
+        .iter()
+        .enumerate()
+        .rev()
+        .find_map(|(index, item)| match &item.kind {
+            ThreadItemKind::ContextCompaction(payload) => {
+                context_checkpoint_replacement(payload).map(|replacement| (index, replacement))
+            }
+            _ => None,
+        });
+
+    let has_checkpoint = checkpoint.is_some();
+    let mut messages = if let Some((checkpoint_index, mut replacement)) = checkpoint {
+        let suffix = items[checkpoint_index + 1..]
+            .iter()
+            .filter_map(thread_item_to_session_message)
+            .collect::<Vec<_>>();
+        let overlap = replacement_suffix_overlap(&replacement, &suffix);
+        replacement.extend(suffix.into_iter().skip(overlap));
+        replacement
+    } else {
+        items
+            .iter()
+            .filter_map(thread_item_to_session_message)
+            .collect::<Vec<_>>()
+    };
+    if !has_checkpoint && messages.len() > limit {
+        messages = messages.split_off(messages.len() - limit);
+    }
+    let updated_at = items
+        .last()
+        .and_then(|item| non_empty_string(&item.created_at))
+        .unwrap_or_else(|| thread.updated_at.clone());
+    Ok(Some(SessionHistoryProjection {
+        session_id: session_id.to_string(),
+        messages,
+        user_profile: json!({}),
+        updated_at,
+    }))
+}
+
+fn context_checkpoint_replacement(payload: &Value) -> Option<Vec<Value>> {
+    let checkpoint = payload
+        .get("payload")
+        .and_then(|payload| payload.get("contextCheckpoint"))
+        .or_else(|| payload.get("contextCheckpoint"))
+        .unwrap_or(payload);
+    checkpoint
+        .get("replacementHistory")
+        .or_else(|| checkpoint.get("replacement_history"))
+        .or_else(|| checkpoint.get("installedReplacementHistory"))
+        .or_else(|| checkpoint.get("installed_replacement_history"))
+        .and_then(Value::as_array)
+        .cloned()
+}
+
+fn replacement_suffix_overlap(replacement: &[Value], suffix: &[Value]) -> usize {
+    let max_overlap = replacement.len().min(suffix.len());
+    (1..=max_overlap)
+        .rev()
+        .find(|overlap| {
+            replacement[replacement.len() - *overlap..]
+                .iter()
+                .zip(suffix[..*overlap].iter())
+                .all(|(left, right)| context_messages_equivalent(left, right))
+        })
+        .unwrap_or(0)
+}
+
+fn context_messages_equivalent(left: &Value, right: &Value) -> bool {
+    left.get("role") == right.get("role")
+        && left.get("content") == right.get("content")
+        && aliased_context_field(left, "tool_calls", "toolCalls")
+            == aliased_context_field(right, "tool_calls", "toolCalls")
+        && aliased_context_field(left, "tool_call_id", "toolCallId")
+            == aliased_context_field(right, "tool_call_id", "toolCallId")
+}
+
+fn aliased_context_field<'a>(message: &'a Value, snake: &str, camel: &str) -> Option<&'a Value> {
+    message.get(snake).or_else(|| message.get(camel))
+}
+
 pub fn get_session_checkpoint_from_threads(
     store: &LocalThreadStore,
     session_id: &str,

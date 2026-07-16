@@ -1047,6 +1047,192 @@ fn dispatches_session_get_metadata_and_history_for_thread_only_sessions() {
 }
 
 #[test]
+fn dispatches_session_get_agent_context_from_latest_thread_compaction() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        20,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionMetadataRead,
+            WorkerCapability::SessionWrite,
+        ]),
+    );
+
+    let create = router.dispatch(&WorkerRequest::new(
+        "req-agent-context-thread-create",
+        "trace-agent-context-thread",
+        "thread.create",
+        json!({
+            "threadId": "thread-agent-context",
+            "title": "Agent Context",
+            "sessionKey": "session-agent-context",
+            "source": "user"
+        }),
+    ));
+    assert_eq!(create.error, None);
+
+    let append = router.dispatch(&WorkerRequest::new(
+        "req-agent-context-thread-append",
+        "trace-agent-context-thread",
+        "thread.append_items",
+        json!({
+            "threadId": "thread-agent-context",
+            "items": [
+                {
+                    "itemId": "thread-agent-context:old-user",
+                    "threadId": "",
+                    "runId": "run-agent-context",
+                    "turnId": "turn-agent-context",
+                    "sequence": 0,
+                    "createdAt": "2026-07-05T04:00:01Z",
+                    "kind": {
+                        "type": "user_message",
+                        "payload": { "content": "old user message" }
+                    }
+                },
+                {
+                    "itemId": "thread-agent-context:old-assistant",
+                    "threadId": "",
+                    "runId": "run-agent-context",
+                    "turnId": "turn-agent-context",
+                    "sequence": 0,
+                    "createdAt": "2026-07-05T04:00:02Z",
+                    "kind": {
+                        "type": "assistant_message_completed",
+                        "payload": { "content": "old assistant message" }
+                    }
+                },
+                {
+                    "itemId": "thread-agent-context:compaction",
+                    "threadId": "",
+                    "runId": "run-agent-context",
+                    "turnId": "turn-agent-context",
+                    "sequence": 0,
+                    "createdAt": "2026-07-05T04:00:03Z",
+                    "kind": {
+                        "type": "context_compaction",
+                        "payload": {
+                            "payload": {
+                                "contextCheckpoint": {
+                                    "installedReplacementHistory": [
+                                        { "role": "assistant", "content": "summary of old conversation" }
+                                    ],
+                                    "replacementHistory": [
+                                        { "role": "assistant", "content": "summary of old conversation" },
+                                        {
+                                            "role": "assistant",
+                                            "content": "",
+                                            "tool_calls": [{
+                                                "id": "context-read-1",
+                                                "type": "function",
+                                                "function": {
+                                                    "name": "workspace.read_file",
+                                                    "arguments": "{\"path\":\"README.md\"}"
+                                                }
+                                            }]
+                                        },
+                                        {
+                                            "role": "tool",
+                                            "tool_call_id": "context-read-1",
+                                            "name": "workspace.read_file",
+                                            "content": "README contents"
+                                        },
+                                        { "role": "assistant", "content": "answer from compacted turn" }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "itemId": "thread-agent-context:compacted-answer",
+                    "threadId": "",
+                    "runId": "run-agent-context",
+                    "turnId": "turn-agent-context",
+                    "sequence": 0,
+                    "createdAt": "2026-07-05T04:00:04Z",
+                    "kind": {
+                        "type": "assistant_message_completed",
+                        "payload": { "content": "answer from compacted turn" }
+                    }
+                },
+                {
+                    "itemId": "thread-agent-context:new-user",
+                    "threadId": "",
+                    "runId": "run-agent-context-next",
+                    "turnId": "turn-agent-context-next",
+                    "sequence": 0,
+                    "createdAt": "2026-07-05T04:00:05Z",
+                    "kind": {
+                        "type": "user_message",
+                        "payload": { "content": "next question" }
+                    }
+                }
+            ]
+        }),
+    ));
+    assert_eq!(append.error, None);
+
+    let history = router.dispatch(&WorkerRequest::new(
+        "req-agent-context-full-history",
+        "trace-agent-context-thread",
+        "session.get_history",
+        json!({ "session_id": "session-agent-context" }),
+    ));
+    assert_eq!(history.error, None);
+    assert_eq!(
+        history.result.as_ref().unwrap()["messages"]
+            .as_array()
+            .unwrap()
+            .len(),
+        4
+    );
+
+    let agent_context = router.dispatch(&WorkerRequest::new(
+        "req-agent-context-projection",
+        "trace-agent-context-thread",
+        "session.get_agent_context",
+        json!({ "session_id": "session-agent-context" }),
+    ));
+    assert_eq!(agent_context.error, None);
+    assert_eq!(
+        agent_context.result.as_ref().unwrap()["messages"],
+        json!([
+            { "role": "assistant", "content": "summary of old conversation" },
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": "context-read-1",
+                    "type": "function",
+                    "function": {
+                        "name": "workspace.read_file",
+                        "arguments": "{\"path\":\"README.md\"}"
+                    }
+                }]
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "context-read-1",
+                "name": "workspace.read_file",
+                "content": "README contents"
+            },
+            {
+                "role": "assistant",
+                "content": "answer from compacted turn"
+            },
+            {
+                "role": "user",
+                "content": "next question",
+                "timestamp": "2026-07-05T04:00:05Z"
+            }
+        ])
+    );
+}
+
+#[test]
 fn dispatches_session_get_history_reads_thread_tail() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
@@ -1890,6 +2076,98 @@ fn dispatches_session_persist_turn_request() {
     assert_eq!(
         history.result.as_ref().unwrap()["messages"][1]["content"],
         "done"
+    );
+}
+
+#[test]
+fn persisted_compaction_replaces_agent_context_but_preserves_transcript() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    )
+    .unwrap();
+
+    let old_turn = router.dispatch(&WorkerRequest::new(
+        "req-compact-old-turn",
+        "trace-compact-persistence",
+        "session.persist_turn",
+        json!({
+            "session_id": "session-compact-persistence",
+            "run_id": "run-compact-old-turn",
+            "messages": [
+                { "role": "user", "content": "old user", "messageId": "compact-old-user" },
+                { "role": "assistant", "content": "old answer", "messageId": "compact-old-answer" }
+            ],
+            "clear_checkpoint": false
+        }),
+    ));
+    assert_eq!(old_turn.error, None);
+
+    let compacted_turn = router.dispatch(&WorkerRequest::new(
+        "req-compact-current-turn",
+        "trace-compact-persistence",
+        "session.persist_turn",
+        json!({
+            "session_id": "session-compact-persistence",
+            "run_id": "run-compact-current-turn",
+            "messages": [
+                { "role": "user", "content": "current user", "messageId": "compact-current-user" },
+                { "role": "assistant", "content": "current answer", "messageId": "compact-current-answer" }
+            ],
+            "clear_checkpoint": false,
+            "context_metadata": {
+                "contextCheckpoint": {
+                    "schemaVersion": 1,
+                    "replacementHistory": [
+                        { "role": "assistant", "content": "summary of old turn" },
+                        { "role": "user", "content": "current user" },
+                        { "role": "assistant", "content": "current answer" }
+                    ]
+                }
+            }
+        }),
+    ));
+    assert_eq!(compacted_turn.error, None);
+    assert_eq!(compacted_turn.result.as_ref().unwrap()["messages_after"], 3);
+
+    let history = router.dispatch(&WorkerRequest::new(
+        "req-compact-transcript",
+        "trace-compact-persistence",
+        "session.get_history",
+        json!({ "session_id": "session-compact-persistence", "limit": 80 }),
+    ));
+    assert_eq!(history.error, None);
+    assert_eq!(
+        history.result.as_ref().unwrap()["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|message| message["content"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["old user", "old answer", "current user", "current answer"]
+    );
+
+    let agent_context = router.dispatch(&WorkerRequest::new(
+        "req-compact-agent-context",
+        "trace-compact-persistence",
+        "session.get_agent_context",
+        json!({ "session_id": "session-compact-persistence", "limit": 80 }),
+    ));
+    assert_eq!(agent_context.error, None);
+    assert_eq!(
+        agent_context.result.as_ref().unwrap()["messages"],
+        json!([
+            { "role": "assistant", "content": "summary of old turn" },
+            { "role": "user", "content": "current user" },
+            { "role": "assistant", "content": "current answer" }
+        ])
     );
 }
 
@@ -2867,6 +3145,7 @@ fn session_log_index_divergence_requires_explicit_repair() {
                     "content": "stale",
                     "messageId": "user-prune-missing"
                 })],
+                None,
             )
             .unwrap();
     }
@@ -3195,6 +3474,7 @@ fn session_patch_metadata_allows_thread_log_only_session() {
                 "content": "rename me",
                 "messageId": "user-patch-thread-log-only"
             })],
+            None,
         )
         .unwrap();
 
@@ -3241,6 +3521,7 @@ fn session_patch_metadata_prefers_thread_log_over_legacy_persistence() {
                 "content": "rename me",
                 "messageId": "user-patch-legacy-error"
             })],
+            None,
         )
         .unwrap();
     let sqlite_path = fixture.root.join("sessions").join("sessions.sqlite");

@@ -24,6 +24,7 @@ pub use self::reader::read_thread_lines;
 use self::recorder::is_canonical_thread_log_path;
 pub use self::recorder::{now_thread_timestamp, value_event, ThreadRecorder};
 pub use self::replay::replay_thread;
+use self::replay::replay_thread_transcript;
 pub use self::session_adapter::{history_from_replay, metadata_from_state};
 pub use self::state_db::ThreadStateDb;
 pub use self::types::{
@@ -139,6 +140,23 @@ impl WorkerThreadLogRpc {
     }
 
     pub fn get_session_history(
+        &self,
+        session_id: &str,
+        limit: usize,
+    ) -> Result<Option<SessionHistoryProjection>, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionMetadataRead)?;
+        self.ensure_state_index()?;
+        let Some(record) = self.find_live_record(session_id)? else {
+            return Ok(None);
+        };
+        let path = PathBuf::from(&record.thread_path);
+        self.recorder.validate_thread_path(&path)?;
+        let lines = read_thread_lines(&path)?;
+        let replay = replay_thread_transcript(&lines)?;
+        Ok(Some(history_from_replay(replay, limit)))
+    }
+
+    pub fn get_agent_context(
         &self,
         session_id: &str,
         limit: usize,
@@ -344,6 +362,7 @@ impl WorkerThreadLogRpc {
         session_id: &str,
         run_id: &str,
         messages: Vec<Value>,
+        context_checkpoint: Option<Value>,
     ) -> Result<PersistTurnResult, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         self.ensure_state_index()?;
@@ -439,8 +458,32 @@ impl WorkerThreadLogRpc {
             ThreadRunState::Missing => {}
         }
 
-        let mut next_messages = replay.messages;
-        next_messages.extend(saved_messages.clone());
+        let compacted = context_checkpoint
+            .map(|mut checkpoint| {
+                let replacement_history = checkpoint
+                    .get("replacementHistory")
+                    .and_then(Value::as_array)
+                    .ok_or_else(|| {
+                        WorkerProtocolError::new(
+                            WorkerProtocolErrorCode::InvalidProtocol,
+                            "context compaction checkpoint is missing replacementHistory",
+                            serde_json::json!({ "runId": run_id }),
+                            false,
+                            WorkerProtocolErrorSource::RustCore,
+                        )
+                    })?
+                    .clone();
+                checkpoint["preserveTranscript"] = Value::Bool(true);
+                Ok::<_, WorkerProtocolError>((checkpoint, replacement_history))
+            })
+            .transpose()?;
+        let mut next_messages = compacted
+            .as_ref()
+            .map(|(_, replacement_history)| replacement_history.clone())
+            .unwrap_or_else(|| replay.messages.clone());
+        if compacted.is_none() {
+            next_messages.extend(saved_messages.clone());
+        }
         let derived_title = is_default_session_title(&record.title)
             .then(|| title_from_messages(&next_messages))
             .flatten();
@@ -455,6 +498,9 @@ impl WorkerThreadLogRpc {
                 .cloned()
                 .map(ThreadLogItem::ResponseItem),
         );
+        if let Some((checkpoint, _replacement_history)) = compacted {
+            turn_items.push(ThreadLogItem::Compacted(checkpoint));
+        }
         if let Some(title) = derived_title.as_ref() {
             turn_items.push(value_event(
                 "metadata_updated",
@@ -469,7 +515,7 @@ impl WorkerThreadLogRpc {
             .append_items(&thread_path, timestamp.clone(), turn_items)?;
 
         let saved_message_count = saved_messages.len();
-        let messages_after = messages_before + saved_message_count;
+        let messages_after = next_messages.len();
         record.updated_at = timestamp;
         if let Some(title) = derived_title {
             record.title = title;

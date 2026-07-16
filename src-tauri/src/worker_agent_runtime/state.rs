@@ -36,6 +36,7 @@ pub(super) struct NativeAgentRunState {
     usage: Vec<Value>,
     pub(super) tools_used: Vec<String>,
     stop_reason: Option<String>,
+    context_checkpoint: Option<Value>,
     pending_guidance_message: Option<Value>,
     trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 }
@@ -62,6 +63,7 @@ impl NativeAgentRunState {
             usage: Vec::new(),
             tools_used: Vec::new(),
             stop_reason: None,
+            context_checkpoint: None,
             pending_guidance_message: guidance_continuation_message(&context.metadata),
             trace_sink,
         }
@@ -227,7 +229,55 @@ impl NativeAgentRunState {
             "pendingToolCalls": self.pending_tool_calls,
             "completedToolResults": self.completed_tool_results,
             "stopReason": self.stop_reason,
+            "messages": self.messages,
+            "contextCheckpoint": self.context_checkpoint,
         })
+    }
+
+    pub(super) fn install_compacted_context(
+        &mut self,
+        replacement_history: Vec<Value>,
+        event_payload: &Value,
+    ) {
+        self.messages = replacement_history.clone();
+        self.context_checkpoint = Some(serde_json::json!({
+            "schemaVersion": 1,
+            "contextId": event_payload.get("contextId").cloned().unwrap_or(Value::Null),
+            "trigger": event_payload.get("trigger").cloned().unwrap_or(Value::Null),
+            "reason": event_payload.get("reason").cloned().unwrap_or(Value::Null),
+            "phase": event_payload.get("phase").cloned().unwrap_or(Value::Null),
+            "method": event_payload.get("method").cloned().unwrap_or(Value::Null),
+            "provider": event_payload.get("provider").cloned().unwrap_or(Value::Null),
+            "model": event_payload.get("model").cloned().unwrap_or(Value::Null),
+            "estimatedTokensBefore": event_payload.get("estimatedTokensBefore").cloned().unwrap_or(Value::Null),
+            "estimatedTokensAfter": event_payload.get("estimatedTokensAfter").cloned().unwrap_or(Value::Null),
+            "maskedToolOutputCount": event_payload.get("maskedToolOutputCount").cloned().unwrap_or(Value::Null),
+            "summaryRequestCount": event_payload.get("summaryRequestCount").cloned().unwrap_or(Value::Null),
+            "installedReplacementHistory": replacement_history,
+        }));
+    }
+
+    pub(super) fn finalized_context_checkpoint(
+        &self,
+        final_message: Option<Value>,
+    ) -> Option<Value> {
+        let mut checkpoint = self.context_checkpoint.clone()?;
+        let mut replacement_history = self.messages.clone();
+        if let Some(final_message) = final_message {
+            replacement_history.push(final_message);
+        }
+        checkpoint["replacementHistory"] = Value::Array(replacement_history);
+        Some(checkpoint)
+    }
+
+    pub(super) fn attach_context_checkpoint(
+        &self,
+        result: &mut Value,
+        final_message: Option<Value>,
+    ) {
+        if let Some(checkpoint) = self.finalized_context_checkpoint(final_message) {
+            result["contextCheckpoint"] = checkpoint;
+        }
     }
 
     pub(super) fn set_pending_tool_call(&mut self, tool_call: &NativeAgentToolCall) {

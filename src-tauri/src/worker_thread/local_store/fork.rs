@@ -6,7 +6,8 @@ use super::{
 };
 use crate::worker_protocol::WorkerProtocolError;
 use crate::worker_thread::types::{
-    ForkThreadRequest, ReadThreadRequest, ThreadMetadata, ThreadRecord, ThreadStatus,
+    ForkThreadRequest, ReadThreadRequest, ThreadItem, ThreadItemKind, ThreadMetadata, ThreadRecord,
+    ThreadStatus,
 };
 use serde_json::Value;
 use std::collections::HashMap;
@@ -64,11 +65,13 @@ pub(super) fn fork_thread(
     record.metadata.last_activity_at = Some(timestamp.clone());
 
     let fork_after_sequence = request.fork_after_sequence.unwrap_or(u64::MAX);
-    let mut items = store
-        .read_items(&source.thread.thread_id)?
-        .into_iter()
+    let source_items = store.read_items(&source.thread.thread_id)?;
+    let mut items = source_items
+        .iter()
         .filter(|item| item.sequence <= fork_after_sequence)
         .filter(|item| request.include_checkpoints || !is_checkpoint_item(item))
+        .filter(|item| context_compaction_survives_fork(item, &source_items, fork_after_sequence))
+        .cloned()
         .collect::<Vec<_>>();
     for item in &mut items {
         item.thread_id = fork_id.clone();
@@ -145,6 +148,28 @@ pub(super) fn fork_thread(
         store.write_items(&thread_id, &items)?;
     }
     Ok(record)
+}
+
+pub(super) fn context_compaction_survives_fork(
+    item: &ThreadItem,
+    source_items: &[ThreadItem],
+    fork_after_sequence: u64,
+) -> bool {
+    if !matches!(item.kind, ThreadItemKind::ContextCompaction(_)) {
+        return true;
+    }
+    // Canonical compaction items can carry the owning run's finalized replacement history.
+    // Dropping a later item from that run must also invalidate the earlier checkpoint, otherwise
+    // the fork would inherit model context from after its requested sequence.
+    let same_compaction_segment =
+        |candidate: &ThreadItem| match (item.run_id.as_deref(), item.turn_id.as_deref()) {
+            (Some(run_id), _) => candidate.run_id.as_deref() == Some(run_id),
+            (None, Some(turn_id)) => candidate.turn_id.as_deref() == Some(turn_id),
+            (None, None) => true,
+        };
+    !source_items.iter().any(|candidate| {
+        candidate.sequence > fork_after_sequence && same_compaction_segment(candidate)
+    })
 }
 
 fn client_fork_thread_id(metadata: &ThreadMetadata, client_event_id: &str) -> Option<String> {

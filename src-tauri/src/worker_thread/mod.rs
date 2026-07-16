@@ -148,6 +148,15 @@ impl WorkerThreadRpc {
         session_adapter::get_session_history_from_threads(&self.store, session_id, limit)
     }
 
+    pub fn get_agent_context_from_threads(
+        &self,
+        session_id: &str,
+        limit: usize,
+    ) -> Result<Option<SessionHistoryProjection>, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionMetadataRead)?;
+        session_adapter::get_agent_context_from_threads(&self.store, session_id, limit)
+    }
+
     pub fn get_session_checkpoint_from_threads(
         &self,
         session_id: &str,
