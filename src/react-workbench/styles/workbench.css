@@ -1521,171 +1521,15 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 /* TinyOS Live Canvas */
 .react-live-canvas.tinyos {
-  grid-template-rows: 58px auto minmax(0, 1fr);
+  grid-template-rows: 58px minmax(0, 1fr);
   container-type: inline-size;
   background: #07111d;
   color: var(--color-body);
 }
 
-.tinyos-time-machine {
-  display: grid;
-  gap: 7px;
-  border-bottom: 1px solid rgb(72 59 45 / 10%);
-  background: rgb(250 248 243 / 92%);
-  padding: 8px 12px;
-  box-shadow: 0 4px 12px rgb(72 59 45 / 5%);
-}
-
-.tinyos-time-machine[data-empty="true"] {
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  color: var(--color-muted);
-  font-size: 10px;
-}
-
-.tinyos-time-machine__heading,
-.tinyos-time-machine__controls,
-.tinyos-time-machine__boundary {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 7px;
-}
-
-.tinyos-time-machine__heading {
-  justify-content: space-between;
-}
-
-.tinyos-time-machine__heading > div {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-}
-
-.tinyos-time-machine__heading small,
-.tinyos-time-machine__heading > span,
-.tinyos-time-machine__groups small,
-.tinyos-time-machine__boundary {
-  color: var(--color-muted);
-  font-size: 9px;
-}
-
-.tinyos-time-machine__heading strong {
-  color: var(--color-ink);
-  font-size: 11px;
-}
-
-.tinyos-time-machine__controls > button,
-.tinyos-time-machine__groups button,
-.tinyos-time-machine__speed select {
-  border: 1px solid var(--color-hairline);
-  border-radius: 7px;
-  background: rgb(255 255 255 / 68%);
-  color: var(--color-body);
-  cursor: pointer;
-}
-
-.tinyos-time-machine__controls > button {
-  display: inline-flex;
-  min-width: 30px;
-  min-height: 30px;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  padding: 0 8px;
-}
-
-.tinyos-time-machine__controls > button:focus-visible,
-.tinyos-time-machine__groups button:focus-visible,
-.tinyos-time-machine__speed select:focus-visible,
-.tinyos-time-machine input[type="range"]:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 2px;
-}
-
-.tinyos-time-machine__controls > button:disabled {
-  cursor: not-allowed;
-  opacity: .42;
-}
-
-.tinyos-time-machine__controls > label:not(.tinyos-time-machine__speed) {
-  display: grid;
-  min-width: 100px;
-  flex: 1;
-  gap: 2px;
-}
-
-.tinyos-time-machine__controls label > span {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-}
-
-.tinyos-time-machine input[type="range"] {
-  width: 100%;
-  accent-color: var(--color-primary);
-  cursor: pointer;
-}
-
-.tinyos-time-machine__speed select {
-  min-height: 30px;
-  padding: 0 5px;
-  font-size: 9px;
-}
-
-.tinyos-time-machine__live {
-  white-space: nowrap;
-}
-
-.tinyos-time-machine__groups {
-  display: flex;
-  min-width: 0;
-  margin: 0;
-  gap: 5px;
-  overflow-x: auto;
-  padding: 0;
-  list-style: none;
-  scrollbar-width: thin;
-}
-
-.tinyos-time-machine__groups button {
-  display: grid;
-  flex: 0 0 auto;
-  justify-items: start;
-  gap: 1px;
-  padding: 4px 7px;
-  text-align: left;
-}
-
-.tinyos-time-machine__groups button[aria-current="true"] {
-  border-color: color-mix(in srgb, var(--color-primary) 36%, var(--color-hairline));
-  background: color-mix(in srgb, var(--color-primary) 9%, white);
-  color: var(--color-primary);
-}
-
-.tinyos-time-machine__boundary {
-  overflow-x: auto;
-  white-space: nowrap;
-}
-
-.tinyos-time-machine__boundary > span:first-child {
-  overflow: hidden;
-  max-width: 220px;
-  color: var(--color-ink);
-  font-weight: 600;
-  text-overflow: ellipsis;
-}
-
-.tinyos-time-machine__boundary [data-unavailable="true"] {
-  color: #8a5d1e;
-}
-
 .tinyos-system-bar.react-live-canvas__header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   border-bottom-color: rgb(72 59 45 / 10%);
   background: rgb(250 248 243 / 88%);
@@ -1694,8 +1538,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   backdrop-filter: blur(22px) saturate(1.2);
 }
 
-.tinyos-system-bar__identity,
-.tinyos-system-bar__status {
+.tinyos-system-bar__identity {
   display: flex;
   min-width: 0;
   align-items: center;
@@ -1712,47 +1555,6 @@ button.tinyos-overlay-backdrop:focus-visible {
   flex: 0 0 auto;
   font-size: 15px;
   letter-spacing: -.025em;
-}
-
-.tinyos-system-bar__status {
-  justify-content: center;
-}
-
-.tinyos-system-bar__status > span {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border: 1px solid rgb(75 67 57 / 8%);
-  border-radius: 999px;
-  background: rgb(255 255 255 / 42%);
-  padding: 4px 7px;
-  white-space: nowrap;
-}
-
-.tinyos-system-bar__status > span[data-live="true"]::before {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #36a767;
-  box-shadow: 0 0 0 3px rgb(54 167 103 / 12%);
-  content: "";
-}
-
-.tinyos-system-bar__status > .tinyos-agent-activity {
-  max-width: 240px;
-  overflow: hidden;
-  border-color: color-mix(in srgb, var(--color-primary) 18%, var(--color-hairline));
-  background: color-mix(in srgb, var(--color-primary) 6%, rgb(255 255 255 / 42%));
-  color: var(--color-body);
-  text-overflow: ellipsis;
-}
-
-.tinyos-attention {
-  color: var(--color-warning) !important;
-}
-
-.tinyos-command-spinner {
-  animation: react-spin 1s linear infinite;
 }
 
 .tinyos-truth-badge {
@@ -4174,7 +3976,6 @@ button.tinyos-overlay-backdrop:focus-visible {
 }
 
 @container (max-width: 720px) {
-  .tinyos-system-bar__status > span:not(:first-child),
   .react-live-canvas__header-actions > button > span {
     display: none;
   }
@@ -4190,7 +3991,6 @@ button.tinyos-overlay-backdrop:focus-visible {
 }
 
 @container (max-width: 520px) {
-  .tinyos-system-bar__status,
   .tinyos-truth-badge {
     display: none;
   }

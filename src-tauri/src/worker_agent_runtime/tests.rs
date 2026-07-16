@@ -1829,6 +1829,17 @@ fn activated_mutating_tool_stops_at_approval_checkpoint_before_dispatch() {
                         result: Value::Null,
                     }],
                 }),
+                2 => Ok(NativeAgentProviderResponse {
+                    final_content: String::new(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![NativeAgentToolCall {
+                        id: "search-after-write".to_string(),
+                        name: "tool_search".to_string(),
+                        arguments_json: r#"{"query":"Read workspace file","limit":1}"#.to_string(),
+                        result: Value::Null,
+                    }],
+                }),
                 _ => {
                     assert!(context.messages.iter().any(|message| {
                         message["role"] == "tool"
@@ -1837,8 +1848,11 @@ fn activated_mutating_tool_stops_at_approval_checkpoint_before_dispatch() {
                                 .as_str()
                                 .is_some_and(|content| content.contains("write dispatched"))
                     }));
+                    assert!(context.messages.iter().any(|message| {
+                        message["role"] == "tool" && message["tool_call_id"] == "search-after-write"
+                    }));
                     Ok(NativeAgentProviderResponse {
-                        final_content: "approved write complete".to_string(),
+                        final_content: "approved write and follow-up search complete".to_string(),
                         reasoning_delta: None,
                         usage: None,
                         tool_calls: Vec::new(),
@@ -1870,6 +1884,7 @@ fn activated_mutating_tool_stops_at_approval_checkpoint_before_dispatch() {
     }
 
     let dispatched = Arc::new(Mutex::new(Vec::new()));
+    let trace_sink = Arc::new(RecordingTraceSink::default());
     let services = NativeAgentRuntimeServices::new(
         Arc::new(SearchThenWriteProvider {
             calls: AtomicUsize::new(0),
@@ -1879,13 +1894,14 @@ fn activated_mutating_tool_stops_at_approval_checkpoint_before_dispatch() {
         }),
         Arc::new(InMemoryNativeAgentCheckpointStore::default()),
         Arc::new(InMemoryNativeAgentCancellation::default()),
-    );
+    )
+    .with_trace_sink(trace_sink);
     let result = run_native_agent_turn_with_config(
         &services,
         json!({
             "runId": "run-deferred-write-approval",
             "sessionId": "session-deferred-write-approval",
-            "maxIterations": 2,
+            "maxIterations": 4,
             "messages": [{ "role": "user", "content": "write a note" }]
         }),
         json!({}),
@@ -2024,8 +2040,38 @@ fn activated_mutating_tool_stops_at_approval_checkpoint_before_dispatch() {
         json!(["workspace.write_file"])
     );
     assert_eq!(resumed["stopReason"], "final_response");
-    assert_eq!(resumed["finalContent"], "approved write complete");
-    assert_eq!(resumed["toolsUsed"], json!(["workspace.write_file"]));
+    assert_eq!(
+        resumed["finalContent"],
+        "approved write and follow-up search complete"
+    );
+    assert_eq!(
+        resumed["toolsUsed"],
+        json!(["workspace.write_file", "tool_search"])
+    );
+    let waiting_event_ids = result["runtimeEvents"]
+        .as_array()
+        .expect("waiting runtime events should be returned")
+        .iter()
+        .filter_map(|event| event["eventId"].as_str())
+        .collect::<std::collections::HashSet<_>>();
+    let resumed_events = resumed["runtimeEvents"]
+        .as_array()
+        .expect("resumed runtime events should be returned");
+    assert!(resumed_events.iter().all(|event| event["eventId"]
+        .as_str()
+        .is_some_and(|event_id| !waiting_event_ids.contains(event_id))));
+    let resumed_event_names = resumed_events
+        .iter()
+        .filter_map(|event| event["eventName"].as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        resumed_event_names.contains(&"agent.approval.decision"),
+        "resumed runtime events: {resumed_event_names:?}"
+    );
+    assert!(resumed_events.iter().any(|event| {
+        event["eventName"] == "agent.tool.result"
+            && event["payload"]["toolCallId"] == "search-after-write"
+    }));
     let dispatched = dispatched
         .lock()
         .expect("dispatched calls lock should not be poisoned");

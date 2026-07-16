@@ -218,4 +218,35 @@ describe("desktop native app services", () => {
       },
     });
   });
+
+  test("branches a completed canonical turn with portable message history", async () => {
+    mocks.invoke.mockImplementation(async (command: string) => {
+      if (command === "worker_threads_list") return { threads: [thread], total: 1 };
+      if (command === "worker_agent_runs_list") return { runs: [{ runId: "run-completed" }] };
+      if (command === "worker_agent_run_runtime_state") return canonicalRuntimeState("run-completed", "completed");
+      if (command === "worker_session_branch") return { key: "thread-branch", title: "Native thread · Branch" };
+      return {};
+    });
+    const services = createDesktopAppServices();
+
+    await expect(services.chatStore.branchFromMessage("thread-1", "run-completed:assistant")).resolves.toEqual(
+      expect.objectContaining({ id: "thread-branch", title: "Native thread · Branch" }),
+    );
+
+    expect(mocks.invoke).toHaveBeenCalledWith("worker_session_branch", {
+      input: {
+        body: {
+          branchedFromMessageId: "run-completed:assistant",
+          branchedFromSessionId: "thread-1",
+          messages: [
+            { content: "hello", messageId: "run-completed:user", role: "user" },
+            { content: "hi", messageId: "run-completed:assistant", role: "assistant" },
+          ],
+          portableContext: { chatId: "thread-1", sessionKey: "thread-1" },
+          runtimeState: {},
+          title: "Native thread · 分叉",
+        },
+      },
+    });
+  });
 });

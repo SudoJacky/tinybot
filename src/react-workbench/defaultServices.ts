@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { createDesktopChatSessionController } from "../app-core/chat/desktopChatSessionController";
+import { createBranchSessionDraft } from "../app-core/chat/chatBranchSession";
 import type { NativeChatReference, NativeChatSession } from "../app-core/chat/nativeChat";
 import {
   createAgentUiEventState,
@@ -394,14 +395,39 @@ export function createDesktopAppServices(): AppServices {
       },
       async branchFromMessage(sessionId, messageId) {
         await initialize();
-        const payload = await requireNative(nativeSessions, "Session").branch?.({ session_key: sessionId, message_id: messageId });
+        const sourceSession = controller.state.sessions.find((session) => session.key === sessionId);
+        if (!sourceSession) {
+          throw new Error(`Cannot branch from unknown Thread ${sessionId}`);
+        }
+        const timeline = await controller.loadTimeline(sessionId);
+        const draft = createBranchSessionDraft({
+          sessionId,
+          chatId: sourceSession.chatId,
+          title: sourceSession.title,
+          messages: timeline.turns.flatMap((turn) => {
+            const finalAnswer = turn.finalAnswer ?? turn.finalMessage;
+            return [
+              { messageId: turn.userMessage.id, role: "user", content: turn.userMessage.text },
+              ...(finalAnswer ? [{ messageId: finalAnswer.id, role: "assistant", content: finalAnswer.text }] : []),
+            ];
+          }),
+          portableContext: { chatId: sourceSession.chatId, sessionKey: sourceSession.key },
+          runtimeState: {},
+        }, messageId);
+        const branch = requireNative(nativeSessions, "Session").branch;
+        if (!branch) {
+          throw new Error("Session branch API is unavailable");
+        }
+        const payload = await branch(draft);
         await controller.loadSessions();
-        return mapSession(controller.state.sessions[0] ?? {
-          key: sessionId,
-          chatId: "",
-          title: "Branch",
-          createdAt: "",
-          updatedAt: new Date().toISOString(),
+        const payloadRecord = isRecord(payload) ? payload : {};
+        const branchKey = stringValue(payloadRecord.key ?? payloadRecord.sessionKey ?? payloadRecord.session_key);
+        return mapSession(controller.state.sessions.find((session) => session.key === branchKey) ?? {
+          key: branchKey || sessionId,
+          chatId: stringValue(payloadRecord.chatId ?? payloadRecord.chat_id),
+          title: stringValue(payloadRecord.title) || draft.title,
+          createdAt: stringValue(payloadRecord.createdAt ?? payloadRecord.created_at),
+          updatedAt: stringValue(payloadRecord.updatedAt ?? payloadRecord.updated_at) || new Date().toISOString(),
         }, false, payload);
       },
       async copyMarkdown(sessionId) {

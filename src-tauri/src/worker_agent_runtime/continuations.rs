@@ -3,6 +3,7 @@ use super::events::{
     event, legacy_result_events_from_runtime_events, runtime_event_item_id, runtime_event_timestamp,
 };
 use super::result::{append_runtime_events_to_sink, cancelled_result, waiting_runtime_events};
+use super::state::NativeAgentRunState;
 use super::tool_projection::{
     assistant_tool_calls_message, completed_tool_result_entry, normalize_tool_result_for_context,
     tool_observation_content, tool_observation_message,
@@ -222,8 +223,8 @@ pub(super) fn maybe_awaiting_approval_result(
 
 pub(super) async fn maybe_approval_resume_result(
     services: &NativeAgentRuntimeServices,
-    context: &NativeAgentRunContext,
-) -> Result<Option<Value>, String> {
+    context: &mut NativeAgentRunContext,
+) -> Result<Option<ApprovalContinuationOutcome>, String> {
     let Some((approval, continuation)) = approval_resume_metadata(context) else {
         return Ok(None);
     };
@@ -258,7 +259,7 @@ pub(super) async fn maybe_approval_resume_result(
     {
         let checkpoint = checkpoint
             .ok_or_else(|| "tool approval continuation checkpoint disappeared".to_string())?;
-        return approved_tool_continuation_result(services, context, &continuation, checkpoint)
+        return approved_tool_continuation_outcome(services, context, &continuation, checkpoint)
             .await
             .map(Some);
     }
@@ -274,7 +275,7 @@ pub(super) async fn maybe_approval_resume_result(
     }
     if !approved {
         if let Some(guidance) = continuation.guidance.clone() {
-            return Ok(Some(
+            return Ok(Some(ApprovalContinuationOutcome::Finished(
                 approval_denied_guidance_result(
                     services,
                     context,
@@ -284,7 +285,7 @@ pub(super) async fn maybe_approval_resume_result(
                     checkpoint,
                 )
                 .await?,
-            ));
+            )));
         }
         services
             .checkpoints
@@ -310,18 +311,20 @@ pub(super) async fn maybe_approval_resume_result(
         ];
         let runtime_events = continuation_runtime_events(services, context, &events)?;
         append_runtime_events_to_sink(context, services.trace_sink.as_ref(), &runtime_events);
-        return Ok(Some(serde_json::json!({
-            "runtime": "rust",
-            "runId": context.run_id,
-            "sessionId": context.session_id,
-            "finalContent": "",
-            "stopReason": "approval_denied",
-            "messages": [],
-            "toolsUsed": [],
-            "error": message,
-            "events": events,
-            "runtimeEvents": runtime_events,
-        })));
+        return Ok(Some(ApprovalContinuationOutcome::Finished(
+            serde_json::json!({
+                "runtime": "rust",
+                "runId": context.run_id,
+                "sessionId": context.session_id,
+                "finalContent": "",
+                "stopReason": "approval_denied",
+                "messages": [],
+                "toolsUsed": [],
+                "error": message,
+                "events": events,
+                "runtimeEvents": runtime_events,
+            }),
+        )));
     }
     services
         .checkpoints
@@ -363,36 +366,38 @@ pub(super) async fn maybe_approval_resume_result(
     ];
     let runtime_events = continuation_runtime_events(services, context, &events)?;
     append_runtime_events_to_sink(context, services.trace_sink.as_ref(), &runtime_events);
-    Ok(Some(serde_json::json!({
-        "runtime": "rust",
-        "runId": context.run_id,
-        "sessionId": context.session_id,
-        "finalContent": final_content,
-        "stopReason": "final_response",
-        "messages": [{ "role": "assistant", "content": final_content }],
-        "toolsUsed": [],
-        "restoredCheckpoint": checkpoint,
-        "continuation": {
-            "kind": "approval",
-            "approvalId": continuation.approval_id,
-            "decision": if approved { "approved" } else { "denied" },
-            "scope": match continuation.scope {
-                AgentApprovalScope::Once => "once",
-                AgentApprovalScope::Session => "session",
+    Ok(Some(ApprovalContinuationOutcome::Finished(
+        serde_json::json!({
+            "runtime": "rust",
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "finalContent": final_content,
+            "stopReason": "final_response",
+            "messages": [{ "role": "assistant", "content": final_content }],
+            "toolsUsed": [],
+            "restoredCheckpoint": checkpoint,
+            "continuation": {
+                "kind": "approval",
+                "approvalId": continuation.approval_id,
+                "decision": if approved { "approved" } else { "denied" },
+                "scope": match continuation.scope {
+                    AgentApprovalScope::Once => "once",
+                    AgentApprovalScope::Session => "session",
+                },
+                "guidance": continuation.guidance,
             },
-            "guidance": continuation.guidance,
-        },
-        "events": events,
-        "runtimeEvents": runtime_events,
-    })))
+            "events": events,
+            "runtimeEvents": runtime_events,
+        }),
+    )))
 }
 
-async fn approved_tool_continuation_result(
+async fn approved_tool_continuation_outcome(
     services: &NativeAgentRuntimeServices,
-    context: &NativeAgentRunContext,
+    context: &mut NativeAgentRunContext,
     continuation: &ApprovalContinuationData,
     checkpoint: Value,
-) -> Result<Value, String> {
+) -> Result<ApprovalContinuationOutcome, String> {
     let tool_call = approved_pending_tool_call(&checkpoint)?;
     if !context.tool_router.is_permitted(&tool_call.name) {
         return Err(format!(
@@ -443,140 +448,57 @@ async fn approved_tool_continuation_result(
             normalize_tool_result_for_context(result, context)
         }
         OwnedToolCallResult::Cancelled => {
-            return Ok(cancelled_result(
+            return Ok(ApprovalContinuationOutcome::Finished(cancelled_result(
                 services,
                 &context.run_id,
                 &context.session_id,
                 checkpoint,
-            ));
+            )));
         }
         OwnedToolCallResult::CleanupTimedOut {
             cancellation_mode,
             timeout_ms,
         } => {
-            return Ok(approved_tool_cleanup_timeout_result(
-                context,
-                continuation,
-                &tool_call,
-                checkpoint,
-                cancellation_mode,
-                timeout_ms,
+            return Ok(ApprovalContinuationOutcome::Finished(
+                approved_tool_cleanup_timeout_result(
+                    context,
+                    continuation,
+                    &tool_call,
+                    checkpoint,
+                    cancellation_mode,
+                    timeout_ms,
+                ),
             ));
         }
     };
     let observation_content = tool_observation_content(&result);
     let completed_result = completed_tool_result_entry(&tool_call, &result);
+    let restored_completed_results = checkpoint
+        .get("completedToolResults")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let iteration = checkpoint
+        .get("iteration")
+        .and_then(Value::as_i64)
+        .or_else(|| {
+            checkpoint
+                .pointer("/payload/iteration")
+                .and_then(Value::as_i64)
+        })
+        .ok_or_else(|| "invalid tool approval checkpoint: iteration is missing".to_string())?;
     messages.push(tool_observation_message(&tool_call, &observation_content));
-    resumed_context.messages = messages.clone();
-    resumed_context.spec["messages"] = Value::Array(messages);
+    context.messages = messages.clone();
+    context.spec["messages"] = Value::Array(messages);
 
-    let mut events = vec![
-        approval_decision_event(context, continuation),
-        event(
-            "agent.tool.result",
-            serde_json::json!({
-                "runId": context.run_id,
-                "sessionId": context.session_id,
-                "toolCallId": tool_call.id,
-                "toolName": tool_call.name,
-                "name": tool_call.name,
-                "detailId": format!("tool:{}", tool_call.id),
-                "status": "completed",
-                "resultStatus": result.envelope.get("status").cloned().unwrap_or(Value::Null),
-                "summary": result.envelope.get("summary").cloned().unwrap_or_else(|| Value::String(observation_content.clone())),
-                "content": observation_content,
-                "envelope": result.envelope.clone(),
-            }),
-        ),
-    ];
-    let mut provider_observer = |_event: NativeAgentProviderStreamEvent| {};
-    let provider_call = services
-        .provider
-        .clone()
-        .complete_streaming_async(&resumed_context, &mut provider_observer);
-    tokio::pin!(provider_call);
-    let provider_response = if let Some(cancellation) = resumed_context.cancellation.clone() {
-        tokio::select! {
-            biased;
-            _ = cancellation.cancelled() => {
-                return Ok(cancelled_result(
-                    services,
-                    &context.run_id,
-                    &context.session_id,
-                    checkpoint,
-                ));
-            }
-            result = &mut provider_call => result,
-        }
-    } else {
-        provider_call.await
-    };
-    let provider_response = match provider_response {
-        Ok(response) => response,
-        Err(error) if error.kind() == NativeAgentProviderFailureKind::Cancelled => {
-            return Ok(cancelled_result(
-                services,
-                &context.run_id,
-                &context.session_id,
-                checkpoint,
-            ));
-        }
-        Err(error) => {
-            return Err(format!(
-                "provider call after approved tool `{}` failed: {error}",
-                tool_call.name
-            ));
-        }
-    };
-    if !provider_response.tool_calls.is_empty() {
-        return Err(format!(
-            "provider returned additional tool calls after approved tool `{}` dispatch",
-            tool_call.name
-        ));
-    }
-    if let Some(usage) = provider_response.usage {
-        let estimated_context_tokens = estimate_context_tokens_for_request(&resumed_context);
-        let usage =
-            enrich_usage_with_context_window(&resumed_context, usage, estimated_context_tokens, 0);
-        events.push(event(
-            "agent.usage",
-            serde_json::json!({
-                "runId": context.run_id,
-                "sessionId": context.session_id,
-                "usage": usage,
-            }),
-        ));
-    }
-    let final_content = provider_response.final_content;
-    events.push(event(
-        "agent.done",
-        serde_json::json!({
-            "runId": context.run_id,
-            "sessionId": context.session_id,
-            "stopReason": "final_response",
-        }),
-    ));
-    let runtime_events = continuation_runtime_events(services, context, &events)?;
-    append_runtime_events_to_sink(context, services.trace_sink.as_ref(), &runtime_events);
-    Ok(serde_json::json!({
-        "runtime": "rust",
-        "runId": context.run_id,
-        "sessionId": context.session_id,
-        "finalContent": final_content,
-        "stopReason": "final_response",
-        "messages": [{ "role": "assistant", "content": final_content }],
-        "toolsUsed": [tool_call.name],
-        "completedToolResults": [completed_result],
-        "restoredCheckpoint": checkpoint,
-        "continuation": {
-            "kind": "approval",
-            "approvalId": continuation.approval_id,
-            "decision": "approved",
-            "scope": approval_scope_str(&continuation.scope),
-            "guidance": continuation.guidance,
-        },
-        "events": events,
-        "runtimeEvents": runtime_events,
+    Ok(ApprovalContinuationOutcome::Resume(ApprovalResume {
+        iteration,
+        tool_call,
+        completed_result,
+        restored_completed_results,
+        observation_content,
+        envelope: result.envelope,
+        continuation: continuation.clone(),
     }))
 }
 
@@ -932,6 +854,59 @@ fn approval_scope_str(scope: &AgentApprovalScope) -> &'static str {
     match scope {
         AgentApprovalScope::Once => "once",
         AgentApprovalScope::Session => "session",
+    }
+}
+
+pub(super) enum ApprovalContinuationOutcome {
+    Resume(ApprovalResume),
+    Finished(Value),
+}
+
+pub(super) struct ApprovalResume {
+    iteration: i64,
+    tool_call: NativeAgentToolCall,
+    completed_result: Value,
+    restored_completed_results: Vec<Value>,
+    observation_content: String,
+    envelope: NativeToolResultEnvelope,
+    continuation: ApprovalContinuationData,
+}
+
+impl ApprovalResume {
+    pub(super) fn apply(
+        self,
+        context: &NativeAgentRunContext,
+        state: &mut NativeAgentRunState,
+    ) -> i64 {
+        state
+            .completed_tool_results
+            .extend(self.restored_completed_results);
+        state.tools_used.push(self.tool_call.name.clone());
+        state.completed_tool_results.push(self.completed_result);
+        state.clear_pending_tool_calls();
+        state.emit_native_event(approval_decision_event(context, &self.continuation));
+        state.emit_event(
+            "agent.tool.result",
+            serde_json::json!({
+                "runId": context.run_id,
+                "sessionId": context.session_id,
+                "iteration": self.iteration,
+                "toolCallId": self.tool_call.id,
+                "toolName": self.tool_call.name,
+                "name": self.tool_call.name,
+                "detailId": format!("tool:{}", self.tool_call.id),
+                "status": "completed",
+                "resultStatus": self.envelope.get("status").cloned().unwrap_or(Value::Null),
+                "summary": self
+                    .envelope
+                    .get("summary")
+                    .cloned()
+                    .unwrap_or_else(|| Value::String(self.observation_content.clone())),
+                "content": self.observation_content,
+                "envelope": self.envelope,
+            }),
+        );
+        self.iteration.saturating_add(1)
     }
 }
 

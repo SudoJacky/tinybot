@@ -1852,13 +1852,6 @@ export function ChatPage({
           onReturnToLive={() => dispatchLiveCanvas({ type: "return_live" })}
           onResumeRun={() => void handleAgentRunControl("agent.resume", "tinyos")}
           onSelectEntry={(entry) => openLiveCanvasItem(entry.turnId, entry.step)}
-          onSelectBoundary={(boundary) => dispatchLiveCanvas({
-            eventIndex: boundary.eventIndex,
-            itemId: boundary.itemId,
-            runId: boundary.runId,
-            turnId: boundary.turnId,
-            type: "select",
-          })}
           onSubmitForm={(form, values) => void handleSubmitAgentUiForm(form, values, "tinyos")}
           onSaveFile={handleSaveTinyOsFile}
           requestChangeUnavailableReason={requestChangeUnavailableReason}
@@ -2370,7 +2363,6 @@ function CanonicalChatTurn({
 }) {
   const executionItems = turn.executionItems ?? turn.steps;
   const finalAnswer = turn.finalAnswer ?? turn.finalMessage;
-  const hasToolSteps = executionItems.some((step) => step.kind === "tool_call");
   const reasoningSteps = turn.steps.filter((step) => step.kind === "reasoning");
   const planSteps = turn.steps.filter((step) => step.kind === "plan");
   const errorSteps = turn.steps.filter((step) => step.kind === "error");
@@ -2438,7 +2430,7 @@ function CanonicalChatTurn({
           role="assistant"
           streaming={turn.status === "running"}
           text={finalAnswer.text}
-          onBranch={turn.status === "completed" && !hasToolSteps ? () => onBranch(finalAnswer.id) : undefined}
+          onBranch={turn.status === "completed" ? () => onBranch(finalAnswer.id) : undefined}
         />
       ) : !turn.executionItems && reasoningSteps.length ? (
         <CanonicalMessage

@@ -408,6 +408,7 @@ impl<S: ThreadStore> ThreadRuntime<S> {
             ThreadOp::RuntimeEvent {
                 run_id,
                 turn_id,
+                item_id,
                 event_id,
                 sequence,
                 timestamp,
@@ -423,8 +424,8 @@ impl<S: ThreadStore> ThreadRuntime<S> {
                 {
                     move |thread_id, run_id, turn_id| {
                         runtime_event_item(
-                            thread_id, run_id, turn_id, event_id, sequence, timestamp, event_name,
-                            source, visibility, payload,
+                            thread_id, run_id, turn_id, item_id, event_id, sequence, timestamp,
+                            event_name, source, visibility, payload,
                         )
                     }
                 },
@@ -1219,6 +1220,7 @@ fn runtime_event_item(
     thread_id: &str,
     run_id: &str,
     turn_id: &str,
+    projected_item_id: Option<String>,
     event_id: Option<String>,
     sequence: Option<u64>,
     timestamp: Option<String>,
@@ -1247,6 +1249,7 @@ fn runtime_event_item(
         sequence: 0,
         created_at: String::new(),
         kind: ThreadItemKind::Event(json!({
+            "itemId": projected_item_id,
             "eventId": event_id,
             "sequence": sequence,
             "timestamp": timestamp,
@@ -1461,6 +1464,7 @@ mod tests {
             "thread-1",
             "run-1",
             "run-1",
+            Some("approval-1".to_string()),
             Some("run-1:agent-approval-decision:210".to_string()),
             Some(210),
             Some("2100".to_string()),
@@ -1479,6 +1483,7 @@ mod tests {
             kind => panic!("expected runtime event item, got {kind:?}"),
         };
         assert_eq!(payload["eventId"], "run-1:agent-approval-decision:210");
+        assert_eq!(payload["itemId"], "approval-1");
         assert_eq!(payload["sequence"], 210);
         assert_eq!(payload["timestamp"], "2100");
     }

@@ -752,6 +752,7 @@ pub(crate) fn apply_native_agent_thread_result(
                     "type": "runtime_event",
                     "runId": run_id,
                     "turnId": run_id,
+                    "itemId": event.get("itemId").cloned().unwrap_or(serde_json::Value::Null),
                     "eventId": event.get("eventId").cloned().unwrap_or(serde_json::Value::Null),
                     "sequence": event.get("sequence").cloned().unwrap_or(serde_json::Value::Null),
                     "timestamp": event.get("timestamp").cloned().unwrap_or(serde_json::Value::Null),

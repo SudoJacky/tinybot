@@ -191,44 +191,50 @@ function browserRuntimeMock() {
 }
 
 describe("LiveCanvas TinyOS", () => {
-  it("exposes the shared cancel control and its pending state", async () => {
+  it("keeps run state out of the system bar while retaining commands in the palette", async () => {
+    const user = userEvent.setup();
     const onCancelRun = vi.fn();
-    const { rerender } = render(<LiveCanvas {...canvasProps([], { canCancelRun: true, onCancelRun })} />);
-    await userEvent.click(screen.getByRole("button", { name: "Cancel active Agent run" }));
-    expect(onCancelRun).toHaveBeenCalledTimes(1);
-
-    rerender(<LiveCanvas {...canvasProps([], {
-      canCancelRun: true,
-      commandLifecycle: {
-        command: {
-          schemaVersion: "tinybot.command.v1",
-          commandId: "command-1",
-          issuedAt: "2026-07-13T00:00:00Z",
-          kind: "agent.cancel",
-          source: { control: "system-bar-cancel", surface: "tinyos" },
-          target: { runId: "run-1", sessionId: "session-1" },
-        },
-        dispatchedAtMs: 1,
-        transportAcceptedAtMs: 2,
-        stage: "waiting_for_canonical",
-      },
-      onCancelRun,
-    })} />);
-    expect((screen.getByRole("button", { name: "Cancel command pending" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText("Awaiting runtime")).toBeTruthy();
-  });
-
-  it("routes pause and resume through the shared run controller", async () => {
     const onPauseRun = vi.fn();
     const onResumeRun = vi.fn();
-    const { rerender } = render(<LiveCanvas {...canvasProps([], { canPauseRun: true, onPauseRun, onResumeRun })} />);
+    const planEntry = entry(step({
+      id: "system-bar-plan",
+      kind: "plan",
+      plan: { completed: 1, steps: [{ status: "completed", step: "Plan work" }], total: 1 },
+      title: "Execution plan",
+    }));
+    render(<LiveCanvas {...canvasProps([planEntry], {
+      canCancelRun: true,
+      canPauseRun: true,
+      canResumeRun: true,
+      onCancelRun,
+      onPauseRun,
+      onResumeRun,
+    })} />);
 
-    await userEvent.click(screen.getByRole("button", { name: "Pause active Agent run" }));
+    const systemBar = document.querySelector<HTMLElement>(".tinyos-system-bar")!;
+    expect(within(systemBar).queryByText("Live workspace")).toBeNull();
+    expect(within(systemBar).queryByText("Plan updated")).toBeNull();
+    expect(within(systemBar).queryByRole("button", { name: "Pause active Agent run" })).toBeNull();
+    expect(within(systemBar).queryByRole("button", { name: "Resume paused Agent run" })).toBeNull();
+    expect(within(systemBar).queryByRole("button", { name: "Cancel active Agent run" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Open command palette" }));
+    let palette = screen.getByRole("dialog", { name: "command palette" });
+    await user.type(within(palette).getByRole("searchbox", { name: "Search TinyOS commands" }), "pause active");
+    await user.click(within(palette).getByRole("option", { name: /Pause active Agent run/ }));
     expect(onPauseRun).toHaveBeenCalledTimes(1);
 
-    rerender(<LiveCanvas {...canvasProps([], { canResumeRun: true, onPauseRun, onResumeRun })} />);
-    await userEvent.click(screen.getByRole("button", { name: "Resume paused Agent run" }));
+    await user.click(screen.getByRole("button", { name: "Open command palette" }));
+    palette = screen.getByRole("dialog", { name: "command palette" });
+    await user.type(within(palette).getByRole("searchbox", { name: "Search TinyOS commands" }), "resume paused");
+    await user.click(within(palette).getByRole("option", { name: /Resume paused Agent run/ }));
     expect(onResumeRun).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: "Open command palette" }));
+    palette = screen.getByRole("dialog", { name: "command palette" });
+    await user.type(within(palette).getByRole("searchbox", { name: "Search TinyOS commands" }), "cancel active");
+    await user.click(within(palette).getByRole("option", { name: /Cancel active Agent run/ }));
+    expect(onCancelRun).toHaveBeenCalledTimes(1);
   });
 
   it("marks Agent requests from History as new live operations", async () => {
@@ -272,10 +278,10 @@ describe("LiveCanvas TinyOS", () => {
       cancelUnavailableReason: "The run is waiting for user input.",
     })} />);
 
-    const cancel = screen.getByRole("button", { name: "Cancel active Agent run" });
+    fireEvent.click(screen.getByRole("button", { name: "Open command palette" }));
+    const cancel = within(screen.getByRole("dialog", { name: "command palette" })).getByRole("option", { name: /Cancel active Agent run/ });
     expect((cancel as HTMLButtonElement).disabled).toBe(true);
     expect(cancel.getAttribute("title")).toBe("The run is waiting for user input.");
-    expect(screen.getByText("The run is waiting for user input.")).toBeTruthy();
   });
 
   it("renders stable Files and Terminal applications from canonical entries", () => {
@@ -305,7 +311,6 @@ describe("LiveCanvas TinyOS", () => {
     expect(canvas.querySelector("[data-app='terminal']")).toBeTruthy();
     expect(within(canvas).getAllByText("src/app.ts").length).toBeGreaterThan(0);
     expect(within(canvas).getAllByText(/npm test/).length).toBeGreaterThan(0);
-    expect(within(canvas).getByText("Running npm test")).toBeTruthy();
     expect(within(canvas).getByText(/Tests passed/)).toBeTruthy();
     const shelf = within(canvas).getByRole("navigation", { name: "TinyOS recent operations" });
     expect(within(shelf).getAllByRole("button")).toHaveLength(1);
@@ -351,7 +356,7 @@ describe("LiveCanvas TinyOS", () => {
     expect(onCancelTerminal).toHaveBeenCalledTimes(1);
   });
 
-  it("reconstructs a historical desktop and returns to live", async () => {
+  it("reconstructs a historical desktop without monitoring chrome and returns to live", async () => {
     const user = userEvent.setup();
     const onReturnToLive = vi.fn();
     const onSelectEntry = vi.fn();
@@ -371,13 +376,11 @@ describe("LiveCanvas TinyOS", () => {
     })} />);
 
     const canvas = screen.getByLabelText("TinyOS shared desktop");
-    expect(within(canvas).getByText("History")).toBeTruthy();
+    expect(canvas.getAttribute("data-mode")).toBe("history");
     expect(canvas.querySelector("[data-app='files']")).toBeTruthy();
     expect(canvas.querySelector("[data-app='memory']")).toBeNull();
-    expect(within(canvas).getByText("Event 1 of 2")).toBeTruthy();
-    await user.click(within(canvas).getByRole("button", { name: "Next canonical event" }));
-    expect(onSelectEntry).toHaveBeenCalledWith(entries[1]);
-    await user.click(within(canvas).getByRole("button", { name: "Return to Live" }));
+    expect(within(canvas).queryByLabelText("Time Machine")).toBeNull();
+    await user.click(within(canvas).getByRole("button", { name: "Return to live desktop" }));
     expect(onReturnToLive).toHaveBeenCalledTimes(1);
   });
 
@@ -792,6 +795,17 @@ describe("LiveCanvas TinyOS", () => {
     expect(within(browser).queryByText("Local preview")).toBeNull();
   });
 
+  it("focuses Browser when its native session first becomes available", async () => {
+    const props = canvasProps([], { sessionKey: "session-1" });
+    const { rerender } = render(<LiveCanvas {...props} />);
+
+    expect(screen.getByLabelText("Terminal window").getAttribute("data-active")).toBe("true");
+
+    rerender(<LiveCanvas {...props} nativeSnapshots={[browserSessionSnapshot()]} />);
+
+    await waitFor(() => expect(screen.getByLabelText("Browser window").getAttribute("data-active")).toBe("true"));
+  });
+
   it("shows the native startup cause and retries the failed shared session", async () => {
     const runtime = browserRuntimeMock();
     const failed = browserSessionSnapshot();
@@ -834,7 +848,6 @@ describe("LiveCanvas TinyOS", () => {
     expect(tabs[0].getAttribute("aria-selected")).toBe("true");
     expect(within(browser).getByRole("tabpanel", { name: "Current" })).toBeTruthy();
     expect(within(browser).getByText("Agent is using this tab")).toBeTruthy();
-    expect(screen.getByText("Browsing example.com")).toBeTruthy();
     expect(within(browser).queryByRole("img")).toBeNull();
     expect(within(browser).queryByText("Browser capture history")).toBeNull();
 

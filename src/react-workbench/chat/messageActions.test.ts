@@ -17,14 +17,14 @@ describe("message action visibility", () => {
     expect(visibleMessageActions(message, { sessionRunning: false })).toEqual(["copy"]);
   });
 
-  it("shows branch only for completed assistant messages without tool calls while idle", () => {
+  it("shows branch for completed assistant messages while idle", () => {
     expect(canBranchFromMessage(baseMessage, { sessionRunning: false })).toBe(true);
     expect(visibleMessageActions(baseMessage, { sessionRunning: false })).toEqual(["copy", "branch"]);
   });
 
-  it("hides branch while the session is running or the assistant message has tool calls", () => {
+  it("hides branch while the session is running but keeps it for completed tool-backed messages", () => {
     expect(canBranchFromMessage(baseMessage, { sessionRunning: true })).toBe(false);
-    expect(canBranchFromMessage({ ...baseMessage, toolCalls: [{ id: "t1", name: "shell", status: "complete" }] }, { sessionRunning: false })).toBe(false);
+    expect(canBranchFromMessage({ ...baseMessage, toolCalls: [{ id: "t1", name: "shell", status: "complete" }] }, { sessionRunning: false })).toBe(true);
   });
 
   it("hides assistant copy and branch actions while the turn is still running", () => {

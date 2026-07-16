@@ -800,8 +800,12 @@ and approval IDs that do not match the checkpoint return explicit errors. Cancel
 terminal checkpoints expose an empty activation set.
 
 An approved continuation dispatches the persisted call through the same registry execution target,
-records the real tool result, and resumes the provider loop. It does not synthesize a successful
-approval result. Denial records the denied result without invoking the tool.
+records the real tool result, and resumes the ordinary iterative provider loop from the next
+checkpoint iteration. Additional provider tool calls therefore pass through the same activation,
+approval, cancellation, hook, metric, and event paths instead of being rejected after the first
+approved dispatch. The continuation emits only its new runtime events while preserving event
+sequence continuity. It does not synthesize a successful approval result. Denial records the
+denied result without invoking the tool.
 
 ### Model-requested user input
 
@@ -907,6 +911,12 @@ stable ID from the provider attempt or iteration. Deltas only coalesce into the 
 item, so commentary and reasoning that occurred before or between Tool calls remain separate ordered
 items after live updates and reload.
 
+Thread-owned `runtime_event` persistence carries the canonical `itemId` alongside the event payload.
+When replaying records written before that field was persisted, assistant and reasoning events recover
+the same identity from `messageId` or `reasoningId`, with a type-prefixed `modelCallId` fallback. Replay
+must not fall back to the per-event Thread item ID for streamed content because that would turn every
+delta into a separate timeline item after reload.
+
 `assistant_message.data.phase` is `unknown`, `commentary`, or `final_answer`. A provider-supplied
 phase is used immediately. For providers without phases, a model response followed by Tool calls is
 classified as `commentary`; a terminal response without Tool calls is classified as
@@ -1003,28 +1013,30 @@ TinyOS is the Tinybot feature that presents these capabilities as a lightweight 
 shared by the user and Agent. Files, terminal sessions, browser tabs, and generated artifacts refer
 to the same underlying workspace objects for both participants. The user can work with those
 objects without leaving Tinybot and attach bounded references from the desktop directly to Chat.
-TinyOS surfaces concise presence cues such as viewing a file, browsing a page, running a command,
-or creating an artifact; it is not defined as a tool-call monitor or replay console.
+TinyOS applications may surface local context such as the file being viewed, the active browser
+tab, or a terminal command. The system bar does not duplicate Agent activity, plan state, or
+pause/resume/cancel controls as persistent status chrome; those runtime commands remain available
+through the command palette when supported. TinyOS is not defined as a tool-call monitor or replay
+console.
 
-TinyOS Time Machine indexes every raw canonical item revision as an exact event boundary. History
-reconstruction passes that event index together with run, turn, and item identity to projector
-version `1`; an identity mismatch is an error rather than a nearest-match fallback. A boundary with
-an invalid or missing timestamp is explicitly shown as unavailable, and native snapshots observed
-after a historical boundary are excluded so current native state cannot leak backward in time.
+Canonical history still indexes every raw item revision as an exact event boundary for audit and
+deterministic reconstruction, but TinyOS does not expose a persistent Time Machine or playback
+surface. Opening an older item passes its event index together with run, turn, and item identity to
+projector version `1`; an identity mismatch is an error rather than a nearest-match fallback. Native
+snapshots observed after that boundary are excluded so current native state cannot leak backward in
+time. The historical context exposes only a compact Return-to-Live action in the system bar.
 
-Replay is local presentation state and advances only through those indexed canonical boundaries.
-Every runtime-scoped command in the shared shell registry is denied in History with
-`reasonCode: "history_read_only"`; window, navigation, evidence pinning, and Return-to-Live commands
-remain local. Inspector pins retain their event index, timestamp availability, resource identity,
-revision, and provenance so two boundaries are compared without merging evidence. Layout
-preferences survive History navigation and Return to Live re-evaluates the current backend
-capabilities instead of retaining historical availability.
+Every runtime-scoped command in the shared shell registry is denied in a historical context with
+`reasonCode: "history_read_only"`. Inspector pins retain their event index, timestamp availability,
+resource identity, revision, and provenance so two boundaries are compared without merging
+evidence. Layout preferences survive the transition and Return to Live re-evaluates the current
+backend capabilities instead of retaining historical availability.
 
 Replay checkpoint data is disposable and keyed by projector version and event index. Incompatible
 checkpoint data is discarded and rebuilt from canonical events. The automated large-timeline guard
 samples the first, middle, and final boundaries of a 2,000-event replay against a 250 ms target. The
-current projector remains below that threshold, so Time Machine does not create or persist replay
-checkpoints yet.
+current projector remains below that threshold, so canonical reconstruction does not create or
+persist checkpoints yet.
 
 TinyOS controlled-host actions use the same `tinybot.command.v1` gateway and dedicated
 `tinyos-host-*` run identities. They are never inferred from local window state:

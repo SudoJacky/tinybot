@@ -239,6 +239,8 @@ export function TinyOsShell({
     return windows;
   }, [agentFilterId, filesController, sessionKey, snapshot.kernel, snapshot.windows]);
   const initialAppIds = appWindows.map((window) => window.appId);
+  const browserSessionAvailable = Boolean(snapshot.kernel?.browserSessions.length);
+  const browserSessionWasAvailable = useRef(browserSessionAvailable);
   const seenFileOperations = useRef(new Set<string>());
   const revealedCursorItemId = useRef<string | undefined>(undefined);
   const previousHistoryMode = useRef(history);
@@ -375,15 +377,19 @@ export function TinyOsShell({
 
   useEffect(() => {
     const returningToLive = previousHistoryMode.current && !history;
+    const browserBecameAvailable = !browserSessionWasAvailable.current && browserSessionAvailable;
     previousHistoryMode.current = history;
+    browserSessionWasAvailable.current = browserSessionAvailable;
     dispatchUi({
       appIds: appWindows.map((window) => window.appId),
       bounds: uiState.bounds,
       layoutMode,
-      preferredActiveAppId: history || returningToLive ? snapshot.activeAppId : uiState.focusedAppId,
+      preferredActiveAppId: browserBecameAvailable
+        ? "browser"
+        : history || returningToLive ? snapshot.activeAppId : uiState.focusedAppId,
       type: "sync",
     });
-  }, [appWindows.length, history, layoutMode, snapshot.activeAppId, snapshot.cursorItemId, snapshot.cursorTurnId]);
+  }, [appWindows.length, browserSessionAvailable, history, layoutMode, snapshot.activeAppId, snapshot.cursorItemId, snapshot.cursorTurnId]);
 
   useEffect(() => {
     const desktop = desktopRef.current;

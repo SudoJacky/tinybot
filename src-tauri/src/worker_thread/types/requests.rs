@@ -402,6 +402,8 @@ pub enum ThreadOp {
         #[serde(default)]
         turn_id: Option<String>,
         #[serde(default)]
+        item_id: Option<String>,
+        #[serde(default)]
         event_id: Option<String>,
         #[serde(default)]
         sequence: Option<u64>,

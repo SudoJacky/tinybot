@@ -2,6 +2,7 @@ use super::checkpoint::{maybe_emit_checkpoint, save_phase_checkpoint};
 use super::continuations::{
     maybe_approval_resume_result, maybe_awaiting_approval_result, maybe_awaiting_form_result,
     maybe_form_submit_result, restore_activated_tools_for_continuation,
+    ApprovalContinuationOutcome, ApprovalResume,
 };
 use super::events::runtime_event_timestamp;
 use super::hooks::AgentHookEvaluation;
@@ -112,6 +113,16 @@ async fn run_owned_native_agent_turn_async(
 ) -> Result<Value, String> {
     let mut identity = NativeAgentRunContext::from_spec(spec.clone(), config_snapshot.clone());
     identity.attach_observability(services);
+    let continuation_metadata = identity
+        .metadata
+        .get("agentContinuation")
+        .or_else(|| identity.metadata.get("continuation"))
+        .cloned();
+    let restored_continuation_checkpoint = continuation_metadata.as_ref().and_then(|_| {
+        services
+            .checkpoints
+            .restore_for_run(&identity.session_id, &identity.run_id)
+    });
     if services
         .task_runtime
         .status(&identity.run_id)
@@ -170,6 +181,16 @@ async fn run_owned_native_agent_turn_async(
             return Err(error);
         }
     };
+    if let Some(continuation) = continuation_metadata {
+        if result.get("continuation").is_none() {
+            result["continuation"] = continuation;
+        }
+        if result.get("restoredCheckpoint").is_none() {
+            if let Some(checkpoint) = restored_continuation_checkpoint {
+                result["restoredCheckpoint"] = checkpoint;
+            }
+        }
+    }
     attach_context_contributions_to_result(&mut result)?;
     let stop_reason = result
         .get("stopReason")
@@ -308,13 +329,10 @@ async fn run_native_agent_turn_with_instructions_async(
     context
         .tool_router
         .activate_for_turn(&services.test_activated_tool_ids)?;
-    let (next_context, user_input_resume) =
+    let (next_context, continuation_resume) =
         match prepare_continuation(services.clone(), context).await? {
             PreparedContinuation::Finished(result) => return Ok(result),
-            PreparedContinuation::Continue {
-                context,
-                user_input_resume,
-            } => (context, user_input_resume),
+            PreparedContinuation::Continue { context, resume } => (context, resume),
         };
     context = next_context;
     if context.messages.is_empty() {
@@ -333,7 +351,11 @@ async fn run_native_agent_turn_with_instructions_async(
         context.apply_context_hydration(hydration);
     }
 
-    let mut state = NativeAgentRunState::new(&context, services.trace_sink.clone());
+    let mut state = if continuation_resume.is_some() {
+        NativeAgentRunState::new_for_continuation(&context, services.trace_sink.clone())?
+    } else {
+        NativeAgentRunState::new(&context, services.trace_sink.clone())
+    };
     state.transition_phase(
         AgentRuntimePhase::HydratingHistory,
         0,
@@ -350,12 +372,14 @@ async fn run_native_agent_turn_with_instructions_async(
         );
     }
     state.transition_phase(AgentRuntimePhase::Planning, 0, "agent.turn.started");
-    let start_iteration = if let Some(resume) = user_input_resume {
-        resume.apply(&context, &mut state)
-    } else {
-        state.emit_turn_started(&context);
-        state.emit_tinyos_command_acknowledgement(&context)?;
-        0
+    let start_iteration = match continuation_resume {
+        Some(PreparedRunResume::Approval(resume)) => resume.apply(&context, &mut state),
+        Some(PreparedRunResume::UserInput(resume)) => resume.apply(&context, &mut state),
+        None => {
+            state.emit_turn_started(&context);
+            state.emit_tinyos_command_acknowledgement(&context)?;
+            0
+        }
     };
     let turn_start_invocation =
         AgentHookInvocation::lifecycle(AgentHookStage::TurnStart, context.trace_context.clone());
@@ -1084,8 +1108,13 @@ enum PreparedContinuation {
     Finished(Value),
     Continue {
         context: NativeAgentRunContext,
-        user_input_resume: Option<UserInputResume>,
+        resume: Option<PreparedRunResume>,
     },
+}
+
+enum PreparedRunResume {
+    Approval(ApprovalResume),
+    UserInput(UserInputResume),
 }
 
 async fn prepare_continuation(
@@ -1096,17 +1125,25 @@ async fn prepare_continuation(
     if let Some(result) = maybe_awaiting_approval_result(&services, &context) {
         return Ok(PreparedContinuation::Finished(result));
     }
-    if let Some(result) = maybe_approval_resume_result(&services, &context).await? {
-        return Ok(PreparedContinuation::Finished(result));
+    if let Some(outcome) = maybe_approval_resume_result(&services, &mut context).await? {
+        return Ok(match outcome {
+            ApprovalContinuationOutcome::Resume(resume) => PreparedContinuation::Continue {
+                context,
+                resume: Some(PreparedRunResume::Approval(resume)),
+            },
+            ApprovalContinuationOutcome::Finished(result) => PreparedContinuation::Finished(result),
+        });
     }
     if let Some(result) = maybe_awaiting_form_result(&services, &context) {
         return Ok(PreparedContinuation::Finished(result));
     }
-    let user_input_resume = match prepare_user_input_continuation(&services, &mut context)? {
+    let resume = match prepare_user_input_continuation(&services, &mut context)? {
         Some(UserInputContinuationOutcome::Finished(result)) => {
             return Ok(PreparedContinuation::Finished(result));
         }
-        Some(UserInputContinuationOutcome::Resume(resume)) => Some(resume),
+        Some(UserInputContinuationOutcome::Resume(resume)) => {
+            Some(PreparedRunResume::UserInput(resume))
+        }
         None => {
             if let Some(result) = maybe_form_submit_result(&services, &context)? {
                 return Ok(PreparedContinuation::Finished(result));
@@ -1114,8 +1151,5 @@ async fn prepare_continuation(
             None
         }
     };
-    Ok(PreparedContinuation::Continue {
-        context,
-        user_input_resume,
-    })
+    Ok(PreparedContinuation::Continue { context, resume })
 }

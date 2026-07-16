@@ -284,7 +284,7 @@ describe("ChatPage", () => {
     expect(getComputedStyle(openButton).minWidth).toBe("44px");
     expect(document.querySelector(".react-chat-page")?.getAttribute("data-live-canvas-open")).toBe("true");
     expect(canvas.querySelector('[aria-label="Terminal window"]')).toBeTruthy();
-    expect(canvas.textContent).toContain("Live workspace");
+    expect(canvas.querySelector(".tinyos-system-bar__status")).toBeNull();
     expect(document.activeElement).toBe(canvasHeading);
 
     const closeButton = canvas.querySelector<HTMLButtonElement>('[aria-label="Close TinyOS desktop"]')!;
@@ -449,13 +449,13 @@ describe("ChatPage", () => {
 
     await user.click(await screen.findByRole("button", { name: /^Open TinyOS/ }));
     let canvas = screen.getByLabelText("TinyOS shared desktop");
-    expect(within(canvas).getAllByText("Live workspace").length).toBeGreaterThan(0);
+    expect(canvas.querySelector(".tinyos-system-bar__status")).toBeNull();
     expect(within(canvas).getByRole("heading", { name: "Execution plan" })).toBeTruthy();
     expect(within(canvas).getByText("Verify output")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Open details for workspace.read_file" }));
     canvas = screen.getByLabelText("TinyOS shared desktop");
-    expect(within(canvas).getByText("History")).toBeTruthy();
+    expect(canvas.querySelector(".tinyos-system-bar__status")).toBeNull();
     expect(within(canvas).getByRole("article", { name: "Files window" })).toBeTruthy();
     expect(within(canvas).getAllByText("workspace.read_file").length).toBeGreaterThan(0);
     expect(within(canvas).getAllByText("src/main.ts").length).toBeGreaterThan(0);
@@ -477,11 +477,11 @@ describe("ChatPage", () => {
       turns: [{ ...turn, executionItems: nextSteps, steps: nextSteps }],
     };
     act(() => listener?.({ timeline: nextTimeline, type: "agent_timeline_updated" } as ChatEvent));
-    expect(within(canvas).getByText("History")).toBeTruthy();
+    expect(canvas.querySelector(".tinyos-system-bar__status")).toBeNull();
     expect(within(canvas).getAllByText("src/main.ts").length).toBeGreaterThan(0);
 
-    await user.click(within(canvas).getByRole("button", { name: "Return to Live" }));
-    expect(within(canvas).getAllByText("Live workspace").length).toBeGreaterThan(0);
+    await user.click(within(canvas).getByRole("button", { name: "Return to live desktop" }));
+    expect(within(canvas).queryByRole("button", { name: "Return to live desktop" })).toBeNull();
     expect(within(canvas).getByRole("article", { name: "Memory window" })).toBeTruthy();
     expect(within(canvas).getAllByText("memory.search").length).toBeGreaterThan(0);
     expect(within(canvas).getByRole("heading", { name: "TinyOS" })).toBeTruthy();
@@ -913,7 +913,7 @@ describe("ChatPage", () => {
     await waitFor(() => expect(screen.queryByRole("button", { name: "Planning notes" })).toBeNull(), { timeout: 1000 });
   });
 
-  it("keeps branch actions off user and tool-backed assistant messages", async () => {
+  it("shows branch on a completed tool-backed final answer but not on user or commentary messages", async () => {
     const user = userEvent.setup();
     const stores = createStores();
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
@@ -922,7 +922,7 @@ describe("ChatPage", () => {
     expect(within(userMessage).queryByRole("button", { name: /branch from here/i })).toBeNull();
 
     expect(within(screen.getByTestId("message-a1")).queryByRole("button", { name: /branch from here/i })).toBeNull();
-    expect(within(screen.getByTestId("message-a2")).queryByRole("button", { name: /branch from here/i })).toBeNull();
+    expect(within(screen.getByTestId("message-a2")).getByRole("button", { name: /branch from here/i })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: /Agent steps, 1 step/i }));
     expect(screen.getByRole("button", { name: /open details for shell/i })).toBeTruthy();
   });
