@@ -2,7 +2,7 @@ use super::checkpoint::save_phase_checkpoint;
 use super::continuations::typed_continuation_from_metadata;
 use super::state::NativeAgentRunState;
 use super::tool_projection::{
-    completed_tool_result_entry, tool_observation_content, tool_observation_message,
+    append_continuation_tool_observation, completed_tool_result_entry, tool_observation_content,
 };
 use super::{
     NativeAgentRunContext, NativeAgentRuntimeServices, NativeAgentToolCall, NativeAgentToolResult,
@@ -225,22 +225,6 @@ pub(super) fn prepare_user_input_continuation(
         .and_then(Value::as_array)
         .cloned()
         .ok_or_else(|| "invalid user input checkpoint: messages must be an array".to_string())?;
-    if !messages.iter().any(|message| {
-        message
-            .get("tool_calls")
-            .and_then(Value::as_array)
-            .is_some_and(|calls| {
-                calls.iter().any(|call| {
-                    call.get("id").and_then(Value::as_str) == Some(tool_call.id.as_str())
-                })
-            })
-    }) {
-        return Err(format!(
-            "invalid user input checkpoint: assistant tool call `{}` is missing from messages",
-            tool_call.id
-        ));
-    }
-
     let raw_result = serde_json::json!({
         "formId": form_id,
         "status": "submitted",
@@ -251,7 +235,8 @@ pub(super) fn prepare_user_input_continuation(
     let completed_result = completed_tool_result_entry(&tool_call, &result);
     let envelope = serde_json::to_value(&result.envelope)
         .map_err(|error| format!("failed to serialize user input tool result: {error}"))?;
-    messages.push(tool_observation_message(&tool_call, &observation_content));
+    append_continuation_tool_observation(&mut messages, &tool_call, &observation_content, false)
+        .map_err(|error| format!("invalid user input checkpoint: {error}"))?;
     context.messages = messages.clone();
     context.spec["messages"] = Value::Array(messages);
     services

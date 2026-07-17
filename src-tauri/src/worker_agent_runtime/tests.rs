@@ -1184,6 +1184,26 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
     let messages = resumed_messages
         .lock()
         .expect("resumed messages lock should not be poisoned");
+    assert_eq!(
+        messages
+            .iter()
+            .filter_map(|message| message.get("tool_calls").and_then(Value::as_array))
+            .flatten()
+            .filter(|call| call.get("id").and_then(Value::as_str) == Some("clarify-1"))
+            .count(),
+        1,
+        "form continuation must preserve exactly one request tool call"
+    );
+    assert_eq!(
+        messages
+            .iter()
+            .filter(|message| {
+                message["role"] == "tool" && message["tool_call_id"] == "clarify-1"
+            })
+            .count(),
+        1,
+        "form continuation must append exactly one request tool result"
+    );
     let observation = messages
         .iter()
         .find(|message| message["role"] == "tool" && message["tool_call_id"] == "clarify-1")
@@ -1817,13 +1837,38 @@ fn activated_mutating_tool_stops_at_approval_checkpoint_before_dispatch() {
                     }],
                 }),
                 _ => {
-                    assert!(context.messages.iter().any(|message| {
-                        message["role"] == "tool"
-                            && message["tool_call_id"] == "write-after-search"
-                            && message["content"]
-                                .as_str()
-                                .is_some_and(|content| content.contains("write dispatched"))
-                    }));
+                    let matching_calls = context
+                        .messages
+                        .iter()
+                        .filter_map(|message| message.get("tool_calls").and_then(Value::as_array))
+                        .flatten()
+                        .filter(|call| {
+                            call.get("id").and_then(Value::as_str) == Some("write-after-search")
+                        })
+                        .count();
+                    assert_eq!(
+                        matching_calls, 1,
+                        "approval continuation must not duplicate the pending tool call"
+                    );
+                    let matching_results = context
+                        .messages
+                        .iter()
+                        .filter(|message| {
+                            message["role"] == "tool"
+                                && message["tool_call_id"] == "write-after-search"
+                        })
+                        .collect::<Vec<_>>();
+                    assert_eq!(
+                        matching_results.len(),
+                        1,
+                        "approval continuation must append exactly one tool result"
+                    );
+                    assert!(matching_results[0]["content"]
+                        .as_str()
+                        .is_some_and(|content| {
+                            content.contains("write dispatched")
+                                || content.contains("Approval denied by user")
+                        }));
                     Ok(NativeAgentProviderResponse {
                         final_content: "approved write complete".to_string(),
                         reasoning_delta: None,
@@ -1935,6 +1980,44 @@ fn activated_mutating_tool_stops_at_approval_checkpoint_before_dispatch() {
         .expect("dispatched calls lock should not be poisoned")
         .is_empty());
 
+    let mut invalid_checkpoint = result["checkpoint"].clone();
+    invalid_checkpoint["messages"]
+        .as_array_mut()
+        .expect("approval checkpoint messages should be an array")
+        .push(json!({
+            "role": "tool",
+            "tool_call_id": "write-after-search",
+            "name": "workspace.write_file",
+            "content": "stale duplicate result"
+        }));
+    services.save_run_checkpoint(
+        "session-deferred-write-approval",
+        "run-deferred-write-approval",
+        invalid_checkpoint,
+    );
+    let invalid = run_native_agent_turn_with_config(
+        &services,
+        json!({
+            "runId": "run-deferred-write-approval",
+            "sessionId": "session-deferred-write-approval",
+            "metadata": {
+                "agentContinuation": {
+                    "kind": "approval",
+                    "approvalId": approval_id,
+                    "decision": "approved",
+                    "scope": "once"
+                }
+            }
+        }),
+        json!({}),
+    )
+    .expect_err("invalid approval checkpoint must fail before tool dispatch");
+    assert!(invalid.contains("already contains 1 tool results"));
+    assert!(dispatched
+        .lock()
+        .expect("dispatched calls lock should not be poisoned")
+        .is_empty());
+
     let denied_dispatched = Arc::new(Mutex::new(Vec::new()));
     let denied_services = NativeAgentRuntimeServices::new(
         Arc::new(SearchThenWriteProvider {
@@ -1971,14 +2054,16 @@ fn activated_mutating_tool_stops_at_approval_checkpoint_before_dispatch() {
                     "kind": "approval",
                     "approvalId": denied_approval_id,
                     "decision": "denied",
-                    "scope": "once"
+                    "scope": "once",
+                    "guidance": "Explain how to make the change manually."
                 }
             }
         }),
         json!({}),
     )
     .expect("denied approval continuation should return a structured result");
-    assert_eq!(denied["stopReason"], "approval_denied");
+    assert_eq!(denied["stopReason"], "final_response");
+    assert_eq!(denied["completedToolResults"][0]["status"], "denied");
     assert!(denied_dispatched
         .lock()
         .expect("dispatched calls lock should not be poisoned")

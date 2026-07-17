@@ -4,8 +4,9 @@ use super::events::{
 };
 use super::result::{append_runtime_events_to_sink, cancelled_result, waiting_runtime_events};
 use super::tool_projection::{
-    assistant_tool_calls_message, completed_tool_result_entry, normalize_tool_result_for_context,
-    tool_observation_content, tool_observation_message,
+    append_continuation_tool_observation, completed_tool_result_entry,
+    normalize_tool_result_for_context, prepare_continuation_tool_observation,
+    tool_observation_content,
 };
 use super::tool_runtime::{dispatch_owned_tool_call, OwnedToolCallResult};
 use super::usage::{enrich_usage_with_context_window, estimate_context_tokens_for_request};
@@ -405,22 +406,8 @@ async fn approved_tool_continuation_result(
         .and_then(Value::as_array)
         .cloned()
         .ok_or_else(|| "invalid tool approval checkpoint: messages must be an array".to_string())?;
-    if !messages.iter().any(|message| {
-        message
-            .get("tool_calls")
-            .and_then(Value::as_array)
-            .is_some_and(|tool_calls| {
-                tool_calls.iter().any(|call| {
-                    call.get("id").and_then(Value::as_str) == Some(tool_call.id.as_str())
-                })
-            })
-    }) {
-        return Err(format!(
-            "invalid tool approval checkpoint: assistant tool call `{}` is missing from messages",
-            tool_call.id
-        ));
-    }
-
+    prepare_continuation_tool_observation(&mut messages, &tool_call, false)
+        .map_err(|error| format!("invalid tool approval checkpoint: {error}"))?;
     let mut resumed_context = context.clone();
     resumed_context.messages = messages.clone();
     resumed_context.spec["messages"] = Value::Array(messages.clone());
@@ -466,7 +453,8 @@ async fn approved_tool_continuation_result(
     };
     let observation_content = tool_observation_content(&result);
     let completed_result = completed_tool_result_entry(&tool_call, &result);
-    messages.push(tool_observation_message(&tool_call, &observation_content));
+    append_continuation_tool_observation(&mut messages, &tool_call, &observation_content, false)
+        .map_err(|error| format!("invalid tool approval checkpoint: {error}"))?;
     resumed_context.messages = messages.clone();
     resumed_context.spec["messages"] = Value::Array(messages);
 
@@ -726,8 +714,8 @@ async fn approval_denied_guidance_result(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_else(|| context.messages.clone());
-    messages.push(assistant_tool_calls_message("", &[tool_call.clone()]));
-    messages.push(tool_observation_message(&tool_call, &summary));
+    append_continuation_tool_observation(&mut messages, &tool_call, &summary, true)
+        .map_err(|error| format!("invalid denied approval checkpoint: {error}"))?;
 
     let mut resumed_context = context.clone();
     resumed_context.messages = messages.clone();
