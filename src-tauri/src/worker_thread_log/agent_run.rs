@@ -36,6 +36,7 @@ impl WorkerThreadLogRpc {
             timestamp.clone(),
             value_event("agent_run_upsert", serde_json::json!({ "record": record })),
         )?;
+        let log_head = self.recorder.thread_log_head(&path)?;
         state.updated_at = timestamp;
         if !record.model.trim().is_empty() {
             state.model = Some(record.model.clone());
@@ -44,7 +45,7 @@ impl WorkerThreadLogRpc {
         if let Some(info) = record.token_usage_info.as_ref() {
             state.tokens_used = info.total_token_usage.total_tokens;
         }
-        self.state.upsert_thread(&state)?;
+        self.state.upsert_thread_projection(&state, &log_head)?;
         Ok(record)
     }
 
@@ -91,11 +92,13 @@ impl WorkerThreadLogRpc {
             .collect();
         self.recorder
             .append_items(&path, timestamp.clone(), items)?;
+        let log_head = self.recorder.thread_log_head(&path)?;
         for event in events {
             upsert_trace_event(&mut record.trace_events, event.clone());
             apply_agent_status_snapshot(&mut record, &event);
         }
         record.updated_at = timestamp.clone();
+        self.state.update_thread_log_head(&state.id, &log_head)?;
         Ok(record)
     }
 
@@ -255,9 +258,10 @@ impl WorkerThreadLogRpc {
                 }),
             ),
         )?;
+        let log_head = self.recorder.thread_log_head(&path)?;
         apply_checkpoint_to_record(&mut record, checkpoint, &timestamp);
         state.updated_at = timestamp;
-        self.state.upsert_thread(&state)?;
+        self.state.upsert_thread_projection(&state, &log_head)?;
         Ok(record)
     }
 
@@ -327,10 +331,11 @@ impl WorkerThreadLogRpc {
                 serde_json::json!({ "sessionId": session_id, "runId": run_id }),
             ),
         )?;
+        let log_head = self.recorder.thread_log_head(&path)?;
         record.checkpoint = None;
         record.updated_at = timestamp.clone();
         state.updated_at = timestamp;
-        self.state.upsert_thread(&state)?;
+        self.state.upsert_thread_projection(&state, &log_head)?;
         Ok(record)
     }
 
@@ -512,7 +517,8 @@ impl WorkerThreadLogRpc {
             archived: false,
             archived_at: None,
         };
-        self.state.upsert_thread(&record)?;
+        let log_head = self.recorder.thread_log_head(&path)?;
+        self.state.upsert_thread_projection(&record, &log_head)?;
         Ok(record)
     }
 
@@ -551,6 +557,7 @@ impl WorkerThreadLogRpc {
                 }),
             ),
         )?;
+        let log_head = self.recorder.thread_log_head(&path)?;
         apply_terminal_to_record(
             &mut record,
             status,
@@ -562,7 +569,7 @@ impl WorkerThreadLogRpc {
         );
         state.updated_at = timestamp;
         state.preview = final_content_preview(&record).unwrap_or(state.preview);
-        self.state.upsert_thread(&state)?;
+        self.state.upsert_thread_projection(&state, &log_head)?;
         Ok(record)
     }
 }

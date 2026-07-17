@@ -1,3 +1,4 @@
+use super::recorder::ThreadLogHead;
 use super::ThreadStateRecord;
 use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource,
@@ -11,6 +12,13 @@ pub(super) struct LatestContextCheckpointRecord {
     pub(super) line_number: i64,
     pub(super) timestamp: String,
     pub(super) checkpoint_hash: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct ThreadLogHeadRecord {
+    pub(super) thread_id: String,
+    pub(super) byte_length: i64,
+    pub(super) tail_hash: String,
 }
 
 #[derive(Clone, Debug)]
@@ -43,15 +51,39 @@ impl ThreadStateDb {
         Ok(())
     }
 
-    pub(super) fn replace_thread_projection(
+    pub(super) fn upsert_thread_projection(
         &self,
         record: &ThreadStateRecord,
-        latest_checkpoint: Option<&LatestContextCheckpointRecord>,
+        log_head: &ThreadLogHead,
     ) -> Result<(), WorkerProtocolError> {
         self.maybe_fail_upsert(record)?;
         let mut connection = self.open()?;
         let transaction = connection.transaction().map_err(sqlite_error)?;
         upsert_thread(&transaction, record)?;
+        upsert_thread_log_head(&transaction, &record.id, log_head)?;
+        transaction.commit().map_err(sqlite_error)
+    }
+
+    pub(super) fn update_thread_log_head(
+        &self,
+        thread_id: &str,
+        log_head: &ThreadLogHead,
+    ) -> Result<(), WorkerProtocolError> {
+        let connection = self.open()?;
+        upsert_thread_log_head(&connection, thread_id, log_head)
+    }
+
+    pub(super) fn replace_thread_projection(
+        &self,
+        record: &ThreadStateRecord,
+        latest_checkpoint: Option<&LatestContextCheckpointRecord>,
+        log_head: &ThreadLogHead,
+    ) -> Result<(), WorkerProtocolError> {
+        self.maybe_fail_upsert(record)?;
+        let mut connection = self.open()?;
+        let transaction = connection.transaction().map_err(sqlite_error)?;
+        upsert_thread(&transaction, record)?;
+        upsert_thread_log_head(&transaction, &record.id, log_head)?;
         match latest_checkpoint {
             Some(checkpoint) => upsert_latest_context_checkpoint(&transaction, checkpoint)?,
             None => {
@@ -64,6 +96,50 @@ impl ThreadStateDb {
             }
         }
         transaction.commit().map_err(sqlite_error)
+    }
+
+    pub(super) fn thread_log_head(
+        &self,
+        id: &str,
+    ) -> Result<Option<ThreadLogHeadRecord>, WorkerProtocolError> {
+        let connection = self.open()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT head.thread_id, head.byte_length, head.tail_hash
+                 FROM thread_log_heads head
+                 INNER JOIN threads thread ON thread.id = head.thread_id
+                 WHERE thread.id = ?1 OR thread.session_id = ?1
+                 ORDER BY CASE WHEN thread.id = ?1 THEN 0 ELSE 1 END,
+                          thread.updated_at DESC, thread.id ASC
+                 LIMIT 1",
+            )
+            .map_err(sqlite_error)?;
+        let mut rows = statement.query(params![id]).map_err(sqlite_error)?;
+        match rows.next().map_err(sqlite_error)? {
+            Some(row) => row_to_thread_log_head(row).map(Some).map_err(sqlite_error),
+            None => Ok(None),
+        }
+    }
+
+    pub(super) fn list_thread_log_heads(
+        &self,
+    ) -> Result<Vec<ThreadLogHeadRecord>, WorkerProtocolError> {
+        let connection = self.open()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT thread_id, byte_length, tail_hash
+                 FROM thread_log_heads
+                 ORDER BY thread_id ASC",
+            )
+            .map_err(sqlite_error)?;
+        let rows = statement
+            .query_map([], row_to_thread_log_head)
+            .map_err(sqlite_error)?;
+        let mut heads = Vec::new();
+        for row in rows {
+            heads.push(row.map_err(sqlite_error)?);
+        }
+        Ok(heads)
     }
 
     pub(super) fn latest_context_checkpoint(
@@ -223,6 +299,12 @@ impl ThreadStateDb {
                 params![record.id],
             )
             .map_err(sqlite_error)?;
+        transaction
+            .execute(
+                "DELETE FROM thread_log_heads WHERE thread_id = ?1",
+                params![record.id],
+            )
+            .map_err(sqlite_error)?;
         let deleted = transaction
             .execute("DELETE FROM threads WHERE id = ?1", params![record.id])
             .map_err(sqlite_error)?
@@ -297,6 +379,11 @@ fn ensure_schema(connection: &Connection) -> Result<(), WorkerProtocolError> {
                 checkpoint_timestamp TEXT NOT NULL,
                 checkpoint_hash TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS thread_log_heads (
+                thread_id TEXT PRIMARY KEY NOT NULL,
+                byte_length INTEGER NOT NULL,
+                tail_hash TEXT NOT NULL
+            );
             ",
         )
         .map_err(sqlite_error)
@@ -370,6 +457,24 @@ fn upsert_latest_context_checkpoint(
     Ok(())
 }
 
+fn upsert_thread_log_head(
+    connection: &Connection,
+    thread_id: &str,
+    log_head: &ThreadLogHead,
+) -> Result<(), WorkerProtocolError> {
+    connection
+        .execute(
+            "INSERT INTO thread_log_heads (thread_id, byte_length, tail_hash)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(thread_id) DO UPDATE SET
+                byte_length = excluded.byte_length,
+                tail_hash = excluded.tail_hash",
+            params![thread_id, log_head.byte_length, log_head.tail_hash.as_str()],
+        )
+        .map_err(sqlite_error)?;
+    Ok(())
+}
+
 fn row_to_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<ThreadStateRecord> {
     let archived: i64 = row.get(12)?;
     Ok(ThreadStateRecord {
@@ -398,6 +503,14 @@ fn row_to_latest_context_checkpoint(
         line_number: row.get(1)?,
         timestamp: row.get(2)?,
         checkpoint_hash: row.get(3)?,
+    })
+}
+
+fn row_to_thread_log_head(row: &rusqlite::Row<'_>) -> rusqlite::Result<ThreadLogHeadRecord> {
+    Ok(ThreadLogHeadRecord {
+        thread_id: row.get(0)?,
+        byte_length: row.get(1)?,
+        tail_hash: row.get(2)?,
     })
 }
 
@@ -659,6 +772,15 @@ mod tests {
             )
             .unwrap();
         assert_eq!(checkpoint_table_count, 1);
+        let head_table_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name = 'thread_log_heads'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(head_table_count, 1);
         let _ = fs::remove_dir_all(root);
     }
 
@@ -678,12 +800,24 @@ mod tests {
             timestamp: "2026-07-08T10:00:00Z".to_string(),
             checkpoint_hash: "sha256:checkpoint-1".to_string(),
         };
+        let log_head = ThreadLogHead {
+            byte_length: 128,
+            tail_hash: "sha256:tail-1".to_string(),
+        };
 
-        db.replace_thread_projection(&thread, Some(&checkpoint))
+        db.replace_thread_projection(&thread, Some(&checkpoint), &log_head)
             .unwrap();
         assert_eq!(
             db.latest_context_checkpoint("session-checkpoint").unwrap(),
             Some(checkpoint.clone())
+        );
+        assert_eq!(
+            db.thread_log_head("session-checkpoint").unwrap(),
+            Some(ThreadLogHeadRecord {
+                thread_id: thread.id.clone(),
+                byte_length: log_head.byte_length,
+                tail_hash: log_head.tail_hash.clone(),
+            })
         );
 
         thread.updated_at = "2026-07-08T11:00:00Z".to_string();
@@ -692,8 +826,16 @@ mod tests {
             db.latest_context_checkpoint("thread-checkpoint").unwrap(),
             Some(checkpoint)
         );
+        assert_eq!(
+            db.thread_log_head("thread-checkpoint")
+                .unwrap()
+                .unwrap()
+                .tail_hash,
+            log_head.tail_hash
+        );
 
-        db.replace_thread_projection(&thread, None).unwrap();
+        db.replace_thread_projection(&thread, None, &log_head)
+            .unwrap();
         assert!(db
             .latest_context_checkpoint("session-checkpoint")
             .unwrap()

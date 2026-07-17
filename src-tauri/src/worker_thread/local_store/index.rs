@@ -5,6 +5,7 @@ use crate::worker_protocol::{
 use crate::worker_thread::types::{ThreadItem, ThreadItemKind, ThreadRecord};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs;
 
@@ -94,6 +95,72 @@ impl LocalThreadStore {
             .map_err(thread_sqlite_error)?;
         let rows = statement
             .query_map(params![thread_id], |row| row.get::<_, String>(0))
+            .map_err(thread_sqlite_error)?;
+        let mut items = Vec::new();
+        for row in rows {
+            let item_json = row.map_err(thread_sqlite_error)?;
+            items.push(serde_json::from_str(&item_json).map_err(thread_json_error)?);
+        }
+        Ok(items)
+    }
+
+    pub(super) fn read_context_items(
+        &self,
+        thread_id: &str,
+    ) -> Result<Vec<ThreadItem>, WorkerProtocolError> {
+        validate_thread_id(thread_id)?;
+        let connection = self.open_connection()?;
+        let checkpoint_sequence = {
+            let mut statement = connection
+                .prepare(
+                    "SELECT sequence, item_json
+                     FROM thread_items
+                     WHERE thread_id = ?1 AND kind = 'context_compaction'
+                     ORDER BY sequence DESC",
+                )
+                .map_err(thread_sqlite_error)?;
+            let mut rows = statement
+                .query(params![thread_id])
+                .map_err(thread_sqlite_error)?;
+            let mut checkpoint_sequence = None;
+            while let Some(row) = rows.next().map_err(thread_sqlite_error)? {
+                let sequence = row.get::<_, u64>(0).map_err(thread_sqlite_error)?;
+                let item_json = row.get::<_, String>(1).map_err(thread_sqlite_error)?;
+                let item =
+                    serde_json::from_str::<ThreadItem>(&item_json).map_err(thread_json_error)?;
+                if item.thread_id != thread_id
+                    || item.sequence != sequence
+                    || !matches!(item.kind, ThreadItemKind::ContextCompaction(_))
+                {
+                    return Err(thread_projection_error(
+                        "context compaction index does not match its projected thread item",
+                        serde_json::json!({
+                            "threadId": thread_id,
+                            "sequence": sequence,
+                            "itemId": item.item_id,
+                        }),
+                    ));
+                }
+                if context_compaction_has_replacement(&item) {
+                    checkpoint_sequence = Some(sequence);
+                    break;
+                }
+            }
+            checkpoint_sequence
+        };
+
+        let mut statement = connection
+            .prepare(
+                "SELECT item_json
+                 FROM thread_items
+                 WHERE thread_id = ?1 AND (?2 IS NULL OR sequence >= ?2)
+                 ORDER BY sequence ASC",
+            )
+            .map_err(thread_sqlite_error)?;
+        let rows = statement
+            .query_map(params![thread_id, checkpoint_sequence], |row| {
+                row.get::<_, String>(0)
+            })
             .map_err(thread_sqlite_error)?;
         let mut items = Vec::new();
         for row in rows {
@@ -346,6 +413,8 @@ fn ensure_thread_schema(connection: &Connection) -> Result<(), WorkerProtocolErr
                 ON thread_items(thread_id, run_id);
             CREATE INDEX IF NOT EXISTS idx_thread_items_created
                 ON thread_items(thread_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_thread_items_context
+                ON thread_items(thread_id, kind, sequence DESC);
             CREATE TABLE IF NOT EXISTS thread_store_meta (
                 key TEXT PRIMARY KEY NOT NULL,
                 value TEXT NOT NULL
@@ -353,6 +422,25 @@ fn ensure_thread_schema(connection: &Connection) -> Result<(), WorkerProtocolErr
             ",
         )
         .map_err(thread_sqlite_error)
+}
+
+fn context_compaction_has_replacement(item: &ThreadItem) -> bool {
+    let ThreadItemKind::ContextCompaction(payload) = &item.kind else {
+        return false;
+    };
+    let checkpoint = payload
+        .get("payload")
+        .and_then(|payload| payload.get("contextCheckpoint"))
+        .or_else(|| payload.get("contextCheckpoint"))
+        .unwrap_or(payload);
+    [
+        "replacementHistory",
+        "replacement_history",
+        "installedReplacementHistory",
+        "installed_replacement_history",
+    ]
+    .iter()
+    .any(|field| checkpoint.get(*field).is_some_and(Value::is_array))
 }
 
 fn thread_item_kind_name(kind: &ThreadItemKind) -> &'static str {
@@ -406,6 +494,16 @@ fn thread_json_error(error: serde_json::Error) -> WorkerProtocolError {
         WorkerProtocolErrorCode::InvalidProtocol,
         format!("thread store JSON error: {error}"),
         serde_json::json!({ "method": "thread" }),
+        false,
+        WorkerProtocolErrorSource::RustCore,
+    )
+}
+
+fn thread_projection_error(message: impl Into<String>, details: Value) -> WorkerProtocolError {
+    WorkerProtocolError::new(
+        WorkerProtocolErrorCode::WorkerError,
+        message,
+        details,
         false,
         WorkerProtocolErrorSource::RustCore,
     )

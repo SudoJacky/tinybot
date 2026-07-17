@@ -7,6 +7,7 @@ use crate::worker_shell::WorkerShellRuntime;
 use crate::worker_subagent_manager::{SubagentSpawnParams, SubagentThreadManager};
 use serde_json::{json, Value};
 use std::{
+    io::Write,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -2380,7 +2381,7 @@ fn agent_run_persistence_does_not_write_legacy_session_store() {
 }
 
 #[test]
-fn agent_run_trace_append_does_not_update_thread_state_index() {
+fn agent_run_trace_append_preserves_thread_updated_at_and_keeps_index_clean() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new_persistent_sessions(
         fixture.root.clone(),
@@ -2450,6 +2451,20 @@ fn agent_run_trace_append_does_not_update_thread_state_index() {
 
     let after_updated_at = thread_state_updated_at(&state_path, "session-trace-state-index");
     assert_eq!(after_updated_at, before_updated_at);
+    let context = router
+        .thread_log
+        .get_agent_context("session-trace-state-index", 50)
+        .unwrap()
+        .unwrap();
+    assert!(context.messages.is_empty());
+    let consistency = router.dispatch(&WorkerRequest::new(
+        "req-trace-state-index-consistency",
+        "trace-state-index",
+        "session.persistence.check",
+        json!({}),
+    ));
+    assert_eq!(consistency.error, None);
+    assert_eq!(consistency.result.as_ref().unwrap()["status"], "clean");
     assert_eq!(
         append_trace.result.as_ref().unwrap()["traceEvents"][0]["eventName"],
         "agent.delta"
@@ -3513,7 +3528,7 @@ fn session_checkpoint_position_index_is_verified_and_rebuilt_from_journal() {
     assert!(inconsistent.error.as_ref().is_some_and(|error| {
         error
             .message
-            .contains("thread log state index is not consistent")
+            .contains("latest context checkpoint index points beyond")
     }));
 
     let repair = router.dispatch(&WorkerRequest::new(
@@ -3534,6 +3549,147 @@ fn session_checkpoint_position_index_is_verified_and_rebuilt_from_journal() {
         context.result.as_ref().unwrap()["messages"][0]["content"],
         "indexed summary"
     );
+}
+
+#[test]
+fn session_agent_context_rejects_unindexed_journal_append_until_repaired() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    )
+    .unwrap();
+    router
+        .thread_log
+        .persist_session_turn(
+            "session-head-mismatch",
+            "run-head-mismatch",
+            vec![json!({ "role": "user", "content": "indexed message" })],
+            None,
+        )
+        .unwrap();
+
+    let state_path = fixture
+        .root
+        .join(".tinybot")
+        .join("state")
+        .join("state.sqlite");
+    let connection = rusqlite::Connection::open(state_path).unwrap();
+    let thread_path = connection
+        .query_row(
+            "SELECT thread_path FROM threads WHERE session_id = ?1",
+            ["session-head-mismatch"],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap();
+    drop(connection);
+    let external_line = crate::worker_thread_log::ThreadLogLine {
+        timestamp: "2026-07-17T10:00:00.000Z".to_string(),
+        item: crate::worker_thread_log::ThreadLogItem::ResponseItem(
+            json!({ "role": "assistant", "content": "external append" }),
+        ),
+    };
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&thread_path)
+        .unwrap();
+    writeln!(file, "{}", serde_json::to_string(&external_line).unwrap()).unwrap();
+    drop(file);
+
+    let inconsistent = router.dispatch(&WorkerRequest::new(
+        "req-head-mismatch-read",
+        "trace-head-mismatch",
+        "session.get_agent_context",
+        json!({ "session_id": "session-head-mismatch", "limit": 50 }),
+    ));
+    assert!(inconsistent.error.as_ref().is_some_and(|error| {
+        error
+            .message
+            .contains("thread log file version does not match")
+    }));
+
+    let repair = router.dispatch(&WorkerRequest::new(
+        "req-head-mismatch-repair",
+        "trace-head-mismatch",
+        "session.persistence.repair",
+        json!({ "mode": "rebuild_index" }),
+    ));
+    assert_eq!(repair.error, None);
+    let context = router.dispatch(&WorkerRequest::new(
+        "req-head-mismatch-read-repaired",
+        "trace-head-mismatch",
+        "session.get_agent_context",
+        json!({ "session_id": "session-head-mismatch", "limit": 50 }),
+    ));
+    assert_eq!(context.error, None);
+    assert_eq!(
+        context.result.as_ref().unwrap()["messages"][1]["content"],
+        "external append"
+    );
+}
+
+#[test]
+fn session_agent_context_fast_path_does_not_scan_unrelated_journals() {
+    let fixture = WorkspaceFixture::new();
+    let router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    )
+    .unwrap();
+    for (session_id, run_id, content) in [
+        ("session-fast-target", "run-fast-target", "target message"),
+        ("session-fast-other", "run-fast-other", "other message"),
+    ] {
+        router
+            .thread_log
+            .persist_session_turn(
+                session_id,
+                run_id,
+                vec![json!({ "role": "user", "content": content })],
+                None,
+            )
+            .unwrap();
+    }
+
+    let state_path = fixture
+        .root
+        .join(".tinybot")
+        .join("state")
+        .join("state.sqlite");
+    let connection = rusqlite::Connection::open(state_path).unwrap();
+    let unrelated_path = connection
+        .query_row(
+            "SELECT thread_path FROM threads WHERE session_id = ?1",
+            ["session-fast-other"],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap();
+    drop(connection);
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(unrelated_path)
+        .unwrap();
+    writeln!(file, "not-json").unwrap();
+    drop(file);
+
+    let context = router
+        .thread_log
+        .get_agent_context("session-fast-target", 50)
+        .unwrap()
+        .unwrap();
+    assert_eq!(context.messages[0]["content"], "target message");
 }
 
 #[test]

@@ -171,7 +171,8 @@ impl LocalThreadStore {
         &self,
         thread_id: &str,
     ) -> Result<Vec<ThreadItem>, WorkerProtocolError> {
-        self.read_items(thread_id)
+        self.ensure_projection_head_current()?;
+        self.read_context_items(thread_id)
     }
 
     pub fn append_items_with_client_event_id(
@@ -3135,6 +3136,92 @@ mod tests {
                 )],
             )
             .unwrap();
+    }
+
+    #[test]
+    fn canonical_agent_context_reads_latest_usable_compaction_suffix() {
+        let root = temp_root("context-compaction-suffix");
+        let _cleanup = Cleanup(root.clone());
+        let store = LocalThreadStore::new(root);
+        let thread = store.create_thread(CreateThreadRequest::default()).unwrap();
+        let mut checkpoint = context_compaction_item(&thread.thread_id, "context-1", Value::Null);
+        let ThreadItemKind::ContextCompaction(payload) = &mut checkpoint.kind else {
+            unreachable!("context checkpoint helper must create a compaction item");
+        };
+        payload["payload"]["contextCheckpoint"]["replacementHistory"] =
+            json!([{ "role": "assistant", "content": "summary" }]);
+
+        store
+            .append_items(
+                &thread.thread_id,
+                vec![
+                    item("old context"),
+                    checkpoint,
+                    ThreadItem {
+                        item_id: String::new(),
+                        thread_id: String::new(),
+                        run_id: Some("run-context".to_string()),
+                        turn_id: Some("run-context".to_string()),
+                        parent_item_id: None,
+                        sequence: 0,
+                        created_at: String::new(),
+                        kind: ThreadItemKind::ContextCompaction(json!({
+                            "runId": "run-context",
+                            "strategy": "compact"
+                        })),
+                    },
+                    item("new context"),
+                ],
+            )
+            .unwrap();
+
+        let context_items = store.context_items(&thread.thread_id).unwrap();
+        assert_eq!(
+            context_items
+                .iter()
+                .map(|item| item.sequence)
+                .collect::<Vec<_>>(),
+            vec![2, 3, 4]
+        );
+        let context = crate::worker_thread::session_adapter::get_agent_context_from_threads(
+            &store,
+            &thread.thread_id,
+            100,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            context
+                .messages
+                .iter()
+                .map(|message| message["content"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["summary", "new context"]
+        );
+    }
+
+    #[test]
+    fn canonical_agent_context_rejects_stale_projection_head_until_repaired() {
+        let root = temp_root("context-projection-head");
+        let _cleanup = Cleanup(root.clone());
+        let store = LocalThreadStore::new(root);
+        let thread = store.create_thread(CreateThreadRequest::default()).unwrap();
+        store
+            .append_items(&thread.thread_id, vec![item("canonical")])
+            .unwrap();
+        store
+            .set_projection_journal_head("stale-projection-head")
+            .unwrap();
+
+        let error = store.context_items(&thread.thread_id).unwrap_err();
+        assert!(error
+            .message
+            .contains("canonical thread journal head does not match"));
+
+        store
+            .repair_persistence(ThreadPersistenceRepairMode::RebuildProjection)
+            .unwrap();
+        assert_eq!(store.context_items(&thread.thread_id).unwrap().len(), 1);
     }
 
     fn context_compaction_item(

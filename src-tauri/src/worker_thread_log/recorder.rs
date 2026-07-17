@@ -3,10 +3,19 @@ use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource,
 };
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+const THREAD_LOG_HEAD_TAIL_BYTES: u64 = 8 * 1024;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct ThreadLogHead {
+    pub(super) byte_length: i64,
+    pub(super) tail_hash: String,
+}
 
 #[derive(Clone, Debug)]
 pub struct ThreadRecorder {
@@ -61,6 +70,29 @@ impl ThreadRecorder {
 
     pub fn validate_thread_path(&self, path: &Path) -> Result<(), WorkerProtocolError> {
         validate_thread_path(&self.root, path)
+    }
+
+    pub(super) fn thread_log_head(
+        &self,
+        path: &Path,
+    ) -> Result<ThreadLogHead, WorkerProtocolError> {
+        self.validate_thread_path(path)?;
+        let mut file = fs::File::open(path).map_err(thread_log_io_error)?;
+        let byte_length = file.metadata().map_err(thread_log_io_error)?.len();
+        let tail_start = byte_length.saturating_sub(THREAD_LOG_HEAD_TAIL_BYTES);
+        file.seek(SeekFrom::Start(tail_start))
+            .map_err(thread_log_io_error)?;
+        let mut tail =
+            Vec::with_capacity(usize::try_from(byte_length - tail_start).map_err(|_| {
+                thread_log_validation_error("thread log tail exceeds supported buffer size")
+            })?);
+        file.read_to_end(&mut tail).map_err(thread_log_io_error)?;
+        Ok(ThreadLogHead {
+            byte_length: i64::try_from(byte_length).map_err(|_| {
+                thread_log_validation_error("thread log exceeds SQLite length range")
+            })?,
+            tail_hash: format!("sha256:{:x}", Sha256::digest(tail)),
+        })
     }
 
     fn append_line(&self, path: &Path, line: ThreadLogLine) -> Result<(), WorkerProtocolError> {

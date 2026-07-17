@@ -262,6 +262,25 @@ impl LocalThreadStore {
         self.set_projection_journal_head(journal_head)
     }
 
+    pub(super) fn ensure_projection_head_current(&self) -> Result<(), WorkerProtocolError> {
+        let canonical_head = self.read_journal_head()?;
+        let projection_head = if self.exists() {
+            self.projection_journal_head()?
+        } else {
+            None
+        };
+        if canonical_head == projection_head {
+            return Ok(());
+        }
+        Err(persistence_error(
+            "canonical thread journal head does not match the SQLite projection",
+            serde_json::json!({
+                "canonicalHead": canonical_head,
+                "projectionHead": projection_head,
+            }),
+        ))
+    }
+
     pub(super) fn lock_mutation(
         &self,
     ) -> Result<std::sync::MutexGuard<'_, ()>, WorkerProtocolError> {

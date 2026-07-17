@@ -26,12 +26,13 @@ static CONTEXT_CHECKPOINT_COMMIT_LOCK: Mutex<()> = Mutex::new(());
 
 pub use self::reader::read_thread_lines;
 use self::recorder::is_canonical_thread_log_path;
+use self::recorder::ThreadLogHead;
 pub use self::recorder::{now_thread_timestamp, value_event, ThreadRecorder};
 pub use self::replay::replay_thread;
 use self::replay::replay_thread_transcript;
 pub use self::session_adapter::{history_from_replay, metadata_from_state};
-use self::state_db::LatestContextCheckpointRecord;
 pub use self::state_db::ThreadStateDb;
+use self::state_db::{LatestContextCheckpointRecord, ThreadLogHeadRecord};
 pub use self::types::{
     ThreadLogItem, ThreadLogLine, ThreadMeta, ThreadReplay, ThreadStateRecord, TokenUsage,
     TokenUsageInfo, THREAD_LOG_SCHEMA_VERSION,
@@ -84,6 +85,7 @@ struct DerivedIndexSyncResult {
 struct CanonicalThreadState {
     record: ThreadStateRecord,
     latest_checkpoint: Option<LatestContextCheckpointRecord>,
+    log_head: ThreadLogHeadRecord,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -195,13 +197,17 @@ impl WorkerThreadLogRpc {
         limit: usize,
     ) -> Result<Option<SessionHistoryProjection>, WorkerProtocolError> {
         self.require(WorkerCapability::SessionMetadataRead)?;
-        self.ensure_state_index()?;
+        if !self.state.path().exists() {
+            self.ensure_state_index()?;
+        }
         let Some(record) = self.find_live_record(session_id)? else {
             return Ok(None);
         };
         let path = PathBuf::from(&record.thread_path);
         self.recorder.validate_thread_path(&path)?;
+        self.ensure_thread_log_head_current(&record, &path)?;
         let lines = read_thread_lines(&path)?;
+        self.ensure_thread_log_head_current(&record, &path)?;
         let latest_checkpoint = self.state.latest_context_checkpoint(session_id)?;
         let replay = replay_agent_context_from_checkpoint(&lines, latest_checkpoint.as_ref())?;
         Ok(Some(history_from_replay(replay, limit)))
@@ -228,6 +234,10 @@ impl WorkerThreadLogRpc {
                     self.state.replace_thread_projection(
                         &state.record,
                         state.latest_checkpoint.as_ref(),
+                        &ThreadLogHead {
+                            byte_length: state.log_head.byte_length,
+                            tail_hash: state.log_head.tail_hash.clone(),
+                        },
                     )?;
                 }
             }
@@ -274,6 +284,31 @@ impl WorkerThreadLogRpc {
                 serde_json::to_value(report).unwrap_or_default(),
             ))
         }
+    }
+
+    fn ensure_thread_log_head_current(
+        &self,
+        record: &ThreadStateRecord,
+        path: &Path,
+    ) -> Result<(), WorkerProtocolError> {
+        let indexed = self.state.thread_log_head(&record.id)?;
+        let actual = self.recorder.thread_log_head(path)?;
+        if indexed.as_ref().is_some_and(|indexed| {
+            indexed.byte_length == actual.byte_length && indexed.tail_hash == actual.tail_hash
+        }) {
+            return Ok(());
+        }
+        Err(thread_log_consistency_error(
+            "thread log file version does not match the SQLite state index; run session.persistence.repair explicitly",
+            serde_json::json!({
+                "threadId": record.id,
+                "threadPath": record.thread_path,
+                "indexedByteLength": indexed.as_ref().map(|head| head.byte_length),
+                "actualByteLength": actual.byte_length,
+                "indexedTailHash": indexed.as_ref().map(|head| head.tail_hash.as_str()),
+                "actualTailHash": actual.tail_hash,
+            }),
+        ))
     }
 
     fn find_live_record(
@@ -338,7 +373,8 @@ impl WorkerThreadLogRpc {
             archived: false,
             archived_at: None,
         };
-        self.state.upsert_thread(&record)?;
+        let log_head = self.recorder.thread_log_head(&path)?;
+        self.state.upsert_thread_projection(&record, &log_head)?;
         Ok(record)
     }
 
@@ -352,6 +388,7 @@ impl WorkerThreadLogRpc {
             let meta = thread_meta_from_lines(&lines)?;
             let replay = replay_thread(&lines)?;
             let latest_checkpoint = latest_context_checkpoint_from_lines(&meta.thread_id, &lines)?;
+            let log_head = self.recorder.thread_log_head(&path)?;
             let updated_at = state_projection_updated_at(&meta.created_at, &lines);
             let title = if is_default_session_title(&replay.title) {
                 title_from_messages(&replay.messages).unwrap_or(replay.title)
@@ -382,6 +419,11 @@ impl WorkerThreadLogRpc {
             apply_agent_run_events_to_record(&mut record, &lines)?;
             record.updated_at = updated_at;
             states.push(CanonicalThreadState {
+                log_head: ThreadLogHeadRecord {
+                    thread_id: record.id.clone(),
+                    byte_length: log_head.byte_length,
+                    tail_hash: log_head.tail_hash,
+                },
                 record,
                 latest_checkpoint,
             });
@@ -401,6 +443,10 @@ impl WorkerThreadLogRpc {
         let canonical_checkpoints = canonical
             .iter()
             .filter_map(|state| state.latest_checkpoint.clone())
+            .collect::<Vec<_>>();
+        let canonical_heads = canonical
+            .iter()
+            .map(|state| state.log_head.clone())
             .collect::<Vec<_>>();
         if !self.state.path().exists() {
             return Ok(ThreadLogIndexConsistencyReport {
@@ -443,12 +489,25 @@ impl WorkerThreadLogRpc {
                 });
             }
         };
+        let indexed_heads = match self.state.list_thread_log_heads() {
+            Ok(heads) => heads,
+            Err(error) => {
+                return Ok(ThreadLogIndexConsistencyReport {
+                    status: ThreadLogIndexConsistencyStatus::Unreadable,
+                    canonical_thread_count: canonical_records.len(),
+                    indexed_thread_count: indexed.len(),
+                    diagnostics: vec![error.message],
+                });
+            }
+        };
         let records_match = canonical_records == indexed;
         let checkpoints_match = canonical_checkpoints == indexed_checkpoints;
-        let status = if records_match && checkpoints_match {
+        let heads_match = canonical_heads == indexed_heads;
+        let status = if records_match && checkpoints_match && heads_match {
             ThreadLogIndexConsistencyStatus::Clean
         } else if indexed.is_empty() && !canonical_records.is_empty()
             || records_match && indexed_checkpoints.is_empty() && !canonical_checkpoints.is_empty()
+            || records_match && indexed_heads.is_empty() && !canonical_heads.is_empty()
         {
             ThreadLogIndexConsistencyStatus::MissingIndex
         } else {
@@ -456,7 +515,10 @@ impl WorkerThreadLogRpc {
         };
         let diagnostics = (status != ThreadLogIndexConsistencyStatus::Clean)
             .then(|| {
-                if records_match {
+                if records_match && checkpoints_match {
+                    "canonical thread log file versions differ from the SQLite state index"
+                        .to_string()
+                } else if records_match {
                     "canonical latest context checkpoints differ from the SQLite state index"
                         .to_string()
                 } else {
@@ -649,12 +711,14 @@ impl WorkerThreadLogRpc {
         }
         self.recorder
             .append_items(&thread_path, timestamp.clone(), items)?;
+        let log_head = self.recorder.thread_log_head(&thread_path)?;
         record.updated_at = timestamp;
         if let Some(title) = derived_title {
             record.title = title;
         }
         record.preview = preview_from_messages(&replacement_history);
-        let index = self.synchronize_derived_index_after_checkpoint(&record, &checkpoint_record);
+        let index =
+            self.synchronize_derived_index_after_checkpoint(&record, &checkpoint_record, &log_head);
         Ok(ContextCheckpointCommitResult {
             session_id: session_id.to_string(),
             context_id,
@@ -670,23 +734,25 @@ impl WorkerThreadLogRpc {
         &self,
         record: &ThreadStateRecord,
         checkpoint: &LatestContextCheckpointRecord,
+        log_head: &ThreadLogHead,
     ) -> DerivedIndexSyncResult {
-        let first_error = match self
-            .state
-            .replace_thread_projection(record, Some(checkpoint))
-        {
-            Ok(()) => {
-                return DerivedIndexSyncResult {
-                    synchronized: true,
-                    recovered: false,
-                    diagnostics: Vec::new(),
+        let first_error =
+            match self
+                .state
+                .replace_thread_projection(record, Some(checkpoint), log_head)
+            {
+                Ok(()) => {
+                    return DerivedIndexSyncResult {
+                        synchronized: true,
+                        recovered: false,
+                        diagnostics: Vec::new(),
+                    }
                 }
-            }
-            Err(error) => error,
-        };
+                Err(error) => error,
+            };
         match self
             .state
-            .replace_thread_projection(record, Some(checkpoint))
+            .replace_thread_projection(record, Some(checkpoint), log_head)
         {
             Ok(()) => DerivedIndexSyncResult {
                 synchronized: true,
@@ -899,6 +965,7 @@ impl WorkerThreadLogRpc {
         ));
         self.recorder
             .append_items(&thread_path, timestamp.clone(), turn_items)?;
+        let log_head = self.recorder.thread_log_head(&thread_path)?;
 
         let saved_message_count = saved_messages.len();
         let messages_after = next_messages.len();
@@ -908,10 +975,11 @@ impl WorkerThreadLogRpc {
         }
         record.preview = preview_from_messages(&next_messages);
         match indexed_checkpoint.as_ref() {
-            Some(checkpoint) => self
-                .state
-                .replace_thread_projection(&record, Some(checkpoint))?,
-            None => self.state.upsert_thread(&record)?,
+            Some(checkpoint) => {
+                self.state
+                    .replace_thread_projection(&record, Some(checkpoint), &log_head)?
+            }
+            None => self.state.upsert_thread_projection(&record, &log_head)?,
         }
         Ok(PersistTurnResult {
             session_id: session_id.to_string(),
@@ -947,9 +1015,10 @@ impl WorkerThreadLogRpc {
                 "info": info
             })),
         )?;
+        let log_head = self.recorder.thread_log_head(&path)?;
         record.updated_at = timestamp;
         record.tokens_used = info.total_token_usage.total_tokens;
-        self.state.upsert_thread(&record)
+        self.state.upsert_thread_projection(&record, &log_head)
     }
 
     pub fn clear_session(
@@ -1008,12 +1077,13 @@ impl WorkerThreadLogRpc {
             timestamp.clone(),
             ThreadLogItem::Compacted(checkpoint),
         )?;
+        let log_head = self.recorder.thread_log_head(&path)?;
         let messages_before = replay.messages.len();
         record.updated_at = timestamp.clone();
         record.preview.clear();
         record.tokens_used = 0;
         self.state
-            .replace_thread_projection(&record, Some(&indexed_checkpoint))?;
+            .replace_thread_projection(&record, Some(&indexed_checkpoint), &log_head)?;
         Ok(Some(ClearSessionResult {
             session_id: record
                 .session_id
@@ -1082,8 +1152,9 @@ impl WorkerThreadLogRpc {
                 }
             })),
         )?;
+        let log_head = self.recorder.thread_log_head(&path)?;
         apply_metadata_patch_to_record(&mut record, patch, &timestamp);
-        self.state.upsert_thread(&record)?;
+        self.state.upsert_thread_projection(&record, &log_head)?;
         Ok(Some(metadata_from_state(record)))
     }
 
