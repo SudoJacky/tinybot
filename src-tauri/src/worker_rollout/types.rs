@@ -7,6 +7,8 @@ pub const ROLLOUT_SCHEMA_VERSION: u32 = 1;
 #[serde(rename_all = "camelCase")]
 pub struct RolloutLine {
     pub timestamp: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ordinal: Option<u64>,
     #[serde(flatten)]
     pub item: RolloutItem,
 }
@@ -198,9 +200,11 @@ pub struct RolloutReconstruction {
     pub title: String,
     pub updated_at: String,
     pub messages: Vec<Value>,
+    pub user_profile: Value,
     pub token_usage_info: Option<TokenUsageInfo>,
     pub context_checkpoint: Option<Value>,
     pub world_state_baseline: Option<Value>,
+    pub(crate) compaction_overlap_candidate: Option<Value>,
 }
 
 #[cfg(test)]
@@ -212,6 +216,7 @@ mod tests {
     fn rollout_line_serializes_session_meta_with_snake_type() {
         let line = RolloutLine {
             timestamp: "2026-07-08T10:12:30Z".to_string(),
+            ordinal: None,
             item: RolloutItem::SessionMeta(SessionMeta {
                 schema_version: ROLLOUT_SCHEMA_VERSION,
                 thread_id: "thread-1".to_string(),
@@ -251,6 +256,7 @@ mod tests {
     fn world_state_item_serializes_like_codex_rollout() {
         let line = RolloutLine {
             timestamp: "2026-07-17T10:00:00Z".to_string(),
+            ordinal: None,
             item: RolloutItem::WorldState(WorldStateItem::patch(json!({
                 "environment": { "cwd": "D:/code/tinybot" }
             }))),

@@ -1,6 +1,10 @@
 use super::*;
 
 impl WorkerSessionRpc {
+    pub(crate) fn legacy_snapshot(&self) -> Vec<SessionMetadata> {
+        self.sessions.clone()
+    }
+
     pub fn new(sessions: Vec<SessionMetadata>, policy: CapabilityPolicy) -> Self {
         Self {
             sessions,

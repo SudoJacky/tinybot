@@ -632,12 +632,13 @@ impl WorkerRpcRouter {
         client_event_id: String,
         op: ThreadOp,
     ) -> Result<Vec<Value>, crate::worker_protocol::WorkerProtocolError> {
-        self.thread
-            .apply_op(ThreadApplyOpRequest {
-                thread_id: thread_id.to_string(),
-                client_event_id: Some(client_event_id),
-                op,
-            })?
+        let result = self.thread.apply_op(ThreadApplyOpRequest {
+            thread_id: thread_id.to_string(),
+            client_event_id: Some(client_event_id),
+            op,
+        })?;
+        self.persist_legacy_thread_runtime_result(&result)?;
+        result
             .appended_items
             .into_iter()
             .map(serde_json::to_value)

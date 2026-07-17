@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct LatestContextCheckpointRecord {
     pub(super) thread_id: String,
-    pub(super) line_number: i64,
+    pub(super) ordinal: i64,
     pub(super) timestamp: String,
     pub(super) checkpoint_hash: String,
 }
@@ -140,7 +140,7 @@ impl ThreadStateDb {
         let connection = self.open()?;
         let mut statement = connection
             .prepare(
-                "SELECT checkpoint.thread_id, checkpoint.line_number,
+                "SELECT checkpoint.thread_id, COALESCE(checkpoint.ordinal, checkpoint.line_number),
                         checkpoint.checkpoint_timestamp, checkpoint.checkpoint_hash
                  FROM latest_context_checkpoints checkpoint
                  INNER JOIN threads thread ON thread.id = checkpoint.thread_id
@@ -165,7 +165,8 @@ impl ThreadStateDb {
         let connection = self.open()?;
         let mut statement = connection
             .prepare(
-                "SELECT thread_id, line_number, checkpoint_timestamp, checkpoint_hash
+                "SELECT thread_id, COALESCE(ordinal, line_number),
+                        checkpoint_timestamp, checkpoint_hash
                  FROM latest_context_checkpoints
                  ORDER BY thread_id ASC",
             )
@@ -367,6 +368,7 @@ fn ensure_schema(connection: &Connection) -> Result<(), WorkerProtocolError> {
             CREATE TABLE IF NOT EXISTS latest_context_checkpoints (
                 thread_id TEXT PRIMARY KEY NOT NULL,
                 line_number INTEGER NOT NULL,
+                ordinal INTEGER,
                 checkpoint_timestamp TEXT NOT NULL,
                 checkpoint_hash TEXT NOT NULL
             );
@@ -377,7 +379,40 @@ fn ensure_schema(connection: &Connection) -> Result<(), WorkerProtocolError> {
             );
             ",
         )
-        .map_err(sqlite_error)
+        .map_err(sqlite_error)?;
+    let has_ordinal = {
+        let mut statement = connection
+            .prepare("PRAGMA table_info(latest_context_checkpoints)")
+            .map_err(sqlite_error)?;
+        let columns = statement
+            .query_map([], |row| row.get::<_, String>(1))
+            .map_err(sqlite_error)?;
+        let mut found = false;
+        for column in columns {
+            if column.map_err(sqlite_error)? == "ordinal" {
+                found = true;
+                break;
+            }
+        }
+        found
+    };
+    if !has_ordinal {
+        connection
+            .execute(
+                "ALTER TABLE latest_context_checkpoints ADD COLUMN ordinal INTEGER",
+                [],
+            )
+            .map_err(sqlite_error)?;
+    }
+    connection
+        .execute(
+            "UPDATE latest_context_checkpoints
+             SET ordinal = line_number
+             WHERE ordinal IS NULL",
+            [],
+        )
+        .map_err(sqlite_error)?;
+    Ok(())
 }
 
 fn upsert_thread(
@@ -431,15 +466,16 @@ fn upsert_latest_context_checkpoint(
     connection
         .execute(
             "INSERT INTO latest_context_checkpoints (
-                thread_id, line_number, checkpoint_timestamp, checkpoint_hash
-             ) VALUES (?1, ?2, ?3, ?4)
+                thread_id, line_number, ordinal, checkpoint_timestamp, checkpoint_hash
+             ) VALUES (?1, ?2, ?2, ?3, ?4)
              ON CONFLICT(thread_id) DO UPDATE SET
                 line_number = excluded.line_number,
+                ordinal = excluded.ordinal,
                 checkpoint_timestamp = excluded.checkpoint_timestamp,
                 checkpoint_hash = excluded.checkpoint_hash",
             params![
                 checkpoint.thread_id.as_str(),
-                checkpoint.line_number,
+                checkpoint.ordinal,
                 checkpoint.timestamp.as_str(),
                 checkpoint.checkpoint_hash.as_str(),
             ],
@@ -491,7 +527,7 @@ fn row_to_latest_context_checkpoint(
 ) -> rusqlite::Result<LatestContextCheckpointRecord> {
     Ok(LatestContextCheckpointRecord {
         thread_id: row.get(0)?,
-        line_number: row.get(1)?,
+        ordinal: row.get(1)?,
         timestamp: row.get(2)?,
         checkpoint_hash: row.get(3)?,
     })
@@ -776,6 +812,46 @@ mod tests {
     }
 
     #[test]
+    fn schema_migrates_legacy_checkpoint_line_numbers_to_ordinals() {
+        let root = temp_root("checkpoint-ordinal-migration");
+        let _ = fs::remove_dir_all(&root);
+        let db = ThreadStateDb::new(root.clone());
+        fs::create_dir_all(db.path().parent().unwrap()).unwrap();
+        let connection = rusqlite::Connection::open(db.path()).unwrap();
+        connection
+            .execute_batch(
+                "
+                CREATE TABLE latest_context_checkpoints (
+                    thread_id TEXT PRIMARY KEY NOT NULL,
+                    line_number INTEGER NOT NULL,
+                    checkpoint_timestamp TEXT NOT NULL,
+                    checkpoint_hash TEXT NOT NULL
+                );
+                INSERT INTO latest_context_checkpoints (
+                    thread_id, line_number, checkpoint_timestamp, checkpoint_hash
+                ) VALUES (
+                    'thread-legacy', 7, '2026-07-08T10:00:00Z', 'sha256:legacy'
+                );
+                ",
+            )
+            .unwrap();
+        drop(connection);
+
+        let connection = db.open().unwrap();
+        let ordinal: i64 = connection
+            .query_row(
+                "SELECT ordinal FROM latest_context_checkpoints
+                 WHERE thread_id = 'thread-legacy'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        assert_eq!(ordinal, 7);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn latest_context_checkpoint_projection_is_replaceable_and_preserved_by_thread_updates() {
         let root = temp_root("latest-checkpoint");
         let _ = fs::remove_dir_all(&root);
@@ -787,7 +863,7 @@ mod tests {
         );
         let checkpoint = LatestContextCheckpointRecord {
             thread_id: thread.id.clone(),
-            line_number: 4,
+            ordinal: 4,
             timestamp: "2026-07-08T10:00:00Z".to_string(),
             checkpoint_hash: "sha256:checkpoint-1".to_string(),
         };

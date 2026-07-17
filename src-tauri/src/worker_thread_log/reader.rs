@@ -26,7 +26,45 @@ pub fn read_thread_lines(path: &Path) -> Result<Vec<ThreadLogLine>, WorkerProtoc
         })?;
         lines.push(line);
     }
+    validate_rollout_ordinals(path, &lines)?;
     Ok(lines)
+}
+
+fn validate_rollout_ordinals(
+    path: &Path,
+    lines: &[ThreadLogLine],
+) -> Result<(), WorkerProtocolError> {
+    let mut observed_numbered_record = false;
+    for (index, line) in lines.iter().enumerate() {
+        let expected = u64::try_from(index).map_err(|_| {
+            invalid_thread_log_line_error(path, index, "thread log ordinal range overflow")
+        })?;
+        match line.ordinal {
+            Some(actual) if actual == expected => observed_numbered_record = true,
+            Some(actual) => {
+                return Err(invalid_thread_log_line_error(
+                    path,
+                    index,
+                    &format!(
+                        "thread log ordinal mismatch at line {}: expected {expected}, found {actual}",
+                        index + 1
+                    ),
+                ));
+            }
+            None if observed_numbered_record => {
+                return Err(invalid_thread_log_line_error(
+                    path,
+                    index,
+                    &format!(
+                        "thread log line {} is missing an ordinal after numbered records",
+                        index + 1
+                    ),
+                ));
+            }
+            None => {}
+        }
+    }
+    Ok(())
 }
 
 fn invalid_thread_log_line_error(path: &Path, index: usize, message: &str) -> WorkerProtocolError {
@@ -69,6 +107,7 @@ mod tests {
     fn valid_line() -> ThreadLogLine {
         ThreadLogLine {
             timestamp: "2026-07-08T10:12:30Z".to_string(),
+            ordinal: None,
             item: ThreadLogItem::SessionMeta(ThreadMeta {
                 schema_version: crate::worker_thread_log::THREAD_LOG_SCHEMA_VERSION,
                 thread_id: "thread-a".to_string(),
@@ -110,6 +149,56 @@ mod tests {
 
         assert!(error.message.contains("blank thread log line"));
         assert_eq!(error.details["line"], 2);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn reader_rejects_missing_ordinal_after_numbered_records() {
+        let path = temp_path("missing-ordinal");
+        let mut first = valid_line();
+        first.ordinal = Some(0);
+        let second = ThreadLogLine {
+            timestamp: "2026-07-08T10:13:30Z".to_string(),
+            ordinal: None,
+            item: ThreadLogItem::EventMsg(serde_json::json!({ "type": "turn_started" })),
+        };
+        fs::write(
+            &path,
+            format!(
+                "{}\n{}\n",
+                serde_json::to_string(&first).unwrap(),
+                serde_json::to_string(&second).unwrap()
+            ),
+        )
+        .unwrap();
+
+        let error = read_thread_lines(&path).unwrap_err();
+
+        assert!(error.message.contains("missing an ordinal"));
+        assert_eq!(error.details["line"], 2);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn reader_accepts_legacy_prefix_followed_by_numbered_records() {
+        let path = temp_path("legacy-prefix");
+        let first = valid_line();
+        let second = ThreadLogLine {
+            timestamp: "2026-07-08T10:13:30Z".to_string(),
+            ordinal: Some(1),
+            item: ThreadLogItem::EventMsg(serde_json::json!({ "type": "turn_started" })),
+        };
+        fs::write(
+            &path,
+            format!(
+                "{}\n{}\n",
+                serde_json::to_string(&first).unwrap(),
+                serde_json::to_string(&second).unwrap()
+            ),
+        )
+        .unwrap();
+
+        assert_eq!(read_thread_lines(&path).unwrap().len(), 2);
         let _ = fs::remove_file(path);
     }
 }

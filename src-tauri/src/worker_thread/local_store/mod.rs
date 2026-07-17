@@ -588,6 +588,32 @@ impl LocalThreadStore {
         self.archive_thread_inner(thread_id, archived, archive_children)
     }
 
+    pub fn archive_target_records(
+        &self,
+        thread_id: &str,
+        archive_children: bool,
+    ) -> Result<Vec<ThreadRecord>, WorkerProtocolError> {
+        validate_thread_id(thread_id)?;
+        let index = self.read_index()?;
+        if !index
+            .threads
+            .iter()
+            .any(|thread| thread.thread_id == thread_id)
+        {
+            return Err(unknown_thread_error(thread_id));
+        }
+        let mut target_ids = vec![thread_id.to_string()];
+        if archive_children {
+            target_ids.extend(descendant_thread_ids(&index, thread_id));
+        }
+        Ok(index
+            .threads
+            .iter()
+            .filter(|thread| target_ids.contains(&thread.thread_id))
+            .cloned()
+            .collect())
+    }
+
     fn archive_thread_inner(
         &self,
         thread_id: &str,
@@ -684,17 +710,18 @@ impl LocalThreadStore {
         &self,
         summary: &SubagentThreadSummary,
         event: Option<Value>,
-    ) -> Result<AppendThreadItemsResult, WorkerProtocolError> {
+    ) -> Result<Vec<AppendThreadItemsResult>, WorkerProtocolError> {
         let parent = self.ensure_parent_thread_for_subagent(summary)?;
         let child = self.ensure_child_thread_for_subagent(summary, &parent.thread_id)?;
         let parent_items = self.read_items(&parent.thread_id)?;
         let mut child_items =
             inherited_subagent_history_items(summary, &parent.thread_id, &parent_items);
         child_items.extend(subagent_initial_child_items(summary, event.clone()));
+        let mut results = Vec::with_capacity(2);
         if !child_items.is_empty() {
-            self.append_items(&child.thread_id, child_items)?;
+            results.push(self.append_items(&child.thread_id, child_items)?);
         }
-        self.append_items(
+        results.push(self.append_items(
             &parent.thread_id,
             vec![subagent_parent_item(
                 summary,
@@ -702,7 +729,8 @@ impl LocalThreadStore {
                 "spawned",
                 ThreadItemKind::SubagentSpawned,
             )],
-        )
+        )?);
+        Ok(results)
     }
 
     pub fn record_subagent_input(
@@ -710,20 +738,20 @@ impl LocalThreadStore {
         summary: &SubagentThreadSummary,
         input: &SubagentMailboxInput,
         event: Option<Value>,
-    ) -> Result<AppendThreadItemsResult, WorkerProtocolError> {
+    ) -> Result<Vec<AppendThreadItemsResult>, WorkerProtocolError> {
         let parent = self.ensure_parent_thread_for_subagent(summary)?;
         let child = self.ensure_child_thread_for_subagent(summary, &parent.thread_id)?;
-        self.append_items(
+        Ok(vec![self.append_items(
             &child.thread_id,
             vec![subagent_input_item(summary, input, event)],
-        )
+        )?])
     }
 
     pub fn record_subagent_status(
         &self,
         summary: &SubagentThreadSummary,
         event: Option<Value>,
-    ) -> Result<AppendThreadItemsResult, WorkerProtocolError> {
+    ) -> Result<Vec<AppendThreadItemsResult>, WorkerProtocolError> {
         let parent = self.ensure_parent_thread_for_subagent(summary)?;
         let child = self.ensure_child_thread_for_subagent(summary, &parent.thread_id)?;
         let child_result = self.append_items(
@@ -742,7 +770,7 @@ impl LocalThreadStore {
                 | SubagentThreadStatus::Closed
                 | SubagentThreadStatus::Interrupted
         ) {
-            return self.append_items(
+            let parent_result = self.append_items(
                 &parent.thread_id,
                 vec![subagent_parent_item(
                     summary,
@@ -750,9 +778,10 @@ impl LocalThreadStore {
                     &lifecycle_label,
                     ThreadItemKind::SubagentCompleted,
                 )],
-            );
+            )?;
+            return Ok(vec![child_result, parent_result]);
         }
-        self.append_items(
+        let parent_result = self.append_items(
             &parent.thread_id,
             vec![subagent_parent_item(
                 summary,
@@ -761,7 +790,7 @@ impl LocalThreadStore {
                 ThreadItemKind::SubagentMessage,
             )],
         )?;
-        Ok(child_result)
+        Ok(vec![child_result, parent_result])
     }
 
     fn ensure_parent_thread_for_subagent(

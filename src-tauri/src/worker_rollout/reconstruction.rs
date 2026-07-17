@@ -246,6 +246,12 @@ fn apply_response_item(replay: &mut RolloutReconstruction, item: &Value, timesta
         "timestamp": timestamp
     });
     copy_optional_message_fields(item, &mut message, PRESERVED_MESSAGE_FIELDS);
+    if let Some(candidate) = replay.compaction_overlap_candidate.take() {
+        if same_message_identity(&candidate, &message) {
+            replay.updated_at = timestamp.to_string();
+            return;
+        }
+    }
     replay.messages.push(message);
     replay.updated_at = timestamp.to_string();
 }
@@ -256,18 +262,37 @@ fn apply_event(
     timestamp: &str,
 ) -> Result<(), WorkerProtocolError> {
     replay.updated_at = timestamp.to_string();
-    if event.get("type").and_then(Value::as_str) != Some("token_count") {
-        return Ok(());
+    match event.get("type").and_then(Value::as_str) {
+        Some("metadata_updated") => {
+            if let Some(user_profile) = event
+                .get("payload")
+                .and_then(|payload| payload.get("metadata"))
+                .and_then(|metadata| metadata.get("userProfile"))
+            {
+                replay.user_profile = user_profile.clone();
+            }
+            Ok(())
+        }
+        Some("token_count") => {
+            let info = token_usage_info_value(event).ok_or_else(|| {
+                replay_semantic_error(
+                    "thread log token_count event is missing token usage info",
+                    timestamp,
+                    json!({ "event": event }),
+                )
+            })?;
+            replay.token_usage_info = Some(parse_token_usage_info(info, timestamp)?);
+            Ok(())
+        }
+        Some("session_cleared") => {
+            replay.messages.clear();
+            replay.user_profile = json!({});
+            replay.token_usage_info = None;
+            replay.compaction_overlap_candidate = None;
+            Ok(())
+        }
+        _ => Ok(()),
     }
-    let info = token_usage_info_value(event).ok_or_else(|| {
-        replay_semantic_error(
-            "thread log token_count event is missing token usage info",
-            timestamp,
-            json!({ "event": event }),
-        )
-    })?;
-    replay.token_usage_info = Some(parse_token_usage_info(info, timestamp)?);
-    Ok(())
 }
 
 fn apply_compacted(
@@ -294,9 +319,22 @@ fn apply_compacted(
             )
         })?;
     replay.messages = replacement_history.clone();
+    replay.compaction_overlap_candidate = replacement_history.last().cloned();
     replay.token_usage_info = None;
     replay.context_checkpoint = Some(compacted.clone());
     Ok(())
+}
+
+fn same_message_identity(left: &Value, right: &Value) -> bool {
+    left.get("role") == right.get("role")
+        && thread_item_content(left) == thread_item_content(right)
+        && match (
+            left.get("messageId").or_else(|| left.get("message_id")),
+            right.get("messageId").or_else(|| right.get("message_id")),
+        ) {
+            (Some(left_id), Some(right_id)) => left_id == right_id,
+            _ => true,
+        }
 }
 
 fn attach_token_usage_to_history(replay: &mut RolloutReconstruction) {
@@ -696,6 +734,7 @@ mod tests {
             ),
             ThreadLogLine {
                 timestamp: "2026-07-08T10:02:00Z".to_string(),
+                ordinal: None,
                 item: ThreadLogItem::Compacted(json!({
                     "replacementHistory": [
                         {
@@ -732,6 +771,7 @@ mod tests {
             ),
             ThreadLogLine {
                 timestamp: "2026-07-08T10:02:00Z".to_string(),
+                ordinal: None,
                 item: ThreadLogItem::EventMsg(json!({
                     "type": "token_count",
                     "info": {
@@ -743,6 +783,7 @@ mod tests {
             },
             ThreadLogLine {
                 timestamp: "2026-07-08T10:03:00Z".to_string(),
+                ordinal: None,
                 item: ThreadLogItem::Compacted(json!({
                     "replacementHistory": []
                 })),
@@ -780,6 +821,7 @@ mod tests {
             ),
             ThreadLogLine {
                 timestamp: "2026-07-08T10:03:00Z".to_string(),
+                ordinal: None,
                 item: ThreadLogItem::EventMsg(json!({
                     "type": "token_count",
                     "payload": {
@@ -814,6 +856,7 @@ mod tests {
             ),
             ThreadLogLine {
                 timestamp: "2026-07-08T10:01:00Z".to_string(),
+                ordinal: None,
                 item: ThreadLogItem::EventMsg(json!({
                     "type": "token_count",
                     "info": {
@@ -844,6 +887,7 @@ mod tests {
             ),
             ThreadLogLine {
                 timestamp: "2026-07-08T10:01:00Z".to_string(),
+                ordinal: None,
                 item: ThreadLogItem::EventMsg(json!({
                     "type": "token_count",
                     "info": {
@@ -877,6 +921,7 @@ mod tests {
             ),
             ThreadLogLine {
                 timestamp: "2026-07-08T10:01:00Z".to_string(),
+                ordinal: None,
                 item: ThreadLogItem::EventMsg(json!({
                     "type": "token_count"
                 })),
@@ -900,6 +945,7 @@ mod tests {
             ),
             ThreadLogLine {
                 timestamp: "2026-07-08T10:01:00Z".to_string(),
+                ordinal: None,
                 item: ThreadLogItem::Compacted(json!({
                     "replacementHistory": {
                         "role": "assistant",
@@ -985,6 +1031,7 @@ mod tests {
         let lines = vec![
             RolloutLine {
                 timestamp: "2026-07-17T10:00:00Z".to_string(),
+                ordinal: None,
                 item: RolloutItem::WorldState(super::super::WorldStateItem::full(json!({
                     "environment": { "status": "old" }
                 }))),
@@ -992,6 +1039,7 @@ mod tests {
             compacted_line("2026-07-17T10:00:01Z", "summary"),
             RolloutLine {
                 timestamp: "2026-07-17T10:00:02Z".to_string(),
+                ordinal: None,
                 item: RolloutItem::WorldState(super::super::WorldStateItem::full(json!({
                     "environment": {
                         "status": "starting",
@@ -1002,6 +1050,7 @@ mod tests {
             },
             RolloutLine {
                 timestamp: "2026-07-17T10:00:03Z".to_string(),
+                ordinal: None,
                 item: RolloutItem::WorldState(super::super::WorldStateItem::patch(json!({
                     "environment": {
                         "status": "ready",
@@ -1028,6 +1077,7 @@ mod tests {
     fn replay_ignores_world_state_patch_without_a_full_snapshot() {
         let lines = vec![RolloutLine {
             timestamp: "2026-07-17T10:00:00Z".to_string(),
+            ordinal: None,
             item: RolloutItem::WorldState(super::super::WorldStateItem::patch(json!({
                 "environment": { "status": "ready" }
             }))),
@@ -1042,6 +1092,7 @@ mod tests {
     fn meta_line(thread_id: &str, session_id: Option<&str>, timestamp: &str) -> ThreadLogLine {
         ThreadLogLine {
             timestamp: timestamp.to_string(),
+            ordinal: None,
             item: ThreadLogItem::SessionMeta(ThreadMeta {
                 schema_version: crate::worker_thread_log::THREAD_LOG_SCHEMA_VERSION,
                 thread_id: thread_id.to_string(),
@@ -1063,6 +1114,7 @@ mod tests {
     fn response_line(timestamp: &str, item: Value) -> ThreadLogLine {
         ThreadLogLine {
             timestamp: timestamp.to_string(),
+            ordinal: None,
             item: ThreadLogItem::ResponseItem(item),
         }
     }
@@ -1070,6 +1122,7 @@ mod tests {
     fn event_line(timestamp: &str, event_type: &str, payload: Value) -> ThreadLogLine {
         ThreadLogLine {
             timestamp: timestamp.to_string(),
+            ordinal: None,
             item: ThreadLogItem::EventMsg(json!({
                 "type": event_type,
                 "payload": payload
@@ -1080,6 +1133,7 @@ mod tests {
     fn compacted_line(timestamp: &str, summary: &str) -> ThreadLogLine {
         ThreadLogLine {
             timestamp: timestamp.to_string(),
+            ordinal: None,
             item: ThreadLogItem::Compacted(json!({
                 "replacementHistory": [{
                     "role": "assistant",
@@ -1092,6 +1146,7 @@ mod tests {
     fn token_count_line(timestamp: &str, last_tokens: i64, context_window: i64) -> ThreadLogLine {
         ThreadLogLine {
             timestamp: timestamp.to_string(),
+            ordinal: None,
             item: ThreadLogItem::EventMsg(json!({
                 "type": "token_count",
                 "info": {

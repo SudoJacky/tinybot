@@ -5,6 +5,8 @@ impl WorkerRpcRouter {
         &mut self,
         request: &WorkerRequest,
     ) -> Result<Value, WorkerProtocolError> {
+        self.thread_log
+            .import_legacy_sessions(&self.session.legacy_snapshot())?;
         match request.method.as_str() {
             "rollout.append_turn_context" => {
                 let params: RolloutAppendTurnContextParams = parse_params(request)?;
@@ -244,6 +246,8 @@ impl WorkerRpcRouter {
         &mut self,
         request: &WorkerRequest,
     ) -> Result<Value, WorkerProtocolError> {
+        self.thread_log
+            .import_legacy_sessions(&self.session.legacy_snapshot())?;
         match request.method.as_str() {
             "agent_run.upsert" => {
                 let params: AgentRunUpsertParams = parse_params(request)?;

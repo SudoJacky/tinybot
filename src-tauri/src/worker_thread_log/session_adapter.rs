@@ -13,6 +13,7 @@ pub fn metadata_from_state(record: ThreadStateRecord) -> SessionMetadata {
             "threadId": record.id,
             "threadPath": record.thread_path,
             "threadSource": "thread_log",
+            "source": "thread.metadata_projection",
             "preview": record.preview,
             "model": record.model,
             "provider": record.model_provider,
@@ -33,7 +34,11 @@ pub fn history_from_replay(replay: ThreadReplay, limit: usize) -> SessionHistory
     SessionHistoryProjection {
         session_id: replay.session_id,
         messages,
-        user_profile: json!({}),
+        user_profile: if replay.user_profile.is_null() {
+            json!({})
+        } else {
+            replay.user_profile
+        },
         updated_at: replay.updated_at,
         context_checkpoint: replay.context_checkpoint,
     }
@@ -229,9 +234,11 @@ mod tests {
             title: "New session".to_string(),
             updated_at: "2026-07-08T10:03:00Z".to_string(),
             messages,
+            user_profile: serde_json::json!({}),
             token_usage_info: None,
             context_checkpoint: None,
             world_state_baseline: None,
+            compaction_overlap_candidate: None,
         }
     }
 

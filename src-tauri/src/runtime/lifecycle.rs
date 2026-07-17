@@ -282,7 +282,7 @@ impl RuntimeLifecycle {
         } else {
             LifecycleStageReport {
                 completed: true,
-                detail: "Runtime stores are write-through; the lifecycle coordinator has no buffered state writer to drain."
+                detail: "Runtime stores are write-through and each owned rollout writer drains on release."
                     .to_string(),
             }
         };

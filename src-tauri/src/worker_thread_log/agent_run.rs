@@ -1,7 +1,8 @@
 use super::{
-    is_default_session_title, now_thread_timestamp, preview_from_messages, read_thread_lines,
-    replay_thread, thread_id_for_session_id, title_from_messages, value_event,
-    AgentRunRecoveryEntry, AgentRunRecoveryReport, ThreadLogItem, WorkerThreadLogRpc,
+    canonicalize_thread_timestamp, is_default_session_title, now_thread_timestamp,
+    preview_from_messages, read_thread_lines, replay_thread, thread_id_for_session_id,
+    title_from_messages, value_event, AgentRunRecoveryEntry, AgentRunRecoveryReport, ThreadLogItem,
+    WorkerThreadLogRpc,
 };
 use crate::agent_loop_runtime_protocol::{
     AgentRuntimeEventEnvelope, LegacyNativeAgentEventEnvelopeInput,
@@ -20,7 +21,100 @@ use std::path::PathBuf;
 impl WorkerThreadLogRpc {
     pub fn upsert_agent_run(
         &self,
+        record: AgentRunRecord,
+    ) -> Result<AgentRunRecord, WorkerProtocolError> {
+        let timestamp = now_thread_timestamp();
+        self.upsert_agent_run_at(record, timestamp)
+    }
+
+    pub(crate) fn upsert_legacy_thread_agent_run(
+        &self,
+        thread_id: &str,
         mut record: AgentRunRecord,
+    ) -> Result<AgentRunRecord, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
+        validate_agent_run_key(&record.session_id, &record.run_id)?;
+        if record
+            .thread_id
+            .as_deref()
+            .is_some_and(|record_thread_id| record_thread_id != thread_id)
+        {
+            return Err(WorkerProtocolError::new(
+                WorkerProtocolErrorCode::InvalidProtocol,
+                "agent run thread identity does not match target Rollout",
+                serde_json::json!({
+                    "threadId": thread_id,
+                    "runId": record.run_id,
+                    "recordThreadId": record.thread_id,
+                }),
+                false,
+                WorkerProtocolErrorSource::RustCore,
+            ));
+        }
+        record.thread_id = Some(thread_id.to_string());
+        self.ensure_state_index()?;
+        let Some(mut state) = self.state.find_by_session_or_thread_id(thread_id)? else {
+            return Err(WorkerProtocolError::new(
+                WorkerProtocolErrorCode::InvalidProtocol,
+                "target Rollout is missing for thread-backed agent run",
+                serde_json::json!({ "threadId": thread_id, "runId": record.run_id }),
+                false,
+                WorkerProtocolErrorSource::RustCore,
+            ));
+        };
+        if state.id != thread_id {
+            return Err(WorkerProtocolError::new(
+                WorkerProtocolErrorCode::InvalidProtocol,
+                "thread-backed agent run resolved to a different Rollout",
+                serde_json::json!({
+                    "threadId": thread_id,
+                    "resolvedThreadId": state.id,
+                    "runId": record.run_id,
+                }),
+                false,
+                WorkerProtocolErrorSource::RustCore,
+            ));
+        }
+        let path = PathBuf::from(&state.thread_path);
+        self.recorder.validate_thread_path(&path)?;
+        let lines = read_thread_lines(&path)?;
+        let existing = agent_run_records_from_lines(&record.session_id, &lines)
+            .into_iter()
+            .find(|existing| existing.run_id == record.run_id);
+        if let Some(existing) = existing {
+            record.started_at = existing.started_at.clone();
+            let mut trace_events = existing.trace_events.clone();
+            for event in std::mem::take(&mut record.trace_events) {
+                upsert_trace_event(&mut trace_events, event);
+            }
+            record.trace_events = trace_events;
+            if existing == record {
+                return Ok(record);
+            }
+        }
+        let timestamp = canonicalize_thread_timestamp(&record.updated_at)?;
+        self.recorder.append_item(
+            &path,
+            timestamp.clone(),
+            value_event("agent_run_upsert", serde_json::json!({ "record": record })),
+        )?;
+        let log_head = self.recorder.thread_log_head(&path)?;
+        state.updated_at = timestamp;
+        if !record.model.trim().is_empty() {
+            state.model = Some(record.model.clone());
+        }
+        state.model_provider = record.provider.clone();
+        if let Some(info) = record.token_usage_info.as_ref() {
+            state.tokens_used = info.total_token_usage.total_tokens;
+        }
+        self.state.upsert_thread_projection(&state, &log_head)?;
+        Ok(record)
+    }
+
+    fn upsert_agent_run_at(
+        &self,
+        mut record: AgentRunRecord,
+        timestamp: String,
     ) -> Result<AgentRunRecord, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         validate_agent_run_key(&record.session_id, &record.run_id)?;
@@ -33,7 +127,6 @@ impl WorkerThreadLogRpc {
             }
             record.trace_events = trace_events;
         }
-        let timestamp = now_thread_timestamp();
         let mut state = self.ensure_agent_run_thread(&record.session_id, &timestamp)?;
         let path = PathBuf::from(state.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
@@ -529,13 +622,29 @@ impl WorkerThreadLogRpc {
         session_id: &str,
     ) -> Result<Vec<AgentRunRecord>, WorkerProtocolError> {
         self.ensure_state_index()?;
-        let Some(record) = self.find_live_record(session_id)? else {
-            return Ok(Vec::new());
-        };
-        let path = PathBuf::from(record.thread_path);
-        self.recorder.validate_thread_path(&path)?;
-        let lines = read_thread_lines(&path)?;
-        let mut runs = agent_run_records_from_lines(session_id, &lines);
+        let mut runs_by_id = HashMap::<String, AgentRunRecord>::new();
+        for record in self.state.list_threads()?.into_iter().filter(|record| {
+            !record.archived
+                && (record.id == session_id || record.session_id.as_deref() == Some(session_id))
+        }) {
+            let path = PathBuf::from(record.thread_path);
+            self.recorder.validate_thread_path(&path)?;
+            let lines = read_thread_lines(&path)?;
+            for run in agent_run_records_from_lines(session_id, &lines) {
+                match runs_by_id.entry(run.run_id.clone()) {
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        entry.insert(run);
+                    }
+                    std::collections::hash_map::Entry::Occupied(mut entry)
+                        if run.updated_at > entry.get().updated_at =>
+                    {
+                        entry.insert(run);
+                    }
+                    std::collections::hash_map::Entry::Occupied(_) => {}
+                }
+            }
+        }
+        let mut runs = runs_by_id.into_values().collect::<Vec<_>>();
         runs.sort_by(|left, right| {
             right
                 .updated_at
@@ -701,7 +810,7 @@ fn agent_run_status_is_resumable(status: &AgentRunStatus) -> bool {
     matches!(status, AgentRunStatus::Running | AgentRunStatus::Waiting)
 }
 
-fn agent_run_records_from_lines(
+pub(super) fn agent_run_records_from_lines(
     session_id: &str,
     lines: &[super::ThreadLogLine],
 ) -> Vec<AgentRunRecord> {
@@ -808,6 +917,12 @@ fn agent_run_records_from_lines(
                         error,
                         &line.timestamp,
                     );
+                }
+            }
+            "session_cleared" => {
+                for record in runs.values_mut() {
+                    record.checkpoint = None;
+                    record.updated_at = line.timestamp.clone();
                 }
             }
             _ => {}

@@ -18,7 +18,7 @@ pub use self::types::{
     ReadThreadRequest, RestoreThreadCheckpointRequest, RestoreThreadCheckpointResult,
     ResumeThreadRequest, SearchThreadsRequest, SearchThreadsResult, StartThreadTurnRequest,
     ThreadActivityRequest, ThreadActivityResult, ThreadActivitySummary, ThreadAgentRegistryEntry,
-    ThreadAgentRegistryRequest, ThreadAgentRegistryResult, ThreadApplyOpRequest,
+    ThreadAgentRegistryRequest, ThreadAgentRegistryResult, ThreadApplyOpRequest, ThreadCheckpoint,
     ThreadChildActivity, ThreadChildSummary, ThreadEvent, ThreadEventsRequest, ThreadEventsResult,
     ThreadIdParams, ThreadItem, ThreadItemKind, ThreadMetadata, ThreadMetadataPatch, ThreadOp,
     ThreadPagination, ThreadPendingApproval, ThreadRecord, ThreadRunSummary, ThreadRunningTool,
@@ -210,6 +210,16 @@ impl WorkerThreadRpc {
         )
     }
 
+    pub fn archive_target_records(
+        &self,
+        thread_id: &str,
+        archive_children: bool,
+    ) -> Result<Vec<ThreadRecord>, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
+        self.store
+            .archive_target_records(thread_id, archive_children)
+    }
+
     pub fn unarchive_thread(
         &self,
         request: ArchiveThreadRequest,
@@ -380,7 +390,7 @@ impl WorkerThreadRpc {
         &self,
         summary: &SubagentThreadSummary,
         event: Option<Value>,
-    ) -> Result<AppendThreadItemsResult, WorkerProtocolError> {
+    ) -> Result<Vec<AppendThreadItemsResult>, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         self.store.record_subagent_spawn(summary, event)
     }
@@ -390,7 +400,7 @@ impl WorkerThreadRpc {
         summary: &SubagentThreadSummary,
         input: &SubagentMailboxInput,
         event: Option<Value>,
-    ) -> Result<AppendThreadItemsResult, WorkerProtocolError> {
+    ) -> Result<Vec<AppendThreadItemsResult>, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         self.store.record_subagent_input(summary, input, event)
     }
@@ -399,7 +409,7 @@ impl WorkerThreadRpc {
         &self,
         summary: &SubagentThreadSummary,
         event: Option<Value>,
-    ) -> Result<AppendThreadItemsResult, WorkerProtocolError> {
+    ) -> Result<Vec<AppendThreadItemsResult>, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         self.store.record_subagent_status(summary, event)
     }

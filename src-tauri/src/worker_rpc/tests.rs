@@ -1464,7 +1464,11 @@ fn dispatches_session_get_history_request() {
         response.result,
         Some(json!({
             "session_id": "session-1",
-            "messages": [{ "role": "assistant", "content": "second" }],
+            "messages": [{
+                "role": "assistant",
+                "content": "second",
+                "timestamp": "2026-06-09T09:30:00Z"
+            }],
             "user_profile": { "name": "Ada" },
             "updated_at": "2026-06-09T09:30:00Z"
         }))
@@ -2835,7 +2839,7 @@ fn thread_log_history_survives_router_restart() {
 }
 
 #[test]
-fn thread_log_history_uses_explicit_startup_index_migration() {
+fn thread_log_history_rebuilds_missing_index_on_first_read() {
     let fixture = WorkspaceFixture::new();
     {
         let mut router = WorkerRpcRouter::new_persistent_sessions(
@@ -2871,7 +2875,6 @@ fn thread_log_history_uses_explicit_startup_index_migration() {
         .join("state")
         .join("state.sqlite");
     std::fs::remove_file(&state_path).expect("state index should be removable");
-    prepare_session_log_index_for_startup(&fixture.root);
 
     let mut router = WorkerRpcRouter::new_persistent_sessions(
         fixture.root.clone(),
@@ -2944,6 +2947,11 @@ fn thread_log_title_is_derived_from_first_user_message_and_survives_state_rebuil
     let legacy_thread_log = thread_log
         .lines()
         .filter(|line| !line.contains("\"type\":\"metadata_updated\""))
+        .map(|line| {
+            let mut value: serde_json::Value = serde_json::from_str(line).unwrap();
+            value.as_object_mut().unwrap().remove("ordinal");
+            serde_json::to_string(&value).unwrap()
+        })
         .collect::<Vec<_>>()
         .join("\n");
     std::fs::write(&thread_log_path, format!("{legacy_thread_log}\n"))
@@ -3138,7 +3146,7 @@ fn session_get_metadata_reads_thread_log_after_state_rebuild() {
 }
 
 #[test]
-fn thread_log_history_requires_explicit_corrupt_index_repair() {
+fn thread_log_history_rebuilds_corrupt_derived_index_on_first_read() {
     let fixture = WorkspaceFixture::new();
     {
         let mut router = WorkerRpcRouter::new_persistent_sessions(
@@ -3174,7 +3182,6 @@ fn thread_log_history_requires_explicit_corrupt_index_repair() {
         .join("state")
         .join("state.sqlite");
     std::fs::write(&state_path, b"not sqlite").expect("state index should be corruptible");
-    repair_session_log_index(&fixture.root);
 
     let mut router = WorkerRpcRouter::new_persistent_sessions(
         fixture.root.clone(),
@@ -3232,14 +3239,16 @@ fn thread_log_history_rejects_state_index_path_escape() {
         .join(".tinybot")
         .join("state")
         .join("state.sqlite");
+    let canonical_path = first_thread_log_file(&fixture.root);
     let escaped_path = fixture.root.join("escaped.jsonl");
-    let connection = rusqlite::Connection::open(state_path).unwrap();
+    let connection = rusqlite::Connection::open(&state_path).unwrap();
     connection
         .execute(
             "UPDATE threads SET thread_path = ?1 WHERE session_id = ?2",
             rusqlite::params![escaped_path.display().to_string(), "session-path-escape"],
         )
         .unwrap();
+    drop(connection);
 
     let history = router.dispatch(&WorkerRequest::new(
         "req-path-escape-history",
@@ -3248,17 +3257,20 @@ fn thread_log_history_rejects_state_index_path_escape() {
         json!({ "session_id": "session-path-escape", "limit": 80 }),
     ));
 
-    assert!(history.error.is_some());
-    assert!(history
-        .error
-        .as_ref()
-        .unwrap()
-        .message
-        .contains("not consistent"));
+    assert_eq!(history.error, None);
     assert_eq!(
-        history.error.as_ref().unwrap().details["status"],
-        "diverged"
+        history.result.as_ref().unwrap()["messages"][0]["content"],
+        "hello"
     );
+    let connection = rusqlite::Connection::open(&state_path).unwrap();
+    let repaired_path = connection
+        .query_row(
+            "SELECT thread_path FROM threads WHERE session_id = ?1",
+            ["session-path-escape"],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap();
+    assert_eq!(repaired_path, canonical_path.display().to_string());
 }
 
 #[test]
@@ -3360,7 +3372,7 @@ fn session_list_metadata_sorts_unix_ms_and_iso_timestamps_by_time() {
 }
 
 #[test]
-fn session_log_index_divergence_requires_explicit_repair() {
+fn session_log_index_prunes_missing_canonical_rollout_automatically() {
     let fixture = WorkspaceFixture::new();
     {
         let router = WorkerRpcRouter::new_persistent_sessions(
@@ -3409,7 +3421,8 @@ fn session_log_index_divergence_requires_explicit_repair() {
         json!({}),
     ));
 
-    assert!(list.error.is_some());
+    assert_eq!(list.error, None);
+    assert!(list.result.as_ref().unwrap().as_array().unwrap().is_empty());
 
     let check = router.dispatch(&WorkerRequest::new(
         "req-missing-log-check",
@@ -3418,25 +3431,7 @@ fn session_log_index_divergence_requires_explicit_repair() {
         json!({}),
     ));
     assert_eq!(check.error, None);
-    assert_eq!(check.result.as_ref().unwrap()["status"], "diverged");
-
-    let repair = router.dispatch(&WorkerRequest::new(
-        "req-missing-log-repair",
-        "trace-missing-log-repair",
-        "session.persistence.repair",
-        json!({ "mode": "rebuild_index" }),
-    ));
-    assert_eq!(repair.error, None);
-    assert_eq!(repair.result.as_ref().unwrap()["after"]["status"], "clean");
-
-    let list = router.dispatch(&WorkerRequest::new(
-        "req-missing-log-list-after-repair",
-        "trace-missing-log-list-after-repair",
-        "session.list_metadata",
-        json!({}),
-    ));
-    assert_eq!(list.error, None);
-    assert!(list.result.as_ref().unwrap().as_array().unwrap().is_empty());
+    assert_eq!(check.result.as_ref().unwrap()["status"], "clean");
 }
 
 #[test]
@@ -3695,7 +3690,7 @@ fn session_clear_resets_latest_checkpoint_lineage_without_reviving_history() {
 }
 
 #[test]
-fn session_checkpoint_position_index_is_verified_and_rebuilt_from_journal() {
+fn session_checkpoint_ordinal_index_self_heals_from_canonical_rollout() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new_persistent_sessions(
         fixture.root.clone(),
@@ -3736,34 +3731,12 @@ fn session_checkpoint_position_index_is_verified_and_rebuilt_from_journal() {
         .join("state.sqlite");
     let connection = rusqlite::Connection::open(state_path).unwrap();
     connection
-        .execute(
-            "UPDATE latest_context_checkpoints SET line_number = 999",
-            [],
-        )
+        .execute("UPDATE latest_context_checkpoints SET ordinal = 999", [])
         .unwrap();
     drop(connection);
 
-    let inconsistent = router.dispatch(&WorkerRequest::new(
-        "req-checkpoint-position-read",
-        "trace-checkpoint-position",
-        "session.get_agent_context",
-        json!({ "session_id": "session-checkpoint-position", "limit": 50 }),
-    ));
-    assert!(inconsistent.error.as_ref().is_some_and(|error| {
-        error
-            .message
-            .contains("latest context checkpoint index points beyond")
-    }));
-
-    let repair = router.dispatch(&WorkerRequest::new(
-        "req-checkpoint-position-repair",
-        "trace-checkpoint-position",
-        "session.persistence.repair",
-        json!({ "mode": "rebuild_index" }),
-    ));
-    assert_eq!(repair.error, None);
     let context = router.dispatch(&WorkerRequest::new(
-        "req-checkpoint-position-read-repaired",
+        "req-checkpoint-position-read",
         "trace-checkpoint-position",
         "session.get_agent_context",
         json!({ "session_id": "session-checkpoint-position", "limit": 50 }),
@@ -3773,10 +3746,18 @@ fn session_checkpoint_position_index_is_verified_and_rebuilt_from_journal() {
         context.result.as_ref().unwrap()["messages"][0]["content"],
         "indexed summary"
     );
+    let consistency = router.dispatch(&WorkerRequest::new(
+        "req-checkpoint-position-check",
+        "trace-checkpoint-position",
+        "session.persistence.check",
+        json!({}),
+    ));
+    assert_eq!(consistency.error, None);
+    assert_eq!(consistency.result.as_ref().unwrap()["status"], "clean");
 }
 
 #[test]
-fn session_agent_context_rejects_unindexed_journal_append_until_repaired() {
+fn session_agent_context_self_heals_after_canonical_rollout_advances() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new_persistent_sessions(
         fixture.root.clone(),
@@ -3813,8 +3794,13 @@ fn session_agent_context_rejects_unindexed_journal_append_until_repaired() {
         )
         .unwrap();
     drop(connection);
+    let next_ordinal = std::fs::read_to_string(&thread_path)
+        .unwrap()
+        .lines()
+        .count() as u64;
     let external_line = crate::worker_thread_log::ThreadLogLine {
         timestamp: "2026-07-17T10:00:00.000Z".to_string(),
+        ordinal: Some(next_ordinal),
         item: crate::worker_thread_log::ThreadLogItem::ResponseItem(
             json!({ "role": "assistant", "content": "external append" }),
         ),
@@ -3826,27 +3812,8 @@ fn session_agent_context_rejects_unindexed_journal_append_until_repaired() {
     writeln!(file, "{}", serde_json::to_string(&external_line).unwrap()).unwrap();
     drop(file);
 
-    let inconsistent = router.dispatch(&WorkerRequest::new(
-        "req-head-mismatch-read",
-        "trace-head-mismatch",
-        "session.get_agent_context",
-        json!({ "session_id": "session-head-mismatch", "limit": 50 }),
-    ));
-    assert!(inconsistent.error.as_ref().is_some_and(|error| {
-        error
-            .message
-            .contains("thread log file version does not match")
-    }));
-
-    let repair = router.dispatch(&WorkerRequest::new(
-        "req-head-mismatch-repair",
-        "trace-head-mismatch",
-        "session.persistence.repair",
-        json!({ "mode": "rebuild_index" }),
-    ));
-    assert_eq!(repair.error, None);
     let context = router.dispatch(&WorkerRequest::new(
-        "req-head-mismatch-read-repaired",
+        "req-head-mismatch-read",
         "trace-head-mismatch",
         "session.get_agent_context",
         json!({ "session_id": "session-head-mismatch", "limit": 50 }),
@@ -4566,11 +4533,11 @@ fn dispatches_thread_list_and_search_include_legacy_session_projections() {
     ));
     assert_eq!(read.error, None);
     let read_result = read.result.as_ref().unwrap();
-    assert_eq!(read_result["thread"]["source"], "legacy_session_projection");
+    assert_eq!(read_result["thread"]["source"], "legacy_session_import");
     assert_eq!(read_result["pagination"]["itemCount"], 2);
     let read_items = read_result["items"].as_array().unwrap();
     assert_eq!(read_items.len(), 2);
-    assert_eq!(read_items[0]["sequence"], 1);
+    assert_eq!(read_items[0]["sequence"], 2);
     assert_eq!(read_items[0]["kind"]["type"], "user_message");
     assert_eq!(read_items[1]["kind"]["type"], "assistant_message_completed");
 
@@ -4648,6 +4615,8 @@ fn dispatches_thread_lifecycle_requests() {
     ));
     assert_eq!(archive.error, None);
     assert_eq!(archive.result.as_ref().unwrap()["status"], "archived");
+    let archived_path = first_archived_thread_log_file(&fixture.root);
+    assert!(first_thread_log_file_under(&fixture.root, "threads").is_none());
 
     let resume = router.dispatch(&WorkerRequest::new(
         "req-thread-lifecycle-resume",
@@ -4658,6 +4627,8 @@ fn dispatches_thread_lifecycle_requests() {
     assert_eq!(resume.error, None);
     assert_eq!(resume.result.as_ref().unwrap()["thread"]["status"], "empty");
     assert_eq!(resume.result.as_ref().unwrap()["activeRun"], json!(null));
+    assert!(!archived_path.exists());
+    assert!(first_thread_log_file(&fixture.root).exists());
 
     let status = router.dispatch(&WorkerRequest::new(
         "req-thread-lifecycle-status",
@@ -4802,9 +4773,9 @@ fn dispatches_thread_resume_from_checkpoint_id() {
     assert_eq!(resume.error, None);
     let items = resume.result.as_ref().unwrap()["items"].as_array().unwrap();
     assert_eq!(items.len(), 2);
-    assert_eq!(items[0]["sequence"], 2);
+    assert_eq!(items[0]["sequence"], 4);
     assert_eq!(items[0]["kind"]["type"], "checkpoint_created");
-    assert_eq!(items[1]["sequence"], 3);
+    assert_eq!(items[1]["sequence"], 5);
     assert_eq!(
         resume.result.as_ref().unwrap()["latestCheckpoint"]["checkpointId"],
         "checkpoint-resume"
@@ -5091,6 +5062,93 @@ fn dispatches_thread_fork_idempotently_by_client_event_id() {
     assert_eq!(child_threads.len(), 1);
     assert_eq!(child_threads[0]["threadId"], fork_thread_id);
     assert_eq!(child_threads[0]["source"], "fork");
+}
+
+#[test]
+fn thread_fork_inherits_effective_history_from_canonical_rollout() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        20,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionMetadataRead,
+            WorkerCapability::SessionWrite,
+        ]),
+    )
+    .unwrap();
+    let create = router.dispatch(&WorkerRequest::new(
+        "req-rollout-fork-create",
+        "trace-rollout-fork",
+        "thread.create",
+        json!({
+            "threadId": "thread-rollout-fork-source",
+            "title": "Canonical fork source"
+        }),
+    ));
+    assert_eq!(create.error, None);
+    for (run_id, content) in [
+        ("run-rollout-fork-1", "keep"),
+        ("run-rollout-fork-2", "drop"),
+    ] {
+        let persist = router.dispatch(&WorkerRequest::new(
+            format!("req-rollout-fork-{run_id}"),
+            "trace-rollout-fork",
+            "session.persist_turn",
+            json!({
+                "session_id": "thread-rollout-fork-source",
+                "run_id": run_id,
+                "messages": [
+                    { "role": "user", "content": format!("{content} user") },
+                    { "role": "assistant", "content": format!("{content} assistant") }
+                ],
+                "clear_checkpoint": false
+            }),
+        ));
+        assert_eq!(persist.error, None);
+    }
+    let rollback = router.dispatch(&WorkerRequest::new(
+        "req-rollout-fork-rollback",
+        "trace-rollout-fork",
+        "thread.rollback",
+        json!({
+            "threadId": "thread-rollout-fork-source",
+            "numTurns": 1
+        }),
+    ));
+    assert_eq!(rollback.error, None);
+
+    let fork = router.dispatch(&WorkerRequest::new(
+        "req-rollout-fork",
+        "trace-rollout-fork",
+        "thread.fork",
+        json!({
+            "threadId": "thread-rollout-fork-source",
+            "title": "Canonical fork"
+        }),
+    ));
+    assert_eq!(fork.error, None);
+    let fork_thread_id = fork.result.as_ref().unwrap()["threadId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(fork.result.as_ref().unwrap()["sessionKey"], fork_thread_id);
+
+    let history = router.dispatch(&WorkerRequest::new(
+        "req-rollout-fork-history",
+        "trace-rollout-fork",
+        "session.get_history",
+        json!({ "session_id": fork_thread_id, "limit": 80 }),
+    ));
+    assert_eq!(history.error, None);
+    let contents = history.result.as_ref().unwrap()["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|message| message["content"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(contents, vec!["keep user", "keep assistant"]);
 }
 
 #[test]
@@ -7040,16 +7098,16 @@ fn dispatches_thread_read_before_sequence_page() {
         "req-thread-read-before-page",
         "trace-thread-read-before",
         "thread.read",
-        json!({ "threadId": "thread-read-before", "limit": 2, "beforeSequence": 5 }),
+        json!({ "threadId": "thread-read-before", "limit": 2, "beforeSequence": 7 }),
     ));
     assert_eq!(page.error, None);
     let items = page.result.as_ref().unwrap()["items"].as_array().unwrap();
     assert_eq!(items.len(), 2);
-    assert_eq!(items[0]["sequence"], 3);
-    assert_eq!(items[1]["sequence"], 4);
+    assert_eq!(items[0]["sequence"], 5);
+    assert_eq!(items[1]["sequence"], 6);
     assert_eq!(
         page.result.as_ref().unwrap()["pagination"]["previousCursor"],
-        "3"
+        "5"
     );
     assert_eq!(
         page.result.as_ref().unwrap()["pagination"]["hasMoreBefore"],
@@ -7109,9 +7167,9 @@ fn dispatches_thread_read_before_sequence_page() {
     let checkpoint_items = checkpoint_page.result.as_ref().unwrap()["items"]
         .as_array()
         .unwrap();
-    assert_eq!(checkpoint_items[0]["sequence"], 6);
+    assert_eq!(checkpoint_items[0]["sequence"], 8);
     assert_eq!(checkpoint_items[0]["kind"]["type"], "checkpoint_created");
-    assert_eq!(checkpoint_items[1]["sequence"], 7);
+    assert_eq!(checkpoint_items[1]["sequence"], 9);
     assert_eq!(
         checkpoint_page.result.as_ref().unwrap()["latestCheckpoint"]["checkpointId"],
         "checkpoint-read-before"
@@ -11875,6 +11933,15 @@ fn session_fixture() -> crate::worker_session::SessionMetadata {
 }
 
 fn first_thread_log_file(root: &Path) -> PathBuf {
+    first_thread_log_file_under(root, "threads").expect("thread log file should exist")
+}
+
+fn first_archived_thread_log_file(root: &Path) -> PathBuf {
+    first_thread_log_file_under(root, "archived_threads")
+        .expect("archived thread log file should exist")
+}
+
+fn first_thread_log_file_under(root: &Path, directory: &str) -> Option<PathBuf> {
     fn visit(dir: &Path) -> Option<PathBuf> {
         for entry in std::fs::read_dir(dir).ok()? {
             let path = entry.ok()?.path();
@@ -11892,7 +11959,7 @@ fn first_thread_log_file(root: &Path) -> PathBuf {
         }
         None
     }
-    visit(&root.join(".tinybot").join("threads")).expect("thread log file should exist")
+    visit(&root.join(".tinybot").join(directory))
 }
 
 fn prepare_session_log_index_for_startup(root: &Path) {

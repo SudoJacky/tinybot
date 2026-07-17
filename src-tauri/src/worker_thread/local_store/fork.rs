@@ -1,4 +1,5 @@
 use super::checkpoint::is_checkpoint_item;
+use super::metadata::set_metadata_extra_string;
 use super::query::descendant_thread_ids;
 use super::{
     generate_thread_id, now_timestamp, unknown_thread_error, validate_thread_id, LocalThreadStore,
@@ -53,6 +54,7 @@ pub(super) fn fork_thread(
         .unwrap_or_else(|| format!("{} (fork)", source.thread.title));
     let mut record = source.thread.clone();
     record.thread_id = fork_id.clone();
+    record.session_key = Some(fork_id.clone());
     record.title = title;
     record.status = ThreadStatus::Idle;
     record.parent_thread_id = Some(source.thread.thread_id.clone());
@@ -63,6 +65,11 @@ pub(super) fn fork_thread(
     record.active_run_id = None;
     record.metadata.has_active_run = false;
     record.metadata.last_activity_at = Some(timestamp.clone());
+    set_metadata_extra_string(
+        &mut record.metadata.extra,
+        "forkedFromThreadId",
+        &source.thread.thread_id,
+    );
 
     let fork_after_sequence = request.fork_after_sequence.unwrap_or(u64::MAX);
     let source_items = store.read_items(&source.thread.thread_id)?;
@@ -99,6 +106,7 @@ pub(super) fn fork_thread(
                 .clone();
             let mut copied_child = child.clone();
             copied_child.thread_id = copied_child_id.clone();
+            copied_child.session_key = Some(copied_child_id.clone());
             copied_child.parent_thread_id = child
                 .parent_thread_id
                 .as_ref()
@@ -114,6 +122,11 @@ pub(super) fn fork_thread(
             };
             copied_child.metadata.has_active_run = false;
             copied_child.metadata.last_activity_at = Some(timestamp.clone());
+            set_metadata_extra_string(
+                &mut copied_child.metadata.extra,
+                "forkedFromThreadId",
+                &child.thread_id,
+            );
             let mut copied_items = store
                 .read_items(&child.thread_id)?
                 .into_iter()
