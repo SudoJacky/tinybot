@@ -1473,6 +1473,230 @@ fn dispatches_session_get_history_request() {
 }
 
 #[test]
+fn dispatches_thread_rollback_as_an_append_only_rollout_marker() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    )
+    .unwrap();
+    for (run_id, user, assistant, checkpoint) in [
+        ("rollback-run-1", "first user", "first assistant", None),
+        (
+            "rollback-run-2",
+            "second user",
+            "second assistant",
+            Some(json!({
+                "replacementHistory": [
+                    { "role": "user", "content": "compacted second turn" },
+                    { "role": "assistant", "content": "summary after second turn" }
+                ],
+                "checkpointStage": "finalized"
+            })),
+        ),
+    ] {
+        let mut params = json!({
+            "session_id": "thread-rollout-rollback",
+            "run_id": run_id,
+            "messages": [
+                { "role": "user", "content": user },
+                { "role": "assistant", "content": assistant }
+            ]
+        });
+        if let Some(checkpoint) = checkpoint {
+            params["contextMetadata"] = json!({ "contextCheckpoint": checkpoint });
+        }
+        let persisted = router.dispatch(&WorkerRequest::new(
+            format!("req-{run_id}"),
+            "trace-thread-rollout-rollback",
+            "session.persist_turn",
+            params,
+        ));
+        assert_eq!(persisted.error, None);
+    }
+
+    let rolled_back = router.dispatch(&WorkerRequest::new(
+        "req-thread-rollout-rollback",
+        "trace-thread-rollout-rollback",
+        "thread.rollback",
+        json!({
+            "threadId": "thread-rollout-rollback",
+            "numTurns": 1
+        }),
+    ));
+    assert_eq!(rolled_back.error, None);
+    let result = rolled_back.result.as_ref().unwrap();
+    assert_eq!(result["threadId"], "thread-rollout-rollback");
+    assert_eq!(result["numTurns"], 1);
+    assert_eq!(result["remainingMessageCount"], 2);
+    assert_eq!(result["contextCheckpointRetained"], false);
+
+    for method in ["session.get_history", "session.get_agent_context"] {
+        let projection = router.dispatch(&WorkerRequest::new(
+            format!("req-thread-rollout-rollback-{method}"),
+            "trace-thread-rollout-rollback",
+            method,
+            json!({ "session_id": "thread-rollout-rollback" }),
+        ));
+        assert_eq!(projection.error, None);
+        let messages = projection.result.as_ref().unwrap()["messages"]
+            .as_array()
+            .unwrap();
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0]["content"], "first user");
+        assert_eq!(messages[1]["content"], "first assistant");
+    }
+
+    let metadata = router.dispatch(&WorkerRequest::new(
+        "req-thread-rollout-rollback-metadata",
+        "trace-thread-rollout-rollback",
+        "session.get_metadata",
+        json!({ "session_id": "thread-rollout-rollback" }),
+    ));
+    let rollout_path = metadata.result.as_ref().unwrap()["extra"]["threadPath"]
+        .as_str()
+        .unwrap();
+    let rollout = std::fs::read_to_string(rollout_path).unwrap();
+    assert!(rollout.contains("second user"));
+    assert!(rollout.contains("\"type\":\"thread_rolled_back\""));
+    assert!(rollout.contains("\"num_turns\":1"));
+
+    let consistency = router.dispatch(&WorkerRequest::new(
+        "req-thread-rollout-rollback-consistency",
+        "trace-thread-rollout-rollback",
+        "session.persistence.check",
+        json!({}),
+    ));
+    assert_eq!(consistency.error, None);
+    assert_eq!(consistency.result.as_ref().unwrap()["status"], "clean");
+}
+
+#[test]
+fn thread_rollback_rejects_an_in_progress_turn() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    )
+    .unwrap();
+    let started = router.dispatch(&WorkerRequest::new(
+        "req-thread-rollback-start",
+        "trace-thread-rollback-start",
+        "rollout.append_turn_context",
+        json!({
+            "sessionId": "thread-rollback-active",
+            "context": {
+                "turnId": "turn-rollback-active",
+                "cwd": "",
+                "approvalPolicy": {},
+                "sandboxPolicy": {},
+                "model": "fixture-model",
+                "summary": {}
+            }
+        }),
+    ));
+    assert_eq!(started.error, None);
+
+    let rollback = router.dispatch(&WorkerRequest::new(
+        "req-thread-rollback-active",
+        "trace-thread-rollback-active",
+        "thread.rollback",
+        json!({
+            "threadId": "thread-rollback-active",
+            "numTurns": 1
+        }),
+    ));
+    assert!(rollback.error.as_ref().is_some_and(|error| {
+        error
+            .message
+            .contains("cannot rollback while a turn is in progress")
+    }));
+}
+
+#[test]
+fn rollout_world_state_appends_typed_full_and_patch_items() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    )
+    .unwrap();
+    for (index, world_state) in [
+        json!({
+            "full": true,
+            "state": {
+                "environment": {
+                    "cwd": "D:/workspace",
+                    "status": "starting"
+                }
+            }
+        }),
+        json!({
+            "full": false,
+            "state": {
+                "environment": {
+                    "status": "ready"
+                }
+            }
+        }),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let appended = router.dispatch(&WorkerRequest::new(
+            format!("req-world-state-{index}"),
+            "trace-world-state",
+            "rollout.append_world_state",
+            json!({
+                "sessionId": "thread-world-state",
+                "worldState": world_state
+            }),
+        ));
+        assert_eq!(appended.error, None);
+    }
+
+    let metadata = router.dispatch(&WorkerRequest::new(
+        "req-world-state-metadata",
+        "trace-world-state",
+        "session.get_metadata",
+        json!({ "session_id": "thread-world-state" }),
+    ));
+    let rollout_path = metadata.result.as_ref().unwrap()["extra"]["threadPath"]
+        .as_str()
+        .unwrap();
+    let lines =
+        crate::worker_thread_log::read_thread_lines(std::path::Path::new(rollout_path)).unwrap();
+    let reconstructed = crate::worker_rollout::reconstruct_rollout(&lines).unwrap();
+    assert_eq!(
+        reconstructed.world_state_baseline,
+        Some(json!({
+            "environment": {
+                "cwd": "D:/workspace",
+                "status": "ready"
+            }
+        }))
+    );
+}
+
+#[test]
 fn dispatches_session_get_history_does_not_project_legacy_history_on_read() {
     let fixture = WorkspaceFixture::new();
     let mut session = session_fixture();

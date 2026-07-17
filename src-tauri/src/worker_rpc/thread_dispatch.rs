@@ -77,6 +77,14 @@ impl WorkerRpcRouter {
                 let params: ForkThreadRequest = parse_params(request)?;
                 serde_json::to_value(self.thread.fork_thread(params)?).map_err(serialization_error)
             }
+            "thread.rollback" => {
+                let params: ThreadRollbackParams = parse_params(request)?;
+                serde_json::to_value(
+                    self.thread_log
+                        .rollback_thread(&params.thread_id, params.num_turns)?,
+                )
+                .map_err(serialization_error)
+            }
             "thread.append_items" => {
                 let params: AppendThreadItemsRequest = parse_params(request)?;
                 serde_json::to_value(self.thread.append_items(params)?).map_err(serialization_error)

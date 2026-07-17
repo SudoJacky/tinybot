@@ -118,7 +118,7 @@ pub(super) fn awaiting_user_input_result(
             "form": form,
             "pendingToolCalls": state.pending_tool_calls.clone(),
             "completedToolResults": state.completed_tool_results.clone(),
-            "messages": state.messages.clone(),
+            "messages": state.history.messages(),
             "resumeToken": format!("form:{form_id}"),
         }),
     );

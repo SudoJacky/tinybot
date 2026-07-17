@@ -269,7 +269,9 @@ impl WorkerRpcRouter {
             method if method.starts_with("config.") || method == "provider.resolve_secret" => {
                 self.dispatch_config_method(request)
             }
-            method if method.starts_with("session.") => self.dispatch_session_persistence(request),
+            method if method.starts_with("session.") || method.starts_with("rollout.") => {
+                self.dispatch_session_persistence(request)
+            }
             method if method.starts_with("thread.") => self.dispatch_thread_method(request),
             method if method.starts_with("agent_run.") => {
                 self.dispatch_agent_run_persistence(request)
@@ -912,6 +914,15 @@ fn configured_bool(config_snapshot: &Value, pointer: &str) -> Option<bool> {
 #[derive(Deserialize)]
 struct SessionIdParams {
     session_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ThreadRollbackParams {
+    #[serde(alias = "thread_id", alias = "session_id")]
+    thread_id: String,
+    #[serde(alias = "num_turns")]
+    num_turns: u32,
 }
 
 #[derive(Deserialize)]

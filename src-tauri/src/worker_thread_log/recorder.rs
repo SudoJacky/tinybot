@@ -35,7 +35,7 @@ impl ThreadRecorder {
             &path,
             ThreadLogLine {
                 timestamp: meta.created_at.clone(),
-                item: ThreadLogItem::ThreadMeta(meta),
+                item: ThreadLogItem::SessionMeta(meta),
             },
         )?;
         Ok(path)
@@ -398,7 +398,7 @@ mod tests {
         assert!(path.ends_with("thread-2026-07-08T10-12-30-thread-a.jsonl"));
         let lines = read_thread_lines(&path).unwrap();
         assert_eq!(lines.len(), 1);
-        assert!(matches!(lines[0].item, ThreadLogItem::ThreadMeta(_)));
+        assert!(matches!(lines[0].item, ThreadLogItem::SessionMeta(_)));
         let _ = fs::remove_dir_all(root);
     }
 
@@ -421,7 +421,7 @@ mod tests {
 
         let lines = read_thread_lines(&path).unwrap();
         assert_eq!(lines.len(), 2);
-        assert!(matches!(lines[0].item, ThreadLogItem::ThreadMeta(_)));
+        assert!(matches!(lines[0].item, ThreadLogItem::SessionMeta(_)));
         assert!(matches!(lines[1].item, ThreadLogItem::EventMsg(_)));
         let _ = fs::remove_dir_all(root);
     }
@@ -457,7 +457,7 @@ mod tests {
 
         let lines = read_thread_lines(&path).unwrap();
         assert_eq!(lines.len(), 4);
-        assert!(matches!(lines[0].item, ThreadLogItem::ThreadMeta(_)));
+        assert!(matches!(lines[0].item, ThreadLogItem::SessionMeta(_)));
         assert!(matches!(lines[1].item, ThreadLogItem::EventMsg(_)));
         assert!(matches!(lines[2].item, ThreadLogItem::ResponseItem(_)));
         assert!(matches!(lines[3].item, ThreadLogItem::EventMsg(_)));

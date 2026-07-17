@@ -1,10 +1,8 @@
 mod agent_run;
 mod reader;
 mod recorder;
-mod replay;
 mod session_adapter;
 mod state_db;
-mod types;
 
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_protocol::{
@@ -28,15 +26,17 @@ pub use self::reader::read_thread_lines;
 use self::recorder::is_canonical_thread_log_path;
 use self::recorder::ThreadLogHead;
 pub use self::recorder::{now_thread_timestamp, value_event, ThreadRecorder};
-pub use self::replay::replay_thread;
-use self::replay::replay_thread_transcript;
 pub use self::session_adapter::{history_from_replay, metadata_from_state};
 pub use self::state_db::ThreadStateDb;
 use self::state_db::{LatestContextCheckpointRecord, ThreadLogHeadRecord};
-pub use self::types::{
-    ThreadLogItem, ThreadLogLine, ThreadMeta, ThreadReplay, ThreadStateRecord, TokenUsage,
-    TokenUsageInfo, THREAD_LOG_SCHEMA_VERSION,
+pub use crate::worker_rollout::reconstruct_rollout as replay_thread;
+use crate::worker_rollout::reconstruct_transcript as replay_thread_transcript;
+pub use crate::worker_rollout::{
+    RolloutItem as ThreadLogItem, RolloutLine as ThreadLogLine,
+    RolloutReconstruction as ThreadReplay, SessionMeta as ThreadMeta, ThreadStateRecord,
+    TokenUsage, TokenUsageInfo,
 };
+pub const THREAD_LOG_SCHEMA_VERSION: u32 = crate::worker_rollout::ROLLOUT_SCHEMA_VERSION;
 
 #[derive(Clone, Debug)]
 pub struct WorkerThreadLogRpc {
@@ -74,6 +74,15 @@ pub struct ContextCheckpointCommitResult {
     pub index_synchronized: bool,
     pub index_recovered: bool,
     pub diagnostics: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadRollbackResult {
+    pub thread_id: String,
+    pub num_turns: u32,
+    pub remaining_message_count: usize,
+    pub context_checkpoint_retained: bool,
 }
 
 struct DerivedIndexSyncResult {
@@ -135,6 +144,108 @@ impl WorkerThreadLogRpc {
             state: ThreadStateDb::new(workspace_root),
             policy,
         }
+    }
+
+    pub fn append_turn_context(
+        &self,
+        session_id: &str,
+        context: crate::worker_rollout::TurnContextItem,
+    ) -> Result<(), WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
+        self.ensure_state_index()?;
+        let timestamp = now_thread_timestamp();
+        let record = self.ensure_session_record(session_id, &timestamp)?;
+        let path = PathBuf::from(&record.thread_path);
+        self.recorder.validate_thread_path(&path)?;
+        let run_id = context.turn_id.clone().unwrap_or_default();
+        let mut items = Vec::with_capacity(2);
+        if !run_id.is_empty() && thread_run_state(&path, &run_id)? == ThreadRunState::Missing {
+            items.push(value_event(
+                "turn_started",
+                serde_json::json!({ "runId": run_id }),
+            ));
+        }
+        items.push(ThreadLogItem::TurnContext(context));
+        self.recorder.append_items(&path, timestamp, items)?;
+        let log_head = self.recorder.thread_log_head(&path)?;
+        self.state.upsert_thread_projection(&record, &log_head)
+    }
+
+    pub fn append_world_state(
+        &self,
+        session_id: &str,
+        world_state: crate::worker_rollout::WorldStateItem,
+    ) -> Result<(), WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
+        self.ensure_state_index()?;
+        let timestamp = now_thread_timestamp();
+        let record = self.ensure_session_record(session_id, &timestamp)?;
+        let path = PathBuf::from(&record.thread_path);
+        self.recorder.validate_thread_path(&path)?;
+        self.recorder
+            .append_item(&path, timestamp, ThreadLogItem::WorldState(world_state))?;
+        let log_head = self.recorder.thread_log_head(&path)?;
+        self.state.upsert_thread_projection(&record, &log_head)
+    }
+
+    pub fn rollback_thread(
+        &self,
+        thread_id: &str,
+        num_turns: u32,
+    ) -> Result<ThreadRollbackResult, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
+        if num_turns == 0 {
+            return Err(thread_rollback_error(thread_id, "numTurns must be >= 1"));
+        }
+        self.ensure_state_index()?;
+        let Some(mut record) = self.find_live_record(thread_id)? else {
+            return Err(thread_rollback_error(
+                thread_id,
+                "thread rollback requires persisted Rollout history",
+            ));
+        };
+        let path = PathBuf::from(&record.thread_path);
+        self.recorder.validate_thread_path(&path)?;
+        self.ensure_thread_log_head_current(&record, &path)?;
+        let lines = read_thread_lines(&path)?;
+        if rollout_has_active_turn(&lines) {
+            return Err(thread_rollback_error(
+                thread_id,
+                "cannot rollback while a turn is in progress",
+            ));
+        }
+
+        let timestamp = now_thread_timestamp();
+        self.recorder.append_item(
+            &path,
+            timestamp.clone(),
+            value_event(
+                "thread_rolled_back",
+                serde_json::json!({ "num_turns": num_turns }),
+            ),
+        )?;
+
+        let lines = read_thread_lines(&path)?;
+        let context = replay_thread(&lines)?;
+        let transcript = replay_thread_transcript(&lines)?;
+        let latest_checkpoint = latest_context_checkpoint_from_lines(&record.id, &lines)?;
+        let log_head = self.recorder.thread_log_head(&path)?;
+        record.updated_at = timestamp;
+        record.preview = preview_from_messages(&transcript.messages);
+        record.tokens_used = context
+            .token_usage_info
+            .as_ref()
+            .map(|info| info.total_token_usage.total_tokens)
+            .unwrap_or_default();
+        self.state
+            .replace_thread_projection(&record, latest_checkpoint.as_ref(), &log_head)?;
+
+        Ok(ThreadRollbackResult {
+            thread_id: record.id,
+            num_turns,
+            remaining_message_count: transcript.messages.len(),
+            context_checkpoint_retained: latest_checkpoint.is_some(),
+        })
     }
 
     #[cfg(test)]
@@ -279,8 +390,11 @@ impl WorkerThreadLogRpc {
         if report.status == ThreadLogIndexConsistencyStatus::Clean {
             Ok(())
         } else {
+            let diagnostics = report.diagnostics.join("; ");
             Err(thread_log_consistency_error(
-                "thread log state index is not consistent; run session.persistence.repair explicitly",
+                format!(
+                    "thread log state index is not consistent; run session.persistence.repair explicitly: {diagnostics}"
+                ),
                 serde_json::to_value(report).unwrap_or_default(),
             ))
         }
@@ -522,7 +636,21 @@ impl WorkerThreadLogRpc {
                     "canonical latest context checkpoints differ from the SQLite state index"
                         .to_string()
                 } else {
-                    "canonical thread log records differ from the SQLite state index".to_string()
+                    let fields = canonical_records
+                        .iter()
+                        .zip(&indexed)
+                        .find(|(canonical, indexed)| canonical != indexed)
+                        .map(|(canonical, indexed)| {
+                            format!(
+                                "{} ({})",
+                                thread_state_record_mismatch_fields(canonical, indexed).join(","),
+                                thread_state_record_mismatch_detail(canonical, indexed)
+                            )
+                        })
+                        .unwrap_or_else(|| "record_count".to_string());
+                    format!(
+                        "canonical thread log records differ from the SQLite state index in fields: {fields}"
+                    )
                 }
             })
             .into_iter()
@@ -713,6 +841,7 @@ impl WorkerThreadLogRpc {
             .append_items(&thread_path, timestamp.clone(), items)?;
         let log_head = self.recorder.thread_log_head(&thread_path)?;
         record.updated_at = timestamp;
+        record.tokens_used = 0;
         if let Some(title) = derived_title {
             record.title = title;
         }
@@ -825,7 +954,7 @@ impl WorkerThreadLogRpc {
         let messages_before = replay.messages.len();
         let (saved_messages, duplicate_message_count) =
             filter_new_session_messages(&replay.messages, messages);
-        match thread_run_state(&thread_path, run_id)? {
+        let turn_already_started = match thread_run_state(&thread_path, run_id)? {
             ThreadRunState::Complete if saved_messages.is_empty() => {
                 return Ok(PersistTurnResult {
                     session_id: session_id.to_string(),
@@ -852,21 +981,9 @@ impl WorkerThreadLogRpc {
                     WorkerProtocolErrorSource::RustCore,
                 ));
             }
-            ThreadRunState::Incomplete => {
-                return Err(WorkerProtocolError::new(
-                    WorkerProtocolErrorCode::InvalidProtocol,
-                    "thread log contains an incomplete turn for this run_id",
-                    serde_json::json!({
-                        "method": "thread_log.persist_turn",
-                        "runId": run_id,
-                        "threadPath": thread_path.display().to_string()
-                    }),
-                    false,
-                    WorkerProtocolErrorSource::RustCore,
-                ));
-            }
-            ThreadRunState::Missing => {}
-        }
+            ThreadRunState::Incomplete => true,
+            ThreadRunState::Missing => false,
+        };
 
         let compacted = context_checkpoint
             .map(|mut checkpoint| {
@@ -923,7 +1040,7 @@ impl WorkerThreadLogRpc {
             .map(|(checkpoint, _replacement_history)| {
                 let line_number = lines
                     .len()
-                    .saturating_add(1)
+                    .saturating_add(usize::from(!turn_already_started))
                     .saturating_add(saved_messages.len());
                 let line_number = i64::try_from(line_number).map_err(|_| {
                     thread_log_consistency_error(
@@ -940,10 +1057,12 @@ impl WorkerThreadLogRpc {
             })
             .transpose()?;
         let mut turn_items = Vec::with_capacity(saved_messages.len() + 3);
-        turn_items.push(value_event(
-            "turn_started",
-            serde_json::json!({ "runId": run_id }),
-        ));
+        if !turn_already_started {
+            turn_items.push(value_event(
+                "turn_started",
+                serde_json::json!({ "runId": run_id }),
+            ));
+        }
         turn_items.extend(
             saved_messages
                 .iter()
@@ -974,6 +1093,9 @@ impl WorkerThreadLogRpc {
             record.title = title;
         }
         record.preview = preview_from_messages(&next_messages);
+        if indexed_checkpoint.is_some() {
+            record.tokens_used = 0;
+        }
         match indexed_checkpoint.as_ref() {
             Some(checkpoint) => {
                 self.state
@@ -1172,21 +1294,63 @@ impl WorkerThreadLogRpc {
     }
 }
 
+fn thread_state_record_mismatch_fields(
+    canonical: &ThreadStateRecord,
+    indexed: &ThreadStateRecord,
+) -> Vec<&'static str> {
+    let mut fields = Vec::new();
+    macro_rules! compare {
+        ($field:ident) => {
+            if canonical.$field != indexed.$field {
+                fields.push(stringify!($field));
+            }
+        };
+    }
+    compare!(id);
+    compare!(session_id);
+    compare!(thread_path);
+    compare!(created_at);
+    compare!(updated_at);
+    compare!(source);
+    compare!(title);
+    compare!(preview);
+    compare!(cwd);
+    compare!(model_provider);
+    compare!(model);
+    compare!(tokens_used);
+    compare!(archived);
+    compare!(archived_at);
+    fields
+}
+
+fn thread_state_record_mismatch_detail(
+    canonical: &ThreadStateRecord,
+    indexed: &ThreadStateRecord,
+) -> String {
+    fn fingerprint(value: &str) -> String {
+        format!("{}:{:x}", value.len(), Sha256::digest(value.as_bytes()))
+    }
+    format!(
+        "updated_at={}/{}, title={}/{}, preview={}/{}",
+        canonical.updated_at,
+        indexed.updated_at,
+        fingerprint(&canonical.title),
+        fingerprint(&indexed.title),
+        fingerprint(&canonical.preview),
+        fingerprint(&indexed.preview)
+    )
+}
+
 fn latest_context_checkpoint_from_lines(
     thread_id: &str,
     lines: &[ThreadLogLine],
 ) -> Result<Option<LatestContextCheckpointRecord>, WorkerProtocolError> {
-    let Some((line_number, line, checkpoint)) =
-        lines
-            .iter()
-            .enumerate()
-            .rev()
-            .find_map(|(line_number, line)| match &line.item {
-                ThreadLogItem::Compacted(checkpoint) => Some((line_number, line, checkpoint)),
-                _ => None,
-            })
-    else {
+    let Some(line_number) = crate::worker_rollout::latest_effective_compaction_index(lines) else {
         return Ok(None);
+    };
+    let line = &lines[line_number];
+    let ThreadLogItem::Compacted(checkpoint) = &line.item else {
+        unreachable!("effective compaction index must point to a compacted item");
     };
     let line_number = i64::try_from(line_number).map_err(|_| {
         thread_log_consistency_error(
@@ -1200,6 +1364,31 @@ fn latest_context_checkpoint_from_lines(
         timestamp: line.timestamp.clone(),
         checkpoint_hash: context_checkpoint_hash(checkpoint)?,
     }))
+}
+
+fn rollout_has_active_turn(lines: &[ThreadLogLine]) -> bool {
+    let mut active = false;
+    for line in lines {
+        let ThreadLogItem::EventMsg(event) = &line.item else {
+            continue;
+        };
+        match event.get("type").and_then(Value::as_str) {
+            Some("task_started" | "turn_started") => active = true,
+            Some("task_complete" | "turn_complete" | "turn_aborted") => active = false,
+            _ => {}
+        }
+    }
+    active
+}
+
+fn thread_rollback_error(thread_id: &str, message: &str) -> WorkerProtocolError {
+    WorkerProtocolError::new(
+        WorkerProtocolErrorCode::InvalidProtocol,
+        message,
+        serde_json::json!({ "threadId": thread_id }),
+        false,
+        WorkerProtocolErrorSource::RustCore,
+    )
 }
 
 fn indexed_context_checkpoint<'a>(
@@ -1264,7 +1453,7 @@ fn replay_agent_context_from_checkpoint(
     if line_number > 0 {
         let meta = lines
             .iter()
-            .find(|line| matches!(line.item, ThreadLogItem::ThreadMeta(_)))
+            .find(|line| matches!(line.item, ThreadLogItem::SessionMeta(_)))
             .ok_or_else(|| {
                 thread_log_consistency_error(
                     "thread log has no metadata before its latest context checkpoint",
@@ -1315,7 +1504,7 @@ fn thread_meta_from_lines(lines: &[ThreadLogLine]) -> Result<ThreadMeta, WorkerP
     let meta = lines
         .iter()
         .find_map(|line| match &line.item {
-            ThreadLogItem::ThreadMeta(meta) => Some(meta.clone()),
+            ThreadLogItem::SessionMeta(meta) => Some(meta.clone()),
             _ => None,
         })
         .ok_or_else(|| {
@@ -1561,6 +1750,7 @@ fn state_projection_updated_at(created_at: &str, lines: &[ThreadLogLine]) -> Str
                 Some(
                     "token_count"
                         | "turn_complete"
+                        | "thread_rolled_back"
                         | "metadata_updated"
                         | "agent_run_upsert"
                         | "agent_run_checkpoint_set"
@@ -1568,10 +1758,11 @@ fn state_projection_updated_at(created_at: &str, lines: &[ThreadLogLine]) -> Str
                         | "agent_run_terminal"
                 )
             ),
-            ThreadLogItem::ThreadMeta(_)
+            ThreadLogItem::SessionMeta(_)
             | ThreadLogItem::TurnContext(_)
             | ThreadLogItem::WorldState(_)
-            | ThreadLogItem::InterAgentCommunication(_) => false,
+            | ThreadLogItem::InterAgentCommunication(_)
+            | ThreadLogItem::InterAgentCommunicationMetadata { .. } => false,
         };
         if advances_projection {
             updated_at = line.timestamp.clone();
@@ -1753,7 +1944,7 @@ mod schema_tests {
     fn future_thread_log_schema_is_rejected_explicitly() {
         let error = thread_meta_from_lines(&[ThreadLogLine {
             timestamp: "2026-07-10T00:00:00Z".to_string(),
-            item: ThreadLogItem::ThreadMeta(ThreadMeta {
+            item: ThreadLogItem::SessionMeta(ThreadMeta {
                 schema_version: THREAD_LOG_SCHEMA_VERSION + 1,
                 thread_id: "thread-future-schema".to_string(),
                 session_id: None,

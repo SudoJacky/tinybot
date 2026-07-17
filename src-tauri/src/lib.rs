@@ -45,6 +45,7 @@ pub mod worker_memory;
 pub mod worker_permission_profile;
 pub mod worker_protocol;
 pub mod worker_request_id;
+pub mod worker_rollout;
 pub mod worker_rpc;
 pub mod worker_runtime;
 pub mod worker_secret;

@@ -2644,15 +2644,20 @@ fn runs_fixture_streaming_final_answer_with_frontend_events() {
         1
     );
     assert_eq!(result["events"][0]["eventName"], "agent.delta");
-    assert_eq!(result["events"][1]["eventName"], "agent.usage");
-    assert_eq!(result["events"][2]["eventName"], "agent.message.completed");
-    assert_eq!(result["events"][2]["payload"]["content"], "fixture answer");
-    assert_eq!(result["events"][3]["eventName"], "agent.done");
     assert_eq!(
-        result["events"][3]["payload"]["stopReason"],
+        result["events"][1]["eventName"],
+        "agent.model_call.completed"
+    );
+    assert_eq!(result["events"][2]["eventName"], "agent.token_count");
+    assert_eq!(result["events"][3]["eventName"], "agent.usage");
+    assert_eq!(result["events"][4]["eventName"], "agent.message.completed");
+    assert_eq!(result["events"][4]["payload"]["content"], "fixture answer");
+    assert_eq!(result["events"][5]["eventName"], "agent.done");
+    assert_eq!(
+        result["events"][5]["payload"]["stopReason"],
         "final_response"
     );
-    assert!(result["events"][3]["payload"].get("finalContent").is_none());
+    assert!(result["events"][5]["payload"].get("finalContent").is_none());
 }
 
 #[test]
@@ -3110,7 +3115,7 @@ fn context_checkpoint_uses_hydrated_parent_context_id() {
         }),
         json!({}),
     );
-    let state = super::state::NativeAgentRunState::new(&context, None);
+    let state = super::state::NativeAgentRunState::new(&context, None).unwrap();
     let checkpoint = state.compacted_context_checkpoint(
         &[json!({ "role": "system", "content": "summary" })],
         &json!({ "contextId": "next-context" }),
@@ -5240,6 +5245,8 @@ fn provider_error_after_tool_result_preserves_accumulated_tool_state() {
             "agent.tool_call.delta",
             "agent.tool.start",
             "agent.tool.result",
+            "agent.model_call.completed",
+            "agent.token_count",
             "agent.usage",
             "agent.error"
         ]

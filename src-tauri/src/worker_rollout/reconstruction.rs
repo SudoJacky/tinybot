@@ -1,4 +1,6 @@
-use super::{ThreadLogItem, ThreadLogLine, ThreadMeta, ThreadReplay, TokenUsage, TokenUsageInfo};
+use super::{
+    RolloutItem, RolloutLine, RolloutReconstruction, SessionMeta, TokenUsage, TokenUsageInfo,
+};
 use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource,
 };
@@ -37,46 +39,192 @@ const PRESERVED_MESSAGE_FIELDS: &[&str] = &[
     "status",
 ];
 
-pub fn replay_thread(lines: &[ThreadLogLine]) -> Result<ThreadReplay, WorkerProtocolError> {
-    replay_thread_with_mode(lines, true)
+pub fn reconstruct_rollout(
+    lines: &[RolloutLine],
+) -> Result<RolloutReconstruction, WorkerProtocolError> {
+    reconstruct_rollout_with_mode(lines, true)
 }
 
-pub fn replay_thread_transcript(
-    lines: &[ThreadLogLine],
-) -> Result<ThreadReplay, WorkerProtocolError> {
-    replay_thread_with_mode(lines, false)
+pub fn reconstruct_transcript(
+    lines: &[RolloutLine],
+) -> Result<RolloutReconstruction, WorkerProtocolError> {
+    reconstruct_rollout_with_mode(lines, false)
 }
 
-fn replay_thread_with_mode(
-    lines: &[ThreadLogLine],
+fn reconstruct_rollout_with_mode(
+    lines: &[RolloutLine],
     apply_context_checkpoints: bool,
-) -> Result<ThreadReplay, WorkerProtocolError> {
-    let mut replay = ThreadReplay::default();
-    for line in lines {
+) -> Result<RolloutReconstruction, WorkerProtocolError> {
+    let surviving = effective_rollout_line_indexes(lines)
+        .into_iter()
+        .map(|index| &lines[index]);
+    let mut replay = RolloutReconstruction::default();
+    for line in surviving {
         match &line.item {
-            ThreadLogItem::ThreadMeta(meta) => apply_meta(&mut replay, meta, &line.timestamp),
-            ThreadLogItem::ResponseItem(item) => {
+            RolloutItem::SessionMeta(meta) => apply_meta(&mut replay, meta, &line.timestamp),
+            RolloutItem::ResponseItem(item) => {
                 apply_response_item(&mut replay, item, &line.timestamp)
             }
-            ThreadLogItem::EventMsg(event) => apply_event(&mut replay, event, &line.timestamp)?,
-            ThreadLogItem::Compacted(compacted)
-                if apply_context_checkpoints
-                    || compacted.get("preserveTranscript").and_then(Value::as_bool)
-                        != Some(true) =>
-            {
-                apply_compacted(&mut replay, compacted, &line.timestamp)?
+            RolloutItem::EventMsg(event) => apply_event(&mut replay, event, &line.timestamp)?,
+            RolloutItem::Compacted(compacted) if apply_context_checkpoints => {
+                apply_compacted(&mut replay, compacted, &line.timestamp)?;
+                replay.world_state_baseline = None;
             }
-            ThreadLogItem::Compacted(_) => {}
-            ThreadLogItem::TurnContext(_)
-            | ThreadLogItem::WorldState(_)
-            | ThreadLogItem::InterAgentCommunication(_) => {}
+            RolloutItem::Compacted(_) => replay.world_state_baseline = None,
+            RolloutItem::WorldState(world_state) => {
+                apply_world_state(&mut replay, world_state);
+            }
+            RolloutItem::TurnContext(_)
+            | RolloutItem::InterAgentCommunication(_)
+            | RolloutItem::InterAgentCommunicationMetadata { .. } => {}
         }
     }
     attach_token_usage_to_history(&mut replay);
     Ok(replay)
 }
 
-fn apply_meta(replay: &mut ThreadReplay, meta: &ThreadMeta, timestamp: &str) {
+fn apply_world_state(replay: &mut RolloutReconstruction, world_state: &super::WorldStateItem) {
+    if world_state.full {
+        replay.world_state_baseline = world_state
+            .state
+            .is_object()
+            .then(|| world_state.state.clone());
+        return;
+    }
+    let Some(baseline) = replay.world_state_baseline.as_mut() else {
+        return;
+    };
+    apply_json_merge_patch(baseline, &world_state.state);
+    if !baseline.is_object() {
+        replay.world_state_baseline = None;
+    }
+}
+
+fn apply_json_merge_patch(target: &mut Value, patch: &Value) {
+    let Value::Object(patch) = patch else {
+        *target = patch.clone();
+        return;
+    };
+    if !target.is_object() {
+        *target = json!({});
+    }
+    let target = target
+        .as_object_mut()
+        .expect("merge-patch target was normalized to an object");
+    for (key, value) in patch {
+        if value.is_null() {
+            target.remove(key);
+            continue;
+        }
+        apply_json_merge_patch(target.entry(key.clone()).or_insert(Value::Null), value);
+    }
+}
+
+#[derive(Default)]
+struct TurnSegment {
+    line_indexes: Vec<usize>,
+    counts_as_user_turn: bool,
+    removed: bool,
+}
+
+pub fn effective_rollout_line_indexes(lines: &[RolloutLine]) -> Vec<usize> {
+    let mut segments = Vec::<TurnSegment>::new();
+    let mut active_segment = None::<usize>;
+
+    for (line_index, line) in lines.iter().enumerate() {
+        let event_type = event_type(&line.item);
+        if matches!(event_type, Some("task_started" | "turn_started")) {
+            let segment_index = segments.len();
+            segments.push(TurnSegment::default());
+            active_segment = Some(segment_index);
+        }
+
+        if let Some(segment_index) = active_segment {
+            let segment = &mut segments[segment_index];
+            segment.line_indexes.push(line_index);
+            segment.counts_as_user_turn |= counts_as_user_turn(&line.item);
+        }
+
+        if let Some(num_turns) = rolled_back_turns(&line.item) {
+            let mut remaining = usize::try_from(num_turns).unwrap_or(usize::MAX);
+            for segment in segments.iter_mut().rev() {
+                if remaining == 0 {
+                    break;
+                }
+                if segment.removed || !segment.counts_as_user_turn {
+                    continue;
+                }
+                segment.removed = true;
+                remaining -= 1;
+            }
+        }
+
+        if matches!(
+            event_type,
+            Some("task_complete" | "turn_complete" | "turn_aborted")
+        ) {
+            active_segment = None;
+        }
+    }
+
+    let mut removed_lines = vec![false; lines.len()];
+    for segment in segments.into_iter().filter(|segment| segment.removed) {
+        for line_index in segment.line_indexes {
+            removed_lines[line_index] = true;
+        }
+    }
+    lines
+        .iter()
+        .enumerate()
+        .filter_map(|(index, _line)| (!removed_lines[index]).then_some(index))
+        .collect()
+}
+
+pub fn latest_effective_compaction_index(lines: &[RolloutLine]) -> Option<usize> {
+    effective_rollout_line_indexes(lines)
+        .into_iter()
+        .rev()
+        .find(|index| matches!(lines[*index].item, RolloutItem::Compacted(_)))
+}
+
+fn event_type(item: &RolloutItem) -> Option<&str> {
+    let RolloutItem::EventMsg(event) = item else {
+        return None;
+    };
+    event.get("type").and_then(Value::as_str)
+}
+
+fn counts_as_user_turn(item: &RolloutItem) -> bool {
+    match item {
+        RolloutItem::EventMsg(event) => {
+            event.get("type").and_then(Value::as_str) == Some("user_message")
+        }
+        RolloutItem::ResponseItem(item) => item.get("role").and_then(Value::as_str) == Some("user"),
+        RolloutItem::InterAgentCommunication(_) => true,
+        RolloutItem::SessionMeta(_)
+        | RolloutItem::TurnContext(_)
+        | RolloutItem::WorldState(_)
+        | RolloutItem::Compacted(_)
+        | RolloutItem::InterAgentCommunicationMetadata { .. } => false,
+    }
+}
+
+fn rolled_back_turns(item: &RolloutItem) -> Option<u32> {
+    let RolloutItem::EventMsg(event) = item else {
+        return None;
+    };
+    if event.get("type").and_then(Value::as_str) != Some("thread_rolled_back") {
+        return None;
+    }
+    let payload = event.get("payload").unwrap_or(event);
+    payload
+        .get("num_turns")
+        .or_else(|| payload.get("numTurns"))
+        .and_then(Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok())
+}
+
+fn apply_meta(replay: &mut RolloutReconstruction, meta: &SessionMeta, timestamp: &str) {
     replay.thread_id = meta.thread_id.clone();
     replay.session_id = meta
         .session_id
@@ -86,7 +234,7 @@ fn apply_meta(replay: &mut ThreadReplay, meta: &ThreadMeta, timestamp: &str) {
     replay.updated_at = timestamp.to_string();
 }
 
-fn apply_response_item(replay: &mut ThreadReplay, item: &Value, timestamp: &str) {
+fn apply_response_item(replay: &mut RolloutReconstruction, item: &Value, timestamp: &str) {
     let role = item
         .get("role")
         .and_then(Value::as_str)
@@ -103,7 +251,7 @@ fn apply_response_item(replay: &mut ThreadReplay, item: &Value, timestamp: &str)
 }
 
 fn apply_event(
-    replay: &mut ThreadReplay,
+    replay: &mut RolloutReconstruction,
     event: &Value,
     timestamp: &str,
 ) -> Result<(), WorkerProtocolError> {
@@ -123,7 +271,7 @@ fn apply_event(
 }
 
 fn apply_compacted(
-    replay: &mut ThreadReplay,
+    replay: &mut RolloutReconstruction,
     compacted: &Value,
     timestamp: &str,
 ) -> Result<(), WorkerProtocolError> {
@@ -151,7 +299,7 @@ fn apply_compacted(
     Ok(())
 }
 
-fn attach_token_usage_to_history(replay: &mut ThreadReplay) {
+fn attach_token_usage_to_history(replay: &mut RolloutReconstruction) {
     if replay.messages.is_empty() {
         return;
     }
@@ -406,7 +554,7 @@ fn replay_semantic_error(
         WorkerProtocolErrorCode::InvalidProtocol,
         message.into(),
         json!({
-            "method": "thread_log.replay",
+            "method": "rollout.reconstruct",
             "timestamp": timestamp,
             "detail": detail
         }),
@@ -423,7 +571,7 @@ mod tests {
 
     #[test]
     fn replay_projects_messages_and_latest_token_count() {
-        let replay = replay_thread(&[
+        let replay = reconstruct_rollout(&[
             meta_line("thread-1", Some("session-1"), "2026-07-08T10:00:00Z"),
             response_line(
                 "2026-07-08T10:01:00Z",
@@ -463,7 +611,7 @@ mod tests {
 
     #[test]
     fn replay_preserves_existing_frontend_fields() {
-        let replay = replay_thread(&[
+        let replay = reconstruct_rollout(&[
             meta_line("thread-fields", None, "2026-07-08T10:00:00Z"),
             response_line(
                 "2026-07-08T10:01:00Z",
@@ -532,7 +680,7 @@ mod tests {
 
     #[test]
     fn replay_compacted_replacement_history_wins() {
-        let replay = replay_thread(&[
+        let replay = reconstruct_rollout(&[
             meta_line(
                 "thread-compact",
                 Some("session-compact"),
@@ -568,7 +716,7 @@ mod tests {
 
     #[test]
     fn replay_compacted_clears_previous_token_usage() {
-        let replay = replay_thread(&[
+        let replay = reconstruct_rollout(&[
             meta_line(
                 "thread-compact-usage",
                 Some("session-compact-usage"),
@@ -608,7 +756,7 @@ mod tests {
 
     #[test]
     fn replay_attaches_token_count_that_arrives_after_assistant_message() {
-        let replay = replay_thread(&[
+        let replay = reconstruct_rollout(&[
             meta_line(
                 "thread-token",
                 Some("session-token"),
@@ -658,7 +806,7 @@ mod tests {
 
     #[test]
     fn replay_errors_on_malformed_token_count() {
-        let error = replay_thread(&[
+        let error = reconstruct_rollout(&[
             meta_line(
                 "thread-bad-token",
                 Some("session-bad-token"),
@@ -682,13 +830,13 @@ mod tests {
 
         assert_eq!(error.code, WorkerProtocolErrorCode::InvalidProtocol);
         assert_eq!(error.source, WorkerProtocolErrorSource::RustCore);
-        assert_eq!(error.details["method"], "thread_log.replay");
+        assert_eq!(error.details["method"], "rollout.reconstruct");
         assert!(error.message.contains("totalTokens"));
     }
 
     #[test]
     fn replay_errors_on_present_non_integer_optional_token_field() {
-        let error = replay_thread(&[
+        let error = reconstruct_rollout(&[
             meta_line(
                 "thread-bad-optional-token",
                 Some("session-bad-optional-token"),
@@ -714,14 +862,14 @@ mod tests {
 
         assert_eq!(error.code, WorkerProtocolErrorCode::InvalidProtocol);
         assert_eq!(error.source, WorkerProtocolErrorSource::RustCore);
-        assert_eq!(error.details["method"], "thread_log.replay");
+        assert_eq!(error.details["method"], "rollout.reconstruct");
         assert_eq!(error.details["detail"]["field"], "outputTokens");
         assert!(error.message.contains("must be an integer"));
     }
 
     #[test]
     fn replay_errors_on_token_count_missing_info() {
-        let error = replay_thread(&[
+        let error = reconstruct_rollout(&[
             meta_line(
                 "thread-missing-token",
                 Some("session-missing-token"),
@@ -738,13 +886,13 @@ mod tests {
 
         assert_eq!(error.code, WorkerProtocolErrorCode::InvalidProtocol);
         assert_eq!(error.source, WorkerProtocolErrorSource::RustCore);
-        assert_eq!(error.details["method"], "thread_log.replay");
+        assert_eq!(error.details["method"], "rollout.reconstruct");
         assert!(error.message.contains("missing token usage info"));
     }
 
     #[test]
     fn replay_errors_on_malformed_compacted_line() {
-        let error = replay_thread(&[
+        let error = reconstruct_rollout(&[
             meta_line(
                 "thread-bad-compact",
                 Some("session-bad-compact"),
@@ -764,14 +912,137 @@ mod tests {
 
         assert_eq!(error.code, WorkerProtocolErrorCode::InvalidProtocol);
         assert_eq!(error.source, WorkerProtocolErrorSource::RustCore);
-        assert_eq!(error.details["method"], "thread_log.replay");
+        assert_eq!(error.details["method"], "rollout.reconstruct");
         assert!(error.message.contains("must be an array"));
+    }
+
+    #[test]
+    fn rollback_discards_compaction_from_removed_turn() {
+        let replay = reconstruct_rollout(&[
+            meta_line(
+                "thread-rollback-compact",
+                Some("session-rollback-compact"),
+                "2026-07-08T10:00:00Z",
+            ),
+            event_line("2026-07-08T10:01:00Z", "turn_started", json!({})),
+            response_line(
+                "2026-07-08T10:01:01Z",
+                json!({"role": "user", "content": "first"}),
+            ),
+            compacted_line("2026-07-08T10:01:02Z", "first summary"),
+            event_line("2026-07-08T10:01:03Z", "turn_complete", json!({})),
+            event_line("2026-07-08T10:02:00Z", "turn_started", json!({})),
+            response_line(
+                "2026-07-08T10:02:01Z",
+                json!({"role": "user", "content": "second"}),
+            ),
+            compacted_line("2026-07-08T10:02:02Z", "removed summary"),
+            event_line("2026-07-08T10:02:03Z", "turn_complete", json!({})),
+            event_line(
+                "2026-07-08T10:03:00Z",
+                "thread_rolled_back",
+                json!({"num_turns": 1}),
+            ),
+        ])
+        .unwrap();
+
+        assert_eq!(replay.messages.len(), 1);
+        assert_eq!(replay.messages[0]["content"], "first summary");
+        assert_eq!(
+            replay.context_checkpoint.unwrap()["replacementHistory"][0]["content"],
+            "first summary"
+        );
+    }
+
+    #[test]
+    fn transcript_ignores_compaction_replacement_history() {
+        let replay = reconstruct_transcript(&[
+            meta_line(
+                "thread-transcript",
+                Some("session-transcript"),
+                "2026-07-08T10:00:00Z",
+            ),
+            response_line(
+                "2026-07-08T10:01:00Z",
+                json!({"role": "user", "content": "original"}),
+            ),
+            compacted_line("2026-07-08T10:02:00Z", "model-only summary"),
+            response_line(
+                "2026-07-08T10:03:00Z",
+                json!({"role": "assistant", "content": "answer"}),
+            ),
+        ])
+        .unwrap();
+
+        assert_eq!(replay.messages.len(), 2);
+        assert_eq!(replay.messages[0]["content"], "original");
+        assert_eq!(replay.messages[1]["content"], "answer");
+        assert!(replay.context_checkpoint.is_none());
+    }
+
+    #[test]
+    fn replay_restores_world_state_from_latest_compaction_window() {
+        let lines = vec![
+            RolloutLine {
+                timestamp: "2026-07-17T10:00:00Z".to_string(),
+                item: RolloutItem::WorldState(super::super::WorldStateItem::full(json!({
+                    "environment": { "status": "old" }
+                }))),
+            },
+            compacted_line("2026-07-17T10:00:01Z", "summary"),
+            RolloutLine {
+                timestamp: "2026-07-17T10:00:02Z".to_string(),
+                item: RolloutItem::WorldState(super::super::WorldStateItem::full(json!({
+                    "environment": {
+                        "status": "starting",
+                        "cwd": "D:/workspace",
+                        "obsolete": true
+                    }
+                }))),
+            },
+            RolloutLine {
+                timestamp: "2026-07-17T10:00:03Z".to_string(),
+                item: RolloutItem::WorldState(super::super::WorldStateItem::patch(json!({
+                    "environment": {
+                        "status": "ready",
+                        "obsolete": null
+                    }
+                }))),
+            },
+        ];
+
+        let replay = reconstruct_rollout(&lines).unwrap();
+
+        assert_eq!(
+            replay.world_state_baseline,
+            Some(json!({
+                "environment": {
+                    "status": "ready",
+                    "cwd": "D:/workspace"
+                }
+            }))
+        );
+    }
+
+    #[test]
+    fn replay_ignores_world_state_patch_without_a_full_snapshot() {
+        let lines = vec![RolloutLine {
+            timestamp: "2026-07-17T10:00:00Z".to_string(),
+            item: RolloutItem::WorldState(super::super::WorldStateItem::patch(json!({
+                "environment": { "status": "ready" }
+            }))),
+        }];
+
+        assert!(reconstruct_rollout(&lines)
+            .unwrap()
+            .world_state_baseline
+            .is_none());
     }
 
     fn meta_line(thread_id: &str, session_id: Option<&str>, timestamp: &str) -> ThreadLogLine {
         ThreadLogLine {
             timestamp: timestamp.to_string(),
-            item: ThreadLogItem::ThreadMeta(ThreadMeta {
+            item: ThreadLogItem::SessionMeta(ThreadMeta {
                 schema_version: crate::worker_thread_log::THREAD_LOG_SCHEMA_VERSION,
                 thread_id: thread_id.to_string(),
                 session_id: session_id.map(str::to_string),
@@ -793,6 +1064,28 @@ mod tests {
         ThreadLogLine {
             timestamp: timestamp.to_string(),
             item: ThreadLogItem::ResponseItem(item),
+        }
+    }
+
+    fn event_line(timestamp: &str, event_type: &str, payload: Value) -> ThreadLogLine {
+        ThreadLogLine {
+            timestamp: timestamp.to_string(),
+            item: ThreadLogItem::EventMsg(json!({
+                "type": event_type,
+                "payload": payload
+            })),
+        }
+    }
+
+    fn compacted_line(timestamp: &str, summary: &str) -> ThreadLogLine {
+        ThreadLogLine {
+            timestamp: timestamp.to_string(),
+            item: ThreadLogItem::Compacted(json!({
+                "replacementHistory": [{
+                    "role": "assistant",
+                    "content": summary
+                }]
+            })),
         }
     }
 

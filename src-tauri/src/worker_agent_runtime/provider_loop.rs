@@ -334,7 +334,7 @@ async fn run_native_agent_turn_with_instructions_async(
         context.apply_context_hydration(hydration);
     }
 
-    let mut state = NativeAgentRunState::new(&context, services.trace_sink.clone());
+    let mut state = NativeAgentRunState::new(&context, services.trace_sink.clone())?;
     state.transition_phase(
         AgentRuntimePhase::HydratingHistory,
         0,
@@ -402,8 +402,9 @@ async fn run_native_agent_turn_with_instructions_async(
             state.phase.as_str(),
             state.active_checkpoint_payload("running"),
         );
-        context.messages = state.messages.clone();
-        context.spec["messages"] = Value::Array(state.messages.clone());
+        let prompt_messages = state.history.for_prompt()?;
+        context.messages = prompt_messages.clone();
+        context.spec["messages"] = Value::Array(prompt_messages);
         let projection = match context_window_projection_async(&context).await {
             Ok(projection) => projection,
             Err(error) if error.kind() == NativeAgentProviderFailureKind::Cancelled => {
@@ -474,9 +475,10 @@ async fn run_native_agent_turn_with_instructions_async(
                         message,
                     ));
                 }
-                state.install_compacted_context(projection.messages.clone(), checkpoint);
-                context.messages = state.messages.clone();
-                context.spec["messages"] = Value::Array(state.messages.clone());
+                state.install_compacted_context(projection.messages.clone(), checkpoint)?;
+                let prompt_messages = state.history.for_prompt()?;
+                context.messages = prompt_messages.clone();
+                context.spec["messages"] = Value::Array(prompt_messages);
                 context.metrics().increment("compaction.completed");
             }
             state.emit_event(action.event_name, payload);
@@ -792,7 +794,7 @@ async fn run_native_agent_turn_with_instructions_async(
                 }
             }
 
-            if let Some(message) = state.drain_pending_guidance() {
+            if let Some(message) = state.drain_pending_guidance()? {
                 state.emit_event(
                     "agent.guidance",
                     serde_json::json!({
@@ -807,6 +809,7 @@ async fn run_native_agent_turn_with_instructions_async(
             state.record_usage(
                 &context,
                 iteration,
+                &provider_attempt_id,
                 provider_response
                     .usage
                     .unwrap_or_else(|| serde_json::json!({})),
@@ -819,6 +822,7 @@ async fn run_native_agent_turn_with_instructions_async(
         state.record_usage(
             &context,
             iteration,
+            &provider_attempt_id,
             provider_response
                 .usage
                 .unwrap_or_else(|| serde_json::json!({})),

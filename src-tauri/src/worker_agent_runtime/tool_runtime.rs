@@ -380,8 +380,9 @@ pub(super) async fn execute_tool_calls_for_iteration(
         "agent.tool_call.delta",
     );
     state
-        .messages
-        .push(assistant_tool_calls_message(&final_content, &tool_calls));
+        .history
+        .record_message(assistant_tool_calls_message(&final_content, &tool_calls))
+        .expect("runtime-generated assistant tool call message must be valid");
 
     for tool_call in &tool_calls {
         state.emit_event(
@@ -689,7 +690,7 @@ fn awaiting_tool_approval_result(
             "operation": operation,
             "pendingToolCalls": state.pending_tool_calls.clone(),
             "completedToolResults": state.completed_tool_results.clone(),
-            "messages": state.messages.clone(),
+            "messages": state.history.messages(),
             "resumeToken": format!("approval:{approval_id}"),
         }),
     );
@@ -1909,8 +1910,9 @@ fn record_tool_success(
     let observation_content = tool_observation_content(&result);
     let completed_result = completed_tool_result_entry(&tool_call, &result);
     state
-        .messages
-        .push(tool_observation_message(&tool_call, &observation_content));
+        .history
+        .record_message(tool_observation_message(&tool_call, &observation_content))
+        .expect("runtime-generated tool observation message must be valid");
     state.emit_event(
         "agent.tool.result",
         serde_json::json!({

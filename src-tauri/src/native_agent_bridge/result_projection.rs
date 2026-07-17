@@ -155,6 +155,21 @@ pub(crate) fn native_agent_usage(result: &serde_json::Value) -> Vec<serde_json::
 pub(crate) fn native_agent_token_usage_info(
     result: &serde_json::Value,
 ) -> Option<serde_json::Value> {
+    if let Some(info) = result
+        .get("runtimeEvents")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .rev()
+        .find(|event| {
+            event.get("eventName").and_then(serde_json::Value::as_str) == Some("agent.token_count")
+        })
+        .and_then(|event| event.get("payload"))
+        .and_then(|payload| payload.get("info"))
+        .filter(|info| !info.is_null())
+    {
+        return Some(info.clone());
+    }
     let usage = native_agent_usage(result).into_iter().last()?;
     let last_total = usage_i64_field(
         &usage,

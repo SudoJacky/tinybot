@@ -16,7 +16,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::agent_flow::run_agent_with_services;
 use super::webui_continuation::{
-    resolve_agent_ui_form_body_with_services, resolve_approval_body_with_services,
+    native_session_checkpoint, resolve_agent_ui_form_body_with_services,
+    resolve_approval_body_with_services,
 };
 
 pub(crate) struct SubmitThreadTurnInput {
@@ -53,19 +54,7 @@ pub(crate) async fn submit_thread_turn_with_services(
     )?;
     let thread_id = thread_thread_id(&thread)?;
     let thread_working_directory = thread_working_directory(&thread);
-    let session_id = match thread_session_key(&thread) {
-        Some(session_key) => session_key,
-        None => {
-            let session_key = thread_id.clone();
-            assign_thread_turn_session_key(
-                &thread_id,
-                &session_key,
-                workspace_root.clone(),
-                config_snapshot.clone(),
-            )?;
-            session_key
-        }
-    };
+    let session_id = thread_id.clone();
     let run_id = native_agent_run_id(&input.spec).unwrap_or_else(generate_thread_turn_run_id);
     let spec_has_working_directory = native_agent_string_field(&input.spec, "cwd")
         .or_else(|| native_agent_string_field(&input.spec, "workingDirectory"))
@@ -240,18 +229,13 @@ pub(crate) async fn resolve_thread_approval_with_services(
         .cloned()
         .ok_or_else(|| "thread approval target read returned no thread".to_string())?;
     let thread_id = thread_thread_id(&thread)?;
-    let session_id = thread_session_key(&thread).unwrap_or_else(|| thread_id.clone());
-    let approval_checkpoint = target_snapshot
-        .get("latestCheckpoint")
-        .and_then(|checkpoint| checkpoint.get("restorePayload"))
-        .cloned()
-        .or_else(|| {
-            base_services
-                .restore_checkpoint(&session_id)
-                .get("checkpoint")
-                .filter(|checkpoint| !checkpoint.is_null())
-                .cloned()
-        });
+    let session_id = thread_id.clone();
+    let approval_checkpoint = native_session_checkpoint(
+        &session_id,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+        "thread approval Rollout checkpoint lookup",
+    )?;
     let approval_id = input.approval_id.clone();
     let approved = input.approved;
     let scope = input.scope.clone();
@@ -297,13 +281,15 @@ pub(crate) async fn resolve_thread_approval_with_services(
         )?;
         result["threadApprovalPersistence"] = decision;
     }
-    if let Some(thread_persistence) = apply_native_agent_thread_result(
-        &thread_id,
-        &result,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-    )? {
-        result["threadPersistence"] = thread_persistence;
+    if native_agent_run_id(&result).is_some() {
+        if let Some(thread_persistence) = apply_native_agent_thread_result(
+            &thread_id,
+            &result,
+            workspace_root.clone(),
+            config_snapshot.clone(),
+        )? {
+            result["threadPersistence"] = thread_persistence;
+        }
     }
     let snapshot = read_thread_snapshot(
         &thread_id,
@@ -337,13 +323,15 @@ pub(crate) async fn submit_thread_form_with_services(
         .get("thread")
         .cloned()
         .ok_or_else(|| "thread form target read returned no thread".to_string())?;
-    let thread_checkpoint = target_snapshot
-        .get("latestCheckpoint")
-        .and_then(|checkpoint| checkpoint.get("restorePayload"))
-        .cloned()
-        .ok_or_else(|| "thread form target has no canonical checkpoint".to_string())?;
     let thread_id = thread_thread_id(&thread)?;
-    let session_id = thread_session_key(&thread).unwrap_or_else(|| thread_id.clone());
+    let session_id = thread_id.clone();
+    let thread_checkpoint = native_session_checkpoint(
+        &session_id,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+        "thread form Rollout checkpoint lookup",
+    )?
+    .ok_or_else(|| "thread form target has no Rollout checkpoint".to_string())?;
     let cancelled = thread_form_action_is_cancel(input.action.as_deref());
     let body = serde_json::json!({
         "session_key": session_id.clone(),
@@ -362,13 +350,15 @@ pub(crate) async fn submit_thread_form_with_services(
     )
     .await?;
     result["statusCode"] = serde_json::Value::Number(status_code.into());
-    if let Some(thread_persistence) = apply_native_agent_thread_result(
-        &thread_id,
-        &result,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-    )? {
-        result["threadPersistence"] = thread_persistence;
+    if native_agent_run_id(&result).is_some() {
+        if let Some(thread_persistence) = apply_native_agent_thread_result(
+            &thread_id,
+            &result,
+            workspace_root.clone(),
+            config_snapshot.clone(),
+        )? {
+            result["threadPersistence"] = thread_persistence;
+        }
     }
     let snapshot = read_thread_snapshot(
         &thread_id,
@@ -416,7 +406,6 @@ fn ensure_thread_turn_target(
                     "thread.create",
                     serde_json::json!({
                         "threadId": generated_thread_id,
-                        "sessionKey": generated_thread_id,
                     }),
                 ),
                 "thread turn target create",
@@ -445,30 +434,6 @@ pub(crate) fn read_thread_snapshot(
     )
 }
 
-fn assign_thread_turn_session_key(
-    thread_id: &str,
-    session_key: &str,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-) -> Result<serde_json::Value, String> {
-    let request_id = next_worker_request_correlation();
-    call_rust_state_service(
-        workspace_root,
-        config_snapshot,
-        WorkerRequest::new(
-            request_id.id("thread-turn-session-key"),
-            request_id.trace_id("thread-turn-session-key"),
-            "thread.update_metadata",
-            serde_json::json!({
-                "threadId": thread_id,
-                "sessionKey": session_key,
-                "metadata": {}
-            }),
-        ),
-        "thread turn session key update",
-    )
-}
-
 pub(crate) fn thread_thread_id(thread: &serde_json::Value) -> Result<String, String> {
     thread
         .get("threadId")
@@ -476,14 +441,6 @@ pub(crate) fn thread_thread_id(thread: &serde_json::Value) -> Result<String, Str
         .filter(|value| !value.trim().is_empty())
         .map(str::to_string)
         .ok_or_else(|| "thread target is missing threadId".to_string())
-}
-
-pub(crate) fn thread_session_key(thread: &serde_json::Value) -> Option<String> {
-    thread
-        .get("sessionKey")
-        .and_then(serde_json::Value::as_str)
-        .filter(|value| !value.trim().is_empty())
-        .map(str::to_string)
 }
 
 fn thread_working_directory(thread: &serde_json::Value) -> Option<String> {

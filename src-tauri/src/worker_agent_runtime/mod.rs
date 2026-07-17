@@ -17,6 +17,7 @@ pub(crate) const DEFAULT_NATIVE_AGENT_MAX_ITERATIONS: i64 = 200;
 mod checkpoint;
 mod context;
 mod context_contributors;
+mod context_manager;
 mod continuations;
 mod events;
 mod hooks;

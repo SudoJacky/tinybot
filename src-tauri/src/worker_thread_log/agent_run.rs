@@ -1,6 +1,7 @@
 use super::{
-    now_thread_timestamp, read_thread_lines, thread_id_for_session_id, value_event,
-    AgentRunRecoveryEntry, AgentRunRecoveryReport, WorkerThreadLogRpc,
+    is_default_session_title, now_thread_timestamp, preview_from_messages, read_thread_lines,
+    replay_thread, thread_id_for_session_id, title_from_messages, value_event,
+    AgentRunRecoveryEntry, AgentRunRecoveryReport, ThreadLogItem, WorkerThreadLogRpc,
 };
 use crate::agent_loop_runtime_protocol::{
     AgentRuntimeEventEnvelope, LegacyNativeAgentEventEnvelopeInput,
@@ -26,6 +27,11 @@ impl WorkerThreadLogRpc {
         let existing = self.get_agent_run_record(&record.session_id, &record.run_id)?;
         if let Some(existing) = existing {
             record.started_at = existing.started_at;
+            let mut trace_events = existing.trace_events;
+            for event in std::mem::take(&mut record.trace_events) {
+                upsert_trace_event(&mut trace_events, event);
+            }
+            record.trace_events = trace_events;
         }
         let timestamp = now_thread_timestamp();
         let mut state = self.ensure_agent_run_thread(&record.session_id, &timestamp)?;
@@ -73,21 +79,71 @@ impl WorkerThreadLogRpc {
             .get_agent_run_record(session_id, run_id)?
             .ok_or_else(|| unknown_agent_run_error(session_id, run_id))?;
         let timestamp = now_thread_timestamp();
-        let state = self.ensure_agent_run_thread(session_id, &timestamp)?;
+        let mut state = self.ensure_agent_run_thread(session_id, &timestamp)?;
         let path = PathBuf::from(state.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
+        let latest_total_tokens = events.iter().rev().find_map(|event| {
+            if event.get("eventName").and_then(Value::as_str) != Some("agent.token_count") {
+                return None;
+            }
+            event
+                .get("payload")
+                .and_then(|payload| payload.get("info"))
+                .and_then(|info| {
+                    info.get("totalTokenUsage")
+                        .or_else(|| info.get("total_token_usage"))
+                })
+                .and_then(|total| {
+                    total
+                        .get("totalTokens")
+                        .or_else(|| total.get("total_tokens"))
+                })
+                .and_then(Value::as_i64)
+        });
+        let has_response_items = events.iter().any(|event| {
+            matches!(
+                event.get("eventName").and_then(Value::as_str),
+                Some(
+                    "agent.turn.started"
+                        | "agent.message.classified"
+                        | "agent.message.completed"
+                        | "agent.tool_call.delta"
+                        | "agent.tool.result"
+                )
+            )
+        });
         let items = events
             .iter()
             .cloned()
-            .map(|event| {
-                value_event(
+            .flat_map(|event| {
+                let response_item = response_item_from_runtime_event(&event);
+                let token_info = (event.get("eventName").and_then(Value::as_str)
+                    == Some("agent.token_count"))
+                .then(|| {
+                    event
+                        .get("payload")
+                        .and_then(|payload| payload.get("info"))
+                        .cloned()
+                })
+                .flatten();
+                let mut items = vec![value_event(
                     "agent_run_trace",
                     serde_json::json!({
                         "sessionId": session_id,
                         "runId": run_id,
                         "event": event,
                     }),
-                )
+                )];
+                if let Some(info) = token_info {
+                    items.push(value_event(
+                        "token_count",
+                        serde_json::json!({ "info": info }),
+                    ));
+                }
+                if let Some(response_item) = response_item {
+                    items.push(ThreadLogItem::ResponseItem(response_item));
+                }
+                items
             })
             .collect();
         self.recorder
@@ -98,7 +154,21 @@ impl WorkerThreadLogRpc {
             apply_agent_status_snapshot(&mut record, &event);
         }
         record.updated_at = timestamp.clone();
-        self.state.update_thread_log_head(&state.id, &log_head)?;
+        if let Some(total_tokens) = latest_total_tokens {
+            state.tokens_used = total_tokens;
+            state.updated_at = timestamp.clone();
+        }
+        if has_response_items {
+            let replay = replay_thread(&read_thread_lines(&path)?)?;
+            if is_default_session_title(&state.title) {
+                if let Some(title) = title_from_messages(&replay.messages) {
+                    state.title = title;
+                }
+            }
+            state.preview = preview_from_messages(&replay.messages);
+            state.updated_at = timestamp;
+        }
+        self.state.upsert_thread_projection(&state, &log_head)?;
         Ok(record)
     }
 
@@ -574,6 +644,59 @@ impl WorkerThreadLogRpc {
     }
 }
 
+fn response_item_from_runtime_event(event: &Value) -> Option<Value> {
+    let payload = event.get("payload")?;
+    match event.get("eventName").and_then(Value::as_str)? {
+        "agent.turn.started" => {
+            let mut message = payload.get("userMessage")?.clone();
+            message["role"] = Value::String("user".to_string());
+            Some(message)
+        }
+        "agent.message.completed" => {
+            let content = payload.get("content")?.as_str()?;
+            Some(serde_json::json!({
+                "role": "assistant",
+                "content": content,
+                "messageId": payload.get("messageId").cloned().unwrap_or(Value::Null),
+            }))
+        }
+        "agent.message.classified" => Some(serde_json::json!({
+            "role": "assistant",
+            "content": payload.get("content").cloned().unwrap_or(Value::Null),
+            "messageId": payload.get("messageId").cloned().unwrap_or(Value::Null),
+        })),
+        "agent.tool_call.delta" => Some(serde_json::json!({
+            "role": "assistant",
+            "content": serde_json::Value::Null,
+            "tool_calls": [{
+                "id": payload.get("toolCallId")?.clone(),
+                "type": "function",
+                "function": {
+                    "name": payload
+                        .get("toolName")
+                        .or_else(|| payload.get("name"))?
+                        .clone(),
+                    "arguments": payload
+                        .get("argumentsDelta")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!("{}")),
+                }
+            }]
+        })),
+        "agent.tool.result" => Some(serde_json::json!({
+            "role": "tool",
+            "tool_call_id": payload.get("toolCallId")?.clone(),
+            "name": payload
+                .get("toolName")
+                .or_else(|| payload.get("name"))
+                .cloned()
+                .unwrap_or(Value::Null),
+            "content": payload.get("content").cloned().unwrap_or(Value::Null),
+        })),
+        _ => None,
+    }
+}
+
 fn agent_run_status_is_resumable(status: &AgentRunStatus) -> bool {
     matches!(status, AgentRunStatus::Running | AgentRunStatus::Waiting)
 }
@@ -602,8 +725,13 @@ fn agent_run_records_from_lines(
                     runs.entry(record.run_id.clone())
                         .and_modify(|existing| {
                             let started_at = existing.started_at.clone();
+                            let mut trace_events = existing.trace_events.clone();
+                            for event in record.trace_events.iter().cloned() {
+                                upsert_trace_event(&mut trace_events, event);
+                            }
                             *existing = record.clone();
                             existing.started_at = started_at;
+                            existing.trace_events = trace_events;
                         })
                         .or_insert(record);
                 }
@@ -1055,6 +1183,42 @@ fn unknown_agent_run_error(session_id: &str, run_id: &str) -> WorkerProtocolErro
         false,
         WorkerProtocolErrorSource::RustCore,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::response_item_from_runtime_event;
+    use serde_json::json;
+
+    #[test]
+    fn runtime_tool_events_materialize_a_complete_model_visible_pair() {
+        let call = response_item_from_runtime_event(&json!({
+            "eventName": "agent.tool_call.delta",
+            "payload": {
+                "toolCallId": "call-1",
+                "toolName": "workspace.read_file",
+                "argumentsDelta": "{\"path\":\"README.md\"}"
+            }
+        }))
+        .unwrap();
+        let result = response_item_from_runtime_event(&json!({
+            "eventName": "agent.tool.result",
+            "payload": {
+                "toolCallId": "call-1",
+                "toolName": "workspace.read_file",
+                "content": "contents"
+            }
+        }))
+        .unwrap();
+
+        assert_eq!(call["tool_calls"][0]["id"], "call-1");
+        assert_eq!(
+            call["tool_calls"][0]["function"]["arguments"],
+            "{\"path\":\"README.md\"}"
+        );
+        assert_eq!(result["tool_call_id"], "call-1");
+        assert_eq!(result["content"], "contents");
+    }
 }
 
 fn empty_agent_run_trace_batch_error(session_id: &str, run_id: &str) -> WorkerProtocolError {

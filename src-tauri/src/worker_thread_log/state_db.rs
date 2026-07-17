@@ -64,15 +64,6 @@ impl ThreadStateDb {
         transaction.commit().map_err(sqlite_error)
     }
 
-    pub(super) fn update_thread_log_head(
-        &self,
-        thread_id: &str,
-        log_head: &ThreadLogHead,
-    ) -> Result<(), WorkerProtocolError> {
-        let connection = self.open()?;
-        upsert_thread_log_head(&connection, thread_id, log_head)
-    }
-
     pub(super) fn replace_thread_projection(
         &self,
         record: &ThreadStateRecord,

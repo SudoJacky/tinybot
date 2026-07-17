@@ -69,7 +69,7 @@ mod tests {
     fn valid_line() -> ThreadLogLine {
         ThreadLogLine {
             timestamp: "2026-07-08T10:12:30Z".to_string(),
-            item: ThreadLogItem::ThreadMeta(ThreadMeta {
+            item: ThreadLogItem::SessionMeta(ThreadMeta {
                 schema_version: crate::worker_thread_log::THREAD_LOG_SCHEMA_VERSION,
                 thread_id: "thread-a".to_string(),
                 session_id: Some("session-a".to_string()),

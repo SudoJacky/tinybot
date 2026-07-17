@@ -231,6 +231,7 @@ mod tests {
             messages,
             token_usage_info: None,
             context_checkpoint: None,
+            world_state_baseline: None,
         }
     }
 

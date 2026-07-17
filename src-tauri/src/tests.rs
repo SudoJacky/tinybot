@@ -1114,7 +1114,7 @@ fn worker_run_agent_preserves_trace_from_ingress_through_persistence() {
     .expect("traced Rust runtime should complete");
     let run = read_agent_run_record(
         fixture.root.clone(),
-        config,
+        config.clone(),
         "session-ingress-persistence",
         "run-ingress-persistence",
     );
@@ -2439,10 +2439,7 @@ fn worker_submit_thread_turn_creates_thread_and_runs_native_agent() {
         .expect("runtime events should be present")
         .iter()
         .all(|event| event["traceContext"]["traceId"] == trace_id));
-    assert_eq!(
-        result["snapshot"]["thread"]["sessionKey"],
-        serde_json::Value::String(thread_id.clone())
-    );
+    assert!(result["snapshot"]["thread"]["sessionKey"].is_null());
     assert!(result["snapshot"]["items"]
         .as_array()
         .expect("thread items should be present")
@@ -2470,10 +2467,69 @@ fn worker_submit_thread_turn_creates_thread_and_runs_native_agent() {
         "thread submit session metadata",
     )
     .expect("agent run session metadata should be readable");
-    assert_eq!(metadata["extra"]["threadMetadataProjection"], true);
-    assert!(metadata["extra"].get("threadPath").is_none());
-    let compatibility_logs = compatibility_thread_log_paths(&fixture.root);
-    assert!(compatibility_logs.is_empty(), "{compatibility_logs:?}");
+    assert_eq!(metadata["session_id"], thread_id);
+    let rollout_path = metadata["extra"]["threadPath"]
+        .as_str()
+        .expect("Rollout metadata should expose its journal path");
+    assert!(std::path::Path::new(rollout_path).exists());
+    assert_eq!(metadata["extra"]["threadSource"], "thread_log");
+    let rollout =
+        std::fs::read_to_string(rollout_path).expect("Rollout journal should be readable");
+    let rollout_items = rollout
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert!(rollout_items.iter().any(|line| {
+        line["type"] == "turn_context"
+            && line["payload"]["turnId"] == "run-thread-submit-new"
+            && line["payload"]["model"] == "fixture-model"
+    }));
+    let turn_started = rollout_items
+        .iter()
+        .position(|line| line["type"] == "event_msg" && line["payload"]["type"] == "turn_started")
+        .unwrap();
+    let turn_context = rollout_items
+        .iter()
+        .position(|line| line["type"] == "turn_context")
+        .unwrap();
+    let user_item = rollout_items
+        .iter()
+        .position(|line| line["type"] == "response_item" && line["payload"]["role"] == "user")
+        .unwrap();
+    let turn_complete = rollout_items
+        .iter()
+        .position(|line| line["type"] == "event_msg" && line["payload"]["type"] == "turn_complete")
+        .unwrap();
+    assert!(turn_started < turn_context);
+    assert!(turn_context < user_item);
+    assert!(user_item < turn_complete);
+    let history = call_rust_state_service(
+        fixture.root.clone(),
+        serde_json::json!({}),
+        WorkerRequest::new(
+            "req-thread-submit-rollout-history",
+            "trace-thread-submit-rollout-history",
+            "session.get_history",
+            serde_json::json!({ "session_id": thread_id }),
+        ),
+        "thread submit Rollout history",
+    )
+    .expect("thread submit Rollout history should be readable");
+    let messages = history["messages"]
+        .as_array()
+        .expect("Rollout history should contain messages");
+    assert!(messages.iter().any(|message| {
+        message["role"] == "user" && message["content"] == "answer from a new thread"
+    }));
+    let assistant = messages
+        .iter()
+        .find(|message| message["role"] == "assistant")
+        .expect("Rollout history should contain the assistant response");
+    assert_eq!(assistant["content"], "thread-first answer");
+    assert!(assistant["tokenUsageInfo"]["lastTokenUsage"]["totalTokens"]
+        .as_i64()
+        .is_some());
+    assert_eq!(assistant["tokenUsageInfo"]["modelContextWindow"], 128_000);
 }
 
 #[test]
@@ -2511,7 +2567,7 @@ fn thread_owned_compaction_commits_installed_checkpoint_before_finalization() {
             }),
         },
         fixture.root.clone(),
-        config,
+        config.clone(),
         Duration::from_millis(10),
     )
     .expect("thread compaction should commit through thread authority");
@@ -2522,17 +2578,41 @@ fn thread_owned_compaction_commits_installed_checkpoint_before_finalization() {
         .iter()
         .filter(|item| item["kind"]["type"] == "context_compaction")
         .collect::<Vec<_>>();
-    assert_eq!(compactions.len(), 2);
-    assert!(compactions.iter().any(|item| {
-        item["kind"]["payload"]["payload"]["contextCheckpoint"]["checkpointStage"] == "installed"
-    }));
-    assert!(compactions.iter().any(|item| {
+    assert_eq!(compactions.len(), 1);
+    assert!(compactions.iter().all(|item| {
         item["kind"]["payload"]["payload"]["contextCheckpoint"]["checkpointStage"] == "finalized"
     }));
     assert!(compactions.iter().all(|item| {
         let checkpoint = &item["kind"]["payload"]["payload"]["contextCheckpoint"];
         checkpoint["windowNumber"] == 1 && checkpoint["windowId"] == checkpoint["contextId"]
     }));
+    let thread_id = result["threadId"].as_str().unwrap();
+    let metadata = call_rust_state_service(
+        fixture.root.clone(),
+        config,
+        WorkerRequest::new(
+            "req-thread-compact-rollout-metadata",
+            "trace-thread-compact-rollout-metadata",
+            "session.get_metadata",
+            serde_json::json!({ "session_id": thread_id }),
+        ),
+        "thread compact Rollout metadata",
+    )
+    .expect("thread compact Rollout metadata should be readable");
+    let rollout_path = metadata["extra"]["threadPath"].as_str().unwrap();
+    let rollout = std::fs::read_to_string(rollout_path).unwrap();
+    let compacted = rollout
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .filter(|line| line["type"] == "compacted")
+        .collect::<Vec<_>>();
+    assert_eq!(compacted.len(), 2);
+    assert!(compacted
+        .iter()
+        .any(|line| line["payload"]["checkpointStage"] == "installed"));
+    assert!(compacted
+        .iter()
+        .any(|line| line["payload"]["checkpointStage"] == "finalized"));
 }
 
 #[test]
@@ -2767,7 +2847,7 @@ fn canonical_thread_reads_override_stale_session_log_and_reject_parallel_writes(
 }
 
 #[test]
-fn worker_submit_thread_turn_uses_existing_thread_session_key() {
+fn worker_submit_thread_turn_uses_thread_id_as_rollout_id() {
     let fixture = WorkspaceFixture::new();
     let working_directory = fixture.root.join("existing-thread-project");
     std::fs::create_dir_all(working_directory.join(".git"))
@@ -2829,11 +2909,8 @@ fn worker_submit_thread_turn_uses_existing_thread_session_key() {
     .expect("existing thread submit should run native agent");
 
     assert_eq!(result["threadId"], "thread-existing-submit");
-    assert_eq!(result["sessionId"], "session-existing-submit");
-    assert_eq!(
-        result["agentResult"]["sessionId"],
-        "session-existing-submit"
-    );
+    assert_eq!(result["sessionId"], "thread-existing-submit");
+    assert_eq!(result["agentResult"]["sessionId"], "thread-existing-submit");
     assert_eq!(
         result["snapshot"]["thread"]["threadId"],
         "thread-existing-submit"
@@ -2861,7 +2938,7 @@ fn worker_submit_thread_turn_uses_existing_thread_session_key() {
             run_request.trace_id("existing-thread-agent-run-read"),
             "agent_run.get",
             serde_json::json!({
-                "session_id": "session-existing-submit",
+                "session_id": "thread-existing-submit",
                 "run_id": "run-thread-submit-existing"
             }),
         ),
@@ -2875,7 +2952,7 @@ fn worker_submit_thread_turn_uses_existing_thread_session_key() {
 }
 
 #[test]
-fn worker_submit_thread_turn_backfills_missing_existing_thread_session_key() {
+fn worker_submit_thread_turn_does_not_require_a_session_key() {
     let fixture = WorkspaceFixture::new();
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
     let config = serde_json::json!({
@@ -2917,14 +2994,11 @@ fn worker_submit_thread_turn_backfills_missing_existing_thread_session_key() {
         config,
         Duration::from_millis(10),
     )
-    .expect("thread submit should backfill session key and run native agent");
+    .expect("thread submit should use the thread id as the Rollout id");
 
     assert_eq!(result["threadId"], "thread-submit-backfill");
     assert_eq!(result["sessionId"], "thread-submit-backfill");
-    assert_eq!(
-        result["snapshot"]["thread"]["sessionKey"],
-        "thread-submit-backfill"
-    );
+    assert!(result["snapshot"]["thread"]["sessionKey"].is_null());
     assert!(result["snapshot"]["items"]
         .as_array()
         .expect("thread items should be present")
@@ -3223,7 +3297,7 @@ fn worker_thread_commands_expose_thread_service_surface() {
 }
 
 #[test]
-fn worker_resolve_thread_approval_uses_runtime_checkpoint_before_thread_projection_catches_up() {
+fn worker_resolve_thread_approval_requires_rollout_checkpoint() {
     let fixture = WorkspaceFixture::new();
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
     let config = serde_json::json!({
@@ -3319,10 +3393,10 @@ fn worker_resolve_thread_approval_uses_runtime_checkpoint_before_thread_projecti
         config,
         Duration::from_millis(10),
     )
-    .expect("runtime checkpoint should allow approval before thread projection finishes");
+    .expect("missing Rollout checkpoint should return a not-found approval result");
 
-    assert_eq!(result["approvalResult"]["stopReason"], "final_response");
-    assert_eq!(result["snapshot"]["thread"]["status"], "idle");
+    assert_eq!(result["approvalResult"]["status"], "not_found");
+    assert_eq!(result["snapshot"]["thread"]["status"], "running");
 }
 
 #[test]
@@ -3382,7 +3456,7 @@ fn worker_resolve_thread_approval_resumes_checkpoint_and_updates_thread() {
             guidance: None,
         },
         fixture.root.clone(),
-        config,
+        config.clone(),
         Duration::from_millis(10),
     )
     .expect("thread approval command should resume run");
@@ -3390,10 +3464,6 @@ fn worker_resolve_thread_approval_resumes_checkpoint_and_updates_thread() {
     assert_eq!(result["threadId"], thread_id);
     assert_eq!(result["sessionId"], session_id);
     assert_eq!(result["approvalResult"]["stopReason"], "final_response");
-    assert_eq!(
-        result["approvalResult"]["conversationPersistence"]["authority"],
-        "thread"
-    );
     assert_eq!(result["snapshot"]["thread"]["status"], "idle");
     assert!(result["snapshot"]["latestCheckpoint"].is_null());
     assert!(result["snapshot"]["items"]
@@ -3403,8 +3473,26 @@ fn worker_resolve_thread_approval_resumes_checkpoint_and_updates_thread() {
         .any(
             |item| item["kind"]["type"] == "assistant_message_completed" && item["runId"] == run_id
         ));
-    let compatibility_logs = compatibility_thread_log_paths(&fixture.root);
-    assert!(compatibility_logs.is_empty(), "{compatibility_logs:?}");
+    let history = call_rust_state_service(
+        fixture.root.clone(),
+        config,
+        WorkerRequest::new(
+            "req-thread-approval-rollout-history",
+            "trace-thread-approval-rollout-history",
+            "session.get_history",
+            serde_json::json!({ "session_id": session_id }),
+        ),
+        "thread approval Rollout history",
+    )
+    .expect("thread approval Rollout history should be readable");
+    assert!(history["messages"]
+        .as_array()
+        .expect("Rollout history should contain messages")
+        .iter()
+        .any(|message| {
+            message["role"] == "assistant"
+                && message["content"] == result["approvalResult"]["finalContent"]
+        }));
 }
 
 #[test]
@@ -3643,7 +3731,7 @@ fn worker_submit_thread_form_resumes_checkpoint_and_updates_thread() {
             action: Some("submit".to_string()),
         },
         fixture.root.clone(),
-        config,
+        config.clone(),
         Duration::from_millis(10),
     )
     .expect("thread form command should resume run");
@@ -3652,10 +3740,6 @@ fn worker_submit_thread_form_resumes_checkpoint_and_updates_thread() {
     assert_eq!(result["sessionId"], session_id);
     assert_eq!(result["formResult"]["statusCode"], 200);
     assert_eq!(result["formResult"]["stopReason"], "final_response");
-    assert_eq!(
-        result["formResult"]["conversationPersistence"]["authority"],
-        "thread"
-    );
     assert_eq!(result["snapshot"]["thread"]["status"], "idle");
     assert!(result["snapshot"]["latestCheckpoint"].is_null());
     assert!(result["snapshot"]["items"]
@@ -3665,8 +3749,23 @@ fn worker_submit_thread_form_resumes_checkpoint_and_updates_thread() {
         .any(
             |item| item["kind"]["type"] == "assistant_message_completed" && item["runId"] == run_id
         ));
-    let compatibility_logs = compatibility_thread_log_paths(&fixture.root);
-    assert!(compatibility_logs.is_empty(), "{compatibility_logs:?}");
+    let history = call_rust_state_service(
+        fixture.root.clone(),
+        config,
+        WorkerRequest::new(
+            "req-thread-form-rollout-history",
+            "trace-thread-form-rollout-history",
+            "session.get_history",
+            serde_json::json!({ "session_id": session_id }),
+        ),
+        "thread form Rollout history",
+    )
+    .expect("thread form Rollout history should be readable");
+    assert!(history["messages"]
+        .as_array()
+        .expect("Rollout history should contain messages")
+        .iter()
+        .any(|message| message["role"] == "assistant"));
 }
 
 #[test]

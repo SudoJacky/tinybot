@@ -244,7 +244,14 @@ impl NativeAgentTraceSink for BufferedNativeAgentTraceSink {
     ) -> Result<(), String> {
         let live_result = self.live_sink.append_trace_event(session_id, run_id, event);
         let enqueue_result = self.enqueue_event(session_id, run_id, event);
-        live_result.and(enqueue_result)
+        live_result.and(enqueue_result)?;
+        if !matches!(
+            event.event_name.as_str(),
+            "agent.delta" | "agent.reasoning_delta"
+        ) {
+            self.flush()?;
+        }
+        Ok(())
     }
 
     fn append_timeline_patch(
