@@ -18,6 +18,7 @@ impl WorkerSessionRpc {
                 messages: Vec::new(),
                 user_profile: serde_json::json!({}),
                 updated_at: String::new(),
+                context_checkpoint: None,
             });
         };
         let messages = session
@@ -36,6 +37,7 @@ impl WorkerSessionRpc {
             messages,
             user_profile,
             updated_at: session.updated_at.clone(),
+            context_checkpoint: None,
         })
     }
 

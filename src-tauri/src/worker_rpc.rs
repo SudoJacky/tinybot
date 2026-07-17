@@ -982,6 +982,15 @@ struct SessionPersistTurnParams {
     context_metadata_camel: Option<Value>,
 }
 
+#[derive(Deserialize)]
+struct SessionCommitContextCheckpointParams {
+    #[serde(alias = "sessionId")]
+    session_id: String,
+    #[serde(alias = "runId")]
+    run_id: String,
+    checkpoint: Value,
+}
+
 impl SessionPersistTurnParams {
     fn context_metadata(&self) -> Option<Value> {
         self.context_metadata

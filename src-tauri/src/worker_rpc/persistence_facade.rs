@@ -45,18 +45,39 @@ impl WorkerRpcRouter {
             "session.get_agent_context" => {
                 let params: SessionHistoryParams = parse_params(request)?;
                 let limit = params.limit.unwrap_or(500);
-                if self.thread.has_thread_store() {
-                    if let Some(projection) = self
-                        .thread
+                let thread_projection = if self.thread.has_thread_store() {
+                    self.thread
                         .get_agent_context_from_threads(&params.session_id, limit)?
-                    {
+                } else {
+                    None
+                };
+                let thread_created_at = if thread_projection.is_some() {
+                    self.thread
+                        .get_session_metadata_from_threads(&params.session_id)?
+                        .map(|metadata| metadata.created_at)
+                } else {
+                    None
+                };
+                let thread_log_projection = self
+                    .thread_log
+                    .get_agent_context(&params.session_id, limit)?;
+                if let Some(projection) = thread_projection.as_ref() {
+                    let use_thread_log_checkpoint =
+                        thread_log_projection.as_ref().is_some_and(|thread_log| {
+                            thread_log.context_checkpoint.is_some()
+                                && projection.context_checkpoint.is_none()
+                                && (agent_context_messages_equivalent(
+                                    &projection.messages,
+                                    &thread_log.messages,
+                                ) || thread_created_at.as_ref().map_or(true, |created_at| {
+                                    thread_log.updated_at >= *created_at
+                                }))
+                        });
+                    if !use_thread_log_checkpoint {
                         return serde_json::to_value(projection).map_err(serialization_error);
                     }
                 }
-                if let Some(projection) = self
-                    .thread_log
-                    .get_agent_context(&params.session_id, limit)?
-                {
+                if let Some(projection) = thread_log_projection {
                     return serde_json::to_value(projection).map_err(serialization_error);
                 }
                 let projection = self.session.get_history(&params.session_id, limit)?;
@@ -285,6 +306,19 @@ impl WorkerRpcRouter {
                     &params.run_id,
                     params.messages,
                     context_checkpoint,
+                )?;
+                serde_json::to_value(result).map_err(serialization_error)
+            }
+            "session.commit_context_checkpoint" => {
+                let params: SessionCommitContextCheckpointParams = parse_params(request)?;
+                self.require_compatibility_persistence_authority(
+                    &params.session_id,
+                    "session.commit_context_checkpoint",
+                )?;
+                let result = self.thread_log.commit_context_checkpoint(
+                    &params.session_id,
+                    &params.run_id,
+                    params.checkpoint,
                 )?;
                 serde_json::to_value(result).map_err(serialization_error)
             }
@@ -648,6 +682,31 @@ impl WorkerRpcRouter {
             .get_session_metadata_from_threads(session_id)?
             .is_some())
     }
+}
+
+fn agent_context_messages_equivalent(left: &[Value], right: &[Value]) -> bool {
+    left.len() == right.len()
+        && left
+            .iter()
+            .zip(right)
+            .all(|(left, right)| agent_context_message_equivalent(left, right))
+}
+
+fn agent_context_message_equivalent(left: &Value, right: &Value) -> bool {
+    left.get("role") == right.get("role")
+        && left.get("content") == right.get("content")
+        && aliased_agent_context_field(left, "tool_calls", "toolCalls")
+            == aliased_agent_context_field(right, "tool_calls", "toolCalls")
+        && aliased_agent_context_field(left, "tool_call_id", "toolCallId")
+            == aliased_agent_context_field(right, "tool_call_id", "toolCallId")
+}
+
+fn aliased_agent_context_field<'a>(
+    message: &'a Value,
+    snake: &str,
+    camel: &str,
+) -> Option<&'a Value> {
+    message.get(snake).or_else(|| message.get(camel))
 }
 
 fn thread_owned_persistence_error(session_id: &str, method: &str) -> WorkerProtocolError {

@@ -76,6 +76,7 @@ pub(super) const TITLE_SOURCE_MANUAL: &str = "manual";
 
 static THREAD_ID_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static ITEM_ID_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+static CONTEXT_CHECKPOINT_MUTATION_LOCK: Mutex<()> = Mutex::new(());
 
 pub trait ThreadStore: Clone + std::fmt::Debug + Send + Sync + 'static {
     fn create_thread(
@@ -1449,6 +1450,34 @@ impl LocalThreadStore {
         let client_event_id = client_event_id
             .map(str::trim)
             .filter(|value| !value.is_empty());
+        let _checkpoint_guard = if items
+            .iter()
+            .any(|item| installed_context_checkpoint(item).is_some())
+        {
+            let process_guard = CONTEXT_CHECKPOINT_MUTATION_LOCK.lock().map_err(|_| {
+                invalid_thread_request(
+                    "context compaction checkpoint mutation lock is poisoned",
+                    serde_json::json!({ "threadId": thread_id }),
+                )
+            })?;
+            let tinybot_root = self.root.parent().unwrap_or(self.root.as_path());
+            let file_guard =
+                crate::context_checkpoint_lock::acquire_context_checkpoint_lock(tinybot_root)
+                    .map_err(|error| {
+                        WorkerProtocolError::new(
+                            WorkerProtocolErrorCode::WorkerError,
+                            format!(
+                                "failed to acquire cross-process context checkpoint lock: {error}"
+                            ),
+                            serde_json::json!({ "threadId": thread_id }),
+                            true,
+                            WorkerProtocolErrorSource::RustCore,
+                        )
+                    })?;
+            Some((process_guard, file_guard))
+        } else {
+            None
+        };
         let _guard = self.lock_mutation()?;
         let mut index = self.read_index()?;
         let record = index
@@ -1484,6 +1513,12 @@ impl LocalThreadStore {
                 }
             }
         }
+        let checkpoint_session_id = record
+            .session_key
+            .as_deref()
+            .unwrap_or(thread_id)
+            .to_string();
+        validate_context_checkpoint_lineage(&checkpoint_session_id, &existing, &items)?;
         for mut item in items {
             item.thread_id = thread_id.to_string();
             if item.item_id.trim().is_empty() {
@@ -1553,6 +1588,57 @@ impl LocalThreadStore {
     ) -> Result<Vec<ThreadChildActivity>, WorkerProtocolError> {
         project_child_activities_for_thread(self, thread_id)
     }
+}
+
+pub(super) fn validate_context_checkpoint_lineage(
+    session_id: &str,
+    existing: &[ThreadItem],
+    pending: &[ThreadItem],
+) -> Result<(), WorkerProtocolError> {
+    let mut current_checkpoint = existing
+        .iter()
+        .rev()
+        .find_map(thread_item_context_checkpoint);
+    for item in pending {
+        let Some(checkpoint) = installed_context_checkpoint(item) else {
+            continue;
+        };
+        crate::context_checkpoint_lineage::validate_context_checkpoint_successor(
+            session_id,
+            current_checkpoint,
+            checkpoint,
+        )
+        .map_err(|error| {
+            invalid_thread_request(
+                error.to_string(),
+                serde_json::json!({
+                    "contextId": checkpoint.get("contextId"),
+                    "field": error.field,
+                    "expected": error.expected,
+                    "actual": error.actual,
+                }),
+            )
+        })?;
+        current_checkpoint = Some(checkpoint);
+    }
+    Ok(())
+}
+
+fn installed_context_checkpoint(item: &ThreadItem) -> Option<&Value> {
+    let checkpoint = thread_item_context_checkpoint(item)?;
+    (checkpoint.get("checkpointStage").and_then(Value::as_str) == Some("installed"))
+        .then_some(checkpoint)
+}
+
+fn thread_item_context_checkpoint(item: &ThreadItem) -> Option<&Value> {
+    let ThreadItemKind::ContextCompaction(payload) = &item.kind else {
+        return None;
+    };
+    payload
+        .get("payload")
+        .and_then(|payload| payload.get("contextCheckpoint"))
+        .or_else(|| payload.get("contextCheckpoint"))
+        .or_else(|| payload.get("replacementHistory").map(|_| payload))
 }
 
 pub(super) fn non_empty_string(value: &str) -> Option<String> {
@@ -3005,6 +3091,86 @@ mod tests {
             .items
             .iter()
             .any(|item| matches!(item.kind, ThreadItemKind::CheckpointCreated(_))));
+    }
+
+    #[test]
+    fn local_thread_store_rejects_stale_context_checkpoint_lineage() {
+        let root = temp_root("context-checkpoint-lineage");
+        let _cleanup = Cleanup(root.clone());
+        let store = LocalThreadStore::new(root);
+        let thread = store.create_thread(CreateThreadRequest::default()).unwrap();
+
+        store
+            .append_items(
+                &thread.thread_id,
+                vec![context_compaction_item(
+                    &thread.thread_id,
+                    "context-1",
+                    Value::Null,
+                )],
+            )
+            .unwrap();
+
+        let stale = store
+            .append_items(
+                &thread.thread_id,
+                vec![context_compaction_item(
+                    &thread.thread_id,
+                    "context-stale",
+                    Value::Null,
+                )],
+            )
+            .unwrap_err();
+        assert!(stale
+            .message
+            .contains("stale context compaction checkpoint"));
+
+        store
+            .append_items(
+                &thread.thread_id,
+                vec![context_compaction_item(
+                    &thread.thread_id,
+                    "context-2",
+                    Value::String("context-1".to_string()),
+                )],
+            )
+            .unwrap();
+    }
+
+    fn context_compaction_item(
+        session_id: &str,
+        context_id: &str,
+        source_context_id: Value,
+    ) -> ThreadItem {
+        let initial_window_id = format!("{session_id}:context-window:0");
+        let source_window_id = source_context_id
+            .as_str()
+            .unwrap_or(&initial_window_id)
+            .to_string();
+        let window_number = if source_context_id.is_null() { 1 } else { 2 };
+        ThreadItem {
+            item_id: String::new(),
+            thread_id: String::new(),
+            run_id: Some("run-context".to_string()),
+            turn_id: Some("run-context".to_string()),
+            parent_item_id: None,
+            sequence: 0,
+            created_at: String::new(),
+            kind: ThreadItemKind::ContextCompaction(json!({
+                "payload": {
+                    "contextCheckpoint": {
+                        "contextId": context_id,
+                        "sourceContextId": source_context_id,
+                        "windowNumber": window_number,
+                        "firstWindowId": initial_window_id,
+                        "previousWindowId": source_window_id,
+                        "windowId": context_id,
+                        "checkpointStage": "installed",
+                        "replacementHistory": []
+                    }
+                }
+            })),
+        }
     }
 
     fn item(text: &str) -> ThreadItem {

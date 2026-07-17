@@ -106,6 +106,7 @@ pub fn get_session_history_from_threads(
         messages,
         user_profile: json!({}),
         updated_at,
+        context_checkpoint: None,
     }))
 }
 
@@ -124,13 +125,19 @@ pub fn get_agent_context_from_threads(
         .rev()
         .find_map(|(index, item)| match &item.kind {
             ThreadItemKind::ContextCompaction(payload) => {
-                context_checkpoint_replacement(payload).map(|replacement| (index, replacement))
+                context_checkpoint(payload).and_then(|checkpoint| {
+                    context_checkpoint_replacement(checkpoint)
+                        .map(|replacement| (index, replacement, checkpoint.clone()))
+                })
             }
             _ => None,
         });
 
     let has_checkpoint = checkpoint.is_some();
-    let mut messages = if let Some((checkpoint_index, mut replacement)) = checkpoint {
+    let context_checkpoint = checkpoint
+        .as_ref()
+        .map(|(_, _, checkpoint)| checkpoint.clone());
+    let mut messages = if let Some((checkpoint_index, mut replacement, _)) = checkpoint {
         let suffix = items[checkpoint_index + 1..]
             .iter()
             .filter_map(thread_item_to_session_message)
@@ -156,15 +163,20 @@ pub fn get_agent_context_from_threads(
         messages,
         user_profile: json!({}),
         updated_at,
+        context_checkpoint,
     }))
 }
 
-fn context_checkpoint_replacement(payload: &Value) -> Option<Vec<Value>> {
+fn context_checkpoint(payload: &Value) -> Option<&Value> {
     let checkpoint = payload
         .get("payload")
         .and_then(|payload| payload.get("contextCheckpoint"))
         .or_else(|| payload.get("contextCheckpoint"))
         .unwrap_or(payload);
+    context_checkpoint_replacement(checkpoint).map(|_| checkpoint)
+}
+
+fn context_checkpoint_replacement(checkpoint: &Value) -> Option<Vec<Value>> {
     checkpoint
         .get("replacementHistory")
         .or_else(|| checkpoint.get("replacement_history"))

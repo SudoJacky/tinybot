@@ -2105,6 +2105,121 @@ fn worker_run_agent_projects_real_rust_run_into_canonical_session_history() {
 }
 
 #[test]
+fn session_owned_compaction_commits_installed_checkpoint_before_final_turn_persistence() {
+    let fixture = WorkspaceFixture::new();
+    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let session_id = "session-context-commit-integration";
+    let config = serde_json::json!({
+        "agents": { "defaults": {
+            "provider": "fixture",
+            "model": "fixture-model",
+            "contextWindowTokens": 800,
+            "contextWindowStrategy": "compact",
+            "compactTriggerPercent": 50,
+            "compactSummaryMaxTokens": 32
+        } },
+        "providers": { "fixture": { "responses": [
+            { "content": "session compact answer" }
+        ] } }
+    });
+
+    let result = worker_run_agent_with_options(
+        &shared,
+        serde_json::json!({
+            "runtime": "rust",
+            "runId": "run-session-context-commit",
+            "sessionId": session_id,
+            "messages": [
+                { "role": "user", "content": "old context ".repeat(200) },
+                { "role": "assistant", "content": "old answer ".repeat(200) },
+                { "role": "user", "content": "current question" }
+            ]
+        }),
+        fixture.root.clone(),
+        config.clone(),
+        Duration::from_millis(10),
+    )
+    .expect("session compaction should commit through thread-log authority");
+
+    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(result["contextCheckpoint"]["checkpointStage"], "finalized");
+    assert_eq!(result["contextCheckpoint"]["windowNumber"], 1);
+    assert_eq!(
+        result["contextCheckpoint"]["windowId"],
+        result["contextCheckpoint"]["contextId"]
+    );
+    let context = call_rust_state_service(
+        fixture.root.clone(),
+        config.clone(),
+        WorkerRequest::new(
+            "req-session-context-after-commit",
+            "trace-session-context-after-commit",
+            "session.get_agent_context",
+            serde_json::json!({ "session_id": session_id, "limit": 50 }),
+        ),
+        "session context after durable compaction",
+    )
+    .expect("durable session context should hydrate");
+    assert!(context["messages"]
+        .as_array()
+        .is_some_and(|messages| messages.iter().any(|message| message["content"]
+            .as_str()
+            .is_some_and(|content| content.contains("session compact answer")))));
+    assert!(
+        context["messages"]
+            .as_array()
+            .is_some_and(|messages| messages
+                .iter()
+                .any(|message| { message["content"] == "session compact answer" })),
+        "hydrated context should include the final answer: {context}"
+    );
+
+    let first_context_id = result["contextCheckpoint"]["contextId"]
+        .as_str()
+        .expect("first context checkpoint should have an id")
+        .to_string();
+    assert_eq!(context["contextCheckpoint"]["contextId"], first_context_id);
+    let hydrated = crate::native_agent_bridge::hydrate_native_agent_history_for_runtime(
+        serde_json::json!({
+            "runtime": "rust",
+            "runId": "run-session-context-commit-next",
+            "sessionId": session_id,
+            "messages": [{ "role": "user", "content": "next current question" }]
+        }),
+        fixture.root.clone(),
+        config,
+    )
+    .expect("next session run should hydrate canonical checkpoint lineage");
+    assert_eq!(
+        hydrated["metadata"]["contextSourceCheckpointId"],
+        first_context_id
+    );
+    assert_eq!(
+        hydrated["metadata"]["contextSourceCheckpoint"]["windowNumber"],
+        1
+    );
+    assert_eq!(
+        hydrated["metadata"]["contextSourceCheckpoint"]["windowId"],
+        first_context_id
+    );
+
+    let thread_logs = compatibility_thread_log_paths(&fixture.root);
+    assert_eq!(thread_logs.len(), 1);
+    let lines = crate::worker_thread_log::read_thread_lines(&thread_logs[0])
+        .expect("session thread log should be readable");
+    let stages = lines
+        .iter()
+        .filter_map(|line| match &line.item {
+            crate::worker_thread_log::ThreadLogItem::Compacted(checkpoint) => checkpoint
+                .get("checkpointStage")
+                .and_then(serde_json::Value::as_str),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(stages, vec!["installed", "finalized"]);
+}
+
+#[test]
 fn worker_run_agent_uses_native_tool_executor_for_registered_workspace_tool() {
     let fixture = WorkspaceFixture::new();
     fixture.write("README.md", "actual executor README body");
@@ -2359,6 +2474,65 @@ fn worker_submit_thread_turn_creates_thread_and_runs_native_agent() {
     assert!(metadata["extra"].get("threadPath").is_none());
     let compatibility_logs = compatibility_thread_log_paths(&fixture.root);
     assert!(compatibility_logs.is_empty(), "{compatibility_logs:?}");
+}
+
+#[test]
+fn thread_owned_compaction_commits_installed_checkpoint_before_finalization() {
+    let fixture = WorkspaceFixture::new();
+    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let config = serde_json::json!({
+        "agents": { "defaults": {
+            "provider": "fixture",
+            "model": "fixture-model",
+            "contextWindowTokens": 800,
+            "contextWindowStrategy": "compact",
+            "compactTriggerPercent": 50,
+            "compactSummaryMaxTokens": 32
+        } },
+        "providers": { "fixture": { "responses": [
+            { "content": "thread compact summary" },
+            { "content": "thread compact answer" }
+        ] } }
+    });
+
+    let result = worker_submit_thread_turn_with_options(
+        &shared,
+        WorkerSubmitThreadTurnInput {
+            thread_id: None,
+            input: serde_json::json!({ "content": "current question" }),
+            spec: serde_json::json!({
+                "runtime": "rust",
+                "runId": "run-thread-context-commit",
+                "messages": [
+                    { "role": "user", "content": "old context ".repeat(200) },
+                    { "role": "assistant", "content": "old answer ".repeat(200) },
+                    { "role": "user", "content": "current question" }
+                ]
+            }),
+        },
+        fixture.root.clone(),
+        config,
+        Duration::from_millis(10),
+    )
+    .expect("thread compaction should commit through thread authority");
+
+    let compactions = result["snapshot"]["items"]
+        .as_array()
+        .expect("thread items should be present")
+        .iter()
+        .filter(|item| item["kind"]["type"] == "context_compaction")
+        .collect::<Vec<_>>();
+    assert_eq!(compactions.len(), 2);
+    assert!(compactions.iter().any(|item| {
+        item["kind"]["payload"]["payload"]["contextCheckpoint"]["checkpointStage"] == "installed"
+    }));
+    assert!(compactions.iter().any(|item| {
+        item["kind"]["payload"]["payload"]["contextCheckpoint"]["checkpointStage"] == "finalized"
+    }));
+    assert!(compactions.iter().all(|item| {
+        let checkpoint = &item["kind"]["payload"]["payload"]["contextCheckpoint"];
+        checkpoint["windowNumber"] == 1 && checkpoint["windowId"] == checkpoint["contextId"]
+    }));
 }
 
 #[test]

@@ -16,9 +16,13 @@ use crate::worker_session::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
+static CONTEXT_CHECKPOINT_COMMIT_LOCK: Mutex<()> = Mutex::new(());
 
 pub use self::reader::read_thread_lines;
 use self::recorder::is_canonical_thread_log_path;
@@ -26,6 +30,7 @@ pub use self::recorder::{now_thread_timestamp, value_event, ThreadRecorder};
 pub use self::replay::replay_thread;
 use self::replay::replay_thread_transcript;
 pub use self::session_adapter::{history_from_replay, metadata_from_state};
+use self::state_db::LatestContextCheckpointRecord;
 pub use self::state_db::ThreadStateDb;
 pub use self::types::{
     ThreadLogItem, ThreadLogLine, ThreadMeta, ThreadReplay, ThreadStateRecord, TokenUsage,
@@ -56,6 +61,29 @@ pub struct AgentRunRecoveryReport {
     pub interrupted_runs: Vec<AgentRunRecoveryEntry>,
     pub awaiting_interaction_runs: Vec<AgentRunRecoveryEntry>,
     pub resumable_runs: Vec<AgentRunRecoveryEntry>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextCheckpointCommitResult {
+    pub session_id: String,
+    pub context_id: String,
+    pub committed: bool,
+    pub duplicate: bool,
+    pub index_synchronized: bool,
+    pub index_recovered: bool,
+    pub diagnostics: Vec<String>,
+}
+
+struct DerivedIndexSyncResult {
+    synchronized: bool,
+    recovered: bool,
+    diagnostics: Vec<String>,
+}
+
+struct CanonicalThreadState {
+    record: ThreadStateRecord,
+    latest_checkpoint: Option<LatestContextCheckpointRecord>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -105,6 +133,11 @@ impl WorkerThreadLogRpc {
             state: ThreadStateDb::new(workspace_root),
             policy,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_next_state_index_upserts(&self, count: usize) {
+        self.state.fail_next_upserts(count);
     }
 
     pub fn list_session_metadata(&self) -> Result<Vec<SessionMetadata>, WorkerProtocolError> {
@@ -169,7 +202,8 @@ impl WorkerThreadLogRpc {
         let path = PathBuf::from(&record.thread_path);
         self.recorder.validate_thread_path(&path)?;
         let lines = read_thread_lines(&path)?;
-        let replay = replay_thread(&lines)?;
+        let latest_checkpoint = self.state.latest_context_checkpoint(session_id)?;
+        let replay = replay_agent_context_from_checkpoint(&lines, latest_checkpoint.as_ref())?;
         Ok(Some(history_from_replay(replay, limit)))
     }
 
@@ -186,12 +220,15 @@ impl WorkerThreadLogRpc {
     ) -> Result<ThreadLogIndexRepairReport, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         let before = self.state_index_consistency()?;
-        let canonical = self.canonical_state_records()?;
+        let canonical = self.canonical_thread_states()?;
         match mode {
             ThreadLogIndexRepairMode::RebuildIndex => {
                 self.state.reset()?;
-                for record in &canonical {
-                    self.state.upsert_thread(record)?;
+                for state in &canonical {
+                    self.state.replace_thread_projection(
+                        &state.record,
+                        state.latest_checkpoint.as_ref(),
+                    )?;
                 }
             }
         }
@@ -260,15 +297,61 @@ impl WorkerThreadLogRpc {
         Ok(record)
     }
 
-    fn canonical_state_records(&self) -> Result<Vec<ThreadStateRecord>, WorkerProtocolError> {
+    fn ensure_session_record(
+        &self,
+        session_id: &str,
+        timestamp: &str,
+    ) -> Result<ThreadStateRecord, WorkerProtocolError> {
+        if let Some(record) = self.state.find_by_session_or_thread_id(session_id)? {
+            return Ok(record);
+        }
+        let thread_id = thread_id_for_session_id(session_id);
+        let meta = ThreadMeta {
+            schema_version: THREAD_LOG_SCHEMA_VERSION,
+            thread_id: thread_id.clone(),
+            session_id: Some(session_id.to_string()),
+            created_at: timestamp.to_string(),
+            cwd: String::new(),
+            source: "desktop".to_string(),
+            model_provider: None,
+            model: None,
+            base_instructions: None,
+            history_mode: Some("default".to_string()),
+            forked_from_thread_id: None,
+            parent_thread_id: None,
+            originator: Some("Tinybot Desktop".to_string()),
+        };
+        let path = self.recorder.create_thread(meta)?;
+        let record = ThreadStateRecord {
+            id: thread_id,
+            session_id: Some(session_id.to_string()),
+            thread_path: path.display().to_string(),
+            created_at: timestamp.to_string(),
+            updated_at: timestamp.to_string(),
+            source: "desktop".to_string(),
+            title: "New session".to_string(),
+            preview: String::new(),
+            cwd: String::new(),
+            model_provider: None,
+            model: None,
+            tokens_used: 0,
+            archived: false,
+            archived_at: None,
+        };
+        self.state.upsert_thread(&record)?;
+        Ok(record)
+    }
+
+    fn canonical_thread_states(&self) -> Result<Vec<CanonicalThreadState>, WorkerProtocolError> {
         let mut paths = Vec::new();
         collect_thread_log_paths(&self.thread_root, &self.thread_root, &mut paths)?;
-        let mut records = Vec::with_capacity(paths.len());
+        let mut states = Vec::with_capacity(paths.len());
         for path in paths {
             self.recorder.validate_thread_path(&path)?;
             let lines = read_thread_lines(&path)?;
             let meta = thread_meta_from_lines(&lines)?;
             let replay = replay_thread(&lines)?;
+            let latest_checkpoint = latest_context_checkpoint_from_lines(&meta.thread_id, &lines)?;
             let updated_at = state_projection_updated_at(&meta.created_at, &lines);
             let title = if is_default_session_title(&replay.title) {
                 title_from_messages(&replay.messages).unwrap_or(replay.title)
@@ -298,26 +381,37 @@ impl WorkerThreadLogRpc {
             apply_metadata_events_to_record(&mut record, &lines)?;
             apply_agent_run_events_to_record(&mut record, &lines)?;
             record.updated_at = updated_at;
-            records.push(record);
+            states.push(CanonicalThreadState {
+                record,
+                latest_checkpoint,
+            });
         }
-        records.sort_by(|left, right| left.id.cmp(&right.id));
-        Ok(records)
+        states.sort_by(|left, right| left.record.id.cmp(&right.record.id));
+        Ok(states)
     }
 
     fn state_index_consistency(
         &self,
     ) -> Result<ThreadLogIndexConsistencyReport, WorkerProtocolError> {
-        let canonical = self.canonical_state_records()?;
+        let canonical = self.canonical_thread_states()?;
+        let canonical_records = canonical
+            .iter()
+            .map(|state| state.record.clone())
+            .collect::<Vec<_>>();
+        let canonical_checkpoints = canonical
+            .iter()
+            .filter_map(|state| state.latest_checkpoint.clone())
+            .collect::<Vec<_>>();
         if !self.state.path().exists() {
             return Ok(ThreadLogIndexConsistencyReport {
-                status: if canonical.is_empty() {
+                status: if canonical_records.is_empty() {
                     ThreadLogIndexConsistencyStatus::Clean
                 } else {
                     ThreadLogIndexConsistencyStatus::MissingIndex
                 },
-                canonical_thread_count: canonical.len(),
+                canonical_thread_count: canonical_records.len(),
                 indexed_thread_count: 0,
-                diagnostics: (!canonical.is_empty())
+                diagnostics: (!canonical_records.is_empty())
                     .then(|| {
                         "canonical thread logs exist but the SQLite state index is missing"
                             .to_string()
@@ -338,23 +432,279 @@ impl WorkerThreadLogRpc {
             }
         };
         indexed.sort_by(|left, right| left.id.cmp(&right.id));
-        let status = if canonical == indexed {
+        let indexed_checkpoints = match self.state.list_latest_context_checkpoints() {
+            Ok(checkpoints) => checkpoints,
+            Err(error) => {
+                return Ok(ThreadLogIndexConsistencyReport {
+                    status: ThreadLogIndexConsistencyStatus::Unreadable,
+                    canonical_thread_count: canonical_records.len(),
+                    indexed_thread_count: indexed.len(),
+                    diagnostics: vec![error.message],
+                });
+            }
+        };
+        let records_match = canonical_records == indexed;
+        let checkpoints_match = canonical_checkpoints == indexed_checkpoints;
+        let status = if records_match && checkpoints_match {
             ThreadLogIndexConsistencyStatus::Clean
-        } else if indexed.is_empty() && !canonical.is_empty() {
+        } else if indexed.is_empty() && !canonical_records.is_empty()
+            || records_match && indexed_checkpoints.is_empty() && !canonical_checkpoints.is_empty()
+        {
             ThreadLogIndexConsistencyStatus::MissingIndex
         } else {
             ThreadLogIndexConsistencyStatus::Diverged
         };
         let diagnostics = (status != ThreadLogIndexConsistencyStatus::Clean)
-            .then(|| "canonical thread log records differ from the SQLite state index".to_string())
+            .then(|| {
+                if records_match {
+                    "canonical latest context checkpoints differ from the SQLite state index"
+                        .to_string()
+                } else {
+                    "canonical thread log records differ from the SQLite state index".to_string()
+                }
+            })
             .into_iter()
             .collect();
         Ok(ThreadLogIndexConsistencyReport {
             status,
-            canonical_thread_count: canonical.len(),
+            canonical_thread_count: canonical_records.len(),
             indexed_thread_count: indexed.len(),
             diagnostics,
         })
+    }
+
+    pub fn commit_context_checkpoint(
+        &self,
+        session_id: &str,
+        run_id: &str,
+        mut checkpoint: Value,
+    ) -> Result<ContextCheckpointCommitResult, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
+        let _commit_guard = CONTEXT_CHECKPOINT_COMMIT_LOCK.lock().map_err(|_| {
+            WorkerProtocolError::new(
+                WorkerProtocolErrorCode::WorkerError,
+                "context compaction checkpoint commit lock is poisoned",
+                serde_json::json!({ "runId": run_id }),
+                false,
+                WorkerProtocolErrorSource::RustCore,
+            )
+        })?;
+        let tinybot_root = self
+            .thread_root
+            .parent()
+            .unwrap_or(self.thread_root.as_path());
+        let _file_guard = crate::context_checkpoint_lock::acquire_context_checkpoint_lock(
+            tinybot_root,
+        )
+        .map_err(|error| {
+            WorkerProtocolError::new(
+                WorkerProtocolErrorCode::WorkerError,
+                format!("failed to acquire cross-process context checkpoint lock: {error}"),
+                serde_json::json!({
+                    "runId": run_id,
+                    "sessionId": session_id,
+                }),
+                true,
+                WorkerProtocolErrorSource::RustCore,
+            )
+        })?;
+        self.ensure_state_index()?;
+        let context_id = checkpoint
+            .get("contextId")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| {
+                WorkerProtocolError::new(
+                    WorkerProtocolErrorCode::InvalidProtocol,
+                    "context compaction checkpoint is missing contextId",
+                    serde_json::json!({ "runId": run_id }),
+                    false,
+                    WorkerProtocolErrorSource::RustCore,
+                )
+            })?
+            .to_string();
+        let replacement_history = checkpoint
+            .get("replacementHistory")
+            .and_then(Value::as_array)
+            .ok_or_else(|| {
+                WorkerProtocolError::new(
+                    WorkerProtocolErrorCode::InvalidProtocol,
+                    "context compaction checkpoint is missing replacementHistory",
+                    serde_json::json!({ "runId": run_id, "contextId": context_id }),
+                    false,
+                    WorkerProtocolErrorSource::RustCore,
+                )
+            })?
+            .clone();
+        checkpoint["preserveTranscript"] = Value::Bool(true);
+
+        let timestamp = now_thread_timestamp();
+        let mut record = self.ensure_session_record(session_id, &timestamp)?;
+        let thread_path = PathBuf::from(record.thread_path.clone());
+        self.recorder.validate_thread_path(&thread_path)?;
+        let lines = read_thread_lines(&thread_path)?;
+        let latest_checkpoint = self.state.latest_context_checkpoint(session_id)?;
+        let current_checkpoint = latest_checkpoint
+            .as_ref()
+            .map(|record| {
+                indexed_context_checkpoint(&lines, record)
+                    .map(|(_line_number, checkpoint)| checkpoint)
+            })
+            .transpose()?;
+        let current_context_id = current_checkpoint
+            .and_then(|checkpoint| checkpoint.get("contextId"))
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty());
+        if current_context_id == Some(context_id.as_str()) {
+            let installed = lines.iter().rev().find_map(|line| match &line.item {
+                ThreadLogItem::Compacted(existing)
+                    if existing.get("contextId").and_then(Value::as_str)
+                        == Some(context_id.as_str())
+                        && existing.get("checkpointStage").and_then(Value::as_str)
+                            == Some("installed") =>
+                {
+                    Some(existing)
+                }
+                _ => None,
+            });
+            if installed != Some(&checkpoint) {
+                return Err(WorkerProtocolError::new(
+                    WorkerProtocolErrorCode::InvalidProtocol,
+                    "context compaction checkpoint identity already has different content",
+                    serde_json::json!({
+                        "runId": run_id,
+                        "contextId": context_id,
+                        "threadPath": thread_path.display().to_string(),
+                    }),
+                    false,
+                    WorkerProtocolErrorSource::RustCore,
+                ));
+            }
+            return Ok(ContextCheckpointCommitResult {
+                session_id: session_id.to_string(),
+                context_id,
+                committed: false,
+                duplicate: true,
+                index_synchronized: true,
+                index_recovered: false,
+                diagnostics: Vec::new(),
+            });
+        }
+        if lines.iter().any(|line| {
+            matches!(
+                &line.item,
+                ThreadLogItem::Compacted(existing)
+                    if existing.get("contextId").and_then(Value::as_str)
+                        == Some(context_id.as_str())
+            )
+        }) {
+            return Err(WorkerProtocolError::new(
+                WorkerProtocolErrorCode::InvalidProtocol,
+                "context compaction checkpoint identity is historical and no longer current",
+                serde_json::json!({
+                    "runId": run_id,
+                    "contextId": context_id,
+                    "currentContextId": current_context_id,
+                    "threadPath": thread_path.display().to_string(),
+                }),
+                false,
+                WorkerProtocolErrorSource::RustCore,
+            ));
+        }
+
+        let current_checkpoint = current_checkpoint.and_then(|checkpoint| {
+            checkpoint
+                .get("contextId")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .map(|_| checkpoint)
+        });
+        crate::context_checkpoint_lineage::validate_context_checkpoint_successor(
+            session_id,
+            current_checkpoint,
+            &checkpoint,
+        )
+        .map_err(|error| stale_context_checkpoint_error(run_id, &context_id, error))?;
+
+        let checkpoint_record = LatestContextCheckpointRecord {
+            thread_id: record.id.clone(),
+            line_number: i64::try_from(lines.len()).map_err(|_| {
+                thread_log_consistency_error(
+                    "thread log checkpoint line number exceeds SQLite index range",
+                    serde_json::json!({ "threadId": record.id }),
+                )
+            })?,
+            timestamp: timestamp.clone(),
+            checkpoint_hash: context_checkpoint_hash(&checkpoint)?,
+        };
+        let derived_title = is_default_session_title(&record.title)
+            .then(|| title_from_messages(&replacement_history))
+            .flatten();
+        let mut items = vec![ThreadLogItem::Compacted(checkpoint)];
+        if let Some(title) = derived_title.as_ref() {
+            items.push(value_event(
+                "metadata_updated",
+                serde_json::json!({ "metadata": { "title": title } }),
+            ));
+        }
+        self.recorder
+            .append_items(&thread_path, timestamp.clone(), items)?;
+        record.updated_at = timestamp;
+        if let Some(title) = derived_title {
+            record.title = title;
+        }
+        record.preview = preview_from_messages(&replacement_history);
+        let index = self.synchronize_derived_index_after_checkpoint(&record, &checkpoint_record);
+        Ok(ContextCheckpointCommitResult {
+            session_id: session_id.to_string(),
+            context_id,
+            committed: true,
+            duplicate: false,
+            index_synchronized: index.synchronized,
+            index_recovered: index.recovered,
+            diagnostics: index.diagnostics,
+        })
+    }
+
+    fn synchronize_derived_index_after_checkpoint(
+        &self,
+        record: &ThreadStateRecord,
+        checkpoint: &LatestContextCheckpointRecord,
+    ) -> DerivedIndexSyncResult {
+        let first_error = match self
+            .state
+            .replace_thread_projection(record, Some(checkpoint))
+        {
+            Ok(()) => {
+                return DerivedIndexSyncResult {
+                    synchronized: true,
+                    recovered: false,
+                    diagnostics: Vec::new(),
+                }
+            }
+            Err(error) => error,
+        };
+        match self
+            .state
+            .replace_thread_projection(record, Some(checkpoint))
+        {
+            Ok(()) => DerivedIndexSyncResult {
+                synchronized: true,
+                recovered: true,
+                diagnostics: vec![format!(
+                    "thread state index synchronization recovered after retry: {}",
+                    first_error.message
+                )],
+            },
+            Err(retry_error) => DerivedIndexSyncResult {
+                synchronized: false,
+                recovered: false,
+                diagnostics: vec![format!(
+                    "context checkpoint is durable but thread state index synchronization failed: {}; retry failed: {}",
+                    first_error.message, retry_error.message
+                )],
+            },
+        }
     }
 
     pub fn persist_session_turn(
@@ -365,49 +715,43 @@ impl WorkerThreadLogRpc {
         context_checkpoint: Option<Value>,
     ) -> Result<PersistTurnResult, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
+        let _checkpoint_guard = if context_checkpoint.is_some() {
+            let process_guard = CONTEXT_CHECKPOINT_COMMIT_LOCK.lock().map_err(|_| {
+                WorkerProtocolError::new(
+                    WorkerProtocolErrorCode::WorkerError,
+                    "context compaction checkpoint commit lock is poisoned",
+                    serde_json::json!({ "runId": run_id }),
+                    false,
+                    WorkerProtocolErrorSource::RustCore,
+                )
+            })?;
+            let tinybot_root = self
+                .thread_root
+                .parent()
+                .unwrap_or(self.thread_root.as_path());
+            let file_guard =
+                crate::context_checkpoint_lock::acquire_context_checkpoint_lock(tinybot_root)
+                    .map_err(|error| {
+                        WorkerProtocolError::new(
+                            WorkerProtocolErrorCode::WorkerError,
+                            format!(
+                                "failed to acquire cross-process context checkpoint lock: {error}"
+                            ),
+                            serde_json::json!({
+                                "runId": run_id,
+                                "sessionId": session_id,
+                            }),
+                            true,
+                            WorkerProtocolErrorSource::RustCore,
+                        )
+                    })?;
+            Some((process_guard, file_guard))
+        } else {
+            None
+        };
         self.ensure_state_index()?;
         let timestamp = now_thread_timestamp();
-        let existing = self.state.find_by_session_or_thread_id(session_id)?;
-        let mut record = match existing {
-            Some(record) => record,
-            None => {
-                let thread_id = thread_id_for_session_id(session_id);
-                let meta = ThreadMeta {
-                    schema_version: THREAD_LOG_SCHEMA_VERSION,
-                    thread_id: thread_id.clone(),
-                    session_id: Some(session_id.to_string()),
-                    created_at: timestamp.clone(),
-                    cwd: String::new(),
-                    source: "desktop".to_string(),
-                    model_provider: None,
-                    model: None,
-                    base_instructions: None,
-                    history_mode: Some("default".to_string()),
-                    forked_from_thread_id: None,
-                    parent_thread_id: None,
-                    originator: Some("Tinybot Desktop".to_string()),
-                };
-                let path = self.recorder.create_thread(meta)?;
-                let record = ThreadStateRecord {
-                    id: thread_id.clone(),
-                    session_id: Some(session_id.to_string()),
-                    thread_path: path.display().to_string(),
-                    created_at: timestamp.clone(),
-                    updated_at: timestamp.clone(),
-                    source: "desktop".to_string(),
-                    title: "New session".to_string(),
-                    preview: String::new(),
-                    cwd: String::new(),
-                    model_provider: None,
-                    model: None,
-                    tokens_used: 0,
-                    archived: false,
-                    archived_at: None,
-                };
-                self.state.upsert_thread(&record)?;
-                record
-            }
-        };
+        let mut record = self.ensure_session_record(session_id, &timestamp)?;
         let thread_path = PathBuf::from(record.thread_path.clone());
         self.recorder.validate_thread_path(&thread_path)?;
         let lines = read_thread_lines(&thread_path)?;
@@ -477,6 +821,27 @@ impl WorkerThreadLogRpc {
                 Ok::<_, WorkerProtocolError>((checkpoint, replacement_history))
             })
             .transpose()?;
+        if let Some((checkpoint, _replacement_history)) = compacted.as_ref() {
+            if let Some(context_id) = checkpoint
+                .get("contextId")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+            {
+                let latest_checkpoint = self.state.latest_context_checkpoint(session_id)?;
+                let current_checkpoint = latest_checkpoint
+                    .as_ref()
+                    .map(|record| {
+                        indexed_context_checkpoint(&lines, record)
+                            .map(|(_line_number, checkpoint)| checkpoint)
+                    })
+                    .transpose()?;
+                crate::context_checkpoint_lineage::validate_context_checkpoint_revision(
+                    current_checkpoint,
+                    checkpoint,
+                )
+                .map_err(|error| stale_context_checkpoint_error(run_id, context_id, error))?;
+            }
+        }
         let mut next_messages = compacted
             .as_ref()
             .map(|(_, replacement_history)| replacement_history.clone())
@@ -487,6 +852,27 @@ impl WorkerThreadLogRpc {
         let derived_title = is_default_session_title(&record.title)
             .then(|| title_from_messages(&next_messages))
             .flatten();
+        let indexed_checkpoint = compacted
+            .as_ref()
+            .map(|(checkpoint, _replacement_history)| {
+                let line_number = lines
+                    .len()
+                    .saturating_add(1)
+                    .saturating_add(saved_messages.len());
+                let line_number = i64::try_from(line_number).map_err(|_| {
+                    thread_log_consistency_error(
+                        "thread log checkpoint line number exceeds SQLite index range",
+                        serde_json::json!({ "threadId": record.id }),
+                    )
+                })?;
+                Ok::<_, WorkerProtocolError>(LatestContextCheckpointRecord {
+                    thread_id: record.id.clone(),
+                    line_number,
+                    timestamp: timestamp.clone(),
+                    checkpoint_hash: context_checkpoint_hash(checkpoint)?,
+                })
+            })
+            .transpose()?;
         let mut turn_items = Vec::with_capacity(saved_messages.len() + 3);
         turn_items.push(value_event(
             "turn_started",
@@ -521,7 +907,12 @@ impl WorkerThreadLogRpc {
             record.title = title;
         }
         record.preview = preview_from_messages(&next_messages);
-        self.state.upsert_thread(&record)?;
+        match indexed_checkpoint.as_ref() {
+            Some(checkpoint) => self
+                .state
+                .replace_thread_projection(&record, Some(checkpoint))?,
+            None => self.state.upsert_thread(&record)?,
+        }
         Ok(PersistTurnResult {
             session_id: session_id.to_string(),
             messages_before,
@@ -566,6 +957,31 @@ impl WorkerThreadLogRpc {
         session_id: &str,
     ) -> Result<Option<ClearSessionResult>, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
+        let _process_guard = CONTEXT_CHECKPOINT_COMMIT_LOCK.lock().map_err(|_| {
+            WorkerProtocolError::new(
+                WorkerProtocolErrorCode::WorkerError,
+                "context compaction checkpoint commit lock is poisoned",
+                serde_json::json!({ "sessionId": session_id }),
+                false,
+                WorkerProtocolErrorSource::RustCore,
+            )
+        })?;
+        let tinybot_root = self
+            .thread_root
+            .parent()
+            .unwrap_or(self.thread_root.as_path());
+        let _file_guard = crate::context_checkpoint_lock::acquire_context_checkpoint_lock(
+            tinybot_root,
+        )
+        .map_err(|error| {
+            WorkerProtocolError::new(
+                WorkerProtocolErrorCode::WorkerError,
+                format!("failed to acquire cross-process context checkpoint lock: {error}"),
+                serde_json::json!({ "sessionId": session_id }),
+                true,
+                WorkerProtocolErrorSource::RustCore,
+            )
+        })?;
         self.ensure_state_index()?;
         let Some(mut record) = self.state.find_by_session_or_thread_id(session_id)? else {
             return Ok(None);
@@ -575,16 +991,29 @@ impl WorkerThreadLogRpc {
         let lines = read_thread_lines(&path)?;
         let replay = replay_thread(&lines)?;
         let timestamp = now_thread_timestamp();
+        let checkpoint = serde_json::json!({ "replacementHistory": [] });
+        let indexed_checkpoint = LatestContextCheckpointRecord {
+            thread_id: record.id.clone(),
+            line_number: i64::try_from(lines.len()).map_err(|_| {
+                thread_log_consistency_error(
+                    "thread log checkpoint line number exceeds SQLite index range",
+                    serde_json::json!({ "threadId": record.id }),
+                )
+            })?,
+            timestamp: timestamp.clone(),
+            checkpoint_hash: context_checkpoint_hash(&checkpoint)?,
+        };
         self.recorder.append_item(
             &path,
             timestamp.clone(),
-            ThreadLogItem::Compacted(serde_json::json!({ "replacementHistory": [] })),
+            ThreadLogItem::Compacted(checkpoint),
         )?;
         let messages_before = replay.messages.len();
         record.updated_at = timestamp.clone();
         record.preview.clear();
         record.tokens_used = 0;
-        self.state.upsert_thread(&record)?;
+        self.state
+            .replace_thread_projection(&record, Some(&indexed_checkpoint))?;
         Ok(Some(ClearSessionResult {
             session_id: record
                 .session_id
@@ -670,6 +1099,124 @@ impl WorkerThreadLogRpc {
             WorkerProtocolErrorSource::RustCore,
         ))
     }
+}
+
+fn latest_context_checkpoint_from_lines(
+    thread_id: &str,
+    lines: &[ThreadLogLine],
+) -> Result<Option<LatestContextCheckpointRecord>, WorkerProtocolError> {
+    let Some((line_number, line, checkpoint)) =
+        lines
+            .iter()
+            .enumerate()
+            .rev()
+            .find_map(|(line_number, line)| match &line.item {
+                ThreadLogItem::Compacted(checkpoint) => Some((line_number, line, checkpoint)),
+                _ => None,
+            })
+    else {
+        return Ok(None);
+    };
+    let line_number = i64::try_from(line_number).map_err(|_| {
+        thread_log_consistency_error(
+            "thread log checkpoint line number exceeds SQLite index range",
+            serde_json::json!({ "threadId": thread_id }),
+        )
+    })?;
+    Ok(Some(LatestContextCheckpointRecord {
+        thread_id: thread_id.to_string(),
+        line_number,
+        timestamp: line.timestamp.clone(),
+        checkpoint_hash: context_checkpoint_hash(checkpoint)?,
+    }))
+}
+
+fn indexed_context_checkpoint<'a>(
+    lines: &'a [ThreadLogLine],
+    latest_checkpoint: &LatestContextCheckpointRecord,
+) -> Result<(usize, &'a Value), WorkerProtocolError> {
+    let line_number = usize::try_from(latest_checkpoint.line_number).map_err(|_| {
+        thread_log_consistency_error(
+            "latest context checkpoint index has an invalid line number",
+            serde_json::json!({
+                "threadId": latest_checkpoint.thread_id,
+                "lineNumber": latest_checkpoint.line_number,
+            }),
+        )
+    })?;
+    let indexed_line = lines.get(line_number).ok_or_else(|| {
+        thread_log_consistency_error(
+            "latest context checkpoint index points beyond the thread log",
+            serde_json::json!({
+                "threadId": latest_checkpoint.thread_id,
+                "lineNumber": latest_checkpoint.line_number,
+                "lineCount": lines.len(),
+            }),
+        )
+    })?;
+    let indexed_checkpoint = match &indexed_line.item {
+        ThreadLogItem::Compacted(checkpoint) => checkpoint,
+        _ => {
+            return Err(thread_log_consistency_error(
+                "latest context checkpoint index does not point to a compacted item",
+                serde_json::json!({
+                    "threadId": latest_checkpoint.thread_id,
+                    "lineNumber": latest_checkpoint.line_number,
+                }),
+            ));
+        }
+    };
+    if indexed_line.timestamp != latest_checkpoint.timestamp
+        || context_checkpoint_hash(indexed_checkpoint)? != latest_checkpoint.checkpoint_hash
+    {
+        return Err(thread_log_consistency_error(
+            "latest context checkpoint index differs from the canonical thread log",
+            serde_json::json!({
+                "threadId": latest_checkpoint.thread_id,
+                "lineNumber": latest_checkpoint.line_number,
+            }),
+        ));
+    }
+    Ok((line_number, indexed_checkpoint))
+}
+
+fn replay_agent_context_from_checkpoint(
+    lines: &[ThreadLogLine],
+    latest_checkpoint: Option<&LatestContextCheckpointRecord>,
+) -> Result<ThreadReplay, WorkerProtocolError> {
+    let Some(latest_checkpoint) = latest_checkpoint else {
+        return replay_thread(lines);
+    };
+    let (line_number, _indexed_checkpoint) = indexed_context_checkpoint(lines, latest_checkpoint)?;
+
+    let mut replay_lines = Vec::with_capacity(lines.len().saturating_sub(line_number) + 1);
+    if line_number > 0 {
+        let meta = lines
+            .iter()
+            .find(|line| matches!(line.item, ThreadLogItem::ThreadMeta(_)))
+            .ok_or_else(|| {
+                thread_log_consistency_error(
+                    "thread log has no metadata before its latest context checkpoint",
+                    serde_json::json!({ "threadId": latest_checkpoint.thread_id }),
+                )
+            })?;
+        replay_lines.push(meta.clone());
+    }
+    replay_lines.extend_from_slice(&lines[line_number..]);
+    replay_thread(&replay_lines)
+}
+
+fn context_checkpoint_hash(checkpoint: &Value) -> Result<String, WorkerProtocolError> {
+    let encoded = serde_json::to_vec(checkpoint).map_err(|error| {
+        WorkerProtocolError::new(
+            WorkerProtocolErrorCode::WorkerError,
+            format!("failed to hash context checkpoint: {error}"),
+            serde_json::json!({ "method": "thread_log.context_checkpoint_index" }),
+            false,
+            WorkerProtocolErrorSource::RustCore,
+        )
+    })?;
+    Ok(format!("sha256:{:x}", Sha256::digest(encoded)))
 }
 
 fn collect_thread_log_paths(
@@ -1062,6 +1609,26 @@ fn thread_log_consistency_error(message: impl Into<String>, details: Value) -> W
         WorkerProtocolErrorCode::WorkerError,
         message,
         details,
+        false,
+        WorkerProtocolErrorSource::RustCore,
+    )
+}
+
+fn stale_context_checkpoint_error(
+    run_id: &str,
+    context_id: &str,
+    error: crate::context_checkpoint_lineage::ContextCheckpointLineageError,
+) -> WorkerProtocolError {
+    WorkerProtocolError::new(
+        WorkerProtocolErrorCode::InvalidProtocol,
+        error.to_string(),
+        serde_json::json!({
+            "runId": run_id,
+            "contextId": context_id,
+            "field": error.field,
+            "expected": error.expected,
+            "actual": error.actual,
+        }),
         false,
         WorkerProtocolErrorSource::RustCore,
     )

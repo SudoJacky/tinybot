@@ -13,6 +13,8 @@ mod adapters;
 pub mod agent_loop_runtime_protocol;
 mod config_application;
 pub mod config_store;
+mod context_checkpoint_lineage;
+mod context_checkpoint_lock;
 pub mod desktop_commands;
 pub mod desktop_files;
 #[cfg(test)]

@@ -4,13 +4,13 @@ use super::{
     generate_thread_id, invalid_thread_request, latest_checkpoint_from_items, now_timestamp,
     read_cursor_from_request, recompute_dynamic_metadata, run_summaries_from_items,
     thread_items_match_query, thread_matches_list_filters, thread_matches_query,
-    turn_items_from_thread_items, unknown_thread_error, validate_thread_id,
-    AppendThreadItemsResult, CreateThreadRequest, DeleteThreadRequest, DeleteThreadResult,
-    ForkThreadRequest, ListThreadsRequest, ListThreadsResult, ReadThreadRequest,
-    ResumeThreadRequest, SearchThreadsRequest, SearchThreadsResult, ThreadItem, ThreadMetadata,
-    ThreadMetadataPatch, ThreadPagination, ThreadRecord, ThreadSnapshot, ThreadStatus,
-    ThreadStatusResult, ThreadStore, DEFAULT_LIST_LIMIT, DEFAULT_READ_LIMIT, DEFAULT_SEARCH_LIMIT,
-    DEFAULT_THREAD_TITLE, MAX_LIST_LIMIT, MAX_READ_LIMIT, MAX_SEARCH_LIMIT,
+    turn_items_from_thread_items, unknown_thread_error, validate_context_checkpoint_lineage,
+    validate_thread_id, AppendThreadItemsResult, CreateThreadRequest, DeleteThreadRequest,
+    DeleteThreadResult, ForkThreadRequest, ListThreadsRequest, ListThreadsResult,
+    ReadThreadRequest, ResumeThreadRequest, SearchThreadsRequest, SearchThreadsResult, ThreadItem,
+    ThreadMetadata, ThreadMetadataPatch, ThreadPagination, ThreadRecord, ThreadSnapshot,
+    ThreadStatus, ThreadStatusResult, ThreadStore, DEFAULT_LIST_LIMIT, DEFAULT_READ_LIMIT,
+    DEFAULT_SEARCH_LIMIT, DEFAULT_THREAD_TITLE, MAX_LIST_LIMIT, MAX_READ_LIMIT, MAX_SEARCH_LIMIT,
 };
 use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource,
@@ -75,6 +75,16 @@ impl MemoryThreadStore {
             .iter()
             .position(|thread| thread.thread_id == thread_id)
             .ok_or_else(|| unknown_thread_error(thread_id))?;
+        let checkpoint_session_id = state.threads[thread_position]
+            .session_key
+            .as_deref()
+            .unwrap_or(thread_id)
+            .to_string();
+        validate_context_checkpoint_lineage(
+            &checkpoint_session_id,
+            state.items.get(thread_id).map(Vec::as_slice).unwrap_or(&[]),
+            &items,
+        )?;
         let timestamp = now_timestamp();
         let existing = state.items.entry(thread_id.to_string()).or_default();
         let mut next_sequence = existing

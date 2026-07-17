@@ -35,6 +35,7 @@ pub fn history_from_replay(replay: ThreadReplay, limit: usize) -> SessionHistory
         messages,
         user_profile: json!({}),
         updated_at: replay.updated_at,
+        context_checkpoint: replay.context_checkpoint,
     }
 }
 
@@ -229,6 +230,7 @@ mod tests {
             updated_at: "2026-07-08T10:03:00Z".to_string(),
             messages,
             token_usage_info: None,
+            context_checkpoint: None,
         }
     }
 

@@ -18,6 +18,7 @@ use crate::agent_loop_runtime_protocol::{
     AgentTimelineProjector,
 };
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -37,6 +38,7 @@ pub(super) struct NativeAgentRunState {
     pub(super) tools_used: Vec<String>,
     stop_reason: Option<String>,
     context_checkpoint: Option<Value>,
+    source_context_checkpoint: Option<Value>,
     pending_guidance_message: Option<Value>,
     trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 }
@@ -64,6 +66,17 @@ impl NativeAgentRunState {
             tools_used: Vec::new(),
             stop_reason: None,
             context_checkpoint: None,
+            source_context_checkpoint: context
+                .metadata
+                .get("contextSourceCheckpoint")
+                .or_else(|| context.metadata.get("context_source_checkpoint"))
+                .filter(|checkpoint| checkpoint.is_object())
+                .cloned()
+                .or_else(|| {
+                    string_field(&context.metadata, "contextSourceCheckpointId")
+                        .or_else(|| string_field(&context.metadata, "context_source_checkpoint_id"))
+                        .map(|context_id| serde_json::json!({ "contextId": context_id }))
+                }),
             pending_guidance_message: guidance_continuation_message(&context.metadata),
             trace_sink,
         }
@@ -234,15 +247,34 @@ impl NativeAgentRunState {
         })
     }
 
-    pub(super) fn install_compacted_context(
-        &mut self,
-        replacement_history: Vec<Value>,
+    pub(super) fn compacted_context_checkpoint(
+        &self,
+        replacement_history: &[Value],
         event_payload: &Value,
-    ) {
-        self.messages = replacement_history.clone();
-        self.context_checkpoint = Some(serde_json::json!({
+    ) -> Value {
+        let source_version = context_messages_version(&self.messages);
+        let parent_checkpoint = self
+            .context_checkpoint
+            .as_ref()
+            .or(self.source_context_checkpoint.as_ref());
+        let context_id = event_payload
+            .get("contextId")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let window = crate::context_checkpoint_lineage::next_context_window(
+            &self.session_id,
+            context_id,
+            parent_checkpoint,
+        );
+        serde_json::json!({
             "schemaVersion": 1,
             "contextId": event_payload.get("contextId").cloned().unwrap_or(Value::Null),
+            "sourceVersion": source_version,
+            "sourceContextId": window.source_context_id,
+            "windowNumber": window.window_number,
+            "firstWindowId": window.first_window_id,
+            "previousWindowId": window.previous_window_id,
+            "windowId": window.window_id,
             "trigger": event_payload.get("trigger").cloned().unwrap_or(Value::Null),
             "reason": event_payload.get("reason").cloned().unwrap_or(Value::Null),
             "phase": event_payload.get("phase").cloned().unwrap_or(Value::Null),
@@ -254,7 +286,18 @@ impl NativeAgentRunState {
             "maskedToolOutputCount": event_payload.get("maskedToolOutputCount").cloned().unwrap_or(Value::Null),
             "summaryRequestCount": event_payload.get("summaryRequestCount").cloned().unwrap_or(Value::Null),
             "installedReplacementHistory": replacement_history,
-        }));
+            "replacementHistory": replacement_history,
+            "checkpointStage": "installed",
+        })
+    }
+
+    pub(super) fn install_compacted_context(
+        &mut self,
+        replacement_history: Vec<Value>,
+        checkpoint: Value,
+    ) {
+        self.messages = replacement_history.clone();
+        self.context_checkpoint = Some(checkpoint);
     }
 
     pub(super) fn finalized_context_checkpoint(
@@ -267,6 +310,7 @@ impl NativeAgentRunState {
             replacement_history.push(final_message);
         }
         checkpoint["replacementHistory"] = Value::Array(replacement_history);
+        checkpoint["checkpointStage"] = Value::String("finalized".to_string());
         Some(checkpoint)
     }
 
@@ -481,6 +525,11 @@ impl NativeAgentRunState {
             }),
         );
     }
+}
+
+fn context_messages_version(messages: &[Value]) -> String {
+    let encoded = serde_json::to_vec(messages).unwrap_or_default();
+    format!("sha256:{:x}", Sha256::digest(encoded))
 }
 
 fn user_message_text(message: &Value) -> String {

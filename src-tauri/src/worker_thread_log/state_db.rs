@@ -5,9 +5,19 @@ use crate::worker_protocol::{
 use rusqlite::{params, Connection};
 use std::path::{Path, PathBuf};
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct LatestContextCheckpointRecord {
+    pub(super) thread_id: String,
+    pub(super) line_number: i64,
+    pub(super) timestamp: String,
+    pub(super) checkpoint_hash: String,
+}
+
 #[derive(Clone, Debug)]
 pub struct ThreadStateDb {
     path: PathBuf,
+    #[cfg(test)]
+    fail_next_upserts: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl ThreadStateDb {
@@ -17,6 +27,8 @@ impl ThreadStateDb {
                 .join(".tinybot")
                 .join("state")
                 .join("state.sqlite"),
+            #[cfg(test)]
+            fail_next_upserts: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         }
     }
 
@@ -25,45 +37,86 @@ impl ThreadStateDb {
     }
 
     pub fn upsert_thread(&self, record: &ThreadStateRecord) -> Result<(), WorkerProtocolError> {
+        self.maybe_fail_upsert(record)?;
         let connection = self.open()?;
-        connection
-            .execute(
-                "INSERT INTO threads (
-                    id, session_id, thread_path, created_at, updated_at, source, title, preview,
-                    cwd, model_provider, model, tokens_used, archived, archived_at
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
-                ON CONFLICT(id) DO UPDATE SET
-                    session_id = excluded.session_id,
-                    thread_path = excluded.thread_path,
-                    updated_at = excluded.updated_at,
-                    source = excluded.source,
-                    title = excluded.title,
-                    preview = excluded.preview,
-                    cwd = excluded.cwd,
-                    model_provider = excluded.model_provider,
-                    model = excluded.model,
-                    tokens_used = excluded.tokens_used,
-                    archived = excluded.archived,
-                    archived_at = excluded.archived_at",
-                params![
-                    record.id.as_str(),
-                    record.session_id.as_deref(),
-                    record.thread_path.as_str(),
-                    record.created_at.as_str(),
-                    record.updated_at.as_str(),
-                    record.source.as_str(),
-                    record.title.as_str(),
-                    record.preview.as_str(),
-                    record.cwd.as_str(),
-                    record.model_provider.as_deref(),
-                    record.model.as_deref(),
-                    record.tokens_used,
-                    if record.archived { 1 } else { 0 },
-                    record.archived_at.as_deref(),
-                ],
+        upsert_thread(&connection, record)?;
+        Ok(())
+    }
+
+    pub(super) fn replace_thread_projection(
+        &self,
+        record: &ThreadStateRecord,
+        latest_checkpoint: Option<&LatestContextCheckpointRecord>,
+    ) -> Result<(), WorkerProtocolError> {
+        self.maybe_fail_upsert(record)?;
+        let mut connection = self.open()?;
+        let transaction = connection.transaction().map_err(sqlite_error)?;
+        upsert_thread(&transaction, record)?;
+        match latest_checkpoint {
+            Some(checkpoint) => upsert_latest_context_checkpoint(&transaction, checkpoint)?,
+            None => {
+                transaction
+                    .execute(
+                        "DELETE FROM latest_context_checkpoints WHERE thread_id = ?1",
+                        params![record.id],
+                    )
+                    .map_err(sqlite_error)?;
+            }
+        }
+        transaction.commit().map_err(sqlite_error)
+    }
+
+    pub(super) fn latest_context_checkpoint(
+        &self,
+        id: &str,
+    ) -> Result<Option<LatestContextCheckpointRecord>, WorkerProtocolError> {
+        let connection = self.open()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT checkpoint.thread_id, checkpoint.line_number,
+                        checkpoint.checkpoint_timestamp, checkpoint.checkpoint_hash
+                 FROM latest_context_checkpoints checkpoint
+                 INNER JOIN threads thread ON thread.id = checkpoint.thread_id
+                 WHERE thread.id = ?1 OR thread.session_id = ?1
+                 ORDER BY CASE WHEN thread.id = ?1 THEN 0 ELSE 1 END,
+                          thread.updated_at DESC, thread.id ASC
+                 LIMIT 1",
             )
             .map_err(sqlite_error)?;
-        Ok(())
+        let mut rows = statement.query(params![id]).map_err(sqlite_error)?;
+        match rows.next().map_err(sqlite_error)? {
+            Some(row) => row_to_latest_context_checkpoint(row)
+                .map(Some)
+                .map_err(sqlite_error),
+            None => Ok(None),
+        }
+    }
+
+    pub(super) fn list_latest_context_checkpoints(
+        &self,
+    ) -> Result<Vec<LatestContextCheckpointRecord>, WorkerProtocolError> {
+        let connection = self.open()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT thread_id, line_number, checkpoint_timestamp, checkpoint_hash
+                 FROM latest_context_checkpoints
+                 ORDER BY thread_id ASC",
+            )
+            .map_err(sqlite_error)?;
+        let rows = statement
+            .query_map([], row_to_latest_context_checkpoint)
+            .map_err(sqlite_error)?;
+        let mut checkpoints = Vec::new();
+        for row in rows {
+            checkpoints.push(row.map_err(sqlite_error)?);
+        }
+        Ok(checkpoints)
+    }
+
+    #[cfg(test)]
+    pub fn fail_next_upserts(&self, count: usize) {
+        self.fail_next_upserts
+            .store(count, std::sync::atomic::Ordering::SeqCst);
     }
 
     pub fn list_threads(&self) -> Result<Vec<ThreadStateRecord>, WorkerProtocolError> {
@@ -162,12 +215,42 @@ impl ThreadStateDb {
         let Some(record) = self.find_by_session_or_thread_id(id)? else {
             return Ok(false);
         };
-        let connection = self.open()?;
-        let deleted = connection
+        let mut connection = self.open()?;
+        let transaction = connection.transaction().map_err(sqlite_error)?;
+        transaction
+            .execute(
+                "DELETE FROM latest_context_checkpoints WHERE thread_id = ?1",
+                params![record.id],
+            )
+            .map_err(sqlite_error)?;
+        let deleted = transaction
             .execute("DELETE FROM threads WHERE id = ?1", params![record.id])
             .map_err(sqlite_error)?
             > 0;
+        transaction.commit().map_err(sqlite_error)?;
         Ok(deleted)
+    }
+
+    fn maybe_fail_upsert(&self, _record: &ThreadStateRecord) -> Result<(), WorkerProtocolError> {
+        #[cfg(test)]
+        if self
+            .fail_next_upserts
+            .fetch_update(
+                std::sync::atomic::Ordering::SeqCst,
+                std::sync::atomic::Ordering::SeqCst,
+                |remaining| remaining.checked_sub(1),
+            )
+            .is_ok()
+        {
+            return Err(WorkerProtocolError::new(
+                WorkerProtocolErrorCode::WorkerError,
+                "injected thread state index upsert failure",
+                serde_json::json!({ "threadId": _record.id }),
+                true,
+                WorkerProtocolErrorSource::RustCore,
+            ));
+        }
+        Ok(())
     }
 
     fn open(&self) -> Result<Connection, WorkerProtocolError> {
@@ -208,9 +291,83 @@ fn ensure_schema(connection: &Connection) -> Result<(), WorkerProtocolError> {
                 ON threads(archived);
             CREATE INDEX IF NOT EXISTS idx_thread_state_session_id
                 ON threads(session_id);
+            CREATE TABLE IF NOT EXISTS latest_context_checkpoints (
+                thread_id TEXT PRIMARY KEY NOT NULL,
+                line_number INTEGER NOT NULL,
+                checkpoint_timestamp TEXT NOT NULL,
+                checkpoint_hash TEXT NOT NULL
+            );
             ",
         )
         .map_err(sqlite_error)
+}
+
+fn upsert_thread(
+    connection: &Connection,
+    record: &ThreadStateRecord,
+) -> Result<(), WorkerProtocolError> {
+    connection
+        .execute(
+            "INSERT INTO threads (
+                id, session_id, thread_path, created_at, updated_at, source, title, preview,
+                cwd, model_provider, model, tokens_used, archived, archived_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+            ON CONFLICT(id) DO UPDATE SET
+                session_id = excluded.session_id,
+                thread_path = excluded.thread_path,
+                updated_at = excluded.updated_at,
+                source = excluded.source,
+                title = excluded.title,
+                preview = excluded.preview,
+                cwd = excluded.cwd,
+                model_provider = excluded.model_provider,
+                model = excluded.model,
+                tokens_used = excluded.tokens_used,
+                archived = excluded.archived,
+                archived_at = excluded.archived_at",
+            params![
+                record.id.as_str(),
+                record.session_id.as_deref(),
+                record.thread_path.as_str(),
+                record.created_at.as_str(),
+                record.updated_at.as_str(),
+                record.source.as_str(),
+                record.title.as_str(),
+                record.preview.as_str(),
+                record.cwd.as_str(),
+                record.model_provider.as_deref(),
+                record.model.as_deref(),
+                record.tokens_used,
+                if record.archived { 1 } else { 0 },
+                record.archived_at.as_deref(),
+            ],
+        )
+        .map_err(sqlite_error)?;
+    Ok(())
+}
+
+fn upsert_latest_context_checkpoint(
+    connection: &Connection,
+    checkpoint: &LatestContextCheckpointRecord,
+) -> Result<(), WorkerProtocolError> {
+    connection
+        .execute(
+            "INSERT INTO latest_context_checkpoints (
+                thread_id, line_number, checkpoint_timestamp, checkpoint_hash
+             ) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(thread_id) DO UPDATE SET
+                line_number = excluded.line_number,
+                checkpoint_timestamp = excluded.checkpoint_timestamp,
+                checkpoint_hash = excluded.checkpoint_hash",
+            params![
+                checkpoint.thread_id.as_str(),
+                checkpoint.line_number,
+                checkpoint.timestamp.as_str(),
+                checkpoint.checkpoint_hash.as_str(),
+            ],
+        )
+        .map_err(sqlite_error)?;
+    Ok(())
 }
 
 fn row_to_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<ThreadStateRecord> {
@@ -230,6 +387,17 @@ fn row_to_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<ThreadStateRecord>
         tokens_used: row.get(11)?,
         archived: archived != 0,
         archived_at: row.get(13)?,
+    })
+}
+
+fn row_to_latest_context_checkpoint(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<LatestContextCheckpointRecord> {
+    Ok(LatestContextCheckpointRecord {
+        thread_id: row.get(0)?,
+        line_number: row.get(1)?,
+        timestamp: row.get(2)?,
+        checkpoint_hash: row.get(3)?,
     })
 }
 
@@ -482,6 +650,54 @@ mod tests {
             )
             .unwrap();
         assert_eq!(table_count, 1);
+        let checkpoint_table_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name = 'latest_context_checkpoints'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(checkpoint_table_count, 1);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn latest_context_checkpoint_projection_is_replaceable_and_preserved_by_thread_updates() {
+        let root = temp_root("latest-checkpoint");
+        let _ = fs::remove_dir_all(&root);
+        let db = ThreadStateDb::new(root.clone());
+        let mut thread = record(
+            "thread-checkpoint",
+            Some("session-checkpoint"),
+            "2026-07-08T10:00:00Z",
+        );
+        let checkpoint = LatestContextCheckpointRecord {
+            thread_id: thread.id.clone(),
+            line_number: 4,
+            timestamp: "2026-07-08T10:00:00Z".to_string(),
+            checkpoint_hash: "sha256:checkpoint-1".to_string(),
+        };
+
+        db.replace_thread_projection(&thread, Some(&checkpoint))
+            .unwrap();
+        assert_eq!(
+            db.latest_context_checkpoint("session-checkpoint").unwrap(),
+            Some(checkpoint.clone())
+        );
+
+        thread.updated_at = "2026-07-08T11:00:00Z".to_string();
+        db.upsert_thread(&thread).unwrap();
+        assert_eq!(
+            db.latest_context_checkpoint("thread-checkpoint").unwrap(),
+            Some(checkpoint)
+        );
+
+        db.replace_thread_projection(&thread, None).unwrap();
+        assert!(db
+            .latest_context_checkpoint("session-checkpoint")
+            .unwrap()
+            .is_none());
         let _ = fs::remove_dir_all(root);
     }
 }

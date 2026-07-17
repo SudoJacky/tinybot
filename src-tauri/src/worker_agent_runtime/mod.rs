@@ -395,6 +395,66 @@ pub trait NativeAgentCheckpointStore: Send + Sync {
     fn clear_for_run(&self, session_id: &str, run_id: &str);
 }
 
+#[derive(Clone, Debug)]
+pub struct NativeAgentContextCheckpointCommit {
+    pub session_id: String,
+    pub run_id: String,
+    pub thread_id: Option<String>,
+    pub event_payload: Value,
+    pub checkpoint: Value,
+}
+
+pub trait NativeAgentContextCheckpointCommitter: Send + Sync {
+    fn commit(&self, input: &NativeAgentContextCheckpointCommit) -> Result<(), String>;
+}
+
+#[derive(Default)]
+struct InMemoryNativeAgentContextCheckpointCommitter {
+    state: std::sync::Mutex<InMemoryContextCheckpointState>,
+}
+
+#[derive(Default)]
+struct InMemoryContextCheckpointState {
+    checkpoints: std::collections::HashMap<(String, String), Value>,
+    latest_checkpoints: std::collections::HashMap<String, Value>,
+}
+
+impl NativeAgentContextCheckpointCommitter for InMemoryNativeAgentContextCheckpointCommitter {
+    fn commit(&self, input: &NativeAgentContextCheckpointCommit) -> Result<(), String> {
+        let context_id = input
+            .checkpoint
+            .get("contextId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "context checkpoint is missing contextId".to_string())?;
+        let key = (input.session_id.clone(), context_id.to_string());
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "in-memory context checkpoint lock is poisoned".to_string())?;
+        if let Some(existing) = state.checkpoints.get(&key) {
+            if existing != &input.checkpoint {
+                return Err(format!(
+                    "context checkpoint identity `{context_id}` already has different content"
+                ));
+            }
+            return Ok(());
+        }
+        if let Some(current) = state.latest_checkpoints.get(&input.session_id) {
+            crate::context_checkpoint_lineage::validate_context_checkpoint_successor(
+                &input.session_id,
+                Some(current),
+                &input.checkpoint,
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        state.checkpoints.insert(key, input.checkpoint.clone());
+        state
+            .latest_checkpoints
+            .insert(input.session_id.clone(), input.checkpoint.clone());
+        Ok(())
+    }
+}
+
 pub trait NativeAgentCancellation: Send + Sync {
     fn cancel(&self, run_id: &str);
     fn cancel_with_command_id(&self, run_id: &str, command_id: &str) {
@@ -454,6 +514,7 @@ pub struct NativeAgentRuntimeServices {
     provider: Arc<dyn NativeAgentProvider>,
     tools: Arc<dyn NativeAgentToolDispatcher>,
     checkpoints: Arc<dyn NativeAgentCheckpointStore>,
+    context_checkpoint_committer: Arc<dyn NativeAgentContextCheckpointCommitter>,
     cancellations: Arc<dyn NativeAgentCancellation>,
     subagents: SubagentThreadManager,
     trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
@@ -480,6 +541,9 @@ impl NativeAgentRuntimeServices {
             provider,
             tools,
             checkpoints,
+            context_checkpoint_committer: Arc::new(
+                InMemoryNativeAgentContextCheckpointCommitter::default(),
+            ),
             cancellations,
             subagents: SubagentThreadManager::default(),
             trace_sink: None,
@@ -514,6 +578,24 @@ impl NativeAgentRuntimeServices {
     pub fn with_trace_sink(mut self, trace_sink: Arc<dyn NativeAgentTraceSink>) -> Self {
         self.trace_sink = Some(trace_sink);
         self
+    }
+
+    pub fn with_context_checkpoint_committer(
+        mut self,
+        committer: Arc<dyn NativeAgentContextCheckpointCommitter>,
+    ) -> Self {
+        self.context_checkpoint_committer = committer;
+        self
+    }
+
+    pub(crate) async fn commit_context_checkpoint(
+        &self,
+        input: NativeAgentContextCheckpointCommit,
+    ) -> Result<(), String> {
+        let committer = self.context_checkpoint_committer.clone();
+        tauri::async_runtime::spawn_blocking(move || committer.commit(&input))
+            .await
+            .map_err(|error| format!("context checkpoint commit task failed: {error}"))?
     }
 
     pub(crate) fn flush_trace_sink(&self) -> Result<(), String> {

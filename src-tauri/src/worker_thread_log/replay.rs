@@ -147,6 +147,7 @@ fn apply_compacted(
         })?;
     replay.messages = replacement_history.clone();
     replay.token_usage_info = None;
+    replay.context_checkpoint = Some(compacted.clone());
     Ok(())
 }
 

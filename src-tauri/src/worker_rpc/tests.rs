@@ -3201,6 +3201,483 @@ fn session_log_index_divergence_requires_explicit_repair() {
 }
 
 #[test]
+fn session_context_checkpoint_commit_is_durable_and_idempotent() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    )
+    .unwrap();
+    let checkpoint = json!({
+        "schemaVersion": 1,
+        "contextId": "run-commit-context:context:1",
+        "sourceVersion": "sha256:fixture",
+        "sourceContextId": null,
+        "windowNumber": 1,
+        "firstWindowId": "session-commit-context:context-window:0",
+        "previousWindowId": "session-commit-context:context-window:0",
+        "windowId": "run-commit-context:context:1",
+        "checkpointStage": "installed",
+        "replacementHistory": [
+            { "role": "system", "content": "summary" },
+            { "role": "user", "content": "current question" }
+        ]
+    });
+    let request = || {
+        WorkerRequest::new(
+            "req-commit-context",
+            "trace-commit-context",
+            "session.commit_context_checkpoint",
+            json!({
+                "session_id": "session-commit-context",
+                "run_id": "run-commit-context",
+                "checkpoint": checkpoint
+            }),
+        )
+    };
+
+    let first = router.dispatch(&request());
+    assert_eq!(first.error, None);
+    assert_eq!(first.result.as_ref().unwrap()["committed"], true);
+    assert_eq!(first.result.as_ref().unwrap()["duplicate"], false);
+    assert_eq!(first.result.as_ref().unwrap()["indexSynchronized"], true);
+    assert_eq!(first.result.as_ref().unwrap()["indexRecovered"], false);
+
+    let duplicate = router.dispatch(&request());
+    assert_eq!(duplicate.error, None);
+    assert_eq!(duplicate.result.as_ref().unwrap()["committed"], false);
+    assert_eq!(duplicate.result.as_ref().unwrap()["duplicate"], true);
+
+    let context = router.dispatch(&WorkerRequest::new(
+        "req-read-committed-context",
+        "trace-read-committed-context",
+        "session.get_agent_context",
+        json!({ "session_id": "session-commit-context", "limit": 50 }),
+    ));
+    assert_eq!(context.error, None);
+    assert_eq!(
+        context.result.as_ref().unwrap()["messages"],
+        checkpoint["replacementHistory"]
+    );
+    assert_eq!(
+        context.result.as_ref().unwrap()["contextCheckpoint"]["contextId"],
+        "run-commit-context:context:1"
+    );
+
+    let stale = router.dispatch(&WorkerRequest::new(
+        "req-stale-context",
+        "trace-stale-context",
+        "session.commit_context_checkpoint",
+        json!({
+            "session_id": "session-commit-context",
+            "run_id": "run-stale-context",
+            "checkpoint": {
+                "contextId": "run-stale-context:context:1",
+                "sourceContextId": null,
+                "checkpointStage": "installed",
+                "replacementHistory": [{ "role": "system", "content": "stale summary" }]
+            }
+        }),
+    ));
+    assert!(stale.error.as_ref().is_some_and(|error| error
+        .message
+        .contains("stale context compaction checkpoint")));
+
+    let skipped_window = router.dispatch(&WorkerRequest::new(
+        "req-skipped-context-window",
+        "trace-skipped-context-window",
+        "session.commit_context_checkpoint",
+        json!({
+            "session_id": "session-commit-context",
+            "run_id": "run-skipped-context-window",
+            "checkpoint": {
+                "contextId": "run-skipped-context-window:context:1",
+                "sourceContextId": "run-commit-context:context:1",
+                "windowNumber": 9,
+                "firstWindowId": "session-commit-context:context-window:0",
+                "previousWindowId": "run-commit-context:context:1",
+                "windowId": "run-skipped-context-window:context:1",
+                "checkpointStage": "installed",
+                "replacementHistory": [{ "role": "system", "content": "skipped window" }]
+            }
+        }),
+    ));
+    assert!(skipped_window.error.as_ref().is_some_and(|error| {
+        error.message.contains("invalid windowNumber")
+            && error.details["expected"] == 2
+            && error.details["actual"] == 9
+    }));
+
+    let next = router.dispatch(&WorkerRequest::new(
+        "req-next-context",
+        "trace-next-context",
+        "session.commit_context_checkpoint",
+        json!({
+            "session_id": "session-commit-context",
+            "run_id": "run-next-context",
+            "checkpoint": {
+                "contextId": "run-next-context:context:1",
+                "sourceContextId": "run-commit-context:context:1",
+                "windowNumber": 2,
+                "firstWindowId": "session-commit-context:context-window:0",
+                "previousWindowId": "run-commit-context:context:1",
+                "windowId": "run-next-context:context:1",
+                "checkpointStage": "installed",
+                "replacementHistory": [{ "role": "system", "content": "next summary" }]
+            }
+        }),
+    ));
+    assert_eq!(next.error, None);
+    assert_eq!(next.result.as_ref().unwrap()["committed"], true);
+
+    let historical_retry = router.dispatch(&request());
+    assert!(
+        historical_retry.error.as_ref().is_some_and(|error| {
+            error
+                .message
+                .contains("checkpoint identity is historical and no longer current")
+        }),
+        "{:?}",
+        historical_retry.error
+    );
+
+    let mut stale_finalized_checkpoint = checkpoint.clone();
+    stale_finalized_checkpoint["checkpointStage"] = json!("finalized");
+    let stale_finalization = router.dispatch(&WorkerRequest::new(
+        "req-stale-context-finalization",
+        "trace-stale-context-finalization",
+        "session.persist_turn",
+        json!({
+            "session_id": "session-commit-context",
+            "run_id": "run-stale-context-finalization",
+            "messages": [],
+            "clear_checkpoint": false,
+            "context_metadata": {
+                "contextCheckpoint": stale_finalized_checkpoint
+            }
+        }),
+    ));
+    assert!(stale_finalization.error.as_ref().is_some_and(|error| {
+        error.message.contains("invalid contextId")
+            && error.details["expected"] == "run-next-context:context:1"
+            && error.details["actual"] == "run-commit-context:context:1"
+    }));
+
+    let conflict = router.dispatch(&WorkerRequest::new(
+        "req-conflicting-context",
+        "trace-conflicting-context",
+        "session.commit_context_checkpoint",
+        json!({
+            "session_id": "session-commit-context",
+            "run_id": "run-commit-context",
+            "checkpoint": {
+                "contextId": "run-commit-context:context:1",
+                "checkpointStage": "installed",
+                "replacementHistory": [{ "role": "system", "content": "different" }]
+            }
+        }),
+    ));
+    assert!(conflict.error.is_some());
+}
+
+#[test]
+fn session_clear_resets_latest_checkpoint_lineage_without_reviving_history() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    )
+    .unwrap();
+    let commit = |context_id: &str, summary: &str| {
+        WorkerRequest::new(
+            format!("req-{context_id}"),
+            "trace-clear-checkpoint",
+            "session.commit_context_checkpoint",
+            json!({
+                "session_id": "session-clear-checkpoint",
+                "run_id": context_id,
+                "checkpoint": {
+                    "contextId": context_id,
+                    "sourceContextId": null,
+                    "windowNumber": 1,
+                    "firstWindowId": "session-clear-checkpoint:context-window:0",
+                    "previousWindowId": "session-clear-checkpoint:context-window:0",
+                    "windowId": context_id,
+                    "checkpointStage": "installed",
+                    "replacementHistory": [{ "role": "system", "content": summary }]
+                }
+            }),
+        )
+    };
+
+    let first = router.dispatch(&commit("context-before-clear", "old summary"));
+    assert_eq!(first.error, None);
+    let clear = router.dispatch(&WorkerRequest::new(
+        "req-clear-checkpoint",
+        "trace-clear-checkpoint",
+        "session.clear",
+        json!({ "session_id": "session-clear-checkpoint" }),
+    ));
+    assert_eq!(clear.error, None);
+
+    let fresh = router.dispatch(&commit("context-after-clear", "fresh summary"));
+    assert_eq!(fresh.error, None);
+    assert_eq!(fresh.result.as_ref().unwrap()["committed"], true);
+
+    let historical = router.dispatch(&commit("context-before-clear", "old summary"));
+    assert!(historical.error.as_ref().is_some_and(|error| {
+        error
+            .message
+            .contains("checkpoint identity is historical and no longer current")
+    }));
+    let context = router.dispatch(&WorkerRequest::new(
+        "req-read-after-clear-checkpoint",
+        "trace-clear-checkpoint",
+        "session.get_agent_context",
+        json!({ "session_id": "session-clear-checkpoint", "limit": 50 }),
+    ));
+    assert_eq!(context.error, None);
+    assert_eq!(
+        context.result.as_ref().unwrap()["messages"][0]["content"],
+        "fresh summary"
+    );
+}
+
+#[test]
+fn session_checkpoint_position_index_is_verified_and_rebuilt_from_journal() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    )
+    .unwrap();
+    let committed = router.dispatch(&WorkerRequest::new(
+        "req-checkpoint-position",
+        "trace-checkpoint-position",
+        "session.commit_context_checkpoint",
+        json!({
+            "session_id": "session-checkpoint-position",
+            "run_id": "run-checkpoint-position",
+            "checkpoint": {
+                "contextId": "context-position",
+                "sourceContextId": null,
+                "windowNumber": 1,
+                "firstWindowId": "session-checkpoint-position:context-window:0",
+                "previousWindowId": "session-checkpoint-position:context-window:0",
+                "windowId": "context-position",
+                "checkpointStage": "installed",
+                "replacementHistory": [{ "role": "system", "content": "indexed summary" }]
+            }
+        }),
+    ));
+    assert_eq!(committed.error, None);
+
+    let state_path = fixture
+        .root
+        .join(".tinybot")
+        .join("state")
+        .join("state.sqlite");
+    let connection = rusqlite::Connection::open(state_path).unwrap();
+    connection
+        .execute(
+            "UPDATE latest_context_checkpoints SET line_number = 999",
+            [],
+        )
+        .unwrap();
+    drop(connection);
+
+    let inconsistent = router.dispatch(&WorkerRequest::new(
+        "req-checkpoint-position-read",
+        "trace-checkpoint-position",
+        "session.get_agent_context",
+        json!({ "session_id": "session-checkpoint-position", "limit": 50 }),
+    ));
+    assert!(inconsistent.error.as_ref().is_some_and(|error| {
+        error
+            .message
+            .contains("thread log state index is not consistent")
+    }));
+
+    let repair = router.dispatch(&WorkerRequest::new(
+        "req-checkpoint-position-repair",
+        "trace-checkpoint-position",
+        "session.persistence.repair",
+        json!({ "mode": "rebuild_index" }),
+    ));
+    assert_eq!(repair.error, None);
+    let context = router.dispatch(&WorkerRequest::new(
+        "req-checkpoint-position-read-repaired",
+        "trace-checkpoint-position",
+        "session.get_agent_context",
+        json!({ "session_id": "session-checkpoint-position", "limit": 50 }),
+    ));
+    assert_eq!(context.error, None);
+    assert_eq!(
+        context.result.as_ref().unwrap()["messages"][0]["content"],
+        "indexed summary"
+    );
+}
+
+#[test]
+fn session_context_checkpoint_commit_recovers_transient_index_failure() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    )
+    .unwrap();
+    router
+        .thread_log
+        .persist_session_turn(
+            "session-index-retry",
+            "run-before-index-retry",
+            vec![json!({ "role": "user", "content": "old context" })],
+            None,
+        )
+        .unwrap();
+    router.thread_log.fail_next_state_index_upserts(1);
+
+    let committed = router.dispatch(&WorkerRequest::new(
+        "req-index-retry",
+        "trace-index-retry",
+        "session.commit_context_checkpoint",
+        json!({
+            "session_id": "session-index-retry",
+            "run_id": "run-index-retry",
+            "checkpoint": {
+                "contextId": "run-index-retry:context:1",
+                "checkpointStage": "installed",
+                "replacementHistory": [{ "role": "system", "content": "recovered summary" }]
+            }
+        }),
+    ));
+
+    assert_eq!(committed.error, None);
+    assert_eq!(committed.result.as_ref().unwrap()["committed"], true);
+    assert_eq!(
+        committed.result.as_ref().unwrap()["indexSynchronized"],
+        true
+    );
+    assert_eq!(committed.result.as_ref().unwrap()["indexRecovered"], true);
+    assert!(committed.result.as_ref().unwrap()["diagnostics"]
+        .as_array()
+        .is_some_and(|diagnostics| !diagnostics.is_empty()));
+    let consistency = router.dispatch(&WorkerRequest::new(
+        "req-index-retry-check",
+        "trace-index-retry-check",
+        "session.persistence.check",
+        json!({}),
+    ));
+    assert_eq!(consistency.error, None);
+    assert_eq!(consistency.result.as_ref().unwrap()["status"], "clean");
+}
+
+#[test]
+fn session_context_checkpoint_commit_reports_degraded_index_without_losing_journal() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    )
+    .unwrap();
+    router
+        .thread_log
+        .persist_session_turn(
+            "session-index-degraded",
+            "run-before-index-degraded",
+            vec![json!({ "role": "user", "content": "old context" })],
+            None,
+        )
+        .unwrap();
+    router.thread_log.fail_next_state_index_upserts(2);
+
+    let committed = router.dispatch(&WorkerRequest::new(
+        "req-index-degraded",
+        "trace-index-degraded",
+        "session.commit_context_checkpoint",
+        json!({
+            "session_id": "session-index-degraded",
+            "run_id": "run-index-degraded",
+            "checkpoint": {
+                "contextId": "run-index-degraded:context:1",
+                "checkpointStage": "installed",
+                "replacementHistory": [{ "role": "system", "content": "durable summary" }]
+            }
+        }),
+    ));
+
+    assert_eq!(committed.error, None);
+    assert_eq!(committed.result.as_ref().unwrap()["committed"], true);
+    assert_eq!(
+        committed.result.as_ref().unwrap()["indexSynchronized"],
+        false
+    );
+    assert_eq!(committed.result.as_ref().unwrap()["indexRecovered"], false);
+    assert!(committed.result.as_ref().unwrap()["diagnostics"][0]
+        .as_str()
+        .is_some_and(|message| message.contains("checkpoint is durable")));
+
+    let consistency = router.dispatch(&WorkerRequest::new(
+        "req-index-degraded-check",
+        "trace-index-degraded-check",
+        "session.persistence.check",
+        json!({}),
+    ));
+    assert_eq!(consistency.error, None);
+    assert_eq!(consistency.result.as_ref().unwrap()["status"], "diverged");
+
+    let repair = router.dispatch(&WorkerRequest::new(
+        "req-index-degraded-repair",
+        "trace-index-degraded-repair",
+        "session.persistence.repair",
+        json!({ "mode": "rebuild_index" }),
+    ));
+    assert_eq!(repair.error, None);
+    assert_eq!(repair.result.as_ref().unwrap()["after"]["status"], "clean");
+    let context = router.dispatch(&WorkerRequest::new(
+        "req-index-degraded-context",
+        "trace-index-degraded-context",
+        "session.get_agent_context",
+        json!({ "session_id": "session-index-degraded", "limit": 50 }),
+    ));
+    assert_eq!(context.error, None);
+    assert_eq!(
+        context.result.as_ref().unwrap()["messages"][0]["content"],
+        "durable summary"
+    );
+}
+
+#[test]
 fn session_delete_removes_thread_log_only_session() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new_persistent_sessions(

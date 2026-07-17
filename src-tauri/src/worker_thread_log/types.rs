@@ -111,6 +111,7 @@ pub struct ThreadReplay {
     pub updated_at: String,
     pub messages: Vec<Value>,
     pub token_usage_info: Option<TokenUsageInfo>,
+    pub context_checkpoint: Option<Value>,
 }
 
 #[cfg(test)]

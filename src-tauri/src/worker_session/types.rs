@@ -23,6 +23,12 @@ pub struct SessionHistoryProjection {
     pub messages: Vec<Value>,
     pub user_profile: Value,
     pub updated_at: String,
+    #[serde(
+        default,
+        rename = "contextCheckpoint",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub context_checkpoint: Option<Value>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]

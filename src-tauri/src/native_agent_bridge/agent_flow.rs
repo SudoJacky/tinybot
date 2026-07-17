@@ -1,5 +1,6 @@
 use crate::native_agent_bridge::{
-    hydrate_native_agent_history_for_runtime, materialize_turn_attachments, native_agent_run_id,
+    hydrate_native_agent_history_for_runtime, materialize_turn_attachments,
+    native_agent_context_checkpoint_committer, native_agent_run_id,
     native_agent_services_with_tool_executor, native_agent_session_id, native_agent_thread_id,
     native_agent_trace_sink, persist_native_agent_checkpoint_if_present,
     persist_native_agent_run_record, persist_native_agent_run_start,
@@ -54,7 +55,11 @@ pub(crate) async fn run_agent_with_services(
         base_services,
         workspace_root.clone(),
         config_snapshot.clone(),
-    );
+    )
+    .with_context_checkpoint_committer(native_agent_context_checkpoint_committer(
+        workspace_root.clone(),
+        config_snapshot.clone(),
+    ));
     let services = if thread_owned {
         if let Some(live_trace_sink) = live_trace_sink {
             services.with_trace_sink(live_trace_sink)

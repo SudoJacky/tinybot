@@ -17,8 +17,9 @@ use super::user_input::{
 };
 use super::{
     bool_field, AgentContextRequest, AgentHookInvocation, AgentHookStage, ComposedInstructions,
-    InstructionComposer, NativeAgentProviderFailure, NativeAgentProviderFailureKind,
-    NativeAgentProviderStreamEvent, NativeAgentRunContext, NativeAgentRuntimeServices,
+    InstructionComposer, NativeAgentContextCheckpointCommit, NativeAgentProviderFailure,
+    NativeAgentProviderFailureKind, NativeAgentProviderStreamEvent, NativeAgentRunContext,
+    NativeAgentRuntimeServices,
 };
 use crate::agent_loop_runtime_protocol::{
     AgentRunEmitter, AgentRuntimeEventAppendInput, AgentRuntimeEventEnvelope,
@@ -417,14 +418,20 @@ async fn run_native_agent_turn_with_instructions_async(
                 ));
             }
             Err(error) => {
-                emit_context_compaction_failure(&context, &mut state, iteration, &error);
+                emit_context_compaction_failure(
+                    &context,
+                    &mut state,
+                    iteration,
+                    error.stop_reason(),
+                    error.message(),
+                );
                 return Ok(provider_failure_result(
                     services, &context, &mut state, iteration, error,
                 ));
             }
         };
         if let Some(action) = projection.action.as_ref() {
-            let payload = context_window_action_payload(&context, iteration, action);
+            let mut payload = context_window_action_payload(&context, iteration, action);
             if let Some(tokens) = payload.get("estimatedTokensBefore").and_then(Value::as_i64) {
                 context.metrics().set_gauge("context.tokens.before", tokens);
             }
@@ -432,7 +439,42 @@ async fn run_native_agent_turn_with_instructions_async(
                 context.metrics().set_gauge("context.tokens.after", tokens);
             }
             if action.event_name == "agent.context.compacted" {
-                state.install_compacted_context(projection.messages.clone(), &payload);
+                let checkpoint = state.compacted_context_checkpoint(&projection.messages, &payload);
+                for field in [
+                    "sourceContextId",
+                    "windowNumber",
+                    "firstWindowId",
+                    "previousWindowId",
+                    "windowId",
+                ] {
+                    payload[field] = checkpoint.get(field).cloned().unwrap_or(Value::Null);
+                }
+                let commit = NativeAgentContextCheckpointCommit {
+                    session_id: context.session_id.clone(),
+                    run_id: context.run_id.clone(),
+                    thread_id: context.thread_id.clone(),
+                    event_payload: payload.clone(),
+                    checkpoint: checkpoint.clone(),
+                };
+                if let Err(error) = services.commit_context_checkpoint(commit).await {
+                    let message = format!("context compaction checkpoint commit failed: {error}");
+                    emit_context_compaction_failure(
+                        &context,
+                        &mut state,
+                        iteration,
+                        "context_compaction_commit_failed",
+                        &message,
+                    );
+                    return Ok(agent_failure_result(
+                        services,
+                        &context,
+                        &mut state,
+                        iteration,
+                        "context_compaction_commit_failed",
+                        message,
+                    ));
+                }
+                state.install_compacted_context(projection.messages.clone(), checkpoint);
                 context.messages = state.messages.clone();
                 context.spec["messages"] = Value::Array(state.messages.clone());
                 context.metrics().increment("compaction.completed");
@@ -947,8 +989,24 @@ fn provider_failure_result(
     iteration: i64,
     error: NativeAgentProviderFailure,
 ) -> Value {
-    let stop_reason = error.stop_reason();
-    let message = error.message().to_string();
+    agent_failure_result(
+        services,
+        context,
+        state,
+        iteration,
+        error.stop_reason(),
+        error.message().to_string(),
+    )
+}
+
+fn agent_failure_result(
+    services: &NativeAgentRuntimeServices,
+    context: &NativeAgentRunContext,
+    state: &mut NativeAgentRunState,
+    iteration: i64,
+    stop_reason: &str,
+    message: String,
+) -> Value {
     state.set_stop_reason(stop_reason, iteration, "agent.error");
     state.emit_event(
         "agent.error",
@@ -987,7 +1045,8 @@ fn emit_context_compaction_failure(
     context: &NativeAgentRunContext,
     state: &mut NativeAgentRunState,
     iteration: i64,
-    error: &NativeAgentProviderFailure,
+    failure_stop_reason: &str,
+    message: &str,
 ) {
     context.metrics().increment("compaction.failed");
     state.emit_event(
@@ -1005,9 +1064,9 @@ fn emit_context_compaction_failure(
             "model": context.model,
             "status": "failed",
             "code": "context_compaction_failed",
-            "failureStopReason": error.stop_reason(),
-            "message": error.message(),
-            "error": error.message(),
+            "failureStopReason": failure_stop_reason,
+            "message": message,
+            "error": message,
             "estimatedTokensBefore": estimate_context_tokens_for_request(context),
             "canonicalContextChanged": false,
         }),

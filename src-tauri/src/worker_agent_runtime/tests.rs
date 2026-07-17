@@ -34,6 +34,21 @@ struct RecordingTraceSink {
     timeline_patches: Arc<Mutex<Vec<crate::agent_loop_runtime_protocol::AgentTimelinePatch>>>,
 }
 
+#[derive(Default)]
+struct FailingContextCheckpointCommitter {
+    commits: Mutex<Vec<NativeAgentContextCheckpointCommit>>,
+}
+
+impl NativeAgentContextCheckpointCommitter for FailingContextCheckpointCommitter {
+    fn commit(&self, input: &NativeAgentContextCheckpointCommit) -> Result<(), String> {
+        self.commits
+            .lock()
+            .expect("checkpoint commit lock should not be poisoned")
+            .push(input.clone());
+        Err("fixture durable append failed".to_string())
+    }
+}
+
 struct SystemPromptWorkspace {
     root: PathBuf,
 }
@@ -2957,7 +2972,30 @@ fn agent_run_emits_context_compaction_event_when_old_messages_are_summarized() {
     assert_eq!(compact_event["payload"]["trigger"], "auto");
     assert_eq!(compact_event["payload"]["reason"], "context_limit");
     assert_eq!(compact_event["payload"]["method"], "summary");
+    assert_eq!(compact_event["payload"]["windowNumber"], 1);
+    assert_eq!(
+        compact_event["payload"]["windowId"],
+        compact_event["payload"]["contextId"]
+    );
     assert_eq!(result["contextCheckpoint"]["schemaVersion"], 1);
+    assert_eq!(result["contextCheckpoint"]["checkpointStage"], "finalized");
+    assert!(result["contextCheckpoint"]["sourceContextId"].is_null());
+    assert_eq!(result["contextCheckpoint"]["windowNumber"], 1);
+    assert_eq!(
+        result["contextCheckpoint"]["firstWindowId"],
+        "websocket:chat-context-compact-event:context-window:0"
+    );
+    assert_eq!(
+        result["contextCheckpoint"]["previousWindowId"],
+        "websocket:chat-context-compact-event:context-window:0"
+    );
+    assert_eq!(
+        result["contextCheckpoint"]["windowId"],
+        result["contextCheckpoint"]["contextId"]
+    );
+    assert!(result["contextCheckpoint"]["sourceVersion"]
+        .as_str()
+        .is_some_and(|version| version.starts_with("sha256:")));
     assert!(result["contextCheckpoint"]["replacementHistory"]
         .as_array()
         .is_some_and(|messages| messages.iter().any(|message| {
@@ -2965,6 +3003,128 @@ fn agent_run_emits_context_compaction_event_when_old_messages_are_summarized() {
                 .as_str()
                 .is_some_and(|content| content.contains("summary of earlier turns"))
         })));
+}
+
+#[test]
+fn context_checkpoint_uses_hydrated_parent_context_id() {
+    let context = NativeAgentRunContext::from_spec(
+        json!({
+            "runId": "run-context-lineage",
+            "sessionId": "session-context-lineage",
+            "metadata": {
+                "contextSourceCheckpointId": "previous-context",
+                "contextSourceCheckpoint": {
+                    "contextId": "previous-context",
+                    "windowNumber": 3,
+                    "firstWindowId": "first-window",
+                    "previousWindowId": "window-2",
+                    "windowId": "window-3"
+                }
+            },
+            "messages": [{ "role": "user", "content": "current question" }]
+        }),
+        json!({}),
+    );
+    let state = super::state::NativeAgentRunState::new(&context, None);
+    let checkpoint = state.compacted_context_checkpoint(
+        &[json!({ "role": "system", "content": "summary" })],
+        &json!({ "contextId": "next-context" }),
+    );
+
+    assert_eq!(checkpoint["sourceContextId"], "previous-context");
+    assert_eq!(checkpoint["windowNumber"], 4);
+    assert_eq!(checkpoint["firstWindowId"], "first-window");
+    assert_eq!(checkpoint["previousWindowId"], "window-3");
+    assert_eq!(checkpoint["windowId"], "next-context");
+}
+
+#[test]
+fn in_memory_context_checkpoint_committer_bootstraps_and_enforces_lineage() {
+    let committer = InMemoryNativeAgentContextCheckpointCommitter::default();
+    let commit = |context_id: &str, source_context_id: &str| NativeAgentContextCheckpointCommit {
+        session_id: "session-context-lineage".to_string(),
+        run_id: format!("run-{context_id}"),
+        thread_id: None,
+        event_payload: json!({}),
+        checkpoint: json!({
+            "contextId": context_id,
+            "sourceContextId": source_context_id,
+            "checkpointStage": "installed",
+            "replacementHistory": []
+        }),
+    };
+
+    committer
+        .commit(&commit("context-2", "context-1"))
+        .expect("hydrated parent should bootstrap the in-memory committer");
+    let stale = committer
+        .commit(&commit("context-stale", "context-1"))
+        .unwrap_err();
+    assert!(stale.contains("stale context compaction checkpoint"));
+}
+
+#[test]
+fn context_compaction_commit_failure_keeps_live_context_unmodified() {
+    let committer = Arc::new(FailingContextCheckpointCommitter::default());
+    let services =
+        NativeAgentRuntimeServices::default().with_context_checkpoint_committer(committer.clone());
+    let result = run_native_agent_turn_with_config(
+        &services,
+        json!({
+            "runtime": "rust",
+            "runId": "run-context-commit-failed",
+            "sessionId": "session-context-commit-failed",
+            "messages": [
+                { "role": "user", "content": "old context ".repeat(200) },
+                { "role": "assistant", "content": "old answer ".repeat(200) },
+                { "role": "user", "content": "current question" }
+            ]
+        }),
+        json!({
+            "agents": { "defaults": {
+                "provider": "fixture",
+                "model": "fixture-model",
+                "contextWindowTokens": 800,
+                "contextWindowStrategy": "compact",
+                "compactTriggerPercent": 50,
+                "compactSummaryMaxTokens": 32
+            }},
+            "providers": { "fixture": { "responses": [
+                { "content": "summary of earlier turns" },
+                { "content": "must not reach the main provider request" }
+            ] } }
+        }),
+    )
+    .expect("commit failure should be returned as a terminal agent result");
+
+    assert_eq!(result["stopReason"], "context_compaction_commit_failed");
+    assert!(result.get("contextCheckpoint").is_none());
+    assert!(result["events"].as_array().is_some_and(|events| !events
+        .iter()
+        .any(|event| event["eventName"] == "agent.context.compacted")));
+    let failed = result["events"]
+        .as_array()
+        .expect("events should be present")
+        .iter()
+        .find(|event| event["eventName"] == "agent.context.compaction_failed")
+        .expect("compaction failure event should be present");
+    assert_eq!(
+        failed["payload"]["failureStopReason"],
+        "context_compaction_commit_failed"
+    );
+    assert_eq!(failed["payload"]["canonicalContextChanged"], false);
+
+    let commits = committer
+        .commits
+        .lock()
+        .expect("checkpoint commit lock should not be poisoned");
+    assert_eq!(commits.len(), 1);
+    assert_eq!(commits[0].checkpoint["checkpointStage"], "installed");
+    assert!(commits[0].checkpoint["replacementHistory"]
+        .as_array()
+        .is_some_and(|messages| messages.iter().any(|message| message["content"]
+            .as_str()
+            .is_some_and(|content| content.contains("summary of earlier turns")))));
 }
 
 #[test]
