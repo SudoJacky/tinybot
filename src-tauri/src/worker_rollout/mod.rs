@@ -6,6 +6,8 @@ pub use self::reconstruction::{
     reconstruct_transcript,
 };
 pub use self::types::{
-    RolloutItem, RolloutLine, RolloutReconstruction, SessionMeta, ThreadStateRecord, TokenUsage,
-    TokenUsageInfo, TurnContextItem, WorldStateItem, ROLLOUT_SCHEMA_VERSION,
+    CompactedItem, CompactionWindowLineage, EventKind, EventMsg, InterAgentCommunication,
+    PreviousTurnSettings, ResponseItem, ResponseItemKind, ResponseRole, RolloutItem, RolloutLine,
+    RolloutReconstruction, SessionMeta, ThreadStateRecord, TokenUsage, TokenUsageInfo,
+    TurnContextItem, WorldStateItem, ROLLOUT_SCHEMA_VERSION,
 };

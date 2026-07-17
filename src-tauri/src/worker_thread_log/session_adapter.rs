@@ -239,6 +239,7 @@ mod tests {
             context_checkpoint: None,
             world_state_baseline: None,
             compaction_overlap_candidate: None,
+            ..Default::default()
         }
     }
 

@@ -1,8 +1,7 @@
 use super::{
     canonicalize_thread_timestamp, is_default_session_title, now_thread_timestamp,
-    preview_from_messages, read_thread_lines, replay_thread, thread_id_for_session_id,
-    title_from_messages, value_event, AgentRunRecoveryEntry, AgentRunRecoveryReport, ThreadLogItem,
-    WorkerThreadLogRpc,
+    preview_from_messages, read_thread_lines, thread_id_for_session_id, title_from_messages,
+    value_event, AgentRunRecoveryEntry, AgentRunRecoveryReport, ThreadLogItem, WorkerThreadLogRpc,
 };
 use crate::agent_loop_runtime_protocol::{
     AgentRuntimeEventEnvelope, LegacyNativeAgentEventEnvelopeInput,
@@ -78,7 +77,8 @@ impl WorkerThreadLogRpc {
         let path = PathBuf::from(&state.thread_path);
         self.recorder.validate_thread_path(&path)?;
         let lines = read_thread_lines(&path)?;
-        let existing = agent_run_records_from_lines(&record.session_id, &lines)
+        let existing = super::reconstruction::reconstruct_canonical_rollout(&lines)?
+            .agent_runs
             .into_iter()
             .find(|existing| existing.run_id == record.run_id);
         if let Some(existing) = existing {
@@ -96,7 +96,10 @@ impl WorkerThreadLogRpc {
         self.recorder.append_item(
             &path,
             timestamp.clone(),
-            value_event("agent_run_upsert", serde_json::json!({ "record": record })),
+            value_event(
+                super::EventKind::AgentRunUpsert,
+                serde_json::json!({ "record": record }),
+            ),
         )?;
         let log_head = self.recorder.thread_log_head(&path)?;
         state.updated_at = timestamp;
@@ -133,7 +136,10 @@ impl WorkerThreadLogRpc {
         self.recorder.append_item(
             &path,
             timestamp.clone(),
-            value_event("agent_run_upsert", serde_json::json!({ "record": record })),
+            value_event(
+                super::EventKind::AgentRunUpsert,
+                serde_json::json!({ "record": record }),
+            ),
         )?;
         let log_head = self.recorder.thread_log_head(&path)?;
         state.updated_at = timestamp;
@@ -205,40 +211,38 @@ impl WorkerThreadLogRpc {
                 )
             )
         });
-        let items = events
-            .iter()
-            .cloned()
-            .flat_map(|event| {
-                let response_item = response_item_from_runtime_event(&event);
-                let token_info = (event.get("eventName").and_then(Value::as_str)
-                    == Some("agent.token_count"))
-                .then(|| {
-                    event
-                        .get("payload")
-                        .and_then(|payload| payload.get("info"))
-                        .cloned()
-                })
-                .flatten();
-                let mut items = vec![value_event(
-                    "agent_run_trace",
-                    serde_json::json!({
-                        "sessionId": session_id,
-                        "runId": run_id,
-                        "event": event,
-                    }),
-                )];
-                if let Some(info) = token_info {
-                    items.push(value_event(
-                        "token_count",
-                        serde_json::json!({ "info": info }),
-                    ));
-                }
-                if let Some(response_item) = response_item {
-                    items.push(ThreadLogItem::ResponseItem(response_item));
-                }
-                items
+        let mut items = Vec::new();
+        for event in events.iter().cloned() {
+            let response_item = response_item_from_runtime_event(&event)
+                .map(|item| super::typed_response_item(item, "agent run trace"))
+                .transpose()?;
+            let token_info = (event.get("eventName").and_then(Value::as_str)
+                == Some("agent.token_count"))
+            .then(|| {
+                event
+                    .get("payload")
+                    .and_then(|payload| payload.get("info"))
+                    .cloned()
             })
-            .collect();
+            .flatten();
+            items.push(value_event(
+                super::EventKind::AgentRunTrace,
+                serde_json::json!({
+                    "sessionId": session_id,
+                    "runId": run_id,
+                    "event": event,
+                }),
+            ));
+            if let Some(info) = token_info {
+                items.push(value_event(
+                    super::EventKind::TokenCount,
+                    serde_json::json!({ "info": info }),
+                ));
+            }
+            if let Some(response_item) = response_item {
+                items.push(ThreadLogItem::ResponseItem(response_item));
+            }
+        }
         self.recorder
             .append_items(&path, timestamp.clone(), items)?;
         let log_head = self.recorder.thread_log_head(&path)?;
@@ -252,7 +256,9 @@ impl WorkerThreadLogRpc {
             state.updated_at = timestamp.clone();
         }
         if has_response_items {
-            let replay = replay_thread(&read_thread_lines(&path)?)?;
+            let replay =
+                super::reconstruction::reconstruct_canonical_rollout(&read_thread_lines(&path)?)?
+                    .semantic;
             if is_default_session_title(&state.title) {
                 if let Some(title) = title_from_messages(&replay.messages) {
                     state.title = title;
@@ -413,7 +419,7 @@ impl WorkerThreadLogRpc {
             &path,
             timestamp.clone(),
             value_event(
-                "agent_run_checkpoint_set",
+                super::EventKind::AgentRunCheckpointSet,
                 serde_json::json!({
                     "sessionId": session_id,
                     "runId": run_id,
@@ -490,7 +496,7 @@ impl WorkerThreadLogRpc {
             &path,
             timestamp.clone(),
             value_event(
-                "agent_run_checkpoint_clear",
+                super::EventKind::AgentRunCheckpointClear,
                 serde_json::json!({ "sessionId": session_id, "runId": run_id }),
             ),
         )?;
@@ -630,7 +636,8 @@ impl WorkerThreadLogRpc {
             let path = PathBuf::from(record.thread_path);
             self.recorder.validate_thread_path(&path)?;
             let lines = read_thread_lines(&path)?;
-            for run in agent_run_records_from_lines(session_id, &lines) {
+            let reconstructed = super::reconstruction::reconstruct_canonical_rollout(&lines)?;
+            for run in reconstructed.agent_runs {
                 match runs_by_id.entry(run.run_id.clone()) {
                     std::collections::hash_map::Entry::Vacant(entry) => {
                         entry.insert(run);
@@ -724,7 +731,7 @@ impl WorkerThreadLogRpc {
             &path,
             timestamp.clone(),
             value_event(
-                "agent_run_terminal",
+                super::EventKind::AgentRunTerminal,
                 serde_json::json!({
                     "sessionId": session_id,
                     "runId": run_id,
@@ -813,122 +820,209 @@ fn agent_run_status_is_resumable(status: &AgentRunStatus) -> bool {
 pub(super) fn agent_run_records_from_lines(
     session_id: &str,
     lines: &[super::ThreadLogLine],
-) -> Vec<AgentRunRecord> {
+) -> Result<Vec<AgentRunRecord>, WorkerProtocolError> {
     let mut runs: HashMap<String, AgentRunRecord> = HashMap::new();
     for line in lines {
         let super::ThreadLogItem::EventMsg(event) = &line.item else {
             continue;
         };
-        let Some(event_type) = event.get("type").and_then(Value::as_str) else {
-            continue;
-        };
-        let payload = event.get("payload").unwrap_or(event);
-        match event_type {
-            "agent_run_upsert" => {
-                if let Some(record) = payload
-                    .get("record")
-                    .cloned()
-                    .and_then(|value| serde_json::from_value::<AgentRunRecord>(value).ok())
-                    .filter(|record| record.session_id == session_id)
-                {
-                    runs.entry(record.run_id.clone())
-                        .and_modify(|existing| {
-                            let started_at = existing.started_at.clone();
-                            let mut trace_events = existing.trace_events.clone();
-                            for event in record.trace_events.iter().cloned() {
-                                upsert_trace_event(&mut trace_events, event);
-                            }
-                            *existing = record.clone();
-                            existing.started_at = started_at;
-                            existing.trace_events = trace_events;
-                        })
-                        .or_insert(record);
+        let payload = event.payload();
+        match event.kind() {
+            super::EventKind::AgentRunUpsert => {
+                let record_value = payload.get("record").cloned().ok_or_else(|| {
+                    agent_run_replay_error(
+                        "agent_run_upsert event is missing its record",
+                        line,
+                        payload,
+                    )
+                })?;
+                let record =
+                    serde_json::from_value::<AgentRunRecord>(record_value).map_err(|error| {
+                        agent_run_replay_error(
+                            "agent_run_upsert event contains an invalid record",
+                            line,
+                            &serde_json::json!({
+                                "payload": payload,
+                                "error": error.to_string(),
+                            }),
+                        )
+                    })?;
+                if record.session_id != session_id {
+                    return Err(agent_run_replay_error(
+                        "agent_run_upsert record belongs to a different session",
+                        line,
+                        &serde_json::json!({
+                            "expectedSessionId": session_id,
+                            "actualSessionId": record.session_id,
+                            "runId": record.run_id,
+                        }),
+                    ));
                 }
+                runs.entry(record.run_id.clone())
+                    .and_modify(|existing| {
+                        let started_at = existing.started_at.clone();
+                        let mut trace_events = existing.trace_events.clone();
+                        for event in record.trace_events.iter().cloned() {
+                            upsert_trace_event(&mut trace_events, event);
+                        }
+                        *existing = record.clone();
+                        existing.started_at = started_at;
+                        existing.trace_events = trace_events;
+                    })
+                    .or_insert(record);
             }
-            "agent_run_trace" => {
-                let Some(run_id) = payload_run_id(payload) else {
-                    continue;
-                };
-                let Some(event) = payload.get("event").cloned() else {
-                    continue;
-                };
-                if let Some(record) = runs.get_mut(&run_id) {
-                    upsert_trace_event(&mut record.trace_events, event.clone());
-                    apply_agent_status_snapshot(record, &event);
-                    record.updated_at = line.timestamp.clone();
-                }
+            super::EventKind::AgentRunTrace => {
+                let run_id = payload_run_id(payload).ok_or_else(|| {
+                    agent_run_replay_error(
+                        "agent_run_trace event is missing its run id",
+                        line,
+                        payload,
+                    )
+                })?;
+                let event = payload.get("event").cloned().ok_or_else(|| {
+                    agent_run_replay_error(
+                        "agent_run_trace event is missing its event payload",
+                        line,
+                        payload,
+                    )
+                })?;
+                let record = runs.get_mut(&run_id).ok_or_else(|| {
+                    agent_run_replay_error(
+                        "agent_run_trace event references an unknown run",
+                        line,
+                        payload,
+                    )
+                })?;
+                upsert_trace_event(&mut record.trace_events, event.clone());
+                apply_agent_status_snapshot(record, &event);
+                record.updated_at = line.timestamp.clone();
             }
-            "agent_run_checkpoint_set" => {
-                let Some(run_id) = payload_run_id(payload) else {
-                    continue;
-                };
-                let Some(checkpoint) = payload.get("checkpoint").cloned() else {
-                    continue;
-                };
+            super::EventKind::AgentRunCheckpointSet => {
+                let run_id = payload_run_id(payload).ok_or_else(|| {
+                    agent_run_replay_error(
+                        "agent_run_checkpoint_set event is missing its run id",
+                        line,
+                        payload,
+                    )
+                })?;
+                let checkpoint = payload.get("checkpoint").cloned().ok_or_else(|| {
+                    agent_run_replay_error(
+                        "agent_run_checkpoint_set event is missing its checkpoint",
+                        line,
+                        payload,
+                    )
+                })?;
                 let record = runs.entry(run_id.clone()).or_insert_with(|| {
                     agent_run_from_checkpoint(session_id, &run_id, &checkpoint, &line.timestamp)
                 });
                 apply_checkpoint_to_record(record, checkpoint, &line.timestamp);
             }
-            "agent_run_checkpoint_clear" => {
-                let Some(run_id) = payload_run_id(payload) else {
-                    continue;
-                };
-                if let Some(record) = runs.get_mut(&run_id) {
-                    record.checkpoint = None;
-                    record.updated_at = line.timestamp.clone();
-                }
+            super::EventKind::AgentRunCheckpointClear => {
+                let run_id = payload_run_id(payload).ok_or_else(|| {
+                    agent_run_replay_error(
+                        "agent_run_checkpoint_clear event is missing its run id",
+                        line,
+                        payload,
+                    )
+                })?;
+                let record = runs.get_mut(&run_id).ok_or_else(|| {
+                    agent_run_replay_error(
+                        "agent_run_checkpoint_clear event references an unknown run",
+                        line,
+                        payload,
+                    )
+                })?;
+                record.checkpoint = None;
+                record.updated_at = line.timestamp.clone();
             }
-            "agent_run_terminal" => {
-                let Some(run_id) = payload_run_id(payload) else {
-                    continue;
+            super::EventKind::AgentRunTerminal => {
+                let run_id = payload_run_id(payload).ok_or_else(|| {
+                    agent_run_replay_error(
+                        "agent_run_terminal event is missing its run id",
+                        line,
+                        payload,
+                    )
+                })?;
+                let record = runs.get_mut(&run_id).ok_or_else(|| {
+                    agent_run_replay_error(
+                        "agent_run_terminal event references an unknown run",
+                        line,
+                        payload,
+                    )
+                })?;
+                let status = match payload.get("status").and_then(Value::as_str) {
+                    Some("completed") => AgentRunStatus::Completed,
+                    Some("failed") => AgentRunStatus::Failed,
+                    Some("cancelled") => AgentRunStatus::Cancelled,
+                    Some("interrupted") => AgentRunStatus::Interrupted,
+                    _ => record.status.clone(),
                 };
-                if let Some(record) = runs.get_mut(&run_id) {
-                    let status = match payload.get("status").and_then(Value::as_str) {
-                        Some("completed") => AgentRunStatus::Completed,
-                        Some("failed") => AgentRunStatus::Failed,
-                        Some("cancelled") => AgentRunStatus::Cancelled,
-                        Some("interrupted") => AgentRunStatus::Interrupted,
-                        _ => record.status.clone(),
-                    };
-                    let phase = payload
-                        .get("phase")
-                        .and_then(Value::as_str)
-                        .unwrap_or(record.phase.as_str())
-                        .to_string();
-                    let stop_reason = payload
-                        .get("stopReason")
-                        .and_then(Value::as_str)
-                        .map(str::to_string);
-                    let final_content = payload
-                        .get("finalContent")
-                        .and_then(Value::as_str)
-                        .map(str::to_string);
-                    let error = payload
-                        .get("error")
-                        .filter(|value| !value.is_null())
-                        .cloned();
-                    apply_terminal_to_record(
-                        record,
-                        status,
-                        &phase,
-                        stop_reason,
-                        final_content,
-                        error,
-                        &line.timestamp,
-                    );
-                }
+                let phase = payload
+                    .get("phase")
+                    .and_then(Value::as_str)
+                    .unwrap_or(record.phase.as_str())
+                    .to_string();
+                let stop_reason = payload
+                    .get("stopReason")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                let final_content = payload
+                    .get("finalContent")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                let error = payload
+                    .get("error")
+                    .filter(|value| !value.is_null())
+                    .cloned();
+                apply_terminal_to_record(
+                    record,
+                    status,
+                    &phase,
+                    stop_reason,
+                    final_content,
+                    error,
+                    &line.timestamp,
+                );
             }
-            "session_cleared" => {
+            super::EventKind::SessionCleared => {
                 for record in runs.values_mut() {
                     record.checkpoint = None;
                     record.updated_at = line.timestamp.clone();
                 }
             }
-            _ => {}
+            super::EventKind::TurnStarted
+            | super::EventKind::TaskStarted
+            | super::EventKind::TurnComplete
+            | super::EventKind::TaskComplete
+            | super::EventKind::TurnAborted
+            | super::EventKind::UserMessage
+            | super::EventKind::ThreadRolledBack
+            | super::EventKind::TokenCount
+            | super::EventKind::MetadataUpdated
+            | super::EventKind::ThreadItem
+            | super::EventKind::Legacy(_) => {}
         }
     }
-    runs.into_values().collect()
+    Ok(runs.into_values().collect())
+}
+
+fn agent_run_replay_error(
+    message: &str,
+    line: &super::ThreadLogLine,
+    detail: &Value,
+) -> WorkerProtocolError {
+    WorkerProtocolError::new(
+        WorkerProtocolErrorCode::InvalidProtocol,
+        message,
+        serde_json::json!({
+            "method": "rollout.reconstruct.agent_runs",
+            "timestamp": line.timestamp,
+            "ordinal": line.ordinal,
+            "detail": detail,
+        }),
+        false,
+        WorkerProtocolErrorSource::RustCore,
+    )
 }
 
 fn payload_run_id(payload: &Value) -> Option<String> {

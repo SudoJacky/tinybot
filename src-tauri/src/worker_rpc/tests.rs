@@ -3802,7 +3802,10 @@ fn session_agent_context_self_heals_after_canonical_rollout_advances() {
         timestamp: "2026-07-17T10:00:00.000Z".to_string(),
         ordinal: Some(next_ordinal),
         item: crate::worker_thread_log::ThreadLogItem::ResponseItem(
-            json!({ "role": "assistant", "content": "external append" }),
+            crate::worker_rollout::ResponseItem::from_value(
+                json!({ "role": "assistant", "content": "external append" }),
+            )
+            .unwrap(),
         ),
     };
     let mut file = std::fs::OpenOptions::new()

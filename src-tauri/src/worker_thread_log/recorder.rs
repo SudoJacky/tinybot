@@ -2,6 +2,9 @@ use super::{ThreadLogItem, ThreadLogLine, ThreadMeta};
 use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource,
 };
+#[cfg(test)]
+use crate::worker_rollout::ResponseItem;
+use crate::worker_rollout::{EventKind, EventMsg};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -343,11 +346,8 @@ pub(super) fn canonicalize_thread_timestamp(
     ))
 }
 
-pub fn value_event(event_type: &str, payload: Value) -> ThreadLogItem {
-    ThreadLogItem::EventMsg(serde_json::json!({
-        "type": event_type,
-        "payload": payload
-    }))
+pub fn value_event(event_kind: EventKind, payload: Value) -> ThreadLogItem {
+    ThreadLogItem::EventMsg(EventMsg::new(event_kind, payload))
 }
 
 fn thread_log_io_error(error: std::io::Error) -> WorkerProtocolError {
@@ -587,7 +587,10 @@ mod tests {
             .append_item(
                 &path,
                 "2026-07-08T10:13:30Z".to_string(),
-                value_event("turn_started", serde_json::json!({ "runId": "run-1" })),
+                value_event(
+                    EventKind::TurnStarted,
+                    serde_json::json!({ "runId": "run-1" }),
+                ),
             )
             .unwrap();
 
@@ -621,13 +624,22 @@ mod tests {
                 &path,
                 "2026-07-08T10:13:30Z".to_string(),
                 vec![
-                    value_event("turn_started", serde_json::json!({ "runId": "run-1" })),
-                    ThreadLogItem::ResponseItem(serde_json::json!({
-                        "type": "message",
-                        "role": "assistant",
-                        "content": "done"
-                    })),
-                    value_event("turn_complete", serde_json::json!({ "runId": "run-1" })),
+                    value_event(
+                        EventKind::TurnStarted,
+                        serde_json::json!({ "runId": "run-1" }),
+                    ),
+                    ThreadLogItem::ResponseItem(
+                        ResponseItem::from_value(serde_json::json!({
+                            "type": "message",
+                            "role": "assistant",
+                            "content": "done"
+                        }))
+                        .unwrap(),
+                    ),
+                    value_event(
+                        EventKind::TurnComplete,
+                        serde_json::json!({ "runId": "run-1" }),
+                    ),
                 ],
             )
             .unwrap();
@@ -702,7 +714,10 @@ mod tests {
             .append_item(
                 &path,
                 "2026-07-08T10:13:30Z".to_string(),
-                value_event("turn_started", serde_json::json!({ "runId": "run-1" })),
+                value_event(
+                    EventKind::TurnStarted,
+                    serde_json::json!({ "runId": "run-1" }),
+                ),
             )
             .unwrap();
 
@@ -739,7 +754,10 @@ mod tests {
             .append_item(
                 &path,
                 "2026-07-08T10:13:30Z".to_string(),
-                value_event("turn_started", serde_json::json!({ "runId": "run-1" })),
+                value_event(
+                    EventKind::TurnStarted,
+                    serde_json::json!({ "runId": "run-1" }),
+                ),
             )
             .unwrap();
 
@@ -771,7 +789,10 @@ mod tests {
                     .append_item(
                         &path,
                         "2026-07-08T10:13:30Z".to_string(),
-                        value_event("worker_event", serde_json::json!({ "workerIndex": index })),
+                        value_event(
+                            EventKind::Legacy("worker_event".to_string()),
+                            serde_json::json!({ "workerIndex": index }),
+                        ),
                     )
                     .unwrap();
             }));
@@ -819,7 +840,7 @@ mod tests {
                 &path,
                 "2026-07-08T10:13:30Z".to_string(),
                 vec![value_event(
-                    "first",
+                    EventKind::Legacy("first".to_string()),
                     serde_json::json!({ "barrier": "flush" }),
                 )],
             )
@@ -832,7 +853,7 @@ mod tests {
                 &path,
                 "2026-07-08T10:14:30Z".to_string(),
                 vec![value_event(
-                    "second",
+                    EventKind::Legacy("second".to_string()),
                     serde_json::json!({ "barrier": "shutdown" }),
                 )],
             )
@@ -873,7 +894,10 @@ mod tests {
             .append_item(
                 &path,
                 "2026-07-08T10:13:30Z".to_string(),
-                value_event("turn_started", serde_json::json!({ "runId": "run-1" })),
+                value_event(
+                    EventKind::TurnStarted,
+                    serde_json::json!({ "runId": "run-1" }),
+                ),
             )
             .unwrap_err();
 
@@ -907,7 +931,7 @@ mod tests {
                 &path,
                 "2026-07-08T10:13:30Z".to_string(),
                 vec![value_event(
-                    "pending_before_delete",
+                    EventKind::Legacy("pending_before_delete".to_string()),
                     serde_json::json!({ "runId": "run-delete-fence" }),
                 )],
             )
@@ -921,7 +945,7 @@ mod tests {
                 &path,
                 "2026-07-08T10:14:30Z".to_string(),
                 value_event(
-                    "write_after_delete",
+                    EventKind::Legacy("write_after_delete".to_string()),
                     serde_json::json!({ "runId": "run-delete-fence" }),
                 ),
             )
@@ -950,7 +974,7 @@ mod tests {
                 &path,
                 "2026-07-08T10:13:30Z".to_string(),
                 value_event(
-                    "before_archive",
+                    EventKind::Legacy("before_archive".to_string()),
                     serde_json::json!({ "runId": "run-archive-fence" }),
                 ),
             )
@@ -967,7 +991,7 @@ mod tests {
                 &archived_path,
                 "2026-07-08T10:14:30Z".to_string(),
                 value_event(
-                    "while_archived",
+                    EventKind::Legacy("while_archived".to_string()),
                     serde_json::json!({ "runId": "run-archive-fence" }),
                 ),
             )
@@ -984,7 +1008,7 @@ mod tests {
                 &restored_path,
                 "2026-07-08T10:15:30Z".to_string(),
                 value_event(
-                    "after_unarchive",
+                    EventKind::Legacy("after_unarchive".to_string()),
                     serde_json::json!({ "runId": "run-archive-fence" }),
                 ),
             )

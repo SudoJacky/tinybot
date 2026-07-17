@@ -1,5 +1,6 @@
 use super::{
-    RolloutItem, RolloutLine, RolloutReconstruction, SessionMeta, TokenUsage, TokenUsageInfo,
+    CompactedItem, EventKind, EventMsg, ResponseItem, RolloutItem, RolloutLine,
+    RolloutReconstruction, SessionMeta, TokenUsage, TokenUsageInfo, TurnContextItem,
 };
 use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource,
@@ -55,27 +56,31 @@ fn reconstruct_rollout_with_mode(
     lines: &[RolloutLine],
     apply_context_checkpoints: bool,
 ) -> Result<RolloutReconstruction, WorkerProtocolError> {
-    let surviving = effective_rollout_line_indexes(lines)
-        .into_iter()
-        .map(|index| &lines[index]);
-    let mut replay = RolloutReconstruction::default();
-    for line in surviving {
+    let effective_line_indexes = effective_rollout_line_indexes(lines);
+    let mut replay = RolloutReconstruction {
+        effective_line_indexes: effective_line_indexes.clone(),
+        ..Default::default()
+    };
+    for index in effective_line_indexes {
+        let line = &lines[index];
         match &line.item {
             RolloutItem::SessionMeta(meta) => apply_meta(&mut replay, meta, &line.timestamp),
             RolloutItem::ResponseItem(item) => {
                 apply_response_item(&mut replay, item, &line.timestamp)
             }
             RolloutItem::EventMsg(event) => apply_event(&mut replay, event, &line.timestamp)?,
-            RolloutItem::Compacted(compacted) if apply_context_checkpoints => {
-                apply_compacted(&mut replay, compacted, &line.timestamp)?;
+            RolloutItem::Compacted(compacted) => {
+                apply_compaction_metadata(&mut replay, compacted);
+                if apply_context_checkpoints {
+                    apply_compacted(&mut replay, compacted, &line.timestamp)?;
+                }
                 replay.world_state_baseline = None;
             }
-            RolloutItem::Compacted(_) => replay.world_state_baseline = None,
+            RolloutItem::TurnContext(context) => apply_turn_context(&mut replay, context),
             RolloutItem::WorldState(world_state) => {
                 apply_world_state(&mut replay, world_state);
             }
-            RolloutItem::TurnContext(_)
-            | RolloutItem::InterAgentCommunication(_)
+            RolloutItem::InterAgentCommunication(_)
             | RolloutItem::InterAgentCommunicationMetadata { .. } => {}
         }
     }
@@ -132,8 +137,8 @@ pub fn effective_rollout_line_indexes(lines: &[RolloutLine]) -> Vec<usize> {
     let mut active_segment = None::<usize>;
 
     for (line_index, line) in lines.iter().enumerate() {
-        let event_type = event_type(&line.item);
-        if matches!(event_type, Some("task_started" | "turn_started")) {
+        let event_kind = event_kind(&line.item);
+        if event_kind.is_some_and(EventKind::starts_turn) {
             let segment_index = segments.len();
             segments.push(TurnSegment::default());
             active_segment = Some(segment_index);
@@ -159,10 +164,7 @@ pub fn effective_rollout_line_indexes(lines: &[RolloutLine]) -> Vec<usize> {
             }
         }
 
-        if matches!(
-            event_type,
-            Some("task_complete" | "turn_complete" | "turn_aborted")
-        ) {
+        if event_kind.is_some_and(EventKind::ends_turn) {
             active_segment = None;
         }
     }
@@ -187,19 +189,17 @@ pub fn latest_effective_compaction_index(lines: &[RolloutLine]) -> Option<usize>
         .find(|index| matches!(lines[*index].item, RolloutItem::Compacted(_)))
 }
 
-fn event_type(item: &RolloutItem) -> Option<&str> {
+fn event_kind(item: &RolloutItem) -> Option<&EventKind> {
     let RolloutItem::EventMsg(event) = item else {
         return None;
     };
-    event.get("type").and_then(Value::as_str)
+    Some(event.kind())
 }
 
 fn counts_as_user_turn(item: &RolloutItem) -> bool {
     match item {
-        RolloutItem::EventMsg(event) => {
-            event.get("type").and_then(Value::as_str) == Some("user_message")
-        }
-        RolloutItem::ResponseItem(item) => item.get("role").and_then(Value::as_str) == Some("user"),
+        RolloutItem::EventMsg(event) => matches!(event.kind(), EventKind::UserMessage),
+        RolloutItem::ResponseItem(item) => item.is_user_message(),
         RolloutItem::InterAgentCommunication(_) => true,
         RolloutItem::SessionMeta(_)
         | RolloutItem::TurnContext(_)
@@ -213,10 +213,10 @@ fn rolled_back_turns(item: &RolloutItem) -> Option<u32> {
     let RolloutItem::EventMsg(event) = item else {
         return None;
     };
-    if event.get("type").and_then(Value::as_str) != Some("thread_rolled_back") {
+    if !matches!(event.kind(), EventKind::ThreadRolledBack) {
         return None;
     }
-    let payload = event.get("payload").unwrap_or(event);
+    let payload = event.payload();
     payload
         .get("num_turns")
         .or_else(|| payload.get("numTurns"))
@@ -232,9 +232,31 @@ fn apply_meta(replay: &mut RolloutReconstruction, meta: &SessionMeta, timestamp:
         .unwrap_or_else(|| meta.thread_id.clone());
     replay.title = DEFAULT_TITLE.to_string();
     replay.updated_at = timestamp.to_string();
+    replay.forked_from_thread_id = meta.forked_from_thread_id.clone();
+    replay.parent_thread_id = meta.parent_thread_id.clone();
 }
 
-fn apply_response_item(replay: &mut RolloutReconstruction, item: &Value, timestamp: &str) {
+fn apply_turn_context(replay: &mut RolloutReconstruction, context: &TurnContextItem) {
+    replay.previous_turn_settings = Some(super::PreviousTurnSettings {
+        model: context.model.clone(),
+        provider: context.provider.clone(),
+        comp_hash: context.comp_hash.clone(),
+    });
+    replay.reference_context = Some(context.clone());
+}
+
+fn apply_compaction_metadata(replay: &mut RolloutReconstruction, compacted: &CompactedItem) {
+    replay.compaction_window.window_number = compacted
+        .window_number()
+        .unwrap_or_else(|| replay.compaction_window.window_number.saturating_add(1));
+    replay.compaction_window.first_window_id = compacted.first_window_id().map(str::to_string);
+    replay.compaction_window.previous_window_id =
+        compacted.previous_window_id().map(str::to_string);
+    replay.compaction_window.window_id = compacted.window_id().map(str::to_string);
+    replay.reference_context = None;
+}
+
+fn apply_response_item(replay: &mut RolloutReconstruction, item: &ResponseItem, timestamp: &str) {
     let role = item
         .get("role")
         .and_then(Value::as_str)
@@ -258,23 +280,23 @@ fn apply_response_item(replay: &mut RolloutReconstruction, item: &Value, timesta
 
 fn apply_event(
     replay: &mut RolloutReconstruction,
-    event: &Value,
+    event: &EventMsg,
     timestamp: &str,
 ) -> Result<(), WorkerProtocolError> {
     replay.updated_at = timestamp.to_string();
-    match event.get("type").and_then(Value::as_str) {
-        Some("metadata_updated") => {
+    match event.kind() {
+        EventKind::MetadataUpdated => {
             if let Some(user_profile) = event
-                .get("payload")
-                .and_then(|payload| payload.get("metadata"))
+                .payload()
+                .get("metadata")
                 .and_then(|metadata| metadata.get("userProfile"))
             {
                 replay.user_profile = user_profile.clone();
             }
             Ok(())
         }
-        Some("token_count") => {
-            let info = token_usage_info_value(event).ok_or_else(|| {
+        EventKind::TokenCount => {
+            let info = token_usage_info_value(event.as_value()).ok_or_else(|| {
                 replay_semantic_error(
                     "thread log token_count event is missing token usage info",
                     timestamp,
@@ -284,44 +306,51 @@ fn apply_event(
             replay.token_usage_info = Some(parse_token_usage_info(info, timestamp)?);
             Ok(())
         }
-        Some("session_cleared") => {
+        EventKind::SessionCleared => {
             replay.messages.clear();
             replay.user_profile = json!({});
             replay.token_usage_info = None;
             replay.compaction_overlap_candidate = None;
             Ok(())
         }
-        _ => Ok(()),
+        EventKind::TurnStarted
+        | EventKind::TaskStarted
+        | EventKind::TurnComplete
+        | EventKind::TaskComplete
+        | EventKind::TurnAborted
+        | EventKind::UserMessage
+        | EventKind::ThreadRolledBack
+        | EventKind::ThreadItem
+        | EventKind::AgentRunUpsert
+        | EventKind::AgentRunTrace
+        | EventKind::AgentRunCheckpointSet
+        | EventKind::AgentRunCheckpointClear
+        | EventKind::AgentRunTerminal
+        | EventKind::Legacy(_) => Ok(()),
     }
 }
 
 fn apply_compacted(
     replay: &mut RolloutReconstruction,
-    compacted: &Value,
+    compacted: &CompactedItem,
     timestamp: &str,
 ) -> Result<(), WorkerProtocolError> {
-    let replacement_history = compacted
-        .get("replacementHistory")
-        .or_else(|| compacted.get("replacement_history"))
-        .ok_or_else(|| {
-            replay_semantic_error(
-                "thread log compacted item is missing replacementHistory",
-                timestamp,
-                json!({ "compacted": compacted }),
-            )
-        })?
-        .as_array()
-        .ok_or_else(|| {
-            replay_semantic_error(
-                "thread log compacted replacementHistory must be an array",
-                timestamp,
-                json!({ "compacted": compacted }),
-            )
-        })?;
-    replay.messages = replacement_history.clone();
-    replay.compaction_overlap_candidate = replacement_history.last().cloned();
+    let replacement_history = compacted.replacement_history().ok_or_else(|| {
+        replay_semantic_error(
+            "thread log compacted item is missing replacementHistory",
+            timestamp,
+            json!({ "compacted": compacted }),
+        )
+    })?;
+    replay.messages = replacement_history
+        .iter()
+        .map(|item| item.as_value().clone())
+        .collect();
+    replay.compaction_overlap_candidate = replacement_history
+        .last()
+        .map(|item| item.as_value().clone());
     replay.token_usage_info = None;
-    replay.context_checkpoint = Some(compacted.clone());
+    replay.context_checkpoint = Some(compacted.as_value().clone());
     Ok(())
 }
 
@@ -735,7 +764,7 @@ mod tests {
             ThreadLogLine {
                 timestamp: "2026-07-08T10:02:00Z".to_string(),
                 ordinal: None,
-                item: ThreadLogItem::Compacted(json!({
+                item: ThreadLogItem::Compacted(compacted_item(json!({
                     "replacementHistory": [
                         {
                             "role": "assistant",
@@ -744,7 +773,7 @@ mod tests {
                             "timestamp": "2026-07-08T10:02:00Z"
                         }
                     ]
-                })),
+                }))),
             },
         ])
         .unwrap();
@@ -772,21 +801,21 @@ mod tests {
             ThreadLogLine {
                 timestamp: "2026-07-08T10:02:00Z".to_string(),
                 ordinal: None,
-                item: ThreadLogItem::EventMsg(json!({
+                item: ThreadLogItem::EventMsg(event_msg(json!({
                     "type": "token_count",
                     "info": {
                         "totalTokenUsage": usage_value(1500),
                         "lastTokenUsage": usage_value(300),
                         "modelContextWindow": 128000
                     }
-                })),
+                }))),
             },
             ThreadLogLine {
                 timestamp: "2026-07-08T10:03:00Z".to_string(),
                 ordinal: None,
-                item: ThreadLogItem::Compacted(json!({
+                item: ThreadLogItem::Compacted(compacted_item(json!({
                     "replacementHistory": []
-                })),
+                }))),
             },
         ])
         .unwrap();
@@ -822,7 +851,7 @@ mod tests {
             ThreadLogLine {
                 timestamp: "2026-07-08T10:03:00Z".to_string(),
                 ordinal: None,
-                item: ThreadLogItem::EventMsg(json!({
+                item: ThreadLogItem::EventMsg(event_msg(json!({
                     "type": "token_count",
                     "payload": {
                         "tokenUsageInfo": {
@@ -831,7 +860,7 @@ mod tests {
                             "modelContextWindow": 128000
                         }
                     }
-                })),
+                }))),
             },
         ])
         .unwrap();
@@ -857,7 +886,7 @@ mod tests {
             ThreadLogLine {
                 timestamp: "2026-07-08T10:01:00Z".to_string(),
                 ordinal: None,
-                item: ThreadLogItem::EventMsg(json!({
+                item: ThreadLogItem::EventMsg(event_msg(json!({
                     "type": "token_count",
                     "info": {
                         "totalTokenUsage": usage_value(1500),
@@ -866,7 +895,7 @@ mod tests {
                         },
                         "modelContextWindow": 128000
                     }
-                })),
+                }))),
             },
         ])
         .unwrap_err();
@@ -888,7 +917,7 @@ mod tests {
             ThreadLogLine {
                 timestamp: "2026-07-08T10:01:00Z".to_string(),
                 ordinal: None,
-                item: ThreadLogItem::EventMsg(json!({
+                item: ThreadLogItem::EventMsg(event_msg(json!({
                     "type": "token_count",
                     "info": {
                         "totalTokenUsage": usage_value(1500),
@@ -899,7 +928,7 @@ mod tests {
                         },
                         "modelContextWindow": 128000
                     }
-                })),
+                }))),
             },
         ])
         .unwrap_err();
@@ -922,9 +951,9 @@ mod tests {
             ThreadLogLine {
                 timestamp: "2026-07-08T10:01:00Z".to_string(),
                 ordinal: None,
-                item: ThreadLogItem::EventMsg(json!({
+                item: ThreadLogItem::EventMsg(event_msg(json!({
                     "type": "token_count"
-                })),
+                }))),
             },
         ])
         .unwrap_err();
@@ -937,29 +966,15 @@ mod tests {
 
     #[test]
     fn replay_errors_on_malformed_compacted_line() {
-        let error = reconstruct_rollout(&[
-            meta_line(
-                "thread-bad-compact",
-                Some("session-bad-compact"),
-                "2026-07-08T10:00:00Z",
-            ),
-            ThreadLogLine {
-                timestamp: "2026-07-08T10:01:00Z".to_string(),
-                ordinal: None,
-                item: ThreadLogItem::Compacted(json!({
-                    "replacementHistory": {
-                        "role": "assistant",
-                        "content": "not an array"
-                    }
-                })),
-            },
-        ])
+        let error = CompactedItem::from_value(json!({
+            "replacementHistory": {
+                "role": "assistant",
+                "content": "not an array"
+            }
+        }))
         .unwrap_err();
 
-        assert_eq!(error.code, WorkerProtocolErrorCode::InvalidProtocol);
-        assert_eq!(error.source, WorkerProtocolErrorSource::RustCore);
-        assert_eq!(error.details["method"], "rollout.reconstruct");
-        assert!(error.message.contains("must be an array"));
+        assert!(error.contains("must be an array"));
     }
 
     #[test]
@@ -1115,7 +1130,7 @@ mod tests {
         ThreadLogLine {
             timestamp: timestamp.to_string(),
             ordinal: None,
-            item: ThreadLogItem::ResponseItem(item),
+            item: ThreadLogItem::ResponseItem(response_item(item)),
         }
     }
 
@@ -1123,10 +1138,10 @@ mod tests {
         ThreadLogLine {
             timestamp: timestamp.to_string(),
             ordinal: None,
-            item: ThreadLogItem::EventMsg(json!({
+            item: ThreadLogItem::EventMsg(event_msg(json!({
                 "type": event_type,
                 "payload": payload
-            })),
+            }))),
         }
     }
 
@@ -1134,12 +1149,12 @@ mod tests {
         ThreadLogLine {
             timestamp: timestamp.to_string(),
             ordinal: None,
-            item: ThreadLogItem::Compacted(json!({
+            item: ThreadLogItem::Compacted(compacted_item(json!({
                 "replacementHistory": [{
                     "role": "assistant",
                     "content": summary
                 }]
-            })),
+            }))),
         }
     }
 
@@ -1147,15 +1162,27 @@ mod tests {
         ThreadLogLine {
             timestamp: timestamp.to_string(),
             ordinal: None,
-            item: ThreadLogItem::EventMsg(json!({
+            item: ThreadLogItem::EventMsg(event_msg(json!({
                 "type": "token_count",
                 "info": {
                     "total_token_usage": usage_value(1000 + last_tokens),
                     "last_token_usage": usage_value(last_tokens),
                     "model_context_window": context_window
                 }
-            })),
+            }))),
         }
+    }
+
+    fn event_msg(value: Value) -> EventMsg {
+        serde_json::from_value(value).unwrap()
+    }
+
+    fn response_item(value: Value) -> ResponseItem {
+        ResponseItem::from_value(value).unwrap()
+    }
+
+    fn compacted_item(value: Value) -> CompactedItem {
+        CompactedItem::from_value(value).unwrap()
     }
 
     fn usage_value(total_tokens: i64) -> Value {

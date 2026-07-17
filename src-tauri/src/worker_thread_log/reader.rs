@@ -94,6 +94,7 @@ fn thread_log_read_error(error: std::io::Error) -> WorkerProtocolError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::worker_rollout::{EventKind, EventMsg};
     use crate::worker_thread_log::{ThreadLogItem, ThreadLogLine, ThreadMeta};
     use std::path::PathBuf;
 
@@ -160,7 +161,10 @@ mod tests {
         let second = ThreadLogLine {
             timestamp: "2026-07-08T10:13:30Z".to_string(),
             ordinal: None,
-            item: ThreadLogItem::EventMsg(serde_json::json!({ "type": "turn_started" })),
+            item: ThreadLogItem::EventMsg(EventMsg::new(
+                EventKind::TurnStarted,
+                serde_json::json!({}),
+            )),
         };
         fs::write(
             &path,
@@ -186,7 +190,10 @@ mod tests {
         let second = ThreadLogLine {
             timestamp: "2026-07-08T10:13:30Z".to_string(),
             ordinal: Some(1),
-            item: ThreadLogItem::EventMsg(serde_json::json!({ "type": "turn_started" })),
+            item: ThreadLogItem::EventMsg(EventMsg::new(
+                EventKind::TurnStarted,
+                serde_json::json!({}),
+            )),
         };
         fs::write(
             &path,
