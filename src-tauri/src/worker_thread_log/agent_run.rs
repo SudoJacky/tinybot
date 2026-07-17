@@ -133,14 +133,18 @@ impl WorkerThreadLogRpc {
         let mut state = self.ensure_agent_run_thread(&record.session_id, &timestamp)?;
         let path = PathBuf::from(state.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
-        self.recorder.append_item(
-            &path,
-            timestamp.clone(),
-            value_event(
-                super::EventKind::AgentRunUpsert,
-                serde_json::json!({ "record": record }),
-            ),
-        )?;
+        let mut items = vec![value_event(
+            super::EventKind::AgentRunUpsert,
+            serde_json::json!({ "record": record }),
+        )];
+        if let Some(info) = record.token_usage_info.as_ref() {
+            items.push(value_event(
+                super::EventKind::TokenCount,
+                serde_json::json!({ "info": info }),
+            ));
+        }
+        self.recorder
+            .append_items(&path, timestamp.clone(), items)?;
         let log_head = self.recorder.thread_log_head(&path)?;
         state.updated_at = timestamp;
         if !record.model.trim().is_empty() {
@@ -819,6 +823,7 @@ fn agent_run_status_is_resumable(status: &AgentRunStatus) -> bool {
 
 pub(super) fn agent_run_records_from_lines(
     session_id: &str,
+    thread_id: &str,
     lines: &[super::ThreadLogLine],
 ) -> Result<Vec<AgentRunRecord>, WorkerProtocolError> {
     let mut runs: HashMap<String, AgentRunRecord> = HashMap::new();
@@ -847,12 +852,15 @@ pub(super) fn agent_run_records_from_lines(
                             }),
                         )
                     })?;
-                if record.session_id != session_id {
+                let belongs_to_session = record.session_id == session_id;
+                let belongs_to_thread = record.session_id == thread_id;
+                if !belongs_to_session && !belongs_to_thread {
                     return Err(agent_run_replay_error(
                         "agent_run_upsert record belongs to a different session",
                         line,
                         &serde_json::json!({
                             "expectedSessionId": session_id,
+                            "expectedThreadId": thread_id,
                             "actualSessionId": record.session_id,
                             "runId": record.run_id,
                         }),

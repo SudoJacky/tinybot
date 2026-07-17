@@ -72,6 +72,30 @@ pub(super) fn retire_writer_for_path<T>(
     operation()
 }
 
+pub(super) fn with_inactive_writer_path<T>(
+    path: &Path,
+    operation: impl FnOnce() -> Result<T, WorkerProtocolError>,
+) -> Result<Option<T>, WorkerProtocolError> {
+    let path_lock = path_lock_for(path)?;
+    let _path_guard = path_lock
+        .lock()
+        .map_err(|_| writer_lock_error(path, "writer path lifecycle"))?;
+    let active = rollout_writers()
+        .lock()
+        .map_err(|_| writer_lock_error(path, "writer registry"))?
+        .get(path)
+        .and_then(Weak::upgrade)
+        .is_some();
+    if active {
+        return Ok(None);
+    }
+    rollout_writers()
+        .lock()
+        .map_err(|_| writer_lock_error(path, "writer registry"))?
+        .remove(path);
+    operation().map(Some)
+}
+
 fn rollout_writers() -> &'static Mutex<HashMap<PathBuf, Weak<RolloutWriter>>> {
     ROLLOUT_WRITERS.get_or_init(|| Mutex::new(HashMap::new()))
 }

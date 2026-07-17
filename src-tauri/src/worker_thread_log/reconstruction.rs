@@ -33,7 +33,8 @@ pub(super) fn reconstruct_canonical_rollout(
         .iter()
         .map(|index| lines[*index].clone())
         .collect::<Vec<_>>();
-    let agent_runs = agent_run::agent_run_records_from_lines(&session_id, &effective_lines)?;
+    let agent_runs =
+        agent_run::agent_run_records_from_lines(&session_id, &thread_id, &effective_lines)?;
     let active_turn = effective_lines.iter().fold(false, |active, line| {
         let ThreadLogItem::EventMsg(event) = &line.item else {
             return active;

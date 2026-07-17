@@ -1213,7 +1213,7 @@ fn worker_run_agent_preserves_legacy_tool_content_with_envelope_payload() {
 }
 
 #[test]
-fn worker_run_agent_persists_rust_turn_messages_in_session_store() {
+fn worker_run_agent_persists_rust_turn_messages_in_canonical_rollout() {
     let fixture = WorkspaceFixture::new();
     let shared = Arc::new(Mutex::new(GatewayRuntime {
         native_agent_runtime: NativeAgentRuntimeServices::new(
@@ -1256,9 +1256,9 @@ fn worker_run_agent_persists_rust_turn_messages_in_session_store() {
     assert_eq!(history["messages"][0]["content"], "persist me");
     assert_eq!(history["messages"][1]["role"], "assistant");
     assert_eq!(history["messages"][1]["content"], "persisted assistant");
-    assert_eq!(history["messages"][1]["usage"]["prompt_tokens"], 10);
-    assert_eq!(history["messages"][1]["usage"]["completion_tokens"], 97);
-    assert_eq!(history["messages"][1]["usage"]["total_tokens"], 107);
+    assert_eq!(history["messages"][1]["usage"]["promptTokens"], 10);
+    assert_eq!(history["messages"][1]["usage"]["completionTokens"], 97);
+    assert_eq!(history["messages"][1]["usage"]["totalTokens"], 107);
 }
 
 #[test]
@@ -2665,7 +2665,7 @@ fn thread_owned_terminal_reentry_uses_thread_authority_without_session_log() {
 }
 
 #[test]
-fn canonical_thread_reads_override_stale_session_log_and_reject_parallel_writes() {
+fn canonical_thread_reads_supersede_stale_session_and_share_rollout_writes() {
     let fixture = WorkspaceFixture::new();
     let config = serde_json::json!({});
     let session_id = "canonical-thread-session";
@@ -2799,7 +2799,7 @@ fn canonical_thread_reads_override_stale_session_log_and_reject_parallel_writes(
     .expect("compatibility checkpoint read should use canonical thread");
     assert!(checkpoint.is_null());
 
-    let duplicate_turn = call_rust_state_service(
+    let compatibility_turn = call_rust_state_service(
         fixture.root.clone(),
         config.clone(),
         WorkerRequest::new(
@@ -2812,10 +2812,10 @@ fn canonical_thread_reads_override_stale_session_log_and_reject_parallel_writes(
                 "messages": [{ "role": "assistant", "content": "duplicate" }]
             }),
         ),
-        "reject duplicate session turn",
+        "persist compatibility session turn",
     )
-    .expect_err("thread-owned session.persist_turn must fail");
-    assert!(duplicate_turn.contains("thread-owned persistence"));
+    .expect("thread-owned session.persist_turn should append to canonical Rollout");
+    assert_eq!(compatibility_turn["saved_message_count"], 1);
 
     let duplicate_record = native_agent_run_record(
         &serde_json::json!({
@@ -2831,7 +2831,7 @@ fn canonical_thread_reads_override_stale_session_log_and_reject_parallel_writes(
         session_id,
         "duplicate-run",
     );
-    let duplicate_run = call_rust_state_service(
+    let compatibility_run = call_rust_state_service(
         fixture.root.clone(),
         config,
         WorkerRequest::new(
@@ -2840,10 +2840,10 @@ fn canonical_thread_reads_override_stale_session_log_and_reject_parallel_writes(
             "agent_run.upsert",
             serde_json::json!({ "record": duplicate_record }),
         ),
-        "reject duplicate agent run",
+        "persist compatibility agent run",
     )
-    .expect_err("thread-owned agent_run.upsert must fail");
-    assert!(duplicate_run.contains("thread-owned persistence"));
+    .expect("thread-owned agent_run.upsert should append to canonical Rollout");
+    assert_eq!(compatibility_run["runId"], "duplicate-run");
 }
 
 #[test]

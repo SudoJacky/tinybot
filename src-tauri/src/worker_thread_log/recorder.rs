@@ -4,7 +4,7 @@ use crate::worker_protocol::{
 };
 #[cfg(test)]
 use crate::worker_rollout::ResponseItem;
-use crate::worker_rollout::{EventKind, EventMsg};
+use crate::worker_rollout::{should_persist_rollout_item, EventKind, EventMsg};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -14,6 +14,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use super::compression::{
+    compress_rollout, compressed_rollout_path, is_rollout_compressed,
+    materialize_rollout_for_append, remove_rollout,
+};
 use super::rollout_writer::{retire_writer_for_path, writer_for_path, RolloutWriter};
 
 const THREAD_LOG_HEAD_TAIL_BYTES: u64 = 8 * 1024;
@@ -178,7 +182,7 @@ impl ThreadRecorder {
 
     pub fn delete_rollout(&self, path: &Path) -> Result<(), WorkerProtocolError> {
         self.validate_thread_path(path)?;
-        retire_writer_for_path(path, || fs::remove_file(path).map_err(thread_log_io_error))?;
+        retire_writer_for_path(path, || remove_rollout(path))?;
         self.writers
             .lock()
             .map_err(|_| {
@@ -189,7 +193,23 @@ impl ThreadRecorder {
     }
 
     pub fn archive_rollout(&self, path: &Path) -> Result<PathBuf, WorkerProtocolError> {
-        self.relocate_rollout(path, &self.root, &self.archive_root)
+        let target = self.relocate_rollout(path, &self.root, &self.archive_root)?;
+        if let Err(error) = compress_rollout(&target) {
+            if let Err(rollback_error) =
+                self.relocate_rollout(&target, &self.archive_root, &self.root)
+            {
+                eprintln!(
+                    "rollout_archive_compression_rollback_failed source={} target={} \
+                     compression_error={} rollback_error={}",
+                    path.display(),
+                    target.display(),
+                    error.message,
+                    rollback_error.message
+                );
+            }
+            return Err(error);
+        }
+        Ok(target)
     }
 
     pub fn unarchive_rollout(&self, path: &Path) -> Result<PathBuf, WorkerProtocolError> {
@@ -207,12 +227,22 @@ impl ThreadRecorder {
         is_canonical_thread_log_path(&self.archive_root, path)
     }
 
+    #[cfg(test)]
+    pub(super) fn is_compressed(&self, path: &Path) -> Result<bool, WorkerProtocolError> {
+        is_rollout_compressed(path)
+    }
+
     pub(super) fn thread_log_head(
         &self,
         path: &Path,
     ) -> Result<ThreadLogHead, WorkerProtocolError> {
         self.validate_thread_path(path)?;
-        let mut file = fs::File::open(path).map_err(thread_log_io_error)?;
+        let storage_path = if is_rollout_compressed(path)? {
+            compressed_rollout_path(path)?
+        } else {
+            path.to_path_buf()
+        };
+        let mut file = fs::File::open(&storage_path).map_err(thread_log_io_error)?;
         let byte_length = file.metadata().map_err(thread_log_io_error)?.len();
         let tail_start = byte_length.saturating_sub(THREAD_LOG_HEAD_TAIL_BYTES);
         file.seek(SeekFrom::Start(tail_start))
@@ -231,6 +261,14 @@ impl ThreadRecorder {
     }
 
     fn add_lines(&self, path: &Path, lines: Vec<ThreadLogLine>) -> Result<(), WorkerProtocolError> {
+        let lines = lines
+            .into_iter()
+            .filter_map(|line| match should_persist_rollout_item(&line.item) {
+                Ok(true) => Some(Ok(line)),
+                Ok(false) => None,
+                Err(error) => Some(Err(error)),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         if lines.is_empty() {
             return Ok(());
         }
@@ -239,6 +277,7 @@ impl ThreadRecorder {
 
     fn writer(&self, path: &Path) -> Result<std::sync::Arc<RolloutWriter>, WorkerProtocolError> {
         self.validate_thread_path(path)?;
+        materialize_rollout_for_append(path)?;
         let mut writers = self.writers.lock().map_err(|_| {
             thread_log_validation_error("thread log writer registry lock is poisoned")
         })?;
@@ -267,6 +306,7 @@ impl ThreadRecorder {
         })?;
         fs::create_dir_all(parent).map_err(thread_log_io_error)?;
         retire_writer_for_path(path, || {
+            materialize_rollout_for_append(path)?;
             if target.exists() {
                 return Err(thread_log_validation_error(
                     "thread log relocation target already exists",
@@ -790,7 +830,7 @@ mod tests {
                         &path,
                         "2026-07-08T10:13:30Z".to_string(),
                         value_event(
-                            EventKind::Legacy("worker_event".to_string()),
+                            EventKind::UserMessage,
                             serde_json::json!({ "workerIndex": index }),
                         ),
                     )
@@ -840,7 +880,7 @@ mod tests {
                 &path,
                 "2026-07-08T10:13:30Z".to_string(),
                 vec![value_event(
-                    EventKind::Legacy("first".to_string()),
+                    EventKind::UserMessage,
                     serde_json::json!({ "barrier": "flush" }),
                 )],
             )
@@ -853,7 +893,7 @@ mod tests {
                 &path,
                 "2026-07-08T10:14:30Z".to_string(),
                 vec![value_event(
-                    EventKind::Legacy("second".to_string()),
+                    EventKind::UserMessage,
                     serde_json::json!({ "barrier": "shutdown" }),
                 )],
             )
@@ -931,7 +971,7 @@ mod tests {
                 &path,
                 "2026-07-08T10:13:30Z".to_string(),
                 vec![value_event(
-                    EventKind::Legacy("pending_before_delete".to_string()),
+                    EventKind::UserMessage,
                     serde_json::json!({ "runId": "run-delete-fence" }),
                 )],
             )
@@ -945,7 +985,7 @@ mod tests {
                 &path,
                 "2026-07-08T10:14:30Z".to_string(),
                 value_event(
-                    EventKind::Legacy("write_after_delete".to_string()),
+                    EventKind::UserMessage,
                     serde_json::json!({ "runId": "run-delete-fence" }),
                 ),
             )
@@ -974,7 +1014,7 @@ mod tests {
                 &path,
                 "2026-07-08T10:13:30Z".to_string(),
                 value_event(
-                    EventKind::Legacy("before_archive".to_string()),
+                    EventKind::UserMessage,
                     serde_json::json!({ "runId": "run-archive-fence" }),
                 ),
             )
@@ -983,7 +1023,8 @@ mod tests {
         let archived_path = recorder.archive_rollout(&path).unwrap();
 
         assert!(!path.exists());
-        assert!(archived_path.exists());
+        assert!(!archived_path.exists());
+        assert!(recorder.is_compressed(&archived_path).unwrap());
         assert!(recorder.is_archived_path(&archived_path));
         assert_eq!(read_thread_lines(&archived_path).unwrap().len(), 2);
         recorder
@@ -991,11 +1032,13 @@ mod tests {
                 &archived_path,
                 "2026-07-08T10:14:30Z".to_string(),
                 value_event(
-                    EventKind::Legacy("while_archived".to_string()),
+                    EventKind::UserMessage,
                     serde_json::json!({ "runId": "run-archive-fence" }),
                 ),
             )
             .unwrap();
+        assert!(archived_path.exists());
+        assert!(!recorder.is_compressed(&archived_path).unwrap());
 
         let restored_path = recorder.unarchive_rollout(&archived_path).unwrap();
 
@@ -1008,7 +1051,7 @@ mod tests {
                 &restored_path,
                 "2026-07-08T10:15:30Z".to_string(),
                 value_event(
-                    EventKind::Legacy("after_unarchive".to_string()),
+                    EventKind::UserMessage,
                     serde_json::json!({ "runId": "run-archive-fence" }),
                 ),
             )

@@ -2496,7 +2496,7 @@ fn session_persist_turn_does_not_write_legacy_session_or_thread_stores() {
 }
 
 #[test]
-fn agent_run_persistence_does_not_write_legacy_session_store() {
+fn agent_run_persistence_drops_transient_trace_and_does_not_write_legacy_session_store() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new_persistent_sessions(
         fixture.root.clone(),
@@ -2586,9 +2586,7 @@ fn agent_run_persistence_does_not_write_legacy_session_store() {
     let trace_events = get.result.as_ref().unwrap()["traceEvents"]
         .as_array()
         .expect("trace events should be an array");
-    assert_eq!(trace_events.len(), 2);
-    assert_eq!(trace_events[0]["eventId"], "trace-delta-1");
-    assert_eq!(trace_events[1]["eventId"], "trace-delta-2");
+    assert!(trace_events.is_empty());
     assert!(!fixture
         .root
         .join("sessions")
@@ -11955,7 +11953,10 @@ fn first_thread_log_file_under(root: &Path, directory: &str) -> Option<PathBuf> 
             } else if path
                 .file_name()
                 .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("thread-") && name.ends_with(".jsonl"))
+                .is_some_and(|name| {
+                    name.starts_with("thread-")
+                        && (name.ends_with(".jsonl") || name.ends_with(".jsonl.zst"))
+                })
             {
                 return Some(path);
             }

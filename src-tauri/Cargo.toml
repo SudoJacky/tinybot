@@ -36,6 +36,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 tokio = { version = "1", features = ["io-util", "process", "rt-multi-thread", "sync", "time"] }
 tokio-util = "0.7"
 url = "2"
+zstd = "0.13"
 
 [dev-dependencies]
 axum = "0.8"

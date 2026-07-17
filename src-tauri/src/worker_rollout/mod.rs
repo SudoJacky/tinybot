@@ -1,6 +1,8 @@
+mod policy;
 mod reconstruction;
 mod types;
 
+pub use self::policy::should_persist_rollout_item;
 pub use self::reconstruction::{
     effective_rollout_line_indexes, latest_effective_compaction_index, reconstruct_rollout,
     reconstruct_transcript,

@@ -3,7 +3,8 @@ use super::ThreadStateRecord;
 use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource,
 };
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
+use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -19,6 +20,7 @@ pub(super) struct ThreadLogHeadRecord {
     pub(super) thread_id: String,
     pub(super) byte_length: i64,
     pub(super) tail_hash: String,
+    pub(super) projection_hash: String,
 }
 
 #[derive(Clone, Debug)]
@@ -60,7 +62,9 @@ impl ThreadStateDb {
         let mut connection = self.open()?;
         let transaction = connection.transaction().map_err(sqlite_error)?;
         upsert_thread(&transaction, record)?;
-        upsert_thread_log_head(&transaction, &record.id, log_head)?;
+        let latest_checkpoint = latest_context_checkpoint_for_thread(&transaction, &record.id)?;
+        let projection_hash = thread_projection_hash(record, latest_checkpoint.as_ref());
+        upsert_thread_log_head(&transaction, &record.id, log_head, projection_hash.as_str())?;
         transaction.commit().map_err(sqlite_error)
     }
 
@@ -74,7 +78,6 @@ impl ThreadStateDb {
         let mut connection = self.open()?;
         let transaction = connection.transaction().map_err(sqlite_error)?;
         upsert_thread(&transaction, record)?;
-        upsert_thread_log_head(&transaction, &record.id, log_head)?;
         match latest_checkpoint {
             Some(checkpoint) => upsert_latest_context_checkpoint(&transaction, checkpoint)?,
             None => {
@@ -86,6 +89,8 @@ impl ThreadStateDb {
                     .map_err(sqlite_error)?;
             }
         }
+        let projection_hash = thread_projection_hash(record, latest_checkpoint);
+        upsert_thread_log_head(&transaction, &record.id, log_head, projection_hash.as_str())?;
         transaction.commit().map_err(sqlite_error)
     }
 
@@ -96,7 +101,7 @@ impl ThreadStateDb {
         let connection = self.open()?;
         let mut statement = connection
             .prepare(
-                "SELECT head.thread_id, head.byte_length, head.tail_hash
+                "SELECT head.thread_id, head.byte_length, head.tail_hash, head.projection_hash
                  FROM thread_log_heads head
                  INNER JOIN threads thread ON thread.id = head.thread_id
                  WHERE thread.id = ?1 OR thread.session_id = ?1
@@ -118,7 +123,7 @@ impl ThreadStateDb {
         let connection = self.open()?;
         let mut statement = connection
             .prepare(
-                "SELECT thread_id, byte_length, tail_hash
+                "SELECT thread_id, byte_length, tail_hash, projection_hash
                  FROM thread_log_heads
                  ORDER BY thread_id ASC",
             )
@@ -375,7 +380,8 @@ fn ensure_schema(connection: &Connection) -> Result<(), WorkerProtocolError> {
             CREATE TABLE IF NOT EXISTS thread_log_heads (
                 thread_id TEXT PRIMARY KEY NOT NULL,
                 byte_length INTEGER NOT NULL,
-                tail_hash TEXT NOT NULL
+                tail_hash TEXT NOT NULL,
+                projection_hash TEXT NOT NULL DEFAULT ''
             );
             ",
         )
@@ -412,6 +418,31 @@ fn ensure_schema(connection: &Connection) -> Result<(), WorkerProtocolError> {
             [],
         )
         .map_err(sqlite_error)?;
+    let has_projection_hash = {
+        let mut statement = connection
+            .prepare("PRAGMA table_info(thread_log_heads)")
+            .map_err(sqlite_error)?;
+        let columns = statement
+            .query_map([], |row| row.get::<_, String>(1))
+            .map_err(sqlite_error)?;
+        let mut found = false;
+        for column in columns {
+            if column.map_err(sqlite_error)? == "projection_hash" {
+                found = true;
+                break;
+            }
+        }
+        found
+    };
+    if !has_projection_hash {
+        connection
+            .execute(
+                "ALTER TABLE thread_log_heads
+                 ADD COLUMN projection_hash TEXT NOT NULL DEFAULT ''",
+                [],
+            )
+            .map_err(sqlite_error)?;
+    }
     Ok(())
 }
 
@@ -484,19 +515,78 @@ fn upsert_latest_context_checkpoint(
     Ok(())
 }
 
+fn latest_context_checkpoint_for_thread(
+    connection: &Connection,
+    thread_id: &str,
+) -> Result<Option<LatestContextCheckpointRecord>, WorkerProtocolError> {
+    connection
+        .query_row(
+            "SELECT thread_id, COALESCE(ordinal, line_number),
+                    checkpoint_timestamp, checkpoint_hash
+             FROM latest_context_checkpoints
+             WHERE thread_id = ?1",
+            params![thread_id],
+            row_to_latest_context_checkpoint,
+        )
+        .optional()
+        .map_err(sqlite_error)
+}
+
+pub(super) fn thread_projection_hash(
+    record: &ThreadStateRecord,
+    latest_checkpoint: Option<&LatestContextCheckpointRecord>,
+) -> String {
+    let checkpoint = latest_checkpoint.map(|checkpoint| {
+        serde_json::json!({
+            "threadId": checkpoint.thread_id,
+            "ordinal": checkpoint.ordinal,
+            "timestamp": checkpoint.timestamp,
+            "checkpointHash": checkpoint.checkpoint_hash,
+        })
+    });
+    let projection = serde_json::json!({
+        "id": record.id,
+        "sessionId": record.session_id,
+        "threadPath": record.thread_path,
+        "createdAt": record.created_at,
+        "updatedAt": record.updated_at,
+        "source": record.source,
+        "title": record.title,
+        "preview": record.preview,
+        "cwd": record.cwd,
+        "modelProvider": record.model_provider,
+        "model": record.model,
+        "tokensUsed": record.tokens_used,
+        "archived": record.archived,
+        "archivedAt": record.archived_at,
+        "latestCheckpoint": checkpoint,
+    });
+    let encoded =
+        serde_json::to_vec(&projection).expect("thread projection JSON serialization cannot fail");
+    format!("sha256:{:x}", Sha256::digest(encoded))
+}
+
 fn upsert_thread_log_head(
     connection: &Connection,
     thread_id: &str,
     log_head: &ThreadLogHead,
+    projection_hash: &str,
 ) -> Result<(), WorkerProtocolError> {
     connection
         .execute(
-            "INSERT INTO thread_log_heads (thread_id, byte_length, tail_hash)
-             VALUES (?1, ?2, ?3)
+            "INSERT INTO thread_log_heads (
+                thread_id, byte_length, tail_hash, projection_hash
+             ) VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(thread_id) DO UPDATE SET
                 byte_length = excluded.byte_length,
-                tail_hash = excluded.tail_hash",
-            params![thread_id, log_head.byte_length, log_head.tail_hash.as_str()],
+                tail_hash = excluded.tail_hash,
+                projection_hash = excluded.projection_hash",
+            params![
+                thread_id,
+                log_head.byte_length,
+                log_head.tail_hash.as_str(),
+                projection_hash
+            ],
         )
         .map_err(sqlite_error)?;
     Ok(())
@@ -538,6 +628,7 @@ fn row_to_thread_log_head(row: &rusqlite::Row<'_>) -> rusqlite::Result<ThreadLog
         thread_id: row.get(0)?,
         byte_length: row.get(1)?,
         tail_hash: row.get(2)?,
+        projection_hash: row.get(3)?,
     })
 }
 
@@ -852,6 +943,41 @@ mod tests {
     }
 
     #[test]
+    fn schema_adds_projection_hash_to_legacy_log_heads() {
+        let root = temp_root("projection-hash-migration");
+        let _ = fs::remove_dir_all(&root);
+        let db = ThreadStateDb::new(root.clone());
+        fs::create_dir_all(db.path().parent().unwrap()).unwrap();
+        let connection = rusqlite::Connection::open(db.path()).unwrap();
+        connection
+            .execute_batch(
+                "
+                CREATE TABLE thread_log_heads (
+                    thread_id TEXT PRIMARY KEY NOT NULL,
+                    byte_length INTEGER NOT NULL,
+                    tail_hash TEXT NOT NULL
+                );
+                ",
+            )
+            .unwrap();
+        drop(connection);
+
+        let connection = db.open().unwrap();
+        let projection_hash_default: String = connection
+            .query_row(
+                "SELECT dflt_value
+                 FROM pragma_table_info('thread_log_heads')
+                 WHERE name = 'projection_hash'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        assert_eq!(projection_hash_default, "''");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn latest_context_checkpoint_projection_is_replaceable_and_preserved_by_thread_updates() {
         let root = temp_root("latest-checkpoint");
         let _ = fs::remove_dir_all(&root);
@@ -884,6 +1010,7 @@ mod tests {
                 thread_id: thread.id.clone(),
                 byte_length: log_head.byte_length,
                 tail_hash: log_head.tail_hash.clone(),
+                projection_hash: thread_projection_hash(&thread, Some(&checkpoint)),
             })
         );
 

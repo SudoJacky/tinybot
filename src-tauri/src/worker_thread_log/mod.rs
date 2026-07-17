@@ -1,4 +1,5 @@
 mod agent_run;
+mod compression;
 mod reader;
 mod reconstruction;
 mod recorder;
@@ -21,20 +22,21 @@ use crate::worker_thread::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 static CONTEXT_CHECKPOINT_COMMIT_LOCK: Mutex<()> = Mutex::new(());
 
 pub use self::reader::read_thread_lines;
+use self::reader::read_thread_lines_for_discovery;
 use self::recorder::ThreadLogHead;
 use self::recorder::{canonicalize_thread_timestamp, is_canonical_thread_log_path};
 pub use self::recorder::{now_thread_timestamp, value_event, ThreadRecorder};
 pub use self::session_adapter::{history_from_replay, metadata_from_state};
 pub use self::state_db::ThreadStateDb;
-use self::state_db::{LatestContextCheckpointRecord, ThreadLogHeadRecord};
+use self::state_db::{thread_projection_hash, LatestContextCheckpointRecord, ThreadLogHeadRecord};
 pub use crate::worker_rollout::reconstruct_rollout as replay_thread;
 use crate::worker_rollout::reconstruct_transcript as replay_thread_transcript;
 pub use crate::worker_rollout::{
@@ -52,6 +54,7 @@ pub struct WorkerThreadLogRpc {
     thread_root: PathBuf,
     archive_root: PathBuf,
     policy: CapabilityPolicy,
+    reconstruction_cache: Arc<Mutex<HashMap<PathBuf, CachedRolloutReconstruction>>>,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -105,6 +108,12 @@ struct CanonicalThreadState {
     log_head: ThreadLogHeadRecord,
 }
 
+#[derive(Clone, Debug)]
+struct CachedRolloutReconstruction {
+    head: ThreadLogHead,
+    reconstruction: reconstruction::CanonicalRolloutReconstruction,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ThreadLogIndexConsistencyStatus {
@@ -146,12 +155,14 @@ pub struct ThreadLogIndexRepairReport {
 
 impl WorkerThreadLogRpc {
     pub fn new(workspace_root: PathBuf, policy: CapabilityPolicy) -> Self {
+        compression::spawn_rollout_compression_worker(workspace_root.clone());
         Self {
             recorder: ThreadRecorder::new(workspace_root.clone()),
             thread_root: workspace_root.join(".tinybot").join("threads"),
             archive_root: workspace_root.join(".tinybot").join("archived_threads"),
             state: ThreadStateDb::new(workspace_root),
             policy,
+            reconstruction_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -161,13 +172,13 @@ impl WorkerThreadLogRpc {
     ) -> Result<(), WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         self.ensure_state_index()?;
+        let session_id = thread
+            .session_key
+            .clone()
+            .unwrap_or_else(|| thread.thread_id.clone());
         if let Some(existing) = self.state.find_by_session_or_thread_id(&thread.thread_id)? {
-            let expected_session_id = thread
-                .session_key
-                .as_deref()
-                .unwrap_or(thread.thread_id.as_str());
             if existing.id == thread.thread_id
-                && existing.session_id.as_deref() == Some(expected_session_id)
+                && existing.session_id.as_deref() == Some(session_id.as_str())
             {
                 return self.sync_thread_record_projection(&existing, thread);
             }
@@ -175,16 +186,50 @@ impl WorkerThreadLogRpc {
                 "canonical Rollout identity conflicts with thread record",
                 serde_json::json!({
                     "threadId": thread.thread_id,
-                    "sessionId": expected_session_id,
+                    "sessionId": session_id,
                     "existingThreadId": existing.id,
                     "existingSessionId": existing.session_id,
                 }),
             ));
         }
-        let session_id = thread
-            .session_key
-            .clone()
-            .unwrap_or_else(|| thread.thread_id.clone());
+        let implicit_thread_id = thread_id_for_session_id(&session_id);
+        if implicit_thread_id != thread.thread_id {
+            if let Some(existing) = self
+                .state
+                .find_by_session_or_thread_id(&implicit_thread_id)?
+            {
+                if existing.id == implicit_thread_id {
+                    let legacy_path = PathBuf::from(&existing.thread_path);
+                    self.recorder.validate_thread_path(&legacy_path)?;
+                    let existing_lines = read_thread_lines(&legacy_path)?;
+                    let explicitly_created = existing_lines.iter().any(|line| {
+                        matches!(
+                            &line.item,
+                            ThreadLogItem::EventMsg(event)
+                                if event.kind() == &EventKind::MetadataUpdated
+                                    && event.payload().get("threadRecord").is_some()
+                        )
+                    });
+                    if !explicitly_created {
+                        self.recorder.delete_rollout(&legacy_path)?;
+                        if !self.state.delete_thread(&existing.id)? {
+                            return Err(thread_log_consistency_error(
+                                "superseded legacy Rollout state could not be deleted",
+                                serde_json::json!({
+                                    "threadId": thread.thread_id,
+                                    "sessionId": session_id,
+                                    "legacyThreadId": existing.id,
+                                }),
+                            ));
+                        }
+                        eprintln!(
+                            "legacy_session_import_superseded session_id={} legacy_thread_id={} canonical_thread_id={}",
+                            session_id, existing.id, thread.thread_id
+                        );
+                    }
+                }
+            }
+        }
         let created_at = canonicalize_thread_timestamp(&thread.created_at)?;
         let updated_at = canonicalize_thread_timestamp(
             thread
@@ -746,11 +791,11 @@ impl WorkerThreadLogRpc {
             ),
         )?;
 
-        let lines = read_thread_lines(&path)?;
-        let reconstructed = reconstruction::reconstruct_canonical_rollout(&lines)?;
+        let updated_lines = read_thread_lines(&path)?;
+        let reconstructed = reconstruction::reconstruct_canonical_rollout(&updated_lines)?;
         let context = reconstructed.semantic;
         let transcript = reconstructed.transcript;
-        let latest_checkpoint = latest_context_checkpoint_from_lines(&record.id, &lines)?;
+        let latest_checkpoint = latest_context_checkpoint_from_lines(&record.id, &updated_lines)?;
         let log_head = self.recorder.thread_log_head(&path)?;
         record.updated_at = timestamp;
         record.preview = preview_from_messages(&transcript.messages);
@@ -821,8 +866,7 @@ impl WorkerThreadLogRpc {
         };
         let path = PathBuf::from(&record.thread_path);
         self.recorder.validate_thread_path(&path)?;
-        let lines = read_thread_lines(&path)?;
-        let reconstructed = reconstruction::reconstruct_canonical_rollout(&lines)?;
+        let reconstructed = self.reconstruct_cached(&path)?;
         Ok(Some(history_from_replay(reconstructed.transcript, limit)))
     }
 
@@ -932,8 +976,7 @@ impl WorkerThreadLogRpc {
         };
         let path = PathBuf::from(&record.thread_path);
         self.recorder.validate_thread_path(&path)?;
-        let lines = read_thread_lines(&path)?;
-        let reconstructed = reconstruction::reconstruct_canonical_rollout(&lines)?;
+        let reconstructed = self.reconstruct_cached(&path)?;
         let replay = reconstructed.semantic;
         let meta = reconstructed.meta;
         let all_items = reconstructed.thread_items;
@@ -1017,6 +1060,49 @@ impl WorkerThreadLogRpc {
         Ok(snapshot)
     }
 
+    fn reconstruct_cached(
+        &self,
+        path: &Path,
+    ) -> Result<reconstruction::CanonicalRolloutReconstruction, WorkerProtocolError> {
+        const MAX_CACHED_ROLLOUTS: usize = 16;
+
+        let head = self.recorder.thread_log_head(path)?;
+        {
+            let cache = self.reconstruction_cache.lock().map_err(|_| {
+                thread_log_consistency_error(
+                    "thread Rollout reconstruction cache lock was poisoned",
+                    serde_json::json!({ "threadPath": path.display().to_string() }),
+                )
+            })?;
+            if let Some(cached) = cache.get(path) {
+                if cached.head == head {
+                    return Ok(cached.reconstruction.clone());
+                }
+            }
+        }
+        let lines = read_thread_lines(path)?;
+        let reconstruction = reconstruction::reconstruct_canonical_rollout(&lines)?;
+        let mut cache = self.reconstruction_cache.lock().map_err(|_| {
+            thread_log_consistency_error(
+                "thread Rollout reconstruction cache lock was poisoned",
+                serde_json::json!({ "threadPath": path.display().to_string() }),
+            )
+        })?;
+        if cache.len() >= MAX_CACHED_ROLLOUTS && !cache.contains_key(path) {
+            if let Some(evicted) = cache.keys().next().cloned() {
+                cache.remove(&evicted);
+            }
+        }
+        cache.insert(
+            path.to_path_buf(),
+            CachedRolloutReconstruction {
+                head,
+                reconstruction: reconstruction.clone(),
+            },
+        );
+        Ok(reconstruction)
+    }
+
     pub fn check_state_index(
         &self,
     ) -> Result<ThreadLogIndexConsistencyReport, WorkerProtocolError> {
@@ -1076,6 +1162,9 @@ impl WorkerThreadLogRpc {
     }
 
     fn ensure_state_index(&self) -> Result<(), WorkerProtocolError> {
+        if self.state_index_fast_path()? {
+            return Ok(());
+        }
         let report = self.state_index_consistency()?;
         if report.status == ThreadLogIndexConsistencyStatus::Clean {
             return Ok(());
@@ -1096,6 +1185,68 @@ impl WorkerThreadLogRpc {
             "automatic thread state index rebuild did not produce a clean index",
             serde_json::to_value(after).unwrap_or_default(),
         ))
+    }
+
+    fn state_index_fast_path(&self) -> Result<bool, WorkerProtocolError> {
+        if !self.state.path().exists() {
+            return Ok(false);
+        }
+        let mut paths = Vec::new();
+        collect_thread_log_paths(&self.thread_root, &self.thread_root, &mut paths)?;
+        collect_thread_log_paths(&self.archive_root, &self.archive_root, &mut paths)?;
+        let records = match self.state.list_all_threads() {
+            Ok(records) => records,
+            Err(_) => return Ok(false),
+        };
+        let heads = match self.state.list_thread_log_heads() {
+            Ok(heads) => heads,
+            Err(_) => return Ok(false),
+        };
+        let checkpoints = match self.state.list_latest_context_checkpoints() {
+            Ok(checkpoints) => checkpoints,
+            Err(_) => return Ok(false),
+        };
+        if records.len() != paths.len() || heads.len() != records.len() {
+            return Ok(false);
+        }
+        let path_set = paths.into_iter().collect::<HashSet<_>>();
+        let head_by_thread = heads
+            .into_iter()
+            .map(|head| (head.thread_id.clone(), head))
+            .collect::<HashMap<_, _>>();
+        let checkpoint_by_thread = checkpoints
+            .into_iter()
+            .map(|checkpoint| (checkpoint.thread_id.clone(), checkpoint))
+            .collect::<HashMap<_, _>>();
+        if checkpoint_by_thread
+            .keys()
+            .any(|thread_id| !head_by_thread.contains_key(thread_id))
+        {
+            return Ok(false);
+        }
+        for record in &records {
+            let path = PathBuf::from(&record.thread_path);
+            if !path_set.contains(&path) {
+                return Ok(false);
+            }
+            let Some(indexed_head) = head_by_thread.get(&record.id) else {
+                return Ok(false);
+            };
+            let physical_head = self.recorder.thread_log_head(&path)?;
+            if indexed_head.byte_length != physical_head.byte_length
+                || indexed_head.tail_hash != physical_head.tail_hash
+            {
+                return Ok(false);
+            }
+            let projection_hash =
+                thread_projection_hash(record, checkpoint_by_thread.get(&record.id));
+            if indexed_head.projection_hash.is_empty()
+                || indexed_head.projection_hash != projection_hash
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     fn rebuild_state_index_from_rollouts(&self) -> Result<usize, WorkerProtocolError> {
@@ -1147,7 +1298,7 @@ impl WorkerThreadLogRpc {
         if let Some(record) = record.as_ref() {
             let path = PathBuf::from(&record.thread_path);
             self.recorder.validate_thread_path(&path)?;
-            if !path.exists() {
+            if !compression::rollout_exists(&path)? {
                 return Err(thread_log_consistency_error(
                     "thread log indexed path does not exist",
                     serde_json::json!({
@@ -1213,7 +1364,29 @@ impl WorkerThreadLogRpc {
         let mut states = Vec::with_capacity(paths.len());
         let mut thread_ids = HashSet::with_capacity(paths.len());
         for path in paths {
-            let state = self.canonical_thread_state(&path)?;
+            let state = match self.canonical_thread_state(&path) {
+                Ok(state) => state,
+                Err(strict_error) => match self.discovered_thread_state(&path) {
+                    Ok(state) => {
+                        eprintln!(
+                            "thread_rollout_discovery_degraded path={} strict_error={}",
+                            path.display(),
+                            strict_error.message
+                        );
+                        state
+                    }
+                    Err(discovery_error) => {
+                        eprintln!(
+                            "thread_rollout_discovery_skipped path={} strict_error={} \
+                             discovery_error={}",
+                            path.display(),
+                            strict_error.message,
+                            discovery_error.message
+                        );
+                        continue;
+                    }
+                },
+            };
             if !thread_ids.insert(state.record.id.clone()) {
                 return Err(thread_log_consistency_error(
                     "duplicate canonical Rollouts exist for the same thread",
@@ -1227,6 +1400,91 @@ impl WorkerThreadLogRpc {
         }
         states.sort_by(|left, right| left.record.id.cmp(&right.record.id));
         Ok(states)
+    }
+
+    fn discovered_thread_state(
+        &self,
+        path: &Path,
+    ) -> Result<CanonicalThreadState, WorkerProtocolError> {
+        self.recorder.validate_thread_path(path)?;
+        let scan = read_thread_lines_for_discovery(path)?;
+        if scan.lines.is_empty() {
+            return Err(thread_log_consistency_error(
+                "Rollout discovery found no valid records",
+                serde_json::json!({ "threadPath": path.display().to_string() }),
+            ));
+        }
+        if !scan.diagnostics.is_empty() {
+            eprintln!(
+                "thread_rollout_discovery_bad_rows path={} skipped_rows={} diagnostics={}",
+                path.display(),
+                scan.diagnostics.len(),
+                scan.diagnostics.join(" | ")
+            );
+        }
+        let meta = thread_meta_from_lines(&scan.lines)?;
+        let replay_lines = scan
+            .lines
+            .iter()
+            .filter(|line| {
+                !matches!(
+                    &line.item,
+                    ThreadLogItem::EventMsg(event)
+                        if event.kind() == &EventKind::TokenCount
+                )
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let replay = replay_thread_transcript(&replay_lines)?;
+        let updated_at = state_projection_updated_at(&meta.created_at, &scan.lines);
+        let archived = self.recorder.is_archived_path(path);
+        let title = if is_default_session_title(&replay.title) {
+            title_from_messages(&replay.messages).unwrap_or(replay.title)
+        } else {
+            replay.title
+        };
+        let mut record = ThreadStateRecord {
+            id: meta.thread_id,
+            session_id: meta.session_id,
+            thread_path: path.display().to_string(),
+            created_at: meta.created_at,
+            updated_at: updated_at.clone(),
+            source: meta.source,
+            title,
+            preview: preview_from_messages(&replay.messages),
+            cwd: meta.cwd,
+            model_provider: meta.model_provider,
+            model: meta.model,
+            tokens_used: 0,
+            archived,
+            archived_at: None,
+        };
+        for line in &scan.lines {
+            let ThreadLogItem::EventMsg(event) = &line.item else {
+                continue;
+            };
+            if event.kind() != &EventKind::MetadataUpdated {
+                continue;
+            }
+            if let Some(metadata) = event.payload().get("metadata").and_then(Value::as_object) {
+                apply_metadata_patch_to_record(&mut record, metadata, &line.timestamp);
+            }
+        }
+        record.updated_at = updated_at;
+        record.archived = archived;
+        record.archived_at = archived.then(|| record.updated_at.clone());
+        let log_head = self.recorder.thread_log_head(path)?;
+        let projection_hash = thread_projection_hash(&record, None);
+        Ok(CanonicalThreadState {
+            log_head: ThreadLogHeadRecord {
+                thread_id: record.id.clone(),
+                byte_length: log_head.byte_length,
+                tail_hash: log_head.tail_hash,
+                projection_hash,
+            },
+            record,
+            latest_checkpoint: None,
+        })
     }
 
     fn canonical_thread_state(
@@ -1278,11 +1536,13 @@ impl WorkerThreadLogRpc {
         } else {
             None
         };
+        let projection_hash = thread_projection_hash(&record, latest_checkpoint.as_ref());
         Ok(CanonicalThreadState {
             log_head: ThreadLogHeadRecord {
                 thread_id: record.id.clone(),
                 byte_length: log_head.byte_length,
                 tail_hash: log_head.tail_hash,
+                projection_hash,
             },
             record,
             latest_checkpoint,
@@ -1986,7 +2246,7 @@ impl WorkerThreadLogRpc {
         };
         let path = PathBuf::from(record.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
-        if path.exists() {
+        if compression::rollout_exists(&path)? {
             self.recorder.delete_rollout(&path)?;
         }
         let deleted = self.state.delete_thread(&record.id)?;
@@ -2008,7 +2268,7 @@ impl WorkerThreadLogRpc {
         };
         let source = PathBuf::from(&record.thread_path);
         self.recorder.validate_thread_path(&source)?;
-        if !source.exists() {
+        if !compression::rollout_exists(&source)? {
             return Err(thread_log_consistency_error(
                 "thread log indexed path does not exist",
                 serde_json::json!({
@@ -2020,15 +2280,8 @@ impl WorkerThreadLogRpc {
         if self.recorder.is_archived_path(&source) == archived {
             return Ok(Some(record));
         }
-        let target = if archived {
-            self.recorder.archive_rollout(&source)?
-        } else {
-            self.recorder.unarchive_rollout(&source)?
-        };
         let timestamp = now_thread_timestamp();
-        self.recorder.append_item(
-            &target,
-            timestamp,
+        let archive_event = || {
             value_event(
                 EventKind::MetadataUpdated,
                 serde_json::json!({
@@ -2036,8 +2289,42 @@ impl WorkerThreadLogRpc {
                         "archived": archived,
                     }
                 }),
-            ),
-        )?;
+            )
+        };
+        let target = if archived {
+            self.recorder
+                .append_item(&source, timestamp.clone(), archive_event())?;
+            match self.recorder.archive_rollout(&source) {
+                Ok(target) => target,
+                Err(error) => {
+                    let rollback_timestamp = now_thread_timestamp();
+                    if let Err(rollback_error) = self.recorder.append_item(
+                        &source,
+                        rollback_timestamp,
+                        value_event(
+                            EventKind::MetadataUpdated,
+                            serde_json::json!({
+                                "metadata": {
+                                    "archived": false,
+                                }
+                            }),
+                        ),
+                    ) {
+                        eprintln!(
+                            "thread_rollout_archive_marker_rollback_failed thread_id={} \
+                             archive_error={} rollback_error={}",
+                            record.id, error.message, rollback_error.message
+                        );
+                    }
+                    return Err(error);
+                }
+            }
+        } else {
+            let target = self.recorder.unarchive_rollout(&source)?;
+            self.recorder
+                .append_item(&target, timestamp, archive_event())?;
+            target
+        };
         let canonical = self.canonical_thread_state(&target)?;
         self.state.replace_thread_projection(
             &canonical.record,
@@ -2504,8 +2791,19 @@ fn collect_thread_log_paths(
         let path = entry.path();
         if path.is_dir() {
             collect_thread_log_paths(thread_root, &path, paths)?;
-        } else if is_canonical_thread_log_path(thread_root, &path) {
-            paths.push(path);
+        } else if let Some(logical_path) = compression::logical_rollout_path(&path) {
+            if !is_canonical_thread_log_path(thread_root, &logical_path) {
+                continue;
+            }
+            if paths.contains(&logical_path) {
+                return Err(thread_log_consistency_error(
+                    "materialized and compressed Rollouts both exist",
+                    serde_json::json!({
+                        "threadPath": logical_path.display().to_string(),
+                    }),
+                ));
+            }
+            paths.push(logical_path);
         }
     }
     paths.sort();
@@ -2677,7 +2975,7 @@ enum ThreadRunState {
 }
 
 fn thread_run_state(path: &Path, run_id: &str) -> Result<ThreadRunState, WorkerProtocolError> {
-    if !path.exists() {
+    if !compression::rollout_exists(path)? {
         return Ok(ThreadRunState::Missing);
     }
     let lines = read_thread_lines(path)?;

@@ -1,14 +1,24 @@
+use super::compression::open_rollout_reader;
 use super::ThreadLogLine;
 use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource,
 };
+#[cfg(test)]
 use std::fs;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(super) struct ThreadDiscoveryScan {
+    pub(super) lines: Vec<ThreadLogLine>,
+    pub(super) diagnostics: Vec<String>,
+}
+
 pub fn read_thread_lines(path: &Path) -> Result<Vec<ThreadLogLine>, WorkerProtocolError> {
-    let content = fs::read_to_string(path).map_err(thread_log_read_error)?;
+    let reader = open_rollout_reader(path)?;
     let mut lines = Vec::new();
-    for (index, raw_line) in content.lines().enumerate() {
+    for (index, raw_line) in BufReader::new(reader).lines().enumerate() {
+        let raw_line = raw_line.map_err(thread_log_read_error)?;
         let trimmed = raw_line.trim();
         if trimmed.is_empty() {
             return Err(invalid_thread_log_line_error(
@@ -28,6 +38,56 @@ pub fn read_thread_lines(path: &Path) -> Result<Vec<ThreadLogLine>, WorkerProtoc
     }
     validate_rollout_ordinals(path, &lines)?;
     Ok(lines)
+}
+
+pub(super) fn read_thread_lines_for_discovery(
+    path: &Path,
+) -> Result<ThreadDiscoveryScan, WorkerProtocolError> {
+    let reader = open_rollout_reader(path)?;
+    let mut scan = ThreadDiscoveryScan::default();
+    let mut previous_ordinal = None;
+    for (index, raw_line) in BufReader::new(reader).lines().enumerate() {
+        let raw_line = match raw_line {
+            Ok(raw_line) => raw_line,
+            Err(error) => {
+                scan.diagnostics
+                    .push(format!("line {} read error: {error}", index + 1));
+                continue;
+            }
+        };
+        let trimmed = raw_line.trim();
+        if trimmed.is_empty() {
+            scan.diagnostics
+                .push(format!("line {} is blank", index + 1));
+            continue;
+        }
+        let line = match serde_json::from_str::<ThreadLogLine>(trimmed) {
+            Ok(line) => line,
+            Err(error) => {
+                scan.diagnostics
+                    .push(format!("line {} is invalid JSON: {error}", index + 1));
+                continue;
+            }
+        };
+        if let Some(ordinal) = line.ordinal {
+            if previous_ordinal.is_some_and(|previous| ordinal <= previous) {
+                scan.diagnostics.push(format!(
+                    "line {} has non-monotonic ordinal {ordinal}",
+                    index + 1
+                ));
+                continue;
+            }
+            previous_ordinal = Some(ordinal);
+        } else if previous_ordinal.is_some() {
+            scan.diagnostics.push(format!(
+                "line {} is missing an ordinal after numbered records",
+                index + 1
+            ));
+            continue;
+        }
+        scan.lines.push(line);
+    }
+    Ok(scan)
 }
 
 fn validate_rollout_ordinals(
@@ -206,6 +266,37 @@ mod tests {
         .unwrap();
 
         assert_eq!(read_thread_lines(&path).unwrap().len(), 2);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn discovery_reader_skips_bad_rows_but_full_replay_remains_strict() {
+        let path = temp_path("discovery-bad-row");
+        let mut first = valid_line();
+        first.ordinal = Some(0);
+        let third = ThreadLogLine {
+            timestamp: "2026-07-08T10:13:30Z".to_string(),
+            ordinal: Some(2),
+            item: ThreadLogItem::EventMsg(EventMsg::new(
+                EventKind::UserMessage,
+                serde_json::json!({"content": "discoverable"}),
+            )),
+        };
+        fs::write(
+            &path,
+            format!(
+                "{}\nnot-json\n{}\n",
+                serde_json::to_string(&first).unwrap(),
+                serde_json::to_string(&third).unwrap()
+            ),
+        )
+        .unwrap();
+
+        assert!(read_thread_lines(&path).is_err());
+        let scan = read_thread_lines_for_discovery(&path).unwrap();
+        assert_eq!(scan.lines.len(), 2);
+        assert_eq!(scan.diagnostics.len(), 1);
+        assert!(scan.diagnostics[0].contains("line 2"));
         let _ = fs::remove_file(path);
     }
 }
