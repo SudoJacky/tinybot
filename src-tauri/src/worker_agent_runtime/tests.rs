@@ -2847,6 +2847,60 @@ fn context_compaction_fails_when_one_atomic_unit_exceeds_summary_budget() {
 }
 
 #[test]
+fn agent_run_emits_compaction_failed_without_installing_a_checkpoint() {
+    let result = run_native_agent_turn_with_config(
+        &NativeAgentRuntimeServices::default(),
+        json!({
+            "runtime": "rust",
+            "runId": "run-context-compaction-failed",
+            "sessionId": "session-context-compaction-failed",
+            "messages": [
+                { "role": "user", "content": "indivisible context ".repeat(500) },
+                { "role": "user", "content": "current question" }
+            ]
+        }),
+        json!({
+            "agents": { "defaults": {
+                "provider": "fixture",
+                "model": "fixture-model",
+                "contextWindowTokens": 120,
+                "contextWindowStrategy": "compact",
+                "compactTriggerPercent": 50
+            }},
+            "providers": { "fixture": {
+                "responses": [{ "content": "must not be requested" }]
+            }}
+        }),
+    )
+    .expect("compaction failure should be returned as a terminal agent result");
+
+    assert_eq!(result["stopReason"], "provider_error");
+    assert!(result.get("contextCheckpoint").is_none());
+    assert!(result["events"].as_array().is_some_and(|events| !events
+        .iter()
+        .any(|event| { event["eventName"] == "agent.context.compacted" })));
+    let failed = result["events"]
+        .as_array()
+        .expect("events should be present")
+        .iter()
+        .find(|event| event["eventName"] == "agent.context.compaction_failed")
+        .expect("compaction failure event should be present");
+    assert_eq!(failed["payload"]["status"], "failed");
+    assert_eq!(failed["payload"]["trigger"], "auto");
+    assert_eq!(failed["payload"]["reason"], "context_limit");
+    assert_eq!(failed["payload"]["phase"], "pre_turn");
+    assert_eq!(failed["payload"]["method"], "summary");
+    assert_eq!(failed["payload"]["canonicalContextChanged"], false);
+    assert_eq!(
+        failed["payload"]["agentItem"]["code"],
+        "context_compaction_failed"
+    );
+    assert!(failed["payload"]["message"]
+        .as_str()
+        .is_some_and(|message| message.contains("single context unit")));
+}
+
+#[test]
 fn agent_run_emits_context_compaction_event_when_old_messages_are_summarized() {
     let result = run_native_agent_turn_with_config(
         &NativeAgentRuntimeServices::default(),

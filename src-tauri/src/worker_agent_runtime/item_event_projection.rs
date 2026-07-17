@@ -129,7 +129,10 @@ fn agent_item_for_runtime_event(event_name: &str, payload: &Value) -> Option<Age
                 ),
             }))
         }
-        "agent.error" | "agent.cancelled" | "agent.tool.cleanup_timeout" => {
+        "agent.error"
+        | "agent.cancelled"
+        | "agent.tool.cleanup_timeout"
+        | "agent.context.compaction_failed" => {
             let run_id = required_string(payload, &["runId", "run_id"], event_name);
             let code = optional_string(payload, &["stopReason", "code"])
                 .unwrap_or_else(|| event_name.trim_start_matches("agent.").to_string());

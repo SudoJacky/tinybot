@@ -417,6 +417,7 @@ async fn run_native_agent_turn_with_instructions_async(
                 ));
             }
             Err(error) => {
+                emit_context_compaction_failure(&context, &mut state, iteration, &error);
                 return Ok(provider_failure_result(
                     services, &context, &mut state, iteration, error,
                 ));
@@ -980,6 +981,37 @@ fn provider_failure_result(
     });
     state.attach_context_checkpoint(&mut result, None);
     result
+}
+
+fn emit_context_compaction_failure(
+    context: &NativeAgentRunContext,
+    state: &mut NativeAgentRunState,
+    iteration: i64,
+    error: &NativeAgentProviderFailure,
+) {
+    context.metrics().increment("compaction.failed");
+    state.emit_event(
+        "agent.context.compaction_failed",
+        serde_json::json!({
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "iteration": iteration,
+            "contextId": format!("{}:context:{}", context.run_id, iteration + 1),
+            "trigger": "auto",
+            "reason": "context_limit",
+            "phase": if iteration == 0 { "pre_turn" } else { "mid_turn" },
+            "method": "summary",
+            "provider": context.provider,
+            "model": context.model,
+            "status": "failed",
+            "code": "context_compaction_failed",
+            "failureStopReason": error.stop_reason(),
+            "message": error.message(),
+            "error": error.message(),
+            "estimatedTokensBefore": estimate_context_tokens_for_request(context),
+            "canonicalContextChanged": false,
+        }),
+    );
 }
 
 fn hook_denied_result(
