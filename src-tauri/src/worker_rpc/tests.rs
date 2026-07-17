@@ -2482,10 +2482,17 @@ fn session_persist_turn_does_not_write_legacy_session_or_thread_stores() {
         .join("state")
         .join("state.sqlite")
         .exists());
+    assert!(first_thread_log_file_under(&fixture.root, "threads").is_some());
     assert!(!fixture
         .root
         .join("sessions")
         .join("sessions.sqlite")
+        .exists());
+    assert!(!fixture
+        .root
+        .join(".tinybot")
+        .join("state")
+        .join("thread-store.jsonl")
         .exists());
     assert!(!fixture
         .root
@@ -2597,6 +2604,13 @@ fn agent_run_persistence_drops_transient_trace_and_does_not_write_legacy_session
         .join(".tinybot")
         .join("state")
         .join("state.sqlite")
+        .exists());
+    assert!(first_thread_log_file_under(&fixture.root, "threads").is_some());
+    assert!(!fixture
+        .root
+        .join(".tinybot")
+        .join("state")
+        .join("thread-store.jsonl")
         .exists());
     assert!(!fixture
         .root
