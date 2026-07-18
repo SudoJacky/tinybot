@@ -24,10 +24,13 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 static CONTEXT_CHECKPOINT_COMMIT_LOCK: Mutex<()> = Mutex::new(());
+const LEGACY_SESSION_MIGRATION_VERSION: u32 = 1;
+const LEGACY_SESSION_MIGRATION_MARKER: &str = "legacy-session-store-v1.json";
 
 pub use self::reader::read_thread_lines;
 use self::reader::read_thread_lines_for_discovery;
@@ -153,6 +156,17 @@ pub struct ThreadLogIndexRepairReport {
     pub before: ThreadLogIndexConsistencyReport,
     pub after: ThreadLogIndexConsistencyReport,
     pub rebuilt_thread_count: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LegacySessionMigrationReport {
+    pub version: u32,
+    pub source_path: String,
+    pub total_count: usize,
+    pub imported_count: usize,
+    pub skipped_count: usize,
+    pub completed_at: String,
 }
 
 impl WorkerThreadLogRpc {
@@ -466,25 +480,176 @@ impl WorkerThreadLogRpc {
         )
     }
 
-    pub(crate) fn import_legacy_sessions(
+    pub(crate) fn migrate_legacy_session_store_at_startup(
         &self,
+        source_path: &Path,
         sessions: &[SessionMetadata],
-    ) -> Result<(), WorkerProtocolError> {
-        if sessions.is_empty() {
-            return Ok(());
+    ) -> Result<LegacySessionMigrationReport, WorkerProtocolError> {
+        let marker_path = self.legacy_session_migration_marker_path()?;
+        if marker_path.exists() {
+            let marker = fs::read(&marker_path).map_err(|error| {
+                legacy_session_migration_error(
+                    "failed to read legacy session migration marker",
+                    serde_json::json!({
+                        "markerPath": marker_path,
+                        "error": error.to_string(),
+                    }),
+                )
+            })?;
+            let report: LegacySessionMigrationReport =
+                serde_json::from_slice(&marker).map_err(|error| {
+                    legacy_session_migration_error(
+                        "legacy session migration marker is invalid",
+                        serde_json::json!({
+                            "markerPath": marker_path,
+                            "error": error.to_string(),
+                        }),
+                    )
+                })?;
+            if report.version != LEGACY_SESSION_MIGRATION_VERSION {
+                return Err(legacy_session_migration_error(
+                    "legacy session migration marker version is unsupported",
+                    serde_json::json!({
+                        "markerPath": marker_path,
+                        "expectedVersion": LEGACY_SESSION_MIGRATION_VERSION,
+                        "actualVersion": report.version,
+                    }),
+                ));
+            }
+            eprintln!(
+                "legacy_session_migration_already_completed version={} total={} imported={} skipped={}",
+                report.version, report.total_count, report.imported_count, report.skipped_count
+            );
+            return Ok(report);
         }
+
+        eprintln!(
+            "legacy_session_migration_started version={} source_path={} total={}",
+            LEGACY_SESSION_MIGRATION_VERSION,
+            source_path.display(),
+            sessions.len()
+        );
         self.ensure_state_index()?;
+        let mut imported_count = 0usize;
+        let mut skipped_count = 0usize;
         for session in sessions {
             if self
                 .state
                 .find_by_session_or_thread_id(&session.session_id)?
                 .is_some()
             {
+                skipped_count = skipped_count.saturating_add(1);
                 continue;
             }
-            self.import_legacy_session(session)?;
+            if let Err(error) = self.import_legacy_session(session) {
+                eprintln!(
+                    "legacy_session_migration_failed version={} session_id={} error={}",
+                    LEGACY_SESSION_MIGRATION_VERSION, session.session_id, error.message
+                );
+                return Err(error);
+            }
+            imported_count = imported_count.saturating_add(1);
         }
-        Ok(())
+        let report = LegacySessionMigrationReport {
+            version: LEGACY_SESSION_MIGRATION_VERSION,
+            source_path: source_path.display().to_string(),
+            total_count: sessions.len(),
+            imported_count,
+            skipped_count,
+            completed_at: now_thread_timestamp(),
+        };
+        self.write_legacy_session_migration_marker(&marker_path, &report)?;
+        eprintln!(
+            "legacy_session_migration_completed version={} total={} imported={} skipped={} marker_path={}",
+            report.version,
+            report.total_count,
+            report.imported_count,
+            report.skipped_count,
+            marker_path.display()
+        );
+        Ok(report)
+    }
+
+    fn legacy_session_migration_marker_path(&self) -> Result<PathBuf, WorkerProtocolError> {
+        let tinybot_root = self.thread_root.parent().ok_or_else(|| {
+            legacy_session_migration_error(
+                "thread root has no parent for migration state",
+                serde_json::json!({ "threadRoot": self.thread_root }),
+            )
+        })?;
+        Ok(tinybot_root
+            .join("state")
+            .join("migrations")
+            .join(LEGACY_SESSION_MIGRATION_MARKER))
+    }
+
+    fn write_legacy_session_migration_marker(
+        &self,
+        marker_path: &Path,
+        report: &LegacySessionMigrationReport,
+    ) -> Result<(), WorkerProtocolError> {
+        let parent = marker_path.parent().ok_or_else(|| {
+            legacy_session_migration_error(
+                "legacy session migration marker has no parent directory",
+                serde_json::json!({ "markerPath": marker_path }),
+            )
+        })?;
+        fs::create_dir_all(parent).map_err(|error| {
+            legacy_session_migration_error(
+                "failed to create legacy session migration marker directory",
+                serde_json::json!({
+                    "markerPath": marker_path,
+                    "error": error.to_string(),
+                }),
+            )
+        })?;
+        let bytes = serde_json::to_vec_pretty(report).map_err(|error| {
+            legacy_session_migration_error(
+                "failed to serialize legacy session migration report",
+                serde_json::json!({ "error": error.to_string() }),
+            )
+        })?;
+        let temp_path = marker_path.with_extension(format!("tmp-{}", std::process::id()));
+        let mut file = fs::File::create(&temp_path).map_err(|error| {
+            legacy_session_migration_error(
+                "failed to create legacy session migration marker",
+                serde_json::json!({
+                    "markerPath": marker_path,
+                    "tempPath": temp_path,
+                    "error": error.to_string(),
+                }),
+            )
+        })?;
+        file.write_all(&bytes).map_err(|error| {
+            legacy_session_migration_error(
+                "failed to write legacy session migration marker",
+                serde_json::json!({
+                    "markerPath": marker_path,
+                    "tempPath": temp_path,
+                    "error": error.to_string(),
+                }),
+            )
+        })?;
+        file.sync_all().map_err(|error| {
+            legacy_session_migration_error(
+                "failed to sync legacy session migration marker",
+                serde_json::json!({
+                    "markerPath": marker_path,
+                    "tempPath": temp_path,
+                    "error": error.to_string(),
+                }),
+            )
+        })?;
+        fs::rename(&temp_path, marker_path).map_err(|error| {
+            legacy_session_migration_error(
+                "failed to publish legacy session migration marker",
+                serde_json::json!({
+                    "markerPath": marker_path,
+                    "tempPath": temp_path,
+                    "error": error.to_string(),
+                }),
+            )
+        })
     }
 
     fn import_legacy_session(&self, session: &SessionMetadata) -> Result<(), WorkerProtocolError> {
@@ -4088,6 +4253,19 @@ fn thread_log_state_io_error(error: std::io::Error) -> WorkerProtocolError {
 }
 
 fn thread_log_consistency_error(message: impl Into<String>, details: Value) -> WorkerProtocolError {
+    WorkerProtocolError::new(
+        WorkerProtocolErrorCode::WorkerError,
+        message,
+        details,
+        false,
+        WorkerProtocolErrorSource::RustCore,
+    )
+}
+
+fn legacy_session_migration_error(
+    message: impl Into<String>,
+    details: Value,
+) -> WorkerProtocolError {
     WorkerProtocolError::new(
         WorkerProtocolErrorCode::WorkerError,
         message,

@@ -19,6 +19,65 @@ use std::{
 
 static WORKSPACE_FIXTURE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+fn write_legacy_session_store_fixture(root: &Path, sessions: &[Value]) {
+    let path = root.join("sessions").join("sessions.sqlite");
+    std::fs::create_dir_all(path.parent().unwrap())
+        .expect("legacy session fixture directory should create");
+    let mut connection =
+        rusqlite::Connection::open(path).expect("legacy session fixture SQLite should open");
+    connection
+        .execute_batch(
+            "
+            CREATE TABLE IF NOT EXISTS sessions (
+                session_id TEXT PRIMARY KEY NOT NULL,
+                title TEXT NOT NULL,
+                workspace_dir TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                session_json TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_sessions_updated_at
+                ON sessions(updated_at DESC, session_id ASC);
+            DELETE FROM sessions;
+            ",
+        )
+        .expect("legacy session fixture schema should create");
+    let transaction = connection
+        .transaction()
+        .expect("legacy session fixture transaction should start");
+    {
+        let mut statement = transaction
+            .prepare(
+                "
+                INSERT INTO sessions (
+                    session_id,
+                    title,
+                    workspace_dir,
+                    created_at,
+                    updated_at,
+                    session_json
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                ",
+            )
+            .expect("legacy session fixture insert should prepare");
+        for session in sessions {
+            statement
+                .execute(rusqlite::params![
+                    session["session_id"].as_str().unwrap(),
+                    session["title"].as_str().unwrap(),
+                    session["workspace_dir"].as_str().unwrap(),
+                    session["created_at"].as_str().unwrap(),
+                    session["updated_at"].as_str().unwrap(),
+                    serde_json::to_string(session).unwrap(),
+                ])
+                .expect("legacy session fixture should insert");
+        }
+    }
+    transaction
+        .commit()
+        .expect("legacy session fixture transaction should commit");
+}
+
 #[test]
 fn shell_request_uses_configured_defaults_when_call_omits_them() {
     let params: ShellExecuteRequestParams = serde_json::from_value(json!({
@@ -2727,6 +2786,150 @@ fn rollout_native_session_mutations_survive_restart_without_legacy_stores() {
 }
 
 #[test]
+fn persistent_router_migrates_legacy_sessions_once_at_startup() {
+    let fixture = WorkspaceFixture::new();
+    let first_session = json!({
+        "session_id": "legacy-session-1",
+        "title": "Legacy session one",
+        "workspace_dir": "D:/legacy/workspace",
+        "created_at": "2026-07-01T00:00:00Z",
+        "updated_at": "2026-07-01T00:01:00Z",
+        "extra": {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "migrate me",
+                    "timestamp": "2026-07-01T00:00:30Z"
+                },
+                {
+                    "role": "assistant",
+                    "content": "migrated",
+                    "timestamp": "2026-07-01T00:01:00Z"
+                }
+            ]
+        }
+    });
+    write_legacy_session_store_fixture(&fixture.root, std::slice::from_ref(&first_session));
+    let policy = CapabilityPolicy::new([
+        WorkerCapability::SessionWrite,
+        WorkerCapability::SessionMetadataRead,
+    ]);
+
+    let mut first_router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        policy.clone(),
+    )
+    .unwrap();
+    let history = first_router.dispatch(&WorkerRequest::new(
+        "req-startup-migration-history",
+        "trace-startup-migration",
+        "session.get_history",
+        json!({ "session_id": "legacy-session-1", "limit": 80 }),
+    ));
+    assert_eq!(history.error, None);
+    assert_eq!(
+        history.result.as_ref().unwrap()["messages"][1]["content"],
+        "migrated"
+    );
+    let marker_path = fixture
+        .root
+        .join(".tinybot")
+        .join("state")
+        .join("migrations")
+        .join("legacy-session-store-v1.json");
+    let marker: Value = serde_json::from_slice(&std::fs::read(&marker_path).unwrap()).unwrap();
+    assert_eq!(marker["version"], 1);
+    assert_eq!(marker["totalCount"], 1);
+    assert_eq!(marker["importedCount"], 1);
+    assert_eq!(marker["skippedCount"], 0);
+    let rollout_path = first_thread_log_file_under(&fixture.root, "threads").unwrap();
+    let rollout_length = std::fs::metadata(&rollout_path).unwrap().len();
+    drop(first_router);
+
+    let second_session = json!({
+        "session_id": "legacy-session-after-marker",
+        "title": "Must not be imported at request time",
+        "workspace_dir": "D:/legacy/workspace",
+        "created_at": "2026-07-02T00:00:00Z",
+        "updated_at": "2026-07-02T00:01:00Z",
+        "extra": {
+            "messages": [{
+                "role": "user",
+                "content": "too late",
+                "timestamp": "2026-07-02T00:00:30Z"
+            }]
+        }
+    });
+    write_legacy_session_store_fixture(&fixture.root, &[first_session.clone(), second_session]);
+    let mut restarted = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        policy,
+    )
+    .unwrap();
+    let sessions = restarted.dispatch(&WorkerRequest::new(
+        "req-startup-migration-list",
+        "trace-startup-migration",
+        "session.list_metadata",
+        json!({}),
+    ));
+    assert_eq!(sessions.error, None);
+    let sessions = sessions.result.as_ref().unwrap().as_array().unwrap();
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0]["session_id"], "legacy-session-1");
+    assert_eq!(
+        std::fs::metadata(&rollout_path).unwrap().len(),
+        rollout_length
+    );
+}
+
+#[test]
+fn persistent_router_fails_startup_when_legacy_session_migration_fails() {
+    let fixture = WorkspaceFixture::new();
+    write_legacy_session_store_fixture(
+        &fixture.root,
+        &[json!({
+            "session_id": "legacy-session-invalid",
+            "title": "Invalid legacy session",
+            "workspace_dir": "D:/legacy/workspace",
+            "created_at": "not-a-timestamp",
+            "updated_at": "2026-07-01T00:01:00Z",
+            "extra": { "messages": [] }
+        })],
+    );
+
+    let result = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    );
+
+    assert!(result.is_err());
+    assert!(result
+        .err()
+        .unwrap()
+        .message
+        .contains("invalid thread log timestamp"));
+    assert!(!fixture
+        .root
+        .join(".tinybot")
+        .join("state")
+        .join("migrations")
+        .join("legacy-session-store-v1.json")
+        .exists());
+}
+
+#[test]
 fn agent_run_persistence_drops_transient_trace_and_does_not_write_legacy_session_store() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new_persistent_sessions(
@@ -3510,7 +3713,7 @@ fn thread_log_history_rejects_state_index_path_escape() {
 }
 
 #[test]
-fn session_list_metadata_merges_thread_log_and_legacy_sessions() {
+fn session_list_metadata_does_not_merge_in_memory_legacy_sessions() {
     let fixture = WorkspaceFixture::new();
     let mut legacy_session = session_fixture();
     legacy_session.session_id = "legacy-session".to_string();
@@ -3557,8 +3760,7 @@ fn session_list_metadata_merges_thread_log_and_legacy_sessions() {
         .iter()
         .map(|session| session["session_id"].as_str().unwrap().to_string())
         .collect::<Vec<_>>();
-    assert!(session_ids.contains(&"legacy-session".to_string()));
-    assert!(session_ids.contains(&"thread-log-session".to_string()));
+    assert_eq!(session_ids, vec!["thread-log-session".to_string()]);
 }
 
 #[test]
@@ -9363,7 +9565,7 @@ fn dispatches_agent_run_list_merges_thread_log_and_thread_backed_runs() {
 }
 
 #[test]
-fn dispatches_agent_run_reads_legacy_session_backed_runs() {
+fn agent_run_requests_do_not_import_in_memory_legacy_sessions() {
     let fixture = WorkspaceFixture::new();
     let mut session = session_fixture();
     session.extra = json!({
@@ -9424,29 +9626,13 @@ fn dispatches_agent_run_reads_legacy_session_backed_runs() {
         "agent_run.get",
         json!({ "session_id": "session-1", "run_id": "run-legacy-session" }),
     ));
-    let runtime_state = router.dispatch(&WorkerRequest::new(
-        "req-legacy-agent-run-runtime",
-        "trace-legacy-agent-run",
-        "agent_run.runtime_state",
-        json!({ "session_id": "session-1", "run_id": "run-legacy-session" }),
-    ));
-
     assert_eq!(run_list.error, None);
+    assert_eq!(run_list.result.as_ref().unwrap()["runs"], json!([]));
     assert_eq!(
-        run_list.result.as_ref().unwrap()["runs"][0]["runId"],
-        "run-legacy-session"
+        get.error.as_ref().unwrap().code,
+        crate::worker_protocol::WorkerProtocolErrorCode::InvalidProtocol
     );
-    assert_eq!(get.error, None);
-    assert_eq!(get.result.as_ref().unwrap()["status"], "completed");
-    assert_eq!(runtime_state.error, None);
-    assert_eq!(
-        runtime_state.result.as_ref().unwrap()["timeline"]["items"][0]["kind"],
-        "assistant_message"
-    );
-    assert_eq!(
-        runtime_state.result.as_ref().unwrap()["timeline"]["items"][0]["data"]["content"],
-        "Legacy final response"
-    );
+    assert!(first_thread_log_file_under(&fixture.root, "threads").is_none());
 }
 
 #[test]

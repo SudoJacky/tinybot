@@ -1,8 +1,9 @@
 use super::*;
 
 impl WorkerSessionRpc {
-    pub(crate) fn legacy_snapshot(&self) -> Vec<SessionMetadata> {
-        self.sessions.clone()
+    pub(crate) fn legacy_migration_source(&self) -> Option<(&Path, &[SessionMetadata])> {
+        let path = self.sqlite_path.as_deref()?;
+        path.exists().then_some((path, self.sessions.as_slice()))
     }
 
     pub fn new(sessions: Vec<SessionMetadata>, policy: CapabilityPolicy) -> Self {

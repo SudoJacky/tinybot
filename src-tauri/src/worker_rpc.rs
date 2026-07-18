@@ -162,15 +162,17 @@ impl WorkerRpcRouter {
         diagnostic_capacity: usize,
         policy: CapabilityPolicy,
     ) -> Result<Self, crate::worker_protocol::WorkerProtocolError> {
+        let session =
+            WorkerSessionRpc::new_persistent(workspace_root.clone(), sessions, policy.clone())?;
+        let thread_log = WorkerThreadLogRpc::new(workspace_root.clone(), policy.clone());
+        if let Some((source_path, sessions)) = session.legacy_migration_source() {
+            thread_log.migrate_legacy_session_store_at_startup(source_path, sessions)?;
+        }
         Ok(Self {
             workspace: WorkerWorkspaceRpc::new(workspace_root.clone(), policy.clone()),
             config: WorkerConfigRpc::new(config_snapshot.clone(), policy.clone()),
             secret: WorkerSecretRpc::new(config_snapshot.clone(), policy.clone()),
-            session: WorkerSessionRpc::new_persistent(
-                workspace_root.clone(),
-                sessions,
-                policy.clone(),
-            )?,
+            session,
             diagnostics: WorkerDiagnosticsRpc::new(diagnostic_capacity, policy.clone()),
             shell: WorkerShellRpc::new(workspace_root.clone(), policy.clone()),
             approval: WorkerApprovalRpc::new(policy.clone()),
@@ -192,7 +194,7 @@ impl WorkerRpcRouter {
             ),
             runtime: WorkerRuntimeRpc::new(),
             thread: WorkerThreadRpc::new(workspace_root.clone(), policy.clone()),
-            thread_log: WorkerThreadLogRpc::new(workspace_root, policy.clone()),
+            thread_log,
             permission_profile: WorkerPermissionProfileRpc::new(policy),
             subagents: None,
             config_store: None,
