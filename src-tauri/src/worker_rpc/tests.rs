@@ -886,7 +886,7 @@ fn dispatches_session_list_metadata_includes_thread_only_sessions() {
 }
 
 #[test]
-fn dispatches_thread_status_for_legacy_session_projection() {
+fn thread_status_does_not_project_legacy_sessions_at_request_time() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -903,28 +903,8 @@ fn dispatches_thread_status_for_legacy_session_projection() {
         json!({}),
     ));
     assert_eq!(list.error, None);
-    let projected_thread_id = list.result.as_ref().unwrap()["threads"][0]["threadId"]
-        .as_str()
-        .unwrap()
-        .to_string();
-
-    let status = router.dispatch(&WorkerRequest::new(
-        "req-legacy-status",
-        "trace-legacy-status",
-        "thread.status",
-        json!({ "threadId": projected_thread_id }),
-    ));
-
-    assert_eq!(status.error, None);
-    assert_eq!(
-        status.result.as_ref().unwrap()["thread"]["sessionKey"],
-        "session-1"
-    );
-    assert_eq!(
-        status.result.as_ref().unwrap()["thread"]["source"],
-        "legacy_session_projection"
-    );
-    assert_eq!(status.result.as_ref().unwrap()["children"], json!([]));
+    assert_eq!(list.result.as_ref().unwrap()["threads"], json!([]));
+    assert!(first_thread_log_file_under(&fixture.root, "threads").is_none());
 }
 
 #[test]
@@ -4733,7 +4713,7 @@ fn dispatches_thread_store_round_trip_requests() {
 }
 
 #[test]
-fn dispatches_thread_list_and_search_include_legacy_session_projections() {
+fn thread_list_does_not_import_legacy_sessions_at_request_time() {
     let fixture = WorkspaceFixture::new();
     let mut legacy_session = session_fixture();
     legacy_session.session_id = "session:websocket-1".to_string();
@@ -4775,70 +4755,94 @@ fn dispatches_thread_list_and_search_include_legacy_session_projections() {
         json!({}),
     ));
     assert_eq!(list.error, None);
-    let threads = list.result.as_ref().unwrap()["threads"].as_array().unwrap();
-    assert_eq!(threads.len(), 1);
-    assert_eq!(threads[0]["threadId"], "legacy-session-session_websocket-1");
-    assert_eq!(threads[0]["sessionKey"], "session:websocket-1");
-    assert_eq!(threads[0]["source"], "legacy_session_projection");
-    assert_eq!(threads[0]["metadata"]["itemCount"], 2);
-    assert_eq!(threads[0]["metadata"]["preview"], "整理 chat layout 文档");
-    let projected_thread_id = threads[0]["threadId"].as_str().unwrap().to_string();
+    assert_eq!(list.result.as_ref().unwrap()["threads"], json!([]));
+    assert!(first_thread_log_file_under(&fixture.root, "threads").is_none());
+}
 
-    let read = router.dispatch(&WorkerRequest::new(
-        "req-thread-read-legacy-session",
-        "trace-thread-legacy-session",
+#[test]
+fn thread_api_survives_restart_from_rollout_without_legacy_stores() {
+    let fixture = WorkspaceFixture::new();
+    let policy = CapabilityPolicy::new([
+        WorkerCapability::SessionMetadataRead,
+        WorkerCapability::SessionWrite,
+    ]);
+    {
+        let mut router =
+            WorkerRpcRouter::new(fixture.root.clone(), json!({}), vec![], 20, policy.clone());
+        let create = router.dispatch(&WorkerRequest::new(
+            "req-rollout-thread-create",
+            "trace-rollout-thread",
+            "thread.create",
+            json!({
+                "threadId": "thread-rollout-restart",
+                "title": "Rollout restart",
+                "sessionKey": "session-rollout-restart"
+            }),
+        ));
+        assert_eq!(create.error, None);
+        let append = router.dispatch(&WorkerRequest::new(
+            "req-rollout-thread-append",
+            "trace-rollout-thread",
+            "thread.append_items",
+            json!({
+                "threadId": "thread-rollout-restart",
+                "items": [{
+                    "itemId": "thread-rollout-restart:item:user",
+                    "threadId": "",
+                    "runId": "run-rollout-restart",
+                    "turnId": "turn-rollout-restart",
+                    "sequence": 0,
+                    "createdAt": "2026-07-18T00:00:00Z",
+                    "kind": {
+                        "type": "user_message",
+                        "payload": { "text": "persisted through rollout" }
+                    }
+                }]
+            }),
+        ));
+        assert_eq!(append.error, None);
+    }
+
+    let mut restarted = WorkerRpcRouter::new(fixture.root.clone(), json!({}), vec![], 20, policy);
+    let read = restarted.dispatch(&WorkerRequest::new(
+        "req-rollout-thread-read-after-restart",
+        "trace-rollout-thread",
         "thread.read",
-        json!({ "threadId": projected_thread_id }),
+        json!({ "threadId": "thread-rollout-restart" }),
     ));
     assert_eq!(read.error, None);
-    let read_result = read.result.as_ref().unwrap();
-    assert_eq!(read_result["thread"]["source"], "legacy_session_import");
-    assert_eq!(read_result["pagination"]["itemCount"], 2);
-    let read_items = read_result["items"].as_array().unwrap();
-    assert_eq!(read_items.len(), 2);
-    assert_eq!(read_items[0]["sequence"], 2);
-    assert_eq!(read_items[0]["kind"]["type"], "user_message");
-    assert_eq!(read_items[1]["kind"]["type"], "assistant_message_completed");
-
-    let search = router.dispatch(&WorkerRequest::new(
-        "req-thread-search-legacy-session",
-        "trace-thread-legacy-session",
-        "thread.search",
-        json!({ "query": "reactbits" }),
-    ));
-    assert_eq!(search.error, None);
-    let search_threads = search.result.as_ref().unwrap()["threads"]
-        .as_array()
-        .unwrap();
-    assert_eq!(search_threads.len(), 1);
-    assert_eq!(search_threads[0]["sessionKey"], "session:websocket-1");
-
-    let create = router.dispatch(&WorkerRequest::new(
-        "req-thread-create-existing-session",
-        "trace-thread-legacy-session",
-        "thread.create",
-        json!({
-            "title": "Stored replacement",
-            "sessionKey": "session:websocket-1"
-        }),
-    ));
-    assert_eq!(create.error, None);
-
-    let deduped = router.dispatch(&WorkerRequest::new(
-        "req-thread-list-legacy-deduped",
-        "trace-thread-legacy-session",
-        "thread.list",
-        json!({ "includeArchived": true }),
-    ));
-    assert_eq!(deduped.error, None);
-    let deduped_threads = deduped.result.as_ref().unwrap()["threads"]
-        .as_array()
-        .unwrap();
-    assert_eq!(deduped_threads.len(), 1);
-    assert_ne!(
-        deduped_threads[0]["source"], "legacy_session_projection",
-        "stored thread should suppress the read-only legacy projection"
+    assert_eq!(
+        read.result.as_ref().unwrap()["thread"]["sessionKey"],
+        "session-rollout-restart"
     );
+    assert_eq!(
+        read.result.as_ref().unwrap()["items"][0]["kind"]["payload"]["text"],
+        "persisted through rollout"
+    );
+    assert!(first_thread_log_file_under(&fixture.root, "threads").is_some());
+    assert!(fixture
+        .root
+        .join(".tinybot")
+        .join("state")
+        .join("state.sqlite")
+        .exists());
+    assert!(!fixture
+        .root
+        .join("sessions")
+        .join("sessions.sqlite")
+        .exists());
+    assert!(!fixture
+        .root
+        .join(".tinybot")
+        .join("state")
+        .join("thread-store.jsonl")
+        .exists());
+    assert!(!fixture
+        .root
+        .join(".tinybot")
+        .join("threads")
+        .join("threads.sqlite")
+        .exists());
 }
 
 #[test]
@@ -5032,9 +5036,9 @@ fn dispatches_thread_resume_from_checkpoint_id() {
     assert_eq!(resume.error, None);
     let items = resume.result.as_ref().unwrap()["items"].as_array().unwrap();
     assert_eq!(items.len(), 2);
-    assert_eq!(items[0]["sequence"], 4);
+    assert_eq!(items[0]["sequence"], 2);
     assert_eq!(items[0]["kind"]["type"], "checkpoint_created");
-    assert_eq!(items[1]["sequence"], 5);
+    assert_eq!(items[1]["sequence"], 3);
     assert_eq!(
         resume.result.as_ref().unwrap()["latestCheckpoint"]["checkpointId"],
         "checkpoint-resume"
@@ -7362,11 +7366,11 @@ fn dispatches_thread_read_before_sequence_page() {
     assert_eq!(page.error, None);
     let items = page.result.as_ref().unwrap()["items"].as_array().unwrap();
     assert_eq!(items.len(), 2);
-    assert_eq!(items[0]["sequence"], 5);
-    assert_eq!(items[1]["sequence"], 6);
+    assert_eq!(items[0]["sequence"], 4);
+    assert_eq!(items[1]["sequence"], 5);
     assert_eq!(
         page.result.as_ref().unwrap()["pagination"]["previousCursor"],
-        "5"
+        "4"
     );
     assert_eq!(
         page.result.as_ref().unwrap()["pagination"]["hasMoreBefore"],
@@ -7426,9 +7430,9 @@ fn dispatches_thread_read_before_sequence_page() {
     let checkpoint_items = checkpoint_page.result.as_ref().unwrap()["items"]
         .as_array()
         .unwrap();
-    assert_eq!(checkpoint_items[0]["sequence"], 8);
+    assert_eq!(checkpoint_items[0]["sequence"], 6);
     assert_eq!(checkpoint_items[0]["kind"]["type"], "checkpoint_created");
-    assert_eq!(checkpoint_items[1]["sequence"], 9);
+    assert_eq!(checkpoint_items[1]["sequence"], 7);
     assert_eq!(
         checkpoint_page.result.as_ref().unwrap()["latestCheckpoint"]["checkpointId"],
         "checkpoint-read-before"
@@ -10585,7 +10589,7 @@ fn dispatches_subagent_control_requests() {
         .as_array()
         .expect("thread list should be an array");
     assert_eq!(default_threads.len(), 1);
-    assert_eq!(default_threads[0]["source"], "legacy_subagent_parent");
+    assert_eq!(default_threads[0]["source"], "subagent_parent");
 
     let thread_list = router.dispatch(&WorkerRequest::new(
         "req-subagent-thread-list",
@@ -10600,7 +10604,7 @@ fn dispatches_subagent_control_requests() {
     assert_eq!(threads.len(), 2);
     let parent_thread = threads
         .iter()
-        .find(|thread| thread["source"] == "legacy_subagent_parent")
+        .find(|thread| thread["source"] == "subagent_parent")
         .expect("parent thread should be projected");
     let child_thread = threads
         .iter()

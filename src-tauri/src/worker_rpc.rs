@@ -637,7 +637,7 @@ impl WorkerRpcRouter {
             client_event_id: Some(client_event_id),
             op,
         })?;
-        self.persist_legacy_thread_runtime_result(&result)?;
+        self.persist_thread_runtime_result(&result)?;
         result
             .appended_items
             .into_iter()

@@ -16,13 +16,13 @@ use crate::worker_session::{
     SessionHistoryProjection, SessionMetadata, TrimSessionResult,
 };
 use crate::worker_thread::{
-    ThreadCheckpoint, ThreadItem, ThreadItemKind, ThreadPagination, ThreadRecord, ThreadRunSummary,
-    ThreadSnapshot, ThreadStatus,
+    run_summaries_from_items, ThreadCheckpoint, ThreadItem, ThreadItemKind, ThreadMetadata,
+    ThreadPagination, ThreadRecord, ThreadRunSummary, ThreadSnapshot, ThreadStatus,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -168,20 +168,97 @@ impl WorkerThreadLogRpc {
         }
     }
 
+    pub fn thread_projection(
+        &self,
+    ) -> Result<(Vec<ThreadRecord>, BTreeMap<String, Vec<ThreadItem>>), WorkerProtocolError> {
+        self.ensure_state_index()?;
+        let mut threads = Vec::new();
+        let mut items = BTreeMap::new();
+        for record in self.state.list_all_threads()? {
+            let path = PathBuf::from(&record.thread_path);
+            self.recorder.validate_thread_path(&path)?;
+            let reconstructed = self.reconstruct_cached(&path)?;
+            let thread = self.thread_record_from_rollout(&record, &path, &reconstructed)?;
+            items.insert(thread.thread_id.clone(), reconstructed.thread_items);
+            threads.push(thread);
+        }
+        Ok((threads, items))
+    }
+
+    fn thread_record_from_rollout(
+        &self,
+        record: &ThreadStateRecord,
+        path: &Path,
+        reconstructed: &reconstruction::CanonicalRolloutReconstruction,
+    ) -> Result<ThreadRecord, WorkerProtocolError> {
+        let lines = read_thread_lines(path)?;
+        let mut thread = lines
+            .iter()
+            .rev()
+            .filter_map(|line| match &line.item {
+                ThreadLogItem::EventMsg(event) => event.payload().get("threadRecord"),
+                _ => None,
+            })
+            .find_map(|value| serde_json::from_value::<ThreadRecord>(value.clone()).ok())
+            .unwrap_or_else(|| ThreadRecord {
+                thread_id: record.id.clone(),
+                title: record.title.clone(),
+                status: ThreadStatus::Empty,
+                session_key: record.session_id.clone(),
+                root_run_id: None,
+                active_run_id: None,
+                parent_thread_id: reconstructed.meta.parent_thread_id.clone(),
+                source: record.source.clone(),
+                created_at: record.created_at.clone(),
+                updated_at: record.updated_at.clone(),
+                archived_at: record.archived_at.clone(),
+                metadata: ThreadMetadata::default(),
+            });
+        let mut runs = reconstructed
+            .agent_runs
+            .iter()
+            .map(|run| thread_run_summary_from_agent_run(run, &reconstructed.thread_items))
+            .collect::<Vec<_>>();
+        for run in run_summaries_from_items(&thread, &reconstructed.thread_items) {
+            if !runs.iter().any(|existing| existing.run_id == run.run_id) {
+                runs.push(run);
+            }
+        }
+        let active_run = runs.iter().find(|run| run.active);
+        thread.thread_id = record.id.clone();
+        thread.title = record.title.clone();
+        thread.session_key = record.session_id.clone();
+        thread.parent_thread_id = reconstructed.meta.parent_thread_id.clone();
+        thread.source = record.source.clone();
+        thread.created_at = record.created_at.clone();
+        thread.updated_at = reconstructed.semantic.updated_at.clone();
+        thread.archived_at = record.archived_at.clone();
+        thread.metadata.preview = (!record.preview.is_empty()).then(|| record.preview.clone());
+        thread.metadata.working_directory = (!record.cwd.is_empty()).then(|| record.cwd.clone());
+        thread.metadata.model = record.model.clone();
+        thread.metadata.item_count =
+            u64::try_from(reconstructed.thread_items.len()).unwrap_or(u64::MAX);
+        thread.metadata.run_count = u64::try_from(runs.len()).unwrap_or(u64::MAX);
+        thread.metadata.has_active_run = active_run.is_some();
+        thread.active_run_id = active_run.map(|run| run.run_id.clone());
+        thread.status = canonical_thread_status(
+            record.archived,
+            &reconstructed.thread_items,
+            &runs,
+            active_run,
+        );
+        Ok(thread)
+    }
+
     pub fn create_from_thread_record(
         &self,
         thread: &ThreadRecord,
     ) -> Result<(), WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         self.ensure_state_index()?;
-        let session_id = thread
-            .session_key
-            .clone()
-            .unwrap_or_else(|| thread.thread_id.clone());
+        let session_id = thread.session_key.clone();
         if let Some(existing) = self.state.find_by_session_or_thread_id(&thread.thread_id)? {
-            if existing.id == thread.thread_id
-                && existing.session_id.as_deref() == Some(session_id.as_str())
-            {
+            if existing.id == thread.thread_id && existing.session_id == session_id {
                 return self.sync_thread_record_projection(&existing, thread);
             }
             return Err(thread_log_consistency_error(
@@ -194,40 +271,44 @@ impl WorkerThreadLogRpc {
                 }),
             ));
         }
-        let implicit_thread_id = thread_id_for_session_id(&session_id);
-        if implicit_thread_id != thread.thread_id {
-            if let Some(existing) = self
-                .state
-                .find_by_session_or_thread_id(&implicit_thread_id)?
-            {
-                if existing.id == implicit_thread_id {
-                    let legacy_path = PathBuf::from(&existing.thread_path);
-                    self.recorder.validate_thread_path(&legacy_path)?;
-                    let existing_lines = read_thread_lines(&legacy_path)?;
-                    let explicitly_created = existing_lines.iter().any(|line| {
-                        matches!(
-                            &line.item,
-                            ThreadLogItem::EventMsg(event)
-                                if event.kind() == &EventKind::MetadataUpdated
-                                    && event.payload().get("threadRecord").is_some()
-                        )
-                    });
-                    if !explicitly_created {
-                        self.recorder.delete_rollout(&legacy_path)?;
-                        if !self.state.delete_thread(&existing.id)? {
-                            return Err(thread_log_consistency_error(
-                                "superseded legacy Rollout state could not be deleted",
-                                serde_json::json!({
-                                    "threadId": thread.thread_id,
-                                    "sessionId": session_id,
-                                    "legacyThreadId": existing.id,
-                                }),
-                            ));
-                        }
-                        eprintln!(
+        if let Some(session_id) = session_id.as_deref() {
+            let implicit_thread_id = thread_id_for_session_id(session_id);
+            if implicit_thread_id == thread.thread_id {
+                // This is already the canonical identity for an implicit session thread.
+            } else {
+                if let Some(existing) = self
+                    .state
+                    .find_by_session_or_thread_id(&implicit_thread_id)?
+                {
+                    if existing.id == implicit_thread_id {
+                        let legacy_path = PathBuf::from(&existing.thread_path);
+                        self.recorder.validate_thread_path(&legacy_path)?;
+                        let existing_lines = read_thread_lines(&legacy_path)?;
+                        let explicitly_created = existing_lines.iter().any(|line| {
+                            matches!(
+                                &line.item,
+                                ThreadLogItem::EventMsg(event)
+                                    if event.kind() == &EventKind::MetadataUpdated
+                                        && event.payload().get("threadRecord").is_some()
+                            )
+                        });
+                        if !explicitly_created {
+                            self.recorder.delete_rollout(&legacy_path)?;
+                            if !self.state.delete_thread(&existing.id)? {
+                                return Err(thread_log_consistency_error(
+                                    "superseded legacy Rollout state could not be deleted",
+                                    serde_json::json!({
+                                        "threadId": thread.thread_id,
+                                        "sessionId": session_id,
+                                        "legacyThreadId": existing.id,
+                                    }),
+                                ));
+                            }
+                            eprintln!(
                             "legacy_session_import_superseded session_id={} legacy_thread_id={} canonical_thread_id={}",
                             session_id, existing.id, thread.thread_id
                         );
+                        }
                     }
                 }
             }
@@ -243,7 +324,7 @@ impl WorkerThreadLogRpc {
         let meta = ThreadMeta {
             schema_version: THREAD_LOG_SCHEMA_VERSION,
             thread_id: thread.thread_id.clone(),
-            session_id: Some(session_id.clone()),
+            session_id: session_id.clone(),
             created_at: created_at.clone(),
             cwd: thread
                 .metadata
@@ -277,7 +358,7 @@ impl WorkerThreadLogRpc {
             )?;
             let record = ThreadStateRecord {
                 id: thread.thread_id.clone(),
-                session_id: Some(session_id),
+                session_id,
                 thread_path: path.display().to_string(),
                 created_at: created_at.clone(),
                 updated_at,
@@ -342,9 +423,18 @@ impl WorkerThreadLogRpc {
                     .unwrap_or(Value::Null),
             );
         }
-        if metadata.is_empty() {
-            return Ok(());
-        }
+        metadata.insert(
+            "threadMetadata".to_string(),
+            serde_json::to_value(&thread.metadata).map_err(|error| {
+                thread_log_consistency_error(
+                    "thread metadata could not be serialized",
+                    serde_json::json!({
+                        "threadId": thread.thread_id,
+                        "error": error.to_string(),
+                    }),
+                )
+            })?,
+        );
         let timestamp = canonicalize_thread_timestamp(
             thread
                 .metadata
@@ -539,7 +629,7 @@ impl WorkerThreadLogRpc {
         Ok(())
     }
 
-    pub fn append_legacy_thread_items(
+    pub fn append_thread_items(
         &self,
         thread_id: &str,
         items: &[ThreadItem],
@@ -689,11 +779,7 @@ impl WorkerThreadLogRpc {
         let meta = ThreadMeta {
             schema_version: THREAD_LOG_SCHEMA_VERSION,
             thread_id: fork.thread_id.clone(),
-            session_id: Some(
-                fork.session_key
-                    .clone()
-                    .unwrap_or_else(|| fork.thread_id.clone()),
-            ),
+            session_id: fork.session_key.clone(),
             created_at: created_at.clone(),
             cwd: fork
                 .metadata
@@ -985,11 +1071,16 @@ impl WorkerThreadLogRpc {
         let replay = reconstructed.semantic;
         let meta = reconstructed.meta;
         let all_items = reconstructed.thread_items;
-        let runs = reconstructed
+        let mut runs = reconstructed
             .agent_runs
             .into_iter()
             .map(|run| thread_run_summary_from_agent_run(&run, &all_items))
             .collect::<Vec<_>>();
+        for run in run_summaries_from_items(&snapshot.thread, &all_items) {
+            if !runs.iter().any(|existing| existing.run_id == run.run_id) {
+                runs.push(run);
+            }
+        }
         let active_run = runs.iter().find(|run| run.active).cloned();
         let checkpoints = reconstructed.checkpoints;
         let latest_checkpoint = checkpoints
@@ -2443,6 +2534,33 @@ impl WorkerThreadLogRpc {
         })
     }
 
+    pub fn delete_thread(&self, thread_id: &str) -> Result<bool, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
+        self.ensure_state_index()?;
+        let Some(record) = self.state.find_by_session_or_thread_id(thread_id)? else {
+            return Ok(false);
+        };
+        let path = PathBuf::from(&record.thread_path);
+        self.recorder.validate_thread_path(&path)?;
+        self.recorder.delete_rollout(&path)?;
+        self.reconstruction_cache
+            .lock()
+            .map_err(|_| {
+                thread_log_consistency_error(
+                    "thread Rollout reconstruction cache lock was poisoned",
+                    serde_json::json!({ "threadId": record.id }),
+                )
+            })?
+            .remove(&path);
+        if !self.state.delete_thread(&record.id)? {
+            return Err(thread_log_consistency_error(
+                "deleted Rollout still has a derived state record",
+                serde_json::json!({ "threadId": record.id }),
+            ));
+        }
+        Ok(true)
+    }
+
     pub fn set_thread_archived(
         &self,
         thread_id: &str,
@@ -3455,19 +3573,27 @@ fn thread_items_from_effective_rollout(
         let line = &lines[index];
         let sequence = line.ordinal.unwrap_or_else(|| index as u64);
         let projected = match &line.item {
-            ThreadLogItem::ResponseItem(item) => Some(ThreadItem {
-                item_id: rollout_thread_item_id(item.as_value(), thread_id, sequence),
-                thread_id: thread_id.to_string(),
-                run_id: string_value(item.as_value(), "runId")
-                    .or_else(|| string_value(item.as_value(), "run_id")),
-                turn_id: string_value(item.as_value(), "turnId")
-                    .or_else(|| string_value(item.as_value(), "turn_id")),
-                parent_item_id: string_value(item.as_value(), "parentItemId")
-                    .or_else(|| string_value(item.as_value(), "parent_item_id")),
-                sequence,
-                created_at: line.timestamp.clone(),
-                kind: response_item_thread_kind(item.as_value()),
-            }),
+            ThreadLogItem::ResponseItem(item) => {
+                let item_sequence = item
+                    .as_value()
+                    .get("threadItemSequence")
+                    .or_else(|| item.as_value().get("thread_item_sequence"))
+                    .and_then(Value::as_u64)
+                    .unwrap_or(sequence);
+                Some(ThreadItem {
+                    item_id: rollout_thread_item_id(item.as_value(), thread_id, item_sequence),
+                    thread_id: thread_id.to_string(),
+                    run_id: string_value(item.as_value(), "runId")
+                        .or_else(|| string_value(item.as_value(), "run_id")),
+                    turn_id: string_value(item.as_value(), "turnId")
+                        .or_else(|| string_value(item.as_value(), "turn_id")),
+                    parent_item_id: string_value(item.as_value(), "parentItemId")
+                        .or_else(|| string_value(item.as_value(), "parent_item_id")),
+                    sequence: item_sequence,
+                    created_at: line.timestamp.clone(),
+                    kind: response_item_thread_kind(item.as_value()),
+                })
+            }
             ThreadLogItem::EventMsg(event) if event.kind() == &EventKind::ThreadItem => {
                 let mut item = serde_json::from_value::<ThreadItem>(
                     event.payload().get("item").cloned().ok_or_else(|| {
@@ -3491,7 +3617,9 @@ fn thread_items_from_effective_rollout(
                     )
                 })?;
                 item.thread_id = thread_id.to_string();
-                item.sequence = sequence;
+                if item.sequence == 0 {
+                    item.sequence = sequence;
+                }
                 item.created_at = line.timestamp.clone();
                 Some(item)
             }
@@ -3557,9 +3685,13 @@ fn rollout_thread_item_id(item: &Value, thread_id: &str, sequence: u64) -> Strin
 }
 
 fn response_item_thread_kind(item: &Value) -> ThreadItemKind {
+    let payload = item
+        .get("threadItemPayload")
+        .cloned()
+        .unwrap_or_else(|| item.clone());
     match item.get("role").and_then(Value::as_str) {
-        Some("user") => ThreadItemKind::UserMessage(item.clone()),
-        Some("assistant") => ThreadItemKind::AssistantMessageCompleted(item.clone()),
+        Some("user") => ThreadItemKind::UserMessage(payload),
+        Some("assistant") => ThreadItemKind::AssistantMessageCompleted(payload),
         _ => match item.get("type").and_then(Value::as_str) {
             Some("reasoning") => ThreadItemKind::Reasoning(item.clone()),
             Some("function_call" | "tool_call") => ThreadItemKind::ToolCallStarted(item.clone()),
@@ -3772,6 +3904,16 @@ fn thread_item_message(item: &ThreadItem, payload: &Value, role: &str) -> Value 
     message["timestamp"] = Value::String(item.created_at.clone());
     message["threadItemId"] = Value::String(item.item_id.clone());
     message["threadItemSequence"] = Value::Number(item.sequence.into());
+    message["threadItemPayload"] = payload.clone();
+    if let Some(run_id) = &item.run_id {
+        message["runId"] = Value::String(run_id.clone());
+    }
+    if let Some(turn_id) = &item.turn_id {
+        message["turnId"] = Value::String(turn_id.clone());
+    }
+    if let Some(parent_item_id) = &item.parent_item_id {
+        message["parentItemId"] = Value::String(parent_item_id.clone());
+    }
     message
 }
 

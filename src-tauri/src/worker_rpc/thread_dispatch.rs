@@ -5,6 +5,7 @@ impl WorkerRpcRouter {
         &mut self,
         request: &WorkerRequest,
     ) -> Result<Value, WorkerProtocolError> {
+        self.refresh_thread_projection()?;
         match request.method.as_str() {
             "thread.create" => {
                 let params: CreateThreadRequest = parse_params(request)?;
@@ -15,13 +16,12 @@ impl WorkerRpcRouter {
                         delete_children: false,
                     }) {
                         eprintln!(
-                            "legacy_thread_create_cleanup_failed thread_id={} error={}",
+                            "thread_create_cleanup_failed thread_id={} error={}",
                             thread.thread_id, cleanup_error.message
                         );
                     }
                     return Err(error);
                 }
-                self.sync_legacy_thread_agent_runs(&thread)?;
                 serde_json::to_value(thread).map_err(serialization_error)
             }
             "thread.read" => {
@@ -31,11 +31,7 @@ impl WorkerRpcRouter {
                 let checkpoint_sequence = params.checkpoint_sequence;
                 let checkpoint_id = params.checkpoint_id.clone();
                 let limit = params.limit;
-                let sessions = self.session.list_metadata()?;
-                self.thread_log.import_legacy_sessions(&sessions)?;
-                let snapshot = self
-                    .thread
-                    .read_thread_with_legacy_sessions(params, &sessions)?;
+                let snapshot = self.thread.read_thread(params)?;
                 serde_json::to_value(self.thread_log.hydrate_thread_snapshot(
                     snapshot,
                     cursor.as_deref(),
@@ -69,30 +65,17 @@ impl WorkerRpcRouter {
             }
             "thread.status" => {
                 let params: ThreadIdParams = parse_params(request)?;
-                let sessions = self.session.list_metadata()?;
-                serde_json::to_value(
-                    self.thread
-                        .get_thread_status_with_legacy_sessions(params, &sessions)?,
-                )
-                .map_err(serialization_error)
+                serde_json::to_value(self.thread.get_thread_status(params)?)
+                    .map_err(serialization_error)
             }
             "thread.list" => {
                 let params: ListThreadsRequest = parse_params(request)?;
-                let sessions = self.session.list_metadata()?;
-                serde_json::to_value(
-                    self.thread
-                        .list_threads_with_legacy_sessions(params, &sessions)?,
-                )
-                .map_err(serialization_error)
+                serde_json::to_value(self.thread.list_threads(params)?).map_err(serialization_error)
             }
             "thread.search" => {
                 let params: SearchThreadsRequest = parse_params(request)?;
-                let sessions = self.session.list_metadata()?;
-                serde_json::to_value(
-                    self.thread
-                        .search_threads_with_legacy_sessions(params, &sessions)?,
-                )
-                .map_err(serialization_error)
+                serde_json::to_value(self.thread.search_threads(params)?)
+                    .map_err(serialization_error)
             }
             "thread.update_metadata" => {
                 let params: UpdateThreadMetadataRequest = parse_params(request)?;
@@ -137,7 +120,7 @@ impl WorkerRpcRouter {
                     .iter()
                     .chain(std::iter::once(&thread_id))
                 {
-                    self.thread_log.delete_session(deleted_thread_id)?;
+                    self.thread_log.delete_thread(deleted_thread_id)?;
                 }
                 serde_json::to_value(result).map_err(serialization_error)
             }
@@ -194,8 +177,7 @@ impl WorkerRpcRouter {
                 let result = self.thread.append_items(params)?;
                 self.thread_log.create_from_thread_record(&result.thread)?;
                 self.thread_log
-                    .append_legacy_thread_items(&result.thread.thread_id, &result.items)?;
-                self.sync_legacy_thread_agent_runs(&result.thread)?;
+                    .append_thread_items(&result.thread.thread_id, &result.items)?;
                 serde_json::to_value(result).map_err(serialization_error)
             }
             "thread.events" => {
@@ -233,7 +215,7 @@ impl WorkerRpcRouter {
                     }
                 }
                 let result = self.thread.start_turn(params)?;
-                self.persist_legacy_thread_runtime_result(&result)?;
+                self.persist_thread_runtime_result(&result)?;
                 serde_json::to_value(result).map_err(serialization_error)
             }
             "thread.apply_op" => {
@@ -300,71 +282,61 @@ impl WorkerRpcRouter {
                             )?;
                         }
                     }
-                    _ => self.persist_legacy_thread_runtime_result(&result)?,
+                    _ => self.persist_thread_runtime_result(&result)?,
                 }
                 serde_json::to_value(result).map_err(serialization_error)
             }
             "thread.continue_turn" => {
                 let params: ContinueThreadTurnRequest = parse_params(request)?;
                 let result = self.thread.continue_turn(params)?;
-                self.persist_legacy_thread_runtime_result(&result)?;
+                self.persist_thread_runtime_result(&result)?;
                 serde_json::to_value(result).map_err(serialization_error)
             }
             "thread.interrupt" => {
                 let params: InterruptThreadRequest = parse_params(request)?;
                 let result = self.thread.interrupt(params)?;
-                self.persist_legacy_thread_runtime_result(&result)?;
+                self.persist_thread_runtime_result(&result)?;
                 serde_json::to_value(result).map_err(serialization_error)
             }
             "thread.persistence.check" => {
-                serde_json::to_value(self.thread.check_persistence()?).map_err(serialization_error)
+                serde_json::to_value(self.thread_log.check_state_index()?)
+                    .map_err(serialization_error)
             }
             "thread.persistence.repair" => {
                 let params: ThreadPersistenceRepairRequest = parse_params(request)?;
-                serde_json::to_value(self.thread.repair_persistence(params.mode)?)
+                let mode = match params.mode {
+                    crate::worker_thread::ThreadPersistenceRepairMode::MigrateLegacyProjection
+                    | crate::worker_thread::ThreadPersistenceRepairMode::RebuildProjection => {
+                        crate::worker_thread_log::ThreadLogIndexRepairMode::RebuildIndex
+                    }
+                };
+                serde_json::to_value(self.thread_log.repair_state_index(mode)?)
                     .map_err(serialization_error)
             }
             _ => Err(unknown_method_error(request)),
         }
     }
 
-    pub(super) fn persist_legacy_thread_runtime_result(
+    pub(super) fn persist_thread_runtime_result(
         &mut self,
         result: &crate::worker_thread::ThreadTurnRuntimeResult,
     ) -> Result<(), WorkerProtocolError> {
-        self.persist_legacy_thread_append_result(&result.snapshot.thread, &result.appended_items)
+        self.persist_thread_append_result(&result.snapshot.thread, &result.appended_items)
     }
 
-    pub(super) fn persist_legacy_thread_append_result(
+    pub(super) fn persist_thread_append_result(
         &mut self,
         thread: &crate::worker_thread::ThreadRecord,
         items: &[crate::worker_thread::ThreadItem],
     ) -> Result<(), WorkerProtocolError> {
         self.thread_log.create_from_thread_record(thread)?;
         self.thread_log
-            .append_legacy_thread_items(&thread.thread_id, items)?;
-        self.sync_legacy_thread_agent_runs(thread)
+            .append_thread_items(&thread.thread_id, items)?;
+        Ok(())
     }
 
-    fn sync_legacy_thread_agent_runs(
-        &mut self,
-        thread: &crate::worker_thread::ThreadRecord,
-    ) -> Result<(), WorkerProtocolError> {
-        let session_id = thread
-            .session_key
-            .as_deref()
-            .unwrap_or(thread.thread_id.as_str());
-        for run in self.thread.list_agent_runs_from_threads(session_id)? {
-            if run
-                .thread_id
-                .as_deref()
-                .is_some_and(|thread_id| thread_id != thread.thread_id)
-            {
-                continue;
-            }
-            self.thread_log
-                .upsert_legacy_thread_agent_run(&thread.thread_id, run)?;
-        }
-        Ok(())
+    pub(super) fn refresh_thread_projection(&mut self) -> Result<(), WorkerProtocolError> {
+        let (threads, items) = self.thread_log.thread_projection()?;
+        self.thread.replace_projection(threads, items)
     }
 }

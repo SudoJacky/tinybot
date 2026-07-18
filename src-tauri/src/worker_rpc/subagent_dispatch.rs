@@ -5,6 +5,7 @@ impl WorkerRpcRouter {
         &mut self,
         request: &WorkerRequest,
     ) -> Result<Value, WorkerProtocolError> {
+        self.refresh_thread_projection()?;
         match request.method.as_str() {
             "subagent.spawn" => {
                 let params: SubagentSpawnParams = parse_params(request)?;
@@ -22,10 +23,7 @@ impl WorkerRpcRouter {
                                 .map_err(serialization_error)?,
                         )?;
                         for result in persisted {
-                            self.persist_legacy_thread_append_result(
-                                &result.thread,
-                                &result.items,
-                            )?;
+                            self.persist_thread_append_result(&result.thread, &result.items)?;
                         }
                     }
                 }
@@ -58,10 +56,7 @@ impl WorkerRpcRouter {
                                 .map_err(serialization_error)?,
                         )?;
                         for result in persisted {
-                            self.persist_legacy_thread_append_result(
-                                &result.thread,
-                                &result.items,
-                            )?;
+                            self.persist_thread_append_result(&result.thread, &result.items)?;
                         }
                     }
                 }
@@ -94,10 +89,7 @@ impl WorkerRpcRouter {
                                 .map_err(serialization_error)?,
                         )?;
                         for result in persisted {
-                            self.persist_legacy_thread_append_result(
-                                &result.thread,
-                                &result.items,
-                            )?;
+                            self.persist_thread_append_result(&result.thread, &result.items)?;
                         }
                     }
                 }
@@ -119,10 +111,7 @@ impl WorkerRpcRouter {
                                 .map_err(serialization_error)?,
                         )?;
                         for result in persisted {
-                            self.persist_legacy_thread_append_result(
-                                &result.thread,
-                                &result.items,
-                            )?;
+                            self.persist_thread_append_result(&result.thread, &result.items)?;
                         }
                     }
                 }
@@ -144,10 +133,7 @@ impl WorkerRpcRouter {
                                 .map_err(serialization_error)?,
                         )?;
                         for result in persisted {
-                            self.persist_legacy_thread_append_result(
-                                &result.thread,
-                                &result.items,
-                            )?;
+                            self.persist_thread_append_result(&result.thread, &result.items)?;
                         }
                     }
                 }
@@ -201,7 +187,7 @@ impl WorkerRpcRouter {
         {
             let persisted = self.thread.record_subagent_status(summary, None)?;
             for result in persisted {
-                self.persist_legacy_thread_append_result(&result.thread, &result.items)?;
+                self.persist_thread_append_result(&result.thread, &result.items)?;
             }
         }
         Ok(manager)

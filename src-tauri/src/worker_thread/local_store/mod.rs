@@ -37,7 +37,8 @@ use self::activity::{
     agent_registry_entry, child_activities_for_thread as project_child_activities_for_thread,
     pending_approvals_from_items, running_tools_from_items,
 };
-use self::agent_run_projection::{agent_run_record_from_thread_run, run_summaries_from_items};
+use self::agent_run_projection::agent_run_record_from_thread_run;
+pub(crate) use self::agent_run_projection::run_summaries_from_items;
 use self::checkpoint::{checkpoint_from_item, latest_checkpoint_from_items};
 use self::journal::ThreadJournalMutation;
 pub use self::journal::{

@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use super::{string_field, trace_event_from_thread_item};
 
-pub(super) fn run_summaries_from_items(
+pub(crate) fn run_summaries_from_items(
     thread: &ThreadRecord,
     items: &[ThreadItem],
 ) -> Vec<ThreadRunSummary> {

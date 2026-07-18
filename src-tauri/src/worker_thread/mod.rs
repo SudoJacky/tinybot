@@ -5,6 +5,7 @@ mod session_adapter;
 mod types;
 
 pub use self::live_thread::LiveThread;
+pub(crate) use self::local_store::run_summaries_from_items;
 pub use self::local_store::{
     LocalThreadStore, MemoryThreadStore, ThreadPersistenceConsistencyReport,
     ThreadPersistenceConsistencyStatus, ThreadPersistenceRepairMode, ThreadPersistenceRepairReport,
@@ -40,20 +41,28 @@ use std::path::PathBuf;
 
 #[derive(Clone, Debug)]
 pub struct WorkerThreadRpc {
-    store: LocalThreadStore,
-    runtime: ThreadRuntime,
+    store: MemoryThreadStore,
+    runtime: ThreadRuntime<MemoryThreadStore>,
     policy: CapabilityPolicy,
 }
 
 impl WorkerThreadRpc {
-    pub fn new(workspace_root: PathBuf, policy: CapabilityPolicy) -> Self {
-        let store = LocalThreadStore::new(workspace_root);
+    pub fn new(_workspace_root: PathBuf, policy: CapabilityPolicy) -> Self {
+        let store = MemoryThreadStore::default();
         let runtime = ThreadRuntime::new(store.clone());
         Self {
             store,
             runtime,
             policy,
         }
+    }
+
+    pub(crate) fn replace_projection(
+        &self,
+        threads: Vec<ThreadRecord>,
+        items: std::collections::BTreeMap<String, Vec<ThreadItem>>,
+    ) -> Result<(), WorkerProtocolError> {
+        self.store.replace_projection(threads, items)
     }
 
     pub fn create_thread(
@@ -72,15 +81,6 @@ impl WorkerThreadRpc {
         self.store.read_thread(request)
     }
 
-    pub fn read_thread_with_legacy_sessions(
-        &self,
-        request: ReadThreadRequest,
-        sessions: &[SessionMetadata],
-    ) -> Result<ThreadSnapshot, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionMetadataRead)?;
-        session_adapter::read_thread_with_legacy_sessions(&self.store, request, sessions)
-    }
-
     pub fn resume_thread(
         &self,
         request: ResumeThreadRequest,
@@ -97,15 +97,6 @@ impl WorkerThreadRpc {
         self.store.get_thread_status(&params.thread_id)
     }
 
-    pub fn get_thread_status_with_legacy_sessions(
-        &self,
-        params: ThreadIdParams,
-        sessions: &[SessionMetadata],
-    ) -> Result<ThreadStatusResult, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionMetadataRead)?;
-        session_adapter::get_thread_status_with_legacy_sessions(&self.store, params, sessions)
-    }
-
     pub fn list_threads(
         &self,
         request: ListThreadsRequest,
@@ -114,72 +105,12 @@ impl WorkerThreadRpc {
         self.store.list_threads(request)
     }
 
-    pub fn list_threads_with_legacy_sessions(
-        &self,
-        request: ListThreadsRequest,
-        sessions: &[SessionMetadata],
-    ) -> Result<ListThreadsResult, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionMetadataRead)?;
-        session_adapter::list_threads_with_legacy_sessions(&self.store, request, sessions)
-    }
-
-    pub fn list_session_metadata_with_threads(
-        &self,
-        sessions: &[SessionMetadata],
-    ) -> Result<Vec<SessionMetadata>, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionMetadataRead)?;
-        session_adapter::list_session_metadata_with_threads(&self.store, sessions)
-    }
-
-    pub fn get_session_metadata_from_threads(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<SessionMetadata>, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionMetadataRead)?;
-        session_adapter::get_session_metadata_from_threads(&self.store, session_id)
-    }
-
-    pub fn get_session_history_from_threads(
-        &self,
-        session_id: &str,
-        limit: usize,
-    ) -> Result<Option<SessionHistoryProjection>, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionMetadataRead)?;
-        session_adapter::get_session_history_from_threads(&self.store, session_id, limit)
-    }
-
-    pub fn get_agent_context_from_threads(
-        &self,
-        session_id: &str,
-        limit: usize,
-    ) -> Result<Option<SessionHistoryProjection>, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionMetadataRead)?;
-        session_adapter::get_agent_context_from_threads(&self.store, session_id, limit)
-    }
-
-    pub fn get_session_checkpoint_from_threads(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<Value>, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionMetadataRead)?;
-        session_adapter::get_session_checkpoint_from_threads(&self.store, session_id)
-    }
-
     pub fn search_threads(
         &self,
         request: SearchThreadsRequest,
     ) -> Result<SearchThreadsResult, WorkerProtocolError> {
         self.require(WorkerCapability::SessionMetadataRead)?;
         self.store.search_threads(request)
-    }
-
-    pub fn search_threads_with_legacy_sessions(
-        &self,
-        request: SearchThreadsRequest,
-        sessions: &[SessionMetadata],
-    ) -> Result<SearchThreadsResult, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionMetadataRead)?;
-        session_adapter::search_threads_with_legacy_sessions(&self.store, request, sessions)
     }
 
     pub fn update_thread_metadata(
@@ -321,14 +252,6 @@ impl WorkerThreadRpc {
         self.runtime.interrupt(request)
     }
 
-    pub fn archive_session_thread(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<ThreadRecord>, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionWrite)?;
-        session_adapter::archive_session_thread(&self.store, session_id)
-    }
-
     pub fn list_agent_run_trace_events(
         &self,
         session_id: &str,
@@ -356,25 +279,6 @@ impl WorkerThreadRpc {
     ) -> Result<Vec<AgentRunRecord>, WorkerProtocolError> {
         self.require(WorkerCapability::SessionMetadataRead)?;
         self.store.list_agent_runs_from_threads(session_id)
-    }
-
-    pub fn has_thread_store(&self) -> bool {
-        self.store.exists()
-    }
-
-    pub fn check_persistence(
-        &self,
-    ) -> Result<ThreadPersistenceConsistencyReport, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionMetadataRead)?;
-        self.store.check_persistence_consistency()
-    }
-
-    pub fn repair_persistence(
-        &self,
-        mode: ThreadPersistenceRepairMode,
-    ) -> Result<ThreadPersistenceRepairReport, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionWrite)?;
-        self.store.repair_persistence(mode)
     }
 
     pub fn get_agent_run_from_threads(

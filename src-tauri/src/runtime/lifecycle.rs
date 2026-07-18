@@ -7,8 +7,7 @@ use crate::worker_shell::{ShellProcessCleanupReport, WorkerShellRuntime};
 use crate::worker_subagent_manager::{SubagentThreadManager, SubagentThreadStatus};
 use crate::worker_thread::{
     InterruptThreadRequest, ListThreadsRequest, ThreadIdParams, ThreadPersistenceConsistencyReport,
-    ThreadPersistenceConsistencyStatus, ThreadPersistenceRepairMode, ThreadPersistenceRepairReport,
-    WorkerThreadRpc,
+    ThreadPersistenceRepairReport, WorkerThreadRpc,
 };
 use crate::worker_thread_log::{
     AgentRunRecoveryEntry, ThreadLogIndexConsistencyReport, ThreadLogIndexRepairReport,
@@ -311,29 +310,10 @@ impl RuntimeLifecycle {
         let thread_log = WorkerThreadLogRpc::new(workspace_root.to_path_buf(), policy);
         let mut report = RuntimeStartupRecoveryReport::default();
 
-        let persistence = thread.check_persistence()?;
-        match persistence.status {
-            ThreadPersistenceConsistencyStatus::Clean => {
-                report.thread_persistence = Some(persistence);
-            }
-            ThreadPersistenceConsistencyStatus::LegacyProjection => {
-                let migration = thread
-                    .repair_persistence(ThreadPersistenceRepairMode::MigrateLegacyProjection)?;
-                report.thread_persistence = Some(migration.after.clone());
-                report.thread_persistence_migration = Some(migration);
-            }
-            ThreadPersistenceConsistencyStatus::Diverged => {
-                return Err(WorkerProtocolError::new(
-                    crate::worker_protocol::WorkerProtocolErrorCode::WorkerError,
-                    "thread persistence journal and SQLite projection diverged; run thread.persistence.repair explicitly",
-                    serde_json::to_value(persistence).unwrap_or_default(),
-                    false,
-                    crate::worker_protocol::WorkerProtocolErrorSource::RustCore,
-                ));
-            }
-        }
         report.session_log_index_migration = thread_log.prepare_state_index_for_startup()?;
         report.session_log_index = Some(thread_log.check_state_index()?);
+        let (threads, items) = thread_log.thread_projection()?;
+        thread.replace_projection(threads, items)?;
 
         for thread_record in list_all_threads(&thread)? {
             report.scanned_threads = report.scanned_threads.saturating_add(1);
