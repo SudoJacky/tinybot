@@ -222,14 +222,17 @@ fn startup_reconciles_orphaned_run_and_preserves_waiting_checkpoint() {
     let thread_log =
         crate::worker_thread_log::WorkerThreadLogRpc::new(fixture.root.clone(), policy.clone());
     let thread = crate::worker_thread::WorkerThreadRpc::new(fixture.root.clone(), policy);
-    thread
+    let created = thread
         .create_thread(crate::worker_thread::CreateThreadRequest {
             thread_id: Some("thread-recovery".to_string()),
             session_key: Some("session-recovery".to_string()),
             ..Default::default()
         })
         .expect("recovery thread should be created");
-    thread
+    thread_log
+        .create_from_thread_record(&created)
+        .expect("recovery thread Rollout should be created");
+    let started = thread
         .start_turn(crate::worker_thread::StartThreadTurnRequest {
             thread_id: "thread-recovery".to_string(),
             run_id: Some("run-orphaned".to_string()),
@@ -237,6 +240,9 @@ fn startup_reconciles_orphaned_run_and_preserves_waiting_checkpoint() {
             ..Default::default()
         })
         .expect("orphaned thread run should start");
+    thread_log
+        .append_thread_items("thread-recovery", &started.appended_items)
+        .expect("orphaned thread run should persist to Rollout");
 
     let mut running_record: crate::worker_session::AgentRunRecord =
         serde_json::from_value(native_agent_run_record(
@@ -317,6 +323,12 @@ fn startup_reconciles_orphaned_run_and_preserves_waiting_checkpoint() {
         crate::worker_session::AgentRunStatus::Waiting
     );
     assert!(waiting.checkpoint.is_some());
+    let (threads, items) = thread_log
+        .thread_projection()
+        .expect("reconciled Rollout should project thread state");
+    thread
+        .replace_projection(threads, items)
+        .expect("reconciled thread projection should refresh");
     let thread_status = thread
         .get_thread_status(crate::worker_thread::ThreadIdParams {
             thread_id: "thread-recovery".to_string(),
@@ -2616,7 +2628,7 @@ fn thread_owned_compaction_commits_installed_checkpoint_before_finalization() {
 }
 
 #[test]
-fn thread_owned_terminal_reentry_uses_thread_authority_without_session_log() {
+fn thread_owned_terminal_reentry_uses_rollout_authority_after_restart() {
     let fixture = WorkspaceFixture::new();
     let config = serde_json::json!({
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
@@ -2660,8 +2672,8 @@ fn thread_owned_terminal_reentry_uses_thread_authority_without_session_log() {
     assert_eq!(retry["threadId"], thread_id);
     assert_eq!(retry["agentResult"]["stopReason"], "terminal_turn");
     assert_eq!(retry["snapshot"]["thread"]["status"], "idle");
-    let compatibility_logs = compatibility_thread_log_paths(&fixture.root);
-    assert!(compatibility_logs.is_empty(), "{compatibility_logs:?}");
+    let rollout_paths = compatibility_thread_log_paths(&fixture.root);
+    assert_eq!(rollout_paths.len(), 1, "{rollout_paths:?}");
 }
 
 #[test]
@@ -4936,9 +4948,9 @@ fn worker_workspace_file_commands_use_rust_workspace() {
 }
 
 #[test]
-fn worker_session_read_commands_use_rust_session_store() {
+fn worker_session_read_commands_use_rollout_state() {
     let fixture = WorkspaceFixture::new();
-    fixture.write_session_store(serde_json::json!({
+    fixture.seed_rollout_sessions(serde_json::json!({
         "version": 1,
         "sessions": [{
             "session_id": "websocket:chat-1",
@@ -5073,9 +5085,9 @@ fn worker_agent_run_runtime_commands_use_thread_log_agent_run_store() {
 }
 
 #[test]
-fn worker_session_write_commands_use_rust_session_store_on_rust_backend() {
+fn worker_session_write_commands_use_rollout_state_on_rust_backend() {
     let fixture = WorkspaceFixture::new();
-    fixture.write_session_store(serde_json::json!({
+    fixture.seed_rollout_sessions(serde_json::json!({
         "version": 1,
         "sessions": [{
             "session_id": "websocket:chat-1",
@@ -5190,7 +5202,7 @@ fn worker_session_write_commands_use_rust_session_store_on_rust_backend() {
 #[test]
 fn worker_session_branch_creates_new_session_without_runtime_state() {
     let fixture = WorkspaceFixture::new();
-    fixture.write_session_store(serde_json::json!({
+    fixture.seed_rollout_sessions(serde_json::json!({
         "version": 1,
         "sessions": [{
             "session_id": "websocket:chat-1",
@@ -5420,7 +5432,7 @@ fn worker_webui_tools_route_returns_effective_catalog() {
 fn worker_webui_route_serves_rust_owned_state_routes_on_rust_backend() {
     let fixture = WorkspaceFixture::new();
     fixture.write("docs/readme.md", "hello route");
-    fixture.write_session_store(serde_json::json!({
+    fixture.seed_rollout_sessions(serde_json::json!({
         "version": 1,
         "sessions": [{
             "session_id": "websocket:chat-1",
@@ -7807,79 +7819,44 @@ impl WorkspaceFixture {
         std::fs::write(path, contents).expect("fixture file should write");
     }
 
-    fn write_session_store(&self, store: serde_json::Value) {
-        // Fixture for the isolated, read-only startup migration path.
-        let path = self.root.join("sessions").join("sessions.sqlite");
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).expect("fixture session parent should create");
-        }
-        let mut connection =
-            rusqlite::Connection::open(path).expect("fixture session sqlite should open");
-        connection
-            .execute_batch(
-                "
-                    CREATE TABLE IF NOT EXISTS sessions (
-                        session_id TEXT PRIMARY KEY NOT NULL,
-                        title TEXT NOT NULL,
-                        workspace_dir TEXT NOT NULL,
-                        created_at TEXT NOT NULL,
-                        updated_at TEXT NOT NULL,
-                        session_json TEXT NOT NULL
-                    );
-                    CREATE INDEX IF NOT EXISTS idx_sessions_updated_at
-                        ON sessions(updated_at DESC, session_id ASC);
-                    ",
-            )
-            .expect("fixture session schema should create");
-        let transaction = connection
-            .transaction()
-            .expect("fixture session transaction should start");
-        transaction
-            .execute("DELETE FROM sessions", [])
-            .expect("fixture sessions should clear");
-        {
-            let mut statement = transaction
-                .prepare(
-                    "INSERT INTO sessions (
-                            session_id,
-                            title,
-                            workspace_dir,
-                            created_at,
-                            updated_at,
-                            session_json
-                        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                )
-                .expect("fixture session insert should prepare");
-            let sessions = store
-                .get("sessions")
-                .and_then(serde_json::Value::as_array)
-                .expect("fixture session store should contain sessions");
-            for session in sessions {
-                statement
-                    .execute(rusqlite::params![
-                        session["session_id"]
-                            .as_str()
-                            .expect("fixture session id should be a string"),
-                        session["title"]
-                            .as_str()
-                            .expect("fixture session title should be a string"),
-                        session["workspace_dir"]
-                            .as_str()
-                            .expect("fixture workspace dir should be a string"),
-                        session["created_at"]
-                            .as_str()
-                            .expect("fixture created_at should be a string"),
-                        session["updated_at"]
-                            .as_str()
-                            .expect("fixture updated_at should be a string"),
-                        serde_json::to_string(session).expect("fixture session should serialize")
-                    ])
-                    .expect("fixture session should insert");
+    fn seed_rollout_sessions(&self, store: serde_json::Value) {
+        let rpc = crate::worker_thread_log::WorkerThreadLogRpc::new(
+            self.root.clone(),
+            crate::worker_capability::CapabilityPolicy::new([
+                crate::worker_capability::WorkerCapability::SessionMetadataRead,
+                crate::worker_capability::WorkerCapability::SessionWrite,
+            ]),
+        );
+        let sessions = store
+            .get("sessions")
+            .and_then(serde_json::Value::as_array)
+            .expect("fixture Rollout seed should contain sessions");
+        for session in sessions {
+            let session_id = session["session_id"]
+                .as_str()
+                .expect("fixture session id should be a string");
+            let messages = session["extra"]["messages"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            rpc.append_session_messages(session_id, messages)
+                .expect("fixture Rollout messages should append");
+            let mut metadata = session["extra"]["metadata"]
+                .as_object()
+                .cloned()
+                .unwrap_or_default();
+            metadata.insert("title".to_string(), session["title"].clone());
+            metadata.insert(
+                "workingDirectory".to_string(),
+                session["workspace_dir"].clone(),
+            );
+            rpc.patch_metadata(session_id, &serde_json::Value::Object(metadata))
+                .expect("fixture Rollout metadata should patch");
+            if let Some(user_profile) = session["extra"].get("user_profile") {
+                rpc.patch_user_profile(session_id, user_profile.clone(), serde_json::json!({}))
+                    .expect("fixture Rollout user profile should patch");
             }
         }
-        transaction
-            .commit()
-            .expect("fixture session transaction should commit");
     }
 }
 

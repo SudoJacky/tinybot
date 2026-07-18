@@ -163,7 +163,6 @@ impl WorkerRpcRouter {
         policy: CapabilityPolicy,
     ) -> Result<Self, crate::worker_protocol::WorkerProtocolError> {
         let thread_log = WorkerThreadLogRpc::new(workspace_root.clone(), policy.clone());
-        thread_log.migrate_legacy_session_store_at_startup(&workspace_root)?;
         let session = WorkerSessionRpc::new_persistent_resources(
             workspace_root.clone(),
             sessions,

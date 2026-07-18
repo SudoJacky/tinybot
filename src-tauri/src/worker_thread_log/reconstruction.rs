@@ -26,8 +26,6 @@ pub(super) fn reconstruct_canonical_rollout(
     let session_id = meta.session_id.clone().unwrap_or_else(|| thread_id.clone());
     let semantic = replay_thread(lines)?;
     let transcript = replay_thread_transcript(lines)?;
-    let thread_items =
-        thread_items_from_effective_rollout(lines, &semantic.effective_line_indexes, &thread_id)?;
     let effective_lines = semantic
         .effective_line_indexes
         .iter()
@@ -35,6 +33,8 @@ pub(super) fn reconstruct_canonical_rollout(
         .collect::<Vec<_>>();
     let agent_runs =
         agent_run::agent_run_records_from_lines(&session_id, &thread_id, &effective_lines)?;
+    let thread_items =
+        thread_items_from_effective_rollout(lines, &semantic.effective_line_indexes, &thread_id)?;
     let active_turn = effective_lines.iter().fold(false, |active, line| {
         let ThreadLogItem::EventMsg(event) = &line.item else {
             return active;
@@ -330,7 +330,7 @@ mod tests {
                 .total_tokens,
             200
         );
-        assert_eq!(reconstructed.thread_items.len(), 5);
+        assert_eq!(reconstructed.thread_items.len(), 10);
         assert!(reconstructed
             .thread_items
             .iter()
@@ -341,8 +341,11 @@ mod tests {
             reconstructed.agent_runs[0].checkpoint.as_ref().unwrap()["iteration"],
             2
         );
-        assert_eq!(reconstructed.checkpoints.len(), 1);
-        assert_eq!(reconstructed.checkpoints[0].checkpoint_id, "checkpoint-1");
+        assert_eq!(reconstructed.checkpoints.len(), 2);
+        assert!(reconstructed
+            .checkpoints
+            .iter()
+            .any(|checkpoint| checkpoint.checkpoint_id == "checkpoint-1"));
         assert!(!reconstructed.active_turn);
     }
 

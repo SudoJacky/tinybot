@@ -344,7 +344,7 @@ impl RuntimeLifecycle {
                     }
                 }
                 _ if active_run.active => {
-                    thread.interrupt(InterruptThreadRequest {
+                    let interrupted = thread.interrupt(InterruptThreadRequest {
                         thread_id: status.thread.thread_id,
                         client_event_id: Some(format!(
                             "startup-recovery:{}:{}",
@@ -357,6 +357,11 @@ impl RuntimeLifecycle {
                                 .to_string(),
                         ),
                     })?;
+                    thread_log.create_from_thread_record(&interrupted.snapshot.thread)?;
+                    thread_log.append_thread_items(
+                        &interrupted.snapshot.thread.thread_id,
+                        &interrupted.appended_items,
+                    )?;
                     report.interrupted_runs.push(run_ref);
                 }
                 _ => {}

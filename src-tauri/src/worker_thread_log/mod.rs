@@ -1,6 +1,5 @@
 mod agent_run;
 mod compression;
-mod legacy_session_migration;
 mod reader;
 mod reconstruction;
 mod recorder;
@@ -25,15 +24,10 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 static CONTEXT_CHECKPOINT_COMMIT_LOCK: Mutex<()> = Mutex::new(());
-const LEGACY_SESSION_MIGRATION_VERSION: u32 = 1;
-const LEGACY_SESSION_MIGRATION_MARKER: &str = "legacy-session-store-v1.json";
-
-use self::legacy_session_migration::read_legacy_session_store;
 pub use self::reader::read_thread_lines;
 use self::reader::read_thread_lines_for_discovery;
 use self::recorder::ThreadLogHead;
@@ -158,17 +152,6 @@ pub struct ThreadLogIndexRepairReport {
     pub before: ThreadLogIndexConsistencyReport,
     pub after: ThreadLogIndexConsistencyReport,
     pub rebuilt_thread_count: usize,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LegacySessionMigrationReport {
-    pub version: u32,
-    pub source_path: String,
-    pub total_count: usize,
-    pub imported_count: usize,
-    pub skipped_count: usize,
-    pub completed_at: String,
 }
 
 impl WorkerThreadLogRpc {
@@ -297,9 +280,9 @@ impl WorkerThreadLogRpc {
                     .find_by_session_or_thread_id(&implicit_thread_id)?
                 {
                     if existing.id == implicit_thread_id {
-                        let legacy_path = PathBuf::from(&existing.thread_path);
-                        self.recorder.validate_thread_path(&legacy_path)?;
-                        let existing_lines = read_thread_lines(&legacy_path)?;
+                        let implicit_path = PathBuf::from(&existing.thread_path);
+                        self.recorder.validate_thread_path(&implicit_path)?;
+                        let existing_lines = read_thread_lines(&implicit_path)?;
                         let explicitly_created = existing_lines.iter().any(|line| {
                             matches!(
                                 &line.item,
@@ -309,19 +292,19 @@ impl WorkerThreadLogRpc {
                             )
                         });
                         if !explicitly_created {
-                            self.recorder.delete_rollout(&legacy_path)?;
+                            self.recorder.delete_rollout(&implicit_path)?;
                             if !self.state.delete_thread(&existing.id)? {
                                 return Err(thread_log_consistency_error(
-                                    "superseded legacy Rollout state could not be deleted",
+                                    "superseded implicit Rollout state could not be deleted",
                                     serde_json::json!({
                                         "threadId": thread.thread_id,
                                         "sessionId": session_id,
-                                        "legacyThreadId": existing.id,
+                                        "implicitThreadId": existing.id,
                                     }),
                                 ));
                             }
                             eprintln!(
-                            "legacy_session_import_superseded session_id={} legacy_thread_id={} canonical_thread_id={}",
+                            "implicit_session_rollout_superseded session_id={} implicit_thread_id={} canonical_thread_id={}",
                             session_id, existing.id, thread.thread_id
                         );
                         }
@@ -482,322 +465,6 @@ impl WorkerThreadLogRpc {
         )
     }
 
-    pub(crate) fn migrate_legacy_session_store_at_startup(
-        &self,
-        workspace_root: &Path,
-    ) -> Result<Option<LegacySessionMigrationReport>, WorkerProtocolError> {
-        let marker_path = self.legacy_session_migration_marker_path()?;
-        if marker_path.exists() {
-            let marker = fs::read(&marker_path).map_err(|error| {
-                legacy_session_migration_error(
-                    "failed to read legacy session migration marker",
-                    serde_json::json!({
-                        "markerPath": marker_path,
-                        "error": error.to_string(),
-                    }),
-                )
-            })?;
-            let report: LegacySessionMigrationReport =
-                serde_json::from_slice(&marker).map_err(|error| {
-                    legacy_session_migration_error(
-                        "legacy session migration marker is invalid",
-                        serde_json::json!({
-                            "markerPath": marker_path,
-                            "error": error.to_string(),
-                        }),
-                    )
-                })?;
-            if report.version != LEGACY_SESSION_MIGRATION_VERSION {
-                return Err(legacy_session_migration_error(
-                    "legacy session migration marker version is unsupported",
-                    serde_json::json!({
-                        "markerPath": marker_path,
-                        "expectedVersion": LEGACY_SESSION_MIGRATION_VERSION,
-                        "actualVersion": report.version,
-                    }),
-                ));
-            }
-            eprintln!(
-                "legacy_session_migration_already_completed version={} total={} imported={} skipped={}",
-                report.version, report.total_count, report.imported_count, report.skipped_count
-            );
-            return Ok(Some(report));
-        }
-
-        let Some((source_path, sessions)) = read_legacy_session_store(workspace_root)? else {
-            return Ok(None);
-        };
-        eprintln!(
-            "legacy_session_migration_started version={} source_path={} total={}",
-            LEGACY_SESSION_MIGRATION_VERSION,
-            source_path.display(),
-            sessions.len()
-        );
-        self.ensure_state_index()?;
-        let mut imported_count = 0usize;
-        let mut skipped_count = 0usize;
-        for session in &sessions {
-            if self
-                .state
-                .find_by_session_or_thread_id(&session.session_id)?
-                .is_some()
-            {
-                skipped_count = skipped_count.saturating_add(1);
-                continue;
-            }
-            if let Err(error) = self.import_legacy_session(session) {
-                eprintln!(
-                    "legacy_session_migration_failed version={} session_id={} error={}",
-                    LEGACY_SESSION_MIGRATION_VERSION, session.session_id, error.message
-                );
-                return Err(error);
-            }
-            imported_count = imported_count.saturating_add(1);
-        }
-        let report = LegacySessionMigrationReport {
-            version: LEGACY_SESSION_MIGRATION_VERSION,
-            source_path: source_path.display().to_string(),
-            total_count: sessions.len(),
-            imported_count,
-            skipped_count,
-            completed_at: now_thread_timestamp(),
-        };
-        self.write_legacy_session_migration_marker(&marker_path, &report)?;
-        eprintln!(
-            "legacy_session_migration_completed version={} total={} imported={} skipped={} marker_path={}",
-            report.version,
-            report.total_count,
-            report.imported_count,
-            report.skipped_count,
-            marker_path.display()
-        );
-        Ok(Some(report))
-    }
-
-    fn legacy_session_migration_marker_path(&self) -> Result<PathBuf, WorkerProtocolError> {
-        let tinybot_root = self.thread_root.parent().ok_or_else(|| {
-            legacy_session_migration_error(
-                "thread root has no parent for migration state",
-                serde_json::json!({ "threadRoot": self.thread_root }),
-            )
-        })?;
-        Ok(tinybot_root
-            .join("state")
-            .join("migrations")
-            .join(LEGACY_SESSION_MIGRATION_MARKER))
-    }
-
-    fn write_legacy_session_migration_marker(
-        &self,
-        marker_path: &Path,
-        report: &LegacySessionMigrationReport,
-    ) -> Result<(), WorkerProtocolError> {
-        let parent = marker_path.parent().ok_or_else(|| {
-            legacy_session_migration_error(
-                "legacy session migration marker has no parent directory",
-                serde_json::json!({ "markerPath": marker_path }),
-            )
-        })?;
-        fs::create_dir_all(parent).map_err(|error| {
-            legacy_session_migration_error(
-                "failed to create legacy session migration marker directory",
-                serde_json::json!({
-                    "markerPath": marker_path,
-                    "error": error.to_string(),
-                }),
-            )
-        })?;
-        let bytes = serde_json::to_vec_pretty(report).map_err(|error| {
-            legacy_session_migration_error(
-                "failed to serialize legacy session migration report",
-                serde_json::json!({ "error": error.to_string() }),
-            )
-        })?;
-        let temp_path = marker_path.with_extension(format!("tmp-{}", std::process::id()));
-        let mut file = fs::File::create(&temp_path).map_err(|error| {
-            legacy_session_migration_error(
-                "failed to create legacy session migration marker",
-                serde_json::json!({
-                    "markerPath": marker_path,
-                    "tempPath": temp_path,
-                    "error": error.to_string(),
-                }),
-            )
-        })?;
-        file.write_all(&bytes).map_err(|error| {
-            legacy_session_migration_error(
-                "failed to write legacy session migration marker",
-                serde_json::json!({
-                    "markerPath": marker_path,
-                    "tempPath": temp_path,
-                    "error": error.to_string(),
-                }),
-            )
-        })?;
-        file.sync_all().map_err(|error| {
-            legacy_session_migration_error(
-                "failed to sync legacy session migration marker",
-                serde_json::json!({
-                    "markerPath": marker_path,
-                    "tempPath": temp_path,
-                    "error": error.to_string(),
-                }),
-            )
-        })?;
-        fs::rename(&temp_path, marker_path).map_err(|error| {
-            legacy_session_migration_error(
-                "failed to publish legacy session migration marker",
-                serde_json::json!({
-                    "markerPath": marker_path,
-                    "tempPath": temp_path,
-                    "error": error.to_string(),
-                }),
-            )
-        })
-    }
-
-    fn import_legacy_session(&self, session: &SessionMetadata) -> Result<(), WorkerProtocolError> {
-        let created_at = canonicalize_thread_timestamp(&session.created_at)?;
-        let updated_at = canonicalize_thread_timestamp(&session.updated_at)?;
-        let thread_id = thread_id_for_session_id(&session.session_id);
-        let model = session
-            .extra
-            .get("model")
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        let meta = ThreadMeta {
-            schema_version: THREAD_LOG_SCHEMA_VERSION,
-            thread_id: thread_id.clone(),
-            session_id: Some(session.session_id.clone()),
-            created_at: created_at.clone(),
-            cwd: session.workspace_dir.clone(),
-            source: "legacy_session_import".to_string(),
-            model_provider: session
-                .extra
-                .get("provider")
-                .and_then(Value::as_str)
-                .map(str::to_string),
-            model,
-            base_instructions: None,
-            history_mode: Some("default".to_string()),
-            forked_from_thread_id: None,
-            parent_thread_id: None,
-            originator: Some("Tinybot Desktop".to_string()),
-        };
-        let path = self.recorder.create_thread(meta)?;
-        let result = (|| {
-            let mut lines = vec![ThreadLogLine {
-                timestamp: updated_at.clone(),
-                ordinal: None,
-                item: value_event(
-                    EventKind::MetadataUpdated,
-                    serde_json::json!({
-                        "metadata": {
-                            "title": session.title,
-                            "preview": session.extra.get("preview").cloned().unwrap_or(Value::Null),
-                            "userProfile": session.extra.get("user_profile").cloned().unwrap_or_else(|| serde_json::json!({})),
-                        },
-                        "sessionMetadata": session.extra.get("metadata").cloned().unwrap_or_else(|| serde_json::json!({})),
-                        "legacySessionExtra": session.extra,
-                    }),
-                ),
-            }];
-            if let Some(messages) = session.extra.get("messages").and_then(Value::as_array) {
-                for message in messages.iter().cloned() {
-                    lines.push(ThreadLogLine {
-                        timestamp: message
-                            .get("timestamp")
-                            .and_then(Value::as_str)
-                            .unwrap_or(updated_at.as_str())
-                            .to_string(),
-                        ordinal: None,
-                        item: ThreadLogItem::ResponseItem(typed_response_item(
-                            message,
-                            "legacy session import",
-                        )?),
-                    });
-                }
-            }
-            if let Some(runs) = session.extra.get("agent_runs").and_then(Value::as_array) {
-                for value in runs {
-                    let run: AgentRunRecord =
-                        serde_json::from_value(value.clone()).map_err(|error| {
-                            thread_log_consistency_error(
-                                "legacy session contains an invalid agent run",
-                                serde_json::json!({
-                                    "sessionId": session.session_id,
-                                    "error": error.to_string(),
-                                }),
-                            )
-                        })?;
-                    if run.session_id != session.session_id {
-                        return Err(thread_log_consistency_error(
-                            "legacy agent run session identity does not match its container",
-                            serde_json::json!({
-                                "sessionId": session.session_id,
-                                "runId": run.run_id,
-                                "runSessionId": run.session_id,
-                            }),
-                        ));
-                    }
-                    lines.push(ThreadLogLine {
-                        timestamp: run.updated_at.clone(),
-                        ordinal: None,
-                        item: value_event(
-                            EventKind::AgentRunUpsert,
-                            serde_json::json!({ "record": run }),
-                        ),
-                    });
-                }
-            }
-            if let Some(checkpoint) = session.extra.get("runtime_checkpoint") {
-                let run_id = checkpoint
-                    .get("runId")
-                    .or_else(|| checkpoint.get("run_id"))
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-                    .unwrap_or_else(|| format!("legacy-checkpoint:{}", session.session_id));
-                lines.push(ThreadLogLine {
-                    timestamp: updated_at.clone(),
-                    ordinal: None,
-                    item: value_event(
-                        EventKind::AgentRunCheckpointSet,
-                        serde_json::json!({
-                            "sessionId": session.session_id,
-                            "runId": run_id,
-                            "checkpoint": checkpoint,
-                        }),
-                    ),
-                });
-            }
-            self.recorder.append_lines(&path, lines)?;
-            let canonical = self.canonical_thread_state(&path)?;
-            let log_head = ThreadLogHead {
-                byte_length: canonical.log_head.byte_length,
-                tail_hash: canonical.log_head.tail_hash.clone(),
-            };
-            self.state.replace_thread_projection(
-                &canonical.record,
-                canonical.latest_checkpoint.as_ref(),
-                &log_head,
-            )
-        })();
-        if let Err(error) = result {
-            if let Err(cleanup_error) = self.recorder.delete_rollout(&path) {
-                eprintln!(
-                    "legacy_session_import_cleanup_failed session_id={} error={}",
-                    session.session_id, cleanup_error.message
-                );
-            }
-            return Err(error);
-        }
-        eprintln!(
-            "legacy_session_imported session_id={} thread_id={}",
-            session.session_id, thread_id
-        );
-        Ok(())
-    }
-
     pub fn append_thread_items(
         &self,
         thread_id: &str,
@@ -818,11 +485,14 @@ impl WorkerThreadLogRpc {
             .iter()
             .filter_map(thread_item_id_from_rollout_line)
             .collect::<HashSet<_>>();
-        let mut lines = Vec::new();
-        for item in items
+        let mut pending_items = items
             .iter()
             .filter(|item| !persisted_item_ids.contains(item.item_id.as_str()))
-        {
+            .collect::<Vec<_>>();
+        pending_items
+            .sort_by_key(|item| (!matches!(item.kind, ThreadItemKind::AgentRunStarted(_))) as u8);
+        let mut lines = Vec::new();
+        for item in pending_items {
             for rollout_item in thread_item_to_rollout_items(item)? {
                 lines.push(ThreadLogLine {
                     timestamp: item.created_at.clone(),
@@ -1252,10 +922,13 @@ impl WorkerThreadLogRpc {
         }
         let active_run = runs.iter().find(|run| run.active).cloned();
         let checkpoints = reconstructed.checkpoints;
-        let latest_checkpoint = checkpoints
-            .iter()
-            .max_by_key(|checkpoint| checkpoint.sequence)
-            .cloned();
+        let latest_checkpoint = active_run.as_ref().and_then(|run| {
+            checkpoints
+                .iter()
+                .filter(|checkpoint| checkpoint.run_id.as_deref() == Some(run.run_id.as_str()))
+                .max_by_key(|checkpoint| checkpoint.sequence)
+                .cloned()
+        });
         let requested_cursor = resolve_thread_snapshot_cursor(
             cursor,
             checkpoint_sequence,
@@ -3734,6 +3407,7 @@ fn thread_items_from_effective_rollout(
         .unwrap_or(0);
     let mut items = Vec::new();
     let mut item_ids = HashSet::new();
+    let mut active_run_id = None::<String>;
     for index in effective_indexes
         .iter()
         .copied()
@@ -3753,9 +3427,11 @@ fn thread_items_from_effective_rollout(
                     item_id: rollout_thread_item_id(item.as_value(), thread_id, item_sequence),
                     thread_id: thread_id.to_string(),
                     run_id: string_value(item.as_value(), "runId")
-                        .or_else(|| string_value(item.as_value(), "run_id")),
+                        .or_else(|| string_value(item.as_value(), "run_id"))
+                        .or_else(|| active_run_id.clone()),
                     turn_id: string_value(item.as_value(), "turnId")
-                        .or_else(|| string_value(item.as_value(), "turn_id")),
+                        .or_else(|| string_value(item.as_value(), "turn_id"))
+                        .or_else(|| active_run_id.clone()),
                     parent_item_id: string_value(item.as_value(), "parentItemId")
                         .or_else(|| string_value(item.as_value(), "parent_item_id")),
                     sequence: item_sequence,
@@ -3763,34 +3439,32 @@ fn thread_items_from_effective_rollout(
                     kind: response_item_thread_kind(item.as_value()),
                 })
             }
-            ThreadLogItem::EventMsg(event) if event.kind() == &EventKind::ThreadItem => {
-                let mut item = serde_json::from_value::<ThreadItem>(
-                    event.payload().get("item").cloned().ok_or_else(|| {
-                        thread_log_consistency_error(
-                            "canonical thread_item event is missing its item",
-                            serde_json::json!({
-                                "threadId": thread_id,
-                                "ordinal": line.ordinal,
-                            }),
-                        )
-                    })?,
-                )
-                .map_err(|error| {
-                    thread_log_consistency_error(
-                        "canonical thread_item event is invalid",
-                        serde_json::json!({
-                            "threadId": thread_id,
-                            "ordinal": line.ordinal,
-                            "error": error.to_string(),
-                        }),
-                    )
-                })?;
-                item.thread_id = thread_id.to_string();
-                if item.sequence == 0 {
-                    item.sequence = sequence;
-                }
-                item.created_at = line.timestamp.clone();
-                Some(item)
+            ThreadLogItem::EventMsg(event) if event.kind() == &EventKind::ThreadItem => Some(
+                thread_item_from_event_payload(event.payload(), thread_id, sequence, line)?,
+            ),
+            ThreadLogItem::EventMsg(event)
+                if matches!(
+                    event.kind(),
+                    EventKind::TurnStarted | EventKind::TurnComplete
+                ) =>
+            {
+                Some(thread_boundary_item_from_rollout_event(
+                    event, thread_id, sequence, line,
+                )?)
+            }
+            ThreadLogItem::EventMsg(event) if event.kind() == &EventKind::UserMessage => Some(
+                thread_user_item_from_rollout_event(event.payload(), thread_id, sequence, line)?,
+            ),
+            ThreadLogItem::EventMsg(event) if event.kind() == &EventKind::AgentRunTrace => {
+                thread_item_from_agent_run_trace(event.payload(), thread_id, sequence, line)?
+            }
+            ThreadLogItem::EventMsg(event) if event.kind() == &EventKind::AgentRunCheckpointSet => {
+                Some(thread_checkpoint_item_from_agent_run_event(
+                    event.payload(),
+                    thread_id,
+                    sequence,
+                    line,
+                )?)
             }
             ThreadLogItem::Compacted(checkpoint) => Some(ThreadItem {
                 item_id: checkpoint
@@ -3805,7 +3479,9 @@ fn thread_items_from_effective_rollout(
                 sequence,
                 created_at: line.timestamp.clone(),
                 kind: ThreadItemKind::ContextCompaction(serde_json::json!({
-                    "contextCheckpoint": checkpoint
+                    "payload": {
+                        "contextCheckpoint": checkpoint
+                    }
                 })),
             }),
             ThreadLogItem::InterAgentCommunication(communication) => Some(ThreadItem {
@@ -3826,6 +3502,16 @@ fn thread_items_from_effective_rollout(
             | ThreadLogItem::WorldState(_)
             | ThreadLogItem::InterAgentCommunicationMetadata { .. } => None,
         };
+        if let ThreadLogItem::EventMsg(event) = &line.item {
+            if event.kind().starts_turn() {
+                active_run_id = string_value(event.payload(), "runId")
+                    .or_else(|| string_value(event.payload(), "run_id"))
+                    .or_else(|| string_value(event.payload(), "turnId"))
+                    .or_else(|| string_value(event.payload(), "turn_id"));
+            } else if event.kind().ends_turn() {
+                active_run_id = None;
+            }
+        }
         let Some(item) = projected else {
             continue;
         };
@@ -3841,8 +3527,353 @@ fn thread_items_from_effective_rollout(
         }
         items.push(item);
     }
+    items = collapse_context_compaction_items(items);
+    items = collapse_logical_user_messages(items);
     items.sort_by_key(|item| item.sequence);
     Ok(items)
+}
+
+fn thread_item_from_event_payload(
+    payload: &Value,
+    thread_id: &str,
+    sequence: u64,
+    line: &ThreadLogLine,
+) -> Result<ThreadItem, WorkerProtocolError> {
+    let mut item =
+        serde_json::from_value::<ThreadItem>(payload.get("item").cloned().ok_or_else(|| {
+            thread_log_consistency_error(
+                "canonical thread_item event is missing its item",
+                serde_json::json!({
+                    "threadId": thread_id,
+                    "ordinal": line.ordinal,
+                }),
+            )
+        })?)
+        .map_err(|error| {
+            thread_log_consistency_error(
+                "canonical thread_item event is invalid",
+                serde_json::json!({
+                    "threadId": thread_id,
+                    "ordinal": line.ordinal,
+                    "error": error.to_string(),
+                }),
+            )
+        })?;
+    item.thread_id = thread_id.to_string();
+    if item.sequence == 0 {
+        item.sequence = sequence;
+    }
+    item.created_at = line.timestamp.clone();
+    Ok(item)
+}
+
+fn thread_boundary_item_from_rollout_event(
+    event: &EventMsg,
+    thread_id: &str,
+    sequence: u64,
+    line: &ThreadLogLine,
+) -> Result<ThreadItem, WorkerProtocolError> {
+    let payload = event.payload().clone();
+    let item_sequence = payload
+        .get("_threadItemSequence")
+        .and_then(Value::as_u64)
+        .unwrap_or(sequence);
+    let run_id = string_value(&payload, "runId")
+        .or_else(|| string_value(&payload, "run_id"))
+        .or_else(|| string_value(&payload, "turnId"))
+        .or_else(|| string_value(&payload, "turn_id"));
+    let turn_id = string_value(&payload, "turnId")
+        .or_else(|| string_value(&payload, "turn_id"))
+        .or_else(|| run_id.clone());
+    let item_id = payload
+        .get("_threadItemId")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            format!(
+                "rollout:{thread_id}:{item_sequence}:{}",
+                event.kind().as_str()
+            )
+        });
+    let mut logical_payload = payload.clone();
+    if let Some(object) = logical_payload.as_object_mut() {
+        object.remove("_threadItemId");
+        object.remove("_threadItemSequence");
+    }
+    let kind = match event.kind() {
+        EventKind::TurnStarted => ThreadItemKind::AgentRunStarted(logical_payload),
+        EventKind::TurnComplete => ThreadItemKind::AgentRunCompleted(logical_payload),
+        _ => {
+            return Err(thread_log_consistency_error(
+                "non-boundary event cannot project a thread lifecycle item",
+                serde_json::json!({
+                    "threadId": thread_id,
+                    "ordinal": line.ordinal,
+                    "eventType": event.kind().as_str(),
+                }),
+            ));
+        }
+    };
+    Ok(ThreadItem {
+        item_id,
+        thread_id: thread_id.to_string(),
+        run_id,
+        turn_id,
+        parent_item_id: None,
+        sequence: item_sequence,
+        created_at: line.timestamp.clone(),
+        kind,
+    })
+}
+
+fn thread_user_item_from_rollout_event(
+    payload: &Value,
+    thread_id: &str,
+    sequence: u64,
+    line: &ThreadLogLine,
+) -> Result<ThreadItem, WorkerProtocolError> {
+    let item_sequence = payload
+        .get("_threadItemSequence")
+        .and_then(Value::as_u64)
+        .unwrap_or(sequence);
+    let run_id = string_value(payload, "runId")
+        .or_else(|| string_value(payload, "run_id"))
+        .or_else(|| string_value(payload, "turnId"))
+        .or_else(|| string_value(payload, "turn_id"));
+    let turn_id = string_value(payload, "turnId")
+        .or_else(|| string_value(payload, "turn_id"))
+        .or_else(|| run_id.clone());
+    let item_id = payload
+        .get("_threadItemId")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("rollout:{thread_id}:{item_sequence}:user_message"));
+    let mut logical_payload = payload.clone();
+    if let Some(object) = logical_payload.as_object_mut() {
+        object.remove("_threadItemId");
+        object.remove("_threadItemSequence");
+        object.remove("message");
+        object.remove("runId");
+        object.remove("run_id");
+        object.remove("turnId");
+        object.remove("turn_id");
+    }
+    Ok(ThreadItem {
+        item_id,
+        thread_id: thread_id.to_string(),
+        run_id,
+        turn_id,
+        parent_item_id: None,
+        sequence: item_sequence,
+        created_at: line.timestamp.clone(),
+        kind: ThreadItemKind::UserMessage(logical_payload),
+    })
+}
+
+fn thread_item_from_agent_run_trace(
+    payload: &Value,
+    thread_id: &str,
+    sequence: u64,
+    line: &ThreadLogLine,
+) -> Result<Option<ThreadItem>, WorkerProtocolError> {
+    let event = payload.get("event").ok_or_else(|| {
+        thread_log_consistency_error(
+            "agent_run_trace event is missing its event payload",
+            serde_json::json!({
+                "threadId": thread_id,
+                "ordinal": line.ordinal,
+            }),
+        )
+    })?;
+    let event_name = event
+        .get("eventName")
+        .or_else(|| event.get("event_name"))
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            thread_log_consistency_error(
+                "agent_run_trace event is missing its event name",
+                serde_json::json!({
+                    "threadId": thread_id,
+                    "ordinal": line.ordinal,
+                }),
+            )
+        })?;
+    if matches!(
+        event_name,
+        "agent.context.compacted"
+            | "agent.delta"
+            | "agent.message.phase"
+            | "agent.message.classified"
+            | "agent.message.completed"
+    ) {
+        return Ok(None);
+    }
+    let run_id = string_value(payload, "runId")
+        .or_else(|| string_value(payload, "run_id"))
+        .or_else(|| string_value(event, "runId"))
+        .or_else(|| string_value(event, "run_id"))
+        .ok_or_else(|| {
+            thread_log_consistency_error(
+                "agent_run_trace event is missing its run id",
+                serde_json::json!({
+                    "threadId": thread_id,
+                    "ordinal": line.ordinal,
+                    "eventName": event_name,
+                }),
+            )
+        })?;
+    let turn_id = string_value(event, "turnId")
+        .or_else(|| string_value(event, "turn_id"))
+        .unwrap_or_else(|| run_id.clone());
+    let event_id = string_value(event, "eventId")
+        .or_else(|| string_value(event, "event_id"))
+        .unwrap_or_else(|| format!("{event_name}:{sequence}"));
+    let event_payload = serde_json::json!({
+        "eventName": event_name,
+        "runId": run_id,
+        "turnId": turn_id,
+        "source": event.get("source").cloned().unwrap_or(Value::Null),
+        "visibility": event.get("visibility").cloned().unwrap_or(Value::Null),
+        "payload": event.get("payload").cloned().unwrap_or(Value::Null),
+        "threadSource": "rollout.agent_run_trace",
+    });
+    let kind = match event_name {
+        "agent.awaiting_approval" => ThreadItemKind::ApprovalRequested(event_payload),
+        "agent.approval.decision" => ThreadItemKind::ApprovalResolved(event_payload),
+        "agent.tool.start" | "agent.tool_call.delta" => {
+            ThreadItemKind::ToolCallStarted(event_payload)
+        }
+        "agent.tool.result" => ThreadItemKind::ToolCallOutput(event_payload),
+        "agent.reasoning_delta" => ThreadItemKind::Reasoning(event_payload),
+        "agent.context.trimmed" => ThreadItemKind::ContextTrimmed(event_payload),
+        _ => ThreadItemKind::Event(event_payload),
+    };
+    Ok(Some(ThreadItem {
+        item_id: format!("rollout:{thread_id}:{run_id}:trace:{event_id}"),
+        thread_id: thread_id.to_string(),
+        run_id: Some(run_id),
+        turn_id: Some(turn_id),
+        parent_item_id: event
+            .get("parentTurnId")
+            .or_else(|| event.get("parent_turn_id"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        sequence,
+        created_at: line.timestamp.clone(),
+        kind,
+    }))
+}
+
+fn thread_checkpoint_item_from_agent_run_event(
+    payload: &Value,
+    thread_id: &str,
+    sequence: u64,
+    line: &ThreadLogLine,
+) -> Result<ThreadItem, WorkerProtocolError> {
+    let run_id = string_value(payload, "runId")
+        .or_else(|| string_value(payload, "run_id"))
+        .ok_or_else(|| {
+            thread_log_consistency_error(
+                "agent_run_checkpoint_set event is missing its run id",
+                serde_json::json!({
+                    "threadId": thread_id,
+                    "ordinal": line.ordinal,
+                }),
+            )
+        })?;
+    let checkpoint = payload.get("checkpoint").cloned().ok_or_else(|| {
+        thread_log_consistency_error(
+            "agent_run_checkpoint_set event is missing its checkpoint",
+            serde_json::json!({
+                "threadId": thread_id,
+                "runId": run_id,
+                "ordinal": line.ordinal,
+            }),
+        )
+    })?;
+    let checkpoint_id = string_value(&checkpoint, "resumeToken")
+        .or_else(|| string_value(&checkpoint, "checkpointId"))
+        .or_else(|| string_value(&checkpoint, "checkpoint_id"))
+        .unwrap_or_else(|| format!("{run_id}:checkpoint:{sequence}"));
+    let label = string_value(&checkpoint, "phase");
+    Ok(ThreadItem {
+        item_id: format!("rollout:{thread_id}:{run_id}:checkpoint:{checkpoint_id}"),
+        thread_id: thread_id.to_string(),
+        run_id: Some(run_id.clone()),
+        turn_id: Some(run_id),
+        parent_item_id: None,
+        sequence,
+        created_at: line.timestamp.clone(),
+        kind: ThreadItemKind::CheckpointCreated(serde_json::json!({
+            "checkpointId": checkpoint_id,
+            "label": label,
+            "restorePayload": checkpoint,
+            "source": "rollout.agent_run_checkpoint_set",
+        })),
+    })
+}
+
+fn collapse_context_compaction_items(items: Vec<ThreadItem>) -> Vec<ThreadItem> {
+    let mut collapsed = Vec::with_capacity(items.len());
+    let mut compaction_indexes = HashMap::<String, usize>::new();
+    for item in items {
+        let ThreadItemKind::ContextCompaction(payload) = &item.kind else {
+            collapsed.push(item);
+            continue;
+        };
+        let checkpoint = payload
+            .get("contextCheckpoint")
+            .or_else(|| {
+                payload
+                    .get("payload")
+                    .and_then(|payload| payload.get("contextCheckpoint"))
+            })
+            .unwrap_or(payload);
+        let identity = string_value(checkpoint, "windowId")
+            .or_else(|| string_value(checkpoint, "window_id"))
+            .or_else(|| string_value(checkpoint, "contextId"))
+            .or_else(|| string_value(checkpoint, "context_id"));
+        let Some(identity) = identity else {
+            collapsed.push(item);
+            continue;
+        };
+        if let Some(index) = compaction_indexes.get(&identity).copied() {
+            collapsed[index] = item;
+        } else {
+            compaction_indexes.insert(identity, collapsed.len());
+            collapsed.push(item);
+        }
+    }
+    collapsed
+}
+
+fn collapse_logical_user_messages(items: Vec<ThreadItem>) -> Vec<ThreadItem> {
+    let mut collapsed = Vec::with_capacity(items.len());
+    let mut user_message_indexes = HashMap::<String, usize>::new();
+    for item in items {
+        let ThreadItemKind::UserMessage(payload) = &item.kind else {
+            collapsed.push(item);
+            continue;
+        };
+        let content = string_value(payload, "content")
+            .or_else(|| string_value(payload, "text"))
+            .unwrap_or_default();
+        let message_id = string_value(payload, "messageId")
+            .or_else(|| string_value(payload, "message_id"))
+            .unwrap_or_default();
+        let run_id = item.run_id.as_deref().unwrap_or_default();
+        let turn_id = item.turn_id.as_deref().unwrap_or_default();
+        if run_id.is_empty() && turn_id.is_empty() && message_id.is_empty() {
+            collapsed.push(item);
+            continue;
+        }
+        let identity = format!("{run_id}\u{1f}{turn_id}\u{1f}{message_id}\u{1f}{content}");
+        if !user_message_indexes.contains_key(&identity) {
+            user_message_indexes.insert(identity, collapsed.len());
+            collapsed.push(item);
+        }
+    }
+    collapsed
 }
 
 fn rollout_thread_item_id(item: &Value, thread_id: &str, sequence: u64) -> String {
@@ -4003,14 +4034,14 @@ fn thread_item_to_rollout_items(
     item: &ThreadItem,
 ) -> Result<Vec<ThreadLogItem>, WorkerProtocolError> {
     let rollout_item = match &item.kind {
-        ThreadItemKind::UserMessage(payload) => ThreadLogItem::ResponseItem(typed_response_item(
-            thread_item_message(item, payload, "user"),
-            "legacy user thread item",
-        )?),
+        ThreadItemKind::UserMessage(payload) => value_event(
+            EventKind::UserMessage,
+            thread_user_message_event_payload(item, payload),
+        ),
         ThreadItemKind::AssistantMessageCompleted(payload) => {
             ThreadLogItem::ResponseItem(typed_response_item(
                 thread_item_message(item, payload, "assistant"),
-                "legacy assistant thread item",
+                "assistant thread projection",
             )?)
         }
         ThreadItemKind::AssistantMessageDelta(_) => return Ok(Vec::new()),
@@ -4033,11 +4064,18 @@ fn thread_item_to_rollout_items(
             }
             ThreadLogItem::Compacted(typed_compacted_item(
                 checkpoint,
-                "legacy compaction thread item",
+                "context compaction thread projection",
             )?)
         }
+        ThreadItemKind::AgentRunStarted(payload) => value_event(
+            EventKind::TurnStarted,
+            thread_boundary_event_payload(item, payload),
+        ),
         ThreadItemKind::AgentRunCompleted(payload) => {
-            let mut items = vec![legacy_thread_item_event(item)];
+            let mut items = vec![value_event(
+                EventKind::TurnComplete,
+                thread_boundary_event_payload(item, payload),
+            )];
             if let Some(info) = payload.get("tokenUsageInfo") {
                 items.push(value_event(
                     EventKind::TokenCount,
@@ -4046,13 +4084,42 @@ fn thread_item_to_rollout_items(
             }
             return Ok(items);
         }
-        _ => legacy_thread_item_event(item),
+        _ => thread_projection_event(item),
     };
     Ok(vec![rollout_item])
 }
 
-fn legacy_thread_item_event(item: &ThreadItem) -> ThreadLogItem {
+fn thread_projection_event(item: &ThreadItem) -> ThreadLogItem {
     value_event(EventKind::ThreadItem, serde_json::json!({ "item": item }))
+}
+
+fn thread_boundary_event_payload(item: &ThreadItem, payload: &Value) -> Value {
+    let mut payload = payload
+        .as_object()
+        .cloned()
+        .map(Value::Object)
+        .unwrap_or_else(|| serde_json::json!({ "value": payload }));
+    payload["_threadItemId"] = Value::String(item.item_id.clone());
+    payload["_threadItemSequence"] = Value::Number(item.sequence.into());
+    payload
+}
+
+fn thread_user_message_event_payload(item: &ThreadItem, payload: &Value) -> Value {
+    let mut event = thread_boundary_event_payload(item, payload);
+    let message = payload
+        .get("content")
+        .and_then(Value::as_str)
+        .or_else(|| payload.get("text").and_then(Value::as_str))
+        .or_else(|| payload.as_str())
+        .unwrap_or_default();
+    event["message"] = Value::String(message.to_string());
+    if let Some(run_id) = &item.run_id {
+        event["runId"] = Value::String(run_id.clone());
+    }
+    if let Some(turn_id) = &item.turn_id {
+        event["turnId"] = Value::String(turn_id.clone());
+    }
+    event
 }
 
 fn thread_item_message(item: &ThreadItem, payload: &Value, role: &str) -> Value {
@@ -4097,6 +4164,14 @@ fn thread_item_id_from_rollout_line(line: &ThreadLogLine) -> Option<&str> {
             .get("item")
             .and_then(|item| item.get("itemId"))
             .and_then(Value::as_str),
+        ThreadLogItem::EventMsg(event)
+            if matches!(
+                event.kind(),
+                EventKind::TurnStarted | EventKind::TurnComplete | EventKind::UserMessage
+            ) =>
+        {
+            event.payload().get("_threadItemId").and_then(Value::as_str)
+        }
         _ => None,
     }
 }
@@ -4257,19 +4332,6 @@ fn thread_log_state_io_error(error: std::io::Error) -> WorkerProtocolError {
 }
 
 fn thread_log_consistency_error(message: impl Into<String>, details: Value) -> WorkerProtocolError {
-    WorkerProtocolError::new(
-        WorkerProtocolErrorCode::WorkerError,
-        message,
-        details,
-        false,
-        WorkerProtocolErrorSource::RustCore,
-    )
-}
-
-fn legacy_session_migration_error(
-    message: impl Into<String>,
-    details: Value,
-) -> WorkerProtocolError {
     WorkerProtocolError::new(
         WorkerProtocolErrorCode::WorkerError,
         message,

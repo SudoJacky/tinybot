@@ -8,6 +8,7 @@ use crate::worker_protocol::{
 use serde_json::{json, Value};
 
 const DEFAULT_TITLE: &str = "New session";
+const USER_MESSAGE_EVENT_MARKER: &str = "_tinybotUserMessageEvent";
 const PRESERVED_MESSAGE_FIELDS: &[&str] = &[
     "id",
     "messageId",
@@ -82,6 +83,11 @@ fn reconstruct_rollout_with_mode(
             }
             RolloutItem::InterAgentCommunication(_)
             | RolloutItem::InterAgentCommunicationMetadata { .. } => {}
+        }
+    }
+    for message in &mut replay.messages {
+        if let Some(object) = message.as_object_mut() {
+            object.remove(USER_MESSAGE_EVENT_MARKER);
         }
     }
     attach_token_usage_to_history(&mut replay);
@@ -268,6 +274,19 @@ fn apply_response_item(replay: &mut RolloutReconstruction, item: &ResponseItem, 
         "timestamp": timestamp
     });
     copy_optional_message_fields(item, &mut message, PRESERVED_MESSAGE_FIELDS);
+    if role == "user" {
+        if let Some(index) = replay.messages.iter().rposition(|candidate| {
+            candidate
+                .get(USER_MESSAGE_EVENT_MARKER)
+                .and_then(Value::as_bool)
+                == Some(true)
+                && same_message_identity(candidate, &message)
+        }) {
+            replay.messages[index] = message;
+            replay.updated_at = timestamp.to_string();
+            return;
+        }
+    }
     if let Some(candidate) = replay.compaction_overlap_candidate.take() {
         if same_message_identity(&candidate, &message) {
             replay.updated_at = timestamp.to_string();
@@ -363,12 +382,29 @@ fn apply_event(
             }
             Ok(())
         }
+        EventKind::UserMessage => {
+            let payload = event.payload();
+            let content = payload
+                .get("message")
+                .or_else(|| payload.get("content"))
+                .or_else(|| payload.get("text"))
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let mut message = json!({
+                "role": "user",
+                "content": content,
+                "timestamp": timestamp,
+            });
+            message[USER_MESSAGE_EVENT_MARKER] = Value::Bool(true);
+            copy_optional_message_fields(payload, &mut message, PRESERVED_MESSAGE_FIELDS);
+            replay.messages.push(message);
+            Ok(())
+        }
         EventKind::TurnStarted
         | EventKind::TaskStarted
         | EventKind::TurnComplete
         | EventKind::TaskComplete
         | EventKind::TurnAborted
-        | EventKind::UserMessage
         | EventKind::ThreadRolledBack
         | EventKind::ThreadItem
         | EventKind::AgentRunUpsert
@@ -722,6 +758,67 @@ mod tests {
                 .total_tokens,
             200
         );
+    }
+
+    #[test]
+    fn replay_projects_user_message_event_without_response_item() {
+        let replay = reconstruct_rollout(&[
+            meta_line(
+                "thread-event-user",
+                Some("session-event-user"),
+                "2026-07-08T10:00:00Z",
+            ),
+            event_line(
+                "2026-07-08T10:01:00Z",
+                "user_message",
+                json!({
+                    "message": "hello from thread",
+                    "messageId": "user-event-1",
+                }),
+            ),
+        ])
+        .unwrap();
+
+        assert_eq!(replay.messages.len(), 1);
+        assert_eq!(replay.messages[0]["role"], "user");
+        assert_eq!(replay.messages[0]["content"], "hello from thread");
+        assert_eq!(replay.messages[0]["messageId"], "user-event-1");
+        assert!(replay.messages[0].get(USER_MESSAGE_EVENT_MARKER).is_none());
+    }
+
+    #[test]
+    fn replay_collapses_user_message_event_and_matching_response_item() {
+        let replay = reconstruct_rollout(&[
+            meta_line(
+                "thread-event-response-user",
+                Some("session-event-response-user"),
+                "2026-07-08T10:00:00Z",
+            ),
+            event_line(
+                "2026-07-08T10:01:00Z",
+                "user_message",
+                json!({
+                    "message": "one logical message",
+                    "messageId": "user-event-response-1",
+                }),
+            ),
+            response_line(
+                "2026-07-08T10:02:00Z",
+                json!({
+                    "role": "user",
+                    "messageId": "user-event-response-1",
+                    "content": "one logical message",
+                    "metadata": {"source": "response_item"},
+                }),
+            ),
+        ])
+        .unwrap();
+
+        assert_eq!(replay.messages.len(), 1);
+        assert_eq!(replay.messages[0]["content"], "one logical message");
+        assert_eq!(replay.messages[0]["metadata"]["source"], "response_item");
+        assert_eq!(replay.messages[0]["timestamp"], "2026-07-08T10:02:00Z");
+        assert!(replay.messages[0].get(USER_MESSAGE_EVENT_MARKER).is_none());
     }
 
     #[test]
