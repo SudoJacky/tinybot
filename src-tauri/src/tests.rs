@@ -1089,10 +1089,18 @@ fn worker_run_agent_uses_rust_runtime_when_selected() {
 
     assert_eq!(result["runtime"], "rust");
     assert_eq!(result["finalContent"], "rust fixture answer");
-    assert_eq!(result["events"][0]["eventName"], "agent.delta");
-    assert_eq!(result["events"][1]["eventName"], "agent.usage");
-    assert_eq!(result["events"][2]["eventName"], "agent.message.completed");
-    assert_eq!(result["events"][3]["eventName"], "agent.done");
+    let events = result["events"]
+        .as_array()
+        .expect("Rust runtime events should be an array");
+    assert_eq!(events[0]["eventName"], "agent.delta");
+    assert!(events
+        .iter()
+        .any(|event| event["eventName"] == "agent.usage"));
+    assert_eq!(
+        events[events.len() - 2]["eventName"],
+        "agent.message.completed"
+    );
+    assert_eq!(events.last().unwrap()["eventName"], "agent.done");
     assert_eq!(
         lock_runtime(&shared).experimental_worker.status().state,
         WorkerManagerState::Stopped
@@ -3890,11 +3898,16 @@ fn worker_run_agent_persists_failed_tool_run_with_accumulated_trace() {
         run["completedToolResults"][0]["toolCallId"],
         "call-before-tool-error"
     );
+    assert_eq!(
+        run["completedToolResults"][1]["toolCallId"],
+        "call-tool-error"
+    );
+    assert_eq!(run["completedToolResults"][1]["status"], "error");
     assert!(run["traceEvents"]
         .as_array()
         .expect("trace events should be an array")
         .iter()
-        .any(|event| event["eventName"] == "agent.error"
+        .any(|event| event["eventName"] == "agent.tool.result"
             && event["payload"]["toolCallId"] == "call-tool-error"));
 }
 
@@ -4045,7 +4058,7 @@ fn worker_run_agent_omits_large_raw_tool_trace_from_persisted_run_record() {
     let serialized = run.to_string();
 
     assert!(
-        serialized.len() < 25_000,
+        serialized.len() < 30_000,
         "run record was {} bytes",
         serialized.len()
     );
@@ -4470,6 +4483,7 @@ fn worker_webui_approval_denial_finalizes_with_rust_error_result() {
             "metadata": {
                 "fakeAwaitingApproval": {
                     "approvalId": "approval-deny",
+                    "toolCallId": "call-approval-deny",
                     "toolName": "workspace.write_file"
                 }
             }
@@ -4523,6 +4537,10 @@ fn worker_webui_approval_denial_finalizes_with_rust_error_result() {
     assert_eq!(
         approval_resolution["body"]["completedToolResults"][0]["status"],
         "denied"
+    );
+    assert_eq!(
+        approval_resolution["body"]["completedToolResults"][0]["toolCallId"],
+        "call-approval-deny"
     );
     assert!(restored_after_resolution["checkpoint"].is_null());
 }

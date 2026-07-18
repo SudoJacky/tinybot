@@ -254,7 +254,8 @@ pub(crate) fn persist_native_agent_run_record(
     let run_id = native_agent_run_id(result)
         .or_else(|| native_agent_run_id(&spec))
         .unwrap_or_else(|| "native-rust-run".to_string());
-    let record = native_agent_run_record(&spec, result, &config_snapshot, &session_id, &run_id);
+    let mut record = native_agent_run_record(&spec, result, &config_snapshot, &session_id, &run_id);
+    record["traceEvents"] = serde_json::json!([]);
     let trace_context = trace_context_from_result_or_spec(result, &spec);
     let persisted = call_traced_state_service(
         workspace_root,

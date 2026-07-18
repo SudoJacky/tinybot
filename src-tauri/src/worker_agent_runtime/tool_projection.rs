@@ -29,12 +29,27 @@ pub(super) fn assistant_tool_calls_message(
 }
 
 pub(super) fn tool_observation_message(tool_call: &NativeAgentToolCall, content: &str) -> Value {
+    tool_observation_message_with_error(tool_call, content, false)
+}
+
+pub(super) fn tool_error_observation_message(
+    tool_call: &NativeAgentToolCall,
+    content: &str,
+) -> Value {
+    tool_observation_message_with_error(tool_call, content, true)
+}
+
+fn tool_observation_message_with_error(
+    tool_call: &NativeAgentToolCall,
+    content: &str,
+    is_error: bool,
+) -> Value {
     AgentItem::ToolResult(AgentToolResultItem {
         id: None,
         tool_call_id: tool_call.id.clone(),
         name: Some(tool_call.name.clone()),
         content: AgentMessageContent::text(content),
-        is_error: false,
+        is_error,
     })
     .to_legacy_message()
     .expect("constructed tool-result item must serialize")
@@ -48,6 +63,17 @@ pub(super) fn append_continuation_tool_observation(
 ) -> Result<(), String> {
     prepare_continuation_tool_observation(messages, tool_call, synthesize_missing_call)?;
     messages.push(tool_observation_message(tool_call, content));
+    Ok(())
+}
+
+pub(super) fn append_continuation_tool_error_observation(
+    messages: &mut Vec<Value>,
+    tool_call: &NativeAgentToolCall,
+    content: &str,
+    synthesize_missing_call: bool,
+) -> Result<(), String> {
+    prepare_continuation_tool_observation(messages, tool_call, synthesize_missing_call)?;
+    messages.push(tool_error_observation_message(tool_call, content));
     Ok(())
 }
 

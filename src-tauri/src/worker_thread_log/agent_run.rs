@@ -33,21 +33,26 @@ impl WorkerThreadLogRpc {
     ) -> Result<AgentRunRecord, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         validate_agent_run_key(&record.session_id, &record.run_id)?;
+        let incoming_trace_events = std::mem::take(&mut record.trace_events);
         let existing = self.get_agent_run_record(&record.session_id, &record.run_id)?;
         if let Some(existing) = existing {
             record.started_at = existing.started_at;
             let mut trace_events = existing.trace_events;
-            for event in std::mem::take(&mut record.trace_events) {
+            for event in incoming_trace_events.iter().cloned() {
                 upsert_trace_event(&mut trace_events, event);
             }
             record.trace_events = trace_events;
+        } else {
+            record.trace_events = incoming_trace_events.clone();
         }
+        let mut persisted_record = record.clone();
+        persisted_record.trace_events = incoming_trace_events;
         let mut state = self.ensure_agent_run_thread(&record.session_id, &timestamp)?;
         let path = PathBuf::from(state.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
         let mut items = vec![value_event(
             super::EventKind::AgentRunUpsert,
-            serde_json::json!({ "record": record }),
+            serde_json::json!({ "record": persisted_record }),
         )];
         if let Some(info) = record.token_usage_info.as_ref() {
             items.push(value_event(

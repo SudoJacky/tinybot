@@ -4664,7 +4664,20 @@ fn parallel_tool_failures_use_model_order_for_the_single_terminal_error() {
         debug_events[0]["payload"]["toolCallId"],
         "call-second-fails"
     );
-    assert_eq!(result["completedToolResults"].as_array().unwrap().len(), 0);
+    assert_eq!(result["completedToolResults"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        result["completedToolResults"][0]["toolCallId"],
+        "call-first-fails"
+    );
+    assert_eq!(
+        result["completedToolResults"][1]["toolCallId"],
+        "call-second-fails"
+    );
+    assert!(result["completedToolResults"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|result| result["status"] == "error"));
 }
 
 #[test]
@@ -5860,11 +5873,16 @@ fn later_tool_error_preserves_earlier_completed_tool_result() {
         result["toolsUsed"],
         json!(["workspace.read_file", "workspace.list_files"])
     );
-    assert_eq!(result["completedToolResults"].as_array().unwrap().len(), 1);
+    assert_eq!(result["completedToolResults"].as_array().unwrap().len(), 2);
     assert_eq!(
         result["completedToolResults"][0]["toolCallId"],
         "call-first-ok"
     );
+    assert_eq!(
+        result["completedToolResults"][1]["toolCallId"],
+        "call-second-fails"
+    );
+    assert_eq!(result["completedToolResults"][1]["status"], "error");
     assert_eq!(
         result["events"].as_array().unwrap().last().unwrap()["eventName"],
         "agent.error"
@@ -5916,10 +5934,16 @@ fn rejects_unpermitted_native_tool_with_structured_error_result() {
         vec![
             "agent.message.classified",
             "agent.tool_call.delta",
+            "agent.tool.result",
             "agent.error"
         ]
     );
-    assert_eq!(result["events"][2]["payload"]["toolName"], "shell.exec");
+    assert_eq!(result["events"][3]["payload"]["toolName"], "shell.exec");
+    assert_eq!(
+        result["completedToolResults"][0]["toolCallId"],
+        "call-denied"
+    );
+    assert_eq!(result["completedToolResults"][0]["status"], "error");
 }
 
 #[test]
@@ -6029,9 +6053,14 @@ fn denied_tool_stops_with_policy_denied_without_tool_dispatch() {
     assert_eq!(result["toolsUsed"], json!([]));
     assert_eq!(
         event_names(&result),
-        vec!["agent.tool_call.delta", "agent.error"]
+        vec!["agent.tool_call.delta", "agent.tool.result", "agent.error"]
     );
-    assert_eq!(result["events"][1]["payload"]["toolName"], "shell.exec");
+    assert_eq!(result["events"][2]["payload"]["toolName"], "shell.exec");
+    assert_eq!(
+        result["completedToolResults"][0]["toolCallId"],
+        "call-denied"
+    );
+    assert_eq!(result["completedToolResults"][0]["status"], "error");
 }
 
 #[test]

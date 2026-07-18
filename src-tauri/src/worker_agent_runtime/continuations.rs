@@ -5,9 +5,9 @@ use super::events::{
 use super::result::{append_runtime_events_to_sink, cancelled_result, waiting_runtime_events};
 use super::state::NativeAgentRunState;
 use super::tool_projection::{
-    append_continuation_tool_observation, completed_tool_result_entry,
-    normalize_tool_result_for_context, prepare_continuation_tool_observation,
-    tool_observation_content,
+    append_continuation_tool_error_observation, append_continuation_tool_observation,
+    assistant_tool_calls_message, completed_tool_result_entry, normalize_tool_result_for_context,
+    prepare_continuation_tool_observation, tool_observation_content,
 };
 use super::tool_runtime::{dispatch_owned_tool_call, OwnedToolCallResult};
 use super::usage::{enrich_usage_with_context_window, estimate_context_tokens_for_request};
@@ -141,6 +141,20 @@ pub(super) fn maybe_awaiting_approval_result(
     let tool_name = string_field(&approval, "toolName")
         .or_else(|| string_field(&approval, "tool_name"))
         .unwrap_or_else(|| "approval".to_string());
+    let tool_call_id = string_field(&approval, "toolCallId")
+        .or_else(|| string_field(&approval, "tool_call_id"))
+        .unwrap_or_else(|| approval_id.clone());
+    let arguments_json = string_field(&approval, "argumentsJson")
+        .or_else(|| string_field(&approval, "arguments_json"))
+        .unwrap_or_else(|| "{}".to_string());
+    let tool_call = NativeAgentToolCall {
+        id: tool_call_id.clone(),
+        name: tool_name.clone(),
+        arguments_json: arguments_json.clone(),
+        result: Value::Null,
+    };
+    let mut messages = context.messages.clone();
+    messages.push(assistant_tool_calls_message("", &[tool_call]));
     let checkpoint = checkpoint_value(
         context,
         "awaiting_approval",
@@ -151,11 +165,12 @@ pub(super) fn maybe_awaiting_approval_result(
             "approval_id": approval_id,
             "operation": approval,
             "pendingToolCalls": [{
-                "toolCallId": approval_id,
+                "toolCallId": tool_call_id,
                 "toolName": tool_name,
-                "argumentsJson": Value::Null,
+                "argumentsJson": arguments_json,
             }],
             "resumeToken": format!("approval:{approval_id}"),
+            "messages": messages,
         }),
     );
     services
@@ -185,6 +200,7 @@ pub(super) fn maybe_awaiting_approval_result(
                     "runId": context.run_id,
                     "sessionId": context.session_id,
                     "approvalId": approval_id.clone(),
+                    "toolCallId": tool_call_id.clone(),
                     "toolName": tool_name.clone(),
                     "detailId": format!("approval:{approval_id}"),
                     "status": "waiting",
@@ -619,7 +635,7 @@ async fn approval_denied_guidance_result(
     services
         .checkpoints
         .clear_for_run(&context.session_id, &context.run_id);
-    let tool_call = approval_resume_tool_call(checkpoint.as_ref(), approval, continuation);
+    let tool_call = approval_resume_tool_call(checkpoint.as_ref(), approval)?;
     let summary = format!("Approval denied by user. Guidance: {guidance}");
     let result = NativeAgentToolResult {
         content: Value::String(summary.clone()),
@@ -636,7 +652,7 @@ async fn approval_denied_guidance_result(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_else(|| context.messages.clone());
-    append_continuation_tool_observation(&mut messages, &tool_call, &summary, true)
+    append_continuation_tool_error_observation(&mut messages, &tool_call, &summary, false)
         .map_err(|error| format!("invalid denied approval checkpoint: {error}"))?;
 
     let mut resumed_context = context.clone();
@@ -779,17 +795,18 @@ async fn approval_denied_guidance_result(
 fn approval_resume_tool_call(
     checkpoint: Option<&Value>,
     approval: &Value,
-    continuation: &ApprovalContinuationData,
-) -> NativeAgentToolCall {
+) -> Result<NativeAgentToolCall, String> {
     let pending_tool_call = checkpoint
         .and_then(|checkpoint| checkpoint.get("pendingToolCalls"))
         .and_then(Value::as_array)
         .and_then(|pending_tool_calls| pending_tool_calls.first());
-    NativeAgentToolCall {
+    Ok(NativeAgentToolCall {
         id: pending_tool_call
             .and_then(|tool_call| string_field(tool_call, "toolCallId"))
             .or_else(|| string_field(approval, "toolCallId"))
-            .unwrap_or_else(|| continuation.approval_id.clone()),
+            .ok_or_else(|| {
+                "invalid denied approval checkpoint: pending toolCallId is missing".to_string()
+            })?,
         name: pending_tool_call
             .and_then(|tool_call| string_field(tool_call, "toolName"))
             .or_else(|| string_field(approval, "toolName"))
@@ -799,7 +816,7 @@ fn approval_resume_tool_call(
             .or_else(|| string_field(approval, "argumentsJson"))
             .unwrap_or_else(|| "{}".to_string()),
         result: Value::Null,
-    }
+    })
 }
 
 fn approval_request_options() -> Value {
