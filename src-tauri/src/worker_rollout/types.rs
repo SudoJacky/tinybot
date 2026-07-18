@@ -40,6 +40,8 @@ pub enum EventKind {
     TokenCount,
     MetadataUpdated,
     SessionCleared,
+    SessionTrimmed,
+    TaskProgressUpdated,
     ThreadItem,
     AgentRunUpsert,
     AgentRunTrace,
@@ -62,6 +64,8 @@ impl EventKind {
             Self::TokenCount => "token_count",
             Self::MetadataUpdated => "metadata_updated",
             Self::SessionCleared => "session_cleared",
+            Self::SessionTrimmed => "session_trimmed",
+            Self::TaskProgressUpdated => "task_progress_updated",
             Self::ThreadItem => "thread_item",
             Self::AgentRunUpsert => "agent_run_upsert",
             Self::AgentRunTrace => "agent_run_trace",
@@ -84,6 +88,8 @@ impl EventKind {
             "token_count" => Self::TokenCount,
             "metadata_updated" => Self::MetadataUpdated,
             "session_cleared" => Self::SessionCleared,
+            "session_trimmed" => Self::SessionTrimmed,
+            "task_progress_updated" => Self::TaskProgressUpdated,
             "thread_item" => Self::ThreadItem,
             "agent_run_upsert" => Self::AgentRunUpsert,
             "agent_run_trace" => Self::AgentRunTrace,
@@ -105,6 +111,8 @@ impl EventKind {
             | Self::TokenCount
             | Self::MetadataUpdated
             | Self::SessionCleared
+            | Self::SessionTrimmed
+            | Self::TaskProgressUpdated
             | Self::ThreadItem
             | Self::AgentRunUpsert
             | Self::AgentRunTrace
@@ -125,6 +133,8 @@ impl EventKind {
             | Self::TokenCount
             | Self::MetadataUpdated
             | Self::SessionCleared
+            | Self::SessionTrimmed
+            | Self::TaskProgressUpdated
             | Self::ThreadItem
             | Self::AgentRunUpsert
             | Self::AgentRunTrace
@@ -152,6 +162,8 @@ impl EventKind {
             | Self::TokenCount
             | Self::MetadataUpdated
             | Self::SessionCleared
+            | Self::SessionTrimmed
+            | Self::TaskProgressUpdated
             | Self::ThreadItem
             | Self::Legacy(_) => false,
         }

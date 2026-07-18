@@ -313,6 +313,56 @@ fn apply_event(
             replay.compaction_overlap_candidate = None;
             Ok(())
         }
+        EventKind::SessionTrimmed => {
+            let messages = event
+                .payload()
+                .get("messages")
+                .and_then(Value::as_array)
+                .ok_or_else(|| {
+                    replay_semantic_error(
+                        "session_trimmed event is missing messages",
+                        timestamp,
+                        json!({ "event": event }),
+                    )
+                })?;
+            replay.messages = messages.clone();
+            if replay.messages.is_empty() {
+                replay.user_profile = json!({});
+                replay.token_usage_info = None;
+            }
+            replay.compaction_overlap_candidate = None;
+            Ok(())
+        }
+        EventKind::TaskProgressUpdated => {
+            let message = event.payload().get("message").cloned().ok_or_else(|| {
+                replay_semantic_error(
+                    "task_progress_updated event is missing message",
+                    timestamp,
+                    json!({ "event": event }),
+                )
+            })?;
+            let plan_id = message
+                .get("_task_plan_id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    replay_semantic_error(
+                        "task_progress_updated message is missing plan id",
+                        timestamp,
+                        json!({ "event": event }),
+                    )
+                })?;
+            if let Some(existing) = replay.messages.iter_mut().find(|existing| {
+                existing
+                    .get("_task_plan_id")
+                    .and_then(Value::as_str)
+                    .is_some_and(|existing_plan_id| existing_plan_id == plan_id)
+            }) {
+                *existing = message;
+            } else {
+                replay.messages.push(message);
+            }
+            Ok(())
+        }
         EventKind::TurnStarted
         | EventKind::TaskStarted
         | EventKind::TurnComplete
@@ -522,19 +572,17 @@ fn copy_optional_message_fields(payload: &Value, message: &mut Value, fields: &[
 }
 
 fn thread_item_content(payload: &Value) -> String {
-    payload
+    let content = payload
         .get("content")
-        .and_then(Value::as_str)
-        .or_else(|| payload.get("text").and_then(Value::as_str))
-        .or_else(|| payload.as_str())
+        .or_else(|| payload.get("text"))
+        .unwrap_or(payload);
+    if content.is_null() {
+        return String::new();
+    }
+    content
+        .as_str()
         .map(str::to_string)
-        .unwrap_or_else(|| {
-            payload
-                .get("content")
-                .or_else(|| payload.get("text"))
-                .map(Value::to_string)
-                .unwrap_or_default()
-        })
+        .unwrap_or_else(|| content.to_string())
 }
 
 fn field_any<'a>(value: &'a Value, fields: &[&str]) -> Option<&'a Value> {

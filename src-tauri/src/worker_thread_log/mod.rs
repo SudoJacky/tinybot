@@ -13,7 +13,7 @@ use crate::worker_protocol::{
 };
 use crate::worker_session::{
     AgentRunRecord, AgentRunStatus, ClearSessionResult, DeleteSessionResult, PersistTurnResult,
-    SessionHistoryProjection, SessionMetadata,
+    SessionHistoryProjection, SessionMetadata, TrimSessionResult,
 };
 use crate::worker_thread::{
     ThreadCheckpoint, ThreadItem, ThreadItemKind, ThreadPagination, ThreadRecord, ThreadRunSummary,
@@ -34,7 +34,9 @@ use self::reader::read_thread_lines_for_discovery;
 use self::recorder::ThreadLogHead;
 use self::recorder::{canonicalize_thread_timestamp, is_canonical_thread_log_path};
 pub use self::recorder::{now_thread_timestamp, value_event, ThreadRecorder};
-pub use self::session_adapter::{history_from_replay, metadata_from_state};
+pub use self::session_adapter::{
+    history_from_replay, metadata_from_state, session_history_from_replay,
+};
 pub use self::state_db::ThreadStateDb;
 use self::state_db::{thread_projection_hash, LatestContextCheckpointRecord, ThreadLogHeadRecord};
 pub use crate::worker_rollout::reconstruct_rollout as replay_thread;
@@ -867,7 +869,10 @@ impl WorkerThreadLogRpc {
         let path = PathBuf::from(&record.thread_path);
         self.recorder.validate_thread_path(&path)?;
         let reconstructed = self.reconstruct_cached(&path)?;
-        Ok(Some(history_from_replay(reconstructed.transcript, limit)))
+        Ok(Some(session_history_from_replay(
+            reconstructed.transcript,
+            limit,
+        )))
     }
 
     pub fn get_agent_context(
@@ -1908,6 +1913,199 @@ impl WorkerThreadLogRpc {
         }
     }
 
+    pub fn append_session_messages(
+        &self,
+        session_id: &str,
+        messages: Vec<Value>,
+    ) -> Result<SessionMetadata, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
+        self.ensure_state_index()?;
+        let timestamp = now_thread_timestamp();
+        let mut record = self.ensure_session_record(session_id, &timestamp)?;
+        let path = PathBuf::from(record.thread_path.clone());
+        self.recorder.validate_thread_path(&path)?;
+        let replay =
+            reconstruction::reconstruct_canonical_rollout(&read_thread_lines(&path)?)?.semantic;
+        let (saved_messages, _) = filter_new_session_messages(&replay.messages, messages);
+        let mut next_messages = replay.messages;
+        next_messages.extend(saved_messages.iter().cloned());
+        let derived_title = is_default_session_title(&record.title)
+            .then(|| title_from_messages(&next_messages))
+            .flatten();
+        let mut items = saved_messages
+            .into_iter()
+            .map(|message| {
+                typed_response_item(message, "append session messages")
+                    .map(ThreadLogItem::ResponseItem)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if let Some(title) = derived_title.as_ref() {
+            items.push(value_event(
+                EventKind::MetadataUpdated,
+                serde_json::json!({ "metadata": { "title": title } }),
+            ));
+        }
+        if !items.is_empty() {
+            self.recorder
+                .append_items(&path, timestamp.clone(), items)?;
+            record.updated_at = timestamp;
+            if let Some(title) = derived_title {
+                record.title = title;
+            }
+            record.preview = preview_from_messages(&next_messages);
+            let log_head = self.recorder.thread_log_head(&path)?;
+            self.state.upsert_thread_projection(&record, &log_head)?;
+        }
+        self.session_metadata_with_history(record, &path, next_messages)
+    }
+
+    pub fn trim_session(
+        &self,
+        session_id: &str,
+        keep_recent_messages: usize,
+    ) -> Result<TrimSessionResult, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
+        self.ensure_state_index()?;
+        let timestamp = now_thread_timestamp();
+        let mut record = self.ensure_session_record(session_id, &timestamp)?;
+        let path = PathBuf::from(record.thread_path.clone());
+        self.recorder.validate_thread_path(&path)?;
+        let replay =
+            reconstruction::reconstruct_canonical_rollout(&read_thread_lines(&path)?)?.semantic;
+        let messages_before = replay.messages.len();
+        let retained = recent_legal_message_suffix(&replay.messages, keep_recent_messages);
+        let messages_after = retained.len();
+        self.recorder.append_item(
+            &path,
+            timestamp.clone(),
+            value_event(
+                EventKind::SessionTrimmed,
+                serde_json::json!({
+                    "keepRecentMessages": keep_recent_messages,
+                    "messages": retained.clone(),
+                }),
+            ),
+        )?;
+        record.updated_at = timestamp;
+        record.preview = preview_from_messages(&retained);
+        if retained.is_empty() {
+            record.tokens_used = 0;
+        }
+        let log_head = self.recorder.thread_log_head(&path)?;
+        self.state.upsert_thread_projection(&record, &log_head)?;
+        let session = self.session_metadata_with_history(record, &path, retained)?;
+        Ok(TrimSessionResult {
+            session_id: session.session_id.clone(),
+            messages_before,
+            messages_after,
+            session,
+        })
+    }
+
+    pub fn patch_user_profile(
+        &self,
+        session_id: &str,
+        user_profile: Value,
+        metadata: Value,
+    ) -> Result<SessionMetadata, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
+        let Some(user_profile) = user_profile.as_object() else {
+            return Err(session_mutation_error(
+                "session user_profile patch must be a JSON object",
+                session_id,
+            ));
+        };
+        let Some(metadata_patch) = metadata.as_object() else {
+            return Err(session_mutation_error(
+                "session profile metadata patch must be a JSON object",
+                session_id,
+            ));
+        };
+        self.ensure_state_index()?;
+        let Some(mut record) = self.state.find_by_session_or_thread_id(session_id)? else {
+            return Err(session_mutation_error(
+                "session metadata not found",
+                session_id,
+            ));
+        };
+        let timestamp = now_thread_timestamp();
+        let path = PathBuf::from(record.thread_path.clone());
+        self.recorder.validate_thread_path(&path)?;
+        let mut canonical_metadata = metadata_patch.clone();
+        canonical_metadata.insert(
+            "userProfile".to_string(),
+            Value::Object(user_profile.clone()),
+        );
+        self.recorder.append_item(
+            &path,
+            timestamp.clone(),
+            value_event(
+                EventKind::MetadataUpdated,
+                serde_json::json!({
+                    "metadata": canonical_metadata,
+                    "sessionMetadata": metadata_patch,
+                }),
+            ),
+        )?;
+        apply_metadata_patch_to_record(&mut record, metadata_patch, &timestamp);
+        let log_head = self.recorder.thread_log_head(&path)?;
+        self.state.upsert_thread_projection(&record, &log_head)?;
+        self.session_metadata_from_rollout(record, &path)
+    }
+
+    pub fn upsert_task_progress(
+        &self,
+        session_id: &str,
+        plan_id: &str,
+        progress: Value,
+        content: String,
+    ) -> Result<SessionMetadata, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
+        let message = normalized_task_progress_message(plan_id, progress, content)?;
+        self.ensure_state_index()?;
+        let timestamp = now_thread_timestamp();
+        let mut record = self.ensure_session_record(session_id, &timestamp)?;
+        let path = PathBuf::from(record.thread_path.clone());
+        self.recorder.validate_thread_path(&path)?;
+        let replay =
+            reconstruction::reconstruct_canonical_rollout(&read_thread_lines(&path)?)?.semantic;
+        let mut next_messages = replay.messages;
+        if let Some(existing) = next_messages.iter_mut().find(|existing| {
+            existing
+                .get("_task_plan_id")
+                .and_then(Value::as_str)
+                .is_some_and(|existing_plan_id| existing_plan_id == plan_id)
+        }) {
+            *existing = message.clone();
+        } else {
+            next_messages.push(message.clone());
+        }
+        self.recorder.append_item(
+            &path,
+            timestamp.clone(),
+            value_event(
+                EventKind::TaskProgressUpdated,
+                serde_json::json!({ "message": message }),
+            ),
+        )?;
+        record.updated_at = timestamp;
+        record.preview = preview_from_messages(&next_messages);
+        let log_head = self.recorder.thread_log_head(&path)?;
+        self.state.upsert_thread_projection(&record, &log_head)?;
+        self.session_metadata_with_history(record, &path, next_messages)
+    }
+
+    fn session_metadata_with_history(
+        &self,
+        record: ThreadStateRecord,
+        path: &Path,
+        messages: Vec<Value>,
+    ) -> Result<SessionMetadata, WorkerProtocolError> {
+        let mut session = self.session_metadata_from_rollout(record, path)?;
+        session.extra["messages"] = Value::Array(messages);
+        Ok(session)
+    }
+
     pub fn persist_session_turn(
         &self,
         session_id: &str,
@@ -2147,7 +2345,7 @@ impl WorkerThreadLogRpc {
     pub fn clear_session(
         &self,
         session_id: &str,
-    ) -> Result<Option<ClearSessionResult>, WorkerProtocolError> {
+    ) -> Result<ClearSessionResult, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         let _process_guard = CONTEXT_CHECKPOINT_COMMIT_LOCK.lock().map_err(|_| {
             WorkerProtocolError::new(
@@ -2175,9 +2373,8 @@ impl WorkerThreadLogRpc {
             )
         })?;
         self.ensure_state_index()?;
-        let Some(mut record) = self.state.find_by_session_or_thread_id(session_id)? else {
-            return Ok(None);
-        };
+        let timestamp = now_thread_timestamp();
+        let mut record = self.ensure_session_record(session_id, &timestamp)?;
         let path = PathBuf::from(record.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
         let lines = read_thread_lines(&path)?;
@@ -2187,7 +2384,6 @@ impl WorkerThreadLogRpc {
             .agent_runs
             .iter()
             .any(|run| run.checkpoint.is_some());
-        let timestamp = now_thread_timestamp();
         let checkpoint = serde_json::json!({ "replacementHistory": [] });
         self.recorder.append_items(
             &path,
@@ -2220,7 +2416,7 @@ impl WorkerThreadLogRpc {
         let mut session = metadata_from_state(record.clone());
         session.extra["messages"] = serde_json::json!([]);
         session.extra["user_profile"] = serde_json::json!({});
-        Ok(Some(ClearSessionResult {
+        Ok(ClearSessionResult {
             session_id: record
                 .session_id
                 .clone()
@@ -2229,7 +2425,7 @@ impl WorkerThreadLogRpc {
             messages_after: 0,
             checkpoint_cleared,
             session,
-        }))
+        })
     }
 
     pub fn delete_session(
@@ -2237,22 +2433,13 @@ impl WorkerThreadLogRpc {
         session_id: &str,
     ) -> Result<DeleteSessionResult, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
-        self.ensure_state_index()?;
-        let Some(record) = self.state.find_by_session_or_thread_id(session_id)? else {
-            return Ok(DeleteSessionResult {
-                session_id: session_id.to_string(),
-                deleted: false,
-            });
-        };
-        let path = PathBuf::from(record.thread_path.clone());
-        self.recorder.validate_thread_path(&path)?;
-        if compression::rollout_exists(&path)? {
-            self.recorder.delete_rollout(&path)?;
-        }
-        let deleted = self.state.delete_thread(&record.id)?;
+        let archived = self.set_thread_archived(session_id, true)?;
         Ok(DeleteSessionResult {
-            session_id: record.session_id.unwrap_or(record.id),
-            deleted,
+            session_id: archived
+                .as_ref()
+                .and_then(|record| record.session_id.clone())
+                .unwrap_or_else(|| session_id.to_string()),
+            deleted: archived.is_some(),
         })
     }
 
@@ -2390,9 +2577,10 @@ impl WorkerThreadLogRpc {
     ) -> Result<SessionMetadata, WorkerProtocolError> {
         self.recorder.validate_thread_path(path)?;
         let lines = read_thread_lines(path)?;
+        let replay = reconstruction::reconstruct_canonical_rollout(&lines)?.semantic;
         let mut metadata = serde_json::Map::new();
-        for line in lines {
-            let ThreadLogItem::EventMsg(event) = line.item else {
+        for line in &lines {
+            let ThreadLogItem::EventMsg(event) = &line.item else {
                 continue;
             };
             if event.kind() != &EventKind::MetadataUpdated {
@@ -2408,6 +2596,11 @@ impl WorkerThreadLogRpc {
             metadata.extend(patch.clone());
         }
         let mut session = metadata_from_state(record);
+        session.extra["user_profile"] = if replay.user_profile.is_null() {
+            serde_json::json!({})
+        } else {
+            replay.user_profile
+        };
         if !metadata.is_empty() {
             session.extra["metadata"] = Value::Object(metadata);
         }
@@ -2955,6 +3148,190 @@ fn message_array_any<'a>(message: &'a Value, keys: &[&str]) -> Option<&'a Vec<Va
         .find_map(|key| message.get(key).and_then(Value::as_array))
 }
 
+fn message_role(message: &Value) -> Option<&str> {
+    message.get("role").and_then(Value::as_str)
+}
+
+fn message_string_any(message: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| message_string(message, key))
+}
+
+fn assistant_tool_call_ids(message: &Value) -> Vec<String> {
+    message_array_any(message, &["tool_calls", "toolCalls"])
+        .map(|tool_calls| {
+            tool_calls
+                .iter()
+                .filter_map(|tool_call| message_string(tool_call, "id"))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn find_legal_message_start(messages: &[Value]) -> usize {
+    let mut declared = Vec::new();
+    let mut start = 0;
+    for (index, message) in messages.iter().enumerate() {
+        match message_role(message) {
+            Some("assistant") => {
+                for tool_call_id in assistant_tool_call_ids(message) {
+                    if !declared.contains(&tool_call_id) {
+                        declared.push(tool_call_id);
+                    }
+                }
+            }
+            Some("tool") => {
+                let Some(tool_call_id) =
+                    message_string_any(message, &["tool_call_id", "toolCallId"])
+                else {
+                    continue;
+                };
+                if !declared.contains(&tool_call_id) {
+                    start = index + 1;
+                    declared.clear();
+                    for previous in &messages[start..=index] {
+                        if message_role(previous) == Some("assistant") {
+                            for previous_tool_call_id in assistant_tool_call_ids(previous) {
+                                if !declared.contains(&previous_tool_call_id) {
+                                    declared.push(previous_tool_call_id);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    start
+}
+
+fn recent_legal_message_suffix(messages: &[Value], keep_recent_messages: usize) -> Vec<Value> {
+    if keep_recent_messages == 0 {
+        return Vec::new();
+    }
+    if messages.len() <= keep_recent_messages {
+        return messages.to_vec();
+    }
+    let mut start = messages.len().saturating_sub(keep_recent_messages);
+    while start > 0 && message_role(&messages[start]) != Some("user") {
+        start -= 1;
+    }
+    let retained = &messages[start..];
+    retained[find_legal_message_start(retained)..].to_vec()
+}
+
+fn session_mutation_error(message: &str, session_id: &str) -> WorkerProtocolError {
+    WorkerProtocolError::new(
+        WorkerProtocolErrorCode::InvalidProtocol,
+        message,
+        serde_json::json!({ "session_id": session_id }),
+        false,
+        WorkerProtocolErrorSource::RustCore,
+    )
+}
+
+fn invalid_task_plan(plan_id: &str, reason: &str) -> WorkerProtocolError {
+    WorkerProtocolError::new(
+        WorkerProtocolErrorCode::InvalidProtocol,
+        format!("invalid task plan: {reason}"),
+        serde_json::json!({ "plan_id": plan_id }),
+        false,
+        WorkerProtocolErrorSource::RustCore,
+    )
+}
+
+fn normalized_task_progress_message(
+    plan_id: &str,
+    mut progress: Value,
+    content: String,
+) -> Result<Value, WorkerProtocolError> {
+    if plan_id.is_empty() {
+        return Err(WorkerProtocolError::new(
+            WorkerProtocolErrorCode::InvalidProtocol,
+            "invalid task plan id",
+            serde_json::json!({ "plan_id": plan_id }),
+            false,
+            WorkerProtocolErrorSource::RustCore,
+        ));
+    }
+    let mut steps = progress
+        .get("steps")
+        .or_else(|| progress.get("plan"))
+        .cloned()
+        .ok_or_else(|| invalid_task_plan(plan_id, "plan steps are required"))
+        .and_then(|steps| {
+            serde_json::from_value::<Vec<crate::worker_agent_runtime::AgentPlanStep>>(steps)
+                .map_err(|error| invalid_task_plan(plan_id, &error.to_string()))
+        })?;
+    let derived = crate::worker_agent_runtime::validate_and_normalize_plan_steps(&mut steps)
+        .map_err(|error| invalid_task_plan(plan_id, &error))?;
+    let provided_current_step = progress
+        .get("currentStep")
+        .or_else(|| progress.get("current_step"))
+        .and_then(Value::as_str);
+    if progress
+        .get("completed")
+        .and_then(Value::as_u64)
+        .is_some_and(|value| value != u64::from(derived.completed))
+        || progress
+            .get("total")
+            .and_then(Value::as_u64)
+            .is_some_and(|value| value != u64::from(derived.total))
+        || provided_current_step.is_some_and(|value| Some(value) != derived.current_step.as_deref())
+    {
+        return Err(invalid_task_plan(
+            plan_id,
+            "progress counters or current step do not match plan steps",
+        ));
+    }
+    let progress_object = progress
+        .as_object_mut()
+        .ok_or_else(|| invalid_task_plan(plan_id, "progress must be an object"))?;
+    progress_object.insert("steps".to_string(), serde_json::json!(steps));
+    progress_object.insert(
+        "completed".to_string(),
+        Value::from(u64::from(derived.completed)),
+    );
+    progress_object.insert("total".to_string(), Value::from(u64::from(derived.total)));
+    match derived.current_step.as_ref() {
+        Some(current_step) => {
+            progress_object.insert(
+                "currentStep".to_string(),
+                Value::String(current_step.clone()),
+            );
+        }
+        None => {
+            progress_object.remove("currentStep");
+            progress_object.remove("current_step");
+        }
+    }
+    let agent_item = crate::worker_agent_runtime::AgentItem::PlanProgress(
+        crate::worker_agent_runtime::AgentPlanProgressItem {
+            id: plan_id.to_string(),
+            explanation: progress
+                .get("explanation")
+                .and_then(Value::as_str)
+                .map(ToString::to_string),
+            steps,
+            summary: content.clone(),
+            completed: derived.completed,
+            total: derived.total,
+            current_step: derived.current_step,
+        },
+    );
+    Ok(serde_json::json!({
+        "role": "progress",
+        "content": content,
+        "timestamp": now_thread_timestamp(),
+        "_progress": true,
+        "_task_event": true,
+        "_task_progress": progress,
+        "_task_plan_id": plan_id,
+        "_tool_name": "task",
+        "_agent_item": agent_item,
+    }))
+}
+
 fn default_omitted_side_effects() -> Vec<String> {
     [
         "conversation_evidence",
@@ -3424,6 +3801,8 @@ fn state_projection_updated_at(created_at: &str, lines: &[ThreadLogLine]) -> Str
                 | EventKind::TaskComplete
                 | EventKind::ThreadRolledBack
                 | EventKind::MetadataUpdated
+                | EventKind::SessionTrimmed
+                | EventKind::TaskProgressUpdated
                 | EventKind::AgentRunUpsert
                 | EventKind::AgentRunCheckpointSet
                 | EventKind::AgentRunCheckpointClear
@@ -3513,6 +3892,8 @@ fn apply_agent_run_events_to_record(
             | EventKind::TokenCount
             | EventKind::MetadataUpdated
             | EventKind::SessionCleared
+            | EventKind::SessionTrimmed
+            | EventKind::TaskProgressUpdated
             | EventKind::ThreadItem
             | EventKind::AgentRunTrace
             | EventKind::Legacy(_) => {}

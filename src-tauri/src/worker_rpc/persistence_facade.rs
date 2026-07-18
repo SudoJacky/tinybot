@@ -118,49 +118,33 @@ impl WorkerRpcRouter {
             }
             "session.clear" => {
                 let params: SessionIdParams = parse_params(request)?;
-                let legacy_result = self.session.clear_session(&params.session_id)?;
-                let thread_log_result = self.thread_log.clear_session(&params.session_id)?;
-                serde_json::to_value(thread_log_result.unwrap_or(legacy_result))
+                serde_json::to_value(self.thread_log.clear_session(&params.session_id)?)
                     .map_err(serialization_error)
             }
             "session.trim" => {
                 let params: SessionTrimParams = parse_params(request)?;
                 serde_json::to_value(
-                    self.session
+                    self.thread_log
                         .trim_session(&params.session_id, params.keep_recent_messages)?,
                 )
                 .map_err(serialization_error)
             }
             "session.delete" => {
                 let params: SessionIdParams = parse_params(request)?;
-                let result = self.session.delete_session(&params.session_id)?;
-                let thread_log_result = self.thread_log.delete_session(&params.session_id)?;
-                if result.deleted {
-                    self.thread.archive_session_thread(&params.session_id)?;
-                }
-                let deleted = result.deleted || thread_log_result.deleted;
-                serde_json::to_value(crate::worker_session::DeleteSessionResult {
-                    session_id: params.session_id,
-                    deleted,
-                })
-                .map_err(serialization_error)
+                serde_json::to_value(self.thread_log.delete_session(&params.session_id)?)
+                    .map_err(serialization_error)
             }
             "session.patch_metadata" => {
                 let params: SessionPatchMetadataParams = parse_params(request)?;
-                let session = match self
+                let session = self
                     .thread_log
                     .patch_metadata(&params.session_id, &params.metadata)?
-                {
-                    Some(session) => session,
-                    None => self
-                        .session
-                        .patch_metadata(&params.session_id, params.metadata)?,
-                };
+                    .ok_or_else(|| missing_session_error(&params.session_id))?;
                 serde_json::to_value(session).map_err(serialization_error)
             }
             "session.patch_user_profile" => {
                 let params: SessionPatchUserProfileParams = parse_params(request)?;
-                serde_json::to_value(self.session.patch_user_profile(
+                serde_json::to_value(self.thread_log.patch_user_profile(
                     &params.session_id,
                     params.user_profile,
                     params.metadata.unwrap_or_else(|| serde_json::json!({})),
@@ -190,14 +174,14 @@ impl WorkerRpcRouter {
             "session.append_messages" => {
                 let params: SessionAppendMessagesParams = parse_params(request)?;
                 serde_json::to_value(
-                    self.session
-                        .append_messages(&params.session_id, params.messages)?,
+                    self.thread_log
+                        .append_session_messages(&params.session_id, params.messages)?,
                 )
                 .map_err(serialization_error)
             }
             "session.task_progress.upsert" => {
                 let params: SessionTaskProgressUpsertParams = parse_params(request)?;
-                serde_json::to_value(self.session.upsert_task_progress(
+                serde_json::to_value(self.thread_log.upsert_task_progress(
                     &params.session_id,
                     &params.plan_id,
                     params.progress,
@@ -397,6 +381,16 @@ fn agent_run_not_found_error(session_id: &str, run_id: &str) -> WorkerProtocolEr
             "session_id": session_id,
             "run_id": run_id,
         }),
+        false,
+        WorkerProtocolErrorSource::RustCore,
+    )
+}
+
+fn missing_session_error(session_id: &str) -> WorkerProtocolError {
+    WorkerProtocolError::new(
+        WorkerProtocolErrorCode::InvalidProtocol,
+        "session metadata not found",
+        serde_json::json!({ "session_id": session_id }),
         false,
         WorkerProtocolErrorSource::RustCore,
     )

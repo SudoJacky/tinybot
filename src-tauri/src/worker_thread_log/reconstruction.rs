@@ -47,6 +47,8 @@ pub(super) fn reconstruct_canonical_rollout(
             | EventKind::TokenCount
             | EventKind::MetadataUpdated
             | EventKind::SessionCleared
+            | EventKind::SessionTrimmed
+            | EventKind::TaskProgressUpdated
             | EventKind::ThreadItem
             | EventKind::AgentRunUpsert
             | EventKind::AgentRunTrace

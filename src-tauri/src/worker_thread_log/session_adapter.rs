@@ -44,6 +44,38 @@ pub fn history_from_replay(replay: ThreadReplay, limit: usize) -> SessionHistory
     }
 }
 
+pub fn session_history_from_replay(
+    mut replay: ThreadReplay,
+    limit: usize,
+) -> SessionHistoryProjection {
+    replay.messages.retain(is_visible_session_message);
+    history_from_replay(replay, limit)
+}
+
+fn is_visible_session_message(message: &Value) -> bool {
+    if message
+        .get("_progress")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        || message.get("role").and_then(Value::as_str) == Some("tool")
+    {
+        return false;
+    }
+    if message.get("role").and_then(Value::as_str) != Some("assistant") {
+        return true;
+    }
+    let has_visible_content = message
+        .get("content")
+        .and_then(Value::as_str)
+        .is_some_and(|content| !content.trim().is_empty());
+    let has_tool_calls = message
+        .get("toolCalls")
+        .or_else(|| message.get("tool_calls"))
+        .and_then(Value::as_array)
+        .is_some_and(|tool_calls| !tool_calls.is_empty());
+    has_visible_content || !has_tool_calls
+}
+
 fn attach_usage(messages: &mut [Value], token_usage_info: Option<&TokenUsageInfo>) {
     if messages.is_empty() {
         return;
@@ -241,6 +273,37 @@ mod tests {
             compaction_overlap_candidate: None,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn session_history_hides_model_only_tool_pairs_and_progress() {
+        let projection = session_history_from_replay(
+            replay(vec![
+                json!({"role": "user", "content": "inspect"}),
+                json!({
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [{"id": "call-1", "name": "read_file"}]
+                }),
+                json!({"role": "tool", "content": "contents", "tool_call_id": "call-1"}),
+                json!({
+                    "role": "progress",
+                    "content": "working",
+                    "_progress": true
+                }),
+                json!({"role": "assistant", "content": "done"}),
+            ]),
+            80,
+        );
+
+        assert_eq!(
+            projection
+                .messages
+                .iter()
+                .map(|message| message["content"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["inspect", "done"]
+        );
     }
 
     fn replay_with_usage(messages: Vec<serde_json::Value>) -> ThreadReplay {

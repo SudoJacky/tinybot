@@ -1007,6 +1007,8 @@ pub(super) fn agent_run_records_from_lines(
             | super::EventKind::ThreadRolledBack
             | super::EventKind::TokenCount
             | super::EventKind::MetadataUpdated
+            | super::EventKind::SessionTrimmed
+            | super::EventKind::TaskProgressUpdated
             | super::EventKind::ThreadItem
             | super::EventKind::Legacy(_) => {}
         }

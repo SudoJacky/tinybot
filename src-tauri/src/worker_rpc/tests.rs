@@ -1766,10 +1766,6 @@ fn dispatches_session_delete_request() {
         }),
     ));
     assert_eq!(create_thread.error, None);
-    let thread_id = create_thread.result.as_ref().unwrap()["threadId"]
-        .as_str()
-        .expect("thread id should be present")
-        .to_string();
     let request = WorkerRequest::new(
         "req-1",
         "trace-1",
@@ -1788,16 +1784,14 @@ fn dispatches_session_delete_request() {
     );
     assert!(response.error.is_none());
 
-    let thread_list = router.dispatch(&WorkerRequest::new(
-        "req-thread-after-session-delete",
+    let session_list = router.dispatch(&WorkerRequest::new(
+        "req-session-list-after-session-delete",
         "trace-1",
-        "thread.list",
-        json!({ "includeArchived": true }),
+        "session.list_metadata",
+        json!({}),
     ));
-    assert_eq!(thread_list.error, None);
-    let thread = &thread_list.result.as_ref().unwrap()["threads"][0];
-    assert_eq!(thread["threadId"], thread_id);
-    assert_eq!(thread["status"], "archived");
+    assert_eq!(session_list.error, None);
+    assert_eq!(session_list.result, Some(json!([])));
 }
 
 #[test]
@@ -2218,8 +2212,16 @@ fn dispatches_session_trim_request() {
     assert_eq!(
         response.result.as_ref().unwrap()["session"]["extra"]["messages"],
         json!([
-            { "role": "user", "content": "recent" },
-            { "role": "assistant", "content": "recent answer" }
+            {
+                "role": "user",
+                "content": "recent",
+                "timestamp": "2026-06-09T09:30:00Z"
+            },
+            {
+                "role": "assistant",
+                "content": "recent answer",
+                "timestamp": "2026-06-09T09:30:00Z"
+            }
         ])
     );
     assert!(response.error.is_none());
@@ -2499,6 +2501,248 @@ fn session_persist_turn_does_not_write_legacy_session_or_thread_stores() {
         .join(".tinybot")
         .join("threads")
         .join("threads.sqlite")
+        .exists());
+}
+
+#[test]
+fn rollout_native_session_mutations_survive_restart_without_legacy_stores() {
+    let fixture = WorkspaceFixture::new();
+    let policy = CapabilityPolicy::new([
+        WorkerCapability::SessionWrite,
+        WorkerCapability::SessionMetadataRead,
+    ]);
+    {
+        let mut router = WorkerRpcRouter::new_persistent_sessions(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            50,
+            policy.clone(),
+        )
+        .unwrap();
+        let appended = router.dispatch(&WorkerRequest::new(
+            "req-rollout-session-append",
+            "trace-rollout-session",
+            "session.append_messages",
+            json!({
+                "session_id": "session-rollout-native",
+                "messages": [
+                    { "role": "user", "content": "old" },
+                    { "role": "assistant", "content": "old answer" },
+                    { "role": "user", "content": "recent" },
+                    { "role": "assistant", "content": "recent answer" }
+                ]
+            }),
+        ));
+        assert_eq!(appended.error, None);
+
+        let profile = router.dispatch(&WorkerRequest::new(
+            "req-rollout-session-profile",
+            "trace-rollout-session",
+            "session.patch_user_profile",
+            json!({
+                "session_id": "session-rollout-native",
+                "user_profile": { "name": "Ada" },
+                "metadata": { "profileSource": "test" }
+            }),
+        ));
+        assert_eq!(profile.error, None);
+
+        let trimmed = router.dispatch(&WorkerRequest::new(
+            "req-rollout-session-trim",
+            "trace-rollout-session",
+            "session.trim",
+            json!({
+                "session_id": "session-rollout-native",
+                "keep_recent_messages": 1
+            }),
+        ));
+        assert_eq!(trimmed.error, None);
+        assert_eq!(trimmed.result.as_ref().unwrap()["messages_after"], 2);
+
+        for (request_id, content, completed, steps) in [
+            (
+                "req-rollout-session-progress-1",
+                "first progress",
+                0,
+                json!([
+                    { "step": "Inspect session", "status": "in_progress" },
+                    { "step": "Finish session", "status": "pending" }
+                ]),
+            ),
+            (
+                "req-rollout-session-progress-2",
+                "updated progress",
+                1,
+                json!([
+                    { "step": "Inspect session", "status": "completed" },
+                    { "step": "Finish session", "status": "in_progress" }
+                ]),
+            ),
+        ] {
+            let progress = router.dispatch(&WorkerRequest::new(
+                request_id,
+                "trace-rollout-session",
+                "session.task_progress.upsert",
+                json!({
+                    "session_id": "session-rollout-native",
+                    "plan_id": "plan-rollout-native",
+                    "content": content,
+                    "progress": {
+                        "completed": completed,
+                        "total": 2,
+                        "steps": steps
+                    }
+                }),
+            ));
+            assert_eq!(progress.error, None);
+        }
+
+        let metadata = router.dispatch(&WorkerRequest::new(
+            "req-rollout-session-metadata",
+            "trace-rollout-session",
+            "session.patch_metadata",
+            json!({
+                "session_id": "session-rollout-native",
+                "metadata": { "title": "Rollout native session", "pinned": true }
+            }),
+        ));
+        assert_eq!(metadata.error, None);
+
+        for session_id in ["session-rollout-clear", "session-rollout-delete"] {
+            let appended = router.dispatch(&WorkerRequest::new(
+                format!("req-{session_id}-append"),
+                "trace-rollout-session-lifecycle",
+                "session.append_messages",
+                json!({
+                    "session_id": session_id,
+                    "messages": [
+                        { "role": "user", "content": "lifecycle message" },
+                        { "role": "assistant", "content": "lifecycle answer" }
+                    ]
+                }),
+            ));
+            assert_eq!(appended.error, None);
+        }
+        let cleared = router.dispatch(&WorkerRequest::new(
+            "req-rollout-session-clear",
+            "trace-rollout-session-lifecycle",
+            "session.clear",
+            json!({ "session_id": "session-rollout-clear" }),
+        ));
+        assert_eq!(cleared.error, None);
+        let deleted = router.dispatch(&WorkerRequest::new(
+            "req-rollout-session-delete",
+            "trace-rollout-session-lifecycle",
+            "session.delete",
+            json!({ "session_id": "session-rollout-delete" }),
+        ));
+        assert_eq!(deleted.error, None);
+        assert_eq!(deleted.result.as_ref().unwrap()["deleted"], true);
+    }
+
+    let mut restarted = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        policy,
+    )
+    .unwrap();
+    let history = restarted.dispatch(&WorkerRequest::new(
+        "req-rollout-session-history-after-restart",
+        "trace-rollout-session",
+        "session.get_history",
+        json!({ "session_id": "session-rollout-native", "limit": 80 }),
+    ));
+    assert_eq!(history.error, None);
+    let history = history.result.unwrap();
+    assert_eq!(history["user_profile"], json!({ "name": "Ada" }));
+    assert_eq!(
+        history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|message| message["content"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["recent", "recent answer"]
+    );
+    let agent_context = restarted.dispatch(&WorkerRequest::new(
+        "req-rollout-session-context-after-restart",
+        "trace-rollout-session",
+        "session.get_agent_context",
+        json!({ "session_id": "session-rollout-native", "limit": 80 }),
+    ));
+    assert_eq!(agent_context.error, None);
+    assert_eq!(
+        agent_context.result.as_ref().unwrap()["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|message| message["_task_plan_id"] == "plan-rollout-native")
+            .count(),
+        1
+    );
+    let metadata = restarted.dispatch(&WorkerRequest::new(
+        "req-rollout-session-metadata-after-restart",
+        "trace-rollout-session",
+        "session.get_metadata",
+        json!({ "session_id": "session-rollout-native" }),
+    ));
+    assert_eq!(metadata.error, None);
+    assert_eq!(
+        metadata.result.as_ref().unwrap()["title"],
+        "Rollout native session"
+    );
+    assert_eq!(
+        metadata.result.as_ref().unwrap()["extra"]["metadata"]["pinned"],
+        true
+    );
+    let cleared_history = restarted.dispatch(&WorkerRequest::new(
+        "req-rollout-session-clear-after-restart",
+        "trace-rollout-session-lifecycle",
+        "session.get_history",
+        json!({ "session_id": "session-rollout-clear", "limit": 80 }),
+    ));
+    assert_eq!(cleared_history.error, None);
+    assert_eq!(
+        cleared_history.result.as_ref().unwrap()["messages"],
+        json!([])
+    );
+    let sessions = restarted.dispatch(&WorkerRequest::new(
+        "req-rollout-session-list-after-restart",
+        "trace-rollout-session-lifecycle",
+        "session.list_metadata",
+        json!({}),
+    ));
+    assert_eq!(sessions.error, None);
+    assert!(!sessions
+        .result
+        .as_ref()
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|session| session["session_id"] == "session-rollout-delete"));
+
+    let rollout_path = PathBuf::from(
+        metadata.result.as_ref().unwrap()["extra"]["threadPath"]
+            .as_str()
+            .unwrap(),
+    );
+    let rollout = std::fs::read_to_string(rollout_path).unwrap();
+    assert!(rollout.contains("\"type\":\"session_trimmed\""));
+    assert!(rollout.contains("\"type\":\"task_progress_updated\""));
+    assert!(!fixture
+        .root
+        .join("sessions")
+        .join("sessions.sqlite")
+        .exists());
+    assert!(!fixture
+        .root
+        .join(".tinybot")
+        .join("state")
+        .join("thread-store.jsonl")
         .exists());
 }
 

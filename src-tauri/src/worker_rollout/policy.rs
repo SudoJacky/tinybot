@@ -40,6 +40,8 @@ pub fn should_persist_rollout_item(item: &RolloutItem) -> Result<bool, WorkerPro
             | EventKind::TokenCount
             | EventKind::MetadataUpdated
             | EventKind::SessionCleared
+            | EventKind::SessionTrimmed
+            | EventKind::TaskProgressUpdated
             | EventKind::ThreadItem
             | EventKind::AgentRunUpsert
             | EventKind::AgentRunCheckpointSet
