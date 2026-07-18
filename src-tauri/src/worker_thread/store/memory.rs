@@ -117,7 +117,6 @@ impl MemoryThreadStore {
             return Err(unknown_thread_error(thread_id));
         }
         let index = ThreadIndex {
-            version: 1,
             threads: state.threads.clone(),
         };
         let mut target_ids = vec![thread_id.to_string()];
@@ -266,7 +265,6 @@ impl MemoryThreadStore {
         }
         let state = self.lock()?;
         let index = ThreadIndex {
-            version: 1,
             threads: state.threads.clone(),
         };
         if let Some(thread_id) = request.thread_id.as_deref() {
@@ -345,7 +343,6 @@ impl MemoryThreadStore {
                 .cloned()
                 .ok_or_else(|| unknown_thread_error(&request.thread_id))?;
             let index = ThreadIndex {
-                version: 1,
                 threads: state.threads.clone(),
             };
             let mut thread_ids = vec![request.thread_id.clone()];
@@ -869,7 +866,6 @@ impl MemoryThreadStore {
         validate_thread_id(thread_id)?;
         let mut state = self.lock()?;
         let index = ThreadIndex {
-            version: 1,
             threads: state.threads.clone(),
         };
         let mut target_ids = vec![thread_id.to_string()];
@@ -1284,7 +1280,6 @@ impl ThreadStore for MemoryThreadStore {
             });
         };
         let index = ThreadIndex {
-            version: 1,
             threads: state.threads.clone(),
         };
         let deleted_children = descendant_thread_ids(&index, &request.thread_id);
@@ -1340,7 +1335,6 @@ impl ThreadStore for MemoryThreadStore {
             .cloned()
             .ok_or_else(|| unknown_thread_error(&request.thread_id))?;
         let source_index = ThreadIndex {
-            version: 1,
             threads: state.threads.clone(),
         };
         let source_items = state

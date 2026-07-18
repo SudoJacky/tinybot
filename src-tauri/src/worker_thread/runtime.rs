@@ -1,5 +1,5 @@
 use super::live_thread::LiveThread;
-use super::local_store::{LocalThreadStore, ThreadStore};
+use super::store::{MemoryThreadStore, ThreadStore};
 use super::types::{
     ContinueThreadTurnRequest, ForkThreadRequest, InterruptThreadRequest, ReadThreadRequest,
     StartThreadTurnRequest, ThreadApplyOpRequest, ThreadItem, ThreadItemKind, ThreadOp,
@@ -15,7 +15,7 @@ static RUNTIME_RUN_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static RUNTIME_ITEM_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug)]
-pub struct ThreadRuntime<S: ThreadStore = LocalThreadStore> {
+pub struct ThreadRuntime<S: ThreadStore = MemoryThreadStore> {
     store: S,
 }
 

@@ -6,8 +6,7 @@ use crate::worker_protocol::WorkerProtocolError;
 use crate::worker_shell::{ShellProcessCleanupReport, WorkerShellRuntime};
 use crate::worker_subagent_manager::{SubagentThreadManager, SubagentThreadStatus};
 use crate::worker_thread::{
-    InterruptThreadRequest, ListThreadsRequest, ThreadIdParams, ThreadPersistenceConsistencyReport,
-    ThreadPersistenceRepairReport, WorkerThreadRpc,
+    InterruptThreadRequest, ListThreadsRequest, ThreadIdParams, WorkerThreadRpc,
 };
 use crate::worker_thread_log::{
     AgentRunRecoveryEntry, ThreadLogIndexConsistencyReport, ThreadLogIndexRepairReport,
@@ -76,8 +75,6 @@ pub(crate) struct RuntimeShutdownReport {
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RuntimeStartupRecoveryReport {
-    pub(crate) thread_persistence: Option<ThreadPersistenceConsistencyReport>,
-    pub(crate) thread_persistence_migration: Option<ThreadPersistenceRepairReport>,
     pub(crate) session_log_index: Option<ThreadLogIndexConsistencyReport>,
     pub(crate) session_log_index_migration: Option<ThreadLogIndexRepairReport>,
     pub(crate) scanned_threads: usize,

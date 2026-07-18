@@ -1,10 +1,6 @@
 use super::{non_empty_string, string_field};
 use crate::worker_thread::types::{ThreadCheckpoint, ThreadItem, ThreadItemKind};
 
-pub(super) fn is_checkpoint_item(item: &ThreadItem) -> bool {
-    matches!(item.kind, ThreadItemKind::CheckpointCreated(_))
-}
-
 pub(super) fn latest_checkpoint_from_items(
     thread_id: &str,
     items: &[ThreadItem],

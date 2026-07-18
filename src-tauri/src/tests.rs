@@ -3663,21 +3663,19 @@ lines.on("line", (line) => {
     assert!(!mcp_result.to_string().contains("trace-secret-value"));
     assert!(mcp_result.to_string().contains("[REDACTED]"));
 
-    let journal = std::fs::read_to_string(
-        fixture
-            .root
-            .join(".tinybot")
-            .join("state")
-            .join("thread-store.jsonl"),
-    )
-    .expect("canonical thread journal should be readable");
-    assert!(journal.contains(trace_id));
-    assert!(journal.contains("agent.delegate.linked"));
-    assert!(journal.contains("agent.approval.decision"));
-    assert!(journal.contains("mcp.4:docs.7:inspect"));
-    assert!(!journal.contains("trace-secret-value"));
-    assert!(journal.contains("[REDACTED]"));
-    assert!(compatibility_thread_log_paths(&fixture.root).is_empty());
+    let rollout_paths = compatibility_thread_log_paths(&fixture.root);
+    assert!(!rollout_paths.is_empty());
+    let rollout = rollout_paths
+        .iter()
+        .map(|path| std::fs::read_to_string(path).expect("canonical Rollout should be readable"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(rollout.contains(trace_id));
+    assert!(rollout.contains("agent.delegate.linked"));
+    assert!(rollout.contains("agent.approval.decision"));
+    assert!(rollout.contains("mcp.4:docs.7:inspect"));
+    assert!(!rollout.contains("trace-secret-value"));
+    assert!(rollout.contains("[REDACTED]"));
 
     stop_owned_gateway(&shared, false).expect("trace acceptance MCP runtime should stop");
 }
@@ -7810,6 +7808,7 @@ impl WorkspaceFixture {
     }
 
     fn write_session_store(&self, store: serde_json::Value) {
+        // Fixture for the isolated, read-only startup migration path.
         let path = self.root.join("sessions").join("sessions.sqlite");
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).expect("fixture session parent should create");

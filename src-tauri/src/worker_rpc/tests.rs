@@ -20,6 +20,7 @@ use std::{
 static WORKSPACE_FIXTURE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn write_legacy_session_store_fixture(root: &Path, sessions: &[Value]) {
+    // Fixture for the isolated, read-only startup migration path.
     let path = root.join("sessions").join("sessions.sqlite");
     std::fs::create_dir_all(path.parent().unwrap())
         .expect("legacy session fixture directory should create");
@@ -867,7 +868,7 @@ fn dispatches_provider_resolve_secret_request() {
 }
 
 #[test]
-fn dispatches_session_get_metadata_request() {
+fn session_get_metadata_does_not_read_in_memory_legacy_session() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -885,16 +886,12 @@ fn dispatches_session_get_metadata_request() {
 
     let response = router.dispatch(&request);
 
-    assert_eq!(response.result.as_ref().unwrap()["session_id"], "session-1");
-    assert_eq!(
-        response.result.as_ref().unwrap()["title"],
-        "Native Core Migration"
-    );
+    assert_eq!(response.result, Some(Value::Null));
     assert!(response.error.is_none());
 }
 
 #[test]
-fn dispatches_session_list_metadata_includes_thread_only_sessions() {
+fn dispatches_session_list_metadata_includes_only_rollout_sessions() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -934,14 +931,13 @@ fn dispatches_session_list_metadata_includes_thread_only_sessions() {
 
     assert_eq!(response.error, None);
     let sessions = response.result.as_ref().unwrap().as_array().unwrap();
-    assert_eq!(sessions.len(), 2);
+    assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0]["session_id"], "thread-session-1");
     assert_eq!(sessions[0]["title"], "Thread Only Session");
     assert_eq!(sessions[0]["workspace_dir"], "D:/code/tinybot/workspace");
     assert_eq!(sessions[0]["updated_at"], "2026-07-05T03:00:00Z");
     assert_eq!(sessions[0]["extra"]["threadId"], "thread-only-session");
     assert_eq!(sessions[0]["extra"]["source"], "thread.metadata_projection");
-    assert_eq!(sessions[1]["session_id"], "session-1");
 }
 
 #[test]
@@ -1266,7 +1262,8 @@ fn dispatches_session_get_agent_context_from_latest_thread_compaction() {
             {
                 "role": "user",
                 "content": "next question",
-                "timestamp": "2026-07-05T04:00:05Z"
+                "timestamp": "2026-07-05T04:00:05Z",
+                "turnId": "turn-agent-context-next"
             }
         ])
     );
@@ -1340,12 +1337,14 @@ fn dispatches_session_get_history_reads_thread_tail() {
             {
                 "role": "user",
                 "content": "message-203",
-                "timestamp": "2026-07-05T05:03:23Z"
+                "timestamp": "2026-07-05T05:03:23Z",
+                "turnId": "turn-thread-tail"
             },
             {
                 "role": "user",
                 "content": "message-204",
-                "timestamp": "2026-07-05T05:03:24Z"
+                "timestamp": "2026-07-05T05:03:24Z",
+                "turnId": "turn-thread-tail"
             }
         ])
     );
@@ -1473,7 +1472,7 @@ fn dispatches_session_get_history_projects_thread_message_metadata_and_usage() {
 }
 
 #[test]
-fn dispatches_session_get_history_request() {
+fn session_get_history_does_not_read_in_memory_legacy_session() {
     let fixture = WorkspaceFixture::new();
     let mut session = session_fixture();
     session.extra = json!({
@@ -1499,19 +1498,7 @@ fn dispatches_session_get_history_request() {
 
     let response = router.dispatch(&request);
 
-    assert_eq!(
-        response.result,
-        Some(json!({
-            "session_id": "session-1",
-            "messages": [{
-                "role": "assistant",
-                "content": "second",
-                "timestamp": "2026-06-09T09:30:00Z"
-            }],
-            "user_profile": { "name": "Ada" },
-            "updated_at": "2026-06-09T09:30:00Z"
-        }))
-    );
+    assert_eq!(response.result, Some(Value::Null));
     assert!(response.error.is_none());
 }
 
@@ -1767,19 +1754,7 @@ fn dispatches_session_get_history_does_not_project_legacy_history_on_read() {
         json!({ "session_id": "session-1", "limit": 80 }),
     ));
     assert_eq!(response.error, None);
-    assert_eq!(
-        response.result.as_ref().unwrap()["messages"]
-            .as_array()
-            .unwrap()
-            .len(),
-        2
-    );
-    assert!(!fixture
-        .root
-        .join(".tinybot")
-        .join("threads")
-        .join("threads.sqlite")
-        .exists());
+    assert_eq!(response.result, Some(Value::Null));
 }
 
 #[test]
@@ -1834,7 +1809,7 @@ fn dispatches_session_delete_request() {
 }
 
 #[test]
-fn dispatches_session_patch_metadata_request() {
+fn session_patch_metadata_does_not_mutate_in_memory_legacy_session() {
     let fixture = WorkspaceFixture::new();
     let mut session = session_fixture();
     session.extra = json!({ "metadata": { "pinned": false, "topic": "old" } });
@@ -1860,26 +1835,15 @@ fn dispatches_session_patch_metadata_request() {
 
     let response = router.dispatch(&request);
 
+    assert!(response.result.is_none());
     assert_eq!(
-        response.result.as_ref().unwrap()["extra"]["metadata"],
-        json!({
-            "pinned": true,
-            "title": "Patched title",
-            "topic": "old"
-        })
+        response.error.as_ref().map(|error| error.message.as_str()),
+        Some("session metadata not found")
     );
-    assert_eq!(response.result.as_ref().unwrap()["title"], "Patched title");
-    assert!(response.error.is_none());
-    assert!(!fixture
-        .root
-        .join(".tinybot")
-        .join("threads")
-        .join("threads.sqlite")
-        .exists());
 }
 
 #[test]
-fn dispatches_session_patch_user_profile_request() {
+fn session_patch_user_profile_does_not_mutate_in_memory_legacy_session() {
     let fixture = WorkspaceFixture::new();
     let mut session = session_fixture();
     session.extra = json!({
@@ -1909,21 +1873,11 @@ fn dispatches_session_patch_user_profile_request() {
 
     let response = router.dispatch(&request);
 
+    assert!(response.result.is_none());
     assert_eq!(
-        response.result.as_ref().unwrap()["extra"]["user_profile"],
-        json!({
-            "name": "Ada",
-            "preferences": ["short answers", "code examples"]
-        })
+        response.error.as_ref().map(|error| error.message.as_str()),
+        Some("session metadata not found")
     );
-    assert_eq!(
-        response.result.as_ref().unwrap()["extra"]["metadata"],
-        json!({
-            "entity_extractor_last_turn_hash": "new-hash",
-            "topic": "native"
-        })
-    );
-    assert!(response.error.is_none());
 }
 
 #[test]
@@ -2002,12 +1956,7 @@ fn dispatches_session_checkpoint_requests() {
             "checkpointId": "checkpoint-session-route"
         })
     );
-    assert!(!fixture
-        .root
-        .join(".tinybot")
-        .join("threads")
-        .join("threads.sqlite")
-        .exists());
+    assert_removed_persistence_paths_absent(&fixture.root);
     assert!(clear_response.result.as_ref().unwrap()["extra"]
         .get("runtime_checkpoint")
         .is_none());
@@ -2068,7 +2017,7 @@ fn dispatches_session_get_checkpoint_request() {
 }
 
 #[test]
-fn dispatches_session_get_checkpoint_falls_back_to_legacy_runtime_checkpoint() {
+fn session_get_checkpoint_does_not_fall_back_to_in_memory_legacy_checkpoint() {
     let fixture = WorkspaceFixture::new();
     let mut session = session_fixture();
     session.extra = json!({
@@ -2094,14 +2043,7 @@ fn dispatches_session_get_checkpoint_falls_back_to_legacy_runtime_checkpoint() {
 
     let response = router.dispatch(&request);
 
-    assert_eq!(
-        response.result,
-        Some(json!({
-            "runId": "run-legacy-checkpoint",
-            "phase": "awaiting_tools",
-            "iteration": 2
-        }))
-    );
+    assert_eq!(response.result, Some(Value::Null));
     assert!(response.error.is_none());
 }
 
@@ -2183,6 +2125,26 @@ fn dispatches_session_clear_request() {
         20,
         CapabilityPolicy::new([WorkerCapability::SessionWrite]),
     );
+    router
+        .thread_log
+        .persist_session_turn(
+            "session-1",
+            "run-clear",
+            vec![
+                json!({ "role": "user", "content": "hello" }),
+                json!({ "role": "assistant", "content": "done" }),
+            ],
+            None,
+        )
+        .unwrap();
+    router
+        .thread_log
+        .set_agent_run_checkpoint(
+            "session-1",
+            "run-clear",
+            json!({ "runId": "run-clear", "phase": "awaiting_tools" }),
+        )
+        .unwrap();
     let request = WorkerRequest::new(
         "req-1",
         "trace-1",
@@ -2231,6 +2193,20 @@ fn dispatches_session_trim_request() {
         20,
         CapabilityPolicy::new([WorkerCapability::SessionWrite]),
     );
+    router
+        .thread_log
+        .persist_session_turn(
+            "session-1",
+            "run-trim",
+            vec![
+                json!({ "role": "user", "content": "old" }),
+                json!({ "role": "assistant", "content": "old answer" }),
+                json!({ "role": "user", "content": "recent" }),
+                json!({ "role": "assistant", "content": "recent answer" }),
+            ],
+            None,
+        )
+        .unwrap();
     let request = WorkerRequest::new(
         "req-1",
         "trace-1",
@@ -2248,21 +2224,13 @@ fn dispatches_session_trim_request() {
         response.result.as_ref().unwrap()["messages_after"],
         json!(2)
     );
-    assert_eq!(
-        response.result.as_ref().unwrap()["session"]["extra"]["messages"],
-        json!([
-            {
-                "role": "user",
-                "content": "recent",
-                "timestamp": "2026-06-09T09:30:00Z"
-            },
-            {
-                "role": "assistant",
-                "content": "recent answer",
-                "timestamp": "2026-06-09T09:30:00Z"
-            }
-        ])
-    );
+    let messages = response.result.as_ref().unwrap()["session"]["extra"]["messages"]
+        .as_array()
+        .unwrap();
+    assert_eq!(messages[0]["role"], "user");
+    assert_eq!(messages[0]["content"], "recent");
+    assert_eq!(messages[1]["role"], "assistant");
+    assert_eq!(messages[1]["content"], "recent answer");
     assert!(response.error.is_none());
 }
 
@@ -2524,23 +2492,7 @@ fn session_persist_turn_does_not_write_legacy_session_or_thread_stores() {
         .join("state.sqlite")
         .exists());
     assert!(first_thread_log_file_under(&fixture.root, "threads").is_some());
-    assert!(!fixture
-        .root
-        .join("sessions")
-        .join("sessions.sqlite")
-        .exists());
-    assert!(!fixture
-        .root
-        .join(".tinybot")
-        .join("state")
-        .join("thread-store.jsonl")
-        .exists());
-    assert!(!fixture
-        .root
-        .join(".tinybot")
-        .join("threads")
-        .join("threads.sqlite")
-        .exists());
+    assert_removed_persistence_paths_absent(&fixture.root);
 }
 
 #[test]
@@ -2772,17 +2724,7 @@ fn rollout_native_session_mutations_survive_restart_without_legacy_stores() {
     let rollout = std::fs::read_to_string(rollout_path).unwrap();
     assert!(rollout.contains("\"type\":\"session_trimmed\""));
     assert!(rollout.contains("\"type\":\"task_progress_updated\""));
-    assert!(!fixture
-        .root
-        .join("sessions")
-        .join("sessions.sqlite")
-        .exists());
-    assert!(!fixture
-        .root
-        .join(".tinybot")
-        .join("state")
-        .join("thread-store.jsonl")
-        .exists());
+    assert_removed_persistence_paths_absent(&fixture.root);
 }
 
 #[test]
@@ -3021,11 +2963,7 @@ fn agent_run_persistence_drops_transient_trace_and_does_not_write_legacy_session
         .as_array()
         .expect("trace events should be an array");
     assert!(trace_events.is_empty());
-    assert!(!fixture
-        .root
-        .join("sessions")
-        .join("sessions.sqlite")
-        .exists());
+    assert_removed_persistence_paths_absent(&fixture.root);
     assert!(fixture
         .root
         .join(".tinybot")
@@ -3033,18 +2971,6 @@ fn agent_run_persistence_drops_transient_trace_and_does_not_write_legacy_session
         .join("state.sqlite")
         .exists());
     assert!(first_thread_log_file_under(&fixture.root, "threads").is_some());
-    assert!(!fixture
-        .root
-        .join(".tinybot")
-        .join("state")
-        .join("thread-store.jsonl")
-        .exists());
-    assert!(!fixture
-        .root
-        .join(".tinybot")
-        .join("threads")
-        .join("threads.sqlite")
-        .exists());
 }
 
 #[test]
@@ -4789,9 +4715,6 @@ fn session_patch_metadata_prefers_thread_log_over_legacy_persistence() {
             None,
         )
         .unwrap();
-    let sqlite_path = fixture.root.join("sessions").join("sessions.sqlite");
-    std::fs::create_dir_all(&sqlite_path).expect("sqlite path should be blockable");
-
     let patch = router.dispatch(&WorkerRequest::new(
         "req-patch-legacy-error",
         "trace-patch-legacy-error",
@@ -4915,7 +4838,7 @@ fn dispatches_thread_store_round_trip_requests() {
 }
 
 #[test]
-fn thread_list_does_not_import_legacy_sessions_at_request_time() {
+fn thread_list_does_not_merge_in_memory_session_metadata_at_request_time() {
     let fixture = WorkspaceFixture::new();
     let mut legacy_session = session_fixture();
     legacy_session.session_id = "session:websocket-1".to_string();
@@ -5028,23 +4951,7 @@ fn thread_api_survives_restart_from_rollout_without_legacy_stores() {
         .join("state")
         .join("state.sqlite")
         .exists());
-    assert!(!fixture
-        .root
-        .join("sessions")
-        .join("sessions.sqlite")
-        .exists());
-    assert!(!fixture
-        .root
-        .join(".tinybot")
-        .join("state")
-        .join("thread-store.jsonl")
-        .exists());
-    assert!(!fixture
-        .root
-        .join(".tinybot")
-        .join("threads")
-        .join("threads.sqlite")
-        .exists());
+    assert_removed_persistence_paths_absent(&fixture.root);
 }
 
 #[test]
@@ -9291,17 +9198,7 @@ fn dispatches_agent_run_store_round_trip_requests() {
         json!(null)
     );
 
-    assert!(!fixture
-        .root
-        .join("sessions")
-        .join("sessions.sqlite")
-        .exists());
-    assert!(!fixture
-        .root
-        .join(".tinybot")
-        .join("threads")
-        .join("threads.sqlite")
-        .exists());
+    assert_removed_persistence_paths_absent(&fixture.root);
 
     let metadata = router.dispatch(&WorkerRequest::new(
         "req-session-metadata-after-agent-run",
@@ -12412,6 +12309,19 @@ fn first_thread_log_file_under(root: &Path, directory: &str) -> Option<PathBuf> 
         None
     }
     visit(&root.join(".tinybot").join(directory))
+}
+
+fn assert_removed_persistence_paths_absent(root: &Path) {
+    let removed_paths = [
+        root.join("sessions").join("sessions.sqlite"),
+        root.join(".tinybot")
+            .join("state")
+            .join("thread-store.jsonl"),
+        root.join(".tinybot").join("threads").join("threads.sqlite"),
+    ];
+    for path in removed_paths {
+        assert!(!path.exists(), "removed persistence path exists: {path:?}");
+    }
 }
 
 fn prepare_session_log_index_for_startup(root: &Path) {

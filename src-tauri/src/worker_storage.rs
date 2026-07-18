@@ -256,12 +256,12 @@ fn storage_parent(path: &Path) -> &Path {
 }
 
 #[cfg(not(windows))]
-fn replace_file(temp_path: &Path, target_path: &Path) -> io::Result<()> {
+pub(crate) fn replace_file(temp_path: &Path, target_path: &Path) -> io::Result<()> {
     fs::rename(temp_path, target_path)
 }
 
 #[cfg(windows)]
-fn replace_file(temp_path: &Path, target_path: &Path) -> io::Result<()> {
+pub(crate) fn replace_file(temp_path: &Path, target_path: &Path) -> io::Result<()> {
     const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
     const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
 

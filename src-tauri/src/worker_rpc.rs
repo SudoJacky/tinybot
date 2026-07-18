@@ -162,12 +162,13 @@ impl WorkerRpcRouter {
         diagnostic_capacity: usize,
         policy: CapabilityPolicy,
     ) -> Result<Self, crate::worker_protocol::WorkerProtocolError> {
-        let session =
-            WorkerSessionRpc::new_persistent(workspace_root.clone(), sessions, policy.clone())?;
         let thread_log = WorkerThreadLogRpc::new(workspace_root.clone(), policy.clone());
-        if let Some((source_path, sessions)) = session.legacy_migration_source() {
-            thread_log.migrate_legacy_session_store_at_startup(source_path, sessions)?;
-        }
+        thread_log.migrate_legacy_session_store_at_startup(&workspace_root)?;
+        let session = WorkerSessionRpc::new_persistent_resources(
+            workspace_root.clone(),
+            sessions,
+            policy.clone(),
+        )?;
         Ok(Self {
             workspace: WorkerWorkspaceRpc::new(workspace_root.clone(), policy.clone()),
             config: WorkerConfigRpc::new(config_snapshot.clone(), policy.clone()),

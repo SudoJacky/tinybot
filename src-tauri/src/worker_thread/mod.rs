@@ -1,17 +1,14 @@
 mod live_thread;
-mod local_store;
 mod runtime;
-mod session_adapter;
+mod store;
 mod types;
 
 pub use self::live_thread::LiveThread;
-pub(crate) use self::local_store::run_summaries_from_items;
-pub use self::local_store::{
-    LocalThreadStore, MemoryThreadStore, ThreadPersistenceConsistencyReport,
-    ThreadPersistenceConsistencyStatus, ThreadPersistenceRepairMode, ThreadPersistenceRepairReport,
-    ThreadPersistenceRepairRequest, ThreadStore,
-};
 pub use self::runtime::ThreadRuntime;
+pub(crate) use self::store::run_summaries_from_items;
+pub use self::store::{
+    MemoryThreadStore, ThreadPersistenceRepairMode, ThreadPersistenceRepairRequest, ThreadStore,
+};
 pub use self::types::{
     AppendThreadItemsRequest, AppendThreadItemsResult, ArchiveThreadRequest,
     ContinueThreadTurnRequest, CreateThreadRequest, DeleteThreadRequest, DeleteThreadResult,
@@ -31,10 +28,7 @@ use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource,
 };
-use crate::worker_session::{
-    AgentRunRecord, AgentRunRuntimeState, AgentRunTracePage, SessionHistoryProjection,
-    SessionMetadata,
-};
+use crate::worker_session::{AgentRunRecord, AgentRunRuntimeState, AgentRunTracePage};
 use crate::worker_subagent_manager::{SubagentMailboxInput, SubagentThreadSummary};
 use serde_json::Value;
 use std::path::PathBuf;

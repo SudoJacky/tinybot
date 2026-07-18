@@ -1,11 +1,10 @@
 use super::agent_run_projection::run_summaries_from_items;
 use super::checkpoint::latest_checkpoint_from_items;
 use super::index::ThreadIndex;
-use super::{bool_field, string_field, turn_items_from_thread_items, u64_field, LocalThreadStore};
-use crate::worker_protocol::WorkerProtocolError;
+use super::{bool_field, string_field, turn_items_from_thread_items, u64_field};
 use crate::worker_thread::types::{
-    ThreadAgentRegistryEntry, ThreadChildActivity, ThreadChildSummary, ThreadItem, ThreadItemKind,
-    ThreadPendingApproval, ThreadRecord, ThreadRunSummary, ThreadRunningTool, ThreadStatus,
+    ThreadAgentRegistryEntry, ThreadItem, ThreadItemKind, ThreadPendingApproval, ThreadRecord,
+    ThreadRunningTool, ThreadStatus,
 };
 use serde_json::Value;
 
@@ -221,58 +220,4 @@ pub(super) fn running_tools_from_items(
             })
         })
         .collect()
-}
-
-pub(super) fn child_activities_for_thread(
-    store: &LocalThreadStore,
-    thread_id: &str,
-) -> Result<Vec<ThreadChildActivity>, WorkerProtocolError> {
-    let index = store.read_index()?;
-    let mut activities = Vec::new();
-    for child in index.threads.iter().filter(|thread| {
-        thread.parent_thread_id.as_deref() == Some(thread_id)
-            && thread.status != ThreadStatus::Archived
-            && thread.active_run_id.is_some()
-    }) {
-        let items = store.read_items(&child.thread_id)?;
-        let runs = run_summaries_from_items(child, &items);
-        let active_run = runs.iter().find(|run| run.active).cloned().or_else(|| {
-            child.active_run_id.as_ref().map(|run_id| ThreadRunSummary {
-                run_id: run_id.clone(),
-                status: child.status.clone(),
-                started_at: Some(child.created_at.clone()),
-                updated_at: Some(child.updated_at.clone()),
-                completed_at: child.archived_at.clone(),
-                model: child.metadata.model.clone(),
-                provider: child
-                    .metadata
-                    .extra
-                    .get("provider")
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
-                item_count: items.len() as u64,
-                active: true,
-            })
-        });
-        let turn_items = active_run
-            .as_ref()
-            .map(|run| {
-                let child_session_id = child.session_key.as_deref().unwrap_or_default();
-                turn_items_from_thread_items(&items, child_session_id, &run.run_id)
-            })
-            .unwrap_or_default();
-        activities.push(ThreadChildActivity {
-            child: ThreadChildSummary::from(child),
-            active_run,
-            turn_items,
-        });
-    }
-    activities.sort_by(|left, right| {
-        right
-            .child
-            .updated_at
-            .cmp(&left.child.updated_at)
-            .then_with(|| left.child.thread_id.cmp(&right.child.thread_id))
-    });
-    Ok(activities)
 }

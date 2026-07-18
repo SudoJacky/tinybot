@@ -1,7 +1,7 @@
 use super::{
-    canonicalize_thread_timestamp, is_default_session_title, now_thread_timestamp,
-    preview_from_messages, read_thread_lines, thread_id_for_session_id, title_from_messages,
-    value_event, AgentRunRecoveryEntry, AgentRunRecoveryReport, ThreadLogItem, WorkerThreadLogRpc,
+    is_default_session_title, now_thread_timestamp, preview_from_messages, read_thread_lines,
+    thread_id_for_session_id, title_from_messages, value_event, AgentRunRecoveryEntry,
+    AgentRunRecoveryReport, ThreadLogItem, WorkerThreadLogRpc,
 };
 use crate::agent_loop_runtime_protocol::{
     AgentRuntimeEventEnvelope, LegacyNativeAgentEventEnvelopeInput,
@@ -24,94 +24,6 @@ impl WorkerThreadLogRpc {
     ) -> Result<AgentRunRecord, WorkerProtocolError> {
         let timestamp = now_thread_timestamp();
         self.upsert_agent_run_at(record, timestamp)
-    }
-
-    pub(crate) fn upsert_legacy_thread_agent_run(
-        &self,
-        thread_id: &str,
-        mut record: AgentRunRecord,
-    ) -> Result<AgentRunRecord, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionWrite)?;
-        validate_agent_run_key(&record.session_id, &record.run_id)?;
-        if record
-            .thread_id
-            .as_deref()
-            .is_some_and(|record_thread_id| record_thread_id != thread_id)
-        {
-            return Err(WorkerProtocolError::new(
-                WorkerProtocolErrorCode::InvalidProtocol,
-                "agent run thread identity does not match target Rollout",
-                serde_json::json!({
-                    "threadId": thread_id,
-                    "runId": record.run_id,
-                    "recordThreadId": record.thread_id,
-                }),
-                false,
-                WorkerProtocolErrorSource::RustCore,
-            ));
-        }
-        record.thread_id = Some(thread_id.to_string());
-        self.ensure_state_index()?;
-        let Some(mut state) = self.state.find_by_session_or_thread_id(thread_id)? else {
-            return Err(WorkerProtocolError::new(
-                WorkerProtocolErrorCode::InvalidProtocol,
-                "target Rollout is missing for thread-backed agent run",
-                serde_json::json!({ "threadId": thread_id, "runId": record.run_id }),
-                false,
-                WorkerProtocolErrorSource::RustCore,
-            ));
-        };
-        if state.id != thread_id {
-            return Err(WorkerProtocolError::new(
-                WorkerProtocolErrorCode::InvalidProtocol,
-                "thread-backed agent run resolved to a different Rollout",
-                serde_json::json!({
-                    "threadId": thread_id,
-                    "resolvedThreadId": state.id,
-                    "runId": record.run_id,
-                }),
-                false,
-                WorkerProtocolErrorSource::RustCore,
-            ));
-        }
-        let path = PathBuf::from(&state.thread_path);
-        self.recorder.validate_thread_path(&path)?;
-        let lines = read_thread_lines(&path)?;
-        let existing = super::reconstruction::reconstruct_canonical_rollout(&lines)?
-            .agent_runs
-            .into_iter()
-            .find(|existing| existing.run_id == record.run_id);
-        if let Some(existing) = existing {
-            record.started_at = existing.started_at.clone();
-            let mut trace_events = existing.trace_events.clone();
-            for event in std::mem::take(&mut record.trace_events) {
-                upsert_trace_event(&mut trace_events, event);
-            }
-            record.trace_events = trace_events;
-            if existing == record {
-                return Ok(record);
-            }
-        }
-        let timestamp = canonicalize_thread_timestamp(&record.updated_at)?;
-        self.recorder.append_item(
-            &path,
-            timestamp.clone(),
-            value_event(
-                super::EventKind::AgentRunUpsert,
-                serde_json::json!({ "record": record }),
-            ),
-        )?;
-        let log_head = self.recorder.thread_log_head(&path)?;
-        state.updated_at = timestamp;
-        if !record.model.trim().is_empty() {
-            state.model = Some(record.model.clone());
-        }
-        state.model_provider = record.provider.clone();
-        if let Some(info) = record.token_usage_info.as_ref() {
-            state.tokens_used = info.total_token_usage.total_tokens;
-        }
-        self.state.upsert_thread_projection(&state, &log_head)?;
-        Ok(record)
     }
 
     fn upsert_agent_run_at(

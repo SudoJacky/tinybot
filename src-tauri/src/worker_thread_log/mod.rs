@@ -1,5 +1,6 @@
 mod agent_run;
 mod compression;
+mod legacy_session_migration;
 mod reader;
 mod reconstruction;
 mod recorder;
@@ -32,6 +33,7 @@ static CONTEXT_CHECKPOINT_COMMIT_LOCK: Mutex<()> = Mutex::new(());
 const LEGACY_SESSION_MIGRATION_VERSION: u32 = 1;
 const LEGACY_SESSION_MIGRATION_MARKER: &str = "legacy-session-store-v1.json";
 
+use self::legacy_session_migration::read_legacy_session_store;
 pub use self::reader::read_thread_lines;
 use self::reader::read_thread_lines_for_discovery;
 use self::recorder::ThreadLogHead;
@@ -482,9 +484,8 @@ impl WorkerThreadLogRpc {
 
     pub(crate) fn migrate_legacy_session_store_at_startup(
         &self,
-        source_path: &Path,
-        sessions: &[SessionMetadata],
-    ) -> Result<LegacySessionMigrationReport, WorkerProtocolError> {
+        workspace_root: &Path,
+    ) -> Result<Option<LegacySessionMigrationReport>, WorkerProtocolError> {
         let marker_path = self.legacy_session_migration_marker_path()?;
         if marker_path.exists() {
             let marker = fs::read(&marker_path).map_err(|error| {
@@ -520,9 +521,12 @@ impl WorkerThreadLogRpc {
                 "legacy_session_migration_already_completed version={} total={} imported={} skipped={}",
                 report.version, report.total_count, report.imported_count, report.skipped_count
             );
-            return Ok(report);
+            return Ok(Some(report));
         }
 
+        let Some((source_path, sessions)) = read_legacy_session_store(workspace_root)? else {
+            return Ok(None);
+        };
         eprintln!(
             "legacy_session_migration_started version={} source_path={} total={}",
             LEGACY_SESSION_MIGRATION_VERSION,
@@ -532,7 +536,7 @@ impl WorkerThreadLogRpc {
         self.ensure_state_index()?;
         let mut imported_count = 0usize;
         let mut skipped_count = 0usize;
-        for session in sessions {
+        for session in &sessions {
             if self
                 .state
                 .find_by_session_or_thread_id(&session.session_id)?
@@ -567,7 +571,7 @@ impl WorkerThreadLogRpc {
             report.skipped_count,
             marker_path.display()
         );
-        Ok(report)
+        Ok(Some(report))
     }
 
     fn legacy_session_migration_marker_path(&self) -> Result<PathBuf, WorkerProtocolError> {
