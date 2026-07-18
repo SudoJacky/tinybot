@@ -140,4 +140,15 @@ impl WorkerSessionRpc {
         self.persist_temporary_file_resources()?;
         Ok(result)
     }
+
+    pub fn remove_temporary_file_resources(
+        &mut self,
+        session_id: &str,
+    ) -> Result<(), WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
+        validate_session_id(session_id)?;
+        self.sessions
+            .retain(|session| session.session_id != session_id);
+        self.persist_temporary_file_resources()
+    }
 }

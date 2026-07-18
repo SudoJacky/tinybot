@@ -116,6 +116,7 @@ impl WorkerRpcRouter {
             }
             "session.clear" => {
                 let params: SessionIdParams = parse_params(request)?;
+                self.session.clear_temporary_files(&params.session_id)?;
                 serde_json::to_value(self.thread_log.clear_session(&params.session_id)?)
                     .map_err(serialization_error)
             }
@@ -129,6 +130,8 @@ impl WorkerRpcRouter {
             }
             "session.delete" => {
                 let params: SessionIdParams = parse_params(request)?;
+                self.session
+                    .remove_temporary_file_resources(&params.session_id)?;
                 serde_json::to_value(self.thread_log.delete_session(&params.session_id)?)
                     .map_err(serialization_error)
             }

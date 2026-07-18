@@ -11289,6 +11289,151 @@ fn dispatches_session_temporary_file_lifecycle() {
     );
 }
 
+#[test]
+fn session_clear_removes_temporary_files_from_persistent_resource_sidecar() {
+    let fixture = WorkspaceFixture::new();
+    let session_id = "websocket:chat-clear-resources";
+    let policy = CapabilityPolicy::new([
+        WorkerCapability::SessionMetadataRead,
+        WorkerCapability::SessionWrite,
+    ]);
+    let mut router = persistent_router_with_temporary_file(&fixture, session_id, policy.clone());
+
+    let cleared = router.dispatch(&WorkerRequest::new(
+        "req-session-clear-resource",
+        "trace-session-clear-resource",
+        "session.clear",
+        json!({ "session_id": session_id }),
+    ));
+    assert_eq!(cleared.error, None);
+    let listed = router.dispatch(&WorkerRequest::new(
+        "req-session-clear-resource-list",
+        "trace-session-clear-resource",
+        "session.temporary_file.list",
+        json!({ "session_id": session_id }),
+    ));
+    assert_eq!(listed.error, None);
+    assert_eq!(
+        listed.result.as_ref().unwrap()["temporary_files"],
+        json!([])
+    );
+    drop(router);
+
+    let mut restarted_session = session_fixture();
+    restarted_session.session_id = session_id.to_string();
+    let mut restarted = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![restarted_session],
+        20,
+        policy,
+    )
+    .unwrap();
+    let restarted_list = restarted.dispatch(&WorkerRequest::new(
+        "req-session-clear-resource-list-restarted",
+        "trace-session-clear-resource",
+        "session.temporary_file.list",
+        json!({ "session_id": session_id }),
+    ));
+    assert_eq!(restarted_list.error, None);
+    assert_eq!(
+        restarted_list.result.as_ref().unwrap()["temporary_files"],
+        json!([])
+    );
+}
+
+#[test]
+fn session_delete_removes_temporary_files_from_persistent_resource_sidecar() {
+    let fixture = WorkspaceFixture::new();
+    let session_id = "websocket:chat-delete-resources";
+    let policy = CapabilityPolicy::new([
+        WorkerCapability::SessionMetadataRead,
+        WorkerCapability::SessionWrite,
+    ]);
+    let mut router = persistent_router_with_temporary_file(&fixture, session_id, policy.clone());
+
+    let deleted = router.dispatch(&WorkerRequest::new(
+        "req-session-delete-resource",
+        "trace-session-delete-resource",
+        "session.delete",
+        json!({ "session_id": session_id }),
+    ));
+    assert_eq!(deleted.error, None);
+    let listed = router.dispatch(&WorkerRequest::new(
+        "req-session-delete-resource-list",
+        "trace-session-delete-resource",
+        "session.temporary_file.list",
+        json!({ "session_id": session_id }),
+    ));
+    assert!(listed.error.is_some());
+    drop(router);
+
+    let mut restarted = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        20,
+        policy,
+    )
+    .unwrap();
+    let restarted_list = restarted.dispatch(&WorkerRequest::new(
+        "req-session-delete-resource-list-restarted",
+        "trace-session-delete-resource",
+        "session.temporary_file.list",
+        json!({ "session_id": session_id }),
+    ));
+    assert!(restarted_list.error.is_some());
+}
+
+fn persistent_router_with_temporary_file(
+    fixture: &WorkspaceFixture,
+    session_id: &str,
+    policy: CapabilityPolicy,
+) -> WorkerRpcRouter {
+    let mut session = session_fixture();
+    session.session_id = session_id.to_string();
+    let mut router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![session],
+        20,
+        policy,
+    )
+    .unwrap();
+    assert_eq!(
+        router
+            .dispatch(&WorkerRequest::new(
+                format!("req-{session_id}-resource-history"),
+                format!("trace-{session_id}-resource"),
+                "session.append_messages",
+                json!({
+                    "session_id": session_id,
+                    "messages": [{ "role": "user", "content": "remove everything" }]
+                }),
+            ))
+            .error,
+        None
+    );
+    assert_eq!(
+        router
+            .dispatch(&WorkerRequest::new(
+                format!("req-{session_id}-resource-upload"),
+                format!("trace-{session_id}-resource"),
+                "session.temporary_file.upload",
+                json!({
+                    "session_id": session_id,
+                    "name": "Remove Me.md",
+                    "file_type": "md",
+                    "content": "temporary resource evidence",
+                    "size_bytes": 27
+                }),
+            ))
+            .error,
+        None
+    );
+    router
+}
+
 fn approve_once(
     router: &mut WorkerRpcRouter,
     run_id: &str,
