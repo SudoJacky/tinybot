@@ -310,6 +310,11 @@ pub enum AgentTurnItemData {
         status: String,
         message: Option<String>,
         child_run_id: Option<String>,
+        child_thread_id: Option<String>,
+        parent_agent_id: Option<String>,
+        parent_run_id: Option<String>,
+        name: Option<String>,
+        task: Option<String>,
         trace_ref: Option<String>,
     },
     SubagentMessage {
@@ -1680,18 +1685,57 @@ fn projected_item_data(
             let source = typed_item.unwrap_or(payload);
             AgentTurnItemData::SubagentLifecycle {
                 agent_id: item_string(source, &["agentId", "agent_id", "delegateId", "subagentId"])
+                    .or_else(|| {
+                        item_string(
+                            payload,
+                            &["agentId", "agent_id", "delegateId", "subagentId"],
+                        )
+                    })
                     .unwrap_or_else(|| "multiple".to_string()),
-                action: item_string(source, &["action"]).unwrap_or_else(|| {
-                    event
-                        .event_name
-                        .strip_prefix("agent.delegate.")
-                        .unwrap_or("updated")
-                        .to_string()
+                action: item_string(source, &["action"])
+                    .or_else(|| item_string(payload, &["action"]))
+                    .unwrap_or_else(|| {
+                        event
+                            .event_name
+                            .strip_prefix("agent.delegate.")
+                            .unwrap_or("updated")
+                            .to_string()
+                    }),
+                status: item_string(source, &["status"])
+                    .or_else(|| item_string(payload, &["status"]))
+                    .unwrap_or_else(|| "running".to_string()),
+                message: item_string(source, &["message"])
+                    .or_else(|| item_string(payload, &["message"])),
+                child_run_id: item_string(source, &["childRunId", "child_run_id"])
+                    .or_else(|| item_string(payload, &["childRunId", "child_run_id"])),
+                child_thread_id: item_string(source, &["childThreadId", "child_thread_id"])
+                    .or_else(|| item_string(payload, &["childThreadId", "child_thread_id"])),
+                parent_agent_id: item_string(
+                    source,
+                    &[
+                        "parentAgentId",
+                        "parent_agent_id",
+                        "parentSubagentId",
+                        "parent_subagent_id",
+                    ],
+                )
+                .or_else(|| {
+                    item_string(
+                        payload,
+                        &[
+                            "parentAgentId",
+                            "parent_agent_id",
+                            "parentSubagentId",
+                            "parent_subagent_id",
+                        ],
+                    )
                 }),
-                status: item_string(source, &["status"]).unwrap_or_else(|| "running".to_string()),
-                message: item_string(source, &["message"]),
-                child_run_id: item_string(payload, &["childRunId", "child_run_id"]),
-                trace_ref: item_string(payload, &["traceRef", "trace_ref"]),
+                parent_run_id: item_string(source, &["parentRunId", "parent_run_id"])
+                    .or_else(|| item_string(payload, &["parentRunId", "parent_run_id"])),
+                name: item_string(source, &["name"]).or_else(|| item_string(payload, &["name"])),
+                task: item_string(source, &["task"]).or_else(|| item_string(payload, &["task"])),
+                trace_ref: item_string(source, &["traceRef", "trace_ref"])
+                    .or_else(|| item_string(payload, &["traceRef", "trace_ref"])),
             }
         }
         AgentTurnItemKind::SubagentMessage => {
@@ -2563,6 +2607,38 @@ mod tests {
             AgentRuntimePhase::for_legacy_event("agent.delegate.linked"),
             AgentRuntimePhase::AwaitingSubagent
         );
+    }
+
+    #[test]
+    fn subagent_lifecycle_retains_parent_and_assigned_work_correlation() {
+        let items = project_turn_items_from_trace_events(&[runtime_event(
+            "run-parent",
+            "agent.delegate.linked",
+            AgentRuntimePhase::AwaitingSubagent,
+            Some("subagent-1"),
+            1,
+            json!({
+                "delegateId": "agent-child",
+                "childRunId": "run-child",
+                "childThreadId": "thread-child",
+                "parentAgentId": "agent-main",
+                "parentRunId": "run-parent",
+                "name": "Reviewer",
+                "task": "Review the implementation",
+                "status": "running",
+                "traceRef": "trace-child"
+            }),
+        )]);
+
+        let data = serde_json::to_value(&items[0].data).unwrap();
+        assert_eq!(data["agentId"], "agent-child");
+        assert_eq!(data["childRunId"], "run-child");
+        assert_eq!(data["childThreadId"], "thread-child");
+        assert_eq!(data["parentAgentId"], "agent-main");
+        assert_eq!(data["parentRunId"], "run-parent");
+        assert_eq!(data["name"], "Reviewer");
+        assert_eq!(data["task"], "Review the implementation");
+        assert_eq!(data["traceRef"], "trace-child");
     }
 
     #[test]

@@ -36,9 +36,13 @@ export type TinyOsProcessKind =
 
 export type TinyOsProcessCorrelation = {
   browserSessionId?: string;
+  childRunId?: string;
+  childThreadId?: string;
   commandId?: string;
   itemId?: string;
   nativeProcessId?: string;
+  parentAgentId?: string;
+  parentRunId?: string;
   runId: string;
   sessionId: string;
   threadId?: string;
@@ -53,6 +57,19 @@ export type TinyOsProcess = {
   kind: TinyOsProcessKind;
   ownerAgentId?: string;
   parentProcessId?: string;
+  provenance: TinyOsProvenance;
+  state: TinyOsProcessState;
+  title: string;
+};
+
+export type TinyOsAgentProcessGroup = {
+  agentId: string;
+  assignedWork?: string;
+  childRunId?: string;
+  id: string;
+  parentAgentId?: string;
+  parentProcessId?: string;
+  processIds: string[];
   provenance: TinyOsProvenance;
   state: TinyOsProcessState;
   title: string;
@@ -146,6 +163,7 @@ export type TinyOsSimulationCursor = {
 };
 
 export type TinyOsKernelSnapshot = {
+  agentGroups: TinyOsAgentProcessGroup[];
   browserSessions: TinyOsBrowserSessionProjection[];
   capabilities: TinyOsCapability[];
   cursor: TinyOsSimulationCursor;
@@ -208,6 +226,10 @@ export function createTinyOsResourceId(input: TinyOsResourceIdentityInput): stri
   const parts = [input.sessionId, input.runId, input.turnId, input.itemId];
   if (input.discriminator) parts.push(input.discriminator);
   return `tinyos:resource:${input.kind}:${parts.map(stableIdentityPart).join(":")}`;
+}
+
+export function createTinyOsAgentGroupId(sessionId: string, agentId: string): string {
+  return `tinyos:agent-group:${stableIdentityPart(sessionId)}:${stableIdentityPart(agentId)}`;
 }
 
 export function createTinyOsDerivedMetric(input: {
@@ -286,11 +308,12 @@ export function projectTinyOsKernel(
   for (const runItems of grouped.runs.values()) {
     const first = runItems[0];
     const latest = runItems[runItems.length - 1];
+    const ownerAgentId = latestCanonicalOwnerAgentId(runItems);
     processes.push({
       correlation: canonicalCorrelation(first),
       id: createTinyOsProcessId({ kind: "agent_run", runId: first.runId, sessionId: first.sessionId }),
       kind: "agent_run",
-      ...(canonicalOwnerAgentId(latest) ? { ownerAgentId: canonicalOwnerAgentId(latest) } : {}),
+      ...(ownerAgentId ? { ownerAgentId } : {}),
       provenance: canonicalProvenance(latest),
       state: aggregateCanonicalState(runItems),
       title: `Agent run ${shortIdentity(first.runId)}`,
@@ -300,6 +323,7 @@ export function projectTinyOsKernel(
   for (const turnItems of grouped.turns.values()) {
     const first = turnItems[0];
     const latest = turnItems[turnItems.length - 1];
+    const ownerAgentId = latestCanonicalOwnerAgentId(turnItems);
     processes.push({
       correlation: canonicalCorrelation(first),
       id: createTinyOsProcessId({
@@ -309,7 +333,7 @@ export function projectTinyOsKernel(
         turnId: first.turnId,
       }),
       kind: "agent_turn",
-      ...(canonicalOwnerAgentId(latest) ? { ownerAgentId: canonicalOwnerAgentId(latest) } : {}),
+      ...(ownerAgentId ? { ownerAgentId } : {}),
       parentProcessId: createTinyOsProcessId({ kind: "agent_run", runId: first.runId, sessionId: first.sessionId }),
       provenance: canonicalProvenance(latest),
       state: aggregateCanonicalState(turnItems),
@@ -352,6 +376,7 @@ export function projectTinyOsKernel(
   const allProcesses = [...processes, ...native.processes];
 
   return {
+    agentGroups: projectAgentProcessGroups(latestItems, allProcesses),
     browserSessions: native.browserSessions,
     capabilities: [],
     cursor: simulationCursor(items, visibleItems, cursorInput),
@@ -362,6 +387,80 @@ export function projectTinyOsKernel(
     resources,
     truth: "derived",
   };
+}
+
+function projectAgentProcessGroups(
+  items: readonly BackendAgentTurnItem[],
+  processes: readonly TinyOsProcess[],
+): TinyOsAgentProcessGroup[] {
+  const lifecycleByAgent = new Map<string, BackendAgentTurnItem[]>();
+  for (const item of items) {
+    if (item.kind !== "subagent_lifecycle") continue;
+    const agentId = canonicalOwnerAgentId(item);
+    if (!agentId) continue;
+    appendGrouped(lifecycleByAgent, `${item.sessionId}:${agentId}`, item);
+  }
+
+  const processGroups = new Map<string, TinyOsProcess[]>();
+  for (const process of processes) {
+    if (!process.ownerAgentId) continue;
+    appendGrouped(processGroups, `${process.correlation.sessionId}:${process.ownerAgentId}`, process);
+  }
+
+  const keys = new Set([...lifecycleByAgent.keys(), ...processGroups.keys()]);
+  return [...keys].map((key): TinyOsAgentProcessGroup => {
+    const lifecycleItems = lifecycleByAgent.get(key) ?? [];
+    const groupProcesses = processGroups.get(key) ?? [];
+    const latestLifecycle = lifecycleItems[lifecycleItems.length - 1];
+    const sourceProcess = groupProcesses[groupProcesses.length - 1];
+    const agentId = latestLifecycle ? canonicalOwnerAgentId(latestLifecycle) : sourceProcess?.ownerAgentId ?? "";
+    const sessionId = latestLifecycle?.sessionId ?? sourceProcess?.correlation.sessionId ?? "";
+    const id = createTinyOsAgentGroupId(sessionId, agentId);
+    const lifecycleProcess = latestLifecycle
+      ? groupProcesses.find(({ id }) => id === itemProcessId(latestLifecycle))
+      : undefined;
+    const assignedWork = latestNonEmptyCanonicalField(lifecycleItems, ["task"]);
+    const childRunId = latestNonEmptyCanonicalField(lifecycleItems, ["childRunId", "child_run_id"]);
+    const parentAgentId = latestNonEmptyCanonicalField(lifecycleItems, ["parentAgentId", "parent_agent_id", "parentSubagentId", "parent_subagent_id"]);
+    const title = latestNonEmptyCanonicalField(lifecycleItems, ["name"]);
+    return {
+      agentId,
+      ...(assignedWork ? { assignedWork } : {}),
+      ...(childRunId ? { childRunId } : {}),
+      id,
+      ...(parentAgentId ? { parentAgentId } : {}),
+      ...((lifecycleProcess?.parentProcessId ?? sourceProcess?.parentProcessId)
+        ? { parentProcessId: lifecycleProcess?.parentProcessId ?? sourceProcess?.parentProcessId }
+        : {}),
+      processIds: groupProcesses.map(({ id }) => id),
+      provenance: latestLifecycle
+        ? canonicalProvenance(latestLifecycle)
+        : sourceProcess?.provenance ?? { kind: "canonical_event", sourceId: id },
+      state: latestLifecycle ? canonicalItemState(latestLifecycle) : aggregateAgentGroupState(groupProcesses),
+      title: title || `Agent ${shortIdentity(agentId)}`,
+    };
+  }).sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function latestNonEmptyCanonicalField(
+  items: readonly BackendAgentTurnItem[],
+  keys: readonly string[],
+): string {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const value = stringValue(keys.map((key) => items[index].data[key]).find((candidate) => stringValue(candidate)));
+    if (value) return value;
+  }
+  return "";
+}
+
+function aggregateAgentGroupState(processes: readonly TinyOsProcess[]): TinyOsProcessState {
+  const owningRun = [...processes].reverse().find(({ kind }) => kind === "agent_run");
+  if (owningRun) return owningRun.state;
+  const states = processes.map(({ state }) => state);
+  for (const state of ["waiting_for_user", "paused", "blocked", "running", "queued", "failed", "cancelled", "completed"] as const) {
+    if (states.includes(state)) return state;
+  }
+  return "queued";
 }
 
 function projectNativeSnapshots(
@@ -748,10 +847,10 @@ function groupCanonicalItems(items: readonly BackendAgentTurnItem[]) {
   return { runs, turns };
 }
 
-function appendGrouped(
-  groups: Map<string, BackendAgentTurnItem[]>,
+function appendGrouped<T>(
+  groups: Map<string, T[]>,
   key: string,
-  item: BackendAgentTurnItem,
+  item: T,
 ): void {
   const group = groups.get(key) ?? [];
   group.push(item);
@@ -787,8 +886,16 @@ function itemProcessId(item: BackendAgentTurnItem): string {
 function canonicalCorrelation(item: BackendAgentTurnItem): TinyOsProcessCorrelation {
   const toolCallId = canonicalToolCallId(item);
   const commandId = stringValue(item.data.commandId ?? item.data.command_id);
+  const childRunId = stringValue(item.data.childRunId ?? item.data.child_run_id);
+  const childThreadId = stringValue(item.data.childThreadId ?? item.data.child_thread_id);
+  const parentAgentId = stringValue(item.data.parentAgentId ?? item.data.parent_agent_id ?? item.data.parentSubagentId ?? item.data.parent_subagent_id);
+  const parentRunId = stringValue(item.data.parentRunId ?? item.data.parent_run_id);
   return {
+    ...(childRunId ? { childRunId } : {}),
+    ...(childThreadId ? { childThreadId } : {}),
     itemId: item.itemId,
+    ...(parentAgentId ? { parentAgentId } : {}),
+    ...(parentRunId ? { parentRunId } : {}),
     runId: item.runId,
     sessionId: item.sessionId,
     ...(item.threadId ? { threadId: item.threadId } : {}),
@@ -804,6 +911,15 @@ function canonicalToolCallId(item: BackendAgentTurnItem): string {
 
 function canonicalOwnerAgentId(item: BackendAgentTurnItem): string {
   return stringValue(item.data.agentId ?? item.data.agent_id);
+}
+
+function latestCanonicalOwnerAgentId(items: readonly BackendAgentTurnItem[]): string {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    if (items[index].kind === "subagent_lifecycle" || items[index].kind === "subagent_message") continue;
+    const agentId = canonicalOwnerAgentId(items[index]);
+    if (agentId) return agentId;
+  }
+  return "";
 }
 
 function canonicalApplicationId(item: BackendAgentTurnItem): string {

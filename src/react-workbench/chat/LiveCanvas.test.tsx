@@ -1,13 +1,14 @@
 // @vitest-environment happy-dom
 
 import { createRef } from "react";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import type { BackendAgentTurnItem, ChatStep } from "../../app-core/chat/chatRunModel";
 import { createTinyOsBrowserSessionSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
-import { LiveCanvas, type LiveCanvasEntry } from "./LiveCanvas";
+import type { NativeBrowserRuntimeApi } from "../../app-core/native/desktopNativeBrowser";
+import { clampTinyOsWidth, LiveCanvas, type LiveCanvasEntry } from "./LiveCanvas";
 
 afterEach(() => {
   cleanup();
@@ -111,9 +112,14 @@ function browserSessionSnapshot() {
     contract: "browser_session_v1",
     interaction: { click: true, navigate: true, type: true },
     kind: "browser_session",
+    profileId: "profile-session-1",
+    profilePersistence: "persistent",
     runId: "run-browser-1",
+    runtimeKind: "windows_webview2",
+    runtimeVersion: "test-webview2",
     sessionId: "session-1",
     state: "running",
+    control: { controlEpoch: 0, state: "agent_active" },
     tabs: [{
       activeHistoryIndex: 1,
       captures: [
@@ -126,6 +132,7 @@ function browserSessionSnapshot() {
         { captureId: "capture-current", title: "Current", url: "https://example.com/current" },
       ],
       loading: false,
+      rendererLifecycle: "running",
       tabId: "tab-1",
       title: "Current",
       url: "https://example.com/current",
@@ -135,6 +142,7 @@ function browserSessionSnapshot() {
       currentCaptureId: "capture-second",
       history: [{ captureId: "capture-second", title: "Second", url: "https://example.org" }],
       loading: true,
+      rendererLifecycle: "running",
       tabId: "tab-2",
       title: "Second",
       url: "https://example.org",
@@ -146,45 +154,87 @@ function browserSessionSnapshot() {
   });
 }
 
+function browserRuntimeMock() {
+  const snapshot = browserSessionSnapshot();
+  const activateTab = vi.fn(async () => snapshot);
+  const back = vi.fn(async () => undefined);
+  const closeSession = vi.fn(async () => undefined);
+  const closeTab = vi.fn(async () => snapshot);
+  const createSession = vi.fn(async () => snapshot);
+  const createTab = vi.fn(async () => snapshot);
+  const forward = vi.fn(async () => undefined);
+  const navigate = vi.fn(async () => snapshot);
+  const reload = vi.fn(async () => undefined);
+  const stop = vi.fn(async () => undefined);
+  const updateSurface = vi.fn(async (_input: Parameters<NativeBrowserRuntimeApi["updateSurface"]>[0]) => snapshot);
+  const api = {
+    activateTab,
+    back,
+    capabilities: vi.fn(),
+    closeSession,
+    closeTab,
+    createSession,
+    createTab,
+    deleteProfile: vi.fn(),
+    forward,
+    interact: vi.fn(),
+    navigate,
+    observe: vi.fn(),
+    reload,
+    resolvePolicyRequest: vi.fn(async () => snapshot),
+    restartTab: vi.fn(async () => snapshot),
+    snapshot: vi.fn(async () => snapshot),
+    stop,
+    updateSurface,
+  } as unknown as NativeBrowserRuntimeApi;
+  return { activateTab, api, back, closeSession, closeTab, createSession, createTab, forward, navigate, reload, stop, updateSurface };
+}
+
 describe("LiveCanvas TinyOS", () => {
-  it("exposes the shared cancel control and its pending state", async () => {
+  it("keeps run state out of the system bar while retaining commands in the palette", async () => {
+    const user = userEvent.setup();
     const onCancelRun = vi.fn();
-    const { rerender } = render(<LiveCanvas {...canvasProps([], { canCancelRun: true, onCancelRun })} />);
-    await userEvent.click(screen.getByRole("button", { name: "Cancel active Agent run" }));
-    expect(onCancelRun).toHaveBeenCalledTimes(1);
-
-    rerender(<LiveCanvas {...canvasProps([], {
-      canCancelRun: true,
-      commandLifecycle: {
-        command: {
-          schemaVersion: "tinybot.command.v1",
-          commandId: "command-1",
-          issuedAt: "2026-07-13T00:00:00Z",
-          kind: "agent.cancel",
-          source: { control: "system-bar-cancel", surface: "tinyos" },
-          target: { runId: "run-1", sessionId: "session-1" },
-        },
-        dispatchedAtMs: 1,
-        transportAcceptedAtMs: 2,
-        stage: "waiting_for_canonical",
-      },
-      onCancelRun,
-    })} />);
-    expect((screen.getByRole("button", { name: "Cancel command pending" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText("Awaiting runtime")).toBeTruthy();
-  });
-
-  it("routes pause and resume through the shared run controller", async () => {
     const onPauseRun = vi.fn();
     const onResumeRun = vi.fn();
-    const { rerender } = render(<LiveCanvas {...canvasProps([], { canPauseRun: true, onPauseRun, onResumeRun })} />);
+    const planEntry = entry(step({
+      id: "system-bar-plan",
+      kind: "plan",
+      plan: { completed: 1, steps: [{ status: "completed", step: "Plan work" }], total: 1 },
+      title: "Execution plan",
+    }));
+    render(<LiveCanvas {...canvasProps([planEntry], {
+      canCancelRun: true,
+      canPauseRun: true,
+      canResumeRun: true,
+      onCancelRun,
+      onPauseRun,
+      onResumeRun,
+    })} />);
 
-    await userEvent.click(screen.getByRole("button", { name: "Pause active Agent run" }));
+    const systemBar = document.querySelector<HTMLElement>(".tinyos-system-bar")!;
+    expect(within(systemBar).queryByText("Live workspace")).toBeNull();
+    expect(within(systemBar).queryByText("Plan updated")).toBeNull();
+    expect(within(systemBar).queryByRole("button", { name: "Pause active Agent run" })).toBeNull();
+    expect(within(systemBar).queryByRole("button", { name: "Resume paused Agent run" })).toBeNull();
+    expect(within(systemBar).queryByRole("button", { name: "Cancel active Agent run" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Open command palette" }));
+    let palette = screen.getByRole("dialog", { name: "command palette" });
+    await user.type(within(palette).getByRole("searchbox", { name: "Search TinyOS commands" }), "pause active");
+    await user.click(within(palette).getByRole("option", { name: /Pause active Agent run/ }));
     expect(onPauseRun).toHaveBeenCalledTimes(1);
 
-    rerender(<LiveCanvas {...canvasProps([], { canResumeRun: true, onPauseRun, onResumeRun })} />);
-    await userEvent.click(screen.getByRole("button", { name: "Resume paused Agent run" }));
+    await user.click(screen.getByRole("button", { name: "Open command palette" }));
+    palette = screen.getByRole("dialog", { name: "command palette" });
+    await user.type(within(palette).getByRole("searchbox", { name: "Search TinyOS commands" }), "resume paused");
+    await user.click(within(palette).getByRole("option", { name: /Resume paused Agent run/ }));
     expect(onResumeRun).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: "Open command palette" }));
+    palette = screen.getByRole("dialog", { name: "command palette" });
+    await user.type(within(palette).getByRole("searchbox", { name: "Search TinyOS commands" }), "cancel active");
+    await user.click(within(palette).getByRole("option", { name: /Cancel active Agent run/ }));
+    expect(onCancelRun).toHaveBeenCalledTimes(1);
   });
 
   it("marks Agent requests from History as new live operations", async () => {
@@ -228,10 +278,10 @@ describe("LiveCanvas TinyOS", () => {
       cancelUnavailableReason: "The run is waiting for user input.",
     })} />);
 
-    const cancel = screen.getByRole("button", { name: "Cancel active Agent run" });
+    fireEvent.click(screen.getByRole("button", { name: "Open command palette" }));
+    const cancel = within(screen.getByRole("dialog", { name: "command palette" })).getByRole("option", { name: /Cancel active Agent run/ });
     expect((cancel as HTMLButtonElement).disabled).toBe(true);
     expect(cancel.getAttribute("title")).toBe("The run is waiting for user input.");
-    expect(screen.getByText("The run is waiting for user input.")).toBeTruthy();
   });
 
   it("renders stable Files and Terminal applications from canonical entries", () => {
@@ -251,12 +301,12 @@ describe("LiveCanvas TinyOS", () => {
 
     render(<LiveCanvas {...canvasProps(entries, { widthPx: 680 })} />);
 
-    const canvas = screen.getByLabelText("Live Canvas");
+    const canvas = screen.getByLabelText("TinyOS shared desktop");
     expect(within(canvas).getByRole("heading", { name: "TinyOS" })).toBeTruthy();
-    expect(within(canvas).getAllByText("Structured simulation").length).toBeGreaterThan(0);
+    expect(within(canvas).getAllByText("Shared desktop").length).toBeGreaterThan(0);
     const desktop = within(canvas).getByRole("region", { name: "TinyOS desktop" });
     expect(within(desktop).getByRole("navigation", { name: "TinyOS applications" })).toBeTruthy();
-    expect(within(desktop).getByText("Agent workspace")).toBeTruthy();
+    expect(within(desktop).getByText("Shared workspace")).toBeTruthy();
     expect(canvas.querySelector("[data-app='files']")).toBeTruthy();
     expect(canvas.querySelector("[data-app='terminal']")).toBeTruthy();
     expect(within(canvas).getAllByText("src/app.ts").length).toBeGreaterThan(0);
@@ -268,6 +318,7 @@ describe("LiveCanvas TinyOS", () => {
   });
 
   it("requires terminal command review and exposes the execution boundary", async () => {
+    const user = userEvent.setup();
     const onExecuteTerminal = vi.fn(async () => undefined);
     render(<LiveCanvas {...canvasProps([], {
       canExecuteTerminal: true,
@@ -278,12 +329,13 @@ describe("LiveCanvas TinyOS", () => {
     const terminal = document.querySelector<HTMLElement>("[data-app='terminal']");
     expect(terminal).toBeTruthy();
     const command = within(terminal!).getByRole("textbox", { name: "TinyOS terminal command" });
-    await userEvent.type(command, "npm test");
+    fireEvent.change(command, { target: { value: "npm test" } });
+    expect((command as HTMLInputElement).value).toBe("npm test");
     expect((within(terminal!).getByRole("button", { name: /Run command/ }) as HTMLButtonElement).disabled).toBe(true);
-    await userEvent.click(within(terminal!).getByRole("button", { name: "Review command" }));
+    await user.click(within(terminal!).getByRole("button", { name: "Review command" }));
     expect(within(terminal!).getByRole("status").textContent).toContain("Read-only sandbox");
     expect(within(terminal!).getByRole("status").textContent).toContain("network denied");
-    await userEvent.click(within(terminal!).getByRole("button", { name: /Run command/ }));
+    await user.click(within(terminal!).getByRole("button", { name: /Run command/ }));
 
     expect(onExecuteTerminal).toHaveBeenCalledWith({ command: "npm test", cwd: "." });
   });
@@ -304,7 +356,7 @@ describe("LiveCanvas TinyOS", () => {
     expect(onCancelTerminal).toHaveBeenCalledTimes(1);
   });
 
-  it("reconstructs a historical desktop and returns to live", async () => {
+  it("reconstructs a historical desktop without monitoring chrome and returns to live", async () => {
     const user = userEvent.setup();
     const onReturnToLive = vi.fn();
     const onSelectEntry = vi.fn();
@@ -323,14 +375,12 @@ describe("LiveCanvas TinyOS", () => {
       selectionEventIndex: 0,
     })} />);
 
-    const canvas = screen.getByLabelText("Live Canvas");
-    expect(within(canvas).getByText("History")).toBeTruthy();
+    const canvas = screen.getByLabelText("TinyOS shared desktop");
+    expect(canvas.getAttribute("data-mode")).toBe("history");
     expect(canvas.querySelector("[data-app='files']")).toBeTruthy();
     expect(canvas.querySelector("[data-app='memory']")).toBeNull();
-    expect(within(canvas).getByText("Event 1 of 2")).toBeTruthy();
-    await user.click(within(canvas).getByRole("button", { name: "Next canonical event" }));
-    expect(onSelectEntry).toHaveBeenCalledWith(entries[1]);
-    await user.click(within(canvas).getByRole("button", { name: "Return to Live" }));
+    expect(within(canvas).queryByLabelText("Time Machine")).toBeNull();
+    await user.click(within(canvas).getByRole("button", { name: "Return to live desktop" }));
     expect(onReturnToLive).toHaveBeenCalledTimes(1);
   });
 
@@ -454,7 +504,7 @@ describe("LiveCanvas TinyOS", () => {
     await user.click(screen.getByRole("button", { name: "Expand TinyOS to Chat surface" }));
     expect(onExpandedChange).toHaveBeenCalledTimes(1);
     rerender(<LiveCanvas {...canvasProps([fileEntry], { expanded: true, onExpandedChange })} />);
-    expect(screen.getByLabelText("Live Canvas").getAttribute("data-expanded")).toBe("true");
+    expect(screen.getByLabelText("TinyOS shared desktop").getAttribute("data-expanded")).toBe("true");
     expect(screen.getByRole("button", { name: "Exit expanded TinyOS" })).toBeTruthy();
   });
 
@@ -499,18 +549,9 @@ describe("LiveCanvas TinyOS", () => {
     expect(onSelectEntry).toHaveBeenCalledWith(fileEntry);
   });
 
-  it("switches between compact and workspace widths from the system bar", async () => {
-    const user = userEvent.setup();
-    const onWidthChange = vi.fn();
-    const fileEntry = entry(step({ id: "file", toolCall: { id: "file", name: "workspace.read_file" } }));
-    const { rerender } = render(<LiveCanvas {...canvasProps([fileEntry], { onWidthChange, widthPx: 480 })} />);
-
-    await user.click(screen.getByRole("button", { name: "Expand TinyOS workspace" }));
-    expect(onWidthChange).toHaveBeenCalledWith(680);
-
-    rerender(<LiveCanvas {...canvasProps([fileEntry], { onWidthChange, widthPx: 680 })} />);
-    await user.click(screen.getByRole("button", { name: "Use compact TinyOS workspace" }));
-    expect(onWidthChange).toHaveBeenLastCalledWith(480);
+  it("allows continuous desktop widths beyond the former two presets", () => {
+    expect(clampTinyOsWidth(900, 1_600)).toBe(900);
+    expect(clampTinyOsWidth(1_400, 1_600)).toBe(1_080);
   });
 
   it("shows one focused application in compact mode and restores another from the launcher", async () => {
@@ -522,7 +563,7 @@ describe("LiveCanvas TinyOS", () => {
 
     render(<LiveCanvas {...canvasProps(entries, { widthPx: 480 })} />);
 
-    const canvas = screen.getByLabelText("Live Canvas");
+    const canvas = screen.getByLabelText("TinyOS shared desktop");
     expect(canvas.querySelector("[data-app='terminal']")).toBeTruthy();
     expect(canvas.querySelector("[data-app='files']")).toBeNull();
     const filesLauncher = within(canvas).getByRole("button", { name: "Open Files" });
@@ -533,67 +574,89 @@ describe("LiveCanvas TinyOS", () => {
     expect(within(canvas).getByRole("button", { name: "Open Files" }).getAttribute("aria-pressed")).toBe("true");
   });
 
-  it("opens the kernel-backed System Monitor from the TinyOS Dock", async () => {
-    const user = userEvent.setup();
-    const onPauseRun = vi.fn();
-    const terminalStep = step({
-      id: "tool-1",
-      status: "running",
-      title: "Run tests",
-      toolCall: { id: "call-1", name: "shell.execute" },
-    });
-    const canonicalItems: BackendAgentTurnItem[] = [{
-      schemaVersion: "tinybot.turn_item.v2",
-      createdAt: "2026-07-14T00:00:00Z",
-      data: {
-        args: {},
-        name: "shell.execute",
-        result: null,
-        status: "running",
-        timing: {},
-        toolCallId: "call-1",
-        type: "tool_call",
-      },
-      itemId: "tool-1",
-      kind: "tool_call",
-      revision: 1,
-      runId: "turn-1",
-      sequence: 1,
-      sessionId: "session-1",
-      status: "running",
-      title: "Run tests",
-      turnId: "turn-1",
-    }];
-    render(<LiveCanvas {...canvasProps([entry(terminalStep)], {
-      activeRunId: "turn-1",
-      canPauseRun: true,
-      canonicalItems,
-      onPauseRun,
-      widthPx: 480,
-    })} />);
-
-    await user.click(screen.getByRole("button", { name: "Open System Monitor" }));
-    expect(screen.getByRole("region", { name: "TinyOS processes" })).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Pause run" }));
-    expect(onPauseRun).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("button", { name: /Run tests/ })).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: /Run tests/ }));
-    await user.click(screen.getByRole("button", { name: "Reveal app" }));
-    expect(screen.getByLabelText("Terminal window")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Open System Monitor" }));
-    await user.click(screen.getByRole("button", { name: /Run tests/ }));
-    await user.click(screen.getByRole("button", { name: "Inspect evidence" }));
-    expect(screen.getByLabelText("TinyOS Inspector")).toBeTruthy();
-  });
-
-  it("keeps System Monitor available when the kernel has no processes", async () => {
-    const user = userEvent.setup();
+  it("keeps kernel process telemetry out of the default shared desktop", () => {
     render(<LiveCanvas {...canvasProps([], { widthPx: 480 })} />);
 
-    const launcher = screen.getByRole("button", { name: "Open System Monitor" });
-    expect(launcher.hasAttribute("disabled")).toBe(false);
-    await user.click(launcher);
-    expect(screen.getByText("No processes match the current filters.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Open System Monitor" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "TinyOS processes" })).toBeNull();
+  });
+
+  it("uses one Agent filter for windows, notifications, operations, resources, and processes", async () => {
+    const user = userEvent.setup();
+    const mainEntry = entry(step({
+      agentContext: { id: "main", title: "Tinybot", type: "main" },
+      id: "main-file",
+      toolCall: { argsJson: { path: "src/main.ts" }, id: "main-file", name: "workspace.read_file" },
+    }));
+    const childEntry = entry(step({
+      agentContext: { id: "main", title: "Tinybot", type: "main" },
+      id: "child-shell",
+      status: "failed",
+      title: "Child tests",
+      toolCall: { argsJson: { cmd: "npm test" }, id: "child-shell", name: "shell.exec" },
+    }));
+    const mainCanonical = canonicalItemForEntry(mainEntry, 1, {
+      data: {
+        ...canonicalItemForEntry(mainEntry, 1).data,
+        agentId: "agent-main",
+      },
+    });
+    const childCanonical = canonicalItemForEntry(childEntry, 3, {
+      data: {
+        ...canonicalItemForEntry(childEntry, 3).data,
+        agentId: "agent-child",
+      },
+    });
+    const lifecycle: BackendAgentTurnItem = {
+      schemaVersion: "tinybot.turn_item.v2",
+      createdAt: "2026-07-14T00:00:02Z",
+      data: {
+        action: "started",
+        agentId: "agent-child",
+        childRunId: "run-child",
+        message: "Child started",
+        name: "Reviewer",
+        parentAgentId: "agent-main",
+        parentRunId: "run-1",
+        status: "running",
+        task: "Run tests",
+        traceRef: "trace-child",
+        type: "subagent_lifecycle",
+      },
+      itemId: "child-lifecycle",
+      kind: "subagent_lifecycle",
+      revision: 1,
+      runId: "run-child",
+      sequence: 2,
+      sessionId: "session-1",
+      status: "running",
+      turnId: "turn-1",
+    };
+
+    render(<LiveCanvas {...canvasProps([mainEntry, childEntry], {
+      canonicalItems: [mainCanonical, lifecycle, childCanonical],
+      widthPx: 680,
+    })} />);
+
+    const filter = screen.getByRole("combobox", { name: "Filter TinyOS by Agent" });
+    await user.selectOptions(filter, "agent-child");
+    expect(screen.getByRole("button", { name: "Open Terminal" }).hasAttribute("disabled")).toBe(false);
+    expect(screen.getByRole("button", { name: "Open Files" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Open notification center" }).hasAttribute("disabled")).toBe(false);
+    expect(within(screen.getByRole("navigation", { name: "TinyOS recent operations" })).getByText("shell.exec")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Open window Overview" }));
+    const missionControl = screen.getByRole("dialog", { name: "window Overview" });
+    const missionGroups = within(missionControl).getByRole("region", { name: "Agent mission groups" });
+    expect(within(missionGroups).getByText("Reviewer")).toBeTruthy();
+    expect(within(missionGroups).getByText("Run tests")).toBeTruthy();
+    expect(within(missionGroups).getByText("Terminal")).toBeTruthy();
+    await user.click(within(missionControl).getByRole("button", { name: "Close window Overview" }));
+
+    await user.selectOptions(filter, "agent-main");
+    expect(screen.getByRole("button", { name: "Open Files" }).hasAttribute("disabled")).toBe(false);
+    expect(screen.getByRole("button", { name: "Open Terminal" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Open notification center" }).hasAttribute("disabled")).toBe(true);
+    expect(within(screen.getByRole("navigation", { name: "TinyOS recent operations" })).getByText("workspace.read_file")).toBeTruthy();
   });
 
   it("supports keyboard window movement, snapping, maximize, and minimize", async () => {
@@ -601,7 +664,7 @@ describe("LiveCanvas TinyOS", () => {
     const fileEntry = entry(step({ id: "file", toolCall: { id: "file", name: "workspace.read_file" } }));
     render(<LiveCanvas {...canvasProps([fileEntry], { widthPx: 680 })} />);
 
-    const canvas = screen.getByLabelText("Live Canvas");
+    const canvas = screen.getByLabelText("TinyOS shared desktop");
     const titlebar = within(canvas).getByLabelText("Move Files window");
     const appWindow = canvas.querySelector<HTMLElement>("[data-app='files']")!;
     const initialLeft = appWindow.style.left;
@@ -716,81 +779,122 @@ describe("LiveCanvas TinyOS", () => {
     expect(screen.getByText(/Retained boundary · last 499 lines · 32 B dropped/)).toBeTruthy();
   });
 
-  it("keeps structured browser projections and standalone raster previews read-only", () => {
-    const structured = entry(step({ id: "browser-structured", kind: "browser", summary: "Structured browser metadata" }));
-    const { rerender } = render(<LiveCanvas {...canvasProps([structured])} />);
-
-    let browser = screen.getByLabelText("Browser window");
-    expect(within(browser).getByText("Structured projection")).toBeTruthy();
-    expect(within(browser).getByText("Read-only projection")).toBeTruthy();
-    expect(within(browser).queryByRole("tablist", { name: "Native browser tabs" })).toBeNull();
-
-    const preview = entry(step({
+  it("shows an explicit unavailable state instead of browser evidence fallbacks", () => {
+    const browserEntry = entry(step({
       artifacts: [{ id: "preview-1", kind: "browser_snapshot", preview: "data:image/png;base64,AAAA", title: "Preview" }],
-      id: "browser-preview",
+      id: "browser-unavailable",
       kind: "browser",
+      summary: "Structured browser metadata",
     }));
-    rerender(<LiveCanvas {...canvasProps([preview])} />);
-    browser = screen.getByLabelText("Browser window");
-    expect(within(browser).getByText("Local preview")).toBeTruthy();
-    expect(within(browser).queryByText("Real capture")).toBeNull();
+    render(<LiveCanvas {...canvasProps([browserEntry])} />);
+
+    const browser = screen.getByLabelText("Browser window");
+    expect(within(browser).getByRole("alert").textContent).toContain("Live browser unavailable");
+    expect(within(browser).queryByRole("img")).toBeNull();
+    expect(within(browser).queryByText("Structured projection")).toBeNull();
+    expect(within(browser).queryByText("Local preview")).toBeNull();
   });
 
-  it("projects native Browser tabs and routes interactions with session, tab, and capture identity", async () => {
-    const onBrowserInteract = vi.fn(async () => undefined);
-    const browserEntry = entry(step({
-      artifacts: [{ id: "capture-current", kind: "browser_snapshot", preview: "data:image/png;base64,AAAA", title: "Current capture" }],
-      id: "browser-native",
-      kind: "browser",
-    }));
-    render(<LiveCanvas {...canvasProps([browserEntry], {
-      canInteractBrowser: true,
-      nativeSnapshots: [browserSessionSnapshot()],
-      onBrowserInteract,
+  it("focuses Browser when its native session first becomes available", async () => {
+    const props = canvasProps([], { sessionKey: "session-1" });
+    const { rerender } = render(<LiveCanvas {...props} />);
+
+    expect(screen.getByLabelText("Terminal window").getAttribute("data-active")).toBe("true");
+
+    rerender(<LiveCanvas {...props} nativeSnapshots={[browserSessionSnapshot()]} />);
+
+    await waitFor(() => expect(screen.getByLabelText("Browser window").getAttribute("data-active")).toBe("true"));
+  });
+
+  it("shows the native startup cause and retries the failed shared session", async () => {
+    const runtime = browserRuntimeMock();
+    const failed = browserSessionSnapshot();
+    failed.data.lifecycle = "failed";
+    failed.data.control = {
+      controlEpoch: 0,
+      reason: "Native browser navigation completion timed out",
+      state: "failed",
+    };
+    failed.data.tabs[0]!.rendererLifecycle = "failed";
+    render(<LiveCanvas {...canvasProps([], {
+      browserRuntime: runtime.api,
+      nativeSnapshots: [failed],
     })} />);
 
     const browser = screen.getByLabelText("Browser window");
-    expect(within(browser).getByText("Real capture")).toBeTruthy();
-    expect(within(browser).getAllByRole("tab")).toHaveLength(2);
-    expect(within(browser).getByRole("region", { name: "Browser session identity" })).toBeTruthy();
-    await userEvent.click(within(browser).getByRole("button", { name: "Interact with current browser capture" }));
-    expect(onBrowserInteract).toHaveBeenCalledWith({
-      action: { type: "click", x: 0, y: 0 },
+    expect(within(browser).getByText("Browser failed to start")).toBeTruthy();
+    expect(within(browser).getByText("Native browser navigation completion timed out")).toBeTruthy();
+    await userEvent.click(within(browser).getByRole("button", { name: "Retry browser" }));
+    expect(runtime.closeSession).toHaveBeenCalledWith("browser-session-1");
+    expect(runtime.createSession).toHaveBeenCalledWith({
+      ownerSessionId: "session-1",
+      persistence: "persistent",
+      profileId: "profile-session-1",
+    });
+  });
+
+  it("shares a live browser surface across normal navigation and multiple tabs", async () => {
+    const runtime = browserRuntimeMock();
+    const browserEntry = entry(step({ id: "browser-native", kind: "browser" }));
+    render(<LiveCanvas {...canvasProps([browserEntry], {
+      browserRuntime: runtime.api,
+      nativeSnapshots: [browserSessionSnapshot()],
+    })} />);
+
+    const browser = screen.getByLabelText("Browser window");
+    const tabs = within(browser).getAllByRole("tab");
+    expect(within(browser).getByRole("tablist", { name: "Browser tabs" })).toBeTruthy();
+    expect(tabs).toHaveLength(2);
+    expect(tabs[0].getAttribute("aria-selected")).toBe("true");
+    expect(within(browser).getByRole("tabpanel", { name: "Current" })).toBeTruthy();
+    expect(within(browser).getByText("Agent is using this tab")).toBeTruthy();
+    expect(within(browser).queryByRole("img")).toBeNull();
+    expect(within(browser).queryByText("Browser capture history")).toBeNull();
+
+    await userEvent.click(within(browser).getByRole("button", { name: "Browser back" }));
+    expect(runtime.back).toHaveBeenCalledWith("browser-session-1", "tab-1");
+
+    const address = within(browser).getByRole("textbox", { name: "Browser address" });
+    await userEvent.clear(address);
+    await userEvent.type(address, "example.net/path");
+    await userEvent.click(within(browser).getByRole("button", { name: "Go" }));
+    expect(runtime.navigate).toHaveBeenCalledWith("browser-session-1", "tab-1", "https://example.net/path");
+
+    await userEvent.click(within(browser).getByRole("button", { name: "New browser tab" }));
+    expect(runtime.createTab).toHaveBeenCalledWith("browser-session-1");
+
+    fireEvent.keyDown(tabs[0], { key: "ArrowRight" });
+    expect(runtime.activateTab).toHaveBeenCalledWith("browser-session-1", "tab-2");
+    expect(tabs[1].getAttribute("aria-selected")).toBe("true");
+    expect((within(browser).getByRole("textbox", { name: "Browser address" }) as HTMLInputElement).value).toBe("https://example.org");
+    await userEvent.click(within(browser).getByRole("button", { name: "Stop loading" }));
+    expect(runtime.stop).toHaveBeenCalledWith("browser-session-1", "tab-2");
+    await userEvent.click(within(browser).getByRole("button", { name: "Close Second tab" }));
+    expect(runtime.closeTab).toHaveBeenCalledWith("browser-session-1", "tab-2");
+  });
+
+  it("continues native browser surface revisions after the host remounts", async () => {
+    const runtime = browserRuntimeMock();
+    const snapshot = browserSessionSnapshot();
+    snapshot.data.surface = {
+      layoutRevision: 41,
+      lifecycle: "visible",
+      rect: { deviceScale: 1, height: 600, width: 800, x: 0, y: 0 },
+      surfaceId: "tinyos-browser-surface-browser-session-1",
+      tabId: "tab-1",
+    };
+    const browserEntry = entry(step({ id: "browser-native-remount", kind: "browser" }));
+    render(<LiveCanvas {...canvasProps([browserEntry], {
+      browserRuntime: runtime.api,
+      nativeSnapshots: [snapshot],
+    })} />);
+
+    await waitFor(() => expect(runtime.updateSurface).toHaveBeenCalled());
+    expect(runtime.updateSurface.mock.calls[0]?.[0]).toMatchObject({
       browserSessionId: "browser-session-1",
-      captureId: "capture-current",
+      layoutRevision: 42,
       tabId: "tab-1",
     });
-    await userEvent.click(within(browser).getByRole("button", { name: "Browser back" }));
-    expect(onBrowserInteract).toHaveBeenCalledWith(expect.objectContaining({
-      action: { type: "navigate", url: "https://example.com/old" },
-      browserSessionId: "browser-session-1",
-      captureId: "capture-current",
-      tabId: "tab-1",
-    }));
-    const typeInput = within(browser).getByLabelText("Text for browser");
-    await userEvent.type(typeInput, "hello browser");
-    await userEvent.click(within(browser).getByRole("button", { name: "Type" }));
-    expect(onBrowserInteract).toHaveBeenCalledWith(expect.objectContaining({
-      action: { text: "hello browser", type: "type" },
-      captureId: "capture-current",
-    }));
-  });
-
-  it("preserves stale Browser evidence, rejects interaction, and reveals the current capture", async () => {
-    const onBrowserInteract = vi.fn(async () => undefined);
-    render(<LiveCanvas {...canvasProps([], {
-      canInteractBrowser: true,
-      nativeSnapshots: [browserSessionSnapshot()],
-      onBrowserInteract,
-    })} />);
-
-    const browser = screen.getByLabelText("Browser window");
-    await userEvent.click(within(browser).getByRole("button", { name: /capture-old.*Stale evidence/ }));
-    expect(within(browser).getByRole("alert").textContent).toContain("Stale capture");
-    expect((within(browser).getByLabelText("Text for browser") as HTMLInputElement).disabled).toBe(true);
-    expect(onBrowserInteract).not.toHaveBeenCalled();
-    await userEvent.click(within(browser).getByRole("button", { name: "Show current capture" }));
-    expect(within(browser).queryByRole("alert")).toBeNull();
   });
 
   it("switches applications with keyboard shortcuts and restores session UI state", async () => {
@@ -801,7 +905,7 @@ describe("LiveCanvas TinyOS", () => {
     ];
     const props = canvasProps(entries, { sessionKey: "session-shortcuts", widthPx: 480 });
     const { unmount } = render(<LiveCanvas {...props} />);
-    const canvas = screen.getByLabelText("Live Canvas");
+    const canvas = screen.getByLabelText("TinyOS shared desktop");
 
     expect(canvas.querySelector("[data-app='terminal']")).toBeTruthy();
     fireEvent.keyDown(screen.getByLabelText("Move Terminal window"), { altKey: true, key: "1" });
@@ -810,7 +914,7 @@ describe("LiveCanvas TinyOS", () => {
     unmount();
 
     render(<LiveCanvas {...props} />);
-    const restored = screen.getByLabelText("Live Canvas");
+    const restored = screen.getByLabelText("TinyOS shared desktop");
     expect(restored.querySelector("[data-app='terminal']")).toBeTruthy();
     expect(within(restored).getByRole("button", { name: "Open Files" }).getAttribute("data-minimized")).toBe("true");
   });

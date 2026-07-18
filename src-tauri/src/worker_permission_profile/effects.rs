@@ -256,6 +256,13 @@ fn effects_from_capabilities(tool: &ToolRegistryEntry) -> PermissionEffects {
                 effects.network.mode = PermissionNetworkMode::Configured;
             }
             WorkerCapability::ShellExecute => effects.process.execute = true,
+            WorkerCapability::BrowserObserve | WorkerCapability::BrowserInteract => {
+                effects.network.mode = PermissionNetworkMode::Configured;
+                effects
+                    .network
+                    .destinations
+                    .push("browser://tinyos-session".to_string());
+            }
             WorkerCapability::SessionWrite => effects.mutates_session = true,
             WorkerCapability::BackgroundWrite => effects.mutates_background = true,
             _ => {}

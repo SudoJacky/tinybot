@@ -7,10 +7,7 @@ export type TinyOsShellCommandId =
   | "browser.click"
   | "browser.navigate"
   | "browser.type"
-  | "history.next"
-  | "history.previous"
   | "history.return_live"
-  | `history.select_event:${number}`
   | "shell.close"
   | "shell.expanded_toggle"
   | "shell.notification_center"

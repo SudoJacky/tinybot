@@ -401,6 +401,14 @@ pub enum ThreadOp {
         run_id: Option<String>,
         #[serde(default)]
         turn_id: Option<String>,
+        #[serde(default)]
+        item_id: Option<String>,
+        #[serde(default)]
+        event_id: Option<String>,
+        #[serde(default)]
+        sequence: Option<u64>,
+        #[serde(default)]
+        timestamp: Option<String>,
         event_name: String,
         #[serde(default)]
         source: Option<String>,

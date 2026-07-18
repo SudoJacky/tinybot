@@ -59,16 +59,47 @@ export type TinyOsBrowserNavigationEntryV1 = {
 
 export type TinyOsBrowserCaptureV1 = {
   captureId: string;
+  dataUrl?: string;
+  deviceScale?: number;
+  navigationId?: string;
+  observationRevision?: number;
   observedAt: string;
   stale: boolean;
+  viewportHeight?: number;
+  viewportWidth?: number;
 };
 
 export type TinyOsBrowserTabV1 = {
   activeHistoryIndex: number;
   captures: TinyOsBrowserCaptureV1[];
+  canGoBack?: boolean;
+  canGoForward?: boolean;
   currentCaptureId?: string;
   history: TinyOsBrowserNavigationEntryV1[];
+  lifecycle?: "creating" | "ready" | "loading" | "closing" | "closed" | "crashed";
+  rendererLifecycle?: "starting" | "running" | "failed" | "restarting" | "stopped";
   loading: boolean;
+  navigationId?: string;
+  observationRevision?: number;
+  semanticObservation?: {
+    nodes: Array<{
+      disabled: boolean;
+      focused: boolean;
+      frame: string;
+      height: number;
+      name: string;
+      role: string;
+      sensitive: boolean;
+      protectedReason?: string;
+      targetRef: string;
+      width: number;
+      x: number;
+      y: number;
+    }>;
+    observationRevision: number;
+    observedAt: string;
+    truncated: boolean;
+  };
   tabId: string;
   title: string;
   url: string;
@@ -80,13 +111,42 @@ export type TinyOsNativeBrowserSession = {
   contract: "browser_session_v1";
   interaction: {
     click: boolean;
+    key?: boolean;
     navigate: boolean;
+    scroll?: boolean;
+    semantic?: boolean;
     type: boolean;
+    wait?: boolean;
   };
   kind: "browser_session";
+  lifecycle?: "creating" | "ready" | "closing" | "closed" | "failed" | "crashed";
+  profileId?: string;
+  profilePersistence?: "persistent" | "incognito";
   runId: string;
+  runtimeKind?: string;
+  runtimeVersion?: string;
   sessionId: string;
   state: TinyOsProcessState;
+  control?: {
+    activeCommandId?: string;
+    controlEpoch: number;
+    reason?: string;
+    state: "idle" | "agent_active" | "user_required" | "interrupted" | "failed" | "recovering";
+  };
+  surface?: {
+    layoutRevision: number;
+    lifecycle: "detached" | "attaching" | "visible" | "hidden" | "failed";
+    reason?: string;
+    rect?: { deviceScale: number; height: number; width: number; x: number; y: number };
+    surfaceId?: string;
+    tabId?: string;
+  };
+  pendingPolicyRequest?: {
+    kind: "popup" | "external_protocol";
+    requestId: string;
+    safeUrl: string;
+    sourceTabId: string;
+  };
   tabs: TinyOsBrowserTabV1[];
 };
 

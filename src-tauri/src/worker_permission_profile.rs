@@ -479,6 +479,9 @@ fn capability_scope(capability: &WorkerCapability) -> &'static str {
         }
         WorkerCapability::DiagnosticsWrite => "diagnostics://worker",
         WorkerCapability::ChannelConnector => "channel://connector",
+        WorkerCapability::BrowserObserve | WorkerCapability::BrowserInteract => {
+            "browser://tinyos-session"
+        }
     }
 }
 

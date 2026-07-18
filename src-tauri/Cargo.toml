@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Tinybot lightweight desktop host"
 authors = ["Tinybot contributors"]
 edition = "2021"
+default-run = "tinybot-desktop"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -14,16 +15,29 @@ edition = "2021"
 name = "tinybot_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+default = ["native-browser-runtime"]
+native-browser-runtime = []
+native-browser-integration = ["native-browser-runtime", "dep:axum"]
+
+[[bin]]
+name = "native-browser-integration"
+path = "src/native_browser_integration.rs"
+required-features = ["native-browser-integration"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+async-trait = "0.1"
 async-openai = { version = "0.41.1", default-features = false, features = ["native-tls", "chat-completion", "model", "responses", "byot"] }
+axum = { version = "0.8", optional = true }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 futures-util = "0.3"
 http = "1"
 portable-pty = "0.9.0"
 rmcp = { version = "1.8.0", default-features = false, features = ["client", "reqwest-native-tls", "transport-child-process", "transport-streamable-http-client-reqwest", "which-command"] }
-tauri = { version = "2", features = [] }
+tauri = { version = "=2.11.2", features = ["unstable"] }
 tauri-plugin-notification = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-updater = { version = "2", default-features = false, features = ["native-tls", "zip"] }
@@ -47,6 +61,8 @@ tokio = { version = "1", features = ["net"] }
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
+webview2-com = "=0.38.2"
+windows = "0.61"
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_Security",

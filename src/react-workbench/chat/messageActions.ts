@@ -64,7 +64,7 @@ export function canCopyMessage(message: ReactChatMessage, context: MessageAction
 }
 
 export function canBranchFromMessage(message: ReactChatMessage, context: MessageActionContext): boolean {
-  if (message.role !== "assistant" || !canCopyMessage(message, context) || message.toolCalls?.length) {
+  if (message.role !== "assistant" || !canCopyMessage(message, context)) {
     return false;
   }
   if (message.turnStatus) {

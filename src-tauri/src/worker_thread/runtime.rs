@@ -408,6 +408,10 @@ impl<S: ThreadStore> ThreadRuntime<S> {
             ThreadOp::RuntimeEvent {
                 run_id,
                 turn_id,
+                item_id,
+                event_id,
+                sequence,
+                timestamp,
                 event_name,
                 source,
                 visibility,
@@ -420,7 +424,8 @@ impl<S: ThreadStore> ThreadRuntime<S> {
                 {
                     move |thread_id, run_id, turn_id| {
                         runtime_event_item(
-                            thread_id, run_id, turn_id, event_name, source, visibility, payload,
+                            thread_id, run_id, turn_id, item_id, event_id, sequence, timestamp,
+                            event_name, source, visibility, payload,
                         )
                     }
                 },
@@ -1215,12 +1220,31 @@ fn runtime_event_item(
     thread_id: &str,
     run_id: &str,
     turn_id: &str,
+    projected_item_id: Option<String>,
+    event_id: Option<String>,
+    sequence: Option<u64>,
+    timestamp: Option<String>,
     event_name: String,
     source: Option<String>,
     visibility: Option<String>,
     payload: Value,
 ) -> ThreadItem {
+    let item_id = event_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|event_id| !event_id.is_empty())
+        .map(|event_id| format!("thread-runtime:{thread_id}:{run_id}:event-id:{event_id}"))
+        .unwrap_or_else(|| {
+            format!(
+                "thread-runtime:{thread_id}:{run_id}:event:{}",
+                next_runtime_item_id()
+            )
+        });
     let event_payload = json!({
+        "itemId": projected_item_id,
+        "eventId": event_id,
+        "sequence": sequence,
+        "timestamp": timestamp,
         "eventName": event_name,
         "runId": run_id,
         "turnId": turn_id,
@@ -1235,10 +1259,7 @@ fn runtime_event_item(
         _ => ThreadItemKind::Event(event_payload),
     };
     ThreadItem {
-        item_id: format!(
-            "thread-runtime:{thread_id}:{run_id}:event:{}",
-            next_runtime_item_id()
-        ),
+        item_id,
         thread_id: String::new(),
         run_id: Some(run_id.to_string()),
         turn_id: Some(turn_id.to_string()),
@@ -1436,4 +1457,40 @@ fn generate_runtime_run_id() -> String {
 
 fn next_runtime_item_id() -> u64 {
     RUNTIME_ITEM_SEQUENCE.fetch_add(1, Ordering::Relaxed) + 1
+}
+
+#[cfg(test)]
+mod tests {
+    use super::runtime_event_item;
+    use serde_json::json;
+
+    #[test]
+    fn persisted_runtime_event_item_uses_stable_event_identity() {
+        let item = runtime_event_item(
+            "thread-1",
+            "run-1",
+            "run-1",
+            Some("approval-1".to_string()),
+            Some("run-1:agent-approval-decision:210".to_string()),
+            Some(210),
+            Some("2100".to_string()),
+            "agent.approval.decision".to_string(),
+            Some("user".to_string()),
+            Some("user".to_string()),
+            json!({ "approvalId": "approval-1" }),
+        );
+
+        assert_eq!(
+            item.item_id,
+            "thread-runtime:thread-1:run-1:event-id:run-1:agent-approval-decision:210"
+        );
+        let payload = match item.kind {
+            crate::worker_thread::types::ThreadItemKind::Event(payload) => payload,
+            kind => panic!("expected runtime event item, got {kind:?}"),
+        };
+        assert_eq!(payload["eventId"], "run-1:agent-approval-decision:210");
+        assert_eq!(payload["itemId"], "approval-1");
+        assert_eq!(payload["sequence"], 210);
+        assert_eq!(payload["timestamp"], "2100");
+    }
 }

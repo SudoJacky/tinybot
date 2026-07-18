@@ -65,6 +65,7 @@ import {
   type ToolCallState,
 } from "../../app-core/chat/chatRunModel";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
+import type { TinyOsNativeBrowserSession, TinyOsNativeSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
 import type { NativeChatReference } from "../../app-core/chat/nativeChat";
 import type { TinyOsAgentRequestIntent, TinyOsAgentRequestReference, TinyOsContextReference } from "../../app-core/chat/tinyOsUiState";
 import { readTinyOsReferenceTransfer, tinyOsReferenceAcceptedBy, TINYOS_REFERENCE_MIME } from "../../app-core/chat/tinyOsReferenceTransfer";
@@ -259,6 +260,8 @@ export function ChatPage({
   const [timeline, setTimeline] = useState<ChatTimelineSnapshot | null>(null);
   const [optimisticMessages, setOptimisticMessages] = useState<ReactChatMessage[]>([]);
   const [timelineError, setTimelineError] = useState("");
+  const [browserSnapshot, setBrowserSnapshot] = useState<TinyOsNativeSnapshot<TinyOsNativeBrowserSession>>();
+  const [browserRuntimeError, setBrowserRuntimeError] = useState("");
   const [tinyOsCapabilities, setTinyOsCapabilities] = useState<TinyOsEffectiveCapabilities>(() => (
     unavailableTinyOsEffectiveCapabilities("", "loading", "Loading effective capabilities.")
   ));
@@ -298,6 +301,13 @@ export function ChatPage({
   const liveCanvasToggleRef = useRef<HTMLButtonElement | null>(null);
   const liveCanvasWasOpenRef = useRef(false);
   const stickToLatestRef = useRef(true);
+
+  useEffect(() => {
+    const clampWidthToViewport = () => setTinyOsWidth((current) => clampTinyOsWidth(current));
+    window.addEventListener("resize", clampWidthToViewport);
+    return () => window.removeEventListener("resize", clampWidthToViewport);
+  }, []);
+
   const resolvedSessionSidebarCollapsed = sessionSidebarCollapsed ?? localSessionSidebarCollapsed;
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId) ?? sessions[0],
@@ -401,6 +411,21 @@ export function ChatPage({
   );
   const retryUnavailableReason = retryCapability.reason || "Retry is unavailable for this Agent run.";
   const liveCanvasOpen = liveCanvas.visibility === "open";
+
+  useEffect(() => {
+    setBrowserSnapshot(undefined);
+    setBrowserRuntimeError("");
+    if (!liveCanvasOpen || !activeSession?.id || !chatStore.browserRuntime) return;
+    let cancelled = false;
+    void chatStore.browserRuntime.createSession({ ownerSessionId: activeSession.id }).then((snapshot) => {
+      if (!cancelled) setBrowserSnapshot(snapshot);
+    }).catch((error) => {
+      if (!cancelled) setBrowserRuntimeError(error instanceof Error ? error.message : String(error));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSession?.id, chatStore, liveCanvasOpen]);
   const liveCanvasEntries = useMemo<LiveCanvasEntry[]>(() => (
     (timelineLoaded ? timeline?.turns ?? [] : []).flatMap((turn) => (
       (turn.executionItems ?? turn.steps).map((step) => ({ step, turnId: turn.id }))
@@ -557,6 +582,8 @@ export function ChatPage({
     action: TinyOsBrowserAction;
     browserSessionId: string;
     captureId: string;
+    controlEpoch: number;
+    observationRevision: number;
     tabId: string;
   }): Promise<void> {
     if (!activeSession || !browserInteractCapability.available) {
@@ -733,6 +760,7 @@ export function ChatPage({
     setOptimisticMessages([]);
     setTimelineError("");
     setAgentUiForms([]);
+    setBrowserSnapshot(undefined);
     let cancelled = false;
     const loadTimeline = () => chatStore.load(activeSessionId).then((nextTimeline) => {
       if (!cancelled) {
@@ -775,6 +803,11 @@ export function ChatPage({
     void loadTimeline();
     void loadAgentUiForms();
     const unsubscribe = chatStore.subscribe(activeSessionId, (event) => {
+      if (event.browserSnapshot) {
+        setBrowserSnapshot(event.browserSnapshot);
+        setBrowserRuntimeError("");
+        return;
+      }
       if (event.command && event.type === "command.dispatched") {
         pauseQueuedInputsForSession(event.command.target.sessionId);
         dispatchCommandLifecycle({ command: event.command, nowMs: now(), type: "dispatch" });
@@ -1617,17 +1650,17 @@ export function ChatPage({
               aria-controls="tinybot-live-canvas"
               aria-expanded={liveCanvasOpen}
               aria-label={liveCanvasOpen
-                ? "Close Live Canvas"
+                ? "Close TinyOS"
                 : latestLiveCanvasAttention
-                  ? "Open Live Canvas, attention required"
+                  ? "Open TinyOS, attention required"
                   : liveCanvasEntries.length
-                    ? "Open Live Canvas, Agent activity available"
-                    : "Open Live Canvas"}
+                    ? "Open TinyOS, Agent activity available"
+                    : "Open TinyOS"}
               className="react-live-canvas-toggle"
               data-active={liveCanvasOpen ? "true" : undefined}
               data-attention={latestLiveCanvasAttention ? "true" : undefined}
               data-has-activity={liveCanvasEntries.length ? "true" : undefined}
-              title={liveCanvasOpen ? "Close Live Canvas" : "Open Live Canvas"}
+              title={liveCanvasOpen ? "Close TinyOS" : "Open TinyOS"}
               type="button"
               onClick={() => dispatchLiveCanvas({ type: "toggle" })}
             >
@@ -1776,6 +1809,8 @@ export function ChatPage({
           canDirectEdit={canDirectEdit}
           canExecuteTerminal={canExecuteTerminal}
           entries={liveCanvasEntries}
+          nativeSnapshots={browserSnapshot ? [browserSnapshot] : []}
+          browserRuntime={chatStore.browserRuntime}
           expanded={liveCanvas.surface === "expanded"}
           headingRef={liveCanvasHeadingRef}
           mode={liveCanvas.mode}
@@ -1795,7 +1830,7 @@ export function ChatPage({
           widthPx={tinyOsWidth}
           filesController={tinyOsFiles}
           directEditUnavailableReason={directEditUnavailableReason}
-          browserInteractUnavailableReason={browserInteractUnavailableReason}
+          browserInteractUnavailableReason={browserRuntimeError || browserInteractUnavailableReason}
           onAttachContext={handleAttachTinyOsContext}
           onCancelForm={(form) => void handleCancelAgentUiForm(form, "tinyos")}
           onCancelRun={() => activeSession && void handleStopGeneration(activeSession, "tinyos")}
@@ -1817,13 +1852,6 @@ export function ChatPage({
           onReturnToLive={() => dispatchLiveCanvas({ type: "return_live" })}
           onResumeRun={() => void handleAgentRunControl("agent.resume", "tinyos")}
           onSelectEntry={(entry) => openLiveCanvasItem(entry.turnId, entry.step)}
-          onSelectBoundary={(boundary) => dispatchLiveCanvas({
-            eventIndex: boundary.eventIndex,
-            itemId: boundary.itemId,
-            runId: boundary.runId,
-            turnId: boundary.turnId,
-            type: "select",
-          })}
           onSubmitForm={(form, values) => void handleSubmitAgentUiForm(form, values, "tinyos")}
           onSaveFile={handleSaveTinyOsFile}
           requestChangeUnavailableReason={requestChangeUnavailableReason}
@@ -2335,7 +2363,6 @@ function CanonicalChatTurn({
 }) {
   const executionItems = turn.executionItems ?? turn.steps;
   const finalAnswer = turn.finalAnswer ?? turn.finalMessage;
-  const hasToolSteps = executionItems.some((step) => step.kind === "tool_call");
   const reasoningSteps = turn.steps.filter((step) => step.kind === "reasoning");
   const planSteps = turn.steps.filter((step) => step.kind === "plan");
   const errorSteps = turn.steps.filter((step) => step.kind === "error");
@@ -2403,7 +2430,7 @@ function CanonicalChatTurn({
           role="assistant"
           streaming={turn.status === "running"}
           text={finalAnswer.text}
-          onBranch={turn.status === "completed" && !hasToolSteps ? () => onBranch(finalAnswer.id) : undefined}
+          onBranch={turn.status === "completed" ? () => onBranch(finalAnswer.id) : undefined}
         />
       ) : !turn.executionItems && reasoningSteps.length ? (
         <CanonicalMessage
@@ -2528,9 +2555,9 @@ function ExecutionTimeline({
           <div className="react-execution-timeline__item" data-kind={step.kind} data-status={step.status} key={step.id}>
             {step.kind === "tool_call" || step.kind === "approval" ? null : (
               <button
-                aria-label={`View ${step.title} in Live Canvas`}
+                aria-label={`View ${step.title} in TinyOS`}
                 className="react-execution-timeline__canvas-button"
-                title="View in Live Canvas"
+                title="View in TinyOS"
                 type="button"
                 onClick={() => onOpenLiveCanvas(step)}
               >

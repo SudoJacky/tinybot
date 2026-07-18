@@ -743,6 +743,34 @@ fn chat_completion_request_injects_available_model_tools() {
     );
 }
 
+#[cfg(all(windows, feature = "native-browser-runtime"))]
+#[test]
+fn feature_build_exposes_shared_browser_observation_but_defers_interaction() {
+    let context = NativeAgentRunContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "runId": "run-browser-tools",
+            "sessionId": "websocket:chat-browser-tools",
+            "model": "fixture-model",
+            "messages": [{ "role": "user", "content": "inspect the shared browser" }]
+        }),
+        json!({}),
+    );
+
+    let request = agent_chat_completion_request(&context)
+        .expect("feature build should expose the shared browser observation tool");
+    let names = request["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|tool| tool["function"]["name"].as_str())
+        .collect::<Vec<_>>();
+
+    assert!(names.contains(&"browser_observe"));
+    assert!(!names.contains(&"browser_interact"));
+    assert!(names.contains(&"tool_search"));
+}
+
 #[test]
 fn tool_search_activates_dispatches_and_expires_a_deferred_tool() {
     struct SearchThenFinishProvider {
@@ -1836,6 +1864,17 @@ fn activated_mutating_tool_stops_at_approval_checkpoint_before_dispatch() {
                         result: Value::Null,
                     }],
                 }),
+                2 => Ok(NativeAgentProviderResponse {
+                    final_content: String::new(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![NativeAgentToolCall {
+                        id: "search-after-write".to_string(),
+                        name: "tool_search".to_string(),
+                        arguments_json: r#"{"query":"Read workspace file","limit":1}"#.to_string(),
+                        result: Value::Null,
+                    }],
+                }),
                 _ => {
                     let matching_calls = context
                         .messages
@@ -1869,8 +1908,11 @@ fn activated_mutating_tool_stops_at_approval_checkpoint_before_dispatch() {
                             content.contains("write dispatched")
                                 || content.contains("Approval denied by user")
                         }));
+                    assert!(context.messages.iter().any(|message| {
+                        message["role"] == "tool" && message["tool_call_id"] == "search-after-write"
+                    }));
                     Ok(NativeAgentProviderResponse {
-                        final_content: "approved write complete".to_string(),
+                        final_content: "approved write and follow-up search complete".to_string(),
                         reasoning_delta: None,
                         usage: None,
                         tool_calls: Vec::new(),
@@ -1902,6 +1944,7 @@ fn activated_mutating_tool_stops_at_approval_checkpoint_before_dispatch() {
     }
 
     let dispatched = Arc::new(Mutex::new(Vec::new()));
+    let trace_sink = Arc::new(RecordingTraceSink::default());
     let services = NativeAgentRuntimeServices::new(
         Arc::new(SearchThenWriteProvider {
             calls: AtomicUsize::new(0),
@@ -1911,13 +1954,14 @@ fn activated_mutating_tool_stops_at_approval_checkpoint_before_dispatch() {
         }),
         Arc::new(InMemoryNativeAgentCheckpointStore::default()),
         Arc::new(InMemoryNativeAgentCancellation::default()),
-    );
+    )
+    .with_trace_sink(trace_sink);
     let result = run_native_agent_turn_with_config(
         &services,
         json!({
             "runId": "run-deferred-write-approval",
             "sessionId": "session-deferred-write-approval",
-            "maxIterations": 2,
+            "maxIterations": 4,
             "messages": [{ "role": "user", "content": "write a note" }]
         }),
         json!({}),
@@ -2096,8 +2140,38 @@ fn activated_mutating_tool_stops_at_approval_checkpoint_before_dispatch() {
         json!(["workspace.write_file"])
     );
     assert_eq!(resumed["stopReason"], "final_response");
-    assert_eq!(resumed["finalContent"], "approved write complete");
-    assert_eq!(resumed["toolsUsed"], json!(["workspace.write_file"]));
+    assert_eq!(
+        resumed["finalContent"],
+        "approved write and follow-up search complete"
+    );
+    assert_eq!(
+        resumed["toolsUsed"],
+        json!(["workspace.write_file", "tool_search"])
+    );
+    let waiting_event_ids = result["runtimeEvents"]
+        .as_array()
+        .expect("waiting runtime events should be returned")
+        .iter()
+        .filter_map(|event| event["eventId"].as_str())
+        .collect::<std::collections::HashSet<_>>();
+    let resumed_events = resumed["runtimeEvents"]
+        .as_array()
+        .expect("resumed runtime events should be returned");
+    assert!(resumed_events.iter().all(|event| event["eventId"]
+        .as_str()
+        .is_some_and(|event_id| !waiting_event_ids.contains(event_id))));
+    let resumed_event_names = resumed_events
+        .iter()
+        .filter_map(|event| event["eventName"].as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        resumed_event_names.contains(&"agent.approval.decision"),
+        "resumed runtime events: {resumed_event_names:?}"
+    );
+    assert!(resumed_events.iter().any(|event| {
+        event["eventName"] == "agent.tool.result"
+            && event["payload"]["toolCallId"] == "search-after-write"
+    }));
     let dispatched = dispatched
         .lock()
         .expect("dispatched calls lock should not be poisoned");
@@ -8107,16 +8181,20 @@ fn async_provider_run_pauses_at_safe_boundary_and_resumes_same_run() {
         release_sender
             .send(())
             .expect("provider release should send");
-        for _ in 0..200 {
-            if services
-                .task_runtime()
-                .status("run-safe-boundary-pause")
-                .is_some_and(|status| status.phase == "paused")
-            {
-                break;
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if services
+                    .task_runtime()
+                    .status("run-safe-boundary-pause")
+                    .is_some_and(|status| status.phase == "paused")
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(1)).await;
             }
-            tokio::task::yield_now().await;
-        }
+        })
+        .await
+        .expect("run should pause at a safe boundary before the timeout");
         let paused_status = services
             .task_runtime()
             .status("run-safe-boundary-pause")
