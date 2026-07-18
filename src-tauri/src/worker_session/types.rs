@@ -9,20 +9,18 @@ pub struct SessionMetadata {
     pub extra: Value,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
-pub(super) struct SessionStore {
-    #[serde(default = "default_session_store_version")]
-    pub(super) version: usize,
-    #[serde(default)]
-    pub(super) sessions: Vec<SessionMetadata>,
-}
-
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct SessionHistoryProjection {
     pub session_id: String,
     pub messages: Vec<Value>,
     pub user_profile: Value,
     pub updated_at: String,
+    #[serde(
+        default,
+        rename = "contextCheckpoint",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub context_checkpoint: Option<Value>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]

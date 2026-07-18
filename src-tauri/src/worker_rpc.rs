@@ -162,15 +162,17 @@ impl WorkerRpcRouter {
         diagnostic_capacity: usize,
         policy: CapabilityPolicy,
     ) -> Result<Self, crate::worker_protocol::WorkerProtocolError> {
+        let thread_log = WorkerThreadLogRpc::new(workspace_root.clone(), policy.clone());
+        let session = WorkerSessionRpc::new_persistent_resources(
+            workspace_root.clone(),
+            sessions,
+            policy.clone(),
+        )?;
         Ok(Self {
             workspace: WorkerWorkspaceRpc::new(workspace_root.clone(), policy.clone()),
             config: WorkerConfigRpc::new(config_snapshot.clone(), policy.clone()),
             secret: WorkerSecretRpc::new(config_snapshot.clone(), policy.clone()),
-            session: WorkerSessionRpc::new_persistent(
-                workspace_root.clone(),
-                sessions,
-                policy.clone(),
-            )?,
+            session,
             diagnostics: WorkerDiagnosticsRpc::new(diagnostic_capacity, policy.clone()),
             shell: WorkerShellRpc::new(workspace_root.clone(), policy.clone()),
             approval: WorkerApprovalRpc::new(policy.clone()),
@@ -192,7 +194,7 @@ impl WorkerRpcRouter {
             ),
             runtime: WorkerRuntimeRpc::new(),
             thread: WorkerThreadRpc::new(workspace_root.clone(), policy.clone()),
-            thread_log: WorkerThreadLogRpc::new(workspace_root, policy.clone()),
+            thread_log,
             permission_profile: WorkerPermissionProfileRpc::new(policy),
             subagents: None,
             config_store: None,
@@ -269,7 +271,9 @@ impl WorkerRpcRouter {
             method if method.starts_with("config.") || method == "provider.resolve_secret" => {
                 self.dispatch_config_method(request)
             }
-            method if method.starts_with("session.") => self.dispatch_session_persistence(request),
+            method if method.starts_with("session.") || method.starts_with("rollout.") => {
+                self.dispatch_session_persistence(request)
+            }
             method if method.starts_with("thread.") => self.dispatch_thread_method(request),
             method if method.starts_with("agent_run.") => {
                 self.dispatch_agent_run_persistence(request)
@@ -630,12 +634,13 @@ impl WorkerRpcRouter {
         client_event_id: String,
         op: ThreadOp,
     ) -> Result<Vec<Value>, crate::worker_protocol::WorkerProtocolError> {
-        self.thread
-            .apply_op(ThreadApplyOpRequest {
-                thread_id: thread_id.to_string(),
-                client_event_id: Some(client_event_id),
-                op,
-            })?
+        let result = self.thread.apply_op(ThreadApplyOpRequest {
+            thread_id: thread_id.to_string(),
+            client_event_id: Some(client_event_id),
+            op,
+        })?;
+        self.persist_thread_runtime_result(&result)?;
+        result
             .appended_items
             .into_iter()
             .map(serde_json::to_value)
@@ -915,6 +920,15 @@ struct SessionIdParams {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ThreadRollbackParams {
+    #[serde(alias = "thread_id", alias = "session_id")]
+    thread_id: String,
+    #[serde(alias = "num_turns")]
+    num_turns: u32,
+}
+
+#[derive(Deserialize)]
 struct SessionHistoryParams {
     session_id: String,
     limit: Option<usize>,
@@ -980,6 +994,15 @@ struct SessionPersistTurnParams {
     context_metadata: Option<Value>,
     #[serde(default, rename = "contextMetadata")]
     context_metadata_camel: Option<Value>,
+}
+
+#[derive(Deserialize)]
+struct SessionCommitContextCheckpointParams {
+    #[serde(alias = "sessionId")]
+    session_id: String,
+    #[serde(alias = "runId")]
+    run_id: String,
+    checkpoint: Value,
 }
 
 impl SessionPersistTurnParams {

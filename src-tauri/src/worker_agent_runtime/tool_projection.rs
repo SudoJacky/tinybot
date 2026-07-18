@@ -29,15 +29,103 @@ pub(super) fn assistant_tool_calls_message(
 }
 
 pub(super) fn tool_observation_message(tool_call: &NativeAgentToolCall, content: &str) -> Value {
+    tool_observation_message_with_error(tool_call, content, false)
+}
+
+pub(super) fn tool_error_observation_message(
+    tool_call: &NativeAgentToolCall,
+    content: &str,
+) -> Value {
+    tool_observation_message_with_error(tool_call, content, true)
+}
+
+fn tool_observation_message_with_error(
+    tool_call: &NativeAgentToolCall,
+    content: &str,
+    is_error: bool,
+) -> Value {
     AgentItem::ToolResult(AgentToolResultItem {
         id: None,
         tool_call_id: tool_call.id.clone(),
         name: Some(tool_call.name.clone()),
         content: AgentMessageContent::text(content),
-        is_error: false,
+        is_error,
     })
     .to_legacy_message()
     .expect("constructed tool-result item must serialize")
+}
+
+pub(super) fn append_continuation_tool_observation(
+    messages: &mut Vec<Value>,
+    tool_call: &NativeAgentToolCall,
+    content: &str,
+    synthesize_missing_call: bool,
+) -> Result<(), String> {
+    prepare_continuation_tool_observation(messages, tool_call, synthesize_missing_call)?;
+    messages.push(tool_observation_message(tool_call, content));
+    Ok(())
+}
+
+pub(super) fn append_continuation_tool_error_observation(
+    messages: &mut Vec<Value>,
+    tool_call: &NativeAgentToolCall,
+    content: &str,
+    synthesize_missing_call: bool,
+) -> Result<(), String> {
+    prepare_continuation_tool_observation(messages, tool_call, synthesize_missing_call)?;
+    messages.push(tool_error_observation_message(tool_call, content));
+    Ok(())
+}
+
+pub(super) fn prepare_continuation_tool_observation(
+    messages: &mut Vec<Value>,
+    tool_call: &NativeAgentToolCall,
+    synthesize_missing_call: bool,
+) -> Result<(), String> {
+    let matching_call_count = messages
+        .iter()
+        .filter_map(|message| message.get("tool_calls").and_then(Value::as_array))
+        .flatten()
+        .filter(|call| call.get("id").and_then(Value::as_str) == Some(tool_call.id.as_str()))
+        .count();
+    match matching_call_count {
+        0 if synthesize_missing_call => {
+            messages.push(assistant_tool_calls_message("", &[tool_call.clone()]));
+        }
+        0 => {
+            return Err(format!(
+                "continuation checkpoint is missing assistant tool call `{}`",
+                tool_call.id
+            ));
+        }
+        1 => {}
+        count => {
+            return Err(format!(
+                "continuation checkpoint contains {count} assistant tool calls for `{}`",
+                tool_call.id
+            ));
+        }
+    }
+
+    let matching_result_count = messages
+        .iter()
+        .filter(|message| {
+            message.get("role").and_then(Value::as_str) == Some("tool")
+                && message
+                    .get("tool_call_id")
+                    .or_else(|| message.get("toolCallId"))
+                    .and_then(Value::as_str)
+                    == Some(tool_call.id.as_str())
+        })
+        .count();
+    if matching_result_count != 0 {
+        return Err(format!(
+            "continuation checkpoint already contains {matching_result_count} tool results for `{}`",
+            tool_call.id
+        ));
+    }
+
+    Ok(())
 }
 
 pub(super) fn tool_observation_content(result: &NativeAgentToolResult) -> String {

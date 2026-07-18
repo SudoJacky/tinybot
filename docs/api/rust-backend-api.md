@@ -152,11 +152,10 @@ HTTP server, and another process listening on `18790` does not make the Rust run
 browser mode still performs its own `/webui/bootstrap` check.
 
 `lifecycle` is the queryable native-runtime recovery and cleanup record. Startup pauses new agent
-runs until both thread journals and their SQLite projections pass consistency checks. The startup
-report includes `threadPersistence`, `threadPersistenceMigration`, `sessionLogIndex`, and
-`sessionLogIndexMigration`. A legacy SQLite-only thread store and a missing session-log index are
-migrated by named startup migrations; an actual log/index divergence fails startup and requires an
-explicit repair command. A persisted `running` run with no live owner is then closed as
+runs until canonical Rollouts and their rebuildable SQLite index pass consistency checks. The
+startup report includes `sessionLogIndex` and `sessionLogIndexMigration`; an actual Rollout/index
+divergence fails startup and requires an explicit repair command. A persisted `running` run with no
+live owner is then closed as
 `status: "interrupted"`, `phase: "interrupted"`, and
 `stopReason: "runtime_restarted"`; waiting runs and their checkpoints remain unchanged. A storage
 error leaves the task runtime non-accepting, sets `state: "failed"`/`last_error`, and appends a
@@ -1170,33 +1169,24 @@ Key response shapes used by the lower-level session RPC:
 
 ## Session and Thread Persistence
 
-Tinybot keeps the existing `session.*` API surface for frontend compatibility while separating two
-explicit persistence authorities:
+Tinybot keeps the existing `session.*`, `thread.*`, and `agent_run.*` response shapes for frontend
+compatibility, but all conversation and runtime state has one persistence authority: typed,
+append-only Rollout files under `.tinybot/threads/YYYY/MM/DD/thread-*.jsonl`.
+`.tinybot/state/state.sqlite` is only a rebuildable discovery and metadata index. Deleting the
+index and restarting rebuilds it from Rollouts; it is never a second conversation authority.
 
-- `thread.*` writes append versioned operations to `.tinybot/state/thread-store.jsonl`, flushes and
-  syncs that journal, and only then updates `.tinybot/threads/threads.sqlite`. The SQLite database is
-  a rebuildable timeline/list/search projection.
-- compatibility `session.*` history and `agent_run.*` lifecycle data append to per-session JSONL
-  files under `.tinybot/threads/YYYY/MM/DD/thread-*.jsonl` before updating
-  `.tinybot/state/state.sqlite`. That SQLite database is a rebuildable session index.
+The removed `sessions/sessions.sqlite`, `.tinybot/state/thread-store.jsonl`, and
+`.tinybot/threads/threads.sqlite` stores are neither read nor written. There is no startup import,
+request-time compatibility fallback, or completed-result double write for those paths.
 
-Thread journal operations carry `schemaVersion: 1` and `operationId`. Thread-log metadata carries
-`schemaVersion: 1`; legacy metadata without the field is read as v0. Unsupported future versions
-fail explicitly instead of being guessed or silently downgraded.
+Turn writes follow Codex-style ordering: `turn_started`, `user_message`, `turn_context`, typed
+`response_item`/tool/reasoning records, and `turn_complete`. Agent-run traces, resumable
+checkpoints, terminal state, compaction checkpoints, metadata changes, rollback, fork, archive, and
+subagent communication are appended to the same Rollout. UI thread snapshots, session history,
+model context, AgentRun records, and active checkpoints are reconstructed projections of that file.
+Canonical append or reconstruction errors fail the operation instead of falling back to an old
+store.
 
-Compatibility `session.*` and `agent_run.*` routes keep their response shapes for older callers, but
-new writes do not mirror completed history, checkpoints, metadata patches, or agent-run lifecycle
-events into the legacy `.tinybot/threads/threads.sqlite` projection. Those routes write their own
-canonical store (`thread_log` for durable history and usage, legacy `sessions.sqlite` only for
-legacy active session state). When a session key belongs to a canonical thread, compatibility
-metadata, history, and checkpoint reads prefer the `ThreadStore` projection; old session JSONL data
-cannot override the thread timeline.
-Compatibility reads first check whether a ThreadStore projection exists. A workspace that has only
-direct-session state does not create an empty `threads.sqlite` file and does not acquire thread-read
-capabilities merely to prove that no canonical thread exists.
-Compatibility `session.persist_turn`, session checkpoint mutation, and `agent_run.*` lifecycle
-writes return a structured authority error for a thread-owned session instead of creating a second
-durable record.
 Native agent lifecycle persistence is fail-fast: a terminal-run lookup or run-start write failure
 returns a command error before the provider is called, and a run-record write failure returns a
 command error instead of embedding a failed `runPersistence` diagnostic in an otherwise successful
@@ -1211,31 +1201,28 @@ persistence. Queue failure or flush failure fails the command explicitly; events
 dropped. Active canonical timeline patches are projected incrementally, while reload continues to
 reconstruct the authoritative snapshot from durable events.
 Thread-owned commands such as `worker_submit_thread_turn`, `worker_resolve_thread_approval`, and
-`worker_submit_thread_form` update the thread timeline explicitly through `thread.start_turn` and
-`thread.apply_op`. Their runtime events, run state, resumable checkpoint, approvals/forms, and final
-assistant or error item all append to `.tinybot/state/thread-store.jsonl`. They do not create a
-per-session JSONL file. Their native-agent result contains
-`conversationPersistence.authority: "thread"` and `runPersistence.authority: "thread"`.
+`worker_submit_thread_form` append their runtime events, run state, resumable checkpoint,
+approvals/forms, and final assistant or error items directly to the canonical Rollout. The native
+agent result is not replayed through `thread.apply_op`, so each logical event has one durable write.
 The terminal run item retains instruction provenance and diagnostics, so compatibility
 `agent_run.get` projections preserve the effective working directory and instruction sources.
-Approval/form continuation restores `latestCheckpoint.restorePayload` from `ThreadStore`, including
+Approval/form continuation restores `latestCheckpoint.restorePayload` from Rollout, including
 after a new runtime instance starts; a later terminal item makes that checkpoint inactive. Direct
-non-thread agent commands continue to persist run lifecycle and completed conversation through the
-session JSONL authority and `session.persist_turn`.
+non-thread agent commands use the same Rollout authority through `session.persist_turn`.
 
 `clientEventId` is the retry/idempotency key for thread appends, starts, continuations, approvals,
-forms, and forks. A successful retry replays the original item IDs instead of appending another
-logical operation. The local and in-memory stores implement the same `ThreadStore` contract, and
-`ThreadRuntime`/`LiveThread` operate on that interface.
+forms, and forks. A successful retry projects the original item IDs instead of appending another
+logical operation. `MemoryThreadStore` is an in-process derived projection; it has no durable
+journal or database.
 
 Persistence verification and repair are lower-level Worker RPC methods:
 
 | Method | Params | Behavior |
 | --- | --- | --- |
-| `thread.persistence.check` | `{}` | Compare the canonical thread journal, journal head, records, items, and SQLite projection. |
-| `thread.persistence.repair` | `{ mode: "migrate_legacy_projection" | "rebuild_projection" }` | Create journal v1 from a legacy projection, or rebuild the projection from the journal. |
-| `session.persistence.check` | `{}` | Compare canonical session JSONL records with `state.sqlite`. |
-| `session.persistence.repair` | `{ mode: "rebuild_index" }` | Rebuild `state.sqlite` from canonical session logs. |
+| `thread.persistence.check` | `{}` | Compare canonical Rollouts, their heads, reconstructed records/checkpoints, and `state.sqlite`. |
+| `thread.persistence.repair` | `{ mode: "migrate_legacy_projection" | "rebuild_projection" }` | Compatibility mode names; both rebuild `state.sqlite` from canonical Rollouts and never import a removed store. |
+| `session.persistence.check` | `{}` | Alias of the same canonical Rollout/index consistency check. |
+| `session.persistence.repair` | `{ mode: "rebuild_index" }` | Rebuild `state.sqlite` from canonical Rollouts. |
 
 Normal reads never run these repairs. `clean`, `legacy_projection`/`missing_index`, `diverged`, and
 `unreadable` are observable states; writes fail while their authority is not clean.

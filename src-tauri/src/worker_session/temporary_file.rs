@@ -1,3 +1,7 @@
+use super::resource_store::{
+    ensure_extra_object, now_session_timestamp, stable_upload_digest, temporary_chunk_count,
+    unknown_session_error, validate_session_id,
+};
 use super::*;
 
 impl WorkerSessionRpc {
@@ -85,7 +89,7 @@ impl WorkerSessionRpc {
             session.updated_at = timestamp;
             document
         };
-        self.persist_sessions()?;
+        self.persist_temporary_file_resources()?;
         Ok(document)
     }
 
@@ -133,7 +137,18 @@ impl WorkerSessionRpc {
                 "temporary_files": [],
             })
         };
-        self.persist_sessions()?;
+        self.persist_temporary_file_resources()?;
         Ok(result)
+    }
+
+    pub fn remove_temporary_file_resources(
+        &mut self,
+        session_id: &str,
+    ) -> Result<(), WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
+        validate_session_id(session_id)?;
+        self.sessions
+            .retain(|session| session.session_id != session_id);
+        self.persist_temporary_file_resources()
     }
 }

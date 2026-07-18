@@ -115,7 +115,7 @@ pub(crate) fn hydrate_native_agent_history_for_runtime(
     if requested_messages.is_empty() {
         return Ok(spec);
     }
-    let history_messages =
+    let (history_messages, source_checkpoint) =
         native_agent_session_history_messages(&session_id, workspace_root, config_snapshot)?;
     if history_messages.is_empty() {
         return Ok(spec);
@@ -128,6 +128,19 @@ pub(crate) fn hydrate_native_agent_history_for_runtime(
             "messages".to_string(),
             serde_json::Value::Array(combined_messages),
         );
+        if let Some(source_checkpoint) = source_checkpoint {
+            let metadata = object
+                .entry("metadata".to_string())
+                .or_insert_with(|| serde_json::json!({}));
+            if !metadata.is_object() {
+                *metadata = serde_json::json!({});
+            }
+            metadata["contextSourceCheckpointId"] = source_checkpoint
+                .get("contextId")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+            metadata["contextSourceCheckpoint"] = source_checkpoint;
+        }
     }
     Ok(spec)
 }
@@ -145,7 +158,7 @@ fn native_agent_session_history_messages(
     session_id: &str,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
-) -> Result<Vec<serde_json::Value>, String> {
+) -> Result<(Vec<serde_json::Value>, Option<serde_json::Value>), String> {
     let request_id = next_worker_request_correlation();
     let history = call_rust_state_service(
         workspace_root,
@@ -153,16 +166,21 @@ fn native_agent_session_history_messages(
         WorkerRequest::new(
             request_id.id("session-history-for-agent-run"),
             request_id.trace_id("session-history-for-agent-run"),
-            "session.get_history",
+            "session.get_agent_context",
             serde_json::json!({ "session_id": session_id, "limit": 500 }),
         ),
-        "native agent session history hydration",
+        "native agent context hydration",
     )?;
-    Ok(history
+    let messages = history
         .get("messages")
         .and_then(serde_json::Value::as_array)
         .cloned()
-        .unwrap_or_default())
+        .unwrap_or_default();
+    let source_checkpoint = history
+        .get("contextCheckpoint")
+        .or_else(|| history.get("context_checkpoint"))
+        .and_then(crate::context_checkpoint_lineage::checkpoint_lineage_metadata);
+    Ok((messages, source_checkpoint))
 }
 
 fn native_agent_merge_history_messages(

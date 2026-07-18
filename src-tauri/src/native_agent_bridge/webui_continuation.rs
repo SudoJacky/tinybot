@@ -1,6 +1,7 @@
 use crate::call_rust_state_service;
 use crate::native_agent_bridge::{
-    cleanup_turn_attachments, native_agent_services_with_tool_executor,
+    cleanup_turn_attachments, native_agent_context_checkpoint_committer,
+    native_agent_services_with_tool_executor, native_agent_trace_sink,
     persist_native_agent_checkpoint_if_present, persist_native_agent_run_record,
     persist_native_agent_turn_if_final, turn_result_needs_attachment_files,
 };
@@ -322,7 +323,16 @@ pub(crate) async fn resolve_approval_continuation_with_services(
         base_services,
         workspace_root.clone(),
         config_snapshot.clone(),
-    );
+    )
+    .with_context_checkpoint_committer(native_agent_context_checkpoint_committer(
+        workspace_root.clone(),
+        config_snapshot.clone(),
+    ))
+    .with_trace_sink(native_agent_trace_sink(
+        workspace_root.clone(),
+        config_snapshot.clone(),
+        None,
+    ));
     let mut continuation = run_native_agent_turn_with_workspace_async(
         &services,
         continuation_spec.clone(),
@@ -331,17 +341,6 @@ pub(crate) async fn resolve_approval_continuation_with_services(
     )
     .await?;
     services.flush_trace_sink()?;
-    let continuation_run_id = continuation_spec["runId"]
-        .as_str()
-        .unwrap_or("native-approval-resolution");
-    let persisted_runtime_events =
-        services.load_runtime_events(session_key, continuation_run_id)?;
-    if !persisted_runtime_events.is_empty() {
-        continuation["runtimeEvents"] =
-            serde_json::to_value(persisted_runtime_events).map_err(|error| {
-                format!("failed to serialize merged approval runtime events: {error}")
-            })?;
-    }
     persist_native_agent_run_record(
         continuation_spec.clone(),
         &mut continuation,
@@ -646,7 +645,16 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
         base_services,
         workspace_root.clone(),
         config_snapshot.clone(),
-    );
+    )
+    .with_context_checkpoint_committer(native_agent_context_checkpoint_committer(
+        workspace_root.clone(),
+        config_snapshot.clone(),
+    ))
+    .with_trace_sink(native_agent_trace_sink(
+        workspace_root.clone(),
+        config_snapshot.clone(),
+        None,
+    ));
     let mut continuation = run_native_agent_turn_with_workspace_async(
         &services,
         continuation_spec.clone(),
@@ -655,15 +663,6 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
     )
     .await?;
     services.flush_trace_sink()?;
-    let continuation_run_id = continuation_spec["runId"]
-        .as_str()
-        .unwrap_or("native-form-resolution");
-    let persisted_runtime_events =
-        services.load_runtime_events(session_key, continuation_run_id)?;
-    if !persisted_runtime_events.is_empty() {
-        continuation["runtimeEvents"] = serde_json::to_value(persisted_runtime_events)
-            .map_err(|error| format!("failed to serialize merged form runtime events: {error}"))?;
-    }
     persist_native_agent_run_record(
         continuation_spec.clone(),
         &mut continuation,

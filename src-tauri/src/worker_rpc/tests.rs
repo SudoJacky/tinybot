@@ -7,6 +7,7 @@ use crate::worker_shell::WorkerShellRuntime;
 use crate::worker_subagent_manager::{SubagentSpawnParams, SubagentThreadManager};
 use serde_json::{json, Value};
 use std::{
+    io::Write,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -807,7 +808,7 @@ fn dispatches_provider_resolve_secret_request() {
 }
 
 #[test]
-fn dispatches_session_get_metadata_request() {
+fn session_get_metadata_does_not_read_in_memory_legacy_session() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -825,16 +826,12 @@ fn dispatches_session_get_metadata_request() {
 
     let response = router.dispatch(&request);
 
-    assert_eq!(response.result.as_ref().unwrap()["session_id"], "session-1");
-    assert_eq!(
-        response.result.as_ref().unwrap()["title"],
-        "Native Core Migration"
-    );
+    assert_eq!(response.result, Some(Value::Null));
     assert!(response.error.is_none());
 }
 
 #[test]
-fn dispatches_session_list_metadata_includes_thread_only_sessions() {
+fn dispatches_session_list_metadata_includes_only_rollout_sessions() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -874,18 +871,17 @@ fn dispatches_session_list_metadata_includes_thread_only_sessions() {
 
     assert_eq!(response.error, None);
     let sessions = response.result.as_ref().unwrap().as_array().unwrap();
-    assert_eq!(sessions.len(), 2);
+    assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0]["session_id"], "thread-session-1");
     assert_eq!(sessions[0]["title"], "Thread Only Session");
     assert_eq!(sessions[0]["workspace_dir"], "D:/code/tinybot/workspace");
     assert_eq!(sessions[0]["updated_at"], "2026-07-05T03:00:00Z");
     assert_eq!(sessions[0]["extra"]["threadId"], "thread-only-session");
     assert_eq!(sessions[0]["extra"]["source"], "thread.metadata_projection");
-    assert_eq!(sessions[1]["session_id"], "session-1");
 }
 
 #[test]
-fn dispatches_thread_status_for_legacy_session_projection() {
+fn thread_status_does_not_project_legacy_sessions_at_request_time() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -902,28 +898,8 @@ fn dispatches_thread_status_for_legacy_session_projection() {
         json!({}),
     ));
     assert_eq!(list.error, None);
-    let projected_thread_id = list.result.as_ref().unwrap()["threads"][0]["threadId"]
-        .as_str()
-        .unwrap()
-        .to_string();
-
-    let status = router.dispatch(&WorkerRequest::new(
-        "req-legacy-status",
-        "trace-legacy-status",
-        "thread.status",
-        json!({ "threadId": projected_thread_id }),
-    ));
-
-    assert_eq!(status.error, None);
-    assert_eq!(
-        status.result.as_ref().unwrap()["thread"]["sessionKey"],
-        "session-1"
-    );
-    assert_eq!(
-        status.result.as_ref().unwrap()["thread"]["source"],
-        "legacy_session_projection"
-    );
-    assert_eq!(status.result.as_ref().unwrap()["children"], json!([]));
+    assert_eq!(list.result.as_ref().unwrap()["threads"], json!([]));
+    assert!(first_thread_log_file_under(&fixture.root, "threads").is_none());
 }
 
 #[test]
@@ -1047,6 +1023,193 @@ fn dispatches_session_get_metadata_and_history_for_thread_only_sessions() {
 }
 
 #[test]
+fn dispatches_session_get_agent_context_from_latest_thread_compaction() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        20,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionMetadataRead,
+            WorkerCapability::SessionWrite,
+        ]),
+    );
+
+    let create = router.dispatch(&WorkerRequest::new(
+        "req-agent-context-thread-create",
+        "trace-agent-context-thread",
+        "thread.create",
+        json!({
+            "threadId": "thread-agent-context",
+            "title": "Agent Context",
+            "sessionKey": "session-agent-context",
+            "source": "user"
+        }),
+    ));
+    assert_eq!(create.error, None);
+
+    let append = router.dispatch(&WorkerRequest::new(
+        "req-agent-context-thread-append",
+        "trace-agent-context-thread",
+        "thread.append_items",
+        json!({
+            "threadId": "thread-agent-context",
+            "items": [
+                {
+                    "itemId": "thread-agent-context:old-user",
+                    "threadId": "",
+                    "runId": "run-agent-context",
+                    "turnId": "turn-agent-context",
+                    "sequence": 0,
+                    "createdAt": "2026-07-05T04:00:01Z",
+                    "kind": {
+                        "type": "user_message",
+                        "payload": { "content": "old user message" }
+                    }
+                },
+                {
+                    "itemId": "thread-agent-context:old-assistant",
+                    "threadId": "",
+                    "runId": "run-agent-context",
+                    "turnId": "turn-agent-context",
+                    "sequence": 0,
+                    "createdAt": "2026-07-05T04:00:02Z",
+                    "kind": {
+                        "type": "assistant_message_completed",
+                        "payload": { "content": "old assistant message" }
+                    }
+                },
+                {
+                    "itemId": "thread-agent-context:compaction",
+                    "threadId": "",
+                    "runId": "run-agent-context",
+                    "turnId": "turn-agent-context",
+                    "sequence": 0,
+                    "createdAt": "2026-07-05T04:00:03Z",
+                    "kind": {
+                        "type": "context_compaction",
+                        "payload": {
+                            "payload": {
+                                "contextCheckpoint": {
+                                    "installedReplacementHistory": [
+                                        { "role": "assistant", "content": "summary of old conversation" }
+                                    ],
+                                    "replacementHistory": [
+                                        { "role": "assistant", "content": "summary of old conversation" },
+                                        {
+                                            "role": "assistant",
+                                            "content": "",
+                                            "tool_calls": [{
+                                                "id": "context-read-1",
+                                                "type": "function",
+                                                "function": {
+                                                    "name": "workspace.read_file",
+                                                    "arguments": "{\"path\":\"README.md\"}"
+                                                }
+                                            }]
+                                        },
+                                        {
+                                            "role": "tool",
+                                            "tool_call_id": "context-read-1",
+                                            "name": "workspace.read_file",
+                                            "content": "README contents"
+                                        },
+                                        { "role": "assistant", "content": "answer from compacted turn" }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "itemId": "thread-agent-context:compacted-answer",
+                    "threadId": "",
+                    "runId": "run-agent-context",
+                    "turnId": "turn-agent-context",
+                    "sequence": 0,
+                    "createdAt": "2026-07-05T04:00:04Z",
+                    "kind": {
+                        "type": "assistant_message_completed",
+                        "payload": { "content": "answer from compacted turn" }
+                    }
+                },
+                {
+                    "itemId": "thread-agent-context:new-user",
+                    "threadId": "",
+                    "runId": "run-agent-context-next",
+                    "turnId": "turn-agent-context-next",
+                    "sequence": 0,
+                    "createdAt": "2026-07-05T04:00:05Z",
+                    "kind": {
+                        "type": "user_message",
+                        "payload": { "content": "next question" }
+                    }
+                }
+            ]
+        }),
+    ));
+    assert_eq!(append.error, None);
+
+    let history = router.dispatch(&WorkerRequest::new(
+        "req-agent-context-full-history",
+        "trace-agent-context-thread",
+        "session.get_history",
+        json!({ "session_id": "session-agent-context" }),
+    ));
+    assert_eq!(history.error, None);
+    assert_eq!(
+        history.result.as_ref().unwrap()["messages"]
+            .as_array()
+            .unwrap()
+            .len(),
+        4
+    );
+
+    let agent_context = router.dispatch(&WorkerRequest::new(
+        "req-agent-context-projection",
+        "trace-agent-context-thread",
+        "session.get_agent_context",
+        json!({ "session_id": "session-agent-context" }),
+    ));
+    assert_eq!(agent_context.error, None);
+    assert_eq!(
+        agent_context.result.as_ref().unwrap()["messages"],
+        json!([
+            { "role": "assistant", "content": "summary of old conversation" },
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": "context-read-1",
+                    "type": "function",
+                    "function": {
+                        "name": "workspace.read_file",
+                        "arguments": "{\"path\":\"README.md\"}"
+                    }
+                }]
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "context-read-1",
+                "name": "workspace.read_file",
+                "content": "README contents"
+            },
+            {
+                "role": "assistant",
+                "content": "answer from compacted turn"
+            },
+            {
+                "role": "user",
+                "content": "next question",
+                "timestamp": "2026-07-05T04:00:05Z",
+                "turnId": "turn-agent-context-next"
+            }
+        ])
+    );
+}
+
+#[test]
 fn dispatches_session_get_history_reads_thread_tail() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
@@ -1114,12 +1277,14 @@ fn dispatches_session_get_history_reads_thread_tail() {
             {
                 "role": "user",
                 "content": "message-203",
-                "timestamp": "2026-07-05T05:03:23Z"
+                "timestamp": "2026-07-05T05:03:23Z",
+                "turnId": "turn-thread-tail"
             },
             {
                 "role": "user",
                 "content": "message-204",
-                "timestamp": "2026-07-05T05:03:24Z"
+                "timestamp": "2026-07-05T05:03:24Z",
+                "turnId": "turn-thread-tail"
             }
         ])
     );
@@ -1247,7 +1412,7 @@ fn dispatches_session_get_history_projects_thread_message_metadata_and_usage() {
 }
 
 #[test]
-fn dispatches_session_get_history_request() {
+fn session_get_history_does_not_read_in_memory_legacy_session() {
     let fixture = WorkspaceFixture::new();
     let mut session = session_fixture();
     session.extra = json!({
@@ -1273,16 +1438,232 @@ fn dispatches_session_get_history_request() {
 
     let response = router.dispatch(&request);
 
+    assert_eq!(response.result, Some(Value::Null));
+    assert!(response.error.is_none());
+}
+
+#[test]
+fn dispatches_thread_rollback_as_an_append_only_rollout_marker() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    )
+    .unwrap();
+    for (run_id, user, assistant, checkpoint) in [
+        ("rollback-run-1", "first user", "first assistant", None),
+        (
+            "rollback-run-2",
+            "second user",
+            "second assistant",
+            Some(json!({
+                "replacementHistory": [
+                    { "role": "user", "content": "compacted second turn" },
+                    { "role": "assistant", "content": "summary after second turn" }
+                ],
+                "checkpointStage": "finalized"
+            })),
+        ),
+    ] {
+        let mut params = json!({
+            "session_id": "thread-rollout-rollback",
+            "run_id": run_id,
+            "messages": [
+                { "role": "user", "content": user },
+                { "role": "assistant", "content": assistant }
+            ]
+        });
+        if let Some(checkpoint) = checkpoint {
+            params["contextMetadata"] = json!({ "contextCheckpoint": checkpoint });
+        }
+        let persisted = router.dispatch(&WorkerRequest::new(
+            format!("req-{run_id}"),
+            "trace-thread-rollout-rollback",
+            "session.persist_turn",
+            params,
+        ));
+        assert_eq!(persisted.error, None);
+    }
+
+    let rolled_back = router.dispatch(&WorkerRequest::new(
+        "req-thread-rollout-rollback",
+        "trace-thread-rollout-rollback",
+        "thread.rollback",
+        json!({
+            "threadId": "thread-rollout-rollback",
+            "numTurns": 1
+        }),
+    ));
+    assert_eq!(rolled_back.error, None);
+    let result = rolled_back.result.as_ref().unwrap();
+    assert_eq!(result["threadId"], "thread-rollout-rollback");
+    assert_eq!(result["numTurns"], 1);
+    assert_eq!(result["remainingMessageCount"], 2);
+    assert_eq!(result["contextCheckpointRetained"], false);
+
+    for method in ["session.get_history", "session.get_agent_context"] {
+        let projection = router.dispatch(&WorkerRequest::new(
+            format!("req-thread-rollout-rollback-{method}"),
+            "trace-thread-rollout-rollback",
+            method,
+            json!({ "session_id": "thread-rollout-rollback" }),
+        ));
+        assert_eq!(projection.error, None);
+        let messages = projection.result.as_ref().unwrap()["messages"]
+            .as_array()
+            .unwrap();
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0]["content"], "first user");
+        assert_eq!(messages[1]["content"], "first assistant");
+    }
+
+    let metadata = router.dispatch(&WorkerRequest::new(
+        "req-thread-rollout-rollback-metadata",
+        "trace-thread-rollout-rollback",
+        "session.get_metadata",
+        json!({ "session_id": "thread-rollout-rollback" }),
+    ));
+    let rollout_path = metadata.result.as_ref().unwrap()["extra"]["threadPath"]
+        .as_str()
+        .unwrap();
+    let rollout = std::fs::read_to_string(rollout_path).unwrap();
+    assert!(rollout.contains("second user"));
+    assert!(rollout.contains("\"type\":\"thread_rolled_back\""));
+    assert!(rollout.contains("\"num_turns\":1"));
+
+    let consistency = router.dispatch(&WorkerRequest::new(
+        "req-thread-rollout-rollback-consistency",
+        "trace-thread-rollout-rollback",
+        "session.persistence.check",
+        json!({}),
+    ));
+    assert_eq!(consistency.error, None);
+    assert_eq!(consistency.result.as_ref().unwrap()["status"], "clean");
+}
+
+#[test]
+fn thread_rollback_rejects_an_in_progress_turn() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    )
+    .unwrap();
+    let started = router.dispatch(&WorkerRequest::new(
+        "req-thread-rollback-start",
+        "trace-thread-rollback-start",
+        "rollout.append_turn_context",
+        json!({
+            "sessionId": "thread-rollback-active",
+            "context": {
+                "turnId": "turn-rollback-active",
+                "cwd": "",
+                "approvalPolicy": {},
+                "sandboxPolicy": {},
+                "model": "fixture-model",
+                "summary": {}
+            }
+        }),
+    ));
+    assert_eq!(started.error, None);
+
+    let rollback = router.dispatch(&WorkerRequest::new(
+        "req-thread-rollback-active",
+        "trace-thread-rollback-active",
+        "thread.rollback",
+        json!({
+            "threadId": "thread-rollback-active",
+            "numTurns": 1
+        }),
+    ));
+    assert!(rollback.error.as_ref().is_some_and(|error| {
+        error
+            .message
+            .contains("cannot rollback while a turn is in progress")
+    }));
+}
+
+#[test]
+fn rollout_world_state_appends_typed_full_and_patch_items() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    )
+    .unwrap();
+    for (index, world_state) in [
+        json!({
+            "full": true,
+            "state": {
+                "environment": {
+                    "cwd": "D:/workspace",
+                    "status": "starting"
+                }
+            }
+        }),
+        json!({
+            "full": false,
+            "state": {
+                "environment": {
+                    "status": "ready"
+                }
+            }
+        }),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let appended = router.dispatch(&WorkerRequest::new(
+            format!("req-world-state-{index}"),
+            "trace-world-state",
+            "rollout.append_world_state",
+            json!({
+                "sessionId": "thread-world-state",
+                "worldState": world_state
+            }),
+        ));
+        assert_eq!(appended.error, None);
+    }
+
+    let metadata = router.dispatch(&WorkerRequest::new(
+        "req-world-state-metadata",
+        "trace-world-state",
+        "session.get_metadata",
+        json!({ "session_id": "thread-world-state" }),
+    ));
+    let rollout_path = metadata.result.as_ref().unwrap()["extra"]["threadPath"]
+        .as_str()
+        .unwrap();
+    let lines =
+        crate::worker_thread_log::read_thread_lines(std::path::Path::new(rollout_path)).unwrap();
+    let reconstructed = crate::worker_rollout::reconstruct_rollout(&lines).unwrap();
     assert_eq!(
-        response.result,
+        reconstructed.world_state_baseline,
         Some(json!({
-            "session_id": "session-1",
-            "messages": [{ "role": "assistant", "content": "second" }],
-            "user_profile": { "name": "Ada" },
-            "updated_at": "2026-06-09T09:30:00Z"
+            "environment": {
+                "cwd": "D:/workspace",
+                "status": "ready"
+            }
         }))
     );
-    assert!(response.error.is_none());
 }
 
 #[test]
@@ -1313,19 +1694,7 @@ fn dispatches_session_get_history_does_not_project_legacy_history_on_read() {
         json!({ "session_id": "session-1", "limit": 80 }),
     ));
     assert_eq!(response.error, None);
-    assert_eq!(
-        response.result.as_ref().unwrap()["messages"]
-            .as_array()
-            .unwrap()
-            .len(),
-        2
-    );
-    assert!(!fixture
-        .root
-        .join(".tinybot")
-        .join("threads")
-        .join("threads.sqlite")
-        .exists());
+    assert_eq!(response.result, Some(Value::Null));
 }
 
 #[test]
@@ -1351,10 +1720,6 @@ fn dispatches_session_delete_request() {
         }),
     ));
     assert_eq!(create_thread.error, None);
-    let thread_id = create_thread.result.as_ref().unwrap()["threadId"]
-        .as_str()
-        .expect("thread id should be present")
-        .to_string();
     let request = WorkerRequest::new(
         "req-1",
         "trace-1",
@@ -1373,20 +1738,18 @@ fn dispatches_session_delete_request() {
     );
     assert!(response.error.is_none());
 
-    let thread_list = router.dispatch(&WorkerRequest::new(
-        "req-thread-after-session-delete",
+    let session_list = router.dispatch(&WorkerRequest::new(
+        "req-session-list-after-session-delete",
         "trace-1",
-        "thread.list",
-        json!({ "includeArchived": true }),
+        "session.list_metadata",
+        json!({}),
     ));
-    assert_eq!(thread_list.error, None);
-    let thread = &thread_list.result.as_ref().unwrap()["threads"][0];
-    assert_eq!(thread["threadId"], thread_id);
-    assert_eq!(thread["status"], "archived");
+    assert_eq!(session_list.error, None);
+    assert_eq!(session_list.result, Some(json!([])));
 }
 
 #[test]
-fn dispatches_session_patch_metadata_request() {
+fn session_patch_metadata_does_not_mutate_in_memory_legacy_session() {
     let fixture = WorkspaceFixture::new();
     let mut session = session_fixture();
     session.extra = json!({ "metadata": { "pinned": false, "topic": "old" } });
@@ -1412,26 +1775,15 @@ fn dispatches_session_patch_metadata_request() {
 
     let response = router.dispatch(&request);
 
+    assert!(response.result.is_none());
     assert_eq!(
-        response.result.as_ref().unwrap()["extra"]["metadata"],
-        json!({
-            "pinned": true,
-            "title": "Patched title",
-            "topic": "old"
-        })
+        response.error.as_ref().map(|error| error.message.as_str()),
+        Some("session metadata not found")
     );
-    assert_eq!(response.result.as_ref().unwrap()["title"], "Patched title");
-    assert!(response.error.is_none());
-    assert!(!fixture
-        .root
-        .join(".tinybot")
-        .join("threads")
-        .join("threads.sqlite")
-        .exists());
 }
 
 #[test]
-fn dispatches_session_patch_user_profile_request() {
+fn session_patch_user_profile_does_not_mutate_in_memory_legacy_session() {
     let fixture = WorkspaceFixture::new();
     let mut session = session_fixture();
     session.extra = json!({
@@ -1461,21 +1813,11 @@ fn dispatches_session_patch_user_profile_request() {
 
     let response = router.dispatch(&request);
 
+    assert!(response.result.is_none());
     assert_eq!(
-        response.result.as_ref().unwrap()["extra"]["user_profile"],
-        json!({
-            "name": "Ada",
-            "preferences": ["short answers", "code examples"]
-        })
+        response.error.as_ref().map(|error| error.message.as_str()),
+        Some("session metadata not found")
     );
-    assert_eq!(
-        response.result.as_ref().unwrap()["extra"]["metadata"],
-        json!({
-            "entity_extractor_last_turn_hash": "new-hash",
-            "topic": "native"
-        })
-    );
-    assert!(response.error.is_none());
 }
 
 #[test]
@@ -1554,12 +1896,7 @@ fn dispatches_session_checkpoint_requests() {
             "checkpointId": "checkpoint-session-route"
         })
     );
-    assert!(!fixture
-        .root
-        .join(".tinybot")
-        .join("threads")
-        .join("threads.sqlite")
-        .exists());
+    assert_removed_persistence_paths_absent(&fixture.root);
     assert!(clear_response.result.as_ref().unwrap()["extra"]
         .get("runtime_checkpoint")
         .is_none());
@@ -1620,7 +1957,7 @@ fn dispatches_session_get_checkpoint_request() {
 }
 
 #[test]
-fn dispatches_session_get_checkpoint_falls_back_to_legacy_runtime_checkpoint() {
+fn session_get_checkpoint_does_not_fall_back_to_in_memory_legacy_checkpoint() {
     let fixture = WorkspaceFixture::new();
     let mut session = session_fixture();
     session.extra = json!({
@@ -1646,14 +1983,7 @@ fn dispatches_session_get_checkpoint_falls_back_to_legacy_runtime_checkpoint() {
 
     let response = router.dispatch(&request);
 
-    assert_eq!(
-        response.result,
-        Some(json!({
-            "runId": "run-legacy-checkpoint",
-            "phase": "awaiting_tools",
-            "iteration": 2
-        }))
-    );
+    assert_eq!(response.result, Some(Value::Null));
     assert!(response.error.is_none());
 }
 
@@ -1735,6 +2065,26 @@ fn dispatches_session_clear_request() {
         20,
         CapabilityPolicy::new([WorkerCapability::SessionWrite]),
     );
+    router
+        .thread_log
+        .persist_session_turn(
+            "session-1",
+            "run-clear",
+            vec![
+                json!({ "role": "user", "content": "hello" }),
+                json!({ "role": "assistant", "content": "done" }),
+            ],
+            None,
+        )
+        .unwrap();
+    router
+        .thread_log
+        .set_agent_run_checkpoint(
+            "session-1",
+            "run-clear",
+            json!({ "runId": "run-clear", "phase": "awaiting_tools" }),
+        )
+        .unwrap();
     let request = WorkerRequest::new(
         "req-1",
         "trace-1",
@@ -1783,6 +2133,20 @@ fn dispatches_session_trim_request() {
         20,
         CapabilityPolicy::new([WorkerCapability::SessionWrite]),
     );
+    router
+        .thread_log
+        .persist_session_turn(
+            "session-1",
+            "run-trim",
+            vec![
+                json!({ "role": "user", "content": "old" }),
+                json!({ "role": "assistant", "content": "old answer" }),
+                json!({ "role": "user", "content": "recent" }),
+                json!({ "role": "assistant", "content": "recent answer" }),
+            ],
+            None,
+        )
+        .unwrap();
     let request = WorkerRequest::new(
         "req-1",
         "trace-1",
@@ -1800,13 +2164,13 @@ fn dispatches_session_trim_request() {
         response.result.as_ref().unwrap()["messages_after"],
         json!(2)
     );
-    assert_eq!(
-        response.result.as_ref().unwrap()["session"]["extra"]["messages"],
-        json!([
-            { "role": "user", "content": "recent" },
-            { "role": "assistant", "content": "recent answer" }
-        ])
-    );
+    let messages = response.result.as_ref().unwrap()["session"]["extra"]["messages"]
+        .as_array()
+        .unwrap();
+    assert_eq!(messages[0]["role"], "user");
+    assert_eq!(messages[0]["content"], "recent");
+    assert_eq!(messages[1]["role"], "assistant");
+    assert_eq!(messages[1]["content"], "recent answer");
     assert!(response.error.is_none());
 }
 
@@ -1894,6 +2258,98 @@ fn dispatches_session_persist_turn_request() {
 }
 
 #[test]
+fn persisted_compaction_replaces_agent_context_but_preserves_transcript() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    )
+    .unwrap();
+
+    let old_turn = router.dispatch(&WorkerRequest::new(
+        "req-compact-old-turn",
+        "trace-compact-persistence",
+        "session.persist_turn",
+        json!({
+            "session_id": "session-compact-persistence",
+            "run_id": "run-compact-old-turn",
+            "messages": [
+                { "role": "user", "content": "old user", "messageId": "compact-old-user" },
+                { "role": "assistant", "content": "old answer", "messageId": "compact-old-answer" }
+            ],
+            "clear_checkpoint": false
+        }),
+    ));
+    assert_eq!(old_turn.error, None);
+
+    let compacted_turn = router.dispatch(&WorkerRequest::new(
+        "req-compact-current-turn",
+        "trace-compact-persistence",
+        "session.persist_turn",
+        json!({
+            "session_id": "session-compact-persistence",
+            "run_id": "run-compact-current-turn",
+            "messages": [
+                { "role": "user", "content": "current user", "messageId": "compact-current-user" },
+                { "role": "assistant", "content": "current answer", "messageId": "compact-current-answer" }
+            ],
+            "clear_checkpoint": false,
+            "context_metadata": {
+                "contextCheckpoint": {
+                    "schemaVersion": 1,
+                    "replacementHistory": [
+                        { "role": "assistant", "content": "summary of old turn" },
+                        { "role": "user", "content": "current user" },
+                        { "role": "assistant", "content": "current answer" }
+                    ]
+                }
+            }
+        }),
+    ));
+    assert_eq!(compacted_turn.error, None);
+    assert_eq!(compacted_turn.result.as_ref().unwrap()["messages_after"], 3);
+
+    let history = router.dispatch(&WorkerRequest::new(
+        "req-compact-transcript",
+        "trace-compact-persistence",
+        "session.get_history",
+        json!({ "session_id": "session-compact-persistence", "limit": 80 }),
+    ));
+    assert_eq!(history.error, None);
+    assert_eq!(
+        history.result.as_ref().unwrap()["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|message| message["content"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["old user", "old answer", "current user", "current answer"]
+    );
+
+    let agent_context = router.dispatch(&WorkerRequest::new(
+        "req-compact-agent-context",
+        "trace-compact-persistence",
+        "session.get_agent_context",
+        json!({ "session_id": "session-compact-persistence", "limit": 80 }),
+    ));
+    assert_eq!(agent_context.error, None);
+    assert_eq!(
+        agent_context.result.as_ref().unwrap()["messages"],
+        json!([
+            { "role": "assistant", "content": "summary of old turn" },
+            { "role": "user", "content": "current user" },
+            { "role": "assistant", "content": "current answer" }
+        ])
+    );
+}
+
+#[test]
 fn persists_session_turn_to_thread_log() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new_persistent_sessions(
@@ -1975,21 +2431,244 @@ fn session_persist_turn_does_not_write_legacy_session_or_thread_stores() {
         .join("state")
         .join("state.sqlite")
         .exists());
-    assert!(!fixture
-        .root
-        .join("sessions")
-        .join("sessions.sqlite")
-        .exists());
-    assert!(!fixture
-        .root
-        .join(".tinybot")
-        .join("threads")
-        .join("threads.sqlite")
-        .exists());
+    assert!(first_thread_log_file_under(&fixture.root, "threads").is_some());
+    assert_removed_persistence_paths_absent(&fixture.root);
 }
 
 #[test]
-fn agent_run_persistence_does_not_write_legacy_session_store() {
+fn rollout_native_session_mutations_survive_restart_without_legacy_stores() {
+    let fixture = WorkspaceFixture::new();
+    let policy = CapabilityPolicy::new([
+        WorkerCapability::SessionWrite,
+        WorkerCapability::SessionMetadataRead,
+    ]);
+    {
+        let mut router = WorkerRpcRouter::new_persistent_sessions(
+            fixture.root.clone(),
+            json!({}),
+            vec![],
+            50,
+            policy.clone(),
+        )
+        .unwrap();
+        let appended = router.dispatch(&WorkerRequest::new(
+            "req-rollout-session-append",
+            "trace-rollout-session",
+            "session.append_messages",
+            json!({
+                "session_id": "session-rollout-native",
+                "messages": [
+                    { "role": "user", "content": "old" },
+                    { "role": "assistant", "content": "old answer" },
+                    { "role": "user", "content": "recent" },
+                    { "role": "assistant", "content": "recent answer" }
+                ]
+            }),
+        ));
+        assert_eq!(appended.error, None);
+
+        let profile = router.dispatch(&WorkerRequest::new(
+            "req-rollout-session-profile",
+            "trace-rollout-session",
+            "session.patch_user_profile",
+            json!({
+                "session_id": "session-rollout-native",
+                "user_profile": { "name": "Ada" },
+                "metadata": { "profileSource": "test" }
+            }),
+        ));
+        assert_eq!(profile.error, None);
+
+        let trimmed = router.dispatch(&WorkerRequest::new(
+            "req-rollout-session-trim",
+            "trace-rollout-session",
+            "session.trim",
+            json!({
+                "session_id": "session-rollout-native",
+                "keep_recent_messages": 1
+            }),
+        ));
+        assert_eq!(trimmed.error, None);
+        assert_eq!(trimmed.result.as_ref().unwrap()["messages_after"], 2);
+
+        for (request_id, content, completed, steps) in [
+            (
+                "req-rollout-session-progress-1",
+                "first progress",
+                0,
+                json!([
+                    { "step": "Inspect session", "status": "in_progress" },
+                    { "step": "Finish session", "status": "pending" }
+                ]),
+            ),
+            (
+                "req-rollout-session-progress-2",
+                "updated progress",
+                1,
+                json!([
+                    { "step": "Inspect session", "status": "completed" },
+                    { "step": "Finish session", "status": "in_progress" }
+                ]),
+            ),
+        ] {
+            let progress = router.dispatch(&WorkerRequest::new(
+                request_id,
+                "trace-rollout-session",
+                "session.task_progress.upsert",
+                json!({
+                    "session_id": "session-rollout-native",
+                    "plan_id": "plan-rollout-native",
+                    "content": content,
+                    "progress": {
+                        "completed": completed,
+                        "total": 2,
+                        "steps": steps
+                    }
+                }),
+            ));
+            assert_eq!(progress.error, None);
+        }
+
+        let metadata = router.dispatch(&WorkerRequest::new(
+            "req-rollout-session-metadata",
+            "trace-rollout-session",
+            "session.patch_metadata",
+            json!({
+                "session_id": "session-rollout-native",
+                "metadata": { "title": "Rollout native session", "pinned": true }
+            }),
+        ));
+        assert_eq!(metadata.error, None);
+
+        for session_id in ["session-rollout-clear", "session-rollout-delete"] {
+            let appended = router.dispatch(&WorkerRequest::new(
+                format!("req-{session_id}-append"),
+                "trace-rollout-session-lifecycle",
+                "session.append_messages",
+                json!({
+                    "session_id": session_id,
+                    "messages": [
+                        { "role": "user", "content": "lifecycle message" },
+                        { "role": "assistant", "content": "lifecycle answer" }
+                    ]
+                }),
+            ));
+            assert_eq!(appended.error, None);
+        }
+        let cleared = router.dispatch(&WorkerRequest::new(
+            "req-rollout-session-clear",
+            "trace-rollout-session-lifecycle",
+            "session.clear",
+            json!({ "session_id": "session-rollout-clear" }),
+        ));
+        assert_eq!(cleared.error, None);
+        let deleted = router.dispatch(&WorkerRequest::new(
+            "req-rollout-session-delete",
+            "trace-rollout-session-lifecycle",
+            "session.delete",
+            json!({ "session_id": "session-rollout-delete" }),
+        ));
+        assert_eq!(deleted.error, None);
+        assert_eq!(deleted.result.as_ref().unwrap()["deleted"], true);
+    }
+
+    let mut restarted = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        policy,
+    )
+    .unwrap();
+    let history = restarted.dispatch(&WorkerRequest::new(
+        "req-rollout-session-history-after-restart",
+        "trace-rollout-session",
+        "session.get_history",
+        json!({ "session_id": "session-rollout-native", "limit": 80 }),
+    ));
+    assert_eq!(history.error, None);
+    let history = history.result.unwrap();
+    assert_eq!(history["user_profile"], json!({ "name": "Ada" }));
+    assert_eq!(
+        history["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|message| message["content"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["recent", "recent answer"]
+    );
+    let agent_context = restarted.dispatch(&WorkerRequest::new(
+        "req-rollout-session-context-after-restart",
+        "trace-rollout-session",
+        "session.get_agent_context",
+        json!({ "session_id": "session-rollout-native", "limit": 80 }),
+    ));
+    assert_eq!(agent_context.error, None);
+    assert_eq!(
+        agent_context.result.as_ref().unwrap()["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|message| message["_task_plan_id"] == "plan-rollout-native")
+            .count(),
+        1
+    );
+    let metadata = restarted.dispatch(&WorkerRequest::new(
+        "req-rollout-session-metadata-after-restart",
+        "trace-rollout-session",
+        "session.get_metadata",
+        json!({ "session_id": "session-rollout-native" }),
+    ));
+    assert_eq!(metadata.error, None);
+    assert_eq!(
+        metadata.result.as_ref().unwrap()["title"],
+        "Rollout native session"
+    );
+    assert_eq!(
+        metadata.result.as_ref().unwrap()["extra"]["metadata"]["pinned"],
+        true
+    );
+    let cleared_history = restarted.dispatch(&WorkerRequest::new(
+        "req-rollout-session-clear-after-restart",
+        "trace-rollout-session-lifecycle",
+        "session.get_history",
+        json!({ "session_id": "session-rollout-clear", "limit": 80 }),
+    ));
+    assert_eq!(cleared_history.error, None);
+    assert_eq!(
+        cleared_history.result.as_ref().unwrap()["messages"],
+        json!([])
+    );
+    let sessions = restarted.dispatch(&WorkerRequest::new(
+        "req-rollout-session-list-after-restart",
+        "trace-rollout-session-lifecycle",
+        "session.list_metadata",
+        json!({}),
+    ));
+    assert_eq!(sessions.error, None);
+    assert!(!sessions
+        .result
+        .as_ref()
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|session| session["session_id"] == "session-rollout-delete"));
+
+    let rollout_path = PathBuf::from(
+        metadata.result.as_ref().unwrap()["extra"]["threadPath"]
+            .as_str()
+            .unwrap(),
+    );
+    let rollout = std::fs::read_to_string(rollout_path).unwrap();
+    assert!(rollout.contains("\"type\":\"session_trimmed\""));
+    assert!(rollout.contains("\"type\":\"task_progress_updated\""));
+    assert_removed_persistence_paths_absent(&fixture.root);
+}
+
+#[test]
+fn agent_run_persistence_drops_transient_trace_and_does_not_write_legacy_session_store() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new_persistent_sessions(
         fixture.root.clone(),
@@ -2079,30 +2758,19 @@ fn agent_run_persistence_does_not_write_legacy_session_store() {
     let trace_events = get.result.as_ref().unwrap()["traceEvents"]
         .as_array()
         .expect("trace events should be an array");
-    assert_eq!(trace_events.len(), 2);
-    assert_eq!(trace_events[0]["eventId"], "trace-delta-1");
-    assert_eq!(trace_events[1]["eventId"], "trace-delta-2");
-    assert!(!fixture
-        .root
-        .join("sessions")
-        .join("sessions.sqlite")
-        .exists());
+    assert!(trace_events.is_empty());
+    assert_removed_persistence_paths_absent(&fixture.root);
     assert!(fixture
         .root
         .join(".tinybot")
         .join("state")
         .join("state.sqlite")
         .exists());
-    assert!(!fixture
-        .root
-        .join(".tinybot")
-        .join("threads")
-        .join("threads.sqlite")
-        .exists());
+    assert!(first_thread_log_file_under(&fixture.root, "threads").is_some());
 }
 
 #[test]
-fn agent_run_trace_append_does_not_update_thread_state_index() {
+fn agent_run_trace_append_preserves_thread_updated_at_and_keeps_index_clean() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new_persistent_sessions(
         fixture.root.clone(),
@@ -2172,6 +2840,20 @@ fn agent_run_trace_append_does_not_update_thread_state_index() {
 
     let after_updated_at = thread_state_updated_at(&state_path, "session-trace-state-index");
     assert_eq!(after_updated_at, before_updated_at);
+    let context = router
+        .thread_log
+        .get_agent_context("session-trace-state-index", 50)
+        .unwrap()
+        .unwrap();
+    assert!(context.messages.is_empty());
+    let consistency = router.dispatch(&WorkerRequest::new(
+        "req-trace-state-index-consistency",
+        "trace-state-index",
+        "session.persistence.check",
+        json!({}),
+    ));
+    assert_eq!(consistency.error, None);
+    assert_eq!(consistency.result.as_ref().unwrap()["status"], "clean");
     assert_eq!(
         append_trace.result.as_ref().unwrap()["traceEvents"][0]["eventName"],
         "agent.delta"
@@ -2318,7 +3000,7 @@ fn thread_log_history_survives_router_restart() {
 }
 
 #[test]
-fn thread_log_history_uses_explicit_startup_index_migration() {
+fn thread_log_history_rebuilds_missing_index_on_first_read() {
     let fixture = WorkspaceFixture::new();
     {
         let mut router = WorkerRpcRouter::new_persistent_sessions(
@@ -2354,7 +3036,6 @@ fn thread_log_history_uses_explicit_startup_index_migration() {
         .join("state")
         .join("state.sqlite");
     std::fs::remove_file(&state_path).expect("state index should be removable");
-    prepare_session_log_index_for_startup(&fixture.root);
 
     let mut router = WorkerRpcRouter::new_persistent_sessions(
         fixture.root.clone(),
@@ -2427,6 +3108,11 @@ fn thread_log_title_is_derived_from_first_user_message_and_survives_state_rebuil
     let legacy_thread_log = thread_log
         .lines()
         .filter(|line| !line.contains("\"type\":\"metadata_updated\""))
+        .map(|line| {
+            let mut value: serde_json::Value = serde_json::from_str(line).unwrap();
+            value.as_object_mut().unwrap().remove("ordinal");
+            serde_json::to_string(&value).unwrap()
+        })
         .collect::<Vec<_>>()
         .join("\n");
     std::fs::write(&thread_log_path, format!("{legacy_thread_log}\n"))
@@ -2621,7 +3307,7 @@ fn session_get_metadata_reads_thread_log_after_state_rebuild() {
 }
 
 #[test]
-fn thread_log_history_requires_explicit_corrupt_index_repair() {
+fn thread_log_history_rebuilds_corrupt_derived_index_on_first_read() {
     let fixture = WorkspaceFixture::new();
     {
         let mut router = WorkerRpcRouter::new_persistent_sessions(
@@ -2657,7 +3343,6 @@ fn thread_log_history_requires_explicit_corrupt_index_repair() {
         .join("state")
         .join("state.sqlite");
     std::fs::write(&state_path, b"not sqlite").expect("state index should be corruptible");
-    repair_session_log_index(&fixture.root);
 
     let mut router = WorkerRpcRouter::new_persistent_sessions(
         fixture.root.clone(),
@@ -2715,14 +3400,16 @@ fn thread_log_history_rejects_state_index_path_escape() {
         .join(".tinybot")
         .join("state")
         .join("state.sqlite");
+    let canonical_path = first_thread_log_file(&fixture.root);
     let escaped_path = fixture.root.join("escaped.jsonl");
-    let connection = rusqlite::Connection::open(state_path).unwrap();
+    let connection = rusqlite::Connection::open(&state_path).unwrap();
     connection
         .execute(
             "UPDATE threads SET thread_path = ?1 WHERE session_id = ?2",
             rusqlite::params![escaped_path.display().to_string(), "session-path-escape"],
         )
         .unwrap();
+    drop(connection);
 
     let history = router.dispatch(&WorkerRequest::new(
         "req-path-escape-history",
@@ -2731,21 +3418,24 @@ fn thread_log_history_rejects_state_index_path_escape() {
         json!({ "session_id": "session-path-escape", "limit": 80 }),
     ));
 
-    assert!(history.error.is_some());
-    assert!(history
-        .error
-        .as_ref()
-        .unwrap()
-        .message
-        .contains("not consistent"));
+    assert_eq!(history.error, None);
     assert_eq!(
-        history.error.as_ref().unwrap().details["status"],
-        "diverged"
+        history.result.as_ref().unwrap()["messages"][0]["content"],
+        "hello"
     );
+    let connection = rusqlite::Connection::open(&state_path).unwrap();
+    let repaired_path = connection
+        .query_row(
+            "SELECT thread_path FROM threads WHERE session_id = ?1",
+            ["session-path-escape"],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap();
+    assert_eq!(repaired_path, canonical_path.display().to_string());
 }
 
 #[test]
-fn session_list_metadata_merges_thread_log_and_legacy_sessions() {
+fn session_list_metadata_does_not_merge_in_memory_legacy_sessions() {
     let fixture = WorkspaceFixture::new();
     let mut legacy_session = session_fixture();
     legacy_session.session_id = "legacy-session".to_string();
@@ -2792,8 +3482,7 @@ fn session_list_metadata_merges_thread_log_and_legacy_sessions() {
         .iter()
         .map(|session| session["session_id"].as_str().unwrap().to_string())
         .collect::<Vec<_>>();
-    assert!(session_ids.contains(&"legacy-session".to_string()));
-    assert!(session_ids.contains(&"thread-log-session".to_string()));
+    assert_eq!(session_ids, vec!["thread-log-session".to_string()]);
 }
 
 #[test]
@@ -2843,7 +3532,7 @@ fn session_list_metadata_sorts_unix_ms_and_iso_timestamps_by_time() {
 }
 
 #[test]
-fn session_log_index_divergence_requires_explicit_repair() {
+fn session_log_index_prunes_missing_canonical_rollout_automatically() {
     let fixture = WorkspaceFixture::new();
     {
         let router = WorkerRpcRouter::new_persistent_sessions(
@@ -2867,6 +3556,7 @@ fn session_log_index_divergence_requires_explicit_repair() {
                     "content": "stale",
                     "messageId": "user-prune-missing"
                 })],
+                None,
             )
             .unwrap();
     }
@@ -2891,7 +3581,8 @@ fn session_log_index_divergence_requires_explicit_repair() {
         json!({}),
     ));
 
-    assert!(list.error.is_some());
+    assert_eq!(list.error, None);
+    assert!(list.result.as_ref().unwrap().as_array().unwrap().is_empty());
 
     let check = router.dispatch(&WorkerRequest::new(
         "req-missing-log-check",
@@ -2900,25 +3591,600 @@ fn session_log_index_divergence_requires_explicit_repair() {
         json!({}),
     ));
     assert_eq!(check.error, None);
-    assert_eq!(check.result.as_ref().unwrap()["status"], "diverged");
+    assert_eq!(check.result.as_ref().unwrap()["status"], "clean");
+}
+
+#[test]
+fn session_context_checkpoint_commit_is_durable_and_idempotent() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    )
+    .unwrap();
+    let checkpoint = json!({
+        "schemaVersion": 1,
+        "contextId": "run-commit-context:context:1",
+        "sourceVersion": "sha256:fixture",
+        "sourceContextId": null,
+        "windowNumber": 1,
+        "firstWindowId": "session-commit-context:context-window:0",
+        "previousWindowId": "session-commit-context:context-window:0",
+        "windowId": "run-commit-context:context:1",
+        "checkpointStage": "installed",
+        "replacementHistory": [
+            { "role": "system", "content": "summary" },
+            { "role": "user", "content": "current question" }
+        ]
+    });
+    let request = || {
+        WorkerRequest::new(
+            "req-commit-context",
+            "trace-commit-context",
+            "session.commit_context_checkpoint",
+            json!({
+                "session_id": "session-commit-context",
+                "run_id": "run-commit-context",
+                "checkpoint": checkpoint
+            }),
+        )
+    };
+
+    let first = router.dispatch(&request());
+    assert_eq!(first.error, None);
+    assert_eq!(first.result.as_ref().unwrap()["committed"], true);
+    assert_eq!(first.result.as_ref().unwrap()["duplicate"], false);
+    assert_eq!(first.result.as_ref().unwrap()["indexSynchronized"], true);
+    assert_eq!(first.result.as_ref().unwrap()["indexRecovered"], false);
+
+    let duplicate = router.dispatch(&request());
+    assert_eq!(duplicate.error, None);
+    assert_eq!(duplicate.result.as_ref().unwrap()["committed"], false);
+    assert_eq!(duplicate.result.as_ref().unwrap()["duplicate"], true);
+
+    let context = router.dispatch(&WorkerRequest::new(
+        "req-read-committed-context",
+        "trace-read-committed-context",
+        "session.get_agent_context",
+        json!({ "session_id": "session-commit-context", "limit": 50 }),
+    ));
+    assert_eq!(context.error, None);
+    assert_eq!(
+        context.result.as_ref().unwrap()["messages"],
+        checkpoint["replacementHistory"]
+    );
+    assert_eq!(
+        context.result.as_ref().unwrap()["contextCheckpoint"]["contextId"],
+        "run-commit-context:context:1"
+    );
+
+    let stale = router.dispatch(&WorkerRequest::new(
+        "req-stale-context",
+        "trace-stale-context",
+        "session.commit_context_checkpoint",
+        json!({
+            "session_id": "session-commit-context",
+            "run_id": "run-stale-context",
+            "checkpoint": {
+                "contextId": "run-stale-context:context:1",
+                "sourceContextId": null,
+                "checkpointStage": "installed",
+                "replacementHistory": [{ "role": "system", "content": "stale summary" }]
+            }
+        }),
+    ));
+    assert!(stale.error.as_ref().is_some_and(|error| error
+        .message
+        .contains("stale context compaction checkpoint")));
+
+    let skipped_window = router.dispatch(&WorkerRequest::new(
+        "req-skipped-context-window",
+        "trace-skipped-context-window",
+        "session.commit_context_checkpoint",
+        json!({
+            "session_id": "session-commit-context",
+            "run_id": "run-skipped-context-window",
+            "checkpoint": {
+                "contextId": "run-skipped-context-window:context:1",
+                "sourceContextId": "run-commit-context:context:1",
+                "windowNumber": 9,
+                "firstWindowId": "session-commit-context:context-window:0",
+                "previousWindowId": "run-commit-context:context:1",
+                "windowId": "run-skipped-context-window:context:1",
+                "checkpointStage": "installed",
+                "replacementHistory": [{ "role": "system", "content": "skipped window" }]
+            }
+        }),
+    ));
+    assert!(skipped_window.error.as_ref().is_some_and(|error| {
+        error.message.contains("invalid windowNumber")
+            && error.details["expected"] == 2
+            && error.details["actual"] == 9
+    }));
+
+    let next = router.dispatch(&WorkerRequest::new(
+        "req-next-context",
+        "trace-next-context",
+        "session.commit_context_checkpoint",
+        json!({
+            "session_id": "session-commit-context",
+            "run_id": "run-next-context",
+            "checkpoint": {
+                "contextId": "run-next-context:context:1",
+                "sourceContextId": "run-commit-context:context:1",
+                "windowNumber": 2,
+                "firstWindowId": "session-commit-context:context-window:0",
+                "previousWindowId": "run-commit-context:context:1",
+                "windowId": "run-next-context:context:1",
+                "checkpointStage": "installed",
+                "replacementHistory": [{ "role": "system", "content": "next summary" }]
+            }
+        }),
+    ));
+    assert_eq!(next.error, None);
+    assert_eq!(next.result.as_ref().unwrap()["committed"], true);
+
+    let historical_retry = router.dispatch(&request());
+    assert!(
+        historical_retry.error.as_ref().is_some_and(|error| {
+            error
+                .message
+                .contains("checkpoint identity is historical and no longer current")
+        }),
+        "{:?}",
+        historical_retry.error
+    );
+
+    let mut stale_finalized_checkpoint = checkpoint.clone();
+    stale_finalized_checkpoint["checkpointStage"] = json!("finalized");
+    let stale_finalization = router.dispatch(&WorkerRequest::new(
+        "req-stale-context-finalization",
+        "trace-stale-context-finalization",
+        "session.persist_turn",
+        json!({
+            "session_id": "session-commit-context",
+            "run_id": "run-stale-context-finalization",
+            "messages": [],
+            "clear_checkpoint": false,
+            "context_metadata": {
+                "contextCheckpoint": stale_finalized_checkpoint
+            }
+        }),
+    ));
+    assert!(stale_finalization.error.as_ref().is_some_and(|error| {
+        error.message.contains("invalid contextId")
+            && error.details["expected"] == "run-next-context:context:1"
+            && error.details["actual"] == "run-commit-context:context:1"
+    }));
+
+    let conflict = router.dispatch(&WorkerRequest::new(
+        "req-conflicting-context",
+        "trace-conflicting-context",
+        "session.commit_context_checkpoint",
+        json!({
+            "session_id": "session-commit-context",
+            "run_id": "run-commit-context",
+            "checkpoint": {
+                "contextId": "run-commit-context:context:1",
+                "checkpointStage": "installed",
+                "replacementHistory": [{ "role": "system", "content": "different" }]
+            }
+        }),
+    ));
+    assert!(conflict.error.is_some());
+}
+
+#[test]
+fn session_clear_resets_latest_checkpoint_lineage_without_reviving_history() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    )
+    .unwrap();
+    let commit = |context_id: &str, summary: &str| {
+        WorkerRequest::new(
+            format!("req-{context_id}"),
+            "trace-clear-checkpoint",
+            "session.commit_context_checkpoint",
+            json!({
+                "session_id": "session-clear-checkpoint",
+                "run_id": context_id,
+                "checkpoint": {
+                    "contextId": context_id,
+                    "sourceContextId": null,
+                    "windowNumber": 1,
+                    "firstWindowId": "session-clear-checkpoint:context-window:0",
+                    "previousWindowId": "session-clear-checkpoint:context-window:0",
+                    "windowId": context_id,
+                    "checkpointStage": "installed",
+                    "replacementHistory": [{ "role": "system", "content": summary }]
+                }
+            }),
+        )
+    };
+
+    let first = router.dispatch(&commit("context-before-clear", "old summary"));
+    assert_eq!(first.error, None);
+    let clear = router.dispatch(&WorkerRequest::new(
+        "req-clear-checkpoint",
+        "trace-clear-checkpoint",
+        "session.clear",
+        json!({ "session_id": "session-clear-checkpoint" }),
+    ));
+    assert_eq!(clear.error, None);
+
+    let fresh = router.dispatch(&commit("context-after-clear", "fresh summary"));
+    assert_eq!(fresh.error, None);
+    assert_eq!(fresh.result.as_ref().unwrap()["committed"], true);
+
+    let historical = router.dispatch(&commit("context-before-clear", "old summary"));
+    assert!(historical.error.as_ref().is_some_and(|error| {
+        error
+            .message
+            .contains("checkpoint identity is historical and no longer current")
+    }));
+    let context = router.dispatch(&WorkerRequest::new(
+        "req-read-after-clear-checkpoint",
+        "trace-clear-checkpoint",
+        "session.get_agent_context",
+        json!({ "session_id": "session-clear-checkpoint", "limit": 50 }),
+    ));
+    assert_eq!(context.error, None);
+    assert_eq!(
+        context.result.as_ref().unwrap()["messages"][0]["content"],
+        "fresh summary"
+    );
+}
+
+#[test]
+fn session_checkpoint_ordinal_index_self_heals_from_canonical_rollout() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    )
+    .unwrap();
+    let committed = router.dispatch(&WorkerRequest::new(
+        "req-checkpoint-position",
+        "trace-checkpoint-position",
+        "session.commit_context_checkpoint",
+        json!({
+            "session_id": "session-checkpoint-position",
+            "run_id": "run-checkpoint-position",
+            "checkpoint": {
+                "contextId": "context-position",
+                "sourceContextId": null,
+                "windowNumber": 1,
+                "firstWindowId": "session-checkpoint-position:context-window:0",
+                "previousWindowId": "session-checkpoint-position:context-window:0",
+                "windowId": "context-position",
+                "checkpointStage": "installed",
+                "replacementHistory": [{ "role": "system", "content": "indexed summary" }]
+            }
+        }),
+    ));
+    assert_eq!(committed.error, None);
+
+    let state_path = fixture
+        .root
+        .join(".tinybot")
+        .join("state")
+        .join("state.sqlite");
+    let connection = rusqlite::Connection::open(state_path).unwrap();
+    connection
+        .execute("UPDATE latest_context_checkpoints SET ordinal = 999", [])
+        .unwrap();
+    drop(connection);
+
+    let context = router.dispatch(&WorkerRequest::new(
+        "req-checkpoint-position-read",
+        "trace-checkpoint-position",
+        "session.get_agent_context",
+        json!({ "session_id": "session-checkpoint-position", "limit": 50 }),
+    ));
+    assert_eq!(context.error, None);
+    assert_eq!(
+        context.result.as_ref().unwrap()["messages"][0]["content"],
+        "indexed summary"
+    );
+    let consistency = router.dispatch(&WorkerRequest::new(
+        "req-checkpoint-position-check",
+        "trace-checkpoint-position",
+        "session.persistence.check",
+        json!({}),
+    ));
+    assert_eq!(consistency.error, None);
+    assert_eq!(consistency.result.as_ref().unwrap()["status"], "clean");
+}
+
+#[test]
+fn session_agent_context_self_heals_after_canonical_rollout_advances() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    )
+    .unwrap();
+    router
+        .thread_log
+        .persist_session_turn(
+            "session-head-mismatch",
+            "run-head-mismatch",
+            vec![json!({ "role": "user", "content": "indexed message" })],
+            None,
+        )
+        .unwrap();
+
+    let state_path = fixture
+        .root
+        .join(".tinybot")
+        .join("state")
+        .join("state.sqlite");
+    let connection = rusqlite::Connection::open(state_path).unwrap();
+    let thread_path = connection
+        .query_row(
+            "SELECT thread_path FROM threads WHERE session_id = ?1",
+            ["session-head-mismatch"],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap();
+    drop(connection);
+    let next_ordinal = std::fs::read_to_string(&thread_path)
+        .unwrap()
+        .lines()
+        .count() as u64;
+    let external_line = crate::worker_thread_log::ThreadLogLine {
+        timestamp: "2026-07-17T10:00:00.000Z".to_string(),
+        ordinal: Some(next_ordinal),
+        item: crate::worker_thread_log::ThreadLogItem::ResponseItem(
+            crate::worker_rollout::ResponseItem::from_value(
+                json!({ "role": "assistant", "content": "external append" }),
+            )
+            .unwrap(),
+        ),
+    };
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&thread_path)
+        .unwrap();
+    writeln!(file, "{}", serde_json::to_string(&external_line).unwrap()).unwrap();
+    drop(file);
+
+    let context = router.dispatch(&WorkerRequest::new(
+        "req-head-mismatch-read",
+        "trace-head-mismatch",
+        "session.get_agent_context",
+        json!({ "session_id": "session-head-mismatch", "limit": 50 }),
+    ));
+    assert_eq!(context.error, None);
+    assert_eq!(
+        context.result.as_ref().unwrap()["messages"][1]["content"],
+        "external append"
+    );
+}
+
+#[test]
+fn session_agent_context_fast_path_does_not_scan_unrelated_journals() {
+    let fixture = WorkspaceFixture::new();
+    let router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    )
+    .unwrap();
+    for (session_id, run_id, content) in [
+        ("session-fast-target", "run-fast-target", "target message"),
+        ("session-fast-other", "run-fast-other", "other message"),
+    ] {
+        router
+            .thread_log
+            .persist_session_turn(
+                session_id,
+                run_id,
+                vec![json!({ "role": "user", "content": content })],
+                None,
+            )
+            .unwrap();
+    }
+
+    let state_path = fixture
+        .root
+        .join(".tinybot")
+        .join("state")
+        .join("state.sqlite");
+    let connection = rusqlite::Connection::open(state_path).unwrap();
+    let unrelated_path = connection
+        .query_row(
+            "SELECT thread_path FROM threads WHERE session_id = ?1",
+            ["session-fast-other"],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap();
+    drop(connection);
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(unrelated_path)
+        .unwrap();
+    writeln!(file, "not-json").unwrap();
+    drop(file);
+
+    let context = router
+        .thread_log
+        .get_agent_context("session-fast-target", 50)
+        .unwrap()
+        .unwrap();
+    assert_eq!(context.messages[0]["content"], "target message");
+}
+
+#[test]
+fn session_context_checkpoint_commit_recovers_transient_index_failure() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    )
+    .unwrap();
+    router
+        .thread_log
+        .persist_session_turn(
+            "session-index-retry",
+            "run-before-index-retry",
+            vec![json!({ "role": "user", "content": "old context" })],
+            None,
+        )
+        .unwrap();
+    router.thread_log.fail_next_state_index_upserts(1);
+
+    let committed = router.dispatch(&WorkerRequest::new(
+        "req-index-retry",
+        "trace-index-retry",
+        "session.commit_context_checkpoint",
+        json!({
+            "session_id": "session-index-retry",
+            "run_id": "run-index-retry",
+            "checkpoint": {
+                "contextId": "run-index-retry:context:1",
+                "checkpointStage": "installed",
+                "replacementHistory": [{ "role": "system", "content": "recovered summary" }]
+            }
+        }),
+    ));
+
+    assert_eq!(committed.error, None);
+    assert_eq!(committed.result.as_ref().unwrap()["committed"], true);
+    assert_eq!(
+        committed.result.as_ref().unwrap()["indexSynchronized"],
+        true
+    );
+    assert_eq!(committed.result.as_ref().unwrap()["indexRecovered"], true);
+    assert!(committed.result.as_ref().unwrap()["diagnostics"]
+        .as_array()
+        .is_some_and(|diagnostics| !diagnostics.is_empty()));
+    let consistency = router.dispatch(&WorkerRequest::new(
+        "req-index-retry-check",
+        "trace-index-retry-check",
+        "session.persistence.check",
+        json!({}),
+    ));
+    assert_eq!(consistency.error, None);
+    assert_eq!(consistency.result.as_ref().unwrap()["status"], "clean");
+}
+
+#[test]
+fn session_context_checkpoint_commit_reports_degraded_index_without_losing_journal() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    )
+    .unwrap();
+    router
+        .thread_log
+        .persist_session_turn(
+            "session-index-degraded",
+            "run-before-index-degraded",
+            vec![json!({ "role": "user", "content": "old context" })],
+            None,
+        )
+        .unwrap();
+    router.thread_log.fail_next_state_index_upserts(2);
+
+    let committed = router.dispatch(&WorkerRequest::new(
+        "req-index-degraded",
+        "trace-index-degraded",
+        "session.commit_context_checkpoint",
+        json!({
+            "session_id": "session-index-degraded",
+            "run_id": "run-index-degraded",
+            "checkpoint": {
+                "contextId": "run-index-degraded:context:1",
+                "checkpointStage": "installed",
+                "replacementHistory": [{ "role": "system", "content": "durable summary" }]
+            }
+        }),
+    ));
+
+    assert_eq!(committed.error, None);
+    assert_eq!(committed.result.as_ref().unwrap()["committed"], true);
+    assert_eq!(
+        committed.result.as_ref().unwrap()["indexSynchronized"],
+        false
+    );
+    assert_eq!(committed.result.as_ref().unwrap()["indexRecovered"], false);
+    assert!(committed.result.as_ref().unwrap()["diagnostics"][0]
+        .as_str()
+        .is_some_and(|message| message.contains("checkpoint is durable")));
+
+    let consistency = router.dispatch(&WorkerRequest::new(
+        "req-index-degraded-check",
+        "trace-index-degraded-check",
+        "session.persistence.check",
+        json!({}),
+    ));
+    assert_eq!(consistency.error, None);
+    assert_eq!(consistency.result.as_ref().unwrap()["status"], "diverged");
 
     let repair = router.dispatch(&WorkerRequest::new(
-        "req-missing-log-repair",
-        "trace-missing-log-repair",
+        "req-index-degraded-repair",
+        "trace-index-degraded-repair",
         "session.persistence.repair",
         json!({ "mode": "rebuild_index" }),
     ));
     assert_eq!(repair.error, None);
     assert_eq!(repair.result.as_ref().unwrap()["after"]["status"], "clean");
-
-    let list = router.dispatch(&WorkerRequest::new(
-        "req-missing-log-list-after-repair",
-        "trace-missing-log-list-after-repair",
-        "session.list_metadata",
-        json!({}),
+    let context = router.dispatch(&WorkerRequest::new(
+        "req-index-degraded-context",
+        "trace-index-degraded-context",
+        "session.get_agent_context",
+        json!({ "session_id": "session-index-degraded", "limit": 50 }),
     ));
-    assert_eq!(list.error, None);
-    assert!(list.result.as_ref().unwrap().as_array().unwrap().is_empty());
+    assert_eq!(context.error, None);
+    assert_eq!(
+        context.result.as_ref().unwrap()["messages"][0]["content"],
+        "durable summary"
+    );
 }
 
 #[test]
@@ -3195,6 +4461,7 @@ fn session_patch_metadata_allows_thread_log_only_session() {
                 "content": "rename me",
                 "messageId": "user-patch-thread-log-only"
             })],
+            None,
         )
         .unwrap();
 
@@ -3241,11 +4508,9 @@ fn session_patch_metadata_prefers_thread_log_over_legacy_persistence() {
                 "content": "rename me",
                 "messageId": "user-patch-legacy-error"
             })],
+            None,
         )
         .unwrap();
-    let sqlite_path = fixture.root.join("sessions").join("sessions.sqlite");
-    std::fs::create_dir_all(&sqlite_path).expect("sqlite path should be blockable");
-
     let patch = router.dispatch(&WorkerRequest::new(
         "req-patch-legacy-error",
         "trace-patch-legacy-error",
@@ -3369,7 +4634,7 @@ fn dispatches_thread_store_round_trip_requests() {
 }
 
 #[test]
-fn dispatches_thread_list_and_search_include_legacy_session_projections() {
+fn thread_list_does_not_merge_in_memory_session_metadata_at_request_time() {
     let fixture = WorkspaceFixture::new();
     let mut legacy_session = session_fixture();
     legacy_session.session_id = "session:websocket-1".to_string();
@@ -3411,70 +4676,78 @@ fn dispatches_thread_list_and_search_include_legacy_session_projections() {
         json!({}),
     ));
     assert_eq!(list.error, None);
-    let threads = list.result.as_ref().unwrap()["threads"].as_array().unwrap();
-    assert_eq!(threads.len(), 1);
-    assert_eq!(threads[0]["threadId"], "legacy-session-session_websocket-1");
-    assert_eq!(threads[0]["sessionKey"], "session:websocket-1");
-    assert_eq!(threads[0]["source"], "legacy_session_projection");
-    assert_eq!(threads[0]["metadata"]["itemCount"], 2);
-    assert_eq!(threads[0]["metadata"]["preview"], "整理 chat layout 文档");
-    let projected_thread_id = threads[0]["threadId"].as_str().unwrap().to_string();
+    assert_eq!(list.result.as_ref().unwrap()["threads"], json!([]));
+    assert!(first_thread_log_file_under(&fixture.root, "threads").is_none());
+}
 
-    let read = router.dispatch(&WorkerRequest::new(
-        "req-thread-read-legacy-session",
-        "trace-thread-legacy-session",
+#[test]
+fn thread_api_survives_restart_from_rollout_without_legacy_stores() {
+    let fixture = WorkspaceFixture::new();
+    let policy = CapabilityPolicy::new([
+        WorkerCapability::SessionMetadataRead,
+        WorkerCapability::SessionWrite,
+    ]);
+    {
+        let mut router =
+            WorkerRpcRouter::new(fixture.root.clone(), json!({}), vec![], 20, policy.clone());
+        let create = router.dispatch(&WorkerRequest::new(
+            "req-rollout-thread-create",
+            "trace-rollout-thread",
+            "thread.create",
+            json!({
+                "threadId": "thread-rollout-restart",
+                "title": "Rollout restart",
+                "sessionKey": "session-rollout-restart"
+            }),
+        ));
+        assert_eq!(create.error, None);
+        let append = router.dispatch(&WorkerRequest::new(
+            "req-rollout-thread-append",
+            "trace-rollout-thread",
+            "thread.append_items",
+            json!({
+                "threadId": "thread-rollout-restart",
+                "items": [{
+                    "itemId": "thread-rollout-restart:item:user",
+                    "threadId": "",
+                    "runId": "run-rollout-restart",
+                    "turnId": "turn-rollout-restart",
+                    "sequence": 0,
+                    "createdAt": "2026-07-18T00:00:00Z",
+                    "kind": {
+                        "type": "user_message",
+                        "payload": { "text": "persisted through rollout" }
+                    }
+                }]
+            }),
+        ));
+        assert_eq!(append.error, None);
+    }
+
+    let mut restarted = WorkerRpcRouter::new(fixture.root.clone(), json!({}), vec![], 20, policy);
+    let read = restarted.dispatch(&WorkerRequest::new(
+        "req-rollout-thread-read-after-restart",
+        "trace-rollout-thread",
         "thread.read",
-        json!({ "threadId": projected_thread_id }),
+        json!({ "threadId": "thread-rollout-restart" }),
     ));
     assert_eq!(read.error, None);
-    let read_result = read.result.as_ref().unwrap();
-    assert_eq!(read_result["thread"]["source"], "legacy_session_projection");
-    assert_eq!(read_result["pagination"]["itemCount"], 2);
-    let read_items = read_result["items"].as_array().unwrap();
-    assert_eq!(read_items.len(), 2);
-    assert_eq!(read_items[0]["sequence"], 1);
-    assert_eq!(read_items[0]["kind"]["type"], "user_message");
-    assert_eq!(read_items[1]["kind"]["type"], "assistant_message_completed");
-
-    let search = router.dispatch(&WorkerRequest::new(
-        "req-thread-search-legacy-session",
-        "trace-thread-legacy-session",
-        "thread.search",
-        json!({ "query": "reactbits" }),
-    ));
-    assert_eq!(search.error, None);
-    let search_threads = search.result.as_ref().unwrap()["threads"]
-        .as_array()
-        .unwrap();
-    assert_eq!(search_threads.len(), 1);
-    assert_eq!(search_threads[0]["sessionKey"], "session:websocket-1");
-
-    let create = router.dispatch(&WorkerRequest::new(
-        "req-thread-create-existing-session",
-        "trace-thread-legacy-session",
-        "thread.create",
-        json!({
-            "title": "Stored replacement",
-            "sessionKey": "session:websocket-1"
-        }),
-    ));
-    assert_eq!(create.error, None);
-
-    let deduped = router.dispatch(&WorkerRequest::new(
-        "req-thread-list-legacy-deduped",
-        "trace-thread-legacy-session",
-        "thread.list",
-        json!({ "includeArchived": true }),
-    ));
-    assert_eq!(deduped.error, None);
-    let deduped_threads = deduped.result.as_ref().unwrap()["threads"]
-        .as_array()
-        .unwrap();
-    assert_eq!(deduped_threads.len(), 1);
-    assert_ne!(
-        deduped_threads[0]["source"], "legacy_session_projection",
-        "stored thread should suppress the read-only legacy projection"
+    assert_eq!(
+        read.result.as_ref().unwrap()["thread"]["sessionKey"],
+        "session-rollout-restart"
     );
+    assert_eq!(
+        read.result.as_ref().unwrap()["items"][0]["kind"]["payload"]["text"],
+        "persisted through rollout"
+    );
+    assert!(first_thread_log_file_under(&fixture.root, "threads").is_some());
+    assert!(fixture
+        .root
+        .join(".tinybot")
+        .join("state")
+        .join("state.sqlite")
+        .exists());
+    assert_removed_persistence_paths_absent(&fixture.root);
 }
 
 #[test]
@@ -3510,6 +4783,8 @@ fn dispatches_thread_lifecycle_requests() {
     ));
     assert_eq!(archive.error, None);
     assert_eq!(archive.result.as_ref().unwrap()["status"], "archived");
+    let archived_path = first_archived_thread_log_file(&fixture.root);
+    assert!(first_thread_log_file_under(&fixture.root, "threads").is_none());
 
     let resume = router.dispatch(&WorkerRequest::new(
         "req-thread-lifecycle-resume",
@@ -3520,6 +4795,8 @@ fn dispatches_thread_lifecycle_requests() {
     assert_eq!(resume.error, None);
     assert_eq!(resume.result.as_ref().unwrap()["thread"]["status"], "empty");
     assert_eq!(resume.result.as_ref().unwrap()["activeRun"], json!(null));
+    assert!(!archived_path.exists());
+    assert!(first_thread_log_file(&fixture.root).exists());
 
     let status = router.dispatch(&WorkerRequest::new(
         "req-thread-lifecycle-status",
@@ -3953,6 +5230,93 @@ fn dispatches_thread_fork_idempotently_by_client_event_id() {
     assert_eq!(child_threads.len(), 1);
     assert_eq!(child_threads[0]["threadId"], fork_thread_id);
     assert_eq!(child_threads[0]["source"], "fork");
+}
+
+#[test]
+fn thread_fork_inherits_effective_history_from_canonical_rollout() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        20,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionMetadataRead,
+            WorkerCapability::SessionWrite,
+        ]),
+    )
+    .unwrap();
+    let create = router.dispatch(&WorkerRequest::new(
+        "req-rollout-fork-create",
+        "trace-rollout-fork",
+        "thread.create",
+        json!({
+            "threadId": "thread-rollout-fork-source",
+            "title": "Canonical fork source"
+        }),
+    ));
+    assert_eq!(create.error, None);
+    for (run_id, content) in [
+        ("run-rollout-fork-1", "keep"),
+        ("run-rollout-fork-2", "drop"),
+    ] {
+        let persist = router.dispatch(&WorkerRequest::new(
+            format!("req-rollout-fork-{run_id}"),
+            "trace-rollout-fork",
+            "session.persist_turn",
+            json!({
+                "session_id": "thread-rollout-fork-source",
+                "run_id": run_id,
+                "messages": [
+                    { "role": "user", "content": format!("{content} user") },
+                    { "role": "assistant", "content": format!("{content} assistant") }
+                ],
+                "clear_checkpoint": false
+            }),
+        ));
+        assert_eq!(persist.error, None);
+    }
+    let rollback = router.dispatch(&WorkerRequest::new(
+        "req-rollout-fork-rollback",
+        "trace-rollout-fork",
+        "thread.rollback",
+        json!({
+            "threadId": "thread-rollout-fork-source",
+            "numTurns": 1
+        }),
+    ));
+    assert_eq!(rollback.error, None);
+
+    let fork = router.dispatch(&WorkerRequest::new(
+        "req-rollout-fork",
+        "trace-rollout-fork",
+        "thread.fork",
+        json!({
+            "threadId": "thread-rollout-fork-source",
+            "title": "Canonical fork"
+        }),
+    ));
+    assert_eq!(fork.error, None);
+    let fork_thread_id = fork.result.as_ref().unwrap()["threadId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(fork.result.as_ref().unwrap()["sessionKey"], fork_thread_id);
+
+    let history = router.dispatch(&WorkerRequest::new(
+        "req-rollout-fork-history",
+        "trace-rollout-fork",
+        "session.get_history",
+        json!({ "session_id": fork_thread_id, "limit": 80 }),
+    ));
+    assert_eq!(history.error, None);
+    let contents = history.result.as_ref().unwrap()["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|message| message["content"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(contents, vec!["keep user", "keep assistant"]);
 }
 
 #[test]
@@ -5902,16 +7266,16 @@ fn dispatches_thread_read_before_sequence_page() {
         "req-thread-read-before-page",
         "trace-thread-read-before",
         "thread.read",
-        json!({ "threadId": "thread-read-before", "limit": 2, "beforeSequence": 5 }),
+        json!({ "threadId": "thread-read-before", "limit": 2, "beforeSequence": 7 }),
     ));
     assert_eq!(page.error, None);
     let items = page.result.as_ref().unwrap()["items"].as_array().unwrap();
     assert_eq!(items.len(), 2);
-    assert_eq!(items[0]["sequence"], 3);
-    assert_eq!(items[1]["sequence"], 4);
+    assert_eq!(items[0]["sequence"], 4);
+    assert_eq!(items[1]["sequence"], 5);
     assert_eq!(
         page.result.as_ref().unwrap()["pagination"]["previousCursor"],
-        "3"
+        "4"
     );
     assert_eq!(
         page.result.as_ref().unwrap()["pagination"]["hasMoreBefore"],
@@ -7630,17 +8994,7 @@ fn dispatches_agent_run_store_round_trip_requests() {
         json!(null)
     );
 
-    assert!(!fixture
-        .root
-        .join("sessions")
-        .join("sessions.sqlite")
-        .exists());
-    assert!(!fixture
-        .root
-        .join(".tinybot")
-        .join("threads")
-        .join("threads.sqlite")
-        .exists());
+    assert_removed_persistence_paths_absent(&fixture.root);
 
     let metadata = router.dispatch(&WorkerRequest::new(
         "req-session-metadata-after-agent-run",
@@ -7904,7 +9258,7 @@ fn dispatches_agent_run_list_merges_thread_log_and_thread_backed_runs() {
 }
 
 #[test]
-fn dispatches_agent_run_reads_legacy_session_backed_runs() {
+fn agent_run_requests_do_not_import_in_memory_legacy_sessions() {
     let fixture = WorkspaceFixture::new();
     let mut session = session_fixture();
     session.extra = json!({
@@ -7965,29 +9319,13 @@ fn dispatches_agent_run_reads_legacy_session_backed_runs() {
         "agent_run.get",
         json!({ "session_id": "session-1", "run_id": "run-legacy-session" }),
     ));
-    let runtime_state = router.dispatch(&WorkerRequest::new(
-        "req-legacy-agent-run-runtime",
-        "trace-legacy-agent-run",
-        "agent_run.runtime_state",
-        json!({ "session_id": "session-1", "run_id": "run-legacy-session" }),
-    ));
-
     assert_eq!(run_list.error, None);
+    assert_eq!(run_list.result.as_ref().unwrap()["runs"], json!([]));
     assert_eq!(
-        run_list.result.as_ref().unwrap()["runs"][0]["runId"],
-        "run-legacy-session"
+        get.error.as_ref().unwrap().code,
+        crate::worker_protocol::WorkerProtocolErrorCode::InvalidProtocol
     );
-    assert_eq!(get.error, None);
-    assert_eq!(get.result.as_ref().unwrap()["status"], "completed");
-    assert_eq!(runtime_state.error, None);
-    assert_eq!(
-        runtime_state.result.as_ref().unwrap()["timeline"]["items"][0]["kind"],
-        "assistant_message"
-    );
-    assert_eq!(
-        runtime_state.result.as_ref().unwrap()["timeline"]["items"][0]["data"]["content"],
-        "Legacy final response"
-    );
+    assert!(first_thread_log_file_under(&fixture.root, "threads").is_none());
 }
 
 #[test]
@@ -9130,7 +10468,7 @@ fn dispatches_subagent_control_requests() {
         .as_array()
         .expect("thread list should be an array");
     assert_eq!(default_threads.len(), 1);
-    assert_eq!(default_threads[0]["source"], "legacy_subagent_parent");
+    assert_eq!(default_threads[0]["source"], "subagent_parent");
 
     let thread_list = router.dispatch(&WorkerRequest::new(
         "req-subagent-thread-list",
@@ -9145,7 +10483,7 @@ fn dispatches_subagent_control_requests() {
     assert_eq!(threads.len(), 2);
     let parent_thread = threads
         .iter()
-        .find(|thread| thread["source"] == "legacy_subagent_parent")
+        .find(|thread| thread["source"] == "subagent_parent")
         .expect("parent thread should be projected");
     let child_thread = threads
         .iter()
@@ -9951,6 +11289,151 @@ fn dispatches_session_temporary_file_lifecycle() {
     );
 }
 
+#[test]
+fn session_clear_removes_temporary_files_from_persistent_resource_sidecar() {
+    let fixture = WorkspaceFixture::new();
+    let session_id = "websocket:chat-clear-resources";
+    let policy = CapabilityPolicy::new([
+        WorkerCapability::SessionMetadataRead,
+        WorkerCapability::SessionWrite,
+    ]);
+    let mut router = persistent_router_with_temporary_file(&fixture, session_id, policy.clone());
+
+    let cleared = router.dispatch(&WorkerRequest::new(
+        "req-session-clear-resource",
+        "trace-session-clear-resource",
+        "session.clear",
+        json!({ "session_id": session_id }),
+    ));
+    assert_eq!(cleared.error, None);
+    let listed = router.dispatch(&WorkerRequest::new(
+        "req-session-clear-resource-list",
+        "trace-session-clear-resource",
+        "session.temporary_file.list",
+        json!({ "session_id": session_id }),
+    ));
+    assert_eq!(listed.error, None);
+    assert_eq!(
+        listed.result.as_ref().unwrap()["temporary_files"],
+        json!([])
+    );
+    drop(router);
+
+    let mut restarted_session = session_fixture();
+    restarted_session.session_id = session_id.to_string();
+    let mut restarted = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![restarted_session],
+        20,
+        policy,
+    )
+    .unwrap();
+    let restarted_list = restarted.dispatch(&WorkerRequest::new(
+        "req-session-clear-resource-list-restarted",
+        "trace-session-clear-resource",
+        "session.temporary_file.list",
+        json!({ "session_id": session_id }),
+    ));
+    assert_eq!(restarted_list.error, None);
+    assert_eq!(
+        restarted_list.result.as_ref().unwrap()["temporary_files"],
+        json!([])
+    );
+}
+
+#[test]
+fn session_delete_removes_temporary_files_from_persistent_resource_sidecar() {
+    let fixture = WorkspaceFixture::new();
+    let session_id = "websocket:chat-delete-resources";
+    let policy = CapabilityPolicy::new([
+        WorkerCapability::SessionMetadataRead,
+        WorkerCapability::SessionWrite,
+    ]);
+    let mut router = persistent_router_with_temporary_file(&fixture, session_id, policy.clone());
+
+    let deleted = router.dispatch(&WorkerRequest::new(
+        "req-session-delete-resource",
+        "trace-session-delete-resource",
+        "session.delete",
+        json!({ "session_id": session_id }),
+    ));
+    assert_eq!(deleted.error, None);
+    let listed = router.dispatch(&WorkerRequest::new(
+        "req-session-delete-resource-list",
+        "trace-session-delete-resource",
+        "session.temporary_file.list",
+        json!({ "session_id": session_id }),
+    ));
+    assert!(listed.error.is_some());
+    drop(router);
+
+    let mut restarted = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        20,
+        policy,
+    )
+    .unwrap();
+    let restarted_list = restarted.dispatch(&WorkerRequest::new(
+        "req-session-delete-resource-list-restarted",
+        "trace-session-delete-resource",
+        "session.temporary_file.list",
+        json!({ "session_id": session_id }),
+    ));
+    assert!(restarted_list.error.is_some());
+}
+
+fn persistent_router_with_temporary_file(
+    fixture: &WorkspaceFixture,
+    session_id: &str,
+    policy: CapabilityPolicy,
+) -> WorkerRpcRouter {
+    let mut session = session_fixture();
+    session.session_id = session_id.to_string();
+    let mut router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![session],
+        20,
+        policy,
+    )
+    .unwrap();
+    assert_eq!(
+        router
+            .dispatch(&WorkerRequest::new(
+                format!("req-{session_id}-resource-history"),
+                format!("trace-{session_id}-resource"),
+                "session.append_messages",
+                json!({
+                    "session_id": session_id,
+                    "messages": [{ "role": "user", "content": "remove everything" }]
+                }),
+            ))
+            .error,
+        None
+    );
+    assert_eq!(
+        router
+            .dispatch(&WorkerRequest::new(
+                format!("req-{session_id}-resource-upload"),
+                format!("trace-{session_id}-resource"),
+                "session.temporary_file.upload",
+                json!({
+                    "session_id": session_id,
+                    "name": "Remove Me.md",
+                    "file_type": "md",
+                    "content": "temporary resource evidence",
+                    "size_bytes": 27
+                }),
+            ))
+            .error,
+        None
+    );
+    router
+}
+
 fn approve_once(
     router: &mut WorkerRpcRouter,
     run_id: &str,
@@ -10737,6 +12220,15 @@ fn session_fixture() -> crate::worker_session::SessionMetadata {
 }
 
 fn first_thread_log_file(root: &Path) -> PathBuf {
+    first_thread_log_file_under(root, "threads").expect("thread log file should exist")
+}
+
+fn first_archived_thread_log_file(root: &Path) -> PathBuf {
+    first_thread_log_file_under(root, "archived_threads")
+        .expect("archived thread log file should exist")
+}
+
+fn first_thread_log_file_under(root: &Path, directory: &str) -> Option<PathBuf> {
     fn visit(dir: &Path) -> Option<PathBuf> {
         for entry in std::fs::read_dir(dir).ok()? {
             let path = entry.ok()?.path();
@@ -10747,14 +12239,30 @@ fn first_thread_log_file(root: &Path) -> PathBuf {
             } else if path
                 .file_name()
                 .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("thread-") && name.ends_with(".jsonl"))
+                .is_some_and(|name| {
+                    name.starts_with("thread-")
+                        && (name.ends_with(".jsonl") || name.ends_with(".jsonl.zst"))
+                })
             {
                 return Some(path);
             }
         }
         None
     }
-    visit(&root.join(".tinybot").join("threads")).expect("thread log file should exist")
+    visit(&root.join(".tinybot").join(directory))
+}
+
+fn assert_removed_persistence_paths_absent(root: &Path) {
+    let removed_paths = [
+        root.join("sessions").join("sessions.sqlite"),
+        root.join(".tinybot")
+            .join("state")
+            .join("thread-store.jsonl"),
+        root.join(".tinybot").join("threads").join("threads.sqlite"),
+    ];
+    for path in removed_paths {
+        assert!(!path.exists(), "removed persistence path exists: {path:?}");
+    }
 }
 
 fn prepare_session_log_index_for_startup(root: &Path) {

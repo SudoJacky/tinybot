@@ -308,6 +308,13 @@ impl AgentItemHistory {
             .collect()
     }
 
+    pub fn to_legacy_messages(&self) -> Result<Vec<Value>, String> {
+        self.items
+            .iter()
+            .map(AgentItem::to_legacy_message)
+            .collect()
+    }
+
     pub fn assistant_tool_call_batch_count(&self) -> usize {
         self.items
             .iter()

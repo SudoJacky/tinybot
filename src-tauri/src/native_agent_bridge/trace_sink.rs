@@ -1,3 +1,4 @@
+use super::result_projection::native_agent_persisted_trace_values;
 use crate::agent_loop_runtime_protocol::{AgentRuntimeEventEnvelope, AgentTimelinePatch};
 use crate::worker_agent_runtime::NativeAgentTraceSink;
 use crate::worker_protocol::WorkerRequest;
@@ -86,6 +87,15 @@ impl NativeAgentTraceSink for NativeAgentRunTraceSink {
             .unwrap_or_else(|| generated.trace_id("agent-run-append-trace-batch"));
         let events = serde_json::to_value(events)
             .map_err(|error| format!("native agent trace batch serialization failed: {error}"))?;
+        let events = native_agent_persisted_trace_values(
+            events
+                .as_array()
+                .expect("serialized native agent trace batch must be an array"),
+        );
+        if events.is_empty() {
+            return Ok(());
+        }
+        let events = serde_json::Value::Array(events);
         let metrics = crate::runtime::observability::global_agent_runtime_metrics();
         metrics.increment("persistence.batch.started");
         let started_at = Instant::now();
@@ -244,7 +254,14 @@ impl NativeAgentTraceSink for BufferedNativeAgentTraceSink {
     ) -> Result<(), String> {
         let live_result = self.live_sink.append_trace_event(session_id, run_id, event);
         let enqueue_result = self.enqueue_event(session_id, run_id, event);
-        live_result.and(enqueue_result)
+        live_result.and(enqueue_result)?;
+        if !matches!(
+            event.event_name.as_str(),
+            "agent.delta" | "agent.reasoning_delta"
+        ) {
+            self.flush()?;
+        }
+        Ok(())
     }
 
     fn append_timeline_patch(

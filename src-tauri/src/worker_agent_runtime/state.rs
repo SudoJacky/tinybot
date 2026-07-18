@@ -1,3 +1,4 @@
+use super::context_manager::ContextManager;
 use super::continuations::guidance_continuation_message;
 use super::events::{
     legacy_result_events_from_runtime_events, runtime_event_item_id, runtime_event_source,
@@ -18,6 +19,7 @@ use crate::agent_loop_runtime_protocol::{
     AgentTimelineProjector,
 };
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -30,12 +32,14 @@ pub(super) struct NativeAgentRunState {
     pub(super) max_iterations: i64,
     pub(super) pending_tool_calls: Vec<Value>,
     pub(super) completed_tool_results: Vec<Value>,
-    pub(super) messages: Vec<Value>,
+    pub(super) history: ContextManager,
     emitter: AgentRunEmitter,
     timeline_projector: AgentTimelineProjector,
     usage: Vec<Value>,
     pub(super) tools_used: Vec<String>,
     stop_reason: Option<String>,
+    context_checkpoint: Option<Value>,
+    source_context_checkpoint: Option<Value>,
     pending_guidance_message: Option<Value>,
     trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 }
@@ -44,8 +48,8 @@ impl NativeAgentRunState {
     pub(super) fn new(
         context: &NativeAgentRunContext,
         trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, String> {
+        Ok(Self {
             run_id: context.run_id.clone(),
             session_id: context.session_id.clone(),
             phase: AgentRuntimePhase::Queued,
@@ -53,7 +57,7 @@ impl NativeAgentRunState {
             max_iterations: context.max_iterations,
             pending_tool_calls: Vec::new(),
             completed_tool_results: Vec::new(),
-            messages: context.messages.clone(),
+            history: ContextManager::from_legacy_messages(&context.messages)?,
             emitter: AgentRunEmitter::new_with_trace_context(
                 &context.session_id,
                 context.trace_context.clone(),
@@ -62,9 +66,21 @@ impl NativeAgentRunState {
             usage: Vec::new(),
             tools_used: Vec::new(),
             stop_reason: None,
+            context_checkpoint: None,
+            source_context_checkpoint: context
+                .metadata
+                .get("contextSourceCheckpoint")
+                .or_else(|| context.metadata.get("context_source_checkpoint"))
+                .filter(|checkpoint| checkpoint.is_object())
+                .cloned()
+                .or_else(|| {
+                    string_field(&context.metadata, "contextSourceCheckpointId")
+                        .or_else(|| string_field(&context.metadata, "context_source_checkpoint_id"))
+                        .map(|context_id| serde_json::json!({ "contextId": context_id }))
+                }),
             pending_guidance_message: guidance_continuation_message(&context.metadata),
             trace_sink,
-        }
+        })
     }
 
     fn append_trace_event(&mut self, event: &AgentRuntimeEventEnvelope) {
@@ -119,7 +135,7 @@ impl NativeAgentRunState {
             .map(|sink| sink.load_runtime_events(&context.session_id, &context.run_id))
             .transpose()?
             .unwrap_or_default();
-        let mut state = Self::new(context, trace_sink);
+        let mut state = Self::new(context, trace_sink)?;
         if !existing.is_empty() {
             state.emitter = AgentRunEmitter::from_existing_events_with_thread_id(
                 &context.session_id,
@@ -227,7 +243,88 @@ impl NativeAgentRunState {
             "pendingToolCalls": self.pending_tool_calls,
             "completedToolResults": self.completed_tool_results,
             "stopReason": self.stop_reason,
+            "messages": self.history.messages(),
+            "contextCheckpoint": self.context_checkpoint,
         })
+    }
+
+    pub(super) fn compacted_context_checkpoint(
+        &self,
+        replacement_history: &[Value],
+        event_payload: &Value,
+    ) -> Value {
+        let source_version = context_messages_version(&self.history.messages());
+        let parent_checkpoint = self
+            .context_checkpoint
+            .as_ref()
+            .or(self.source_context_checkpoint.as_ref());
+        let context_id = event_payload
+            .get("contextId")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let window = crate::context_checkpoint_lineage::next_context_window(
+            &self.session_id,
+            context_id,
+            parent_checkpoint,
+        );
+        serde_json::json!({
+            "schemaVersion": 1,
+            "contextId": event_payload.get("contextId").cloned().unwrap_or(Value::Null),
+            "sourceVersion": source_version,
+            "historyVersion": self.history.history_version(),
+            "sourceContextId": window.source_context_id,
+            "windowNumber": window.window_number,
+            "firstWindowId": window.first_window_id,
+            "previousWindowId": window.previous_window_id,
+            "windowId": window.window_id,
+            "trigger": event_payload.get("trigger").cloned().unwrap_or(Value::Null),
+            "reason": event_payload.get("reason").cloned().unwrap_or(Value::Null),
+            "phase": event_payload.get("phase").cloned().unwrap_or(Value::Null),
+            "method": event_payload.get("method").cloned().unwrap_or(Value::Null),
+            "provider": event_payload.get("provider").cloned().unwrap_or(Value::Null),
+            "model": event_payload.get("model").cloned().unwrap_or(Value::Null),
+            "estimatedTokensBefore": event_payload.get("estimatedTokensBefore").cloned().unwrap_or(Value::Null),
+            "estimatedTokensAfter": event_payload.get("estimatedTokensAfter").cloned().unwrap_or(Value::Null),
+            "maskedToolOutputCount": event_payload.get("maskedToolOutputCount").cloned().unwrap_or(Value::Null),
+            "summaryRequestCount": event_payload.get("summaryRequestCount").cloned().unwrap_or(Value::Null),
+            "installedReplacementHistory": replacement_history,
+            "replacementHistory": replacement_history,
+            "checkpointStage": "installed",
+        })
+    }
+
+    pub(super) fn install_compacted_context(
+        &mut self,
+        replacement_history: Vec<Value>,
+        checkpoint: Value,
+    ) -> Result<(), String> {
+        self.history.replace(replacement_history)?;
+        self.context_checkpoint = Some(checkpoint);
+        Ok(())
+    }
+
+    pub(super) fn finalized_context_checkpoint(
+        &self,
+        final_message: Option<Value>,
+    ) -> Option<Value> {
+        let mut checkpoint = self.context_checkpoint.clone()?;
+        let mut replacement_history = self.history.messages();
+        if let Some(final_message) = final_message {
+            replacement_history.push(final_message);
+        }
+        checkpoint["replacementHistory"] = Value::Array(replacement_history);
+        checkpoint["checkpointStage"] = Value::String("finalized".to_string());
+        Some(checkpoint)
+    }
+
+    pub(super) fn attach_context_checkpoint(
+        &self,
+        result: &mut Value,
+        final_message: Option<Value>,
+    ) {
+        if let Some(checkpoint) = self.finalized_context_checkpoint(final_message) {
+            result["contextCheckpoint"] = checkpoint;
+        }
     }
 
     pub(super) fn set_pending_tool_call(&mut self, tool_call: &NativeAgentToolCall) {
@@ -395,19 +492,23 @@ impl NativeAgentRunState {
         self.emitter.take_events()
     }
 
-    pub(super) fn drain_pending_guidance(&mut self) -> Option<Value> {
-        let message = self.pending_guidance_message.take()?;
-        self.messages.push(message.clone());
-        Some(message)
+    pub(super) fn drain_pending_guidance(&mut self) -> Result<Option<Value>, String> {
+        let Some(message) = self.pending_guidance_message.take() else {
+            return Ok(None);
+        };
+        self.history.record_message(message.clone())?;
+        Ok(Some(message))
     }
 
     pub(super) fn record_usage(
         &mut self,
         context: &NativeAgentRunContext,
         iteration: i64,
+        model_call_id: &str,
         usage: Value,
         estimated_context_tokens: i64,
     ) {
+        let provider_usage = usage.clone();
         let cumulative_before = latest_cumulative_usage_tokens(&self.usage).unwrap_or_else(|| {
             self.usage
                 .iter()
@@ -420,17 +521,52 @@ impl NativeAgentRunState {
             estimated_context_tokens,
             cumulative_before,
         );
+        let model_context_window = usage
+            .get("contextWindowTokens")
+            .and_then(Value::as_i64)
+            .filter(|value| *value > 0);
+        self.history.update_token_info(&usage, model_context_window);
+        let token_info = self.history.token_info();
         self.usage.push(usage.clone());
+        self.emit_event(
+            "agent.model_call.completed",
+            serde_json::json!({
+                "runId": context.run_id,
+                "sessionId": context.session_id,
+                "turnId": context.trace_context.turn_id,
+                "iteration": iteration,
+                "modelCallId": model_call_id,
+                "tokenUsage": provider_usage,
+            }),
+        );
+        self.emit_event(
+            "agent.token_count",
+            serde_json::json!({
+                "runId": context.run_id,
+                "sessionId": context.session_id,
+                "turnId": context.trace_context.turn_id,
+                "iteration": iteration,
+                "modelCallId": model_call_id,
+                "info": token_info,
+            }),
+        );
         self.emit_event(
             "agent.usage",
             serde_json::json!({
                 "runId": context.run_id,
                 "sessionId": context.session_id,
+                "turnId": context.trace_context.turn_id,
                 "iteration": iteration,
+                "modelCallId": model_call_id,
                 "usage": usage,
             }),
         );
     }
+}
+
+fn context_messages_version(messages: &[Value]) -> String {
+    let encoded = serde_json::to_vec(messages).unwrap_or_default();
+    format!("sha256:{:x}", Sha256::digest(encoded))
 }
 
 fn user_message_text(message: &Value) -> String {

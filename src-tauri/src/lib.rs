@@ -16,6 +16,8 @@ mod adapters;
 pub mod agent_loop_runtime_protocol;
 mod config_application;
 pub mod config_store;
+mod context_checkpoint_lineage;
+mod context_checkpoint_lock;
 pub mod desktop_commands;
 pub mod desktop_files;
 #[cfg(test)]
@@ -47,6 +49,7 @@ pub mod worker_memory;
 pub mod worker_permission_profile;
 pub mod worker_protocol;
 pub mod worker_request_id;
+pub mod worker_rollout;
 pub mod worker_rpc;
 pub mod worker_runtime;
 pub mod worker_secret;

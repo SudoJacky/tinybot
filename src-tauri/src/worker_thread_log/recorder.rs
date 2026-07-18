@@ -2,33 +2,69 @@ use super::{ThreadLogItem, ThreadLogLine, ThreadMeta};
 use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource,
 };
+#[cfg(test)]
+use crate::worker_rollout::ResponseItem;
+use crate::worker_rollout::{should_persist_rollout_item, EventKind, EventMsg};
 use serde_json::Value;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use sha2::{Digest, Sha256};
+use std::collections::HashMap;
+use std::fs;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[derive(Clone, Debug)]
+use super::compression::{
+    compress_rollout, compressed_rollout_path, is_rollout_compressed,
+    materialize_rollout_for_append, remove_rollout,
+};
+use super::rollout_writer::{retire_writer_for_path, writer_for_path, RolloutWriter};
+
+const THREAD_LOG_HEAD_TAIL_BYTES: u64 = 8 * 1024;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct ThreadLogHead {
+    pub(super) byte_length: i64,
+    pub(super) tail_hash: String,
+}
+
+#[derive(Clone)]
 pub struct ThreadRecorder {
     root: PathBuf,
+    archive_root: PathBuf,
+    writers: Arc<Mutex<HashMap<PathBuf, Arc<RolloutWriter>>>>,
+}
+
+impl std::fmt::Debug for ThreadRecorder {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ThreadRecorder")
+            .field("root", &self.root)
+            .field("archive_root", &self.archive_root)
+            .finish_non_exhaustive()
+    }
 }
 
 impl ThreadRecorder {
     pub fn new(workspace_root: PathBuf) -> Self {
         Self {
             root: workspace_root.join(".tinybot").join("threads"),
+            archive_root: workspace_root.join(".tinybot").join("archived_threads"),
+            writers: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     pub fn create_thread(&self, meta: ThreadMeta) -> Result<PathBuf, WorkerProtocolError> {
         let path = self.thread_path(&meta.thread_id, &meta.created_at)?;
-        self.append_line(
+        self.add_lines(
             &path,
-            ThreadLogLine {
+            vec![ThreadLogLine {
                 timestamp: meta.created_at.clone(),
-                item: ThreadLogItem::ThreadMeta(meta),
-            },
+                ordinal: None,
+                item: ThreadLogItem::SessionMeta(meta),
+            }],
         )?;
+        self.persist(&path)?;
         Ok(path)
     }
 
@@ -39,7 +75,15 @@ impl ThreadRecorder {
         item: ThreadLogItem,
     ) -> Result<(), WorkerProtocolError> {
         self.validate_thread_path(path)?;
-        self.append_line(path, ThreadLogLine { timestamp, item })
+        self.add_lines(
+            path,
+            vec![ThreadLogLine {
+                timestamp,
+                ordinal: None,
+                item,
+            }],
+        )?;
+        self.persist(path)
     }
 
     pub fn append_items(
@@ -53,43 +97,230 @@ impl ThreadRecorder {
             .into_iter()
             .map(|item| ThreadLogLine {
                 timestamp: timestamp.clone(),
+                ordinal: None,
                 item,
             })
             .collect();
-        self.append_lines(path, lines)
+        self.add_lines(path, lines)?;
+        self.persist(path)
     }
 
-    pub fn validate_thread_path(&self, path: &Path) -> Result<(), WorkerProtocolError> {
-        validate_thread_path(&self.root, path)
-    }
-
-    fn append_line(&self, path: &Path, line: ThreadLogLine) -> Result<(), WorkerProtocolError> {
-        self.append_lines(path, vec![line])
-    }
-
-    fn append_lines(
+    pub fn append_lines(
         &self,
         path: &Path,
         lines: Vec<ThreadLogLine>,
     ) -> Result<(), WorkerProtocolError> {
+        self.validate_thread_path(path)?;
+        self.add_lines(path, lines)?;
+        self.persist(path)
+    }
+
+    pub fn add_items(
+        &self,
+        path: &Path,
+        timestamp: String,
+        items: Vec<ThreadLogItem>,
+    ) -> Result<(), WorkerProtocolError> {
+        self.validate_thread_path(path)?;
+        let lines = items
+            .into_iter()
+            .map(|item| ThreadLogLine {
+                timestamp: timestamp.clone(),
+                ordinal: None,
+                item,
+            })
+            .collect();
+        self.add_lines(path, lines)
+    }
+
+    pub fn persist(&self, path: &Path) -> Result<(), WorkerProtocolError> {
+        self.writer(path)?.persist()
+    }
+
+    pub fn flush(&self, path: &Path) -> Result<(), WorkerProtocolError> {
+        self.writer(path)?.flush()
+    }
+
+    pub fn shutdown(&self, path: &Path) -> Result<(), WorkerProtocolError> {
+        self.validate_thread_path(path)?;
+        let writer = {
+            let writers = self.writers.lock().map_err(|_| {
+                thread_log_validation_error("thread log writer registry lock is poisoned")
+            })?;
+            writers.get(path).cloned()
+        };
+        let Some(writer) = writer else {
+            return Ok(());
+        };
+        if Arc::strong_count(&writer) > 2 {
+            return Err(thread_log_validation_error(
+                "cannot shutdown rollout writer while another recorder owns it",
+            ));
+        }
+        writer.shutdown()?;
+        self.writers
+            .lock()
+            .map_err(|_| {
+                thread_log_validation_error("thread log writer registry lock is poisoned")
+            })?
+            .remove(path);
+        Ok(())
+    }
+
+    pub fn shutdown_all(&self) -> Result<(), WorkerProtocolError> {
+        let paths = {
+            let writers = self.writers.lock().map_err(|_| {
+                thread_log_validation_error("thread log writer registry lock is poisoned")
+            })?;
+            writers.keys().cloned().collect::<Vec<_>>()
+        };
+        for path in paths {
+            self.shutdown(&path)?;
+        }
+        Ok(())
+    }
+
+    pub fn delete_rollout(&self, path: &Path) -> Result<(), WorkerProtocolError> {
+        self.validate_thread_path(path)?;
+        retire_writer_for_path(path, || remove_rollout(path))?;
+        self.writers
+            .lock()
+            .map_err(|_| {
+                thread_log_validation_error("thread log writer registry lock is poisoned")
+            })?
+            .remove(path);
+        Ok(())
+    }
+
+    pub fn archive_rollout(&self, path: &Path) -> Result<PathBuf, WorkerProtocolError> {
+        let target = self.relocate_rollout(path, &self.root, &self.archive_root)?;
+        if let Err(error) = compress_rollout(&target) {
+            if let Err(rollback_error) =
+                self.relocate_rollout(&target, &self.archive_root, &self.root)
+            {
+                eprintln!(
+                    "rollout_archive_compression_rollback_failed source={} target={} \
+                     compression_error={} rollback_error={}",
+                    path.display(),
+                    target.display(),
+                    error.message,
+                    rollback_error.message
+                );
+            }
+            return Err(error);
+        }
+        Ok(target)
+    }
+
+    pub fn unarchive_rollout(&self, path: &Path) -> Result<PathBuf, WorkerProtocolError> {
+        self.relocate_rollout(path, &self.archive_root, &self.root)
+    }
+
+    pub fn validate_thread_path(&self, path: &Path) -> Result<(), WorkerProtocolError> {
+        if path.starts_with(&self.root) {
+            return validate_thread_path(&self.root, path);
+        }
+        validate_thread_path(&self.archive_root, path)
+    }
+
+    pub fn is_archived_path(&self, path: &Path) -> bool {
+        is_canonical_thread_log_path(&self.archive_root, path)
+    }
+
+    #[cfg(test)]
+    pub(super) fn is_compressed(&self, path: &Path) -> Result<bool, WorkerProtocolError> {
+        is_rollout_compressed(path)
+    }
+
+    pub(super) fn thread_log_head(
+        &self,
+        path: &Path,
+    ) -> Result<ThreadLogHead, WorkerProtocolError> {
+        self.validate_thread_path(path)?;
+        let storage_path = if is_rollout_compressed(path)? {
+            compressed_rollout_path(path)?
+        } else {
+            path.to_path_buf()
+        };
+        let mut file = fs::File::open(&storage_path).map_err(thread_log_io_error)?;
+        let byte_length = file.metadata().map_err(thread_log_io_error)?.len();
+        let tail_start = byte_length.saturating_sub(THREAD_LOG_HEAD_TAIL_BYTES);
+        file.seek(SeekFrom::Start(tail_start))
+            .map_err(thread_log_io_error)?;
+        let mut tail =
+            Vec::with_capacity(usize::try_from(byte_length - tail_start).map_err(|_| {
+                thread_log_validation_error("thread log tail exceeds supported buffer size")
+            })?);
+        file.read_to_end(&mut tail).map_err(thread_log_io_error)?;
+        Ok(ThreadLogHead {
+            byte_length: i64::try_from(byte_length).map_err(|_| {
+                thread_log_validation_error("thread log exceeds SQLite length range")
+            })?,
+            tail_hash: format!("sha256:{:x}", Sha256::digest(tail)),
+        })
+    }
+
+    fn add_lines(&self, path: &Path, lines: Vec<ThreadLogLine>) -> Result<(), WorkerProtocolError> {
+        let lines = lines
+            .into_iter()
+            .filter_map(|line| match should_persist_rollout_item(&line.item) {
+                Ok(true) => Some(Ok(line)),
+                Ok(false) => None,
+                Err(error) => Some(Err(error)),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         if lines.is_empty() {
             return Ok(());
         }
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(thread_log_io_error)?;
+        self.writer(path)?.add_items(lines)
+    }
+
+    fn writer(&self, path: &Path) -> Result<std::sync::Arc<RolloutWriter>, WorkerProtocolError> {
+        self.validate_thread_path(path)?;
+        materialize_rollout_for_append(path)?;
+        let mut writers = self.writers.lock().map_err(|_| {
+            thread_log_validation_error("thread log writer registry lock is poisoned")
+        })?;
+        if let Some(writer) = writers.get(path) {
+            return Ok(writer.clone());
         }
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-            .map_err(thread_log_io_error)?;
-        for line in lines {
-            let mut serialized = serde_json::to_string(&line).map_err(thread_log_json_error)?;
-            serialized.push('\n');
-            file.write_all(serialized.as_bytes())
-                .map_err(thread_log_io_error)?;
-        }
-        file.flush().map_err(thread_log_io_error)
+        let writer = writer_for_path(path)?;
+        writers.insert(path.to_path_buf(), writer.clone());
+        Ok(writer)
+    }
+
+    fn relocate_rollout(
+        &self,
+        path: &Path,
+        from_root: &Path,
+        to_root: &Path,
+    ) -> Result<PathBuf, WorkerProtocolError> {
+        validate_thread_path(from_root, path)?;
+        let relative = path.strip_prefix(from_root).map_err(|_| {
+            thread_log_validation_error("thread log path escaped relocation source root")
+        })?;
+        let target = to_root.join(relative);
+        validate_thread_path(to_root, &target)?;
+        let parent = target.parent().ok_or_else(|| {
+            thread_log_validation_error("thread log relocation target has no parent directory")
+        })?;
+        fs::create_dir_all(parent).map_err(thread_log_io_error)?;
+        retire_writer_for_path(path, || {
+            materialize_rollout_for_append(path)?;
+            if target.exists() {
+                return Err(thread_log_validation_error(
+                    "thread log relocation target already exists",
+                ));
+            }
+            fs::rename(path, &target).map_err(thread_log_io_error)
+        })?;
+        self.writers
+            .lock()
+            .map_err(|_| {
+                thread_log_validation_error("thread log writer registry lock is poisoned")
+            })?
+            .remove(path);
+        Ok(target)
     }
 
     fn thread_path(
@@ -131,27 +362,38 @@ pub fn now_thread_timestamp() -> String {
     format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millis:03}Z")
 }
 
-pub fn value_event(event_type: &str, payload: Value) -> ThreadLogItem {
-    ThreadLogItem::EventMsg(serde_json::json!({
-        "type": event_type,
-        "payload": payload
-    }))
+pub(super) fn canonicalize_thread_timestamp(
+    timestamp: &str,
+) -> Result<String, WorkerProtocolError> {
+    if validate_created_at(timestamp).is_ok() {
+        return Ok(timestamp.to_string());
+    }
+    let millis = timestamp
+        .strip_prefix("unix-ms:")
+        .unwrap_or(timestamp)
+        .parse::<u64>()
+        .ok()
+        .ok_or_else(|| {
+            thread_log_validation_error(
+                "invalid thread log timestamp: expected ISO-8601 or unix-ms timestamp",
+            )
+        })?;
+    let seconds = millis / 1_000;
+    let fractional_millis = millis % 1_000;
+    let (year, month, day, hour, minute, second) = unix_seconds_to_utc(seconds);
+    Ok(format!(
+        "{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{fractional_millis:03}Z"
+    ))
+}
+
+pub fn value_event(event_kind: EventKind, payload: Value) -> ThreadLogItem {
+    ThreadLogItem::EventMsg(EventMsg::new(event_kind, payload))
 }
 
 fn thread_log_io_error(error: std::io::Error) -> WorkerProtocolError {
     WorkerProtocolError::new(
         WorkerProtocolErrorCode::WorkerError,
         format!("thread log IO error: {error}"),
-        serde_json::json!({ "method": "thread_log" }),
-        false,
-        WorkerProtocolErrorSource::RustCore,
-    )
-}
-
-fn thread_log_json_error(error: serde_json::Error) -> WorkerProtocolError {
-    WorkerProtocolError::new(
-        WorkerProtocolErrorCode::WorkerError,
-        format!("thread log JSON error: {error}"),
         serde_json::json!({ "method": "thread_log" }),
         false,
         WorkerProtocolErrorSource::RustCore,
@@ -366,7 +608,9 @@ mod tests {
         assert!(path.ends_with("thread-2026-07-08T10-12-30-thread-a.jsonl"));
         let lines = read_thread_lines(&path).unwrap();
         assert_eq!(lines.len(), 1);
-        assert!(matches!(lines[0].item, ThreadLogItem::ThreadMeta(_)));
+        assert!(matches!(lines[0].item, ThreadLogItem::SessionMeta(_)));
+        assert_eq!(lines[0].ordinal, Some(0));
+        recorder.shutdown(&path).unwrap();
         let _ = fs::remove_dir_all(root);
     }
 
@@ -383,14 +627,22 @@ mod tests {
             .append_item(
                 &path,
                 "2026-07-08T10:13:30Z".to_string(),
-                value_event("turn_started", serde_json::json!({ "runId": "run-1" })),
+                value_event(
+                    EventKind::TurnStarted,
+                    serde_json::json!({ "runId": "run-1" }),
+                ),
             )
             .unwrap();
 
         let lines = read_thread_lines(&path).unwrap();
         assert_eq!(lines.len(), 2);
-        assert!(matches!(lines[0].item, ThreadLogItem::ThreadMeta(_)));
+        assert!(matches!(lines[0].item, ThreadLogItem::SessionMeta(_)));
         assert!(matches!(lines[1].item, ThreadLogItem::EventMsg(_)));
+        assert_eq!(
+            lines.iter().map(|line| line.ordinal).collect::<Vec<_>>(),
+            vec![Some(0), Some(1)]
+        );
+        recorder.shutdown(&path).unwrap();
         let _ = fs::remove_dir_all(root);
     }
 
@@ -412,23 +664,400 @@ mod tests {
                 &path,
                 "2026-07-08T10:13:30Z".to_string(),
                 vec![
-                    value_event("turn_started", serde_json::json!({ "runId": "run-1" })),
-                    ThreadLogItem::ResponseItem(serde_json::json!({
-                        "type": "message",
-                        "role": "assistant",
-                        "content": "done"
-                    })),
-                    value_event("turn_complete", serde_json::json!({ "runId": "run-1" })),
+                    value_event(
+                        EventKind::TurnStarted,
+                        serde_json::json!({ "runId": "run-1" }),
+                    ),
+                    ThreadLogItem::ResponseItem(
+                        ResponseItem::from_value(serde_json::json!({
+                            "type": "message",
+                            "role": "assistant",
+                            "content": "done"
+                        }))
+                        .unwrap(),
+                    ),
+                    value_event(
+                        EventKind::TurnComplete,
+                        serde_json::json!({ "runId": "run-1" }),
+                    ),
                 ],
             )
             .unwrap();
 
         let lines = read_thread_lines(&path).unwrap();
         assert_eq!(lines.len(), 4);
-        assert!(matches!(lines[0].item, ThreadLogItem::ThreadMeta(_)));
+        assert!(matches!(lines[0].item, ThreadLogItem::SessionMeta(_)));
         assert!(matches!(lines[1].item, ThreadLogItem::EventMsg(_)));
         assert!(matches!(lines[2].item, ThreadLogItem::ResponseItem(_)));
         assert!(matches!(lines[3].item, ThreadLogItem::EventMsg(_)));
+        assert_eq!(
+            lines.iter().map(|line| line.ordinal).collect::<Vec<_>>(),
+            vec![Some(0), Some(1), Some(2), Some(3)]
+        );
+        recorder.shutdown(&path).unwrap();
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn recorder_retries_buffered_items_after_initial_filesystem_failure() {
+        let root = temp_root("retry-buffered");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join(".tinybot"), "blocks thread directory").unwrap();
+        let recorder = ThreadRecorder::new(root.clone());
+        let created_at = "2026-07-08T10:12:30Z";
+
+        let error = recorder
+            .create_thread(thread_meta(&root, "thread-retry", created_at))
+            .unwrap_err();
+
+        assert!(error.retryable);
+        assert_eq!(error.details["operation"], "persist");
+        assert_eq!(error.details["pendingCount"], 1);
+
+        fs::remove_file(root.join(".tinybot")).unwrap();
+        let path = root
+            .join(".tinybot")
+            .join("threads")
+            .join("2026")
+            .join("07")
+            .join("08")
+            .join("thread-2026-07-08T10-12-30-thread-retry.jsonl");
+        recorder.persist(&path).unwrap();
+
+        let lines = read_thread_lines(&path).unwrap();
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].ordinal, Some(0));
+        assert!(matches!(lines[0].item, ThreadLogItem::SessionMeta(_)));
+        recorder.shutdown(&path).unwrap();
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn recorder_repairs_missing_trailing_newline_before_append() {
+        let root = temp_root("repair-newline");
+        let _ = fs::remove_dir_all(&root);
+        let recorder = ThreadRecorder::new(root.clone());
+        let path = recorder
+            .create_thread(thread_meta(
+                &root,
+                "thread-repair-newline",
+                "2026-07-08T10:12:30Z",
+            ))
+            .unwrap();
+        recorder.shutdown(&path).unwrap();
+        let mut bytes = fs::read(&path).unwrap();
+        assert_eq!(bytes.pop(), Some(b'\n'));
+        fs::write(&path, bytes).unwrap();
+
+        recorder
+            .append_item(
+                &path,
+                "2026-07-08T10:13:30Z".to_string(),
+                value_event(
+                    EventKind::TurnStarted,
+                    serde_json::json!({ "runId": "run-1" }),
+                ),
+            )
+            .unwrap();
+
+        let lines = read_thread_lines(&path).unwrap();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].ordinal, Some(0));
+        assert_eq!(lines[1].ordinal, Some(1));
+        recorder.shutdown(&path).unwrap();
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn recorder_continues_ordinals_after_legacy_prefix() {
+        let root = temp_root("legacy-prefix");
+        let _ = fs::remove_dir_all(&root);
+        let recorder = ThreadRecorder::new(root.clone());
+        let path = recorder
+            .create_thread(thread_meta(
+                &root,
+                "thread-legacy-prefix",
+                "2026-07-08T10:12:30Z",
+            ))
+            .unwrap();
+        recorder.shutdown(&path).unwrap();
+        let mut legacy_lines = read_thread_lines(&path).unwrap();
+        legacy_lines[0].ordinal = None;
+        fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string(&legacy_lines[0]).unwrap()),
+        )
+        .unwrap();
+
+        recorder
+            .append_item(
+                &path,
+                "2026-07-08T10:13:30Z".to_string(),
+                value_event(
+                    EventKind::TurnStarted,
+                    serde_json::json!({ "runId": "run-1" }),
+                ),
+            )
+            .unwrap();
+
+        let lines = read_thread_lines(&path).unwrap();
+        assert_eq!(lines[0].ordinal, None);
+        assert_eq!(lines[1].ordinal, Some(1));
+        recorder.shutdown(&path).unwrap();
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn recorder_instances_share_one_process_writer_per_thread() {
+        let root = temp_root("shared-writer");
+        let _ = fs::remove_dir_all(&root);
+        let recorder = ThreadRecorder::new(root.clone());
+        let path = recorder
+            .create_thread(thread_meta(
+                &root,
+                "thread-shared-writer",
+                "2026-07-08T10:12:30Z",
+            ))
+            .unwrap();
+        let mut workers = Vec::new();
+        for index in 0..8 {
+            let recorder = ThreadRecorder::new(root.clone());
+            let path = path.clone();
+            workers.push(std::thread::spawn(move || {
+                recorder
+                    .append_item(
+                        &path,
+                        "2026-07-08T10:13:30Z".to_string(),
+                        value_event(
+                            EventKind::UserMessage,
+                            serde_json::json!({ "workerIndex": index }),
+                        ),
+                    )
+                    .unwrap();
+            }));
+        }
+        for worker in workers {
+            worker.join().unwrap();
+        }
+
+        let lines = read_thread_lines(&path).unwrap();
+        assert_eq!(lines.len(), 9);
+        assert_eq!(
+            lines.iter().map(|line| line.ordinal).collect::<Vec<_>>(),
+            (0..9).map(Some).collect::<Vec<_>>()
+        );
+        let mut worker_indexes = lines[1..]
+            .iter()
+            .map(|line| match &line.item {
+                ThreadLogItem::EventMsg(event) => event["payload"]["workerIndex"]
+                    .as_u64()
+                    .expect("worker event index"),
+                other => panic!("expected worker event, found {other:?}"),
+            })
+            .collect::<Vec<_>>();
+        worker_indexes.sort_unstable();
+        assert_eq!(worker_indexes, (0..8).collect::<Vec<_>>());
+        recorder.shutdown(&path).unwrap();
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn recorder_flush_and_shutdown_are_acknowledged_barriers() {
+        let root = temp_root("barriers");
+        let _ = fs::remove_dir_all(&root);
+        let recorder = ThreadRecorder::new(root.clone());
+        let path = recorder
+            .create_thread(thread_meta(
+                &root,
+                "thread-barriers",
+                "2026-07-08T10:12:30Z",
+            ))
+            .unwrap();
+
+        recorder
+            .add_items(
+                &path,
+                "2026-07-08T10:13:30Z".to_string(),
+                vec![value_event(
+                    EventKind::UserMessage,
+                    serde_json::json!({ "barrier": "flush" }),
+                )],
+            )
+            .unwrap();
+        recorder.flush(&path).unwrap();
+        assert_eq!(read_thread_lines(&path).unwrap().len(), 2);
+
+        recorder
+            .add_items(
+                &path,
+                "2026-07-08T10:14:30Z".to_string(),
+                vec![value_event(
+                    EventKind::UserMessage,
+                    serde_json::json!({ "barrier": "shutdown" }),
+                )],
+            )
+            .unwrap();
+        recorder.shutdown(&path).unwrap();
+
+        let lines = read_thread_lines(&path).unwrap();
+        assert_eq!(lines.len(), 3);
+        assert_eq!(
+            lines.iter().map(|line| line.ordinal).collect::<Vec<_>>(),
+            vec![Some(0), Some(1), Some(2)]
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn recorder_fails_fast_on_corrupt_canonical_ordinal() {
+        let root = temp_root("corrupt-ordinal");
+        let _ = fs::remove_dir_all(&root);
+        let recorder = ThreadRecorder::new(root.clone());
+        let path = recorder
+            .create_thread(thread_meta(
+                &root,
+                "thread-corrupt-ordinal",
+                "2026-07-08T10:12:30Z",
+            ))
+            .unwrap();
+        recorder.shutdown(&path).unwrap();
+        let mut lines = read_thread_lines(&path).unwrap();
+        lines[0].ordinal = Some(7);
+        fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string(&lines[0]).unwrap()),
+        )
+        .unwrap();
+
+        let error = recorder
+            .append_item(
+                &path,
+                "2026-07-08T10:13:30Z".to_string(),
+                value_event(
+                    EventKind::TurnStarted,
+                    serde_json::json!({ "runId": "run-1" }),
+                ),
+            )
+            .unwrap_err();
+
+        assert!(!error.retryable);
+        assert!(error.message.contains("ordinal mismatch"));
+        lines[0].ordinal = Some(0);
+        fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string(&lines[0]).unwrap()),
+        )
+        .unwrap();
+        recorder.shutdown(&path).unwrap();
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn recorder_delete_fences_live_writers_before_removing_rollout() {
+        let root = temp_root("delete-fences-writer");
+        let _ = fs::remove_dir_all(&root);
+        let owner = ThreadRecorder::new(root.clone());
+        let path = owner
+            .create_thread(thread_meta(
+                &root,
+                "thread-delete-fence",
+                "2026-07-08T10:12:30Z",
+            ))
+            .unwrap();
+        let concurrent = ThreadRecorder::new(root.clone());
+        concurrent
+            .add_items(
+                &path,
+                "2026-07-08T10:13:30Z".to_string(),
+                vec![value_event(
+                    EventKind::UserMessage,
+                    serde_json::json!({ "runId": "run-delete-fence" }),
+                )],
+            )
+            .unwrap();
+
+        owner.delete_rollout(&path).unwrap();
+
+        assert!(!path.exists());
+        let error = concurrent
+            .append_item(
+                &path,
+                "2026-07-08T10:14:30Z".to_string(),
+                value_event(
+                    EventKind::UserMessage,
+                    serde_json::json!({ "runId": "run-delete-fence" }),
+                ),
+            )
+            .unwrap_err();
+        assert!(error
+            .message
+            .contains("stopped before acknowledging command"));
+        assert!(!path.exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn recorder_archive_and_unarchive_fence_writers_and_preserve_rollout() {
+        let root = temp_root("archive-fences-writer");
+        let _ = fs::remove_dir_all(&root);
+        let recorder = ThreadRecorder::new(root.clone());
+        let path = recorder
+            .create_thread(thread_meta(
+                &root,
+                "thread-archive-fence",
+                "2026-07-08T10:12:30Z",
+            ))
+            .unwrap();
+        recorder
+            .append_item(
+                &path,
+                "2026-07-08T10:13:30Z".to_string(),
+                value_event(
+                    EventKind::UserMessage,
+                    serde_json::json!({ "runId": "run-archive-fence" }),
+                ),
+            )
+            .unwrap();
+
+        let archived_path = recorder.archive_rollout(&path).unwrap();
+
+        assert!(!path.exists());
+        assert!(!archived_path.exists());
+        assert!(recorder.is_compressed(&archived_path).unwrap());
+        assert!(recorder.is_archived_path(&archived_path));
+        assert_eq!(read_thread_lines(&archived_path).unwrap().len(), 2);
+        recorder
+            .append_item(
+                &archived_path,
+                "2026-07-08T10:14:30Z".to_string(),
+                value_event(
+                    EventKind::UserMessage,
+                    serde_json::json!({ "runId": "run-archive-fence" }),
+                ),
+            )
+            .unwrap();
+        assert!(archived_path.exists());
+        assert!(!recorder.is_compressed(&archived_path).unwrap());
+
+        let restored_path = recorder.unarchive_rollout(&archived_path).unwrap();
+
+        assert_eq!(restored_path, path);
+        assert!(!archived_path.exists());
+        assert!(restored_path.exists());
+        assert!(!recorder.is_archived_path(&restored_path));
+        recorder
+            .append_item(
+                &restored_path,
+                "2026-07-08T10:15:30Z".to_string(),
+                value_event(
+                    EventKind::UserMessage,
+                    serde_json::json!({ "runId": "run-archive-fence" }),
+                ),
+            )
+            .unwrap();
+        assert_eq!(read_thread_lines(&restored_path).unwrap().len(), 4);
+        recorder.shutdown(&restored_path).unwrap();
         let _ = fs::remove_dir_all(root);
     }
 
@@ -487,6 +1116,7 @@ mod tests {
                     .replace('.', "-")
                     .trim_end_matches('Z')
             )));
+        recorder.shutdown(&path).unwrap();
         let _ = fs::remove_dir_all(root);
     }
 

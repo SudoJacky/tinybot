@@ -1,12 +1,13 @@
 # Worker Thread
 
 `worker_thread` is Tinybot's typed conversation domain. It defines Thread
-records, items, lifecycle operations, active-run projections, and the storage
-boundary used by new Thread-owned flows.
+records, items, lifecycle operations, active-run projections, and the
+in-process projection used by Thread-owned flows.
 
-The module deliberately separates canonical Thread semantics from
-session-shaped compatibility APIs. See [`worker_session`](../worker_session/README.md)
-and [`worker_thread_log`](../worker_thread_log/README.md) for those surfaces.
+The durable authority is the Rollout owned by
+[`worker_thread_log`](../worker_thread_log/README.md). This module deliberately
+keeps typed Thread behavior separate from both persistence and session-shaped
+compatibility APIs.
 
 ## Responsibilities
 
@@ -17,18 +18,16 @@ and [`worker_thread_log`](../worker_thread_log/README.md) for those surfaces.
 - Provide idempotency through client event IDs.
 - Project status, activity, runs, checkpoints, and timeline events from stored
   items.
-- Persist local Threads through a canonical journal and a queryable SQLite
-  projection.
-- Adapt Thread-backed state to existing session-shaped reads where required.
+- Reconstruct typed Thread snapshots from canonical Rollout records.
+- Provide an in-memory projection for typed operations without creating a
+  second durable authority.
 
 ## Main types
 
 - `WorkerThreadRpc`: capability-checked service used by Worker RPC and desktop
   commands.
-- `ThreadStore`: persistence contract for Thread records and items.
-- `LocalThreadStore`: journal-backed local implementation.
-- `MemoryThreadStore`: deterministic in-memory implementation for tests and
-  isolated callers.
+- `ThreadStore`: typed mutation/query boundary for Thread records and items.
+- `MemoryThreadStore`: in-process projection hydrated from Rollout state.
 - `LiveThread`: bound handle for appending items and updating one Thread.
 - `ThreadRuntime`: translates runtime operations into canonical Thread items.
 - `ThreadOp`: typed state transition accepted by `thread.apply_op`.
@@ -39,25 +38,25 @@ and [`worker_thread_log`](../worker_thread_log/README.md) for those surfaces.
 typed request / ThreadOp
         |
         v
-WorkerThreadRpc --> ThreadRuntime --> LiveThread --> ThreadStore
-                                               |
-                                               v
-                          canonical journal + SQLite projection
+WorkerThreadRpc --> canonical Rollout append/reconstruction
+                              |
+                              v
+                  MemoryThreadStore projection
+                              |
+                              v
+                    ThreadRuntime / LiveThread
 ```
 
-`ThreadRuntime` does not keep a second mutable run state. It derives snapshots,
-run summaries, status, pending interactions, and activity from the canonical
-record and item stream.
+`ThreadRuntime` does not own durable state. Snapshots, run summaries, status,
+pending interactions, and activity must remain reconstructable from the
+canonical Rollout.
 
 ## Internal layout
 
 - `types/`: domain records, items, events, activity, and request/result shapes.
 - `runtime.rs`: maps turn and runtime operations to canonical items.
 - `live_thread.rs`: convenience handle bound to a Thread ID.
-- `local_store/`: local persistence, queries, projections, consistency, and
-  repair. See [its storage README](local_store/README.md).
-- `session_adapter.rs`: session-compatible projections and merging with
-  direct-session records.
+- `store/`: in-memory storage plus query and activity projection helpers.
 
 ## Invariants
 
@@ -68,11 +67,10 @@ record and item stream.
 - Parent/child relationships are explicit and fork/archive policies must state
   whether children are included.
 - Runtime status, activity, checkpoints, approvals, and agent-run views are
-  projections from canonical items.
-- Capability checks occur before reading or mutating persisted Thread state.
-- Compatibility projections must not become an alternate canonical write
-  path.
-- Persistence divergence requires an explicit migration or repair operation.
+  projections from canonical Rollout items.
+- Capability checks occur before reading or appending Thread state.
+- `MemoryThreadStore` must not gain a journal or database.
+- Compatibility projections must not become an alternate canonical write path.
 
 For command names and frontend-visible Thread payloads, see
 [the Rust backend API reference](../../../docs/api/rust-backend-api.md).

@@ -18,8 +18,9 @@ use super::user_input::{
 };
 use super::{
     bool_field, AgentContextRequest, AgentHookInvocation, AgentHookStage, ComposedInstructions,
-    InstructionComposer, NativeAgentProviderFailure, NativeAgentProviderFailureKind,
-    NativeAgentProviderStreamEvent, NativeAgentRunContext, NativeAgentRuntimeServices,
+    InstructionComposer, NativeAgentContextCheckpointCommit, NativeAgentProviderFailure,
+    NativeAgentProviderFailureKind, NativeAgentProviderStreamEvent, NativeAgentRunContext,
+    NativeAgentRuntimeServices,
 };
 use crate::agent_loop_runtime_protocol::{
     AgentRunEmitter, AgentRuntimeEventAppendInput, AgentRuntimeEventEnvelope,
@@ -354,7 +355,7 @@ async fn run_native_agent_turn_with_instructions_async(
     let mut state = if continuation_resume.is_some() {
         NativeAgentRunState::new_for_continuation(&context, services.trace_sink.clone())?
     } else {
-        NativeAgentRunState::new(&context, services.trace_sink.clone())
+        NativeAgentRunState::new(&context, services.trace_sink.clone())?
     };
     state.transition_phase(
         AgentRuntimePhase::HydratingHistory,
@@ -425,8 +426,9 @@ async fn run_native_agent_turn_with_instructions_async(
             state.phase.as_str(),
             state.active_checkpoint_payload("running"),
         );
-        context.messages = state.messages.clone();
-        context.spec["messages"] = Value::Array(state.messages.clone());
+        let prompt_messages = state.history.for_prompt()?;
+        context.messages = prompt_messages.clone();
+        context.spec["messages"] = Value::Array(prompt_messages);
         let projection = match context_window_projection_async(&context).await {
             Ok(projection) => projection,
             Err(error) if error.kind() == NativeAgentProviderFailureKind::Cancelled => {
@@ -441,22 +443,70 @@ async fn run_native_agent_turn_with_instructions_async(
                 ));
             }
             Err(error) => {
+                emit_context_compaction_failure(
+                    &context,
+                    &mut state,
+                    iteration,
+                    error.stop_reason(),
+                    error.message(),
+                );
                 return Ok(provider_failure_result(
                     services, &context, &mut state, iteration, error,
                 ));
             }
         };
         if let Some(action) = projection.action.as_ref() {
-            let payload = context_window_action_payload(&context, iteration, action);
+            let mut payload = context_window_action_payload(&context, iteration, action);
             if let Some(tokens) = payload.get("estimatedTokensBefore").and_then(Value::as_i64) {
                 context.metrics().set_gauge("context.tokens.before", tokens);
             }
             if let Some(tokens) = payload.get("estimatedTokensAfter").and_then(Value::as_i64) {
                 context.metrics().set_gauge("context.tokens.after", tokens);
             }
+            if action.event_name == "agent.context.compacted" {
+                let checkpoint = state.compacted_context_checkpoint(&projection.messages, &payload);
+                for field in [
+                    "sourceContextId",
+                    "windowNumber",
+                    "firstWindowId",
+                    "previousWindowId",
+                    "windowId",
+                ] {
+                    payload[field] = checkpoint.get(field).cloned().unwrap_or(Value::Null);
+                }
+                let commit = NativeAgentContextCheckpointCommit {
+                    session_id: context.session_id.clone(),
+                    run_id: context.run_id.clone(),
+                    thread_id: context.thread_id.clone(),
+                    event_payload: payload.clone(),
+                    checkpoint: checkpoint.clone(),
+                };
+                if let Err(error) = services.commit_context_checkpoint(commit).await {
+                    let message = format!("context compaction checkpoint commit failed: {error}");
+                    emit_context_compaction_failure(
+                        &context,
+                        &mut state,
+                        iteration,
+                        "context_compaction_commit_failed",
+                        &message,
+                    );
+                    return Ok(agent_failure_result(
+                        services,
+                        &context,
+                        &mut state,
+                        iteration,
+                        "context_compaction_commit_failed",
+                        message,
+                    ));
+                }
+                state.install_compacted_context(projection.messages.clone(), checkpoint)?;
+                let prompt_messages = state.history.for_prompt()?;
+                context.messages = prompt_messages.clone();
+                context.spec["messages"] = Value::Array(prompt_messages);
+                context.metrics().increment("compaction.completed");
+            }
             state.emit_event(action.event_name, payload);
             if action.event_name == "agent.context.compacted" {
-                context.metrics().increment("compaction.completed");
                 let invocation = AgentHookInvocation::lifecycle(
                     AgentHookStage::CompactionComplete,
                     context.trace_context.clone(),
@@ -762,10 +812,13 @@ async fn run_native_agent_turn_with_instructions_async(
             .await;
             match outcome {
                 NativeAgentToolExecutionOutcome::Continue => {}
-                NativeAgentToolExecutionOutcome::Finished(result) => return Ok(result),
+                NativeAgentToolExecutionOutcome::Finished(mut result) => {
+                    state.attach_context_checkpoint(&mut result, None);
+                    return Ok(result);
+                }
             }
 
-            if let Some(message) = state.drain_pending_guidance() {
+            if let Some(message) = state.drain_pending_guidance()? {
                 state.emit_event(
                     "agent.guidance",
                     serde_json::json!({
@@ -780,6 +833,7 @@ async fn run_native_agent_turn_with_instructions_async(
             state.record_usage(
                 &context,
                 iteration,
+                &provider_attempt_id,
                 provider_response
                     .usage
                     .unwrap_or_else(|| serde_json::json!({})),
@@ -792,6 +846,7 @@ async fn run_native_agent_turn_with_instructions_async(
         state.record_usage(
             &context,
             iteration,
+            &provider_attempt_id,
             provider_response
                 .usage
                 .unwrap_or_else(|| serde_json::json!({})),
@@ -835,21 +890,27 @@ async fn run_native_agent_turn_with_instructions_async(
         let runtime_events = state.runtime_events();
         let events = state.legacy_events();
 
-        return Ok(serde_json::json!({
+        let final_message = serde_json::json!({
+            "role": "assistant",
+            "content": final_content
+        });
+        let context_checkpoint = state.finalized_context_checkpoint(Some(final_message.clone()));
+        let mut result = serde_json::json!({
             "runtime": "rust",
             "runId": context.run_id,
             "sessionId": context.session_id,
-            "finalContent": final_content,
+            "finalContent": final_message["content"],
             "stopReason": "final_response",
-            "messages": [{
-                "role": "assistant",
-                "content": final_content
-            }],
+            "messages": [final_message.clone()],
             "toolsUsed": state.tools_used,
             "completedToolResults": state.completed_tool_results,
             "events": events,
             "runtimeEvents": runtime_events,
-        }));
+        });
+        if let Some(context_checkpoint) = context_checkpoint {
+            result["contextCheckpoint"] = context_checkpoint;
+        }
+        return Ok(result);
     }
 
     let error = "Rust agent runtime reached max iterations before final response.";
@@ -868,7 +929,8 @@ async fn run_native_agent_turn_with_instructions_async(
         .clear_for_run(&context.session_id, &context.run_id);
     let runtime_events = state.runtime_events();
     let events = state.legacy_events();
-    Ok(serde_json::json!({
+    let context_checkpoint = state.finalized_context_checkpoint(None);
+    let mut result = serde_json::json!({
         "runtime": "rust",
         "runId": context.run_id,
         "sessionId": context.session_id,
@@ -880,7 +942,11 @@ async fn run_native_agent_turn_with_instructions_async(
         "error": error,
         "events": events,
         "runtimeEvents": runtime_events,
-    }))
+    });
+    if let Some(context_checkpoint) = context_checkpoint {
+        result["contextCheckpoint"] = context_checkpoint;
+    }
+    Ok(result)
 }
 
 async fn honor_pause_request(
@@ -951,8 +1017,24 @@ fn provider_failure_result(
     iteration: i64,
     error: NativeAgentProviderFailure,
 ) -> Value {
-    let stop_reason = error.stop_reason();
-    let message = error.message().to_string();
+    agent_failure_result(
+        services,
+        context,
+        state,
+        iteration,
+        error.stop_reason(),
+        error.message().to_string(),
+    )
+}
+
+fn agent_failure_result(
+    services: &NativeAgentRuntimeServices,
+    context: &NativeAgentRunContext,
+    state: &mut NativeAgentRunState,
+    iteration: i64,
+    stop_reason: &str,
+    message: String,
+) -> Value {
     state.set_stop_reason(stop_reason, iteration, "agent.error");
     state.emit_event(
         "agent.error",
@@ -970,7 +1052,7 @@ fn provider_failure_result(
         .clear_for_run(&context.session_id, &context.run_id);
     let runtime_events = state.runtime_events();
     let events = state.legacy_events();
-    serde_json::json!({
+    let mut result = serde_json::json!({
         "runtime": "rust",
         "runId": context.run_id,
         "sessionId": context.session_id,
@@ -982,7 +1064,41 @@ fn provider_failure_result(
         "error": message,
         "events": events,
         "runtimeEvents": runtime_events,
-    })
+    });
+    state.attach_context_checkpoint(&mut result, None);
+    result
+}
+
+fn emit_context_compaction_failure(
+    context: &NativeAgentRunContext,
+    state: &mut NativeAgentRunState,
+    iteration: i64,
+    failure_stop_reason: &str,
+    message: &str,
+) {
+    context.metrics().increment("compaction.failed");
+    state.emit_event(
+        "agent.context.compaction_failed",
+        serde_json::json!({
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "iteration": iteration,
+            "contextId": format!("{}:context:{}", context.run_id, iteration + 1),
+            "trigger": "auto",
+            "reason": "context_limit",
+            "phase": if iteration == 0 { "pre_turn" } else { "mid_turn" },
+            "method": "summary",
+            "provider": context.provider,
+            "model": context.model,
+            "status": "failed",
+            "code": "context_compaction_failed",
+            "failureStopReason": failure_stop_reason,
+            "message": message,
+            "error": message,
+            "estimatedTokensBefore": estimate_context_tokens_for_request(context),
+            "canonicalContextChanged": false,
+        }),
+    );
 }
 
 fn hook_denied_result(
@@ -1009,7 +1125,7 @@ fn hook_denied_result(
         .clear_for_run(&context.session_id, &context.run_id);
     let runtime_events = state.runtime_events();
     let events = state.legacy_events();
-    serde_json::json!({
+    let mut result = serde_json::json!({
         "runtime": "rust",
         "runId": context.run_id,
         "sessionId": context.session_id,
@@ -1021,7 +1137,9 @@ fn hook_denied_result(
         "error": reason,
         "events": events,
         "runtimeEvents": runtime_events,
-    })
+    });
+    state.attach_context_checkpoint(&mut result, None);
+    result
 }
 
 fn append_hook_evaluation_to_result(

@@ -1,4 +1,4 @@
-use super::local_store::{LocalThreadStore, ThreadStore};
+use super::store::{MemoryThreadStore, ThreadStore};
 use super::types::{
     AppendThreadItemsResult, ReadThreadRequest, ThreadItem, ThreadMetadataPatch, ThreadRecord,
     ThreadSnapshot,
@@ -6,7 +6,7 @@ use super::types::{
 use crate::worker_protocol::WorkerProtocolError;
 
 #[derive(Clone, Debug)]
-pub struct LiveThread<S: ThreadStore = LocalThreadStore> {
+pub struct LiveThread<S: ThreadStore = MemoryThreadStore> {
     thread_id: String,
     store: S,
 }

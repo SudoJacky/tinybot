@@ -1,5 +1,5 @@
 use super::live_thread::LiveThread;
-use super::local_store::{LocalThreadStore, ThreadStore};
+use super::store::{MemoryThreadStore, ThreadStore};
 use super::types::{
     ContinueThreadTurnRequest, ForkThreadRequest, InterruptThreadRequest, ReadThreadRequest,
     StartThreadTurnRequest, ThreadApplyOpRequest, ThreadItem, ThreadItemKind, ThreadOp,
@@ -15,7 +15,7 @@ static RUNTIME_RUN_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static RUNTIME_ITEM_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug)]
-pub struct ThreadRuntime<S: ThreadStore = LocalThreadStore> {
+pub struct ThreadRuntime<S: ThreadStore = MemoryThreadStore> {
     store: S,
 }
 
@@ -1240,6 +1240,24 @@ fn runtime_event_item(
                 next_runtime_item_id()
             )
         });
+    let event_payload = json!({
+        "itemId": projected_item_id,
+        "eventId": event_id,
+        "sequence": sequence,
+        "timestamp": timestamp,
+        "eventName": event_name,
+        "runId": run_id,
+        "turnId": turn_id,
+        "source": source,
+        "visibility": visibility,
+        "payload": payload,
+        "threadSource": "thread.apply_op"
+    });
+    let kind = match event_payload.get("eventName").and_then(Value::as_str) {
+        Some("agent.context.compacted") => ThreadItemKind::ContextCompaction(event_payload),
+        Some("agent.context.trimmed") => ThreadItemKind::ContextTrimmed(event_payload),
+        _ => ThreadItemKind::Event(event_payload),
+    };
     ThreadItem {
         item_id,
         thread_id: String::new(),
@@ -1248,19 +1266,7 @@ fn runtime_event_item(
         parent_item_id: None,
         sequence: 0,
         created_at: String::new(),
-        kind: ThreadItemKind::Event(json!({
-            "itemId": projected_item_id,
-            "eventId": event_id,
-            "sequence": sequence,
-            "timestamp": timestamp,
-            "eventName": event_name,
-            "runId": run_id,
-            "turnId": turn_id,
-            "source": source,
-            "visibility": visibility,
-            "payload": payload,
-            "threadSource": "thread.apply_op"
-        })),
+        kind,
     }
 }
 

@@ -9,6 +9,12 @@ const DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS: i64 = 128_000;
 const DEFAULT_COMPACT_TRIGGER_PERCENT: i64 = 90;
 const DEFAULT_COMPACT_SUMMARY_MAX_TOKENS: i64 = 1024;
 const APPROX_BYTES_PER_TOKEN: usize = 4;
+const MAX_COMPACT_TOOL_OUTPUT_CHARS: usize = 16_000;
+const MIN_COMPACT_TOOL_OUTPUT_CHARS: usize = 64;
+const MAX_COMPACTION_SUMMARY_LAYERS: usize = 8;
+const COMPACTION_REQUEST_LIMIT_PERCENT: i64 = 95;
+const SOURCE_SUMMARY_INSTRUCTION: &str = "Summarize earlier conversation context for a coding agent. Preserve user goals, decisions, constraints, file paths, commands, tool results, and unresolved tasks. Be concise and factual.";
+const MERGE_SUMMARY_INSTRUCTION: &str = "Merge partial coding-agent conversation summaries into one concise, factual continuation summary. Preserve goals, decisions, constraints, paths, tool results, progress, and unresolved tasks without duplicating facts.";
 
 #[derive(Clone, Debug)]
 pub(super) struct ContextWindowProjection {
@@ -26,6 +32,8 @@ pub(super) struct ContextWindowAction {
     context_window_tokens: i64,
     estimated_tokens_before: i64,
     estimated_tokens_after: i64,
+    masked_tool_output_count: usize,
+    summary_request_count: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -33,6 +41,14 @@ struct CompactedContextMessages {
     messages: Vec<Value>,
     old_count: usize,
     recent_count: usize,
+    masked_tool_output_count: usize,
+    summary_request_count: usize,
+}
+
+#[derive(Clone, Debug)]
+struct CompactionSummary {
+    content: String,
+    request_count: usize,
 }
 
 pub(super) fn context_window_messages(
@@ -92,6 +108,8 @@ pub(super) async fn context_window_projection_async(
                     context_window_tokens,
                     estimated_tokens_before: full_estimate,
                     estimated_tokens_after,
+                    masked_tool_output_count: compacted.masked_tool_output_count,
+                    summary_request_count: compacted.summary_request_count,
                 }),
             });
         }
@@ -104,7 +122,11 @@ pub(super) async fn context_window_projection_async(
         });
     }
 
-    let messages = trim_messages_to_context_window(&context.messages, message_budget);
+    let (bounded_messages, masked_tool_output_count) = mask_oversized_tool_outputs(
+        &context.messages,
+        compact_tool_output_char_limit(message_budget),
+    );
+    let messages = trim_messages_to_context_window(&bounded_messages, message_budget);
     let dropped_message_count = context.messages.len().saturating_sub(messages.len());
     let retained_message_count = messages.len();
     let estimated_tokens_after =
@@ -120,6 +142,8 @@ pub(super) async fn context_window_projection_async(
             context_window_tokens,
             estimated_tokens_before: full_estimate,
             estimated_tokens_after,
+            masked_tool_output_count,
+            summary_request_count: 0,
         }),
     })
 }
@@ -129,10 +153,18 @@ pub(super) fn context_window_action_payload(
     iteration: i64,
     action: &ContextWindowAction,
 ) -> Value {
+    let compacted = action.event_name == "agent.context.compacted";
     serde_json::json!({
         "runId": context.run_id,
         "sessionId": context.session_id,
         "iteration": iteration,
+        "contextId": compacted.then(|| format!("{}:context:{}", context.run_id, iteration + 1)),
+        "trigger": compacted.then_some("auto"),
+        "reason": compacted.then_some("context_limit"),
+        "phase": compacted.then_some(if iteration == 0 { "pre_turn" } else { "mid_turn" }),
+        "method": compacted.then_some("summary"),
+        "provider": context.provider,
+        "model": context.model,
         "strategy": action.strategy,
         "droppedMessageCount": action.dropped_message_count,
         "retainedMessageCount": action.retained_message_count,
@@ -140,6 +172,8 @@ pub(super) fn context_window_action_payload(
         "contextWindowTokens": action.context_window_tokens,
         "estimatedTokensBefore": action.estimated_tokens_before,
         "estimatedTokensAfter": action.estimated_tokens_after,
+        "maskedToolOutputCount": action.masked_tool_output_count,
+        "summaryRequestCount": action.summary_request_count,
     })
 }
 
@@ -320,73 +354,313 @@ fn trim_messages_to_context_window(messages: &[Value], context_window_tokens: i6
         return Vec::new();
     }
     let budget = context_window_tokens.max(1);
+    let units = context_message_units(messages);
     let mut selected = Vec::new();
     let mut used_tokens = 0i64;
 
-    for message in messages.iter().rev() {
-        let message_tokens = estimate_message_tokens(message);
-        if selected.is_empty() || used_tokens.saturating_add(message_tokens) <= budget {
-            selected.push(message.clone());
-            used_tokens = used_tokens.saturating_add(message_tokens);
+    for unit in units.into_iter().rev() {
+        let unit_tokens = estimate_messages_tokens(&unit);
+        if selected.is_empty() || used_tokens.saturating_add(unit_tokens) <= budget {
+            selected.push(unit);
+            used_tokens = used_tokens.saturating_add(unit_tokens);
         } else {
             break;
         }
     }
 
     selected.reverse();
-    selected
+    selected.into_iter().flatten().collect()
+}
+
+fn context_message_units(messages: &[Value]) -> Vec<Vec<Value>> {
+    let mut units = Vec::new();
+    let mut index = 0;
+    while index < messages.len() {
+        let message = &messages[index];
+        let tool_call_ids = assistant_tool_call_ids(message);
+        if message_role(message) == Some("assistant") && !tool_call_ids.is_empty() {
+            let mut unit = vec![message.clone()];
+            index += 1;
+            while index < messages.len() && message_role(&messages[index]) == Some("tool") {
+                let belongs_to_batch = tool_result_call_id(&messages[index])
+                    .is_some_and(|tool_call_id| tool_call_ids.contains(&tool_call_id));
+                if !belongs_to_batch {
+                    break;
+                }
+                unit.push(messages[index].clone());
+                index += 1;
+            }
+            units.push(unit);
+            continue;
+        }
+        units.push(vec![message.clone()]);
+        index += 1;
+    }
+    units
+}
+
+fn message_role(message: &Value) -> Option<&str> {
+    message.get("role").and_then(Value::as_str)
+}
+
+fn assistant_tool_call_ids(message: &Value) -> Vec<String> {
+    message
+        .get("tool_calls")
+        .or_else(|| message.get("toolCalls"))
+        .and_then(Value::as_array)
+        .map(|tool_calls| {
+            tool_calls
+                .iter()
+                .filter_map(|tool_call| tool_call.get("id").and_then(Value::as_str))
+                .filter(|tool_call_id| !tool_call_id.trim().is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn tool_result_call_id(message: &Value) -> Option<String> {
+    message
+        .get("tool_call_id")
+        .or_else(|| message.get("toolCallId"))
+        .and_then(Value::as_str)
+        .filter(|tool_call_id| !tool_call_id.trim().is_empty())
+        .map(str::to_string)
+}
+
+fn compact_tool_output_char_limit(context_window_tokens: i64) -> usize {
+    usize::try_from(context_window_tokens.max(1))
+        .unwrap_or(usize::MAX)
+        .clamp(MIN_COMPACT_TOOL_OUTPUT_CHARS, MAX_COMPACT_TOOL_OUTPUT_CHARS)
+}
+
+fn mask_oversized_tool_outputs(messages: &[Value], max_chars: usize) -> (Vec<Value>, usize) {
+    let mut masked_count = 0;
+    let messages = messages
+        .iter()
+        .map(|message| {
+            let mut masked = message.clone();
+            if message_role(message) != Some("tool") {
+                return masked;
+            }
+            let Some(content) = message.get("content").and_then(Value::as_str) else {
+                return masked;
+            };
+            if content.chars().count() <= max_chars {
+                return masked;
+            }
+            masked["content"] = Value::String(mask_tool_output(content, max_chars));
+            masked_count += 1;
+            masked
+        })
+        .collect();
+    (messages, masked_count)
+}
+
+fn mask_tool_output(content: &str, max_chars: usize) -> String {
+    let marker = "\n[tool output compacted: middle omitted]\n";
+    let available = max_chars.saturating_sub(marker.chars().count());
+    let head_chars = available.saturating_mul(2) / 3;
+    let tail_chars = available.saturating_sub(head_chars);
+    let head = content.chars().take(head_chars).collect::<String>();
+    let mut tail = content.chars().rev().take(tail_chars).collect::<Vec<_>>();
+    tail.reverse();
+    format!("{head}{marker}{}", tail.into_iter().collect::<String>())
 }
 
 async fn compact_messages_to_context_window_async(
     context: &NativeAgentRunContext,
     context_window_tokens: i64,
 ) -> Result<Option<CompactedContextMessages>, NativeAgentProviderFailure> {
+    let (bounded_messages, masked_tool_output_count) = mask_oversized_tool_outputs(
+        &context.messages,
+        compact_tool_output_char_limit(context_window_tokens),
+    );
     let recent_budget = (context_window_tokens.saturating_mul(2) / 3).max(1);
-    let recent_messages = trim_messages_to_context_window(&context.messages, recent_budget);
+    let recent_messages = trim_messages_to_context_window(&bounded_messages, recent_budget);
     let recent_count = recent_messages.len();
-    let old_count = context.messages.len().saturating_sub(recent_messages.len());
+    let old_count = bounded_messages.len().saturating_sub(recent_messages.len());
     if old_count == 0 {
         return Ok(None);
     }
-    let old_messages = &context.messages[..old_count];
+    let old_messages = &bounded_messages[..old_count];
     let summary = compact_old_messages_async(context, old_messages).await?;
-    if summary.trim().is_empty() {
+    if summary.content.trim().is_empty() {
         return Ok(None);
     }
 
     let mut compacted = vec![serde_json::json!({
         "role": "system",
-        "content": format!("Conversation summary so far:\n{}", summary.trim()),
+        "content": format!("Conversation summary so far:\n{}", summary.content.trim()),
     })];
     compacted.extend(recent_messages);
     Ok(Some(CompactedContextMessages {
         messages: trim_messages_to_context_window(&compacted, context_window_tokens),
         old_count,
         recent_count,
+        masked_tool_output_count,
+        summary_request_count: summary.request_count,
     }))
 }
 
 async fn compact_old_messages_async(
     context: &NativeAgentRunContext,
     messages: &[Value],
+) -> Result<CompactionSummary, NativeAgentProviderFailure> {
+    let mut summaries = summarize_compaction_layer(context, messages, false).await?;
+    let mut request_count = summaries.len();
+    let mut layer = 1;
+    while summaries.len() > 1 {
+        if layer >= MAX_COMPACTION_SUMMARY_LAYERS {
+            return Err(NativeAgentProviderFailure::provider(format!(
+                "context compaction summaries did not converge within {MAX_COMPACTION_SUMMARY_LAYERS} layers"
+            )));
+        }
+        let merge_messages = summaries
+            .iter()
+            .enumerate()
+            .map(|(index, summary)| {
+                serde_json::json!({
+                    "role": "user",
+                    "content": format!("Partial summary {}:\n{}", index + 1, summary),
+                })
+            })
+            .collect::<Vec<_>>();
+        let merged = summarize_compaction_layer(context, &merge_messages, true).await?;
+        if merged.len() >= summaries.len() {
+            return Err(NativeAgentProviderFailure::provider(format!(
+                "context compaction summary merge did not reduce {} partial summaries within the summary request budget",
+                summaries.len()
+            )));
+        }
+        request_count = request_count.saturating_add(merged.len());
+        summaries = merged;
+        layer += 1;
+    }
+    Ok(CompactionSummary {
+        content: summaries.pop().unwrap_or_default(),
+        request_count,
+    })
+}
+
+async fn summarize_compaction_layer(
+    context: &NativeAgentRunContext,
+    messages: &[Value],
+    merge: bool,
+) -> Result<Vec<String>, NativeAgentProviderFailure> {
+    let chunks = compaction_summary_chunks(context, messages, merge)?;
+    let mut summaries = Vec::with_capacity(chunks.len());
+    for chunk in chunks {
+        summaries.push(compact_messages_once_async(context, &chunk, merge).await?);
+    }
+    Ok(summaries)
+}
+
+fn compaction_summary_chunks(
+    context: &NativeAgentRunContext,
+    messages: &[Value],
+    merge: bool,
+) -> Result<Vec<Vec<Value>>, NativeAgentProviderFailure> {
+    let units = context_message_units(messages);
+    let mut chunks = Vec::new();
+    let mut current = Vec::new();
+    for (unit_index, unit) in units.into_iter().enumerate() {
+        let mut candidate = current.clone();
+        candidate.extend(unit.clone());
+        if compaction_summary_request_fits(context, &candidate, merge) {
+            current = candidate;
+            continue;
+        }
+        if current.is_empty() {
+            return Err(oversized_compaction_unit_error(
+                context, &unit, unit_index, merge,
+            ));
+        }
+        chunks.push(current);
+        if !compaction_summary_request_fits(context, &unit, merge) {
+            return Err(oversized_compaction_unit_error(
+                context, &unit, unit_index, merge,
+            ));
+        }
+        current = unit;
+    }
+    if !current.is_empty() {
+        chunks.push(current);
+    }
+    Ok(chunks)
+}
+
+fn oversized_compaction_unit_error(
+    context: &NativeAgentRunContext,
+    unit: &[Value],
+    unit_index: usize,
+    merge: bool,
+) -> NativeAgentProviderFailure {
+    let request_tokens = estimate_messages_tokens(&compaction_summary_prompt_messages(unit, merge));
+    NativeAgentProviderFailure::provider(format!(
+        "context compaction single context unit {unit_index} requires approximately {request_tokens} input tokens and cannot fit the {} token summary request budget",
+        compaction_summary_request_limit(context)
+    ))
+}
+
+fn compaction_summary_request_fits(
+    context: &NativeAgentRunContext,
+    messages: &[Value],
+    merge: bool,
+) -> bool {
+    estimate_messages_tokens(&compaction_summary_prompt_messages(messages, merge))
+        .saturating_add(effective_compact_summary_max_tokens(context))
+        <= compaction_summary_request_limit(context)
+}
+
+fn compaction_summary_request_limit(context: &NativeAgentRunContext) -> i64 {
+    effective_context_window_tokens(context)
+        .saturating_mul(COMPACTION_REQUEST_LIMIT_PERCENT)
+        .saturating_div(100)
+        .max(1)
+}
+
+fn effective_compact_summary_max_tokens(context: &NativeAgentRunContext) -> i64 {
+    compact_summary_max_tokens(context).min(
+        effective_context_window_tokens(context)
+            .saturating_div(4)
+            .max(1),
+    )
+}
+
+fn compaction_summary_prompt_messages(messages: &[Value], merge: bool) -> Vec<Value> {
+    let instruction = if merge {
+        MERGE_SUMMARY_INSTRUCTION
+    } else {
+        SOURCE_SUMMARY_INSTRUCTION
+    };
+    let request = if merge {
+        "Merge these partial summaries into one continuation summary"
+    } else {
+        "Summarize these earlier messages so the next model call can continue without the full transcript"
+    };
+    vec![
+        serde_json::json!({ "role": "system", "content": instruction }),
+        serde_json::json!({
+            "role": "user",
+            "content": format!(
+                "{request}:\n{}",
+                serde_json::to_string(messages).unwrap_or_else(|_| "[]".to_string())
+            )
+        }),
+    ]
+}
+
+async fn compact_messages_once_async(
+    context: &NativeAgentRunContext,
+    messages: &[Value],
+    merge: bool,
 ) -> Result<String, NativeAgentProviderFailure> {
     let body = serde_json::json!({
         "model": context.model,
         "stream": false,
-        "max_completion_tokens": compact_summary_max_tokens(context),
-        "messages": [
-            {
-                "role": "system",
-                "content": "Summarize earlier conversation context for a coding agent. Preserve user goals, decisions, constraints, file paths, commands, tool results, and unresolved tasks. Be concise and factual."
-            },
-            {
-                "role": "user",
-                "content": format!(
-                    "Summarize these earlier messages so the next model call can continue without the full transcript:\n{}",
-                    serde_json::to_string(messages).unwrap_or_else(|_| "[]".to_string())
-                )
-            }
-        ]
+        "max_completion_tokens": effective_compact_summary_max_tokens(context),
+        "messages": compaction_summary_prompt_messages(messages, merge),
     });
     let provider_config = agent_provider_config(context);
     let cancellation = context.cancellation.clone().map(|cancellation| {

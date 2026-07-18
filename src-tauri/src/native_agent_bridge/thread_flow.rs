@@ -1,13 +1,11 @@
 use crate::agent_loop_runtime_protocol::AgentTraceContext;
 use crate::call_rust_state_service;
 use crate::native_agent_bridge::{
-    cleanup_turn_attachments, materialize_turn_attachments, native_agent_assistant_messages,
-    native_agent_current_user_message, native_agent_model, native_agent_provider,
-    native_agent_run_id, native_agent_string_field, native_agent_usage,
+    cleanup_turn_attachments, materialize_turn_attachments, native_agent_current_user_message,
+    native_agent_model, native_agent_provider, native_agent_run_id, native_agent_string_field,
 };
 use crate::worker_agent_runtime::{
-    agent_trace_context_from_value, ensure_agent_trace_context, AgentHookInvocation,
-    AgentHookStage, NativeAgentRuntimeServices,
+    ensure_agent_trace_context, AgentHookInvocation, AgentHookStage, NativeAgentRuntimeServices,
 };
 use crate::worker_protocol::WorkerRequest;
 use crate::worker_request_id::next_worker_request_correlation;
@@ -16,7 +14,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::agent_flow::run_agent_with_services;
 use super::webui_continuation::{
-    resolve_agent_ui_form_body_with_services, resolve_approval_body_with_services,
+    native_session_checkpoint, resolve_agent_ui_form_body_with_services,
+    resolve_approval_body_with_services,
 };
 
 pub(crate) struct SubmitThreadTurnInput {
@@ -53,19 +52,7 @@ pub(crate) async fn submit_thread_turn_with_services(
     )?;
     let thread_id = thread_thread_id(&thread)?;
     let thread_working_directory = thread_working_directory(&thread);
-    let session_id = match thread_session_key(&thread) {
-        Some(session_key) => session_key,
-        None => {
-            let session_key = thread_id.clone();
-            assign_thread_turn_session_key(
-                &thread_id,
-                &session_key,
-                workspace_root.clone(),
-                config_snapshot.clone(),
-            )?;
-            session_key
-        }
-    };
+    let session_id = thread_id.clone();
     let run_id = native_agent_run_id(&input.spec).unwrap_or_else(generate_thread_turn_run_id);
     let spec_has_working_directory = native_agent_string_field(&input.spec, "cwd")
         .or_else(|| native_agent_string_field(&input.spec, "workingDirectory"))
@@ -190,14 +177,6 @@ pub(crate) async fn submit_thread_turn_with_services(
         None,
     )
     .await?;
-    if let Some(thread_persistence) = apply_native_agent_thread_result(
-        &thread_id,
-        &agent_result,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-    )? {
-        agent_result["threadPersistence"] = thread_persistence;
-    }
     let snapshot = read_thread_snapshot(
         &thread_id,
         workspace_root.clone(),
@@ -240,22 +219,13 @@ pub(crate) async fn resolve_thread_approval_with_services(
         .cloned()
         .ok_or_else(|| "thread approval target read returned no thread".to_string())?;
     let thread_id = thread_thread_id(&thread)?;
-    let session_id = thread_session_key(&thread).unwrap_or_else(|| thread_id.clone());
-    let approval_checkpoint = target_snapshot
-        .get("latestCheckpoint")
-        .and_then(|checkpoint| checkpoint.get("restorePayload"))
-        .cloned()
-        .or_else(|| {
-            base_services
-                .restore_checkpoint(&session_id)
-                .get("checkpoint")
-                .filter(|checkpoint| !checkpoint.is_null())
-                .cloned()
-        });
-    let approval_id = input.approval_id.clone();
-    let approved = input.approved;
-    let scope = input.scope.clone();
-    let guidance = input.guidance.clone();
+    let session_id = thread_id.clone();
+    let approval_checkpoint = native_session_checkpoint(
+        &session_id,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+        "thread approval Rollout checkpoint lookup",
+    )?;
     let mut body = serde_json::json!({
         "session_key": session_id.clone(),
         "thread_id": thread_id.clone(),
@@ -274,37 +244,6 @@ pub(crate) async fn resolve_thread_approval_with_services(
         config_snapshot.clone(),
     )
     .await?;
-    if let Some(run_id) = native_agent_run_id(&result) {
-        let decision = apply_native_agent_thread_op(
-            &thread_id,
-            Some(format!(
-                "native-agent-thread-approval:{run_id}:{approval_id}:{approved}"
-            )),
-            serde_json::json!({
-                "type": "approval_decision",
-                "runId": run_id,
-                "turnId": run_id,
-                "approvalId": approval_id,
-                "approved": approved,
-                "scope": scope,
-                "guidance": guidance,
-                "payload": result,
-            }),
-            workspace_root.clone(),
-            config_snapshot.clone(),
-            "native agent thread approval decision append",
-            Some(&agent_trace_context_from_value(&result)),
-        )?;
-        result["threadApprovalPersistence"] = decision;
-    }
-    if let Some(thread_persistence) = apply_native_agent_thread_result(
-        &thread_id,
-        &result,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-    )? {
-        result["threadPersistence"] = thread_persistence;
-    }
     let snapshot = read_thread_snapshot(
         &thread_id,
         workspace_root,
@@ -337,13 +276,15 @@ pub(crate) async fn submit_thread_form_with_services(
         .get("thread")
         .cloned()
         .ok_or_else(|| "thread form target read returned no thread".to_string())?;
-    let thread_checkpoint = target_snapshot
-        .get("latestCheckpoint")
-        .and_then(|checkpoint| checkpoint.get("restorePayload"))
-        .cloned()
-        .ok_or_else(|| "thread form target has no canonical checkpoint".to_string())?;
     let thread_id = thread_thread_id(&thread)?;
-    let session_id = thread_session_key(&thread).unwrap_or_else(|| thread_id.clone());
+    let session_id = thread_id.clone();
+    let thread_checkpoint = native_session_checkpoint(
+        &session_id,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+        "thread form Rollout checkpoint lookup",
+    )?
+    .ok_or_else(|| "thread form target has no Rollout checkpoint".to_string())?;
     let cancelled = thread_form_action_is_cancel(input.action.as_deref());
     let body = serde_json::json!({
         "session_key": session_id.clone(),
@@ -362,14 +303,6 @@ pub(crate) async fn submit_thread_form_with_services(
     )
     .await?;
     result["statusCode"] = serde_json::Value::Number(status_code.into());
-    if let Some(thread_persistence) = apply_native_agent_thread_result(
-        &thread_id,
-        &result,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-    )? {
-        result["threadPersistence"] = thread_persistence;
-    }
     let snapshot = read_thread_snapshot(
         &thread_id,
         workspace_root,
@@ -416,7 +349,6 @@ fn ensure_thread_turn_target(
                     "thread.create",
                     serde_json::json!({
                         "threadId": generated_thread_id,
-                        "sessionKey": generated_thread_id,
                     }),
                 ),
                 "thread turn target create",
@@ -445,30 +377,6 @@ pub(crate) fn read_thread_snapshot(
     )
 }
 
-fn assign_thread_turn_session_key(
-    thread_id: &str,
-    session_key: &str,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-) -> Result<serde_json::Value, String> {
-    let request_id = next_worker_request_correlation();
-    call_rust_state_service(
-        workspace_root,
-        config_snapshot,
-        WorkerRequest::new(
-            request_id.id("thread-turn-session-key"),
-            request_id.trace_id("thread-turn-session-key"),
-            "thread.update_metadata",
-            serde_json::json!({
-                "threadId": thread_id,
-                "sessionKey": session_key,
-                "metadata": {}
-            }),
-        ),
-        "thread turn session key update",
-    )
-}
-
 pub(crate) fn thread_thread_id(thread: &serde_json::Value) -> Result<String, String> {
     thread
         .get("threadId")
@@ -476,14 +384,6 @@ pub(crate) fn thread_thread_id(thread: &serde_json::Value) -> Result<String, Str
         .filter(|value| !value.trim().is_empty())
         .map(str::to_string)
         .ok_or_else(|| "thread target is missing threadId".to_string())
-}
-
-pub(crate) fn thread_session_key(thread: &serde_json::Value) -> Option<String> {
-    thread
-        .get("sessionKey")
-        .and_then(serde_json::Value::as_str)
-        .filter(|value| !value.trim().is_empty())
-        .map(str::to_string)
 }
 
 fn thread_working_directory(thread: &serde_json::Value) -> Option<String> {
@@ -712,309 +612,4 @@ fn start_native_agent_thread_turn(
         ),
         "native agent thread turn start",
     )
-}
-
-pub(crate) fn apply_native_agent_thread_result(
-    thread_id: &str,
-    result: &serde_json::Value,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-) -> Result<Option<serde_json::Value>, String> {
-    let run_id = native_agent_run_id(result)
-        .ok_or_else(|| "native agent result missing runId for thread update".to_string())?;
-    let stop_reason = result
-        .get("stopReason")
-        .or_else(|| result.get("stop_reason"))
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default();
-    let trace_context = agent_trace_context_from_value(result);
-    let result_identity = native_agent_thread_result_identity(result, stop_reason);
-    let mut applied = Vec::new();
-
-    if let Some(runtime_events) = result
-        .get("runtimeEvents")
-        .and_then(serde_json::Value::as_array)
-    {
-        for (index, event) in runtime_events.iter().enumerate() {
-            let Some(event_name) = native_agent_string_field(event, "eventName") else {
-                return Err(format!(
-                    "native agent runtime event at index {index} missing eventName"
-                ));
-            };
-            let event_identity = native_agent_string_field(event, "eventId")
-                .unwrap_or_else(|| format!("{event_name}:{index}"));
-            let operation = apply_native_agent_thread_op(
-                thread_id,
-                Some(format!(
-                    "native-agent-thread-event:{run_id}:{result_identity}:{event_identity}"
-                )),
-                serde_json::json!({
-                    "type": "runtime_event",
-                    "runId": run_id,
-                    "turnId": run_id,
-                    "itemId": event.get("itemId").cloned().unwrap_or(serde_json::Value::Null),
-                    "eventId": event.get("eventId").cloned().unwrap_or(serde_json::Value::Null),
-                    "sequence": event.get("sequence").cloned().unwrap_or(serde_json::Value::Null),
-                    "timestamp": event.get("timestamp").cloned().unwrap_or(serde_json::Value::Null),
-                    "eventName": event_name,
-                    "source": event.get("source").cloned().unwrap_or(serde_json::Value::Null),
-                    "visibility": event.get("visibility").cloned().unwrap_or(serde_json::Value::Null),
-                    "payload": event.get("payload").cloned().unwrap_or(serde_json::Value::Null),
-                }),
-                workspace_root.clone(),
-                config_snapshot.clone(),
-                "native agent thread runtime event append",
-                Some(&trace_context),
-            )?;
-            applied.push(native_agent_thread_persistence_receipt(operation));
-        }
-    }
-
-    if let Some(checkpoint) = result.get("checkpoint").filter(|value| !value.is_null()) {
-        let checkpoint_id = native_agent_string_field(checkpoint, "resumeToken")
-            .or_else(|| native_agent_string_field(checkpoint, "checkpointId"))
-            .unwrap_or_else(|| format!("{run_id}:{stop_reason}"));
-        let operation = apply_native_agent_thread_op(
-            thread_id,
-            Some(format!(
-                "native-agent-thread-checkpoint:{run_id}:{checkpoint_id}"
-            )),
-            serde_json::json!({
-                "type": "checkpoint",
-                "runId": run_id,
-                "turnId": run_id,
-                "checkpointId": checkpoint_id,
-                "label": stop_reason,
-                "restorePayload": checkpoint,
-            }),
-            workspace_root.clone(),
-            config_snapshot.clone(),
-            "native agent thread checkpoint append",
-            Some(&trace_context),
-        )?;
-        applied.push(native_agent_thread_persistence_receipt(operation));
-    }
-
-    let terminal_op = match stop_reason {
-        "awaiting_approval" => Some(native_agent_thread_approval_request_op(&run_id, result)?),
-        "final_response" => Some(serde_json::json!({
-            "type": "assistant_response",
-            "runId": run_id,
-            "turnId": run_id,
-            "content": native_agent_final_content(result),
-            "message": native_agent_final_assistant_message(result),
-            "stopReason": stop_reason,
-            "usage": native_agent_usage(result).into_iter().last(),
-            "instructionProvenance": result.get("instructionProvenance").cloned(),
-            "instructionDiagnostics": result
-                .get("instructionDiagnostics")
-                .cloned()
-                .unwrap_or_else(|| serde_json::json!([])),
-        })),
-        "cancelled" => Some(serde_json::json!({
-            "type": "interrupt",
-            "runId": run_id,
-            "reason": result
-                .get("error")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("native agent run cancelled"),
-        })),
-        "terminal_turn" => None,
-        "awaiting_form" | "awaiting_tool" | "tool_running" | "awaiting_subagent" => None,
-        _ => Some(serde_json::json!({
-            "type": "error",
-            "runId": run_id,
-            "turnId": run_id,
-            "message": result
-                .get("error")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("native agent run failed"),
-            "details": result,
-        })),
-    };
-    if let Some(op) = terminal_op {
-        let operation = apply_native_agent_thread_op(
-            thread_id,
-            Some(format!(
-                "native-agent-thread-final:{run_id}:{result_identity}"
-            )),
-            op,
-            workspace_root,
-            config_snapshot,
-            "native agent thread result append",
-            Some(&trace_context),
-        )?;
-        applied.push(native_agent_thread_persistence_receipt(operation));
-    }
-    Ok((!applied.is_empty()).then(|| {
-        serde_json::json!({
-            "authority": "thread",
-            "threadId": thread_id,
-            "operationCount": applied.len(),
-            "operations": applied,
-        })
-    }))
-}
-
-fn native_agent_thread_persistence_receipt(operation: serde_json::Value) -> serde_json::Value {
-    let appended_item_ids = operation
-        .get("appendedItems")
-        .and_then(serde_json::Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|item| native_agent_string_field(item, "itemId"))
-        .collect::<Vec<_>>();
-    serde_json::json!({ "appendedItemIds": appended_item_ids })
-}
-
-fn native_agent_thread_result_identity(result: &serde_json::Value, stop_reason: &str) -> String {
-    if let Some(approval_id) = native_agent_string_field(result, "approvalId") {
-        let decision = native_agent_string_field(result, "status")
-            .or_else(|| native_agent_string_field(result, "decision"))
-            .unwrap_or_else(|| "resolved".to_string());
-        return format!("approval:{approval_id}:{decision}");
-    }
-    if let Some(form_id) = native_agent_string_field(result, "form_id")
-        .or_else(|| native_agent_string_field(result, "formId"))
-    {
-        let action = if result
-            .get("cancelled")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false)
-        {
-            "cancel"
-        } else {
-            "submit"
-        };
-        return format!("form:{form_id}:{action}");
-    }
-    stop_reason.to_string()
-}
-
-pub(crate) fn apply_native_agent_thread_op(
-    thread_id: &str,
-    client_event_id: Option<String>,
-    op: serde_json::Value,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    label: &str,
-    trace_context: Option<&AgentTraceContext>,
-) -> Result<serde_json::Value, String> {
-    let generated = next_worker_request_correlation();
-    let request_id = trace_context
-        .map(|trace| format!("{}:thread-op", trace.request_id))
-        .unwrap_or_else(|| generated.id("native-agent-thread-op"));
-    let trace_id = trace_context
-        .map(|trace| trace.trace_id.clone())
-        .unwrap_or_else(|| generated.trace_id("native-agent-thread-op"));
-    call_rust_state_service(
-        workspace_root,
-        config_snapshot,
-        WorkerRequest::new(
-            request_id,
-            trace_id,
-            "thread.apply_op",
-            serde_json::json!({
-                "threadId": thread_id,
-                "clientEventId": client_event_id,
-                "op": op,
-            }),
-        ),
-        label,
-    )
-}
-
-fn native_agent_thread_approval_request_op(
-    run_id: &str,
-    result: &serde_json::Value,
-) -> Result<serde_json::Value, String> {
-    let payload = native_agent_awaiting_approval_payload(result).ok_or_else(|| {
-        "native agent awaiting approval result missing approval payload".to_string()
-    })?;
-    let approval_id = native_agent_string_field(&payload, "approvalId")
-        .or_else(|| native_agent_string_field(&payload, "approval_id"))
-        .ok_or_else(|| "native agent awaiting approval result missing approvalId".to_string())?;
-    Ok(serde_json::json!({
-        "type": "approval_request",
-        "runId": run_id,
-        "turnId": run_id,
-        "approvalId": approval_id,
-        "summary": native_agent_string_field(&payload, "summary"),
-        "scope": native_agent_string_field(&payload, "scope"),
-        "payload": payload,
-    }))
-}
-
-fn native_agent_awaiting_approval_payload(result: &serde_json::Value) -> Option<serde_json::Value> {
-    result
-        .get("runtimeEvents")
-        .and_then(serde_json::Value::as_array)
-        .and_then(|events| {
-            events
-                .iter()
-                .find(|event| {
-                    event.get("eventName").and_then(serde_json::Value::as_str)
-                        == Some("agent.awaiting_approval")
-                })
-                .and_then(|event| event.get("payload"))
-                .cloned()
-        })
-        .or_else(|| {
-            result
-                .get("events")
-                .and_then(serde_json::Value::as_array)
-                .and_then(|events| {
-                    events
-                        .iter()
-                        .find(|event| {
-                            event.get("eventName").and_then(serde_json::Value::as_str)
-                                == Some("agent.awaiting_approval")
-                        })
-                        .and_then(|event| event.get("payload"))
-                        .cloned()
-                })
-        })
-        .or_else(|| {
-            result.get("checkpoint").and_then(|checkpoint| {
-                let payload = checkpoint.get("payload")?;
-                let approval_id = native_agent_string_field(payload, "approval_id")
-                    .or_else(|| native_agent_string_field(payload, "approvalId"))?;
-                Some(serde_json::json!({
-                    "approvalId": approval_id,
-                    "summary": payload
-                        .get("operation")
-                        .and_then(|operation| native_agent_string_field(operation, "summary")),
-                    "operation": payload.get("operation").cloned().unwrap_or(serde_json::Value::Null),
-                    "checkpoint": checkpoint,
-                }))
-            })
-        })
-}
-
-fn native_agent_final_content(result: &serde_json::Value) -> Option<String> {
-    native_agent_string_field(result, "finalContent")
-        .or_else(|| native_agent_string_field(result, "final_content"))
-        .or_else(|| {
-            native_agent_assistant_messages(result)
-                .into_iter()
-                .rev()
-                .find_map(|message| {
-                    message
-                        .get("content")
-                        .and_then(serde_json::Value::as_str)
-                        .map(str::to_string)
-                })
-        })
-}
-
-fn native_agent_final_assistant_message(result: &serde_json::Value) -> serde_json::Value {
-    native_agent_assistant_messages(result)
-        .into_iter()
-        .last()
-        .unwrap_or_else(|| {
-            serde_json::json!({
-                "role": "assistant",
-                "content": native_agent_final_content(result).unwrap_or_default(),
-            })
-        })
 }

@@ -5,6 +5,7 @@ impl WorkerRpcRouter {
         &mut self,
         request: &WorkerRequest,
     ) -> Result<Value, WorkerProtocolError> {
+        self.refresh_thread_projection()?;
         match request.method.as_str() {
             "subagent.spawn" => {
                 let params: SubagentSpawnParams = parse_params(request)?;
@@ -12,7 +13,7 @@ impl WorkerRpcRouter {
                 let result = manager.spawn(params);
                 if result.accepted {
                     if let Some(subagent) = &result.subagent {
-                        self.thread.record_subagent_spawn(
+                        let persisted = self.thread.record_subagent_spawn(
                             subagent,
                             result
                                 .event
@@ -21,6 +22,9 @@ impl WorkerRpcRouter {
                                 .transpose()
                                 .map_err(serialization_error)?,
                         )?;
+                        for result in persisted {
+                            self.persist_thread_append_result(&result.thread, &result.items)?;
+                        }
                     }
                 }
                 serde_json::to_value(result).map_err(serialization_error)
@@ -41,7 +45,7 @@ impl WorkerRpcRouter {
                 let result = manager.enqueue_input(params);
                 if result.accepted {
                     if let (Some(subagent), Some(input)) = (&result.subagent, &result.input) {
-                        self.thread.record_subagent_input(
+                        let persisted = self.thread.record_subagent_input(
                             subagent,
                             input,
                             result
@@ -51,6 +55,9 @@ impl WorkerRpcRouter {
                                 .transpose()
                                 .map_err(serialization_error)?,
                         )?;
+                        for result in persisted {
+                            self.persist_thread_append_result(&result.thread, &result.items)?;
+                        }
                     }
                 }
                 serde_json::to_value(result).map_err(serialization_error)
@@ -72,7 +79,7 @@ impl WorkerRpcRouter {
                 let result = manager.cancel(params);
                 if result.accepted {
                     if let Some(subagent) = &result.subagent {
-                        self.thread.record_subagent_status(
+                        let persisted = self.thread.record_subagent_status(
                             subagent,
                             result
                                 .event
@@ -81,6 +88,9 @@ impl WorkerRpcRouter {
                                 .transpose()
                                 .map_err(serialization_error)?,
                         )?;
+                        for result in persisted {
+                            self.persist_thread_append_result(&result.thread, &result.items)?;
+                        }
                     }
                 }
                 serde_json::to_value(result).map_err(serialization_error)
@@ -91,7 +101,7 @@ impl WorkerRpcRouter {
                 let result = manager.close(params);
                 if result.accepted {
                     if let Some(subagent) = &result.subagent {
-                        self.thread.record_subagent_status(
+                        let persisted = self.thread.record_subagent_status(
                             subagent,
                             result
                                 .event
@@ -100,6 +110,9 @@ impl WorkerRpcRouter {
                                 .transpose()
                                 .map_err(serialization_error)?,
                         )?;
+                        for result in persisted {
+                            self.persist_thread_append_result(&result.thread, &result.items)?;
+                        }
                     }
                 }
                 serde_json::to_value(result).map_err(serialization_error)
@@ -110,7 +123,7 @@ impl WorkerRpcRouter {
                 let result = manager.resume(params);
                 if result.accepted {
                     if let Some(subagent) = &result.subagent {
-                        self.thread.record_subagent_status(
+                        let persisted = self.thread.record_subagent_status(
                             subagent,
                             result
                                 .event
@@ -119,6 +132,9 @@ impl WorkerRpcRouter {
                                 .transpose()
                                 .map_err(serialization_error)?,
                         )?;
+                        for result in persisted {
+                            self.persist_thread_append_result(&result.thread, &result.items)?;
+                        }
                     }
                 }
                 serde_json::to_value(result).map_err(serialization_error)
@@ -128,7 +144,7 @@ impl WorkerRpcRouter {
     }
 
     fn restore_subagent_session(
-        &self,
+        &mut self,
         session_key: &str,
     ) -> Result<SubagentThreadManager, WorkerProtocolError> {
         let manager = self
@@ -169,7 +185,10 @@ impl WorkerRpcRouter {
             .iter()
             .filter(|summary| active_ids.contains(&summary.subagent_id))
         {
-            self.thread.record_subagent_status(summary, None)?;
+            let persisted = self.thread.record_subagent_status(summary, None)?;
+            for result in persisted {
+                self.persist_thread_append_result(&result.thread, &result.items)?;
+            }
         }
         Ok(manager)
     }

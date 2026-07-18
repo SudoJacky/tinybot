@@ -45,12 +45,12 @@ The backend is organized into five broad layers:
      capability-checked services such as workspace, shell, memory, tasks,
      tools, and configuration.
 5. **Conversation persistence**
+   - [`worker_thread_log/`](src/worker_thread_log/README.md) owns canonical
+     append-only Rollouts and their rebuildable SQLite index.
    - [`worker_thread/`](src/worker_thread/README.md) is the typed Thread domain
-     and its canonical store.
-   - [`worker_thread_log/`](src/worker_thread_log/README.md) records and replays
-     session-compatible JSONL logs.
-   - [`worker_session/`](src/worker_session/README.md) maintains the
-     session-shaped compatibility aggregate and direct-session state.
+     projected from those Rollouts.
+   - [`worker_session/`](src/worker_session/README.md) exposes session-shaped
+     Rollout projections and owns temporary upload resources.
 
 ## Typical agent flow
 
@@ -65,15 +65,17 @@ native_agent_bridge
         |
         +--> worker_agent_runtime --> provider + tools
         |
-        +--> worker_thread / worker_thread_log / worker_session
+        +--> worker_thread_log canonical Rollout
+                    |
+                    +--> worker_thread / worker_session projections
         |
         +--> runtime task ownership + live trace events
 ```
 
 Keep transport concerns at the boundary. Agent-loop behavior belongs in
 `worker_agent_runtime`; cross-service run orchestration belongs in
-`native_agent_bridge`; durable Thread state transitions belong in
-`worker_thread`.
+`native_agent_bridge`; durable conversation writes belong in
+`worker_thread_log`.
 
 ## Persistence map
 
@@ -82,14 +84,13 @@ roles:
 
 | Path | Owner | Role |
 | --- | --- | --- |
-| `.tinybot/state/thread-store.jsonl` | `worker_thread::local_store` | Canonical typed Thread journal |
-| `.tinybot/threads/threads.sqlite` | `worker_thread::local_store` | Query projection of the canonical Thread journal |
-| `.tinybot/threads/<year>/<month>/<day>/*.jsonl` | `worker_thread_log` | Append-only session-compatible thread logs |
-| `.tinybot/state/state.sqlite` | `worker_thread_log` | Search/list index for session-compatible logs |
-| `<session-root>/sessions/sessions.sqlite` | `worker_session` | Session aggregate snapshots for direct-session and compatibility paths |
+| `.tinybot/threads/<year>/<month>/<day>/*.jsonl` | `worker_thread_log` | Canonical append-only Rollouts |
+| `.tinybot/state/state.sqlite` | `worker_thread_log` | Rebuildable discovery and metadata index |
+| `.tinybot/resources/session-temporary-files.json` | `worker_session` | Temporary upload resource sidecar |
 
-Do not treat similarly named stores as interchangeable. Each store has its own
-consistency and migration rules, described in its module README.
+The removed `sessions/sessions.sqlite`, `.tinybot/state/thread-store.jsonl`,
+and `.tinybot/threads/threads.sqlite` paths are not compatibility authorities
+and must not be reintroduced as fallback or double-write targets.
 
 ## Maintenance rules
 
@@ -97,8 +98,9 @@ consistency and migration rules, described in its module README.
   boundary.
 - Validate capabilities at the service that performs the protected operation.
 - Preserve request IDs, trace IDs, run IDs, and client event IDs across layers.
-- Do not write directly to a SQLite projection when a canonical journal owns
-  the data.
+- Append durable conversation state through the Rollout writer; never write
+  conversation authority directly to the SQLite index or an in-memory
+  projection.
 - Surface consistency failures and recovery diagnostics instead of silently
   rebuilding or discarding state.
 - Keep external command and payload documentation in

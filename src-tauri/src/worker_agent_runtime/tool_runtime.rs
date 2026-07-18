@@ -9,7 +9,7 @@ use super::tool_dispatcher::{
 use super::tool_projection::{
     assistant_tool_calls_message, completed_tool_result_entry, normalize_tool_result_for_context,
     subagent_activity_events_from_tool_result, subagent_link_event_from_tool_result,
-    tool_observation_content, tool_observation_message,
+    tool_error_observation_message, tool_observation_content, tool_observation_message,
 };
 use super::{
     AgentHookInvocation, AgentHookStage, NativeAgentRunContext, NativeAgentRuntimeServices,
@@ -380,8 +380,9 @@ pub(super) async fn execute_tool_calls_for_iteration(
         "agent.tool_call.delta",
     );
     state
-        .messages
-        .push(assistant_tool_calls_message(&final_content, &tool_calls));
+        .history
+        .record_message(assistant_tool_calls_message(&final_content, &tool_calls))
+        .expect("runtime-generated assistant tool call message must be valid");
 
     for tool_call in &tool_calls {
         state.emit_event(
@@ -689,7 +690,7 @@ fn awaiting_tool_approval_result(
             "operation": operation,
             "pendingToolCalls": state.pending_tool_calls.clone(),
             "completedToolResults": state.completed_tool_results.clone(),
-            "messages": state.messages.clone(),
+            "messages": state.history.messages(),
             "resumeToken": format!("approval:{approval_id}"),
         }),
     );
@@ -1675,6 +1676,7 @@ async fn execute_locked_tool_batch(
         terminal_error,
     )) = terminal_result
     {
+        emit_pending_tool_hook_evaluations(context, state);
         for (index, indexed_result) in indexed_results.iter().enumerate() {
             match &indexed_result.outcome {
                 ToolDispatchOutcome::Success(success)
@@ -1695,15 +1697,20 @@ async fn execute_locked_tool_batch(
                 }
                 ToolDispatchOutcome::Failure {
                     tool_call, error, ..
-                } if index != terminal_index => emit_late_terminal_debug(
-                    context,
-                    state,
-                    iteration,
-                    tool_call,
-                    terminal_outcome,
-                    "terminal_outcome_already_claimed",
-                    Some(error),
-                ),
+                } => {
+                    record_tool_failure(context, state, iteration, tool_call, error);
+                    if index != terminal_index {
+                        emit_late_terminal_debug(
+                            context,
+                            state,
+                            iteration,
+                            tool_call,
+                            terminal_outcome,
+                            "terminal_outcome_already_claimed",
+                            Some(error),
+                        );
+                    }
+                }
                 ToolDispatchOutcome::Cancelled {
                     tool_call,
                     terminal: false,
@@ -1733,7 +1740,7 @@ async fn execute_locked_tool_batch(
         }
         state.clear_pending_tool_calls();
         return match terminal_outcome {
-            ToolBatchTerminalOutcome::Failed => tool_error_result(
+            ToolBatchTerminalOutcome::Failed => finish_tool_error_result(
                 services,
                 context,
                 state,
@@ -1909,8 +1916,9 @@ fn record_tool_success(
     let observation_content = tool_observation_content(&result);
     let completed_result = completed_tool_result_entry(&tool_call, &result);
     state
-        .messages
-        .push(tool_observation_message(&tool_call, &observation_content));
+        .history
+        .record_message(tool_observation_message(&tool_call, &observation_content))
+        .expect("runtime-generated tool observation message must be valid");
     state.emit_event(
         "agent.tool.result",
         serde_json::json!({
@@ -1952,6 +1960,43 @@ fn record_tool_success(
     state.completed_tool_results.push(completed_result);
 }
 
+fn record_tool_failure(
+    context: &NativeAgentRunContext,
+    state: &mut NativeAgentRunState,
+    iteration: i64,
+    tool_call: &NativeAgentToolCall,
+    error: &str,
+) {
+    let result = super::NativeAgentToolResult::generic_error(tool_call, error.to_string());
+    let observation_content = tool_observation_content(&result);
+    let completed_result = completed_tool_result_entry(tool_call, &result);
+    state
+        .history
+        .record_message(tool_error_observation_message(
+            tool_call,
+            &observation_content,
+        ))
+        .expect("runtime-generated tool error observation message must be valid");
+    state.emit_event(
+        "agent.tool.result",
+        serde_json::json!({
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "iteration": iteration,
+            "toolCallId": tool_call.id,
+            "toolName": tool_call.name,
+            "name": tool_call.name,
+            "detailId": format!("tool:{}", tool_call.id),
+            "status": "completed",
+            "resultStatus": result.envelope.get("status").cloned().unwrap_or_else(|| serde_json::json!("error")),
+            "summary": result.envelope.get("summary").cloned().unwrap_or_else(|| Value::String(observation_content.clone())),
+            "content": observation_content,
+            "envelope": result.envelope.clone(),
+        }),
+    );
+    state.completed_tool_results.push(completed_result);
+}
+
 fn policy_denied_result(
     services: &NativeAgentRuntimeServices,
     context: &NativeAgentRunContext,
@@ -1964,6 +2009,7 @@ fn policy_denied_result(
         "native tool `{}` is not permitted by Rust capability policy",
         tool_call.name
     );
+    record_tool_failure(context, state, iteration, tool_call, &error);
     state.set_stop_reason("policy_denied", iteration, "agent.error");
     state.emit_event(
         "agent.error",
@@ -2007,6 +2053,18 @@ fn tool_error_result(
     error: String,
 ) -> NativeAgentToolExecutionOutcome {
     emit_pending_tool_hook_evaluations(context, state);
+    record_tool_failure(context, state, iteration, tool_call, &error);
+    finish_tool_error_result(services, context, state, iteration, tool_call, error)
+}
+
+fn finish_tool_error_result(
+    services: &NativeAgentRuntimeServices,
+    context: &NativeAgentRunContext,
+    state: &mut NativeAgentRunState,
+    iteration: i64,
+    tool_call: &NativeAgentToolCall,
+    error: String,
+) -> NativeAgentToolExecutionOutcome {
     state.set_stop_reason("tool_error", iteration, "agent.error");
     state.emit_event(
         "agent.error",
@@ -2057,6 +2115,7 @@ fn tool_cleanup_timeout_result(
         timeout_ms,
         cancellation_mode.as_str()
     );
+    record_tool_failure(context, state, iteration, tool_call, &error);
     state.set_stop_reason(
         "tool_cleanup_timeout",
         iteration,

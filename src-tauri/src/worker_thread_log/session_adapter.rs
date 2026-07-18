@@ -13,6 +13,7 @@ pub fn metadata_from_state(record: ThreadStateRecord) -> SessionMetadata {
             "threadId": record.id,
             "threadPath": record.thread_path,
             "threadSource": "thread_log",
+            "source": "thread.metadata_projection",
             "preview": record.preview,
             "model": record.model,
             "provider": record.model_provider,
@@ -33,9 +34,46 @@ pub fn history_from_replay(replay: ThreadReplay, limit: usize) -> SessionHistory
     SessionHistoryProjection {
         session_id: replay.session_id,
         messages,
-        user_profile: json!({}),
+        user_profile: if replay.user_profile.is_null() {
+            json!({})
+        } else {
+            replay.user_profile
+        },
         updated_at: replay.updated_at,
+        context_checkpoint: replay.context_checkpoint,
     }
+}
+
+pub fn session_history_from_replay(
+    mut replay: ThreadReplay,
+    limit: usize,
+) -> SessionHistoryProjection {
+    replay.messages.retain(is_visible_session_message);
+    history_from_replay(replay, limit)
+}
+
+fn is_visible_session_message(message: &Value) -> bool {
+    if message
+        .get("_progress")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        || message.get("role").and_then(Value::as_str) == Some("tool")
+    {
+        return false;
+    }
+    if message.get("role").and_then(Value::as_str) != Some("assistant") {
+        return true;
+    }
+    let has_visible_content = message
+        .get("content")
+        .and_then(Value::as_str)
+        .is_some_and(|content| !content.trim().is_empty());
+    let has_tool_calls = message
+        .get("toolCalls")
+        .or_else(|| message.get("tool_calls"))
+        .and_then(Value::as_array)
+        .is_some_and(|tool_calls| !tool_calls.is_empty());
+    has_visible_content || !has_tool_calls
 }
 
 fn attach_usage(messages: &mut [Value], token_usage_info: Option<&TokenUsageInfo>) {
@@ -228,8 +266,44 @@ mod tests {
             title: "New session".to_string(),
             updated_at: "2026-07-08T10:03:00Z".to_string(),
             messages,
+            user_profile: serde_json::json!({}),
             token_usage_info: None,
+            context_checkpoint: None,
+            world_state_baseline: None,
+            compaction_overlap_candidate: None,
+            ..Default::default()
         }
+    }
+
+    #[test]
+    fn session_history_hides_model_only_tool_pairs_and_progress() {
+        let projection = session_history_from_replay(
+            replay(vec![
+                json!({"role": "user", "content": "inspect"}),
+                json!({
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [{"id": "call-1", "name": "read_file"}]
+                }),
+                json!({"role": "tool", "content": "contents", "tool_call_id": "call-1"}),
+                json!({
+                    "role": "progress",
+                    "content": "working",
+                    "_progress": true
+                }),
+                json!({"role": "assistant", "content": "done"}),
+            ]),
+            80,
+        );
+
+        assert_eq!(
+            projection
+                .messages
+                .iter()
+                .map(|message| message["content"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["inspect", "done"]
+        );
     }
 
     fn replay_with_usage(messages: Vec<serde_json::Value>) -> ThreadReplay {
