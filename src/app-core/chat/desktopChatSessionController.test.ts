@@ -52,7 +52,7 @@ describe("desktop native chat session controller", () => {
     const { controller, submitThreadTurn } = createController();
     await controller.loadSessions();
 
-    await expect(controller.submitMessage("hello", {
+    const result = await controller.submitMessage("hello", {
       model: "model-1",
       references: [{
         kind: "reference",
@@ -66,14 +66,22 @@ describe("desktop native chat session controller", () => {
         sizeBytes: 7,
         content: "# Notes",
       }],
-    })).resolves.toEqual({
+    });
+    expect(result).toEqual({
       status: "sent",
       sessionId: "thread-1",
       threadId: "thread-1",
       runId: "run-1",
       content: "hello",
       clientEventId: "client-1",
+      completion: expect.any(Promise),
     });
+    if (result.status === "sent") {
+      await expect(result.completion).resolves.toMatchObject({
+        sessionId: "thread-1",
+        turns: [],
+      });
+    }
     expect(submitThreadTurn).toHaveBeenCalledWith({
       threadId: "thread-1",
       input: {

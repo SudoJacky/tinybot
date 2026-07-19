@@ -2744,6 +2744,10 @@ describe("ChatPage", () => {
     fireEvent.change(input, { target: { value: "Keep this optimistic title" } });
     fireEvent.click(screen.getByRole("button", { name: /send message/i }));
     expect(await screen.findByRole("heading", { name: "Keep this optimistic title" })).toBeTruthy();
+    await waitFor(() => expect(stores.sessionStore.rename).toHaveBeenCalledWith(
+      "s1",
+      "Keep this optimistic title",
+    ));
 
     act(() => subscribed?.({ type: "chat.created" }));
     await waitFor(() => expect(stores.sessionStore.list).toHaveBeenCalledTimes(2));

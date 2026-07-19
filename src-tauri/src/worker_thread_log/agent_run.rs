@@ -125,6 +125,7 @@ impl WorkerThreadLogRpc {
                 event.get("eventName").and_then(Value::as_str),
                 Some(
                     "agent.turn.started"
+                        | "agent.reasoning_delta"
                         | "agent.message.classified"
                         | "agent.message.completed"
                         | "agent.tool_call.delta"
@@ -133,8 +134,40 @@ impl WorkerThreadLogRpc {
             )
         });
         let mut items = Vec::new();
+        let mut pending_reasoning = None::<ReasoningResponseAccumulator>;
         for event in events.iter().cloned() {
+            if let Some(fragment) = ReasoningResponseFragment::from_runtime_event(&event) {
+                if pending_reasoning
+                    .as_ref()
+                    .is_some_and(|pending| !pending.matches(&fragment))
+                {
+                    push_reasoning_response_item(
+                        &mut items,
+                        pending_reasoning
+                            .take()
+                            .expect("pending reasoning should exist"),
+                        run_id,
+                    )?;
+                }
+                pending_reasoning
+                    .get_or_insert_with(|| ReasoningResponseAccumulator::from_fragment(&fragment))
+                    .push(fragment);
+            } else if let Some(pending) = pending_reasoning.take() {
+                push_reasoning_response_item(&mut items, pending, run_id)?;
+            }
             let response_item = response_item_from_runtime_event(&event)
+                .map(|mut item| {
+                    item["runId"] = Value::String(run_id.to_string());
+                    item["turnId"] = Value::String(
+                        event
+                            .get("turnId")
+                            .and_then(Value::as_str)
+                            .unwrap_or(run_id)
+                            .to_string(),
+                    );
+                    item["threadItemPayload"] = event.clone();
+                    item
+                })
                 .map(|item| super::typed_response_item(item, "agent run trace"))
                 .transpose()?;
             let token_info = (event.get("eventName").and_then(Value::as_str)
@@ -163,6 +196,9 @@ impl WorkerThreadLogRpc {
             if let Some(response_item) = response_item {
                 items.push(ThreadLogItem::ResponseItem(response_item));
             }
+        }
+        if let Some(pending) = pending_reasoning {
+            push_reasoning_response_item(&mut items, pending, run_id)?;
         }
         self.recorder
             .append_items(&path, timestamp.clone(), items)?;
@@ -303,20 +339,88 @@ impl WorkerThreadLogRpc {
         session_id: &str,
         run_id: &str,
     ) -> Result<Option<AgentRunRuntimeState>, WorkerProtocolError> {
-        let Some(record) = self.get_agent_run(session_id, run_id)? else {
+        self.require(WorkerCapability::SessionMetadataRead)?;
+        validate_agent_run_key(session_id, run_id)?;
+        self.ensure_state_index()?;
+        let mut selected = None;
+        for state_record in self.state.list_threads()?.into_iter().filter(|record| {
+            !record.archived
+                && (record.id == session_id || record.session_id.as_deref() == Some(session_id))
+        }) {
+            let path = PathBuf::from(state_record.thread_path);
+            self.recorder.validate_thread_path(&path)?;
+            let reconstructed =
+                super::reconstruction::reconstruct_canonical_rollout(&read_thread_lines(&path)?)?;
+            let Some(record) = reconstructed
+                .agent_runs
+                .iter()
+                .find(|record| record.run_id == run_id)
+                .cloned()
+            else {
+                continue;
+            };
+            if selected
+                .as_ref()
+                .is_none_or(|(current, _): &(AgentRunRecord, Vec<_>)| {
+                    record.updated_at > current.updated_at
+                })
+            {
+                selected = Some((record, reconstructed.thread_items));
+            }
+        }
+        let Some((record, thread_items)) = selected else {
             return Ok(None);
         };
-        let runtime_events = record
-            .trace_events
-            .iter()
-            .enumerate()
-            .filter_map(|(index, event)| runtime_event_from_trace_value(&record, index, event))
-            .collect::<Vec<_>>();
-        Ok(Some(AgentRunRuntimeState::from_runtime_events(
+        let canonical_events = crate::worker_thread::runtime_events_from_thread_items(
+            &thread_items,
             session_id,
             run_id,
-            runtime_events,
-        )?))
+        );
+        let mut runtime_events = Vec::new();
+        for event in canonical_events {
+            if !runtime_events
+                .iter()
+                .any(|existing| same_projected_runtime_event(existing, &event))
+            {
+                runtime_events.push(event);
+            }
+        }
+        for (index, event) in record.trace_events.iter().enumerate() {
+            let Some(event) = runtime_event_from_trace_value(&record, index, event) else {
+                continue;
+            };
+            let already_projected = runtime_events
+                .iter()
+                .any(|existing| same_projected_runtime_event(existing, &event));
+            if !already_projected {
+                runtime_events.push(event);
+            }
+        }
+        let runtime_state =
+            AgentRunRuntimeState::from_runtime_events(session_id, run_id, runtime_events.clone())
+                .map_err(|error| {
+                    let diagnostics = runtime_events
+                        .iter()
+                        .map(|event| {
+                            serde_json::json!({
+                                "eventId": event.event_id,
+                                "eventName": event.event_name,
+                                "itemId": event.item_id,
+                                "sequence": event.sequence,
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    eprintln!(
+                        "agent_run_runtime_state_projection_failed session_id={} run_id={} error={} details={} events={}",
+                        session_id,
+                        run_id,
+                        error.message,
+                        error.details,
+                        Value::Array(diagnostics),
+                    );
+                    error
+                })?;
+        Ok(Some(runtime_state))
     }
 
     pub fn set_agent_run_checkpoint(
@@ -732,6 +836,97 @@ fn response_item_from_runtime_event(event: &Value) -> Option<Value> {
         })),
         _ => None,
     }
+}
+
+struct ReasoningResponseFragment {
+    event_id: String,
+    turn_id: String,
+    model_call_id: Option<String>,
+    reasoning_id: Option<String>,
+    text: String,
+}
+
+impl ReasoningResponseFragment {
+    fn from_runtime_event(event: &Value) -> Option<Self> {
+        if event.get("eventName").and_then(Value::as_str) != Some("agent.reasoning_delta") {
+            return None;
+        }
+        let payload = event.get("payload")?;
+        let text = payload.get("delta").and_then(Value::as_str)?;
+        Some(Self {
+            event_id: event.get("eventId").and_then(Value::as_str)?.to_string(),
+            turn_id: event
+                .get("turnId")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            model_call_id: payload
+                .get("modelCallId")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            reasoning_id: payload
+                .get("reasoningId")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            text: text.to_string(),
+        })
+    }
+}
+
+struct ReasoningResponseAccumulator {
+    event_id: String,
+    turn_id: String,
+    model_call_id: Option<String>,
+    reasoning_id: Option<String>,
+    text: String,
+}
+
+impl ReasoningResponseAccumulator {
+    fn from_fragment(fragment: &ReasoningResponseFragment) -> Self {
+        Self {
+            event_id: fragment.event_id.clone(),
+            turn_id: fragment.turn_id.clone(),
+            model_call_id: fragment.model_call_id.clone(),
+            reasoning_id: fragment.reasoning_id.clone(),
+            text: String::new(),
+        }
+    }
+
+    fn matches(&self, fragment: &ReasoningResponseFragment) -> bool {
+        self.turn_id == fragment.turn_id
+            && self.model_call_id == fragment.model_call_id
+            && self.reasoning_id == fragment.reasoning_id
+    }
+
+    fn push(&mut self, fragment: ReasoningResponseFragment) {
+        self.text.push_str(&fragment.text);
+    }
+}
+
+fn push_reasoning_response_item(
+    items: &mut Vec<ThreadLogItem>,
+    reasoning: ReasoningResponseAccumulator,
+    run_id: &str,
+) -> Result<(), WorkerProtocolError> {
+    let response_item = super::typed_response_item(
+        serde_json::json!({
+            "type": "reasoning",
+            "id": reasoning.event_id,
+            "summary": [{
+                "type": "summary_text",
+                "text": reasoning.text,
+            }],
+            "content": null,
+            "encrypted_content": null,
+            "runId": run_id,
+            "turnId": reasoning.turn_id,
+            "modelCallId": reasoning.model_call_id,
+            "reasoningId": reasoning.reasoning_id,
+        }),
+        "agent reasoning",
+    )?;
+    items.push(ThreadLogItem::ResponseItem(response_item));
+    Ok(())
 }
 
 fn agent_run_status_is_resumable(status: &AgentRunStatus) -> bool {
@@ -1244,8 +1439,56 @@ fn runtime_event_from_trace_value(
     ))
 }
 
+fn same_projected_runtime_event(
+    left: &AgentRuntimeEventEnvelope,
+    right: &AgentRuntimeEventEnvelope,
+) -> bool {
+    if left.event_id == right.event_id {
+        return true;
+    }
+    if matches!(
+        left.event_name.as_str(),
+        "agent.delta" | "agent.reasoning_delta"
+    ) || matches!(
+        right.event_name.as_str(),
+        "agent.delta" | "agent.reasoning_delta"
+    ) {
+        return false;
+    }
+    if left.event_name == right.event_name
+        && matches!(
+            left.event_name.as_str(),
+            "agent.done" | "agent.error" | "agent.cancelled"
+        )
+    {
+        return true;
+    }
+    left.item_id.is_some() && left.event_name == right.event_name && left.item_id == right.item_id
+}
+
 fn legacy_trace_item_id(event_name: &str, payload: &Value) -> Option<String> {
     match event_name {
+        "agent.delta"
+        | "agent.message.phase"
+        | "agent.message.classified"
+        | "agent.message.completed" => {
+            string_from_trace_payload(payload, &["messageId", "message_id"]).or_else(|| {
+                prefixed_string_from_trace_payload(
+                    payload,
+                    "assistant",
+                    &["modelCallId", "model_call_id"],
+                )
+            })
+        }
+        "agent.reasoning_delta" => {
+            string_from_trace_payload(payload, &["reasoningId", "reasoning_id"]).or_else(|| {
+                prefixed_string_from_trace_payload(
+                    payload,
+                    "reasoning",
+                    &["modelCallId", "model_call_id"],
+                )
+            })
+        }
         "agent.tool_call.delta" | "agent.tool.start" | "agent.tool.result" => {
             string_from_trace_payload(payload, &["toolCallId", "tool_call_id"])
         }
@@ -1269,6 +1512,14 @@ fn string_from_trace_payload(payload: &Value, keys: &[&str]) -> Option<String> {
             .and_then(Value::as_str)
             .map(str::to_string)
     })
+}
+
+fn prefixed_string_from_trace_payload(
+    payload: &Value,
+    prefix: &str,
+    keys: &[&str],
+) -> Option<String> {
+    string_from_trace_payload(payload, keys).map(|value| format!("{prefix}:{value}"))
 }
 
 fn parse_trace_cursor(cursor: Option<&str>) -> Result<usize, WorkerProtocolError> {

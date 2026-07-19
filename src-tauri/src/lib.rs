@@ -3,7 +3,7 @@
 use serde::Serialize;
 use std::{
     collections::VecDeque,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
@@ -11,6 +11,9 @@ use std::{
     time::Duration,
 };
 use tauri::{Emitter, Manager, Runtime, State, WindowEvent};
+
+#[cfg(test)]
+use std::path::Path;
 
 mod adapters;
 pub mod agent_loop_runtime_protocol;
@@ -65,13 +68,16 @@ pub mod worker_tool_executor;
 pub mod worker_tool_registry;
 pub mod worker_workspace;
 
+#[cfg(test)]
 use crate::config_application::{
     apply_config_operations_to_path, apply_config_patch_result_to_path,
-    config_editor_snapshot_from_path, default_tinybot_config_path, default_tinybot_workspace_root,
-    ensure_default_config_file, experimental_worker_config_snapshot,
+    config_editor_snapshot_from_path, default_tinybot_workspace_root,
     experimental_worker_config_snapshot_from_path, experimental_worker_default_config_snapshot,
-    get_settings_snapshot_from_path, native_backend_workspace_root,
-    resolve_native_backend_workspace_root_from_config_path,
+    get_settings_snapshot_from_path,
+};
+use crate::config_application::{
+    default_tinybot_config_path, ensure_default_config_file, experimental_worker_config_snapshot,
+    native_backend_workspace_root, resolve_native_backend_workspace_root_from_config_path,
 };
 use crate::config_store::ConfigDiagnosticCode;
 #[cfg(test)]
@@ -108,40 +114,48 @@ use crate::desktop_commands::config::{
     apply_config_operations, apply_config_patch_result, get_config_editor_snapshot,
     get_settings_snapshot,
 };
+#[cfg(test)]
+use crate::desktop_commands::gateway::stop_owned_gateway;
 use crate::desktop_commands::gateway::{
     gateway_exit_policy_preference_path, gateway_status, load_gateway_exit_policy,
     native_backend_log_path, set_gateway_keep_running, start_gateway,
-    start_gateway_with_workspace_root, stop_gateway, stop_owned_gateway,
+    start_gateway_with_workspace_root, stop_gateway, stop_owned_gateway_for_window_close,
 };
 use crate::desktop_commands::session::{
-    worker_agent_run_runtime_state, worker_agent_run_runtime_state_with_options,
-    worker_agent_runs_list, worker_agent_runs_list_with_options, worker_session_branch,
-    worker_session_branch_with_options, worker_session_clear, worker_session_clear_temporary_files,
-    worker_session_clear_temporary_files_with_options, worker_session_clear_with_options,
-    worker_session_delete, worker_session_delete_with_options,
-    worker_session_effective_capabilities, worker_session_messages,
-    worker_session_messages_with_options, worker_session_patch, worker_session_patch_with_options,
-    worker_session_task_progress, worker_session_task_progress_with_options,
-    worker_session_temporary_files, worker_session_temporary_files_with_options,
-    worker_session_upload_temporary_file, worker_session_upload_temporary_file_with_options,
-    worker_sessions_list, worker_sessions_list_with_options,
+    worker_agent_run_runtime_state, worker_agent_runs_list, worker_session_branch,
+    worker_session_clear, worker_session_clear_temporary_files, worker_session_delete,
+    worker_session_effective_capabilities, worker_session_messages, worker_session_patch,
+    worker_session_task_progress, worker_session_temporary_files,
+    worker_session_upload_temporary_file, worker_sessions_list,
+};
+#[cfg(test)]
+use crate::desktop_commands::session::{
+    worker_agent_run_runtime_state_with_options, worker_agent_runs_list_with_options,
+    worker_session_branch_with_options, worker_session_clear_temporary_files_with_options,
+    worker_session_clear_with_options, worker_session_delete_with_options,
+    worker_session_messages_with_options, worker_session_patch_with_options,
+    worker_session_task_progress_with_options, worker_session_temporary_files_with_options,
+    worker_session_upload_temporary_file_with_options, worker_sessions_list_with_options,
 };
 #[cfg(test)]
 use crate::desktop_commands::skills::{
     build_worker_skills_create_request, build_worker_skills_delete_request,
     build_worker_skills_detail_request, build_worker_skills_list_request,
     build_worker_skills_update_request, build_worker_skills_validate_request,
+    worker_skills_list_with_options,
 };
 use crate::desktop_commands::skills::{
     worker_skills_create, worker_skills_delete, worker_skills_detail, worker_skills_list,
-    worker_skills_list_with_options, worker_skills_update, worker_skills_validate,
+    worker_skills_update, worker_skills_validate,
 };
+#[cfg(test)]
+use crate::desktop_commands::thread::worker_thread_request_with_options;
 use crate::desktop_commands::thread::{
     worker_thread_activity, worker_thread_agent_registry, worker_thread_apply_op,
     worker_thread_archive, worker_thread_continue_turn, worker_thread_create, worker_thread_delete,
     worker_thread_events, worker_thread_fork, worker_thread_interrupt, worker_thread_read,
-    worker_thread_request_with_options, worker_thread_restore_checkpoint, worker_thread_resume,
-    worker_thread_search, worker_thread_start_turn, worker_thread_status, worker_thread_unarchive,
+    worker_thread_restore_checkpoint, worker_thread_resume, worker_thread_search,
+    worker_thread_start_turn, worker_thread_status, worker_thread_unarchive,
     worker_thread_update_metadata, worker_threads_list,
 };
 use crate::desktop_commands::transport::worker_dispatch_tinyos_host_command;
@@ -161,8 +175,11 @@ use crate::desktop_commands::webui::{
 };
 use crate::desktop_commands::workspace::{
     worker_workspace_directory, worker_workspace_file, worker_workspace_file_chunk,
-    worker_workspace_file_with_options, worker_workspace_files,
-    worker_workspace_files_with_options, worker_workspace_put_file,
+    worker_workspace_files, worker_workspace_put_file,
+};
+#[cfg(test)]
+use crate::desktop_commands::workspace::{
+    worker_workspace_file_with_options, worker_workspace_files_with_options,
     worker_workspace_put_file_with_options,
 };
 use crate::desktop_files::{pick_upload_file, reveal_workspace_file, save_export_file};
@@ -170,6 +187,7 @@ use crate::desktop_logging::append_native_backend_log_line;
 use crate::desktop_menu::{
     install_desktop_application_menu, is_desktop_menu_command, DesktopMenuCommandPayload,
 };
+#[cfg(test)]
 use crate::native_agent_bridge::{native_agent_run_record, persist_native_agent_run_start};
 use crate::native_backend_contract::NativeCompatibilityFallbackDiagnostic;
 use crate::native_browser::{
@@ -186,10 +204,11 @@ use crate::worker_agent_runtime::NativeAgentRuntimeServices;
 #[cfg(test)]
 use crate::worker_agent_runtime::NativeAgentTraceSink;
 use crate::worker_capability::default_desktop_capability_policy;
-use crate::worker_manager::{
-    WorkerCommandSpec, WorkerManager, WorkerManagerEvent, WorkerManagerState,
-};
+#[cfg(test)]
+use crate::worker_manager::{WorkerCommandSpec, WorkerManagerState};
+use crate::worker_manager::{WorkerManager, WorkerManagerEvent};
 use crate::worker_protocol::WorkerRequest;
+#[cfg(test)]
 use crate::worker_request_id::{next_worker_request_correlation, WorkerRequestCorrelation};
 use crate::worker_rpc::WorkerRpcRouter;
 use crate::worker_subagent_manager::SubagentThreadManager;
@@ -663,20 +682,33 @@ pub fn run() {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if !close_started.swap(true, Ordering::AcqRel) {
                     api.prevent_close();
+                    eprintln!("desktop_window_close_cleanup_started");
                     let browser_runtime = window
                         .app_handle()
                         .state::<native_browser::SharedBrowserRuntime>()
                         .inner()
                         .clone();
                     let close_state = close_state.clone();
+                    let close_started = close_started.clone();
                     let window = window.clone();
                     tauri::async_runtime::spawn(async move {
                         if let Err(error) = browser_runtime.shutdown().await {
-                            eprintln!("native browser shutdown cleanup failed: {error}");
+                            eprintln!("desktop_window_close_browser_cleanup_failed error={error}");
+                        } else {
+                            eprintln!("desktop_window_close_browser_cleanup_completed");
                         }
-                        let _ = stop_owned_gateway(&close_state, false);
+                        if let Err(error) =
+                            stop_owned_gateway_for_window_close(close_state, false).await
+                        {
+                            eprintln!("desktop_window_close_gateway_cleanup_failed error={error}");
+                        } else {
+                            eprintln!("desktop_window_close_gateway_cleanup_completed");
+                        }
                         if let Err(error) = window.destroy() {
-                            eprintln!("failed to destroy desktop window after cleanup: {error}");
+                            close_started.store(false, Ordering::Release);
+                            eprintln!("desktop_window_close_destroy_failed error={error}");
+                        } else {
+                            eprintln!("desktop_window_close_destroy_completed");
                         }
                     });
                 } else {

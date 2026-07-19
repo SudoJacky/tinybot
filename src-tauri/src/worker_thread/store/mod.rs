@@ -44,9 +44,8 @@ use self::query::{
     parse_sequence_cursor, parse_trace_cursor, read_cursor_from_request,
     thread_matches_list_filters, thread_matches_query,
 };
-use self::runtime_projection::{
-    runtime_events_from_thread_items, trace_event_from_thread_item, turn_items_from_thread_items,
-};
+pub(crate) use self::runtime_projection::runtime_events_from_thread_items;
+use self::runtime_projection::{trace_event_from_thread_item, turn_items_from_thread_items};
 use self::subagent_projection::{
     active_child_run_id_for_status, inherited_subagent_history_items, status_value,
     subagent_agent_control_payload, subagent_child_status_item, subagent_initial_child_items,

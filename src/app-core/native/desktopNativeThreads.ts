@@ -97,7 +97,7 @@ export type NativeThreadsApi = {
   applyOp(body: Record<string, unknown>): Promise<unknown>;
   archive(body: { threadId: string; archived?: boolean }): Promise<NativeThreadRecord>;
   unarchive(body: { threadId: string }): Promise<NativeThreadRecord>;
-  delete(body: { threadId: string }): Promise<unknown>;
+  delete(body: { threadId: string; deleteChildren?: boolean }): Promise<unknown>;
   fork(body: Record<string, unknown>): Promise<unknown>;
   events(body: Record<string, unknown>): Promise<unknown>;
   restoreCheckpoint(body: Record<string, unknown>): Promise<unknown>;

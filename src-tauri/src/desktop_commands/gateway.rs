@@ -292,7 +292,24 @@ pub(crate) fn stop_owned_gateway(shared: &SharedGateway, explicit: bool) -> Resu
     stop_owned_gateway_with_timeout(shared, explicit, Duration::from_secs(5))
 }
 
+pub(crate) async fn stop_owned_gateway_for_window_close(
+    shared: SharedGateway,
+    explicit: bool,
+) -> Result<(), String> {
+    stop_owned_gateway_async_with_timeout(&shared, explicit, Duration::from_secs(5)).await
+}
+
 pub(crate) fn stop_owned_gateway_with_timeout(
+    shared: &SharedGateway,
+    explicit: bool,
+    timeout: Duration,
+) -> Result<(), String> {
+    tauri::async_runtime::block_on(stop_owned_gateway_async_with_timeout(
+        shared, explicit, timeout,
+    ))
+}
+
+async fn stop_owned_gateway_async_with_timeout(
     shared: &SharedGateway,
     explicit: bool,
     timeout: Duration,
@@ -315,7 +332,7 @@ pub(crate) fn stop_owned_gateway_with_timeout(
             runtime.experimental_worker.status().state == WorkerManagerState::Running,
         )
     };
-    let report = tauri::async_runtime::block_on(lifecycle.shutdown(timeout));
+    let report = lifecycle.shutdown(timeout).await;
     let report_line =
         serde_json::to_string(&report).expect("runtime shutdown report should serialize");
     let failures = report
@@ -336,5 +353,22 @@ pub(crate) fn stop_owned_gateway_with_timeout(
         Ok(())
     } else {
         Err(failures.join("; "))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::GatewayRuntime;
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn window_close_shutdown_does_not_nest_async_runtime() {
+        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+
+        let result =
+            tauri::async_runtime::block_on(stop_owned_gateway_for_window_close(shared, false));
+
+        assert!(result.is_ok(), "{result:?}");
     }
 }

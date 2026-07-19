@@ -5,7 +5,7 @@ mod types;
 
 pub use self::live_thread::LiveThread;
 pub use self::runtime::ThreadRuntime;
-pub(crate) use self::store::run_summaries_from_items;
+pub(crate) use self::store::{run_summaries_from_items, runtime_events_from_thread_items};
 pub use self::store::{
     MemoryThreadStore, ThreadPersistenceRepairMode, ThreadPersistenceRepairRequest, ThreadStore,
 };

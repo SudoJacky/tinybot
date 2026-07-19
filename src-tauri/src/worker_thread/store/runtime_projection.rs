@@ -7,12 +7,31 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 pub(super) fn trace_event_from_thread_item(item: &ThreadItem) -> Option<Value> {
-    let (payload, fallback_event_name) = match &item.kind {
-        ThreadItemKind::AssistantMessageDelta(value) => (value, Some("agent.assistant.delta")),
-        ThreadItemKind::AssistantMessageCompleted(value) => {
-            (value, Some("agent.assistant.completed"))
+    if let ThreadItemKind::Reasoning(value) = &item.kind {
+        let has_trace_shape = value.get("eventName").is_some()
+            || value.get("event_name").is_some()
+            || value.get("schemaVersion").is_some()
+            || value.get("schema_version").is_some();
+        if has_trace_shape {
+            return Some(value.clone());
         }
-        ThreadItemKind::Reasoning(value) => (value, Some("agent.reasoning")),
+        let mut payload = value.as_object().cloned().unwrap_or_default();
+        payload.insert(
+            "delta".to_string(),
+            Value::String(reasoning_response_text(value)),
+        );
+        return Some(serde_json::json!({
+            "eventName": "agent.reasoning_delta",
+            "payload": payload,
+        }));
+    }
+    let (payload, fallback_event_name) = match &item.kind {
+        ThreadItemKind::UserMessage(value) => (value, Some("agent.turn.started")),
+        ThreadItemKind::AssistantMessageDelta(value) => (value, Some("agent.delta")),
+        ThreadItemKind::AssistantMessageCompleted(value) => {
+            (value, Some("agent.message.completed"))
+        }
+        ThreadItemKind::Reasoning(_) => unreachable!("reasoning items return above"),
         ThreadItemKind::ToolCallStarted(value) => (value, Some("agent.tool.start")),
         ThreadItemKind::ToolCallOutput(value) => (value, Some("agent.tool.result")),
         ThreadItemKind::ApprovalRequested(value) => (value, Some("agent.awaiting_approval")),
@@ -27,8 +46,7 @@ pub(super) fn trace_event_from_thread_item(item: &ThreadItem) -> Option<Value> {
         ThreadItemKind::Error(value) => (value, Some("agent.error")),
         ThreadItemKind::Cancelled(value) => (value, Some("agent.cancelled")),
         ThreadItemKind::Event(value) => (value, None),
-        ThreadItemKind::UserMessage(_)
-        | ThreadItemKind::AgentRunStarted(_)
+        ThreadItemKind::AgentRunStarted(_)
         | ThreadItemKind::AgentRunCompleted(_)
         | ThreadItemKind::SettingsChanged(_) => return None,
     };
@@ -45,6 +63,30 @@ pub(super) fn trace_event_from_thread_item(item: &ThreadItem) -> Option<Value> {
             "payload": payload,
         })
     })
+}
+
+fn reasoning_response_text(value: &Value) -> String {
+    if let Some(text) = value
+        .get("summary")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.get("text").and_then(Value::as_str))
+        .next()
+    {
+        return text.to_string();
+    }
+    value
+        .get("content")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.get("text").and_then(Value::as_str))
+        .next()
+        .or_else(|| value.get("summary").and_then(Value::as_str))
+        .or_else(|| value.get("content").and_then(Value::as_str))
+        .unwrap_or_default()
+        .to_string()
 }
 
 fn runtime_event_from_thread_item(
@@ -114,7 +156,7 @@ fn runtime_event_from_thread_item(
     ))
 }
 
-pub(super) fn runtime_events_from_thread_items(
+pub(crate) fn runtime_events_from_thread_items(
     items: &[ThreadItem],
     session_id: &str,
     run_id: &str,

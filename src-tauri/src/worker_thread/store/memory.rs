@@ -408,6 +408,7 @@ impl MemoryThreadStore {
         };
         let events = items
             .iter()
+            .filter(|item| !matches!(&item.kind, ThreadItemKind::UserMessage(_)))
             .filter_map(trace_event_from_thread_item)
             .collect::<Vec<_>>();
         let page_items = events

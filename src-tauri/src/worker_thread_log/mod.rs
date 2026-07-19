@@ -2681,7 +2681,7 @@ fn fork_rollout_line_indexes(
                 .iter()
                 .enumerate()
                 .filter_map(|(index, line)| {
-                    thread_item_sequence_from_rollout_line(line).map(|value| (index, value))
+                    thread_item_sequence_from_rollout_line(line, index).map(|value| (index, value))
                 })
                 .collect::<Vec<_>>();
             let Some(max_sequence) = sequenced.iter().map(|(_, value)| *value).max() else {
@@ -2785,19 +2785,60 @@ fn fork_inherits_rollout_item(item: &ThreadLogItem, include_checkpoints: bool) -
     }
 }
 
-fn thread_item_sequence_from_rollout_line(line: &ThreadLogLine) -> Option<u64> {
+fn thread_item_sequence_from_rollout_line(line: &ThreadLogLine, index: usize) -> Option<u64> {
+    let rollout_sequence = line.ordinal.unwrap_or(index as u64);
     match &line.item {
-        ThreadLogItem::ResponseItem(message) => {
-            message.get("threadItemSequence").and_then(Value::as_u64)
+        ThreadLogItem::ResponseItem(message) => message
+            .get("threadItemSequence")
+            .or_else(|| message.get("thread_item_sequence"))
+            .and_then(Value::as_u64)
+            .or(Some(rollout_sequence)),
+        ThreadLogItem::Compacted(_) | ThreadLogItem::InterAgentCommunication(_) => {
+            Some(rollout_sequence)
         }
-        ThreadLogItem::Compacted(checkpoint) => checkpoint
-            .get("_threadItemSequence")
-            .and_then(Value::as_u64),
         ThreadLogItem::EventMsg(event) if event.kind() == &EventKind::ThreadItem => event
             .payload()
             .get("item")
             .and_then(|item| item.get("sequence"))
-            .and_then(Value::as_u64),
+            .and_then(Value::as_u64)
+            .filter(|sequence| *sequence != 0)
+            .or(Some(rollout_sequence)),
+        ThreadLogItem::EventMsg(event)
+            if matches!(
+                event.kind(),
+                EventKind::TurnStarted | EventKind::TurnComplete | EventKind::UserMessage
+            ) =>
+        {
+            event
+                .payload()
+                .get("_threadItemSequence")
+                .and_then(Value::as_u64)
+                .or(Some(rollout_sequence))
+        }
+        ThreadLogItem::EventMsg(event) if event.kind() == &EventKind::AgentRunTrace => {
+            let event_name = event
+                .payload()
+                .get("event")
+                .and_then(|event| event.get("eventName").or_else(|| event.get("event_name")))
+                .and_then(Value::as_str);
+            if matches!(
+                event_name,
+                Some(
+                    "agent.context.compacted"
+                        | "agent.delta"
+                        | "agent.message.phase"
+                        | "agent.message.classified"
+                        | "agent.message.completed"
+                )
+            ) {
+                None
+            } else {
+                Some(rollout_sequence)
+            }
+        }
+        ThreadLogItem::EventMsg(event) if event.kind() == &EventKind::AgentRunCheckpointSet => {
+            Some(rollout_sequence)
+        }
         _ => None,
     }
 }

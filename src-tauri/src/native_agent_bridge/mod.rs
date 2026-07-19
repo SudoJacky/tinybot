@@ -20,11 +20,13 @@ pub(crate) use history::{
     native_agent_assistant_messages, native_agent_current_user_message, native_agent_message_id,
     native_agent_thread_id, native_agent_user_messages,
 };
+#[cfg(test)]
+pub(crate) use persistence::native_agent_run_record;
 pub(crate) use persistence::{
-    cancel_agent_with_services, native_agent_run_record,
-    persist_native_agent_checkpoint_if_present, persist_native_agent_run_record,
-    persist_native_agent_run_start, persist_native_agent_turn_if_final,
-    reject_native_agent_terminal_run_reentry, restore_agent_checkpoint_with_services,
+    cancel_agent_with_services, persist_native_agent_checkpoint_if_present,
+    persist_native_agent_run_record, persist_native_agent_run_start,
+    persist_native_agent_turn_if_final, reject_native_agent_terminal_run_reentry,
+    restore_agent_checkpoint_with_services,
 };
 pub(crate) use result_projection::{
     native_agent_artifacts, native_agent_current_iteration, native_agent_max_iterations,
@@ -42,9 +44,9 @@ pub(crate) use thread_flow::{
 pub(crate) use tool_dispatcher::native_agent_services_with_tool_executor;
 #[cfg(test)]
 pub(crate) use tool_dispatcher::{dispatch_agent_browser_interact, dispatch_agent_browser_observe};
-pub(crate) use trace_sink::{
-    desktop_agent_event_sink, native_agent_trace_sink, NativeAgentRunTraceSink,
-};
+#[cfg(test)]
+pub(crate) use trace_sink::NativeAgentRunTraceSink;
+pub(crate) use trace_sink::{desktop_agent_event_sink, native_agent_trace_sink};
 pub(crate) use webui_continuation::{
     native_session_checkpoint, pending_approvals_from_checkpoint,
     resolve_agent_ui_form_body_with_services, resolve_approval_body_with_services,

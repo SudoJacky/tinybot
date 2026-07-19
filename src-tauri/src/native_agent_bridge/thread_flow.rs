@@ -6,10 +6,12 @@ use crate::native_agent_bridge::{
 };
 use crate::worker_agent_runtime::{
     ensure_agent_trace_context, AgentHookInvocation, AgentHookStage, NativeAgentRuntimeServices,
+    NativeAgentTraceSink,
 };
 use crate::worker_protocol::WorkerRequest;
 use crate::worker_request_id::next_worker_request_correlation;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::agent_flow::run_agent_with_services;
@@ -44,6 +46,7 @@ pub(crate) async fn submit_thread_turn_with_services(
     input: SubmitThreadTurnInput,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
+    live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 ) -> Result<serde_json::Value, String> {
     let thread = ensure_thread_turn_target(
         input.thread_id,
@@ -174,7 +177,7 @@ pub(crate) async fn submit_thread_turn_with_services(
         spec,
         workspace_root.clone(),
         config_snapshot.clone(),
-        None,
+        live_trace_sink,
     )
     .await?;
     let snapshot = read_thread_snapshot(

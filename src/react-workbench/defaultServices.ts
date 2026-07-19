@@ -1,7 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { createDesktopChatSessionController } from "../app-core/chat/desktopChatSessionController";
-import { createBranchSessionDraft } from "../app-core/chat/chatBranchSession";
 import type { NativeChatReference, NativeChatSession } from "../app-core/chat/nativeChat";
 import {
   createAgentUiEventState,
@@ -78,10 +77,13 @@ export function createDesktopAppServices(): AppServices {
 
   const controller = createDesktopChatSessionController({
     api: {
-      listSessions: () => requireNative(nativeThreads, "Thread").list(),
+      listSessions: listConversationThreads,
       listAgentRuns: (sessionKey) => requireNative(nativeSessions, "Session").agentRuns?.(sessionKey) ?? Promise.resolve({ runs: [] }),
       getAgentRunRuntimeState: (sessionKey, runId) => requireNative(nativeSessions, "Session").agentRunRuntimeState?.(sessionKey, runId) ?? Promise.resolve(null),
-      deleteSession: (threadId) => requireNative(nativeThreads, "Thread").delete({ threadId }),
+      deleteSession: (threadId) => requireNative(nativeThreads, "Thread").delete({
+        threadId,
+        deleteChildren: true,
+      }),
       patchSession: (threadId, body) => requireNative(nativeThreads, "Thread").updateMetadata({
         threadId,
         metadata: nativeThreadMetadataPatch(body),
@@ -89,6 +91,19 @@ export function createDesktopAppServices(): AppServices {
       submitThreadTurn: (input) => requireNative(nativeThreads, "Thread").submitTurn(input),
     },
   });
+
+  async function listConversationThreads() {
+    const result = await requireNative(nativeThreads, "Thread").list({ includeChildThreads: true });
+    const threads = result.threads.filter((thread) => {
+      const parentThreadId = stringValue(thread.parentThreadId ?? thread.parent_thread_id);
+      return !parentThreadId || stringValue(thread.source) === "fork";
+    });
+    return {
+      ...result,
+      threads,
+      total: threads.length,
+    };
+  }
 
   async function initialize(): Promise<void> {
     initialized ??= (async () => {
@@ -279,6 +294,19 @@ export function createDesktopAppServices(): AppServices {
       type: "message-sent",
       ...(optimisticMessage ? { message: optimisticMessage } : {}),
     });
+    if (result.status === "sent") {
+      void result.completion
+        .then((timeline) => {
+          notifySession(sessionId, { type: "timeline.patch", timeline });
+          notifyTerminalTimelineState(sessionId, timeline);
+        })
+        .catch((error) => {
+          notifySession(sessionId, {
+            type: "timeline.error",
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+    }
   }
 
   async function dispatchDesktopCommand(command: DesktopCommand): Promise<void> {
@@ -311,6 +339,48 @@ export function createDesktopAppServices(): AppServices {
       return;
     }
     await dispatchTinyOsCommand(command);
+  }
+
+  async function resolveForkSequence(threadId: string, itemIds: Set<string>): Promise<number | undefined> {
+    let cursor = "";
+    const seenCursors = new Set<string>();
+    while (true) {
+      const payload = await requireNative(nativeThreads, "Thread").read({
+        threadId,
+        limit: 500,
+        ...(cursor ? { cursor } : {}),
+      });
+      if (!isRecord(payload)) {
+        throw new Error(`Thread ${threadId} returned an invalid read result while resolving a fork boundary`);
+      }
+      const items = Array.isArray(payload.items) ? payload.items : [];
+      for (const value of items) {
+        if (!isRecord(value)) continue;
+        const kind = isRecord(value.kind) ? value.kind : {};
+        const itemPayload = isRecord(kind.payload) ? kind.payload : {};
+        const itemId = stringValue(value.itemId ?? value.item_id);
+        const messageId = stringValue(itemPayload.messageId ?? itemPayload.message_id);
+        if (!itemIds.has(itemId) && !itemIds.has(messageId)) continue;
+        const sequence = numberValue(value.sequence);
+        if (sequence === undefined) {
+          throw new Error(`Thread item ${itemId || messageId} is missing its canonical sequence`);
+        }
+        return sequence;
+      }
+      const nextCursor = stringValue(
+        payload.nextCursor
+        ?? payload.next_cursor
+        ?? (isRecord(payload.pagination)
+          ? payload.pagination.nextCursor ?? payload.pagination.next_cursor
+          : undefined),
+      );
+      if (!nextCursor) return undefined;
+      if (seenCursors.has(nextCursor)) {
+        throw new Error(`Thread ${threadId} returned a repeated pagination cursor while resolving a fork boundary`);
+      }
+      seenCursors.add(nextCursor);
+      cursor = nextCursor;
+    }
   }
 
   return {
@@ -400,35 +470,46 @@ export function createDesktopAppServices(): AppServices {
           throw new Error(`Cannot branch from unknown Thread ${sessionId}`);
         }
         const timeline = await controller.loadTimeline(sessionId);
-        const draft = createBranchSessionDraft({
-          sessionId,
-          chatId: sourceSession.chatId,
-          title: sourceSession.title,
-          messages: timeline.turns.flatMap((turn) => {
-            const finalAnswer = turn.finalAnswer ?? turn.finalMessage;
-            return [
-              { messageId: turn.userMessage.id, role: "user", content: turn.userMessage.text },
-              ...(finalAnswer ? [{ messageId: finalAnswer.id, role: "assistant", content: finalAnswer.text }] : []),
-            ];
-          }),
-          portableContext: { chatId: sourceSession.chatId, sessionKey: sourceSession.key },
-          runtimeState: {},
-        }, messageId);
-        const branch = requireNative(nativeSessions, "Session").branch;
-        if (!branch) {
-          throw new Error("Session branch API is unavailable");
+        const canonicalItem = timeline.turns
+          .flatMap((turn) => turn.canonicalItems ?? [])
+          .find((item) => (
+            item.itemId === messageId
+            || stringValue(item.data.messageId ?? item.data.message_id) === messageId
+          ));
+        if (!canonicalItem) {
+          throw new Error(`Cannot fork Thread ${sessionId} at unknown canonical message ${messageId}`);
         }
-        const payload = await branch(draft);
+        const sourceThreadId = sourceSession.threadId || sourceSession.key;
+        const forkAfterSequence = await resolveForkSequence(sourceThreadId, new Set([
+          messageId,
+          canonicalItem.itemId,
+          stringValue(canonicalItem.data.messageId ?? canonicalItem.data.message_id),
+        ].filter(Boolean)));
+        if (forkAfterSequence === undefined) {
+          throw new Error(`Cannot resolve persisted fork boundary for canonical message ${messageId}`);
+        }
+        const title = `${sourceSession.title} · 分叉`;
+        const payload = await requireNative(nativeThreads, "Thread").fork({
+          threadId: sourceThreadId,
+          clientEventId: `fork:${sourceThreadId}:${messageId}`,
+          title,
+          forkAfterSequence,
+        });
         await controller.loadSessions();
         const payloadRecord = isRecord(payload) ? payload : {};
-        const branchKey = stringValue(payloadRecord.key ?? payloadRecord.sessionKey ?? payloadRecord.session_key);
-        return mapSession(controller.state.sessions.find((session) => session.key === branchKey) ?? {
-          key: branchKey || sessionId,
-          chatId: stringValue(payloadRecord.chatId ?? payloadRecord.chat_id),
-          title: stringValue(payloadRecord.title) || draft.title,
-          createdAt: stringValue(payloadRecord.createdAt ?? payloadRecord.created_at),
-          updatedAt: stringValue(payloadRecord.updatedAt ?? payloadRecord.updated_at) || new Date().toISOString(),
-        }, false, payload);
+        const branchKey = stringValue(
+          payloadRecord.sessionKey
+          ?? payloadRecord.session_key
+          ?? payloadRecord.threadId
+          ?? payloadRecord.thread_id,
+        );
+        const branchSession = controller.state.sessions.find((session) => (
+          session.key === branchKey || session.threadId === branchKey
+        ));
+        if (!branchKey || !branchSession) {
+          throw new Error(`Forked Thread ${branchKey || "<missing>"} is missing from the Thread list`);
+        }
+        return mapSession(branchSession, false, payload);
       },
       async copyMarkdown(sessionId) {
         await initialize();
