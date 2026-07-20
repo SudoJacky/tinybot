@@ -3741,11 +3741,15 @@ fn thread_item_from_agent_run_trace(
         })?;
     if matches!(
         event_name,
-        "agent.context.compacted"
+        "agent.turn.started"
+            | "agent.context.compacted"
             | "agent.delta"
+            | "agent.reasoning_delta"
             | "agent.message.phase"
             | "agent.message.classified"
             | "agent.message.completed"
+            | "agent.tool_call.delta"
+            | "agent.tool.result"
     ) {
         return Ok(None);
     }
@@ -3769,15 +3773,13 @@ fn thread_item_from_agent_run_trace(
     let event_id = string_value(event, "eventId")
         .or_else(|| string_value(event, "event_id"))
         .unwrap_or_else(|| format!("{event_name}:{sequence}"));
-    let event_payload = serde_json::json!({
-        "eventName": event_name,
-        "runId": run_id,
-        "turnId": turn_id,
-        "source": event.get("source").cloned().unwrap_or(Value::Null),
-        "visibility": event.get("visibility").cloned().unwrap_or(Value::Null),
-        "payload": event.get("payload").cloned().unwrap_or(Value::Null),
-        "threadSource": "rollout.agent_run_trace",
-    });
+    let mut event_payload = event.clone();
+    if let Some(object) = event_payload.as_object_mut() {
+        object.insert(
+            "threadSource".to_string(),
+            Value::String("rollout.agent_run_trace".to_string()),
+        );
+    }
     let kind = match event_name {
         "agent.awaiting_approval" => ThreadItemKind::ApprovalRequested(event_payload),
         "agent.approval.decision" => ThreadItemKind::ApprovalResolved(event_payload),
@@ -3933,6 +3935,7 @@ fn response_item_thread_kind(item: &Value) -> ThreadItemKind {
     match item.get("role").and_then(Value::as_str) {
         Some("user") => ThreadItemKind::UserMessage(payload),
         Some("assistant") => ThreadItemKind::AssistantMessageCompleted(payload),
+        Some("tool") => ThreadItemKind::ToolCallOutput(payload),
         _ => match item.get("type").and_then(Value::as_str) {
             Some("reasoning") => ThreadItemKind::Reasoning(item.clone()),
             Some("function_call" | "tool_call") => ThreadItemKind::ToolCallStarted(item.clone()),

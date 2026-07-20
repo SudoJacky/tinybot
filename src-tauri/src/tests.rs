@@ -5176,20 +5176,7 @@ fn worker_agent_run_runtime_commands_use_thread_log_agent_run_store() {
         "currentIteration": 1,
         "conversationMessageIds": [],
         "traceMessages": [],
-        "traceEvents": [{
-            "schemaVersion": "tinybot.agent_event.v1",
-            "eventId": "run-1:agent-done:0000000000000001",
-            "sequence": 1,
-            "sessionId": "websocket:chat-1",
-            "turnId": "run-1",
-            "itemId": "run-1:assistant",
-            "eventName": "agent.done",
-            "phase": "completed",
-            "timestamp": "2026-07-03T01:00:02Z",
-            "source": "rust_backend",
-            "visibility": "user",
-            "payload": { "finalContent": "Done from runtime state" }
-        }],
+        "traceEvents": [],
         "completedToolResults": [],
         "pendingToolCalls": [],
         "checkpoint": null,
@@ -5209,6 +5196,35 @@ fn worker_agent_run_runtime_commands_use_thread_log_agent_run_store() {
         "agent run thread log seed",
     )
     .expect("agent run should seed thread log store");
+    call_rust_state_service(
+        fixture.root.clone(),
+        serde_json::json!({}),
+        WorkerRequest::new(
+            "req-seed-agent-run-trace",
+            "trace-seed-agent-run-thread-log",
+            "agent_run.append_trace",
+            serde_json::json!({
+                "session_id": "websocket:chat-1",
+                "run_id": "run-1",
+                "event": {
+                    "schemaVersion": "tinybot.agent_event.v1",
+                    "eventId": "run-1:agent-done:0000000000000001",
+                    "sequence": 1,
+                    "sessionId": "websocket:chat-1",
+                    "turnId": "run-1",
+                    "itemId": "run-1:assistant",
+                    "eventName": "agent.done",
+                    "phase": "completed",
+                    "timestamp": "2026-07-03T01:00:02Z",
+                    "source": "rust_backend",
+                    "visibility": "user",
+                    "payload": { "finalContent": "Done from runtime state" }
+                }
+            }),
+        ),
+        "agent run trace seed",
+    )
+    .expect("agent run trace should seed thread log store");
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
 
     let runs = worker_agent_runs_list_with_options(

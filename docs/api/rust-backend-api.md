@@ -861,9 +861,10 @@ checkpoint and returns `stopReason: "form_cancelled"` with an observable resolut
 | `worker_session_clear` | `{ input: { key: string } }` | clear result |
 | `worker_session_task_progress` | `{ input: { key: string, body: unknown } }` | task progress result |
 
-`worker_agent_run_runtime_state` returns raw runtime events for diagnostics and one canonical
-timeline snapshot for product rendering. The former `turnItems` response field is not part of the
-contract.
+`worker_agent_run_runtime_state` returns runtime events projected from the session's canonical
+Rollout plus one canonical timeline snapshot for product rendering. Rollout ordinals define event
+order; embedded event sequence values and in-memory thread items are not reconstruction sources.
+The former `turnItems` response field is not part of the contract.
 
 ```json
 {
@@ -1838,6 +1839,12 @@ External callers should usually prefer the Tauri commands above.
 | `tool_executor` | `execute` |
 | `tool_registry` | `list`, `search` |
 | `workspace` | `apply_patch`, `create_dir`, `delete_file`, `list_dir`, `list_files`, `read_bootstrap_files`, `read_file`, `resolve_path`, `write_file` |
+
+`agent_run.upsert` persists run metadata only and requires an empty `traceEvents` field. Runtime
+events must be written with `agent_run.append_trace` or `agent_run.append_trace_batch`; semantic
+message, reasoning, and tool records are materialized as Rollout response items, while selected
+durable lifecycle events remain Rollout event records. Agent-run reads never fall back to the
+in-memory thread store.
 
 ### MCP Runtime RPC
 

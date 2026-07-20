@@ -107,18 +107,6 @@ pub(super) fn descendant_thread_ids(index: &ThreadIndex, thread_id: &str) -> Vec
     descendants
 }
 
-pub(super) fn parse_trace_cursor(cursor: Option<&str>) -> Result<usize, WorkerProtocolError> {
-    match cursor {
-        Some(value) if !value.trim().is_empty() => value.parse::<usize>().map_err(|error| {
-            invalid_thread_request(
-                "agent run trace cursor must be an offset",
-                serde_json::json!({ "cursor": value, "error": error.to_string() }),
-            )
-        }),
-        _ => Ok(0),
-    }
-}
-
 pub(super) fn parse_sequence_cursor(cursor: Option<&str>) -> Result<u64, WorkerProtocolError> {
     match cursor {
         Some(value) if !value.trim().is_empty() => value.parse::<u64>().map_err(|error| {

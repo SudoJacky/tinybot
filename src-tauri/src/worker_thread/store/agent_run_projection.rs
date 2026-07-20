@@ -1,10 +1,9 @@
-use crate::worker_session::{AgentRunRecord, AgentRunStatus};
 use crate::worker_thread::types::{
     ThreadItem, ThreadItemKind, ThreadRecord, ThreadRunSummary, ThreadStatus,
 };
 use serde_json::Value;
 
-use super::{string_field, trace_event_from_thread_item};
+use super::string_field;
 
 pub(crate) fn run_summaries_from_items(
     thread: &ThreadRecord,
@@ -58,67 +57,6 @@ pub(crate) fn run_summaries_from_items(
         }
     }
     runs
-}
-
-pub(super) fn agent_run_record_from_thread_run(
-    session_id: &str,
-    thread: &ThreadRecord,
-    run: &ThreadRunSummary,
-    items: &[ThreadItem],
-) -> AgentRunRecord {
-    let trace_events = items
-        .iter()
-        .filter(|item| item.run_id.as_deref() == Some(run.run_id.as_str()))
-        .filter_map(trace_event_from_thread_item)
-        .collect::<Vec<_>>();
-    AgentRunRecord {
-        session_id: session_id.to_string(),
-        run_id: run.run_id.clone(),
-        thread_id: Some(thread.thread_id.clone()),
-        turn_id: turn_id_for_run(run, items),
-        parent_thread_id: thread.parent_thread_id.clone(),
-        child_thread_ids: child_thread_ids_for_run(thread, run, items),
-        status: agent_run_status_from_thread_run(run),
-        phase: agent_run_phase_from_thread_run(run).to_string(),
-        started_at: run
-            .started_at
-            .clone()
-            .unwrap_or_else(|| thread.created_at.clone()),
-        updated_at: run
-            .updated_at
-            .clone()
-            .unwrap_or_else(|| thread.updated_at.clone()),
-        completed_at: run.completed_at.clone(),
-        stop_reason: run
-            .completed_at
-            .as_ref()
-            .map(|_| "thread_projected".to_string()),
-        model: run
-            .model
-            .clone()
-            .or_else(|| thread.metadata.model.clone())
-            .unwrap_or_default(),
-        provider: run.provider.clone(),
-        max_iterations: 0,
-        current_iteration: 0,
-        conversation_message_ids: Vec::new(),
-        trace_messages: Vec::new(),
-        trace_events,
-        completed_tool_results: Vec::new(),
-        pending_tool_calls: Vec::new(),
-        checkpoint: None,
-        artifacts: Vec::new(),
-        usage: Vec::new(),
-        token_usage_info: thread_token_usage_info(thread),
-        instruction_provenance: instruction_provenance_for_run(run, items),
-        instruction_diagnostics: instruction_diagnostics_for_run(run, items),
-        trace_context: trace_context_for_run(run, items),
-        error: (run.status == ThreadStatus::Failed).then(|| {
-            serde_json::json!({
-                "message": "thread run failed"
-            })
-        }),
-    }
 }
 
 fn update_run_summary_from_item(run: &mut ThreadRunSummary, item: &ThreadItem) {
@@ -179,120 +117,4 @@ fn update_run_summary_from_item(run: &mut ThreadRunSummary, item: &ThreadItem) {
         }
         _ => {}
     }
-}
-
-fn thread_token_usage_info(thread: &ThreadRecord) -> Option<crate::worker_session::TokenUsageInfo> {
-    thread
-        .metadata
-        .extra
-        .get("tokenUsageInfo")
-        .cloned()
-        .and_then(|value| serde_json::from_value(value).ok())
-}
-
-fn child_thread_ids_for_run(
-    thread: &ThreadRecord,
-    run: &ThreadRunSummary,
-    items: &[ThreadItem],
-) -> Vec<String> {
-    let mut child_thread_ids = items
-        .iter()
-        .filter(|item| item.run_id.as_deref() == Some(run.run_id.as_str()))
-        .filter_map(|item| child_thread_id_from_item(&item.kind))
-        .collect::<Vec<_>>();
-    child_thread_ids.sort();
-    child_thread_ids.dedup();
-    if thread.parent_thread_id.is_some() || !child_thread_ids.is_empty() {
-        return child_thread_ids;
-    }
-    Vec::new()
-}
-
-fn turn_id_for_run(run: &ThreadRunSummary, items: &[ThreadItem]) -> Option<String> {
-    items
-        .iter()
-        .find(|item| item.run_id.as_deref() == Some(run.run_id.as_str()))
-        .and_then(|item| item.turn_id.clone())
-        .or_else(|| Some(run.run_id.clone()))
-}
-
-fn child_thread_id_from_item(kind: &ThreadItemKind) -> Option<String> {
-    match kind {
-        ThreadItemKind::SubagentSpawned(value)
-        | ThreadItemKind::SubagentMessage(value)
-        | ThreadItemKind::SubagentCompleted(value) => value
-            .get("childThreadId")
-            .or_else(|| value.get("child_thread_id"))
-            .and_then(Value::as_str)
-            .filter(|value| !value.trim().is_empty())
-            .map(str::to_string),
-        _ => None,
-    }
-}
-
-fn agent_run_status_from_thread_run(run: &ThreadRunSummary) -> AgentRunStatus {
-    match &run.status {
-        ThreadStatus::Failed => AgentRunStatus::Failed,
-        ThreadStatus::Cancelling => AgentRunStatus::Cancelled,
-        ThreadStatus::WaitingForApproval | ThreadStatus::WaitingForInput => AgentRunStatus::Waiting,
-        ThreadStatus::Running => AgentRunStatus::Running,
-        ThreadStatus::Empty | ThreadStatus::Idle | ThreadStatus::Archived => {
-            if run.active {
-                AgentRunStatus::Running
-            } else {
-                AgentRunStatus::Completed
-            }
-        }
-    }
-}
-
-fn agent_run_phase_from_thread_run(run: &ThreadRunSummary) -> &'static str {
-    match agent_run_status_from_thread_run(run) {
-        AgentRunStatus::Running => "active_turn",
-        AgentRunStatus::Waiting => "waiting",
-        AgentRunStatus::Completed => "completed",
-        AgentRunStatus::Failed => "failed",
-        AgentRunStatus::Cancelled => "cancelled",
-        AgentRunStatus::Interrupted => "interrupted",
-    }
-}
-
-fn trace_context_for_run(
-    run: &ThreadRunSummary,
-    items: &[ThreadItem],
-) -> Option<crate::agent_loop_runtime_protocol::AgentTraceContext> {
-    items
-        .iter()
-        .filter(|item| item.run_id.as_deref() == Some(run.run_id.as_str()))
-        .find_map(|item| match &item.kind {
-            ThreadItemKind::AgentRunStarted(payload) => payload.get("traceContext"),
-            _ => None,
-        })
-        .cloned()
-        .and_then(|value| serde_json::from_value(value).ok())
-}
-
-fn instruction_provenance_for_run(run: &ThreadRunSummary, items: &[ThreadItem]) -> Option<Value> {
-    completed_run_payload(run, items)
-        .and_then(|payload| payload.get("instructionProvenance"))
-        .filter(|value| !value.is_null())
-        .cloned()
-}
-
-fn instruction_diagnostics_for_run(run: &ThreadRunSummary, items: &[ThreadItem]) -> Vec<Value> {
-    completed_run_payload(run, items)
-        .and_then(|payload| payload.get("instructionDiagnostics"))
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default()
-}
-
-fn completed_run_payload<'a>(run: &ThreadRunSummary, items: &'a [ThreadItem]) -> Option<&'a Value> {
-    items
-        .iter()
-        .filter(|item| item.run_id.as_deref() == Some(run.run_id.as_str()))
-        .find_map(|item| match &item.kind {
-            ThreadItemKind::AgentRunCompleted(payload) => Some(payload),
-            _ => None,
-        })
 }

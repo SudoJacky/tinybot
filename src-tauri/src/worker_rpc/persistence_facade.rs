@@ -241,17 +241,6 @@ impl WorkerRpcRouter {
             "agent_run.list" => {
                 let params: AgentRunListParams = parse_params(request)?;
                 let mut records = self.thread_log.list_agent_runs(&params.session_id)?;
-                for record in self
-                    .thread
-                    .list_agent_runs_from_threads(&params.session_id)?
-                {
-                    if !records
-                        .iter()
-                        .any(|existing| existing.run_id == record.run_id)
-                    {
-                        records.push(record);
-                    }
-                }
                 records.sort_by(|left, right| {
                     right
                         .updated_at
@@ -272,9 +261,6 @@ impl WorkerRpcRouter {
                 let record = self
                     .thread_log
                     .get_agent_run(&params.session_id, &params.run_id)?
-                    .or(self
-                        .thread
-                        .get_agent_run_from_threads(&params.session_id, &params.run_id)?)
                     .ok_or_else(|| agent_run_not_found_error(&params.session_id, &params.run_id))?;
                 serde_json::to_value(record).map_err(serialization_error)
             }
@@ -288,12 +274,6 @@ impl WorkerRpcRouter {
                         params.cursor.as_deref(),
                         params.limit,
                     )?
-                    .or(self.thread.list_agent_run_trace_events(
-                        &params.session_id,
-                        &params.run_id,
-                        params.cursor.as_deref(),
-                        params.limit,
-                    )?)
                     .ok_or_else(|| agent_run_not_found_error(&params.session_id, &params.run_id))?;
                 serde_json::to_value(trace_page).map_err(serialization_error)
             }
@@ -302,9 +282,6 @@ impl WorkerRpcRouter {
                 let runtime_state = self
                     .thread_log
                     .get_agent_run_runtime_state(&params.session_id, &params.run_id)?
-                    .or(self
-                        .thread
-                        .get_agent_run_runtime_state(&params.session_id, &params.run_id)?)
                     .ok_or_else(|| agent_run_not_found_error(&params.session_id, &params.run_id))?;
                 serde_json::to_value(runtime_state).map_err(serialization_error)
             }

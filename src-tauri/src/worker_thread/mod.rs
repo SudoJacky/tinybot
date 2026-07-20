@@ -28,7 +28,6 @@ use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource,
 };
-use crate::worker_session::{AgentRunRecord, AgentRunRuntimeState, AgentRunTracePage};
 use crate::worker_subagent_manager::{SubagentMailboxInput, SubagentThreadSummary};
 use serde_json::Value;
 use std::path::PathBuf;
@@ -244,44 +243,6 @@ impl WorkerThreadRpc {
     ) -> Result<ThreadTurnRuntimeResult, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         self.runtime.interrupt(request)
-    }
-
-    pub fn list_agent_run_trace_events(
-        &self,
-        session_id: &str,
-        run_id: &str,
-        cursor: Option<&str>,
-        limit: Option<usize>,
-    ) -> Result<Option<AgentRunTracePage>, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionMetadataRead)?;
-        self.store
-            .list_agent_run_trace_events(session_id, run_id, cursor, limit)
-    }
-
-    pub fn get_agent_run_runtime_state(
-        &self,
-        session_id: &str,
-        run_id: &str,
-    ) -> Result<Option<AgentRunRuntimeState>, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionMetadataRead)?;
-        self.store.get_agent_run_runtime_state(session_id, run_id)
-    }
-
-    pub fn list_agent_runs_from_threads(
-        &self,
-        session_id: &str,
-    ) -> Result<Vec<AgentRunRecord>, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionMetadataRead)?;
-        self.store.list_agent_runs_from_threads(session_id)
-    }
-
-    pub fn get_agent_run_from_threads(
-        &self,
-        session_id: &str,
-        run_id: &str,
-    ) -> Result<Option<AgentRunRecord>, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionMetadataRead)?;
-        self.store.get_agent_run_from_threads(session_id, run_id)
     }
 
     pub fn record_subagent_spawn(
