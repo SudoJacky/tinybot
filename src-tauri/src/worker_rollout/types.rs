@@ -619,7 +619,6 @@ impl WorldStateItem {
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct TurnContextItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<String>,
@@ -651,31 +650,41 @@ pub struct TurnContextItem {
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct SessionMeta {
+    #[serde(skip, default = "current_rollout_schema_version")]
     pub schema_version: u32,
+    #[serde(rename = "id")]
     pub thread_id: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    #[serde(rename = "timestamp")]
     pub created_at: String,
     #[serde(default)]
     pub cwd: String,
     #[serde(default)]
     pub source: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_provider: Option<String>,
-    #[serde(default)]
+    #[serde(skip, default)]
     pub model: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_instructions: Option<Value>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub history_mode: Option<String>,
-    #[serde(default)]
+    #[serde(
+        rename = "forked_from_id",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub forked_from_thread_id: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_thread_id: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub originator: Option<String>,
+}
+
+fn current_rollout_schema_version() -> u32 {
+    ROLLOUT_SCHEMA_VERSION
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -809,7 +818,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn rollout_line_serializes_session_meta_with_snake_type() {
+    fn rollout_line_serializes_codex_compatible_session_meta() {
         let line = RolloutLine {
             timestamp: "2026-07-08T10:12:30Z".to_string(),
             ordinal: None,
@@ -832,20 +841,65 @@ mod tests {
 
         let value = serde_json::to_value(line).unwrap();
         assert_eq!(value["type"], "session_meta");
-        assert_eq!(value["payload"]["schemaVersion"], 1);
-        assert_eq!(value["payload"]["threadId"], "thread-1");
-        assert_eq!(value["payload"]["sessionId"], "session-1");
+        assert_eq!(value["payload"]["id"], "thread-1");
+        assert_eq!(value["payload"]["session_id"], "session-1");
+        assert_eq!(value["payload"]["timestamp"], "2026-07-08T10:12:30Z");
+        assert_eq!(value["payload"]["model_provider"], "deepseek");
+        assert!(value["payload"].get("schemaVersion").is_none());
+        assert!(value["payload"].get("schema_version").is_none());
+        assert!(value["payload"].get("threadId").is_none());
+        assert!(value["payload"].get("createdAt").is_none());
+        assert!(value["payload"].get("model").is_none());
     }
 
     #[test]
-    fn session_meta_requires_schema_version() {
-        let error = serde_json::from_value::<SessionMeta>(json!({
-            "threadId": "thread-legacy",
-            "createdAt": "2026-07-08T10:12:30Z"
+    fn session_meta_reads_codex_wire_keys_without_a_tinybot_schema_field() {
+        let meta = serde_json::from_value::<SessionMeta>(json!({
+            "id": "thread-codex",
+            "session_id": "session-codex",
+            "timestamp": "2026-07-08T10:12:30Z",
+            "cwd": "D:/workspace",
+            "source": "desktop",
+            "forked_from_id": "thread-parent"
         }))
-        .unwrap_err();
+        .unwrap();
 
-        assert!(error.to_string().contains("schemaVersion"));
+        assert_eq!(meta.schema_version, ROLLOUT_SCHEMA_VERSION);
+        assert_eq!(meta.thread_id, "thread-codex");
+        assert_eq!(meta.session_id.as_deref(), Some("session-codex"));
+        assert_eq!(meta.forked_from_thread_id.as_deref(), Some("thread-parent"));
+    }
+
+    #[test]
+    fn turn_context_serializes_with_codex_snake_case_keys() {
+        let context = TurnContextItem {
+            turn_id: Some("turn-1".to_string()),
+            cwd: "D:/workspace".to_string(),
+            workspace_roots: Some(vec!["D:/workspace".to_string()]),
+            current_date: Some("2026-07-20".to_string()),
+            timezone: Some("Asia/Singapore".to_string()),
+            approval_policy: json!("on_request"),
+            sandbox_policy: json!("workspace_write"),
+            permission_profile: Some(json!({"name": "default"})),
+            network: Some(json!({"enabled": true})),
+            model: "deepseek-v4-pro".to_string(),
+            provider: Some("deepseek".to_string()),
+            comp_hash: Some("hash".to_string()),
+            personality: None,
+            collaboration_mode: None,
+            effort: Some(json!("high")),
+            summary: json!("auto"),
+        };
+
+        let value = serde_json::to_value(context).unwrap();
+        assert_eq!(value["turn_id"], "turn-1");
+        assert_eq!(value["workspace_roots"][0], "D:/workspace");
+        assert_eq!(value["approval_policy"], "on_request");
+        assert_eq!(value["sandbox_policy"], "workspace_write");
+        assert_eq!(value["comp_hash"], "hash");
+        assert!(value.get("turnId").is_none());
+        assert!(value.get("workspaceRoots").is_none());
+        assert!(value.get("approvalPolicy").is_none());
     }
 
     #[test]

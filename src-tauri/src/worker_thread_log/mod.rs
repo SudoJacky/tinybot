@@ -1376,6 +1376,17 @@ impl WorkerThreadLogRpc {
         let replay = replay_thread_transcript(&replay_lines)?;
         let updated_at = state_projection_updated_at(&meta.created_at, &scan.lines);
         let archived = self.recorder.is_archived_path(path);
+        let model_provider = replay
+            .previous_turn_settings
+            .as_ref()
+            .and_then(|settings| settings.provider.clone())
+            .or(meta.model_provider);
+        let model = replay
+            .previous_turn_settings
+            .as_ref()
+            .map(|settings| settings.model.clone())
+            .filter(|model| !model.trim().is_empty())
+            .or(meta.model);
         let title = if is_default_session_title(&replay.title) {
             title_from_messages(&replay.messages).unwrap_or(replay.title)
         } else {
@@ -1391,8 +1402,8 @@ impl WorkerThreadLogRpc {
             title,
             preview: preview_from_messages(&replay.messages),
             cwd: meta.cwd,
-            model_provider: meta.model_provider,
-            model: meta.model,
+            model_provider,
+            model,
             tokens_used: 0,
             archived,
             archived_at: None,
@@ -1438,6 +1449,17 @@ impl WorkerThreadLogRpc {
         let log_head = self.recorder.thread_log_head(path)?;
         let updated_at = state_projection_updated_at(&meta.created_at, &lines);
         let archived = self.recorder.is_archived_path(path);
+        let model_provider = replay
+            .previous_turn_settings
+            .as_ref()
+            .and_then(|settings| settings.provider.clone())
+            .or(meta.model_provider);
+        let model = replay
+            .previous_turn_settings
+            .as_ref()
+            .map(|settings| settings.model.clone())
+            .filter(|model| !model.trim().is_empty())
+            .or(meta.model);
         let title = if is_default_session_title(&replay.title) {
             title_from_messages(&replay.messages).unwrap_or(replay.title)
         } else {
@@ -1453,8 +1475,8 @@ impl WorkerThreadLogRpc {
             title,
             preview: preview_from_messages(&replay.messages),
             cwd: meta.cwd,
-            model_provider: meta.model_provider,
-            model: meta.model,
+            model_provider,
+            model,
             tokens_used: replay
                 .token_usage_info
                 .as_ref()

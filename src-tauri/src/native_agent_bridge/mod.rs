@@ -23,7 +23,7 @@ pub(crate) use history::{
 pub(crate) use persistence::native_agent_run_record;
 pub(crate) use persistence::{
     cancel_agent_with_services, persist_native_agent_checkpoint_if_present,
-    persist_native_agent_run_record, persist_native_agent_run_start,
+    persist_native_agent_run_start, persist_native_agent_run_terminal_if_present,
     persist_native_agent_turn_if_final, reject_native_agent_terminal_run_reentry,
     restore_agent_checkpoint_with_services,
 };

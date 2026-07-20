@@ -2766,7 +2766,39 @@ fn agent_run_persistence_drops_transient_trace_and_does_not_write_legacy_session
         .join("state")
         .join("state.sqlite")
         .exists());
-    assert!(first_thread_log_file_under(&fixture.root, "threads").is_some());
+    let rollout_path =
+        first_thread_log_file_under(&fixture.root, "threads").expect("rollout should exist");
+    let upsert_record = std::fs::read_to_string(rollout_path)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .find(|line| line["type"] == "event_msg" && line["payload"]["type"] == "agent_run_upsert")
+        .map(|line| line["payload"]["payload"]["record"].clone())
+        .expect("agent run seed should be persisted");
+    assert_eq!(upsert_record["sessionId"], "session-agent-log-only");
+    assert_eq!(upsert_record["runId"], "run-agent-log-only");
+    for derived_field in [
+        "status",
+        "phase",
+        "updatedAt",
+        "completedAt",
+        "stopReason",
+        "currentIteration",
+        "traceMessages",
+        "traceEvents",
+        "completedToolResults",
+        "pendingToolCalls",
+        "checkpoint",
+        "artifacts",
+        "usage",
+        "tokenUsageInfo",
+        "error",
+    ] {
+        assert!(
+            upsert_record.get(derived_field).is_none(),
+            "agent_run_upsert must not persist derived field `{derived_field}`"
+        );
+    }
 }
 
 #[test]

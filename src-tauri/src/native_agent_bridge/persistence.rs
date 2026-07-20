@@ -177,30 +177,30 @@ fn native_agent_turn_context(
         .unwrap_or_default();
     let trace_context = agent_trace_context_from_value(spec);
     serde_json::json!({
-        "turnId": if trace_context.turn_id.trim().is_empty() {
+        "turn_id": if trace_context.turn_id.trim().is_empty() {
             run_id
         } else {
             trace_context.turn_id.as_str()
         },
         "cwd": cwd,
-        "workspaceRoots": if cwd.is_empty() {
+        "workspace_roots": if cwd.is_empty() {
             serde_json::Value::Null
         } else {
             serde_json::json!([cwd])
         },
-        "currentDate": spec.get("currentDate").cloned().unwrap_or(serde_json::Value::Null),
+        "current_date": spec.get("currentDate").cloned().unwrap_or(serde_json::Value::Null),
         "timezone": spec.get("timezone").cloned().unwrap_or(serde_json::Value::Null),
-        "approvalPolicy": spec
+        "approval_policy": spec
             .get("approvalPolicy")
             .or_else(|| defaults.get("approvalPolicy"))
             .cloned()
             .unwrap_or_else(|| serde_json::json!("on_request")),
-        "sandboxPolicy": spec
+        "sandbox_policy": spec
             .get("sandboxPolicy")
             .or_else(|| defaults.get("sandboxPolicy"))
             .cloned()
             .unwrap_or_else(|| serde_json::json!("workspace_write")),
-        "permissionProfile": spec
+        "permission_profile": spec
             .get("permissionProfile")
             .or_else(|| defaults.get("permissionProfile"))
             .cloned()
@@ -208,7 +208,7 @@ fn native_agent_turn_context(
         "network": spec.get("network").cloned().unwrap_or(serde_json::Value::Null),
         "model": native_agent_model(spec, config_snapshot),
         "provider": native_agent_provider(spec, config_snapshot),
-        "compHash": spec
+        "comp_hash": spec
             .get("compHash")
             .or_else(|| spec.get("comp_hash"))
             .cloned()
@@ -218,7 +218,7 @@ fn native_agent_turn_context(
             .or_else(|| defaults.get("personality"))
             .cloned()
             .unwrap_or(serde_json::Value::Null),
-        "collaborationMode": spec
+        "collaboration_mode": spec
             .get("collaborationMode")
             .or_else(|| defaults.get("collaborationMode"))
             .cloned()
@@ -236,7 +236,7 @@ fn native_agent_turn_context(
     })
 }
 
-pub(crate) fn persist_native_agent_run_record(
+pub(crate) fn persist_native_agent_run_terminal_if_present(
     spec: serde_json::Value,
     result: &mut serde_json::Value,
     workspace_root: PathBuf,
@@ -248,7 +248,69 @@ pub(crate) fn persist_native_agent_run_record(
     let run_id = native_agent_run_id(result)
         .or_else(|| native_agent_run_id(&spec))
         .unwrap_or_else(|| "native-rust-run".to_string());
-    let record = native_agent_run_record(&spec, result, &config_snapshot, &session_id, &run_id);
+    let Some(stop_reason) = result
+        .get("stopReason")
+        .or_else(|| result.get("stop_reason"))
+        .and_then(serde_json::Value::as_str)
+    else {
+        return Ok(());
+    };
+    let status = native_agent_run_status(Some(stop_reason));
+    let (method, params) = match status {
+        "completed" => (
+            "agent_run.mark_completed",
+            serde_json::json!({
+                "session_id": session_id,
+                "run_id": run_id,
+                "stop_reason": stop_reason,
+                "final_content": result
+                    .get("finalContent")
+                    .or_else(|| result.get("final_content"))
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null),
+            }),
+        ),
+        "failed" => (
+            "agent_run.mark_failed",
+            serde_json::json!({
+                "session_id": session_id,
+                "run_id": run_id,
+                "stop_reason": stop_reason,
+                "error": result
+                    .get("error")
+                    .filter(|value| !value.is_null())
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({
+                        "code": stop_reason,
+                        "message": format!("agent run stopped: {stop_reason}"),
+                    })),
+            }),
+        ),
+        "cancelled" => (
+            "agent_run.mark_cancelled",
+            serde_json::json!({
+                "session_id": session_id,
+                "run_id": run_id,
+            }),
+        ),
+        "interrupted" => (
+            "agent_run.mark_interrupted",
+            serde_json::json!({
+                "session_id": session_id,
+                "run_id": run_id,
+                "reason": result
+                    .get("error")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(stop_reason),
+            }),
+        ),
+        "running" | "waiting" => return Ok(()),
+        _ => {
+            return Err(format!(
+                "unsupported native agent terminal status `{status}`"
+            ))
+        }
+    };
     let trace_context = trace_context_from_result_or_spec(result, &spec);
     let persisted = call_traced_state_service(
         workspace_root,
@@ -256,12 +318,12 @@ pub(crate) fn persist_native_agent_run_record(
         &trace_context,
         "run-record",
         WorkerRequest::new(
-            format!("{}:run-record", trace_context.request_id),
+            format!("{}:run-terminal", trace_context.request_id),
             trace_context.trace_id.clone(),
-            "agent_run.upsert",
-            serde_json::json!({ "record": record }),
+            method,
+            params,
         ),
-        "native agent run persistence",
+        "native agent run terminal persistence",
         "write",
     )?;
     result["runPersistence"] = persisted;

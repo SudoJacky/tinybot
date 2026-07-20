@@ -1364,6 +1364,17 @@ fn worker_run_agent_persists_one_lossless_long_final_response() {
                 && line["payload"]["payload"]["event"]["eventName"] == "agent.message.completed"
         })
         .expect("diagnostic final response event should remain available");
+    let session_meta = rollout_lines
+        .first()
+        .expect("rollout should start with session metadata");
+    let turn_context = rollout_lines
+        .iter()
+        .find(|line| line["type"] == "turn_context")
+        .expect("turn context should be persisted");
+    let terminal = rollout_lines
+        .iter()
+        .find(|line| line["type"] == "event_msg" && line["payload"]["type"] == "agent_run_terminal")
+        .expect("run terminal boundary should be persisted");
 
     assert_eq!(result["finalContent"], expected);
     assert_eq!(history["messages"][1]["content"], expected);
@@ -1385,6 +1396,16 @@ fn worker_run_agent_persists_one_lossless_long_final_response() {
     assert_eq!(
         diagnostic_final["payload"]["payload"]["event"]["tracePersistence"]["truncated"],
         true
+    );
+    assert!(session_meta["payload"]["id"].as_str().is_some());
+    assert_eq!(session_meta["payload"]["session_id"], session_id);
+    assert!(session_meta["payload"].get("threadId").is_none());
+    assert!(session_meta["payload"].get("schemaVersion").is_none());
+    assert_eq!(turn_context["payload"]["turn_id"], run_id);
+    assert!(turn_context["payload"].get("turnId").is_none());
+    assert!(
+        terminal["ordinal"].as_u64().unwrap() > assistant_items[0]["ordinal"].as_u64().unwrap(),
+        "terminal boundary must be persisted after the canonical final response"
     );
     assert_eq!(
         runtime_state["timeline"]["items"]
