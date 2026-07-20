@@ -346,13 +346,6 @@ export function ClaudeStyleAiInput({
           <span>{disabledReason}</span>
         </div>
       ) : null}
-      {!error && !disabled && responding ? (
-        <div className="claude-ai-input__notice" role="status">
-          <AlertCircle aria-hidden="true" size={15} />
-          <span>任务执行中；此时发送的新消息会排队，并在当前步骤结束后送达。</span>
-        </div>
-      ) : null}
-
       {files.length || pastedContent.length || contextReferences.length ? (
         <div className="claude-ai-input__attachments" aria-label="Composer attachments">
           {contextReferences.map((reference) => (

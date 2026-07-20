@@ -170,6 +170,7 @@ pub const NATIVE_AGENT_EVENT_NAMES: &[&str] = &[
     "agent.timeline.patch",
     "agent.delta",
     "agent.reasoning_delta",
+    "agent.reasoning.completed",
     "agent.tool_call.delta",
     "agent.tool.start",
     "agent.tool.result",

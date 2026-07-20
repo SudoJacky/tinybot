@@ -15,8 +15,9 @@ turn double write.
 | `.tinybot/threads/<year>/<month>/<day>/thread-*.jsonl` | Canonical per-thread append-only log |
 | `.tinybot/state/state.sqlite` | Queryable index of thread/session metadata |
 
-A log begins with `ThreadMeta` and can contain event messages, response items,
-  turn context, world state, compaction records, and inter-agent communication.
+A log begins with `ThreadMeta` and can contain event messages, strongly typed
+response items, turn context, world state, compaction records, and inter-agent
+communication.
 Canonical reconstruction produces Thread items, session history, model
 context, agent runs, checkpoints, and token usage.
 
@@ -56,6 +57,11 @@ context, agent runs, checkpoints, and token usage.
   must be derivable from canonical logs.
 - Unknown or malformed persisted semantics return structured errors rather
   than being silently discarded when they affect replay correctness.
+- Diagnostic agent trace may be bounded, but canonical messages, completed
+  reasoning, tool calls, and tool outputs are materialized from the lossless
+  runtime event first and never reconstructed from truncated text.
+- Streaming reasoning deltas remain presentation events. One completed
+  reasoning ResponseItem is persisted per model call.
 
 See [`worker_thread`](../worker_thread/README.md) for the typed Thread domain and
 [`worker_session`](../worker_session/README.md) for session-shaped projections.

@@ -2766,7 +2766,39 @@ fn agent_run_persistence_drops_transient_trace_and_does_not_write_legacy_session
         .join("state")
         .join("state.sqlite")
         .exists());
-    assert!(first_thread_log_file_under(&fixture.root, "threads").is_some());
+    let rollout_path =
+        first_thread_log_file_under(&fixture.root, "threads").expect("rollout should exist");
+    let upsert_record = std::fs::read_to_string(rollout_path)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .find(|line| line["type"] == "event_msg" && line["payload"]["type"] == "agent_run_upsert")
+        .map(|line| line["payload"]["payload"]["record"].clone())
+        .expect("agent run seed should be persisted");
+    assert_eq!(upsert_record["sessionId"], "session-agent-log-only");
+    assert_eq!(upsert_record["runId"], "run-agent-log-only");
+    for derived_field in [
+        "status",
+        "phase",
+        "updatedAt",
+        "completedAt",
+        "stopReason",
+        "currentIteration",
+        "traceMessages",
+        "traceEvents",
+        "completedToolResults",
+        "pendingToolCalls",
+        "checkpoint",
+        "artifacts",
+        "usage",
+        "tokenUsageInfo",
+        "error",
+    ] {
+        assert!(
+            upsert_record.get(derived_field).is_none(),
+            "agent_run_upsert must not persist derived field `{derived_field}`"
+        );
+    }
 }
 
 #[test]
@@ -2855,9 +2887,19 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
                     "reasoningId": "reasoning-1"
                 }
             }, {
+                "eventId": "reasoning-reload-reasoning-completed",
+                "eventName": "agent.reasoning.completed",
+                "sequence": 3,
+                "turnId": "run-reasoning-reload",
+                "payload": {
+                    "summary": "Inspect first.",
+                    "modelCallId": "provider-1",
+                    "reasoningId": "reasoning-1"
+                }
+            }, {
                 "eventId": "reasoning-reload-tool-a",
                 "eventName": "agent.tool_call.delta",
-                "sequence": 3,
+                "sequence": 4,
                 "turnId": "run-reasoning-reload",
                 "payload": {
                     "toolCallId": "call-a",
@@ -2867,7 +2909,7 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
             }, {
                 "eventId": "reasoning-reload-tool-b",
                 "eventName": "agent.tool_call.delta",
-                "sequence": 4,
+                "sequence": 5,
                 "turnId": "run-reasoning-reload",
                 "payload": {
                     "toolCallId": "call-b",
@@ -2877,7 +2919,7 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
             }, {
                 "eventId": "reasoning-reload-result-b",
                 "eventName": "agent.tool.result",
-                "sequence": 5,
+                "sequence": 6,
                 "turnId": "run-reasoning-reload",
                 "payload": {
                     "toolCallId": "call-b",
@@ -2887,7 +2929,7 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
             }, {
                 "eventId": "reasoning-reload-result-a",
                 "eventName": "agent.tool.result",
-                "sequence": 6,
+                "sequence": 7,
                 "turnId": "run-reasoning-reload",
                 "payload": {
                     "toolCallId": "call-a",
@@ -2897,7 +2939,7 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
             }, {
                 "eventId": "reasoning-reload-completed",
                 "eventName": "agent.message.completed",
-                "sequence": 7,
+                "sequence": 8,
                 "turnId": "run-reasoning-reload",
                 "payload": {
                     "content": "Done.",
@@ -9148,7 +9190,7 @@ fn dispatches_agent_run_store_round_trip_requests() {
             "run_id": "run-1",
             "event": {
                 "eventId": "invalid-reasoning",
-                "eventName": "agent.reasoning_delta",
+                "eventName": "agent.reasoning.completed",
                 "payload": {
                     "modelCallId": "provider-invalid",
                     "reasoningId": "reasoning-invalid"

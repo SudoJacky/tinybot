@@ -7982,7 +7982,12 @@ fn approval_denial_guidance_becomes_tool_result_before_next_model_call() {
     assert_eq!(result["events"][1]["payload"]["resultStatus"], "denied");
     assert_eq!(
         events,
-        vec!["agent.approval.decision", "agent.tool.result", "agent.done"]
+        vec![
+            "agent.approval.decision",
+            "agent.tool.result",
+            "agent.message.completed",
+            "agent.done"
+        ]
     );
     assert!(
         services.restore_checkpoint("websocket:chat-approval-guidance")["checkpoint"].is_null()
@@ -8062,9 +8067,17 @@ fn provider_stream_observer_emits_live_deltas_without_duplicate_final_delta() {
         .filter(|event| event["eventName"] == "agent.reasoning_delta")
         .map(|event| event["payload"]["delta"].as_str().unwrap_or_default())
         .collect::<Vec<_>>();
+    let reasoning_completed = result["events"]
+        .as_array()
+        .expect("events should be an array")
+        .iter()
+        .filter(|event| event["eventName"] == "agent.reasoning.completed")
+        .collect::<Vec<_>>();
 
     assert_eq!(deltas, vec!["Hel", "lo"]);
     assert_eq!(reasoning_deltas, vec!["thinking"]);
+    assert_eq!(reasoning_completed.len(), 1);
+    assert_eq!(reasoning_completed[0]["payload"]["summary"], "thinking");
     assert_eq!(result["finalContent"], "Hello");
 }
 

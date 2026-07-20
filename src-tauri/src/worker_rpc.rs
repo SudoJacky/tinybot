@@ -1095,6 +1095,15 @@ struct AgentRunMarkFailedParams {
 }
 
 #[derive(Deserialize)]
+struct AgentRunMarkInterruptedParams {
+    #[serde(alias = "sessionId")]
+    session_id: String,
+    #[serde(alias = "runId")]
+    run_id: String,
+    reason: String,
+}
+
+#[derive(Deserialize)]
 struct DiagnosticsAppendParams {
     stream: String,
     line: String,

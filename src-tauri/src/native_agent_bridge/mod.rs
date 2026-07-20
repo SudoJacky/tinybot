@@ -16,25 +16,23 @@ pub(crate) use attachments::{
 };
 pub(crate) use context_checkpoint::native_agent_context_checkpoint_committer;
 pub(crate) use history::{
-    attach_native_agent_latest_usage, hydrate_native_agent_history_for_runtime,
-    native_agent_assistant_messages, native_agent_current_user_message, native_agent_message_id,
+    hydrate_native_agent_history_for_runtime, native_agent_current_user_message,
     native_agent_thread_id, native_agent_user_messages,
 };
 #[cfg(test)]
 pub(crate) use persistence::native_agent_run_record;
 pub(crate) use persistence::{
     cancel_agent_with_services, persist_native_agent_checkpoint_if_present,
-    persist_native_agent_run_record, persist_native_agent_run_start,
+    persist_native_agent_run_start, persist_native_agent_run_terminal_if_present,
     persist_native_agent_turn_if_final, reject_native_agent_terminal_run_reentry,
     restore_agent_checkpoint_with_services,
 };
 pub(crate) use result_projection::{
     native_agent_artifacts, native_agent_current_iteration, native_agent_max_iterations,
-    native_agent_model, native_agent_persisted_runtime_event, native_agent_persisted_trace_values,
-    native_agent_provider, native_agent_run_completed_at, native_agent_run_id,
-    native_agent_run_phase_from_stop_reason, native_agent_run_status, native_agent_session_id,
-    native_agent_string_field, native_agent_token_usage_info, native_agent_trace_event_item_id,
-    native_agent_usage,
+    native_agent_model, native_agent_persisted_trace_values, native_agent_provider,
+    native_agent_run_completed_at, native_agent_run_id, native_agent_run_phase_from_stop_reason,
+    native_agent_run_status, native_agent_session_id, native_agent_string_field,
+    native_agent_token_usage_info, native_agent_usage,
 };
 pub(crate) use thread_flow::{
     resolve_thread_approval_with_services, submit_thread_form_with_services,

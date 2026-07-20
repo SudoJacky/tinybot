@@ -2,8 +2,8 @@ use crate::native_agent_bridge::{
     hydrate_native_agent_history_for_runtime, materialize_turn_attachments,
     native_agent_context_checkpoint_committer, native_agent_run_id,
     native_agent_services_with_tool_executor, native_agent_session_id, native_agent_trace_sink,
-    persist_native_agent_checkpoint_if_present, persist_native_agent_run_record,
-    persist_native_agent_run_start, persist_native_agent_turn_if_final,
+    persist_native_agent_checkpoint_if_present, persist_native_agent_run_start,
+    persist_native_agent_run_terminal_if_present, persist_native_agent_turn_if_final,
     reject_native_agent_terminal_run_reentry, turn_result_needs_attachment_files,
     TurnAttachmentLease,
 };
@@ -87,7 +87,7 @@ pub(crate) async fn run_agent_with_services(
         attachment_lease.preserve();
     }
     merge_persisted_runtime_events(&services, &persistence_spec, &mut result)?;
-    persist_native_agent_run_record(
+    persist_native_agent_run_terminal_if_present(
         persistence_spec.clone(),
         &mut result,
         workspace_root.clone(),

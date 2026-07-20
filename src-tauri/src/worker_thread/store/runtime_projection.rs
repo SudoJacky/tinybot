@@ -24,6 +24,39 @@ pub(super) fn trace_event_from_thread_item(item: &ThreadItem) -> Option<Value> {
             "payload": payload,
         }));
     }
+    if let ThreadItemKind::ToolCallStarted(value) = &item.kind {
+        if value.get("type").and_then(Value::as_str) == Some("custom_tool_call") {
+            return Some(serde_json::json!({
+                "eventName": "agent.tool_call.delta",
+                "payload": {
+                    "toolCallId": value
+                        .get("call_id")
+                        .or_else(|| value.get("callId"))
+                        .or_else(|| value.get("id"))
+                        .cloned()
+                        .unwrap_or(Value::Null),
+                    "toolName": value.get("name").cloned().unwrap_or(Value::Null),
+                    "argumentsDelta": value.get("input").cloned().unwrap_or(Value::Null),
+                },
+            }));
+        }
+    }
+    if let ThreadItemKind::ToolCallOutput(value) = &item.kind {
+        if value.get("type").and_then(Value::as_str) == Some("custom_tool_call_output") {
+            return Some(serde_json::json!({
+                "eventName": "agent.tool.result",
+                "payload": {
+                    "toolCallId": value
+                        .get("call_id")
+                        .or_else(|| value.get("callId"))
+                        .or_else(|| value.get("id"))
+                        .cloned()
+                        .unwrap_or(Value::Null),
+                    "content": value.get("output").cloned().unwrap_or(Value::Null),
+                },
+            }));
+        }
+    }
     let (payload, fallback_event_name) = match &item.kind {
         ThreadItemKind::UserMessage(value) => (value, Some("agent.turn.started")),
         ThreadItemKind::AssistantMessageDelta(value) => (value, Some("agent.delta")),

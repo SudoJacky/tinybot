@@ -10,9 +10,103 @@ use crate::worker_protocol::{
 use crate::worker_session::{
     AgentRunCheckpoint, AgentRunRecord, AgentRunRuntimeState, AgentRunStatus, AgentRunTracePage,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedAgentRunSeed {
+    session_id: String,
+    run_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    turn_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    parent_thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    child_thread_ids: Vec<String>,
+    started_at: String,
+    model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    provider: Option<String>,
+    max_iterations: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    instruction_provenance: Option<Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    instruction_diagnostics: Vec<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    trace_context: Option<crate::agent_loop_runtime_protocol::AgentTraceContext>,
+}
+
+impl PersistedAgentRunSeed {
+    fn from_record(record: &AgentRunRecord) -> Self {
+        Self {
+            session_id: record.session_id.clone(),
+            run_id: record.run_id.clone(),
+            thread_id: record.thread_id.clone(),
+            turn_id: record.turn_id.clone(),
+            parent_thread_id: record.parent_thread_id.clone(),
+            child_thread_ids: record.child_thread_ids.clone(),
+            started_at: record.started_at.clone(),
+            model: record.model.clone(),
+            provider: record.provider.clone(),
+            max_iterations: record.max_iterations,
+            instruction_provenance: record.instruction_provenance.clone(),
+            instruction_diagnostics: record.instruction_diagnostics.clone(),
+            trace_context: record.trace_context.clone(),
+        }
+    }
+
+    fn into_record(self) -> AgentRunRecord {
+        AgentRunRecord {
+            session_id: self.session_id,
+            run_id: self.run_id,
+            thread_id: self.thread_id,
+            turn_id: self.turn_id,
+            parent_thread_id: self.parent_thread_id,
+            child_thread_ids: self.child_thread_ids,
+            status: AgentRunStatus::Running,
+            phase: "planning".to_string(),
+            started_at: self.started_at.clone(),
+            updated_at: self.started_at,
+            completed_at: None,
+            stop_reason: None,
+            model: self.model,
+            provider: self.provider,
+            max_iterations: self.max_iterations,
+            current_iteration: 0,
+            conversation_message_ids: Vec::new(),
+            trace_messages: Vec::new(),
+            trace_events: Vec::new(),
+            completed_tool_results: Vec::new(),
+            pending_tool_calls: Vec::new(),
+            checkpoint: None,
+            artifacts: Vec::new(),
+            usage: Vec::new(),
+            token_usage_info: None,
+            instruction_provenance: self.instruction_provenance,
+            instruction_diagnostics: self.instruction_diagnostics,
+            trace_context: self.trace_context,
+            error: None,
+        }
+    }
+
+    fn apply_metadata_to(self, record: &mut AgentRunRecord) {
+        record.thread_id = self.thread_id;
+        record.turn_id = self.turn_id;
+        record.parent_thread_id = self.parent_thread_id;
+        record.child_thread_ids = self.child_thread_ids;
+        record.model = self.model;
+        record.provider = self.provider;
+        record.max_iterations = self.max_iterations;
+        record.instruction_provenance = self.instruction_provenance;
+        record.instruction_diagnostics = self.instruction_diagnostics;
+        record.trace_context = self.trace_context;
+    }
+}
 
 impl WorkerThreadLogRpc {
     pub fn upsert_agent_run(
@@ -44,16 +138,12 @@ impl WorkerThreadLogRpc {
         let mut state = self.ensure_agent_run_thread(&record.session_id, &timestamp)?;
         let path = PathBuf::from(state.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
-        let mut items = vec![value_event(
+        let items = vec![value_event(
             super::EventKind::AgentRunUpsert,
-            serde_json::json!({ "record": persisted_record.clone() }),
+            serde_json::json!({
+                "record": PersistedAgentRunSeed::from_record(&persisted_record)
+            }),
         )];
-        if let Some(info) = record.token_usage_info.as_ref() {
-            items.push(value_event(
-                super::EventKind::TokenCount,
-                serde_json::json!({ "info": info }),
-            ));
-        }
         self.recorder
             .append_items(&path, timestamp.clone(), items)?;
         let log_head = self.recorder.thread_log_head(&path)?;
@@ -62,9 +152,6 @@ impl WorkerThreadLogRpc {
             state.model = Some(record.model.clone());
         }
         state.model_provider = record.provider.clone();
-        if let Some(info) = record.token_usage_info.as_ref() {
-            state.tokens_used = info.total_token_usage.total_tokens;
-        }
         self.state.upsert_thread_projection(&state, &log_head)?;
         Ok(persisted_record)
     }
@@ -124,27 +211,8 @@ impl WorkerThreadLogRpc {
                 .is_some_and(agent_run_trace_event_is_response_backed)
         });
         let mut items = Vec::new();
-        let mut pending_reasoning = None::<ReasoningResponseAccumulator>;
+        let mut persisted_events = Vec::with_capacity(events.len());
         for event in events.iter().cloned() {
-            if let Some(fragment) = ReasoningResponseFragment::from_runtime_event(&event) {
-                if pending_reasoning
-                    .as_ref()
-                    .is_some_and(|pending| !pending.matches(&fragment))
-                {
-                    push_reasoning_response_item(
-                        &mut items,
-                        pending_reasoning
-                            .take()
-                            .expect("pending reasoning should exist"),
-                        run_id,
-                    )?;
-                }
-                pending_reasoning
-                    .get_or_insert_with(|| ReasoningResponseAccumulator::from_fragment(&fragment))
-                    .push(fragment);
-            } else if let Some(pending) = pending_reasoning.take() {
-                push_reasoning_response_item(&mut items, pending, run_id)?;
-            }
             let response_item = response_item_from_runtime_event(&event)
                 .map(|mut item| {
                     item["runId"] = Value::String(run_id.to_string());
@@ -169,12 +237,13 @@ impl WorkerThreadLogRpc {
                     .cloned()
             })
             .flatten();
+            let persisted_event = crate::worker_rollout::bound_persisted_trace_value(event.clone());
             items.push(value_event(
                 super::EventKind::AgentRunTrace,
                 serde_json::json!({
                     "sessionId": session_id,
                     "runId": run_id,
-                    "event": event,
+                    "event": persisted_event.clone(),
                 }),
             ));
             if let Some(info) = token_info {
@@ -186,14 +255,12 @@ impl WorkerThreadLogRpc {
             if let Some(response_item) = response_item {
                 items.push(ThreadLogItem::ResponseItem(response_item));
             }
-        }
-        if let Some(pending) = pending_reasoning {
-            push_reasoning_response_item(&mut items, pending, run_id)?;
+            persisted_events.push(persisted_event);
         }
         self.recorder
             .append_items(&path, timestamp.clone(), items)?;
         let log_head = self.recorder.thread_log_head(&path)?;
-        for event in events {
+        for event in persisted_events {
             upsert_trace_event(&mut record.trace_events, event.clone());
             apply_agent_status_snapshot(&mut record, &event);
         }
@@ -510,7 +577,7 @@ impl WorkerThreadLogRpc {
         stop_reason: &str,
         final_content: Option<String>,
     ) -> Result<AgentRunRecord, WorkerProtocolError> {
-        let mut record = self.mark_agent_run_terminal(
+        self.mark_agent_run_terminal(
             session_id,
             run_id,
             AgentRunStatus::Completed,
@@ -518,15 +585,7 @@ impl WorkerThreadLogRpc {
             Some(stop_reason.to_string()),
             final_content,
             None,
-        )?;
-        if let Some(info) = record.token_usage_info.clone() {
-            let info_value = serde_json::to_value(info).map_err(thread_log_serialization_error)?;
-            let info = serde_json::from_value::<super::TokenUsageInfo>(info_value)
-                .map_err(thread_log_serialization_error)?;
-            self.append_token_count(session_id, info)?;
-            record.checkpoint = None;
-        }
-        Ok(record)
+        )
     }
 
     pub fn mark_agent_run_failed(
@@ -592,6 +651,15 @@ impl WorkerThreadLogRpc {
                 }
             }),
         )?;
+        self.mark_agent_run_interrupted_terminal(session_id, run_id, reason)
+    }
+
+    pub fn mark_agent_run_interrupted_terminal(
+        &self,
+        session_id: &str,
+        run_id: &str,
+        reason: &str,
+    ) -> Result<AgentRunRecord, WorkerProtocolError> {
         self.mark_agent_run_terminal(
             session_id,
             run_id,
@@ -760,51 +828,107 @@ fn response_item_from_runtime_event(event: &Value) -> Option<Value> {
     match event.get("eventName").and_then(Value::as_str)? {
         "agent.turn.started" => {
             let mut message = payload.get("userMessage")?.clone();
+            let content = message.get("content").cloned().unwrap_or(Value::Null);
+            message["type"] = Value::String("message".to_string());
             message["role"] = Value::String("user".to_string());
+            message["content"] = canonical_message_content(content, "input_text");
+            if message.get("id").is_none() {
+                message["id"] = message
+                    .get("messageId")
+                    .or_else(|| message.get("message_id"))
+                    .or_else(|| payload.get("userMessageId"))
+                    .cloned()
+                    .unwrap_or(Value::Null);
+            }
+            if message.get("messageId").is_none() {
+                message["messageId"] = message.get("id").cloned().unwrap_or(Value::Null);
+            }
             Some(message)
         }
         "agent.message.completed" => {
             let content = payload.get("content")?.as_str()?;
+            let message_id = payload.get("messageId").cloned().unwrap_or(Value::Null);
             Some(serde_json::json!({
+                "type": "message",
+                "id": message_id,
                 "role": "assistant",
-                "content": content,
-                "messageId": payload.get("messageId").cloned().unwrap_or(Value::Null),
+                "content": canonical_message_content(Value::String(content.to_string()), "output_text"),
+                "messageId": message_id,
+                "phase": payload
+                    .get("messagePhase")
+                    .cloned()
+                    .unwrap_or_else(|| Value::String("final_answer".to_string())),
             }))
         }
-        "agent.message.classified" => Some(serde_json::json!({
-            "role": "assistant",
-            "content": payload.get("content").cloned().unwrap_or(Value::Null),
-            "messageId": payload.get("messageId").cloned().unwrap_or(Value::Null),
-        })),
+        "agent.message.classified" => {
+            let message_id = payload.get("messageId").cloned().unwrap_or(Value::Null);
+            Some(serde_json::json!({
+                "type": "message",
+                "id": message_id,
+                "role": "assistant",
+                "content": canonical_message_content(
+                    payload.get("content").cloned().unwrap_or(Value::Null),
+                    "output_text",
+                ),
+                "messageId": message_id,
+                "phase": payload
+                    .get("messagePhase")
+                    .cloned()
+                    .unwrap_or_else(|| Value::String("commentary".to_string())),
+            }))
+        }
+        "agent.reasoning.completed" => {
+            let summary = payload.get("summary")?.as_str()?;
+            Some(serde_json::json!({
+                "type": "reasoning",
+                "id": payload
+                    .get("reasoningId")
+                    .cloned()
+                    .unwrap_or_else(|| payload.get("modelCallId").cloned().unwrap_or(Value::Null)),
+                "summary": [{
+                    "type": "summary_text",
+                    "text": summary,
+                }],
+                "content": null,
+                "encrypted_content": null,
+                "modelCallId": payload.get("modelCallId").cloned().unwrap_or(Value::Null),
+                "reasoningId": payload.get("reasoningId").cloned().unwrap_or(Value::Null),
+            }))
+        }
         "agent.tool_call.delta" => Some(serde_json::json!({
-            "role": "assistant",
-            "content": serde_json::Value::Null,
-            "tool_calls": [{
-                "id": payload.get("toolCallId")?.clone(),
-                "type": "function",
-                "function": {
-                    "name": payload
-                        .get("toolName")
-                        .or_else(|| payload.get("name"))?
-                        .clone(),
-                    "arguments": payload
-                        .get("argumentsDelta")
-                        .cloned()
-                        .unwrap_or_else(|| serde_json::json!("{}")),
-                }
-            }]
-        })),
-        "agent.tool.result" => Some(serde_json::json!({
-            "role": "tool",
-            "tool_call_id": payload.get("toolCallId")?.clone(),
+            "type": "custom_tool_call",
+            "id": payload.get("toolCallId")?.clone(),
+            "call_id": payload.get("toolCallId")?.clone(),
             "name": payload
                 .get("toolName")
-                .or_else(|| payload.get("name"))
+                .or_else(|| payload.get("name"))?
+                .clone(),
+            "input": payload
+                .get("argumentsDelta")
                 .cloned()
-                .unwrap_or(Value::Null),
-            "content": payload.get("content").cloned().unwrap_or(Value::Null),
+                .unwrap_or_else(|| serde_json::json!("{}")),
+        })),
+        "agent.tool.result" => Some(serde_json::json!({
+            "type": "custom_tool_call_output",
+            "call_id": payload.get("toolCallId")?.clone(),
+            "output": payload.get("content").cloned().unwrap_or(Value::Null),
         })),
         _ => None,
+    }
+}
+
+fn canonical_message_content(content: Value, part_type: &str) -> Value {
+    match content {
+        Value::Array(_) => content,
+        Value::String(text) => serde_json::json!([{
+            "type": part_type,
+            "text": text,
+        }]),
+        Value::Null => Value::Array(Vec::new()),
+        value => serde_json::json!([{
+            "type": part_type,
+            "text": value.to_string(),
+        }]),
     }
 }
 
@@ -812,7 +936,7 @@ fn agent_run_trace_event_is_response_backed(event_name: &str) -> bool {
     matches!(
         event_name,
         "agent.turn.started"
-            | "agent.reasoning_delta"
+            | "agent.reasoning.completed"
             | "agent.message.classified"
             | "agent.message.completed"
             | "agent.tool_call.delta"
@@ -855,11 +979,7 @@ fn validate_agent_run_trace_event(
     if !agent_run_trace_event_is_response_backed(event_name) {
         return Ok(());
     }
-    let materializes_response = if event_name == "agent.reasoning_delta" {
-        ReasoningResponseFragment::from_runtime_event(event).is_some()
-    } else {
-        response_item_from_runtime_event(event).is_some()
-    };
+    let materializes_response = response_item_from_runtime_event(event).is_some();
     if !materializes_response {
         return Err(invalid_agent_run_trace_event_error(
             "response-backed agent run trace event cannot be materialized",
@@ -869,97 +989,6 @@ fn validate_agent_run_trace_event(
             Some(event_name),
         ));
     }
-    Ok(())
-}
-
-struct ReasoningResponseFragment {
-    event_id: String,
-    turn_id: String,
-    model_call_id: Option<String>,
-    reasoning_id: Option<String>,
-    text: String,
-}
-
-impl ReasoningResponseFragment {
-    fn from_runtime_event(event: &Value) -> Option<Self> {
-        if event.get("eventName").and_then(Value::as_str) != Some("agent.reasoning_delta") {
-            return None;
-        }
-        let payload = event.get("payload")?;
-        let text = payload.get("delta").and_then(Value::as_str)?;
-        Some(Self {
-            event_id: event.get("eventId").and_then(Value::as_str)?.to_string(),
-            turn_id: event
-                .get("turnId")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
-            model_call_id: payload
-                .get("modelCallId")
-                .and_then(Value::as_str)
-                .map(str::to_string),
-            reasoning_id: payload
-                .get("reasoningId")
-                .and_then(Value::as_str)
-                .map(str::to_string),
-            text: text.to_string(),
-        })
-    }
-}
-
-struct ReasoningResponseAccumulator {
-    event_id: String,
-    turn_id: String,
-    model_call_id: Option<String>,
-    reasoning_id: Option<String>,
-    text: String,
-}
-
-impl ReasoningResponseAccumulator {
-    fn from_fragment(fragment: &ReasoningResponseFragment) -> Self {
-        Self {
-            event_id: fragment.event_id.clone(),
-            turn_id: fragment.turn_id.clone(),
-            model_call_id: fragment.model_call_id.clone(),
-            reasoning_id: fragment.reasoning_id.clone(),
-            text: String::new(),
-        }
-    }
-
-    fn matches(&self, fragment: &ReasoningResponseFragment) -> bool {
-        self.turn_id == fragment.turn_id
-            && self.model_call_id == fragment.model_call_id
-            && self.reasoning_id == fragment.reasoning_id
-    }
-
-    fn push(&mut self, fragment: ReasoningResponseFragment) {
-        self.text.push_str(&fragment.text);
-    }
-}
-
-fn push_reasoning_response_item(
-    items: &mut Vec<ThreadLogItem>,
-    reasoning: ReasoningResponseAccumulator,
-    run_id: &str,
-) -> Result<(), WorkerProtocolError> {
-    let response_item = super::typed_response_item(
-        serde_json::json!({
-            "type": "reasoning",
-            "id": reasoning.event_id,
-            "summary": [{
-                "type": "summary_text",
-                "text": reasoning.text,
-            }],
-            "content": null,
-            "encrypted_content": null,
-            "runId": run_id,
-            "turnId": reasoning.turn_id,
-            "modelCallId": reasoning.model_call_id,
-            "reasoningId": reasoning.reasoning_id,
-        }),
-        "agent reasoning",
-    )?;
-    items.push(ThreadLogItem::ResponseItem(response_item));
     Ok(())
 }
 
@@ -974,6 +1003,10 @@ pub(super) fn agent_run_records_from_lines(
 ) -> Result<Vec<AgentRunRecord>, WorkerProtocolError> {
     let mut runs: HashMap<String, AgentRunRecord> = HashMap::new();
     for line in lines {
+        if let super::ThreadLogItem::ResponseItem(item) = &line.item {
+            apply_response_item_to_agent_runs(&mut runs, item.as_value(), line)?;
+            continue;
+        }
         let super::ThreadLogItem::EventMsg(event) = &line.item else {
             continue;
         };
@@ -987,8 +1020,8 @@ pub(super) fn agent_run_records_from_lines(
                         payload,
                     )
                 })?;
-                let record =
-                    serde_json::from_value::<AgentRunRecord>(record_value).map_err(|error| {
+                let seed = serde_json::from_value::<PersistedAgentRunSeed>(record_value).map_err(
+                    |error| {
                         agent_run_replay_error(
                             "agent_run_upsert event contains an invalid record",
                             line,
@@ -997,19 +1030,10 @@ pub(super) fn agent_run_records_from_lines(
                                 "error": error.to_string(),
                             }),
                         )
-                    })?;
-                if !record.trace_events.is_empty() {
-                    return Err(agent_run_replay_error(
-                        "canonical agent_run_upsert record must not embed trace events",
-                        line,
-                        &serde_json::json!({
-                            "runId": &record.run_id,
-                            "traceEventCount": record.trace_events.len(),
-                        }),
-                    ));
-                }
-                let belongs_to_session = record.session_id == session_id;
-                let belongs_to_thread = record.session_id == thread_id;
+                    },
+                )?;
+                let belongs_to_session = seed.session_id == session_id;
+                let belongs_to_thread = seed.session_id == thread_id;
                 if !belongs_to_session && !belongs_to_thread {
                     return Err(agent_run_replay_error(
                         "agent_run_upsert record belongs to a different session",
@@ -1017,20 +1041,19 @@ pub(super) fn agent_run_records_from_lines(
                         &serde_json::json!({
                             "expectedSessionId": session_id,
                             "expectedThreadId": thread_id,
-                            "actualSessionId": record.session_id,
-                            "runId": record.run_id,
+                            "actualSessionId": seed.session_id,
+                            "runId": seed.run_id,
                         }),
                     ));
                 }
-                runs.entry(record.run_id.clone())
-                    .and_modify(|existing| {
-                        let started_at = existing.started_at.clone();
-                        let trace_events = existing.trace_events.clone();
-                        *existing = record.clone();
-                        existing.started_at = started_at;
-                        existing.trace_events = trace_events;
-                    })
-                    .or_insert(record);
+                match runs.entry(seed.run_id.clone()) {
+                    std::collections::hash_map::Entry::Occupied(mut entry) => {
+                        seed.apply_metadata_to(entry.get_mut());
+                    }
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        entry.insert(seed.into_record());
+                    }
+                }
             }
             super::EventKind::AgentRunTrace => {
                 let run_id = payload_run_id(payload).ok_or_else(|| {
@@ -1169,6 +1192,122 @@ pub(super) fn agent_run_records_from_lines(
     Ok(runs.into_values().collect())
 }
 
+fn apply_response_item_to_agent_runs(
+    runs: &mut HashMap<String, AgentRunRecord>,
+    item: &Value,
+    _line: &super::ThreadLogLine,
+) -> Result<(), WorkerProtocolError> {
+    let Some(run_id) = item
+        .get("runId")
+        .or_else(|| item.get("run_id"))
+        .and_then(Value::as_str)
+    else {
+        return Ok(());
+    };
+    let Some(record) = runs.get_mut(run_id) else {
+        return Ok(());
+    };
+    if item.get("type").and_then(Value::as_str) == Some("custom_tool_call_output") {
+        let completed_result = completed_tool_result_from_response_item(item);
+        let call_id = completed_result
+            .get("toolCallId")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if let Some(index) = record.completed_tool_results.iter().position(|candidate| {
+            candidate.get("toolCallId").and_then(Value::as_str) == Some(call_id)
+        }) {
+            record.completed_tool_results[index] = completed_result;
+        } else {
+            record.completed_tool_results.push(completed_result);
+        }
+        return Ok(());
+    }
+    if item.get("type").and_then(Value::as_str) != Some("message")
+        || item.get("role").and_then(Value::as_str) != Some("assistant")
+    {
+        return Ok(());
+    }
+    let content = response_message_text(item);
+    let message_id = item
+        .get("id")
+        .or_else(|| item.get("messageId"))
+        .or_else(|| item.get("message_id"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let mut message = serde_json::json!({
+        "role": "assistant",
+        "content": content,
+    });
+    if let Some(message_id) = message_id.as_ref() {
+        message["messageId"] = Value::String(message_id.clone());
+    }
+    if let Some(index) = message_id.as_ref().and_then(|message_id| {
+        record.trace_messages.iter().position(|candidate| {
+            candidate
+                .get("messageId")
+                .and_then(Value::as_str)
+                .is_some_and(|candidate_id| candidate_id == message_id)
+        })
+    }) {
+        record.trace_messages[index] = message;
+    } else {
+        record.trace_messages.push(message);
+    }
+    Ok(())
+}
+
+fn completed_tool_result_from_response_item(item: &Value) -> Value {
+    let payload = item
+        .get("threadItemPayload")
+        .or_else(|| item.get("thread_item_payload"))
+        .and_then(|event| event.get("payload"))
+        .unwrap_or(&Value::Null);
+    let envelope = payload.get("envelope").cloned().unwrap_or(Value::Null);
+    let status = envelope
+        .get("status")
+        .or_else(|| payload.get("resultStatus"))
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!("ok"));
+    let summary = envelope
+        .get("summary")
+        .or_else(|| payload.get("summary"))
+        .or_else(|| item.get("output"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    serde_json::json!({
+        "toolCallId": payload
+            .get("toolCallId")
+            .or_else(|| payload.get("tool_call_id"))
+            .or_else(|| item.get("call_id"))
+            .cloned()
+            .unwrap_or(Value::Null),
+        "toolName": payload
+            .get("toolName")
+            .or_else(|| payload.get("tool_name"))
+            .or_else(|| payload.get("name"))
+            .cloned()
+            .unwrap_or(Value::Null),
+        "status": status,
+        "summary": summary,
+        "envelope": envelope,
+    })
+}
+
+fn response_message_text(item: &Value) -> String {
+    match item.get("content") {
+        Some(Value::String(content)) => content.clone(),
+        Some(Value::Array(parts)) => parts
+            .iter()
+            .filter_map(|part| {
+                part.as_str()
+                    .or_else(|| part.get("text").and_then(Value::as_str))
+            })
+            .collect(),
+        Some(Value::Null) | None => String::new(),
+        Some(content) => content.to_string(),
+    }
+}
+
 fn agent_run_replay_error(
     message: &str,
     line: &super::ThreadLogLine,
@@ -1246,16 +1385,10 @@ fn apply_terminal_to_record(
     status: AgentRunStatus,
     phase: &str,
     stop_reason: Option<String>,
-    final_content: Option<String>,
+    _final_content: Option<String>,
     error: Option<Value>,
     timestamp: &str,
 ) {
-    if let Some(final_content) = final_content.filter(|content| !content.trim().is_empty()) {
-        record.trace_messages.push(serde_json::json!({
-            "role": "assistant",
-            "content": final_content,
-        }));
-    }
     record.status = status;
     record.phase = phase.to_string();
     record.stop_reason = stop_reason;
@@ -1547,13 +1680,12 @@ mod tests {
         }))
         .unwrap();
 
-        assert_eq!(call["tool_calls"][0]["id"], "call-1");
-        assert_eq!(
-            call["tool_calls"][0]["function"]["arguments"],
-            "{\"path\":\"README.md\"}"
-        );
-        assert_eq!(result["tool_call_id"], "call-1");
-        assert_eq!(result["content"], "contents");
+        assert_eq!(call["type"], "custom_tool_call");
+        assert_eq!(call["call_id"], "call-1");
+        assert_eq!(call["input"], "{\"path\":\"README.md\"}");
+        assert_eq!(result["type"], "custom_tool_call_output");
+        assert_eq!(result["call_id"], "call-1");
+        assert_eq!(result["output"], "contents");
     }
 }
 
@@ -1565,16 +1697,6 @@ fn empty_agent_run_trace_batch_error(session_id: &str, run_id: &str) -> WorkerPr
             "session_id": session_id,
             "run_id": run_id,
         }),
-        false,
-        WorkerProtocolErrorSource::RustCore,
-    )
-}
-
-fn thread_log_serialization_error(error: serde_json::Error) -> WorkerProtocolError {
-    WorkerProtocolError::new(
-        WorkerProtocolErrorCode::WorkerError,
-        format!("thread log agent run serialization error: {error}"),
-        serde_json::json!({ "method": "agent_run" }),
         false,
         WorkerProtocolErrorSource::RustCore,
     )

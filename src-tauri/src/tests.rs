@@ -1284,6 +1284,141 @@ fn worker_run_agent_persists_rust_turn_messages_in_canonical_rollout() {
 }
 
 #[test]
+fn worker_run_agent_persists_one_lossless_long_final_response() {
+    let fixture = WorkspaceFixture::new();
+    let shared = Arc::new(Mutex::new(GatewayRuntime {
+        native_agent_runtime: NativeAgentRuntimeServices::new(
+            Arc::new(LongFinalNativeAgentProvider),
+            Arc::new(crate::worker_agent_runtime::FakeNativeAgentToolDispatcher),
+            Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCancellation::default()),
+        ),
+        ..GatewayRuntime::default()
+    }));
+    let config = serde_json::json!({
+        "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+    });
+    let session_id = "websocket:chat-long-final";
+    let run_id = "run-long-final";
+    let expected = long_final_content();
+
+    let result = worker_run_agent_with_options(
+        &shared,
+        serde_json::json!({
+            "runtime": "rust",
+            "runId": run_id,
+            "sessionId": session_id,
+            "messages": [{ "role": "user", "content": "return a long answer" }]
+        }),
+        fixture.root.clone(),
+        config.clone(),
+        Duration::from_millis(10),
+    )
+    .expect("Rust runtime should durably complete a long final response");
+    let runtime_state = worker_agent_run_runtime_state_with_options(
+        &shared,
+        session_id.to_string(),
+        run_id.to_string(),
+        fixture.root.clone(),
+        config.clone(),
+        Duration::from_millis(10),
+    )
+    .expect("long final response should project from canonical Rollout");
+    let history = worker_session_messages_with_options(
+        &shared,
+        session_id.to_string(),
+        fixture.root.clone(),
+        config.clone(),
+        Duration::from_millis(10),
+    )
+    .expect("long final response should reload from canonical Rollout");
+    let metadata = call_rust_state_service(
+        fixture.root.clone(),
+        config,
+        WorkerRequest::new(
+            "req-long-final-metadata",
+            "trace-long-final-metadata",
+            "session.get_metadata",
+            serde_json::json!({ "session_id": session_id }),
+        ),
+        "long final session metadata",
+    )
+    .expect("long final session metadata should be readable");
+    let rollout_path = metadata["extra"]["threadPath"]
+        .as_str()
+        .expect("session metadata should expose the canonical Rollout path");
+    let rollout_lines = std::fs::read_to_string(rollout_path)
+        .expect("canonical Rollout should be readable")
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    let assistant_items = rollout_lines
+        .iter()
+        .filter(|line| line["type"] == "response_item" && line["payload"]["role"] == "assistant")
+        .collect::<Vec<_>>();
+    let diagnostic_final = rollout_lines
+        .iter()
+        .find(|line| {
+            line["type"] == "event_msg"
+                && line["payload"]["type"] == "agent_run_trace"
+                && line["payload"]["payload"]["event"]["eventName"] == "agent.message.completed"
+        })
+        .expect("diagnostic final response event should remain available");
+    let session_meta = rollout_lines
+        .first()
+        .expect("rollout should start with session metadata");
+    let turn_context = rollout_lines
+        .iter()
+        .find(|line| line["type"] == "turn_context")
+        .expect("turn context should be persisted");
+    let terminal = rollout_lines
+        .iter()
+        .find(|line| line["type"] == "event_msg" && line["payload"]["type"] == "agent_run_terminal")
+        .expect("run terminal boundary should be persisted");
+
+    assert_eq!(result["finalContent"], expected);
+    assert_eq!(history["messages"][1]["content"], expected);
+    assert_eq!(assistant_items.len(), 1);
+    assert_eq!(assistant_items[0]["payload"]["type"], "message");
+    assert_eq!(assistant_items[0]["payload"]["phase"], "final_answer");
+    assert_eq!(
+        assistant_items[0]["payload"]["content"][0]["text"],
+        long_final_content()
+    );
+    assert_eq!(
+        diagnostic_final["payload"]["payload"]["event"]["payload"]["content"]
+            .as_str()
+            .unwrap()
+            .chars()
+            .count(),
+        crate::worker_rollout::ROLLOUT_TRACE_STRING_LIMIT
+    );
+    assert_eq!(
+        diagnostic_final["payload"]["payload"]["event"]["tracePersistence"]["truncated"],
+        true
+    );
+    assert!(session_meta["payload"]["id"].as_str().is_some());
+    assert_eq!(session_meta["payload"]["session_id"], session_id);
+    assert!(session_meta["payload"].get("threadId").is_none());
+    assert!(session_meta["payload"].get("schemaVersion").is_none());
+    assert_eq!(turn_context["payload"]["turn_id"], run_id);
+    assert!(turn_context["payload"].get("turnId").is_none());
+    assert!(
+        terminal["ordinal"].as_u64().unwrap() > assistant_items[0]["ordinal"].as_u64().unwrap(),
+        "terminal boundary must be persisted after the canonical final response"
+    );
+    assert_eq!(
+        runtime_state["timeline"]["items"]
+            .as_array()
+            .expect("runtime timeline items should be an array")
+            .iter()
+            .filter(|item| item["kind"] == "assistant_message")
+            .count(),
+        1
+    );
+}
+
+#[test]
 fn worker_run_agent_stops_before_provider_when_run_start_persistence_fails() {
     #[derive(Clone)]
     struct CountingProvider {
@@ -1488,6 +1623,27 @@ impl crate::worker_agent_runtime::NativeAgentProvider for UsageNativeAgentProvid
                 "completion_tokens": 97,
                 "total_tokens": 107,
             })),
+            tool_calls: Vec::new(),
+        })
+    }
+}
+
+fn long_final_content() -> String {
+    "完整的最终结论🦀".repeat(48)
+}
+
+#[derive(Clone)]
+struct LongFinalNativeAgentProvider;
+
+impl crate::worker_agent_runtime::NativeAgentProvider for LongFinalNativeAgentProvider {
+    fn complete(
+        &self,
+        _context: &crate::worker_agent_runtime::NativeAgentRunContext,
+    ) -> Result<crate::worker_agent_runtime::NativeAgentProviderResponse, String> {
+        Ok(crate::worker_agent_runtime::NativeAgentProviderResponse {
+            final_content: long_final_content(),
+            reasoning_delta: None,
+            usage: None,
             tool_calls: Vec::new(),
         })
     }
@@ -1713,10 +1869,30 @@ fn worker_run_agent_combines_session_history_with_current_tool_results() {
         &shared,
         "websocket:chat-tool-memory".to_string(),
         fixture.root.clone(),
-        config,
+        config.clone(),
         Duration::from_millis(10),
     )
     .expect("session messages should stay compact after hydrated run");
+    let metadata = call_rust_state_service(
+        fixture.root.clone(),
+        config,
+        WorkerRequest::new(
+            "req-tool-memory-metadata",
+            "trace-tool-memory-metadata",
+            "session.get_metadata",
+            serde_json::json!({ "session_id": "websocket:chat-tool-memory" }),
+        ),
+        "tool memory session metadata",
+    )
+    .expect("tool memory metadata should be readable");
+    let rollout = std::fs::read_to_string(metadata["extra"]["threadPath"].as_str().unwrap())
+        .expect("tool memory Rollout should be readable");
+    let response_types = rollout
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .filter(|line| line["type"] == "response_item")
+        .filter_map(|line| line["payload"]["type"].as_str().map(str::to_string))
+        .collect::<Vec<_>>();
     let calls = calls
         .lock()
         .expect("recording provider calls lock should not be poisoned");
@@ -1747,6 +1923,8 @@ fn worker_run_agent_combines_session_history_with_current_tool_results() {
         .unwrap()
         .iter()
         .all(|message| message["role"] != "tool"));
+    assert!(response_types.contains(&"custom_tool_call".to_string()));
+    assert!(response_types.contains(&"custom_tool_call_output".to_string()));
 }
 
 #[test]

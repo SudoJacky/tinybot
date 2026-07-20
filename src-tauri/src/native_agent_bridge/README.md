@@ -32,7 +32,7 @@ Thread data model. Those belong to `worker_agent_runtime` and `worker_thread`.
    trace path.
 7. Run the native agent loop and flush the trace sink.
 8. Preserve attachment files only when the result still references them.
-9. Persist the run record, checkpoint, and final turn as applicable.
+9. Persist the run metadata, checkpoint, and final turn boundary as applicable.
 
 Changing this order requires care. In particular, a run must be recoverable
 after its start is visible, and trace flushing must not be reported as success
@@ -57,6 +57,12 @@ when it failed.
 - Flush trace output before final persistence reports success.
 - Keep Thread-owned events on the Thread path; avoid duplicating them through
   the direct-session trace sink.
+- Send lossless runtime events to the canonical persistence boundary. Bound or
+  redact only the diagnostic EventMsg after its model-visible ResponseItem has
+  been materialized.
+- Persist each completed assistant message and model-call reasoning item once.
+  Final turn persistence closes the Turn and clears checkpoints; it does not
+  append the same user or assistant messages again.
 - Temporary attachment files are owned by a lease and survive only when the
   returned result needs them.
 - Approval and form resolution must preserve run, turn, request, and trace

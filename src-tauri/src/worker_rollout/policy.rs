@@ -4,6 +4,8 @@ use crate::worker_protocol::{
 };
 use serde_json::Value;
 
+pub const ROLLOUT_TRACE_STRING_LIMIT: usize = 256;
+
 pub fn should_persist_rollout_item(item: &RolloutItem) -> Result<bool, WorkerProtocolError> {
     match item {
         RolloutItem::SessionMeta(_)
@@ -21,8 +23,11 @@ pub fn should_persist_rollout_item(item: &RolloutItem) -> Result<bool, WorkerPro
             | ResponseItemKind::CustomToolCallOutput
             | ResponseItemKind::WebSearchCall
             | ResponseItemKind::LocalShellCall
-            | ResponseItemKind::ComputerCall
-            | ResponseItemKind::Unspecified => Ok(true),
+            | ResponseItemKind::ComputerCall => Ok(true),
+            ResponseItemKind::Unspecified => Err(persistence_policy_error(
+                "untyped response item cannot enter canonical Rollout",
+                serde_json::json!({ "item": item.as_value() }),
+            )),
             ResponseItemKind::Other(kind) => Err(persistence_policy_error(
                 "unsupported response item cannot enter canonical Rollout",
                 serde_json::json!({ "responseItemKind": kind, "item": item.as_value() }),
@@ -53,6 +58,75 @@ pub fn should_persist_rollout_item(item: &RolloutItem) -> Result<bool, WorkerPro
             )),
         },
     }
+}
+
+pub fn bound_persisted_trace_value(value: Value) -> Value {
+    bound_persisted_trace_value_inner(value).0
+}
+
+fn bound_persisted_trace_value_inner(value: Value) -> (Value, bool) {
+    match value {
+        Value::String(content) => {
+            let char_count = content.chars().count();
+            if char_count <= ROLLOUT_TRACE_STRING_LIMIT {
+                (Value::String(content), false)
+            } else {
+                (
+                    Value::String(content.chars().take(ROLLOUT_TRACE_STRING_LIMIT).collect()),
+                    true,
+                )
+            }
+        }
+        Value::Array(items) => {
+            let mut truncated = false;
+            let items = items
+                .into_iter()
+                .map(|item| {
+                    let (item, item_truncated) = bound_persisted_trace_value_inner(item);
+                    truncated |= item_truncated;
+                    item
+                })
+                .collect();
+            (Value::Array(items), truncated)
+        }
+        Value::Object(mut entries) => {
+            let mut truncated = false;
+            let retain_trace_context = entries
+                .get("eventName")
+                .and_then(Value::as_str)
+                .map(persisted_event_needs_trace_context)
+                .unwrap_or(true);
+            if !retain_trace_context {
+                entries.remove("traceContext");
+            }
+            let mut entries = entries
+                .into_iter()
+                .map(|(key, value)| {
+                    let (value, value_truncated) = bound_persisted_trace_value_inner(value);
+                    truncated |= value_truncated;
+                    (key, value)
+                })
+                .collect::<serde_json::Map<_, _>>();
+            if truncated {
+                entries.insert(
+                    "tracePersistence".to_string(),
+                    serde_json::json!({
+                        "truncated": true,
+                        "maxStringChars": ROLLOUT_TRACE_STRING_LIMIT,
+                    }),
+                );
+            }
+            (Value::Object(entries), truncated)
+        }
+        value => (value, false),
+    }
+}
+
+fn persisted_event_needs_trace_context(event_name: &str) -> bool {
+    matches!(
+        event_name,
+        "agent.provider.completed" | "agent.tool.result" | "agent.hook.decision"
+    )
 }
 
 fn is_transient_agent_trace(payload: &Value) -> bool {
@@ -117,5 +191,33 @@ mod tests {
 
         assert!(should_persist_rollout_item(&unknown_event).is_err());
         assert!(should_persist_rollout_item(&unknown_response).is_err());
+    }
+
+    #[test]
+    fn persisted_trace_bounding_is_lossy_only_for_diagnostics() {
+        for length in [255, 256, 257] {
+            let value = bound_persisted_trace_value(json!({
+                "eventName": "agent.message.completed",
+                "traceContext": {"traceId": "trace-1"},
+                "payload": {"content": "界".repeat(length)}
+            }));
+
+            assert_eq!(
+                value["payload"]["content"]
+                    .as_str()
+                    .unwrap()
+                    .chars()
+                    .count(),
+                length.min(ROLLOUT_TRACE_STRING_LIMIT)
+            );
+            assert_eq!(
+                value
+                    .get("tracePersistence")
+                    .and_then(|metadata| metadata.get("truncated"))
+                    .and_then(Value::as_bool),
+                (length > ROLLOUT_TRACE_STRING_LIMIT).then_some(true)
+            );
+            assert!(value.get("traceContext").is_none());
+        }
     }
 }

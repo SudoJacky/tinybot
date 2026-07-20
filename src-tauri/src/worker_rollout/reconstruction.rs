@@ -38,6 +38,7 @@ const PRESERVED_MESSAGE_FIELDS: &[&str] = &[
     "argumentsJson",
     "arguments_json",
     "function",
+    "phase",
     "status",
 ];
 
@@ -263,17 +264,20 @@ fn apply_compaction_metadata(replay: &mut RolloutReconstruction, compacted: &Com
 }
 
 fn apply_response_item(replay: &mut RolloutReconstruction, item: &ResponseItem, timestamp: &str) {
+    let Some(item) = response_item_message_projection(item) else {
+        return;
+    };
     let role = item
         .get("role")
         .and_then(Value::as_str)
         .unwrap_or("assistant");
-    let content = thread_item_content(item);
+    let content = thread_item_content(&item);
     let mut message = json!({
         "role": role,
         "content": content,
         "timestamp": timestamp
     });
-    copy_optional_message_fields(item, &mut message, PRESERVED_MESSAGE_FIELDS);
+    copy_optional_message_fields(&item, &mut message, PRESERVED_MESSAGE_FIELDS);
     if role == "user" {
         if let Some(index) = replay.messages.iter().rposition(|candidate| {
             candidate
@@ -295,6 +299,49 @@ fn apply_response_item(replay: &mut RolloutReconstruction, item: &ResponseItem, 
     }
     replay.messages.push(message);
     replay.updated_at = timestamp.to_string();
+}
+
+fn response_item_message_projection(item: &ResponseItem) -> Option<Value> {
+    match item.kind() {
+        super::ResponseItemKind::Message => Some(item.as_value().clone()),
+        super::ResponseItemKind::FunctionCall | super::ResponseItemKind::CustomToolCall => {
+            let call_id = field_any(item, &["call_id", "callId", "id"])?.clone();
+            let name = field_any(item, &["name"]).cloned().unwrap_or(Value::Null);
+            let arguments = field_any(item, &["input", "arguments", "argumentsJson"])
+                .cloned()
+                .unwrap_or_else(|| Value::String("{}".to_string()));
+            Some(json!({
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": call_id,
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "arguments": arguments,
+                    }
+                }]
+            }))
+        }
+        super::ResponseItemKind::FunctionCallOutput
+        | super::ResponseItemKind::CustomToolCallOutput => {
+            let call_id = field_any(item, &["call_id", "callId", "id"])?.clone();
+            let output = field_any(item, &["output", "content"])
+                .cloned()
+                .unwrap_or(Value::Null);
+            Some(json!({
+                "role": "tool",
+                "content": output,
+                "tool_call_id": call_id,
+            }))
+        }
+        super::ResponseItemKind::Reasoning
+        | super::ResponseItemKind::WebSearchCall
+        | super::ResponseItemKind::LocalShellCall
+        | super::ResponseItemKind::ComputerCall
+        | super::ResponseItemKind::Other(_)
+        | super::ResponseItemKind::Unspecified => None,
+    }
 }
 
 fn apply_event(
@@ -615,6 +662,15 @@ fn thread_item_content(payload: &Value) -> String {
     if content.is_null() {
         return String::new();
     }
+    if let Some(parts) = content.as_array() {
+        return parts
+            .iter()
+            .filter_map(|part| {
+                part.as_str()
+                    .or_else(|| part.get("text").and_then(Value::as_str))
+            })
+            .collect::<String>();
+    }
     content
         .as_str()
         .map(str::to_string)
@@ -859,10 +915,7 @@ mod tests {
 
         let message = &replay.messages[0];
         assert_eq!(replay.session_id, "thread-fields");
-        assert_eq!(
-            message["content"],
-            "[{\"text\":\"structured\",\"type\":\"output_text\"}]"
-        );
+        assert_eq!(message["content"], "structured");
         assert_eq!(message["id"], "response-id");
         assert_eq!(message["messageId"], "message-camel");
         assert_eq!(message["message_id"], "message-snake");

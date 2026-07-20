@@ -6050,20 +6050,6 @@ button.tinyos-overlay-backdrop:focus-visible {
   font-size: 12px;
 }
 
-.react-agent-run-controls {
-  display: flex;
-  width: min(760px, calc(100% - 32px));
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  margin: 0 auto 6px;
-  color: var(--color-muted);
-  font-size: 11px;
-}
-
-.react-agent-run-controls > span { overflow: hidden; margin-right: auto; text-overflow: ellipsis; white-space: nowrap; }
-.react-agent-run-controls > button { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--color-hairline); border-radius: 6px; padding: 4px 7px; background: var(--color-surface); color: var(--color-ink); font-size: 10px; }
-
 .react-agent-command-status[data-stage="rejected"],
 .react-agent-command-status[data-stage="timed_out"] {
   color: var(--color-danger);

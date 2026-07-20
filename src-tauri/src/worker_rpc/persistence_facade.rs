@@ -354,6 +354,15 @@ impl WorkerRpcRouter {
                     .mark_agent_run_cancelled(&params.session_id, &params.run_id)?;
                 serde_json::to_value(record).map_err(serialization_error)
             }
+            "agent_run.mark_interrupted" => {
+                let params: AgentRunMarkInterruptedParams = parse_params(request)?;
+                let record = self.thread_log.mark_agent_run_interrupted_terminal(
+                    &params.session_id,
+                    &params.run_id,
+                    &params.reason,
+                )?;
+                serde_json::to_value(record).map_err(serialization_error)
+            }
             _ => Err(unknown_method_error(request)),
         }
     }
