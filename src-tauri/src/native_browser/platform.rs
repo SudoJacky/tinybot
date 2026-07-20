@@ -162,6 +162,11 @@ pub(crate) trait BrowserRuntimeAdapter: Send + Sync {
     async fn delete_profile(&self, profile: &BrowserPlatformProfile) -> Result<(), String>;
 }
 
+#[cfg(any(
+    test,
+    not(windows),
+    all(windows, not(feature = "native-browser-runtime"))
+))]
 pub(crate) fn unsupported_capabilities(
     reason_code: &str,
     reason: &str,

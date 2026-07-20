@@ -366,9 +366,9 @@ mod tests {
     use crate::worker_rpc::WorkerRpcRouter;
     use serde_json::json;
     use std::{
-        io::Cursor,
+        io::{BufReader, Cursor, Read},
         path::PathBuf,
-        sync::{Arc, Mutex},
+        sync::{Arc, Condvar, Mutex},
         time::Duration,
     };
 
@@ -376,17 +376,18 @@ mod tests {
     fn full_duplex_request_allows_worker_to_call_rust_rpc_before_final_response() {
         let fixture = WorkspaceFixture::new();
         fixture.write("AGENTS.md", "agents");
-        let reader = Cursor::new(
+        let (writer, response_gate) = SharedWriter::with_response_gate();
+        let reader = BufReader::new(GatedReader::new(
             concat!(
                 r#"{"protocol_version":"1","id":"worker-req-1","trace_id":"trace-worker","method":"workspace.list_files","params":{}}"#,
                 "\n",
+            ),
+            concat!(
                 r#"{"protocol_version":"1","id":"agent-req-1","trace_id":"trace-agent","result":{"ok":true}}"#,
                 "\n",
-            )
-            .as_bytes()
-            .to_vec(),
-        );
-        let writer = SharedWriter::default();
+            ),
+            response_gate,
+        ));
         let router = WorkerRpcRouter::new(
             fixture.root.clone(),
             json!({}),
@@ -511,12 +512,56 @@ mod tests {
         assert!(lock_pending(&pending).waiting.is_empty());
     }
 
+    type ResponseGate = Arc<(Mutex<bool>, Condvar)>;
+
+    struct GatedReader {
+        request: Cursor<Vec<u8>>,
+        response: Cursor<Vec<u8>>,
+        response_gate: ResponseGate,
+    }
+
+    impl GatedReader {
+        fn new(request: &str, response: &str, response_gate: ResponseGate) -> Self {
+            Self {
+                request: Cursor::new(request.as_bytes().to_vec()),
+                response: Cursor::new(response.as_bytes().to_vec()),
+                response_gate,
+            }
+        }
+    }
+
+    impl Read for GatedReader {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            if self.request.position() < self.request.get_ref().len() as u64 {
+                return self.request.read(buffer);
+            }
+            let (ready, wake) = &*self.response_gate;
+            let mut ready = ready.lock().expect("response gate should lock");
+            while !*ready {
+                ready = wake.wait(ready).expect("response gate should wait");
+            }
+            self.response.read(buffer)
+        }
+    }
+
     #[derive(Clone, Default)]
     struct SharedWriter {
         bytes: Arc<Mutex<Vec<u8>>>,
+        response_gate: Option<ResponseGate>,
     }
 
     impl SharedWriter {
+        fn with_response_gate() -> (Self, ResponseGate) {
+            let response_gate = Arc::new((Mutex::new(false), Condvar::new()));
+            (
+                Self {
+                    bytes: Arc::new(Mutex::new(Vec::new())),
+                    response_gate: Some(response_gate.clone()),
+                },
+                response_gate,
+            )
+        }
+
         fn text(&self) -> String {
             let bytes = self.bytes.lock().expect("writer should lock").clone();
             String::from_utf8(bytes).expect("writer output should be utf-8")
@@ -533,6 +578,13 @@ mod tests {
         }
 
         fn flush(&mut self) -> std::io::Result<()> {
+            if self.text().contains(r#""method":"agent.echo""#) {
+                if let Some(response_gate) = &self.response_gate {
+                    let (ready, wake) = &**response_gate;
+                    *ready.lock().expect("response gate should lock") = true;
+                    wake.notify_all();
+                }
+            }
             Ok(())
         }
     }

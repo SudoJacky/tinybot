@@ -6,6 +6,11 @@ mod model;
 mod platform;
 #[cfg(any(test, all(windows, feature = "native-browser-integration")))]
 mod test_fixture;
+#[cfg(any(
+    test,
+    not(windows),
+    all(windows, not(feature = "native-browser-runtime"))
+))]
 mod unsupported;
 #[cfg(all(windows, feature = "native-browser-runtime"))]
 mod windows;

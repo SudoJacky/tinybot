@@ -4,8 +4,10 @@ use crate::agent_loop_runtime_protocol::{
 use crate::runtime::agent_task::{AgentCancelReason, AgentTaskRuntime};
 use crate::runtime::mcp::McpRuntime;
 use crate::worker_shell::WorkerShellRuntime;
+use crate::worker_subagent_manager::SubagentThreadManager;
+#[cfg(test)]
 use crate::worker_subagent_manager::{
-    SubagentInputSender, SubagentSendInputParams, SubagentTargetParams, SubagentThreadManager,
+    SubagentInputSender, SubagentSendInputParams, SubagentTargetParams,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -53,18 +55,17 @@ pub use self::items::{
     AgentMessageContent, AgentPlanProgressItem, AgentPlanStep, AgentPlanStepStatus,
     AgentReasoningItem, AgentToolCallItem, AgentToolResultItem, AgentUsageItem,
 };
-use self::provider::{
-    agent_chat_completion_request, agent_provider_config, chat_completion_content,
-    RustNativeAgentProvider,
-};
+#[cfg(test)]
+use self::provider::agent_chat_completion_request;
+use self::provider::{agent_provider_config, chat_completion_content, RustNativeAgentProvider};
 use self::result::event_value;
 pub use self::settings::{
     AgentOutputSchema, AgentReasoningSettings, AgentTurnSettings, ContextWindowStrategy,
 };
 use self::tool_router::NativeToolRouter;
-use self::usage::{
-    context_window_messages, context_window_messages_async, enrich_usage_with_context_window,
-};
+#[cfg(test)]
+use self::usage::enrich_usage_with_context_window;
+use self::usage::{context_window_messages, context_window_messages_async};
 pub use crate::runtime::observability::AgentRuntimeMetrics;
 pub(crate) use provider_loop::run_native_agent_turn_with_workspace_and_instructions_async;
 pub use provider_loop::{

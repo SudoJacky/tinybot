@@ -7,6 +7,16 @@ macro_rules! string_id {
         #[serde(transparent)]
         pub struct $name(pub String);
 
+        impl fmt::Display for $name {
+            fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str(&self.0)
+            }
+        }
+    };
+}
+
+macro_rules! string_id_new {
+    ($name:ident) => {
         impl $name {
             pub fn new(value: impl Into<String>) -> Result<Self, String> {
                 let value = value.into();
@@ -16,15 +26,15 @@ macro_rules! string_id {
                 }
                 Ok(Self(value.to_string()))
             }
+        }
+    };
+}
 
+macro_rules! string_id_as_str {
+    ($name:ident) => {
+        impl $name {
             pub fn as_str(&self) -> &str {
                 &self.0
-            }
-        }
-
-        impl fmt::Display for $name {
-            fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str(&self.0)
             }
         }
     };
@@ -38,6 +48,16 @@ string_id!(BrowserCaptureId);
 string_id!(BrowserSurfaceId);
 string_id!(BrowserCommandId);
 string_id!(BrowserPolicyRequestId);
+
+string_id_new!(BrowserProfileId);
+#[cfg(any(test, all(windows, feature = "native-browser-integration")))]
+string_id_new!(BrowserSurfaceId);
+#[cfg(any(test, all(windows, feature = "native-browser-integration")))]
+string_id_new!(BrowserCommandId);
+
+string_id_as_str!(BrowserSessionId);
+string_id_as_str!(BrowserProfileId);
+string_id_as_str!(BrowserTabId);
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -697,8 +717,8 @@ mod tests {
 
     #[test]
     fn browser_ids_reject_blank_values() {
-        assert!(BrowserSessionId::new("  ").is_err());
-        assert_eq!(BrowserTabId::new("tab-1").unwrap().as_str(), "tab-1");
+        assert!(BrowserProfileId::new("  ").is_err());
+        assert_eq!(BrowserTabId("tab-1".to_string()).as_str(), "tab-1");
     }
 
     #[test]

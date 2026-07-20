@@ -113,6 +113,51 @@ describe("desktop native app services", () => {
     });
   });
 
+  test("loads later Thread pages before filtering internal child sessions", async () => {
+    const childThread = {
+      ...thread,
+      parentThreadId: "thread-1",
+      source: "subagent",
+      threadId: "thread-child",
+      sessionKey: "thread-child",
+    };
+    mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "worker_threads_list") {
+        const body = (args?.input as { body?: Record<string, unknown> } | undefined)?.body;
+        return body?.offset === 1
+          ? { threads: [thread], total: 2 }
+          : { threads: [childThread], total: 2, nextOffset: 1 };
+      }
+      if (command === "worker_agent_runs_list") return { runs: [] };
+      if (command === "worker_agent_run_runtime_state") return null;
+      return {};
+    });
+    const services = createDesktopAppServices();
+
+    await expect(services.sessionStore.list()).resolves.toEqual([
+      expect.objectContaining({ id: "thread-1" }),
+    ]);
+    expect(mocks.invoke).toHaveBeenCalledWith("worker_threads_list", {
+      input: { body: { includeChildThreads: true, offset: 1 } },
+    });
+  });
+
+  test("persists session renames through Thread metadata", async () => {
+    const services = createDesktopAppServices();
+
+    await services.sessionStore.list();
+    await services.sessionStore.rename("thread-1", "Durable title");
+
+    expect(mocks.invoke).toHaveBeenCalledWith("worker_thread_update_metadata", {
+      input: {
+        body: {
+          threadId: "thread-1",
+          metadata: { title: "Durable title" },
+        },
+      },
+    });
+  });
+
   test("submits chat messages through the typed Thread command", async () => {
     const services = createDesktopAppServices();
     await services.sessionStore.list();
@@ -141,6 +186,181 @@ describe("desktop native app services", () => {
     expect(events).toContainEqual(expect.objectContaining({ type: "message-sent" }));
   });
 
+  test("preserves live reasoning after the completed Thread result arrives", async () => {
+    let completedRunId = "";
+    let resolveSubmit!: (value: unknown) => void;
+    const pendingSubmit = new Promise((resolve) => {
+      resolveSubmit = resolve;
+    });
+    mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "worker_threads_list") return { threads: [thread], total: 1 };
+      if (command === "worker_agent_runs_list") {
+        return { runs: completedRunId ? [{ runId: completedRunId }] : [] };
+      }
+      if (command === "worker_agent_run_runtime_state") {
+        return canonicalRuntimeState(completedRunId, "completed");
+      }
+      if (command === "worker_submit_thread_turn") {
+        const input = args?.input as { spec?: { runId?: string } } | undefined;
+        completedRunId = input?.spec?.runId ?? "";
+        return pendingSubmit;
+      }
+      return {};
+    });
+    const services = createDesktopAppServices();
+    await services.chatStore.load("thread-1");
+    const events: ChatEvent[] = [];
+    services.chatStore.subscribe("thread-1", (event) => events.push(event));
+
+    await services.chatStore.dispatch(createDesktopTurnSubmitCommand({
+      commandId: "command-live-reasoning",
+      message: { text: "hello" },
+      sessionId: "thread-1",
+      source: { control: "test", surface: "chat" },
+    }));
+    const listener = mocks.listeners.get("agent:timeline:patch");
+    expect(listener).toBeTypeOf("function");
+    const baseItem = canonicalRuntimeState(completedRunId).timeline.items[0];
+    listener?.({
+      payload: {
+        schemaVersion: "tinybot.timeline_patch.v2",
+        sessionId: "thread-1",
+        runId: completedRunId,
+        snapshotRevision: 1,
+        item: {
+          ...baseItem,
+          itemId: `${completedRunId}:user`,
+          runId: completedRunId,
+          turnId: completedRunId,
+        },
+      },
+    });
+    listener?.({
+      payload: {
+        schemaVersion: "tinybot.timeline_patch.v2",
+        sessionId: "thread-1",
+        runId: completedRunId,
+        snapshotRevision: 2,
+        item: {
+          ...baseItem,
+          itemId: `${completedRunId}:reasoning`,
+          runId: completedRunId,
+          turnId: completedRunId,
+          sequence: 2,
+          kind: "reasoning",
+          status: "completed",
+          data: {
+            type: "reasoning",
+            modelCallId: "call-1",
+            summary: "The user is",
+          },
+        },
+      },
+    });
+    listener?.({
+      payload: {
+        schemaVersion: "tinybot.timeline_patch.v2",
+        sessionId: "thread-1",
+        runId: completedRunId,
+        snapshotRevision: 3,
+        item: {
+          ...canonicalRuntimeState(completedRunId, "completed").timeline.items[1],
+          sequence: 3,
+        },
+      },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const liveTimelineEvents = events.filter((event) => event.type === "timeline.patch");
+    expect(liveTimelineEvents[liveTimelineEvents.length - 1]?.timeline?.turns[0].executionItems).toEqual([
+      expect.objectContaining({
+        id: `${completedRunId}:reasoning`,
+        kind: "reasoning",
+        summary: "The user is",
+      }),
+    ]);
+
+    resolveSubmit({
+      threadId: "thread-1",
+      sessionId: "thread-1",
+      runId: completedRunId,
+      agentResult: { finalContent: "hi", stopReason: "final_response" },
+      snapshot: {},
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const timelineEvents = events.filter((event) => event.type === "timeline.patch");
+    expect(timelineEvents[timelineEvents.length - 1]?.timeline?.turns[0].executionItems).toEqual([
+      expect.objectContaining({
+        id: `${completedRunId}:reasoning`,
+        kind: "reasoning",
+        summary: "The user is",
+      }),
+    ]);
+  });
+
+  test("converges from the completed Thread result when the live timeline patch is missed", async () => {
+    let completedRunId = "";
+    mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "worker_threads_list") return { threads: [thread], total: 1 };
+      if (command === "worker_agent_runs_list") {
+        return { runs: completedRunId ? [{ runId: completedRunId }] : [] };
+      }
+      if (command === "worker_agent_run_runtime_state") {
+        return canonicalRuntimeState(completedRunId, "completed");
+      }
+      if (command === "worker_submit_thread_turn") {
+        const input = args?.input as { spec?: { runId?: string } } | undefined;
+        completedRunId = input?.spec?.runId ?? "";
+        return {
+          threadId: "thread-1",
+          sessionId: "thread-1",
+          runId: completedRunId,
+          agentResult: {
+            finalContent: "hi",
+            stopReason: "final_response",
+          },
+          snapshot: {
+            items: [{
+              itemId: `${completedRunId}:assistant`,
+              kind: {
+                type: "assistant_message_completed",
+                payload: { content: "hi", role: "assistant" },
+              },
+            }],
+            turnItems: [],
+          },
+        };
+      }
+      return {};
+    });
+    const services = createDesktopAppServices();
+    await services.chatStore.load("thread-1");
+    const events: ChatEvent[] = [];
+    services.chatStore.subscribe("thread-1", (event) => events.push(event));
+
+    await services.chatStore.dispatch(createDesktopTurnSubmitCommand({
+      commandId: "command-completed-result",
+      message: { text: "hello" },
+      sessionId: "thread-1",
+      source: { control: "test", surface: "chat" },
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "timeline.patch",
+      timeline: expect.objectContaining({
+        turns: [expect.objectContaining({
+          id: completedRunId,
+          status: "completed",
+          finalAnswer: expect.objectContaining({ text: "hi" }),
+        })],
+      }),
+    }));
+    expect(events).toContainEqual({ type: "agent.event", eventType: "agent.turn.completed" });
+  });
+
   test("consumes typed Tauri timeline patches without a Gateway frame", async () => {
     mocks.invoke.mockImplementation(async (command: string) => {
       if (command === "worker_threads_list") return { threads: [thread], total: 1 };
@@ -155,6 +375,7 @@ describe("desktop native app services", () => {
     const listener = mocks.listeners.get("agent:timeline:patch");
     expect(listener).toBeTypeOf("function");
 
+    const assistantItem = canonicalRuntimeState("run-live").timeline.items[1];
     listener?.({
       payload: {
         schemaVersion: "tinybot.timeline_patch.v2",
@@ -162,17 +383,52 @@ describe("desktop native app services", () => {
         runId: "run-live",
         snapshotRevision: 3,
         item: {
-          ...canonicalRuntimeState("run-live", "completed").timeline.items[1],
+          ...assistantItem,
           revision: 2,
-          status: "completed",
+          status: "running",
           updatedAt: "2026-07-14T00:00:03.000Z",
+          data: { ...assistantItem.data, content: "hi there" },
+        },
+      },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    listener?.({
+      payload: {
+        schemaVersion: "tinybot.timeline_patch.v2",
+        sessionId: "thread-1",
+        runId: "run-live",
+        snapshotRevision: 4,
+        item: {
+          ...assistantItem,
+          revision: 3,
+          status: "completed",
+          updatedAt: "2026-07-14T00:00:04.000Z",
+          data: { ...assistantItem.data, content: "hi there!" },
         },
       },
     });
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(events).toContainEqual(expect.objectContaining({ type: "timeline.patch" }));
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "timeline.patch",
+      timeline: expect.objectContaining({
+        turns: [expect.objectContaining({
+          status: "running",
+          finalAnswer: expect.objectContaining({ text: "hi there" }),
+        })],
+      }),
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "timeline.patch",
+      timeline: expect.objectContaining({
+        turns: [expect.objectContaining({
+          status: "completed",
+          finalAnswer: expect.objectContaining({ text: "hi there!" }),
+        })],
+      }),
+    }));
     expect(events).toContainEqual({ type: "agent.event", eventType: "agent.turn.completed" });
   });
 
@@ -219,32 +475,101 @@ describe("desktop native app services", () => {
     });
   });
 
-  test("branches a completed canonical turn with portable message history", async () => {
-    mocks.invoke.mockImplementation(async (command: string) => {
-      if (command === "worker_threads_list") return { threads: [thread], total: 1 };
+  test("forks a completed canonical turn into a registered Thread at the selected message boundary", async () => {
+    const branchThread = {
+      ...thread,
+      parentThreadId: "thread-1",
+      source: "fork",
+      threadId: "thread-branch",
+      sessionKey: "thread-branch",
+      title: "Native thread · 分叉",
+    };
+    const subagentThread = {
+      ...thread,
+      parentThreadId: "thread-1",
+      source: "subagent",
+      threadId: "thread-subagent",
+      sessionKey: "thread-subagent",
+      title: "Internal subagent",
+    };
+    let forked = false;
+    mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "worker_threads_list") {
+        const body = (args?.input as { body?: Record<string, unknown> } | undefined)?.body;
+        const threads = forked && body?.includeChildThreads === true
+          ? [branchThread, subagentThread, thread]
+          : [thread];
+        return { threads, total: threads.length };
+      }
       if (command === "worker_agent_runs_list") return { runs: [{ runId: "run-completed" }] };
       if (command === "worker_agent_run_runtime_state") return canonicalRuntimeState("run-completed", "completed");
-      if (command === "worker_session_branch") return { key: "thread-branch", title: "Native thread · Branch" };
+      if (command === "worker_thread_read") {
+        return {
+          items: [{
+            itemId: "run-completed:assistant",
+            sequence: 42,
+            kind: {
+              type: "assistant_message_completed",
+              payload: { content: "hi", messageId: "run-completed:assistant" },
+            },
+          }],
+          nextCursor: null,
+        };
+      }
+      if (command === "worker_thread_fork") {
+        forked = true;
+        return branchThread;
+      }
       return {};
     });
     const services = createDesktopAppServices();
 
     await expect(services.chatStore.branchFromMessage("thread-1", "run-completed:assistant")).resolves.toEqual(
-      expect.objectContaining({ id: "thread-branch", title: "Native thread · Branch" }),
+      expect.objectContaining({ id: "thread-branch", title: "Native thread · 分叉" }),
     );
+    await expect(services.sessionStore.list()).resolves.toEqual([
+      expect.objectContaining({ id: "thread-branch" }),
+      expect.objectContaining({ id: "thread-1" }),
+    ]);
 
-    expect(mocks.invoke).toHaveBeenCalledWith("worker_session_branch", {
+    expect(mocks.invoke).toHaveBeenCalledWith("worker_thread_fork", {
       input: {
         body: {
-          branchedFromMessageId: "run-completed:assistant",
-          branchedFromSessionId: "thread-1",
-          messages: [
-            { content: "hello", messageId: "run-completed:user", role: "user" },
-            { content: "hi", messageId: "run-completed:assistant", role: "assistant" },
-          ],
-          portableContext: { chatId: "thread-1", sessionKey: "thread-1" },
-          runtimeState: {},
+          clientEventId: "fork:thread-1:run-completed:assistant",
+          forkAfterSequence: 42,
+          threadId: "thread-1",
           title: "Native thread · 分叉",
+        },
+      },
+    });
+  });
+
+  test("deletes the Thread tree when a conversation has fork children", async () => {
+    let deleted = false;
+    mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "worker_threads_list") {
+        return { threads: deleted ? [] : [thread], total: deleted ? 0 : 1 };
+      }
+      if (command === "worker_thread_delete") {
+        const body = (args?.input as { body?: Record<string, unknown> } | undefined)?.body;
+        if (body?.deleteChildren !== true) {
+          throw new Error("thread-delete failed: thread has child threads; pass deleteChildren to delete the tree");
+        }
+        deleted = true;
+        return { deleted: true, deletedChildren: ["thread-branch"] };
+      }
+      if (command === "worker_agent_runs_list") return { runs: [] };
+      return {};
+    });
+    const services = createDesktopAppServices();
+
+    await expect(services.sessionStore.delete("thread-1")).resolves.toBeUndefined();
+
+    expect(mocks.invoke).toHaveBeenCalledWith("worker_thread_delete", {
+      input: {
+        body: {
+          deleteChildren: true,
+          threadId: "thread-1",
         },
       },
     });

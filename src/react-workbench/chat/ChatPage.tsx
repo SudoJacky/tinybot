@@ -1083,6 +1083,7 @@ export function ChatPage({
     if (optimisticSession !== sendSession) {
       optimisticSessionTitlesRef.current.set(sendSession.id, optimisticSession.title);
       setSessions((current) => current.map((session) => session.id === sendSession.id ? optimisticSession : session));
+      await sessionStore.rename(sendSession.id, optimisticSession.title);
     }
     await dispatchTurn(sendSession.id, {
       text: queuedResult.content,

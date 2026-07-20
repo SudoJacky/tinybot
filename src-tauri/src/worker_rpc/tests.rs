@@ -2770,6 +2770,166 @@ fn agent_run_persistence_drops_transient_trace_and_does_not_write_legacy_session
 }
 
 #[test]
+fn agent_run_reasoning_survives_canonical_rollout_reload() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    )
+    .unwrap();
+    let record = json!({
+        "sessionId": "session-reasoning-reload",
+        "runId": "run-reasoning-reload",
+        "status": "running",
+        "phase": "active_turn",
+        "startedAt": "2026-07-19T10:00:00Z",
+        "updatedAt": "2026-07-19T10:00:00Z",
+        "completedAt": null,
+        "stopReason": null,
+        "model": "fixture-model",
+        "provider": "fixture",
+        "maxIterations": 4,
+        "currentIteration": 0,
+        "conversationMessageIds": [],
+        "traceMessages": [],
+        "traceEvents": [{
+            "eventId": "reasoning-reload-1",
+            "eventName": "agent.reasoning_delta",
+            "sequence": 1,
+            "turnId": "run-reasoning-reload",
+            "payload": {
+                "delta": "Inspect ",
+                "modelCallId": "provider-1",
+                "reasoningId": "reasoning-1"
+            }
+        }, {
+            "eventId": "reasoning-reload-2",
+            "eventName": "agent.reasoning_delta",
+            "sequence": 2,
+            "turnId": "run-reasoning-reload",
+            "payload": {
+                "delta": "first.",
+                "modelCallId": "provider-1",
+                "reasoningId": "reasoning-1"
+            }
+        }],
+        "completedToolResults": [],
+        "pendingToolCalls": [],
+        "checkpoint": null,
+        "artifacts": [],
+        "usage": [],
+        "error": null
+    });
+    let upsert = router.dispatch(&WorkerRequest::new(
+        "req-reasoning-reload-upsert",
+        "trace-reasoning-reload",
+        "agent_run.upsert",
+        json!({ "record": record }),
+    ));
+    assert_eq!(upsert.error, None);
+
+    let append_trace = router.dispatch(&WorkerRequest::new(
+        "req-reasoning-reload-trace",
+        "trace-reasoning-reload",
+        "agent_run.append_trace_batch",
+        json!({
+            "session_id": "session-reasoning-reload",
+            "run_id": "run-reasoning-reload",
+            "events": [{
+                "eventId": "reasoning-reload-1",
+                "eventName": "agent.reasoning_delta",
+                "sequence": 1,
+                "turnId": "run-reasoning-reload",
+                "payload": {
+                    "delta": "Inspect ",
+                    "modelCallId": "provider-1",
+                    "reasoningId": "reasoning-1"
+                }
+            }, {
+                "eventId": "reasoning-reload-2",
+                "eventName": "agent.reasoning_delta",
+                "sequence": 2,
+                "turnId": "run-reasoning-reload",
+                "payload": {
+                    "delta": "first.",
+                    "modelCallId": "provider-1",
+                    "reasoningId": "reasoning-1"
+                }
+            }, {
+                "eventId": "reasoning-reload-completed",
+                "eventName": "agent.message.completed",
+                "sequence": 3,
+                "turnId": "run-reasoning-reload",
+                "payload": {
+                    "content": "Done.",
+                    "messageId": "assistant-reasoning-reload",
+                    "messagePhase": "final_answer",
+                    "modelCallId": "provider-1"
+                }
+            }]
+        }),
+    ));
+    assert_eq!(append_trace.error, None);
+    let completed = router.dispatch(&WorkerRequest::new(
+        "req-reasoning-reload-complete",
+        "trace-reasoning-reload",
+        "agent_run.mark_completed",
+        json!({
+            "session_id": "session-reasoning-reload",
+            "run_id": "run-reasoning-reload",
+            "stop_reason": "final_response",
+            "final_content": "Done."
+        }),
+    ));
+    assert_eq!(completed.error, None);
+    drop(router);
+
+    let state_path = fixture
+        .root
+        .join(".tinybot")
+        .join("state")
+        .join("state.sqlite");
+    std::fs::remove_file(&state_path).expect("state index should be removable");
+
+    let mut restarted = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        50,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    )
+    .unwrap();
+    let runtime_state = restarted.dispatch(&WorkerRequest::new(
+        "req-reasoning-reload-state",
+        "trace-reasoning-reload",
+        "agent_run.runtime_state",
+        json!({
+            "session_id": "session-reasoning-reload",
+            "run_id": "run-reasoning-reload"
+        }),
+    ));
+    assert_eq!(runtime_state.error, None);
+    let items = runtime_state.result.as_ref().unwrap()["timeline"]["items"]
+        .as_array()
+        .expect("timeline items should be an array");
+    let reasoning = items
+        .iter()
+        .filter(|item| item["kind"] == "reasoning")
+        .collect::<Vec<_>>();
+    assert_eq!(reasoning.len(), 1);
+    assert_eq!(reasoning[0]["data"]["summary"], "Inspect first.");
+}
+
+#[test]
 fn agent_run_trace_append_preserves_thread_updated_at_and_keeps_index_clean() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new_persistent_sessions(
@@ -5287,13 +5447,36 @@ fn thread_fork_inherits_effective_history_from_canonical_rollout() {
     ));
     assert_eq!(rollback.error, None);
 
+    let source = router.dispatch(&WorkerRequest::new(
+        "req-rollout-fork-source-read",
+        "trace-rollout-fork",
+        "thread.read",
+        json!({
+            "threadId": "thread-rollout-fork-source",
+            "limit": 80
+        }),
+    ));
+    assert_eq!(source.error, None);
+    let fork_after_sequence = source.result.as_ref().unwrap()["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| {
+            item["kind"]["type"] == "assistant_message_completed"
+                && item["kind"]["payload"]["content"] == "keep assistant"
+        })
+        .unwrap()["sequence"]
+        .as_u64()
+        .unwrap();
+
     let fork = router.dispatch(&WorkerRequest::new(
         "req-rollout-fork",
         "trace-rollout-fork",
         "thread.fork",
         json!({
             "threadId": "thread-rollout-fork-source",
-            "title": "Canonical fork"
+            "title": "Canonical fork",
+            "forkAfterSequence": fork_after_sequence
         }),
     ));
     assert_eq!(fork.error, None);
@@ -5317,6 +5500,87 @@ fn thread_fork_inherits_effective_history_from_canonical_rollout() {
         .map(|message| message["content"].as_str().unwrap())
         .collect::<Vec<_>>();
     assert_eq!(contents, vec!["keep user", "keep assistant"]);
+
+    let runs = router.dispatch(&WorkerRequest::new(
+        "req-rollout-fork-runs",
+        "trace-rollout-fork",
+        "agent_run.list",
+        json!({ "sessionId": fork_thread_id }),
+    ));
+    assert_eq!(runs.error, None);
+    let fork_run_id = runs.result.as_ref().unwrap()["runs"][0]["runId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(fork_run_id, "run-rollout-fork-1");
+    let runtime_state = router.dispatch(&WorkerRequest::new(
+        "req-rollout-fork-runtime-state",
+        "trace-rollout-fork",
+        "agent_run.runtime_state",
+        json!({
+            "session_id": fork_thread_id,
+            "run_id": fork_run_id
+        }),
+    ));
+    assert_eq!(runtime_state.error, None);
+    assert_eq!(
+        runtime_state.result.as_ref().unwrap()["timeline"]["items"][0]["kind"],
+        "user_message"
+    );
+    assert_eq!(
+        runtime_state.result.as_ref().unwrap()["timeline"]["items"][0]["data"]["content"],
+        "keep user"
+    );
+    assert_eq!(
+        runtime_state.result.as_ref().unwrap()["timeline"]["items"][1]["kind"],
+        "assistant_message"
+    );
+    assert_eq!(
+        runtime_state.result.as_ref().unwrap()["timeline"]["items"][1]["data"]["content"],
+        "keep assistant"
+    );
+
+    let rename = router.dispatch(&WorkerRequest::new(
+        "req-rollout-fork-rename",
+        "trace-rollout-fork",
+        "thread.update_metadata",
+        json!({
+            "threadId": fork_thread_id,
+            "metadata": { "title": "Durable fork title" }
+        }),
+    ));
+    assert_eq!(rename.error, None);
+    drop(router);
+
+    let state_path = fixture
+        .root
+        .join(".tinybot")
+        .join("state")
+        .join("state.sqlite");
+    std::fs::remove_file(&state_path).expect("state index should be removable");
+
+    let mut router = WorkerRpcRouter::new_persistent_sessions(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        20,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionMetadataRead,
+            WorkerCapability::SessionWrite,
+        ]),
+    )
+    .unwrap();
+    let reloaded = router.dispatch(&WorkerRequest::new(
+        "req-rollout-fork-reloaded",
+        "trace-rollout-fork",
+        "thread.read",
+        json!({ "threadId": fork_thread_id, "limit": 80 }),
+    ));
+    assert_eq!(reloaded.error, None);
+    assert_eq!(
+        reloaded.result.as_ref().unwrap()["thread"]["title"],
+        "Durable fork title"
+    );
 }
 
 #[test]

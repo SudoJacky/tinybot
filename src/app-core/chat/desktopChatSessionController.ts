@@ -40,7 +40,15 @@ export interface DesktopChatSessionControllerOptions {
 
 export type ChatSubmitResult =
   | { status: "empty" }
-  | { status: "sent"; sessionId: string; threadId: string; runId: string; content: string; clientEventId: string };
+  | {
+    status: "sent";
+    sessionId: string;
+    threadId: string;
+    runId: string;
+    content: string;
+    clientEventId: string;
+    completion: Promise<ChatTimelineSnapshot>;
+  };
 
 export type ChatDeleteSessionResult =
   | { status: "missing"; deletedSessionKey: string; nextSessionKey: "" }
@@ -350,15 +358,43 @@ export function createDesktopChatSessionController({
         },
       },
     };
-    void api.submitThreadTurn(request).catch((error) => {
-      state.error = error instanceof Error ? error.message : String(error);
-      logDesktopNativeDebug("session.message.failed", {
-        ...summarizeSessionState(),
-        error: state.error,
-        runId,
-        threadId,
+    const sessionId = state.activeSessionKey;
+    const completion = api.submitThreadTurn(request)
+      .then(async (result) => {
+        if (result.sessionId !== sessionId || result.runId !== runId) {
+          throw new Error(
+            `Completed Thread turn identity mismatch: ${result.sessionId}/${result.runId}, expected ${sessionId}/${runId}`,
+          );
+        }
+        const liveTimeline = timelineModel.snapshot(sessionId);
+        const liveTurn = liveTimeline.turns.find((turn) => turn.id === runId);
+        const hasLiveTerminalTurn = liveTurn
+          ? ["completed", "failed", "interrupted"].includes(liveTurn.status)
+          : false;
+        const timeline = hasLiveTerminalTurn
+          ? liveTimeline
+          : await reloadTimeline(sessionId);
+        state.error = "";
+        logDesktopNativeDebug("session.message.completed", {
+          ...summarizeSessionState(),
+          convergenceSource: hasLiveTerminalTurn ? "live_timeline" : "runtime_reload",
+          runId,
+          sessionId,
+          threadId,
+          turnCount: timeline.turns.length,
+        });
+        return timeline;
+      })
+      .catch((error) => {
+        state.error = error instanceof Error ? error.message : String(error);
+        logDesktopNativeDebug("session.message.failed", {
+          ...summarizeSessionState(),
+          error: state.error,
+          runId,
+          threadId,
+        });
+        throw error;
       });
-    });
     logDesktopNativeDebug("session.message.sent", {
       ...summarizeSessionState(),
       content: summarizeDebugText(trimmed),
@@ -369,11 +405,12 @@ export function createDesktopChatSessionController({
     });
     return {
       status: "sent",
-      sessionId: state.activeSessionKey,
+      sessionId,
       threadId,
       runId,
       content: trimmed,
       clientEventId,
+      completion,
     };
   }
 

@@ -2553,6 +2553,146 @@ fn worker_submit_thread_turn_creates_thread_and_runs_native_agent() {
 }
 
 #[test]
+fn worker_submit_thread_turn_forwards_live_streaming_timeline_patches() {
+    struct StreamingProvider;
+
+    impl crate::worker_agent_runtime::NativeAgentProvider for StreamingProvider {
+        fn complete(
+            &self,
+            _context: &crate::worker_agent_runtime::NativeAgentRunContext,
+        ) -> Result<crate::worker_agent_runtime::NativeAgentProviderResponse, String> {
+            Ok(crate::worker_agent_runtime::NativeAgentProviderResponse {
+                final_content: "streamed desktop answer".to_string(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: Vec::new(),
+            })
+        }
+
+        fn complete_streaming(
+            &self,
+            context: &crate::worker_agent_runtime::NativeAgentRunContext,
+            observer: &mut (dyn FnMut(crate::worker_agent_runtime::NativeAgentProviderStreamEvent)
+                      + Send),
+        ) -> Result<crate::worker_agent_runtime::NativeAgentProviderResponse, String> {
+            observer(
+                crate::worker_agent_runtime::NativeAgentProviderStreamEvent::ContentDelta(
+                    "streamed ".to_string(),
+                ),
+            );
+            observer(
+                crate::worker_agent_runtime::NativeAgentProviderStreamEvent::ContentDelta(
+                    "desktop answer".to_string(),
+                ),
+            );
+            self.complete(context)
+        }
+    }
+
+    #[derive(Default)]
+    struct LivePatchSink {
+        patches: Mutex<Vec<crate::agent_loop_runtime_protocol::AgentTimelinePatch>>,
+    }
+
+    impl crate::worker_agent_runtime::NativeAgentTraceSink for LivePatchSink {
+        fn append_trace_event(
+            &self,
+            _session_id: &str,
+            _run_id: &str,
+            _event: &crate::agent_loop_runtime_protocol::AgentRuntimeEventEnvelope,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn append_timeline_patch(
+            &self,
+            _session_id: &str,
+            _run_id: &str,
+            patch: &crate::agent_loop_runtime_protocol::AgentTimelinePatch,
+        ) -> Result<(), String> {
+            self.patches
+                .lock()
+                .expect("live patch sink should lock")
+                .push(patch.clone());
+            Ok(())
+        }
+    }
+
+    let fixture = WorkspaceFixture::new();
+    let services = NativeAgentRuntimeServices::new(
+        Arc::new(StreamingProvider),
+        Arc::new(crate::worker_agent_runtime::FakeNativeAgentToolDispatcher),
+        Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCancellation::default()),
+    );
+    let shared = Arc::new(Mutex::new(GatewayRuntime {
+        native_agent_runtime: services,
+        ..GatewayRuntime::default()
+    }));
+    let sink = Arc::new(LivePatchSink::default());
+
+    let result = tauri::async_runtime::block_on(
+        crate::desktop_commands::agent::worker_submit_thread_turn_with_live_trace_sink_async(
+            &shared,
+            WorkerSubmitThreadTurnInput {
+                thread_id: None,
+                input: serde_json::json!({ "content": "stream this answer" }),
+                spec: serde_json::json!({
+                    "runtime": "rust",
+                    "runId": "run-thread-live-stream"
+                }),
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_secs(1),
+            Some(sink.clone()),
+        ),
+    )
+    .expect("desktop thread submit should complete");
+
+    assert_eq!(result["agentResult"]["stopReason"], "final_response");
+    let patches = sink.patches.lock().expect("live patches should lock");
+    let assistant_patches = patches
+        .iter()
+        .filter(|patch| {
+            patch.item.kind
+                == crate::agent_loop_runtime_protocol::AgentTurnItemKind::AssistantMessage
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        assistant_patches.iter().any(|patch| {
+            patch.item.status
+                == crate::agent_loop_runtime_protocol::AgentTurnItemStatus::Running
+        }),
+        "desktop live sink should receive a running assistant patch before completion: {assistant_patches:#?}"
+    );
+    assert!(
+        assistant_patches.iter().any(|patch| {
+            patch.item.status == crate::agent_loop_runtime_protocol::AgentTurnItemStatus::Completed
+        }),
+        "desktop live sink should receive the completed assistant patch"
+    );
+    assert!(
+        assistant_patches.windows(2).all(|pair| {
+            assistant_patch_content(pair[0]).len() <= assistant_patch_content(pair[1]).len()
+        }),
+        "streamed assistant content should grow monotonically"
+    );
+
+    fn assistant_patch_content(
+        patch: &crate::agent_loop_runtime_protocol::AgentTimelinePatch,
+    ) -> &str {
+        match &patch.item.data {
+            crate::agent_loop_runtime_protocol::AgentTurnItemData::AssistantMessage {
+                content,
+                ..
+            } => content,
+            _ => "",
+        }
+    }
+}
+
+#[test]
 fn thread_owned_compaction_commits_installed_checkpoint_before_finalization() {
     let fixture = WorkspaceFixture::new();
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
