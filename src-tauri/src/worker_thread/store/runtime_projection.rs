@@ -4,7 +4,6 @@ use crate::agent_loop_runtime_protocol::{
 };
 use crate::worker_thread::types::{ThreadItem, ThreadItemKind};
 use serde_json::Value;
-use std::collections::HashMap;
 
 pub(super) fn trace_event_from_thread_item(item: &ThreadItem) -> Option<Value> {
     if let ThreadItemKind::Reasoning(value) = &item.kind {
@@ -95,7 +94,16 @@ fn runtime_event_from_thread_item(
     run_id: &str,
 ) -> Option<AgentRuntimeEventEnvelope> {
     let event = trace_event_from_thread_item(item)?;
-    if let Ok(envelope) = serde_json::from_value::<AgentRuntimeEventEnvelope>(event.clone()) {
+    if let Ok(mut envelope) = serde_json::from_value::<AgentRuntimeEventEnvelope>(event.clone()) {
+        envelope.sequence = item.sequence;
+        envelope.timestamp = item.created_at.clone();
+        envelope.session_id = session_id.to_string();
+        envelope.thread_id = Some(item.thread_id.clone());
+        envelope.turn_id = item
+            .turn_id
+            .clone()
+            .or_else(|| item.run_id.clone())
+            .unwrap_or_else(|| run_id.to_string());
         return Some(envelope);
     }
     let event_name = event
@@ -114,29 +122,10 @@ fn runtime_event_from_thread_item(
         .map(str::to_string)
         .or_else(|| legacy_trace_item_id(&event_name, &payload))
         .or_else(|| Some(item.item_id.clone()));
-    let sequence = event
-        .get("sequence")
-        .and_then(Value::as_u64)
-        .unwrap_or(item.sequence);
-    let timestamp = event
-        .get("timestamp")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .unwrap_or_else(|| item.created_at.clone());
     Some(AgentRuntimeEventEnvelope::from_legacy_native_event(
         LegacyNativeAgentEventEnvelopeInput {
-            session_id: event
-                .get("sessionId")
-                .or_else(|| event.get("session_id"))
-                .and_then(Value::as_str)
-                .map(str::to_string)
-                .unwrap_or_else(|| session_id.to_string()),
-            thread_id: event
-                .get("threadId")
-                .or_else(|| event.get("thread_id"))
-                .and_then(Value::as_str)
-                .map(str::to_string)
-                .or_else(|| Some(item.thread_id.clone())),
+            session_id: session_id.to_string(),
+            thread_id: Some(item.thread_id.clone()),
             turn_id: item
                 .turn_id
                 .clone()
@@ -149,8 +138,8 @@ fn runtime_event_from_thread_item(
                 .map(str::to_string),
             item_id,
             event_name,
-            sequence,
-            timestamp,
+            sequence: item.sequence,
+            timestamp: item.created_at.clone(),
             payload,
         },
     ))
@@ -161,56 +150,11 @@ pub(crate) fn runtime_events_from_thread_items(
     session_id: &str,
     run_id: &str,
 ) -> Vec<AgentRuntimeEventEnvelope> {
-    let mut events = items
+    items
         .iter()
         .filter(|item| item.run_id.as_deref() == Some(run_id))
         .filter_map(|item| runtime_event_from_thread_item(item, session_id, run_id))
-        .collect::<Vec<_>>();
-    normalize_interaction_resolution_order(&mut events);
-    events
-}
-
-fn normalize_interaction_resolution_order(events: &mut [AgentRuntimeEventEnvelope]) {
-    let mut positions = HashMap::<(String, String), Vec<usize>>::new();
-    for (index, event) in events.iter().enumerate() {
-        if let Some((kind, interaction_id, _)) = interaction_order_key(event) {
-            positions
-                .entry((kind.to_string(), interaction_id.to_string()))
-                .or_default()
-                .push(index);
-        }
-    }
-    for indexes in positions.into_values() {
-        let mut ordered = indexes
-            .iter()
-            .map(|index| events[*index].clone())
-            .collect::<Vec<_>>();
-        ordered.sort_by_key(|event| {
-            interaction_order_key(event)
-                .map(|(_, _, rank)| rank)
-                .unwrap_or_default()
-        });
-        for (index, event) in indexes.into_iter().zip(ordered) {
-            events[index] = event;
-        }
-    }
-}
-
-fn interaction_order_key(event: &AgentRuntimeEventEnvelope) -> Option<(&str, &str, u8)> {
-    let (kind, id_keys, rank) = match event.event_name.as_str() {
-        "agent.awaiting_approval" => ("approval", &["approvalId", "approval_id"][..], 0),
-        "agent.approval.decision" => ("approval", &["approvalId", "approval_id"][..], 1),
-        "agent.awaiting_form" => ("form", &["formId", "form_id"][..], 0),
-        "agent.form.resolution" => ("form", &["formId", "form_id"][..], 1),
-        _ => return None,
-    };
-    id_keys.iter().find_map(|key| {
-        event
-            .payload
-            .get(*key)
-            .and_then(Value::as_str)
-            .map(|interaction_id| (kind, interaction_id, rank))
-    })
+        .collect()
 }
 
 pub(super) fn turn_items_from_thread_items(
@@ -281,9 +225,7 @@ fn prefixed_string_from_trace_payload(
 #[cfg(test)]
 mod tests {
     use super::{runtime_events_from_thread_items, turn_items_from_thread_items};
-    use crate::agent_loop_runtime_protocol::{
-        AgentTurnItemData, AgentTurnItemKind, AgentTurnItemStatus,
-    };
+    use crate::agent_loop_runtime_protocol::{AgentTurnItemData, AgentTurnItemKind};
     use crate::worker_thread::types::{ThreadItem, ThreadItemKind};
     use serde_json::{json, Value};
 
@@ -316,7 +258,7 @@ mod tests {
     }
 
     #[test]
-    fn persisted_approval_resolution_is_replayed_after_its_request() {
+    fn persisted_approval_order_follows_rollout_order() {
         let approval_id = "approval:run-1:call-1";
         let items = vec![
             approval_item(
@@ -334,11 +276,46 @@ mod tests {
         ];
 
         let events = runtime_events_from_thread_items(&items, "thread-1", "run-1");
-        assert_eq!(events[0].event_name, "agent.awaiting_approval");
-        assert_eq!(events[1].event_name, "agent.approval.decision");
-        let projected = turn_items_from_thread_items(&items, "thread-1", "run-1");
-        assert_eq!(projected.len(), 1);
-        assert_eq!(projected[0].status, AgentTurnItemStatus::Completed);
+        assert_eq!(events[0].event_name, "agent.approval.decision");
+        assert_eq!(events[1].event_name, "agent.awaiting_approval");
+        assert_eq!(events[0].sequence, 1);
+        assert_eq!(events[1].sequence, 209);
+    }
+
+    #[test]
+    fn full_envelope_uses_rollout_identity_sequence_and_timestamp() {
+        let items = vec![ThreadItem {
+            item_id: "rollout-item-99".to_string(),
+            thread_id: "canonical-thread".to_string(),
+            run_id: Some("canonical-run".to_string()),
+            turn_id: Some("canonical-run".to_string()),
+            parent_item_id: None,
+            sequence: 99,
+            created_at: "2026-07-20T00:00:99Z".to_string(),
+            kind: ThreadItemKind::Event(json!({
+                "schemaVersion": "tinybot.agent_event.v1",
+                "eventId": "event-1",
+                "sequence": 1,
+                "sessionId": "embedded-session",
+                "threadId": "embedded-thread",
+                "turnId": "embedded-run",
+                "eventName": "agent.done",
+                "phase": "completed",
+                "timestamp": "2026-07-20T00:00:01Z",
+                "source": "rust_backend",
+                "visibility": "user",
+                "payload": { "finalContent": "Done." }
+            })),
+        }];
+
+        let events = runtime_events_from_thread_items(&items, "canonical-session", "canonical-run");
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].sequence, 99);
+        assert_eq!(events[0].timestamp, "2026-07-20T00:00:99Z");
+        assert_eq!(events[0].session_id, "canonical-session");
+        assert_eq!(events[0].thread_id.as_deref(), Some("canonical-thread"));
+        assert_eq!(events[0].turn_id, "canonical-run");
     }
 
     #[test]

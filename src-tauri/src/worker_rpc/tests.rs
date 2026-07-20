@@ -2798,27 +2798,7 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
         "currentIteration": 0,
         "conversationMessageIds": [],
         "traceMessages": [],
-        "traceEvents": [{
-            "eventId": "reasoning-reload-1",
-            "eventName": "agent.reasoning_delta",
-            "sequence": 1,
-            "turnId": "run-reasoning-reload",
-            "payload": {
-                "delta": "Inspect ",
-                "modelCallId": "provider-1",
-                "reasoningId": "reasoning-1"
-            }
-        }, {
-            "eventId": "reasoning-reload-2",
-            "eventName": "agent.reasoning_delta",
-            "sequence": 2,
-            "turnId": "run-reasoning-reload",
-            "payload": {
-                "delta": "first.",
-                "modelCallId": "provider-1",
-                "reasoningId": "reasoning-1"
-            }
-        }],
+        "traceEvents": [],
         "completedToolResults": [],
         "pendingToolCalls": [],
         "checkpoint": null,
@@ -2833,6 +2813,19 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
         json!({ "record": record }),
     ));
     assert_eq!(upsert.error, None);
+
+    for index in 0..70 {
+        let padding = router.dispatch(&WorkerRequest::new(
+            format!("req-reasoning-reload-padding-{index}"),
+            "trace-reasoning-reload",
+            "session.patch_metadata",
+            json!({
+                "session_id": "session-reasoning-reload",
+                "metadata": { "reloadPadding": index }
+            }),
+        ));
+        assert_eq!(padding.error, None);
+    }
 
     let append_trace = router.dispatch(&WorkerRequest::new(
         "req-reasoning-reload-trace",
@@ -2862,9 +2855,49 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
                     "reasoningId": "reasoning-1"
                 }
             }, {
+                "eventId": "reasoning-reload-tool-a",
+                "eventName": "agent.tool_call.delta",
+                "sequence": 3,
+                "turnId": "run-reasoning-reload",
+                "payload": {
+                    "toolCallId": "call-a",
+                    "toolName": "workspace.read_file",
+                    "argumentsDelta": "{\"path\":\"A.md\"}"
+                }
+            }, {
+                "eventId": "reasoning-reload-tool-b",
+                "eventName": "agent.tool_call.delta",
+                "sequence": 4,
+                "turnId": "run-reasoning-reload",
+                "payload": {
+                    "toolCallId": "call-b",
+                    "toolName": "workspace.read_file",
+                    "argumentsDelta": "{\"path\":\"B.md\"}"
+                }
+            }, {
+                "eventId": "reasoning-reload-result-b",
+                "eventName": "agent.tool.result",
+                "sequence": 5,
+                "turnId": "run-reasoning-reload",
+                "payload": {
+                    "toolCallId": "call-b",
+                    "toolName": "workspace.read_file",
+                    "content": "B"
+                }
+            }, {
+                "eventId": "reasoning-reload-result-a",
+                "eventName": "agent.tool.result",
+                "sequence": 6,
+                "turnId": "run-reasoning-reload",
+                "payload": {
+                    "toolCallId": "call-a",
+                    "toolName": "workspace.read_file",
+                    "content": "A"
+                }
+            }, {
                 "eventId": "reasoning-reload-completed",
                 "eventName": "agent.message.completed",
-                "sequence": 3,
+                "sequence": 7,
                 "turnId": "run-reasoning-reload",
                 "payload": {
                     "content": "Done.",
@@ -2918,6 +2951,40 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
         }),
     ));
     assert_eq!(runtime_state.error, None);
+    let runtime_events = runtime_state.result.as_ref().unwrap()["runtimeEvents"]
+        .as_array()
+        .expect("runtime events should be an array");
+    assert!(runtime_events
+        .windows(2)
+        .all(|pair| pair[0]["sequence"].as_u64() < pair[1]["sequence"].as_u64()));
+    assert_eq!(
+        runtime_events
+            .iter()
+            .filter(|event| event["eventName"] == "agent.reasoning_delta")
+            .count(),
+        1
+    );
+    assert_eq!(
+        runtime_events
+            .iter()
+            .filter(|event| event["eventName"] == "agent.message.completed")
+            .count(),
+        1
+    );
+    assert_eq!(
+        runtime_events
+            .iter()
+            .filter(|event| event["eventName"] == "agent.tool_call.delta")
+            .count(),
+        2
+    );
+    assert_eq!(
+        runtime_events
+            .iter()
+            .filter(|event| event["eventName"] == "agent.tool.result")
+            .count(),
+        2
+    );
     let items = runtime_state.result.as_ref().unwrap()["timeline"]["items"]
         .as_array()
         .expect("timeline items should be an array");
@@ -2927,6 +2994,16 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
         .collect::<Vec<_>>();
     assert_eq!(reasoning.len(), 1);
     assert_eq!(reasoning[0]["data"]["summary"], "Inspect first.");
+    let tools = items
+        .iter()
+        .filter(|item| item["kind"] == "tool_call")
+        .collect::<Vec<_>>();
+    assert_eq!(tools.len(), 2);
+    assert!(tools
+        .iter()
+        .all(|item| item["status"] == "completed" && item["data"]["status"] == "completed"));
+    assert_eq!(items.last().unwrap()["kind"], "assistant_message");
+    assert_eq!(items.last().unwrap()["data"]["content"], "Done.");
 }
 
 #[test]
@@ -5508,37 +5585,10 @@ fn thread_fork_inherits_effective_history_from_canonical_rollout() {
         json!({ "sessionId": fork_thread_id }),
     ));
     assert_eq!(runs.error, None);
-    let fork_run_id = runs.result.as_ref().unwrap()["runs"][0]["runId"]
-        .as_str()
+    assert!(runs.result.as_ref().unwrap()["runs"]
+        .as_array()
         .unwrap()
-        .to_string();
-    assert_eq!(fork_run_id, "run-rollout-fork-1");
-    let runtime_state = router.dispatch(&WorkerRequest::new(
-        "req-rollout-fork-runtime-state",
-        "trace-rollout-fork",
-        "agent_run.runtime_state",
-        json!({
-            "session_id": fork_thread_id,
-            "run_id": fork_run_id
-        }),
-    ));
-    assert_eq!(runtime_state.error, None);
-    assert_eq!(
-        runtime_state.result.as_ref().unwrap()["timeline"]["items"][0]["kind"],
-        "user_message"
-    );
-    assert_eq!(
-        runtime_state.result.as_ref().unwrap()["timeline"]["items"][0]["data"]["content"],
-        "keep user"
-    );
-    assert_eq!(
-        runtime_state.result.as_ref().unwrap()["timeline"]["items"][1]["kind"],
-        "assistant_message"
-    );
-    assert_eq!(
-        runtime_state.result.as_ref().unwrap()["timeline"]["items"][1]["data"]["content"],
-        "keep assistant"
-    );
+        .is_empty());
 
     let rename = router.dispatch(&WorkerRequest::new(
         "req-rollout-fork-rename",
@@ -8326,11 +8376,10 @@ fn dispatches_thread_apply_op_records_terminal_error() {
         "agent_run.get",
         json!({ "session_id": "session-error-op", "run_id": "run-error-op-1" }),
     ));
-    assert_eq!(run_get.error, None);
-    assert_eq!(run_get.result.as_ref().unwrap()["status"], "failed");
+    assert!(run_get.result.is_none());
     assert_eq!(
-        run_get.result.as_ref().unwrap()["error"]["message"],
-        "thread run failed"
+        run_get.error.as_ref().map(|error| error.message.as_str()),
+        Some("agent run not found")
     );
 }
 
@@ -8585,14 +8634,10 @@ fn dispatches_thread_apply_op_for_agent_step_events() {
             "runId": "run-agent-step-op"
         }),
     ));
-    assert_eq!(trace.error, None);
+    assert!(trace.result.is_none());
     assert_eq!(
-        trace.result.as_ref().unwrap()["items"][0]["eventName"],
-        "agent.step"
-    );
-    assert_eq!(
-        trace.result.as_ref().unwrap()["items"][0]["payload"]["summary"],
-        "Preparing the tool plan"
+        trace.error.as_ref().map(|error| error.message.as_str()),
+        Some("agent run not found")
     );
 }
 
@@ -8732,14 +8777,10 @@ fn dispatches_thread_apply_op_for_runtime_events() {
             "runId": "run-runtime-event-op"
         }),
     ));
-    assert_eq!(trace.error, None);
+    assert!(trace.result.is_none());
     assert_eq!(
-        trace.result.as_ref().unwrap()["items"][0]["eventName"],
-        "agent.browser.search"
-    );
-    assert_eq!(
-        trace.result.as_ref().unwrap()["items"][0]["payload"]["query"],
-        "thread event log design"
+        trace.error.as_ref().map(|error| error.message.as_str()),
+        Some("agent run not found")
     );
 }
 
@@ -9081,6 +9122,40 @@ fn dispatches_agent_run_store_round_trip_requests() {
         "agent_run.upsert",
         json!({ "record": record }),
     ));
+    let invalid_trace = router.dispatch(&WorkerRequest::new(
+        "req-invalid-trace",
+        "trace-agent-run",
+        "agent_run.append_trace",
+        json!({
+            "session_id": "session-1",
+            "run_id": "run-1",
+            "event": {
+                "eventName": "agent.reasoning_delta",
+                "payload": {
+                    "delta": "must not be persisted",
+                    "modelCallId": "provider-invalid",
+                    "reasoningId": "reasoning-invalid"
+                }
+            }
+        }),
+    ));
+    let invalid_response_trace = router.dispatch(&WorkerRequest::new(
+        "req-invalid-response-trace",
+        "trace-agent-run",
+        "agent_run.append_trace",
+        json!({
+            "session_id": "session-1",
+            "run_id": "run-1",
+            "event": {
+                "eventId": "invalid-reasoning",
+                "eventName": "agent.reasoning_delta",
+                "payload": {
+                    "modelCallId": "provider-invalid",
+                    "reasoningId": "reasoning-invalid"
+                }
+            }
+        }),
+    ));
     let append_trace = router.dispatch(&WorkerRequest::new(
         "req-trace",
         "trace-agent-run",
@@ -9089,12 +9164,11 @@ fn dispatches_agent_run_store_round_trip_requests() {
             "session_id": "session-1",
             "run_id": "run-1",
             "event": {
-                "eventId": "trace-tool-result",
-                "eventName": "agent.tool.result",
+                "eventId": "trace-status",
+                "eventName": "agent.status",
                 "payload": {
-                    "toolCallId": "call-1",
-                    "toolName": "workspace.read_file",
-                    "content": "README"
+                    "phase": "active_turn",
+                    "status": "running"
                 }
             }
         }),
@@ -9178,6 +9252,22 @@ fn dispatches_agent_run_store_round_trip_requests() {
     ));
 
     assert!(upsert.error.is_none());
+    assert!(invalid_trace.result.is_none());
+    assert_eq!(
+        invalid_trace
+            .error
+            .as_ref()
+            .map(|error| error.message.as_str()),
+        Some("agent run trace event is missing eventId")
+    );
+    assert!(invalid_response_trace.result.is_none());
+    assert_eq!(
+        invalid_response_trace
+            .error
+            .as_ref()
+            .map(|error| error.message.as_str()),
+        Some("response-backed agent run trace event cannot be materialized")
+    );
     assert!(append_trace.error.is_none());
     assert!(append_second_trace.error.is_none());
     assert!(set_checkpoint.error.is_none());
@@ -9214,7 +9304,7 @@ fn dispatches_agent_run_store_round_trip_requests() {
     assert_eq!(trace_page.error, None);
     assert_eq!(
         trace_page.result.as_ref().unwrap()["items"][0]["eventName"],
-        "agent.tool.result"
+        "agent.status"
     );
     assert_eq!(trace_page.result.as_ref().unwrap()["nextCursor"], "1");
     assert_eq!(runtime_state.error, None);
@@ -9233,14 +9323,11 @@ fn dispatches_agent_run_store_round_trip_requests() {
         runtime_state.result.as_ref().unwrap()["runtimeEvents"][0]["turnId"],
         "run-1"
     );
-    assert_eq!(
-        runtime_state.result.as_ref().unwrap()["timeline"]["items"][0]["kind"],
-        "tool_call"
-    );
-    assert_eq!(
-        runtime_state.result.as_ref().unwrap()["timeline"]["items"][1]["kind"],
-        "assistant_message"
-    );
+    let timeline_items = runtime_state.result.as_ref().unwrap()["timeline"]["items"]
+        .as_array()
+        .unwrap();
+    assert_eq!(timeline_items.len(), 1);
+    assert_eq!(timeline_items[0]["kind"], "assistant_message");
     assert_eq!(completed.result.as_ref().unwrap()["status"], "completed");
     assert_eq!(completed.result.as_ref().unwrap()["phase"], "completed");
     assert_eq!(completed.result.as_ref().unwrap()["threadId"], json!(null));
@@ -9275,7 +9362,7 @@ fn dispatches_agent_run_store_round_trip_requests() {
 }
 
 #[test]
-fn dispatches_agent_run_trace_and_runtime_state_from_thread_items() {
+fn agent_run_requests_ignore_thread_only_items() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -9345,14 +9432,10 @@ fn dispatches_agent_run_trace_and_runtime_state_from_thread_items() {
     ));
     assert_eq!(run_list.error, None);
     assert_eq!(run_list.result.as_ref().unwrap()["sessionId"], "session-1");
-    assert_eq!(
-        run_list.result.as_ref().unwrap()["runs"][0]["runId"],
-        "run-thread-only"
-    );
-    assert_eq!(
-        run_list.result.as_ref().unwrap()["runs"][0]["status"],
-        "waiting"
-    );
+    assert!(run_list.result.as_ref().unwrap()["runs"]
+        .as_array()
+        .unwrap()
+        .is_empty());
 
     let run_get = router.dispatch(&WorkerRequest::new(
         "req-thread-backed-run-get",
@@ -9360,13 +9443,10 @@ fn dispatches_agent_run_trace_and_runtime_state_from_thread_items() {
         "agent_run.get",
         json!({ "session_id": "session-1", "run_id": "run-thread-only" }),
     ));
-    assert_eq!(run_get.error, None);
-    assert_eq!(run_get.result.as_ref().unwrap()["sessionId"], "session-1");
-    assert_eq!(run_get.result.as_ref().unwrap()["runId"], "run-thread-only");
-    assert_eq!(run_get.result.as_ref().unwrap()["status"], "waiting");
+    assert!(run_get.result.is_none());
     assert_eq!(
-        run_get.result.as_ref().unwrap()["traceEvents"][0]["eventName"],
-        "agent.awaiting_approval"
+        run_get.error.as_ref().map(|error| error.message.as_str()),
+        Some("agent run not found")
     );
 
     let trace_page = router.dispatch(&WorkerRequest::new(
@@ -9375,10 +9455,13 @@ fn dispatches_agent_run_trace_and_runtime_state_from_thread_items() {
         "agent_run.list_trace",
         json!({ "session_id": "session-1", "run_id": "run-thread-only" }),
     ));
-    assert_eq!(trace_page.error, None);
+    assert!(trace_page.result.is_none());
     assert_eq!(
-        trace_page.result.as_ref().unwrap()["items"][0]["eventName"],
-        "agent.awaiting_approval"
+        trace_page
+            .error
+            .as_ref()
+            .map(|error| error.message.as_str()),
+        Some("agent run not found")
     );
 
     let runtime_state = router.dispatch(&WorkerRequest::new(
@@ -9387,14 +9470,13 @@ fn dispatches_agent_run_trace_and_runtime_state_from_thread_items() {
         "agent_run.runtime_state",
         json!({ "session_id": "session-1", "run_id": "run-thread-only" }),
     ));
-    assert_eq!(runtime_state.error, None);
+    assert!(runtime_state.result.is_none());
     assert_eq!(
-        runtime_state.result.as_ref().unwrap()["runtimeEvents"][0]["eventName"],
-        "agent.awaiting_approval"
-    );
-    assert_eq!(
-        runtime_state.result.as_ref().unwrap()["timeline"]["items"][0]["kind"],
-        "approval"
+        runtime_state
+            .error
+            .as_ref()
+            .map(|error| error.message.as_str()),
+        Some("agent run not found")
     );
 
     let status = router.dispatch(&WorkerRequest::new(
@@ -9431,7 +9513,7 @@ fn dispatches_agent_run_trace_and_runtime_state_from_thread_items() {
 }
 
 #[test]
-fn dispatches_agent_run_list_merges_thread_log_and_thread_backed_runs() {
+fn agent_run_list_reads_canonical_rollout_runs() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -9475,36 +9557,6 @@ fn dispatches_agent_run_list_merges_thread_log_and_thread_backed_runs() {
     ));
     assert_eq!(upsert.error, None);
 
-    let thread_only = router.dispatch(&WorkerRequest::new(
-        "req-mixed-agent-run-thread-only",
-        "trace-mixed-agent-runs",
-        "thread.create",
-        json!({
-            "threadId": "thread-run-only",
-            "title": "Thread-backed run",
-            "sessionKey": "session-1",
-            "rootRunId": "run-thread-only",
-            "activeRunId": "run-thread-only",
-            "source": "agent_run"
-        }),
-    ));
-    assert_eq!(thread_only.error, None);
-
-    let duplicate = router.dispatch(&WorkerRequest::new(
-        "req-mixed-agent-run-duplicate",
-        "trace-mixed-agent-runs",
-        "thread.create",
-        json!({
-            "threadId": "thread-run-log-duplicate",
-            "title": "Duplicate thread log run",
-            "sessionKey": "session-1",
-            "rootRunId": "run-thread-log",
-            "activeRunId": "run-thread-log",
-            "source": "agent_run"
-        }),
-    ));
-    assert_eq!(duplicate.error, None);
-
     let run_list = router.dispatch(&WorkerRequest::new(
         "req-mixed-agent-run-list",
         "trace-mixed-agent-runs",
@@ -9516,9 +9568,8 @@ fn dispatches_agent_run_list_merges_thread_log_and_thread_backed_runs() {
     let runs = run_list.result.as_ref().unwrap()["runs"]
         .as_array()
         .expect("agent_run.list should return runs");
-    assert_eq!(runs.len(), 2);
+    assert_eq!(runs.len(), 1);
     assert!(runs.iter().any(|run| run["runId"] == "run-thread-log"));
-    assert!(runs.iter().any(|run| run["runId"] == "run-thread-only"));
 }
 
 #[test]

@@ -3,9 +3,6 @@ use super::{
     thread_id_for_session_id, title_from_messages, value_event, AgentRunRecoveryEntry,
     AgentRunRecoveryReport, ThreadLogItem, WorkerThreadLogRpc,
 };
-use crate::agent_loop_runtime_protocol::{
-    AgentRuntimeEventEnvelope, LegacyNativeAgentEventEnvelopeInput,
-};
 use crate::worker_capability::WorkerCapability;
 use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource,
@@ -14,7 +11,7 @@ use crate::worker_session::{
     AgentRunCheckpoint, AgentRunRecord, AgentRunRuntimeState, AgentRunStatus, AgentRunTracePage,
 };
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 impl WorkerThreadLogRpc {
@@ -28,31 +25,28 @@ impl WorkerThreadLogRpc {
 
     fn upsert_agent_run_at(
         &self,
-        mut record: AgentRunRecord,
+        record: AgentRunRecord,
         timestamp: String,
     ) -> Result<AgentRunRecord, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         validate_agent_run_key(&record.session_id, &record.run_id)?;
-        let incoming_trace_events = std::mem::take(&mut record.trace_events);
-        let existing = self.get_agent_run_record(&record.session_id, &record.run_id)?;
-        if let Some(existing) = existing {
-            record.started_at = existing.started_at;
-            let mut trace_events = existing.trace_events;
-            for event in incoming_trace_events.iter().cloned() {
-                upsert_trace_event(&mut trace_events, event);
-            }
-            record.trace_events = trace_events;
-        } else {
-            record.trace_events = incoming_trace_events.clone();
+        if !record.trace_events.is_empty() {
+            return Err(embedded_agent_run_trace_error(
+                &record.session_id,
+                &record.run_id,
+            ));
         }
+        let existing = self.get_agent_run_record(&record.session_id, &record.run_id)?;
         let mut persisted_record = record.clone();
-        persisted_record.trace_events = incoming_trace_events;
+        if let Some(existing) = existing {
+            persisted_record.started_at = existing.started_at;
+        }
         let mut state = self.ensure_agent_run_thread(&record.session_id, &timestamp)?;
         let path = PathBuf::from(state.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
         let mut items = vec![value_event(
             super::EventKind::AgentRunUpsert,
-            serde_json::json!({ "record": persisted_record }),
+            serde_json::json!({ "record": persisted_record.clone() }),
         )];
         if let Some(info) = record.token_usage_info.as_ref() {
             items.push(value_event(
@@ -72,7 +66,7 @@ impl WorkerThreadLogRpc {
             state.tokens_used = info.total_token_usage.total_tokens;
         }
         self.state.upsert_thread_projection(&state, &log_head)?;
-        Ok(record)
+        Ok(persisted_record)
     }
 
     pub fn append_agent_run_trace_event(
@@ -94,6 +88,9 @@ impl WorkerThreadLogRpc {
         validate_agent_run_key(session_id, run_id)?;
         if events.is_empty() {
             return Err(empty_agent_run_trace_batch_error(session_id, run_id));
+        }
+        for (index, event) in events.iter().enumerate() {
+            validate_agent_run_trace_event(session_id, run_id, index, event)?;
         }
         let mut record = self
             .get_agent_run_record(session_id, run_id)?
@@ -121,17 +118,10 @@ impl WorkerThreadLogRpc {
                 .and_then(Value::as_i64)
         });
         let has_response_items = events.iter().any(|event| {
-            matches!(
-                event.get("eventName").and_then(Value::as_str),
-                Some(
-                    "agent.turn.started"
-                        | "agent.reasoning_delta"
-                        | "agent.message.classified"
-                        | "agent.message.completed"
-                        | "agent.tool_call.delta"
-                        | "agent.tool.result"
-                )
-            )
+            event
+                .get("eventName")
+                .and_then(Value::as_str)
+                .is_some_and(agent_run_trace_event_is_response_backed)
         });
         let mut items = Vec::new();
         let mut pending_reasoning = None::<ReasoningResponseAccumulator>;
@@ -368,47 +358,14 @@ impl WorkerThreadLogRpc {
                 selected = Some((record, reconstructed.thread_items));
             }
         }
-        let Some((record, thread_items)) = selected else {
+        let Some((_, thread_items)) = selected else {
             return Ok(None);
         };
-        let canonical_events = crate::worker_thread::runtime_events_from_thread_items(
+        let runtime_events = crate::worker_thread::runtime_events_from_thread_items(
             &thread_items,
             session_id,
             run_id,
         );
-        let canonical_reasoning_item_ids = canonical_events
-            .iter()
-            .filter(|event| event.event_name == "agent.reasoning_delta")
-            .filter_map(|event| event.item_id.clone())
-            .collect::<HashSet<_>>();
-        let mut runtime_events = Vec::new();
-        for event in canonical_events {
-            if !runtime_events
-                .iter()
-                .any(|existing| same_projected_runtime_event(existing, &event))
-            {
-                runtime_events.push(event);
-            }
-        }
-        for (index, event) in record.trace_events.iter().enumerate() {
-            let Some(event) = runtime_event_from_trace_value(&record, index, event) else {
-                continue;
-            };
-            if event.event_name == "agent.reasoning_delta"
-                && event
-                    .item_id
-                    .as_ref()
-                    .is_some_and(|item_id| canonical_reasoning_item_ids.contains(item_id))
-            {
-                continue;
-            }
-            let already_projected = runtime_events
-                .iter()
-                .any(|existing| same_projected_runtime_event(existing, &event));
-            if !already_projected {
-                runtime_events.push(event);
-            }
-        }
         let runtime_state =
             AgentRunRuntimeState::from_runtime_events(session_id, run_id, runtime_events.clone())
                 .map_err(|error| {
@@ -851,6 +808,70 @@ fn response_item_from_runtime_event(event: &Value) -> Option<Value> {
     }
 }
 
+fn agent_run_trace_event_is_response_backed(event_name: &str) -> bool {
+    matches!(
+        event_name,
+        "agent.turn.started"
+            | "agent.reasoning_delta"
+            | "agent.message.classified"
+            | "agent.message.completed"
+            | "agent.tool_call.delta"
+            | "agent.tool.result"
+    )
+}
+
+fn validate_agent_run_trace_event(
+    session_id: &str,
+    run_id: &str,
+    index: usize,
+    event: &Value,
+) -> Result<(), WorkerProtocolError> {
+    let event_name = event
+        .get("eventName")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            invalid_agent_run_trace_event_error(
+                "agent run trace event is missing eventName",
+                session_id,
+                run_id,
+                index,
+                None,
+            )
+        })?;
+    event
+        .get("eventId")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            invalid_agent_run_trace_event_error(
+                "agent run trace event is missing eventId",
+                session_id,
+                run_id,
+                index,
+                Some(event_name),
+            )
+        })?;
+    if !agent_run_trace_event_is_response_backed(event_name) {
+        return Ok(());
+    }
+    let materializes_response = if event_name == "agent.reasoning_delta" {
+        ReasoningResponseFragment::from_runtime_event(event).is_some()
+    } else {
+        response_item_from_runtime_event(event).is_some()
+    };
+    if !materializes_response {
+        return Err(invalid_agent_run_trace_event_error(
+            "response-backed agent run trace event cannot be materialized",
+            session_id,
+            run_id,
+            index,
+            Some(event_name),
+        ));
+    }
+    Ok(())
+}
+
 struct ReasoningResponseFragment {
     event_id: String,
     turn_id: String,
@@ -977,6 +998,16 @@ pub(super) fn agent_run_records_from_lines(
                             }),
                         )
                     })?;
+                if !record.trace_events.is_empty() {
+                    return Err(agent_run_replay_error(
+                        "canonical agent_run_upsert record must not embed trace events",
+                        line,
+                        &serde_json::json!({
+                            "runId": &record.run_id,
+                            "traceEventCount": record.trace_events.len(),
+                        }),
+                    ));
+                }
                 let belongs_to_session = record.session_id == session_id;
                 let belongs_to_thread = record.session_id == thread_id;
                 if !belongs_to_session && !belongs_to_thread {
@@ -994,10 +1025,7 @@ pub(super) fn agent_run_records_from_lines(
                 runs.entry(record.run_id.clone())
                     .and_modify(|existing| {
                         let started_at = existing.started_at.clone();
-                        let mut trace_events = existing.trace_events.clone();
-                        for event in record.trace_events.iter().cloned() {
-                            upsert_trace_event(&mut trace_events, event);
-                        }
+                        let trace_events = existing.trace_events.clone();
                         *existing = record.clone();
                         existing.started_at = started_at;
                         existing.trace_events = trace_events;
@@ -1409,132 +1437,6 @@ fn agent_run_status_from_phase(phase: &str) -> AgentRunStatus {
     }
 }
 
-fn runtime_event_from_trace_value(
-    record: &AgentRunRecord,
-    index: usize,
-    event: &Value,
-) -> Option<AgentRuntimeEventEnvelope> {
-    if let Ok(envelope) = serde_json::from_value::<AgentRuntimeEventEnvelope>(event.clone()) {
-        return Some(envelope);
-    }
-    let event_name = event.get("eventName").and_then(Value::as_str)?.to_string();
-    let payload = event
-        .get("payload")
-        .cloned()
-        .unwrap_or_else(|| event.clone());
-    let sequence = event
-        .get("sequence")
-        .and_then(Value::as_u64)
-        .unwrap_or_else(|| index as u64 + 1);
-    Some(AgentRuntimeEventEnvelope::from_legacy_native_event(
-        LegacyNativeAgentEventEnvelopeInput {
-            session_id: record.session_id.clone(),
-            thread_id: record.thread_id.clone(),
-            turn_id: record.run_id.clone(),
-            parent_turn_id: event
-                .get("parentTurnId")
-                .and_then(Value::as_str)
-                .map(str::to_string),
-            item_id: event
-                .get("itemId")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-                .or_else(|| legacy_trace_item_id(&event_name, &payload)),
-            event_name,
-            sequence,
-            timestamp: event
-                .get("timestamp")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-                .unwrap_or_else(|| record.updated_at.clone()),
-            payload,
-        },
-    ))
-}
-
-fn same_projected_runtime_event(
-    left: &AgentRuntimeEventEnvelope,
-    right: &AgentRuntimeEventEnvelope,
-) -> bool {
-    if left.event_id == right.event_id {
-        return true;
-    }
-    if matches!(
-        left.event_name.as_str(),
-        "agent.delta" | "agent.reasoning_delta"
-    ) || matches!(
-        right.event_name.as_str(),
-        "agent.delta" | "agent.reasoning_delta"
-    ) {
-        return false;
-    }
-    if left.event_name == right.event_name
-        && matches!(
-            left.event_name.as_str(),
-            "agent.done" | "agent.error" | "agent.cancelled"
-        )
-    {
-        return true;
-    }
-    left.item_id.is_some() && left.event_name == right.event_name && left.item_id == right.item_id
-}
-
-fn legacy_trace_item_id(event_name: &str, payload: &Value) -> Option<String> {
-    match event_name {
-        "agent.delta"
-        | "agent.message.phase"
-        | "agent.message.classified"
-        | "agent.message.completed" => {
-            string_from_trace_payload(payload, &["messageId", "message_id"]).or_else(|| {
-                prefixed_string_from_trace_payload(
-                    payload,
-                    "assistant",
-                    &["modelCallId", "model_call_id"],
-                )
-            })
-        }
-        "agent.reasoning_delta" => {
-            string_from_trace_payload(payload, &["reasoningId", "reasoning_id"]).or_else(|| {
-                prefixed_string_from_trace_payload(
-                    payload,
-                    "reasoning",
-                    &["modelCallId", "model_call_id"],
-                )
-            })
-        }
-        "agent.tool_call.delta" | "agent.tool.start" | "agent.tool.result" => {
-            string_from_trace_payload(payload, &["toolCallId", "tool_call_id"])
-        }
-        "agent.awaiting_approval" | "agent.approval.decision" => {
-            string_from_trace_payload(payload, &["approvalId", "approval_id"])
-        }
-        "agent.awaiting_form" | "agent.form.resolution" => {
-            string_from_trace_payload(payload, &["formId", "form_id"])
-        }
-        event_name if event_name.starts_with("agent.delegate.") => {
-            string_from_trace_payload(payload, &["delegateId", "subagentId", "delegate_id"])
-        }
-        _ => None,
-    }
-}
-
-fn string_from_trace_payload(payload: &Value, keys: &[&str]) -> Option<String> {
-    keys.iter().find_map(|key| {
-        payload
-            .get(*key)
-            .and_then(Value::as_str)
-            .map(str::to_string)
-    })
-}
-
-fn prefixed_string_from_trace_payload(
-    payload: &Value,
-    prefix: &str,
-    keys: &[&str],
-) -> Option<String> {
-    string_from_trace_payload(payload, keys).map(|value| format!("{prefix}:{value}"))
-}
-
 fn parse_trace_cursor(cursor: Option<&str>) -> Result<usize, WorkerProtocolError> {
     let Some(cursor) = cursor else {
         return Ok(0);
@@ -1567,6 +1469,40 @@ fn invalid_agent_run_key(field: &str, value: &str) -> WorkerProtocolError {
         WorkerProtocolErrorCode::InvalidProtocol,
         "invalid agent run key",
         serde_json::json!({ field: value }),
+        false,
+        WorkerProtocolErrorSource::RustCore,
+    )
+}
+
+fn embedded_agent_run_trace_error(session_id: &str, run_id: &str) -> WorkerProtocolError {
+    WorkerProtocolError::new(
+        WorkerProtocolErrorCode::InvalidProtocol,
+        "agent_run.upsert must not embed trace events; use agent_run.append_trace",
+        serde_json::json!({
+            "session_id": session_id,
+            "run_id": run_id,
+        }),
+        false,
+        WorkerProtocolErrorSource::RustCore,
+    )
+}
+
+fn invalid_agent_run_trace_event_error(
+    message: &str,
+    session_id: &str,
+    run_id: &str,
+    index: usize,
+    event_name: Option<&str>,
+) -> WorkerProtocolError {
+    WorkerProtocolError::new(
+        WorkerProtocolErrorCode::InvalidProtocol,
+        message,
+        serde_json::json!({
+            "session_id": session_id,
+            "run_id": run_id,
+            "event_index": index,
+            "event_name": event_name,
+        }),
         false,
         WorkerProtocolErrorSource::RustCore,
     )

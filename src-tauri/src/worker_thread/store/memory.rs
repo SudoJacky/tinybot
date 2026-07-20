@@ -1,20 +1,18 @@
 use super::index::ThreadIndex;
 use super::{
-    active_child_run_id_for_status, agent_registry_entry, agent_run_record_from_thread_run,
-    apply_metadata_patch, bounded_limit, checkpoint_from_item, descendant_thread_ids,
-    generate_item_id, generate_thread_id, inherited_subagent_history_items, invalid_thread_request,
-    latest_checkpoint_from_items, non_empty_string, now_timestamp, parse_sequence_cursor,
-    parse_trace_cursor, pending_approvals_from_items, read_cursor_from_request,
-    recompute_dynamic_metadata, remember_client_event_items, run_summaries_from_items,
-    running_tools_from_items, runtime_events_from_thread_items, status_value,
+    active_child_run_id_for_status, agent_registry_entry, apply_metadata_patch, bounded_limit,
+    checkpoint_from_item, descendant_thread_ids, generate_item_id, generate_thread_id,
+    inherited_subagent_history_items, invalid_thread_request, latest_checkpoint_from_items,
+    non_empty_string, now_timestamp, parse_sequence_cursor, pending_approvals_from_items,
+    read_cursor_from_request, recompute_dynamic_metadata, remember_client_event_items,
+    run_summaries_from_items, running_tools_from_items, status_value,
     subagent_agent_control_payload, subagent_child_status_item, subagent_initial_child_items,
     subagent_input_item, subagent_lifecycle_item_label, subagent_parent_item,
     thread_items_match_query, thread_matches_list_filters, thread_matches_query,
-    thread_status_for_subagent, trace_event_from_thread_item, turn_items_from_thread_items,
-    unknown_thread_error, validate_context_checkpoint_lineage, validate_thread_id, AgentRunRecord,
-    AgentRunRuntimeState, AgentRunTracePage, AppendThreadItemsResult, CreateThreadRequest,
-    DeleteThreadRequest, DeleteThreadResult, ForkThreadRequest, ListThreadsRequest,
-    ListThreadsResult, ReadThreadRequest, RestoreThreadCheckpointRequest,
+    thread_status_for_subagent, turn_items_from_thread_items, unknown_thread_error,
+    validate_context_checkpoint_lineage, validate_thread_id, AppendThreadItemsResult,
+    CreateThreadRequest, DeleteThreadRequest, DeleteThreadResult, ForkThreadRequest,
+    ListThreadsRequest, ListThreadsResult, ReadThreadRequest, RestoreThreadCheckpointRequest,
     RestoreThreadCheckpointResult, ResumeThreadRequest, SearchThreadsRequest, SearchThreadsResult,
     SubagentMailboxInput, SubagentThreadStatus, SubagentThreadSummary, ThreadActivityRequest,
     ThreadActivityResult, ThreadActivitySummary, ThreadAgentRegistryRequest,
@@ -392,137 +390,6 @@ impl MemoryThreadStore {
             agents,
             summary,
         })
-    }
-
-    pub(crate) fn list_agent_run_trace_events(
-        &self,
-        session_id: &str,
-        run_id: &str,
-        cursor: Option<&str>,
-        limit: Option<usize>,
-    ) -> Result<Option<AgentRunTracePage>, WorkerProtocolError> {
-        let offset = parse_trace_cursor(cursor)?;
-        let limit = bounded_limit(limit, 100, 500);
-        let Some(items) = self.agent_run_thread_items(session_id, run_id)? else {
-            return Ok(None);
-        };
-        let events = items
-            .iter()
-            .filter(|item| !matches!(&item.kind, ThreadItemKind::UserMessage(_)))
-            .filter_map(trace_event_from_thread_item)
-            .collect::<Vec<_>>();
-        let page_items = events
-            .iter()
-            .skip(offset)
-            .take(limit)
-            .cloned()
-            .collect::<Vec<_>>();
-        let next_offset = offset.saturating_add(page_items.len());
-        Ok(Some(AgentRunTracePage {
-            session_id: session_id.to_string(),
-            run_id: run_id.to_string(),
-            items: page_items,
-            next_cursor: (next_offset < events.len()).then(|| next_offset.to_string()),
-        }))
-    }
-
-    pub(crate) fn get_agent_run_runtime_state(
-        &self,
-        session_id: &str,
-        run_id: &str,
-    ) -> Result<Option<AgentRunRuntimeState>, WorkerProtocolError> {
-        let Some(items) = self.agent_run_thread_items(session_id, run_id)? else {
-            return Ok(None);
-        };
-        Ok(Some(AgentRunRuntimeState::from_runtime_events(
-            session_id,
-            run_id,
-            runtime_events_from_thread_items(&items, session_id, run_id),
-        )?))
-    }
-
-    pub(crate) fn list_agent_runs_from_threads(
-        &self,
-        session_id: &str,
-    ) -> Result<Vec<AgentRunRecord>, WorkerProtocolError> {
-        let state = self.lock()?;
-        let mut records = Vec::new();
-        for thread in state
-            .threads
-            .iter()
-            .filter(|thread| thread.session_key.as_deref() == Some(session_id))
-            .filter(|thread| thread.status != ThreadStatus::Archived)
-        {
-            let items = state
-                .items
-                .get(&thread.thread_id)
-                .map(Vec::as_slice)
-                .unwrap_or(&[]);
-            records.extend(
-                run_summaries_from_items(thread, items)
-                    .into_iter()
-                    .map(|run| agent_run_record_from_thread_run(session_id, thread, &run, items)),
-            );
-        }
-        records.sort_by(|left, right| {
-            right
-                .updated_at
-                .cmp(&left.updated_at)
-                .then_with(|| left.run_id.cmp(&right.run_id))
-        });
-        Ok(records)
-    }
-
-    pub(crate) fn get_agent_run_from_threads(
-        &self,
-        session_id: &str,
-        run_id: &str,
-    ) -> Result<Option<AgentRunRecord>, WorkerProtocolError> {
-        Ok(self
-            .list_agent_runs_from_threads(session_id)?
-            .into_iter()
-            .find(|record| record.run_id == run_id))
-    }
-
-    fn agent_run_thread_items(
-        &self,
-        session_id: &str,
-        run_id: &str,
-    ) -> Result<Option<Vec<ThreadItem>>, WorkerProtocolError> {
-        let state = self.lock()?;
-        let mut matched = false;
-        let mut items = Vec::new();
-        for thread in state
-            .threads
-            .iter()
-            .filter(|thread| thread.session_key.as_deref() == Some(session_id))
-        {
-            let mut thread_items = state
-                .items
-                .get(&thread.thread_id)
-                .into_iter()
-                .flatten()
-                .filter(|item| item.run_id.as_deref() == Some(run_id))
-                .cloned()
-                .collect::<Vec<_>>();
-            if thread.root_run_id.as_deref() == Some(run_id)
-                || thread.active_run_id.as_deref() == Some(run_id)
-                || !thread_items.is_empty()
-            {
-                matched = true;
-                items.append(&mut thread_items);
-            }
-        }
-        if !matched {
-            return Ok(None);
-        }
-        items.sort_by(|left, right| {
-            left.created_at
-                .cmp(&right.created_at)
-                .then_with(|| left.sequence.cmp(&right.sequence))
-                .then_with(|| left.item_id.cmp(&right.item_id))
-        });
-        Ok(Some(items))
     }
 
     pub(crate) fn record_subagent_spawn(

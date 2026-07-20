@@ -22,7 +22,6 @@ use super::types::{
 use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource,
 };
-use crate::worker_session::{AgentRunRecord, AgentRunRuntimeState, AgentRunTracePage};
 use crate::worker_subagent_manager::{
     SubagentMailboxInput, SubagentThreadStatus, SubagentThreadSummary,
 };
@@ -34,18 +33,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use self::activity::{
     agent_registry_entry, pending_approvals_from_items, running_tools_from_items,
 };
-use self::agent_run_projection::agent_run_record_from_thread_run;
 pub(crate) use self::agent_run_projection::run_summaries_from_items;
 use self::checkpoint::{checkpoint_from_item, latest_checkpoint_from_items};
 pub use self::memory::MemoryThreadStore;
 use self::metadata::{apply_metadata_patch, recompute_dynamic_metadata};
 use self::query::{
     bounded_limit, descendant_thread_ids, items_match_query as thread_items_match_query,
-    parse_sequence_cursor, parse_trace_cursor, read_cursor_from_request,
-    thread_matches_list_filters, thread_matches_query,
+    parse_sequence_cursor, read_cursor_from_request, thread_matches_list_filters,
+    thread_matches_query,
 };
 pub(crate) use self::runtime_projection::runtime_events_from_thread_items;
-use self::runtime_projection::{trace_event_from_thread_item, turn_items_from_thread_items};
+use self::runtime_projection::turn_items_from_thread_items;
 use self::subagent_projection::{
     active_child_run_id_for_status, inherited_subagent_history_items, status_value,
     subagent_agent_control_payload, subagent_child_status_item, subagent_initial_child_items,
