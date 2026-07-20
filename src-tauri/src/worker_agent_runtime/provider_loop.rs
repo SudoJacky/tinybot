@@ -547,6 +547,7 @@ async fn run_native_agent_turn_with_instructions_async(
         let provider_started_at = Instant::now();
         let mut provider_streamed_content = false;
         let mut provider_streamed_reasoning = false;
+        let mut provider_reasoning_content = String::new();
         let mut provider_message_phase =
             crate::agent_loop_runtime_protocol::AgentAssistantMessagePhase::Unknown;
         let mut provider_observer_cancelled = false;
@@ -599,6 +600,7 @@ async fn run_native_agent_turn_with_instructions_async(
                             return;
                         }
                         provider_streamed_reasoning = true;
+                        provider_reasoning_content.push_str(&delta);
                         state.transition_phase(
                             AgentRuntimePhase::StreamingModel,
                             iteration,
@@ -745,6 +747,7 @@ async fn run_native_agent_turn_with_instructions_async(
             .clone()
             .filter(|_| !provider_streamed_reasoning)
         {
+            provider_reasoning_content.push_str(&reasoning_delta);
             state.transition_phase(
                 AgentRuntimePhase::StreamingModel,
                 iteration,
@@ -759,6 +762,19 @@ async fn run_native_agent_turn_with_instructions_async(
                     "modelCallId": provider_attempt_id,
                     "reasoningId": reasoning_item_id,
                     "delta": reasoning_delta,
+                }),
+            );
+        }
+        if !provider_reasoning_content.is_empty() {
+            state.emit_event(
+                "agent.reasoning.completed",
+                serde_json::json!({
+                    "runId": context.run_id,
+                    "sessionId": context.session_id,
+                    "iteration": iteration,
+                    "modelCallId": provider_attempt_id,
+                    "reasoningId": reasoning_item_id,
+                    "summary": provider_reasoning_content,
                 }),
             );
         }

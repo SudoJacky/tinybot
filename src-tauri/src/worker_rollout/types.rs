@@ -315,6 +315,7 @@ impl ResponseItem {
             .get("role")
             .and_then(Value::as_str)
             .map(ResponseRole::from_str);
+        validate_response_item(&kind, &raw)?;
         Ok(Self { kind, role, raw })
     }
 
@@ -336,6 +337,61 @@ impl ResponseItem {
 
     pub fn into_value(self) -> Value {
         self.raw
+    }
+}
+
+fn validate_response_item(kind: &ResponseItemKind, raw: &Value) -> Result<(), String> {
+    match kind {
+        ResponseItemKind::Message => {
+            required_response_string(raw, &["role"], "message role")?;
+            let content = raw
+                .get("content")
+                .ok_or_else(|| "message response item is missing `content`".to_string())?;
+            if !content.is_string() && !content.is_array() && !content.is_null() {
+                return Err("message response item `content` must be a string or array".to_string());
+            }
+        }
+        ResponseItemKind::Reasoning => {
+            required_response_string(raw, &["id"], "reasoning id")?;
+            if raw.get("summary").is_none() && raw.get("content").is_none() {
+                return Err("reasoning response item requires `summary` or `content`".to_string());
+            }
+        }
+        ResponseItemKind::CustomToolCall => {
+            required_response_string(raw, &["call_id", "callId"], "custom tool call id")?;
+            required_response_string(raw, &["name"], "custom tool name")?;
+            if raw.get("input").is_none() {
+                return Err("custom tool call response item is missing `input`".to_string());
+            }
+        }
+        ResponseItemKind::CustomToolCallOutput => {
+            required_response_string(raw, &["call_id", "callId"], "custom tool call output id")?;
+            if raw.get("output").is_none() {
+                return Err("custom tool output response item is missing `output`".to_string());
+            }
+        }
+        ResponseItemKind::Unspecified => {
+            return Err("response item is missing string field `type` or `role`".to_string());
+        }
+        ResponseItemKind::FunctionCall
+        | ResponseItemKind::FunctionCallOutput
+        | ResponseItemKind::WebSearchCall
+        | ResponseItemKind::LocalShellCall
+        | ResponseItemKind::ComputerCall
+        | ResponseItemKind::Other(_) => {}
+    }
+    Ok(())
+}
+
+fn required_response_string(raw: &Value, keys: &[&str], description: &str) -> Result<(), String> {
+    if keys.iter().any(|key| {
+        raw.get(*key)
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty())
+    }) {
+        Ok(())
+    } else {
+        Err(format!("response item is missing {description}"))
     }
 }
 

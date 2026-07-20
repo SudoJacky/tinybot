@@ -1,15 +1,10 @@
-use crate::agent_loop_runtime_protocol::{
-    AgentRuntimeEventAppendInput, AgentRuntimeEventAppender, AgentRuntimeEventSource,
-    AgentRuntimeEventVisibility, AgentRuntimePhase, AgentTraceContext,
-};
+use crate::agent_loop_runtime_protocol::AgentTraceContext;
 use crate::native_agent_bridge::{
-    attach_native_agent_latest_usage, native_agent_artifacts, native_agent_assistant_messages,
-    native_agent_current_iteration, native_agent_current_user_message, native_agent_max_iterations,
-    native_agent_message_id, native_agent_model, native_agent_persisted_runtime_event,
-    native_agent_persisted_trace_values, native_agent_provider, native_agent_run_completed_at,
-    native_agent_run_id, native_agent_run_phase_from_stop_reason, native_agent_run_status,
-    native_agent_session_id, native_agent_thread_id, native_agent_token_usage_info,
-    native_agent_trace_event_item_id, native_agent_usage, native_agent_user_messages,
+    native_agent_artifacts, native_agent_current_iteration, native_agent_max_iterations,
+    native_agent_model, native_agent_persisted_trace_values, native_agent_provider,
+    native_agent_run_completed_at, native_agent_run_id, native_agent_run_phase_from_stop_reason,
+    native_agent_run_status, native_agent_session_id, native_agent_thread_id,
+    native_agent_token_usage_info, native_agent_usage, native_agent_user_messages,
 };
 use crate::worker_agent_runtime::{agent_trace_context_from_value, NativeAgentRuntimeServices};
 use crate::worker_protocol::WorkerRequest;
@@ -120,14 +115,13 @@ pub(crate) fn persist_native_agent_run_start(
     let session_id =
         native_agent_rollout_id(&spec).unwrap_or_else(|| "native-rust-session".to_string());
     let run_id = native_agent_run_id(&spec).unwrap_or_else(|| "native-rust-run".to_string());
-    let mut record = native_agent_run_record(
+    let record = native_agent_run_record(
         &spec,
         &serde_json::json!({ "sessionId": session_id, "runId": run_id }),
         &config_snapshot,
         &session_id,
         &run_id,
     );
-    record["traceEvents"] = serde_json::json!([]);
     let turn_context = native_agent_turn_context(&spec, &config_snapshot, &run_id);
     let trace_context = agent_trace_context_from_value(&spec);
     call_traced_state_service(
@@ -254,8 +248,7 @@ pub(crate) fn persist_native_agent_run_record(
     let run_id = native_agent_run_id(result)
         .or_else(|| native_agent_run_id(&spec))
         .unwrap_or_else(|| "native-rust-run".to_string());
-    let mut record = native_agent_run_record(&spec, result, &config_snapshot, &session_id, &run_id);
-    record["traceEvents"] = serde_json::json!([]);
+    let record = native_agent_run_record(&spec, result, &config_snapshot, &session_id, &run_id);
     let trace_context = trace_context_from_result_or_spec(result, &spec);
     let persisted = call_traced_state_service(
         workspace_root,
@@ -329,8 +322,8 @@ pub(crate) fn native_agent_run_record(
         "maxIterations": native_agent_max_iterations(spec, config_snapshot),
         "currentIteration": native_agent_current_iteration(result, checkpoint.as_ref()),
         "conversationMessageIds": [],
-        "traceMessages": native_agent_assistant_messages(result),
-        "traceEvents": native_agent_runtime_trace_events(spec, result, session_id, run_id, &timestamp),
+        "traceMessages": [],
+        "traceEvents": [],
         "completedToolResults": result
             .get("completedToolResults")
             .or_else(|| result.get("completed_tool_results"))
@@ -401,13 +394,6 @@ pub(crate) fn persist_native_agent_turn_if_final(
         .or_else(|| result.get("run_id"))
         .and_then(serde_json::Value::as_str)
         .unwrap_or("native-rust-run");
-    let mut messages = native_agent_user_messages(&spec);
-    let mut assistant_messages = native_agent_assistant_messages(result);
-    attach_native_agent_latest_usage(&mut assistant_messages, result);
-    messages.extend(assistant_messages);
-    if messages.is_empty() {
-        return Ok(());
-    }
     let trace_context = trace_context_from_result_or_spec(result, &spec);
     let persisted = call_traced_state_service(
         workspace_root,
@@ -421,7 +407,7 @@ pub(crate) fn persist_native_agent_turn_if_final(
             serde_json::json!({
                 "session_id": session_id,
                 "run_id": run_id,
-                "messages": messages,
+                "messages": [],
                 "clear_checkpoint": true,
                 "context_metadata": {
                     "runtime": "rust",
@@ -513,113 +499,6 @@ fn validate_native_agent_checkpoint_version(
     ))
 }
 
-fn native_agent_runtime_trace_events(
-    spec: &serde_json::Value,
-    result: &serde_json::Value,
-    session_id: &str,
-    run_id: &str,
-    timestamp: &str,
-) -> Vec<serde_json::Value> {
-    if let Some(runtime_events) = result
-        .get("runtimeEvents")
-        .and_then(serde_json::Value::as_array)
-        .filter(|events| !events.is_empty())
-    {
-        return native_agent_persisted_trace_values(runtime_events);
-    }
-
-    let mut trace_context = trace_context_from_result_or_spec(result, spec);
-    trace_context.run_id = run_id.to_string();
-    if trace_context.turn_id.trim().is_empty() {
-        trace_context.turn_id = run_id.to_string();
-    }
-    trace_context.thread_id = trace_context
-        .thread_id
-        .or_else(|| native_agent_thread_id(spec));
-    let mut appender = AgentRuntimeEventAppender::new_with_trace_context(session_id, trace_context);
-    let user_message = native_agent_current_user_message(spec);
-    let user_message_id = user_message.as_ref().and_then(native_agent_message_id);
-    let mut trace_events = vec![native_agent_persisted_runtime_event(appender.append(
-        AgentRuntimeEventAppendInput {
-            parent_turn_id: None,
-            item_id: None,
-            event_name: "agent.turn.started".to_string(),
-            phase: AgentRuntimePhase::Planning,
-            timestamp: timestamp.to_string(),
-            source: AgentRuntimeEventSource::RustBackend,
-            visibility: AgentRuntimeEventVisibility::User,
-            payload: serde_json::json!({
-                "sessionId": session_id,
-                "runId": run_id,
-                "userMessageId": user_message_id,
-                "userMessage": user_message,
-            }),
-        },
-    ))];
-
-    let mut current_phase = AgentRuntimePhase::Planning;
-    native_agent_push_phase_transition(
-        &mut trace_events,
-        &mut appender,
-        &mut current_phase,
-        AgentRuntimePhase::HydratingHistory,
-        timestamp,
-        "agent.history.hydrated",
-    );
-    native_agent_push_phase_transition(
-        &mut trace_events,
-        &mut appender,
-        &mut current_phase,
-        AgentRuntimePhase::CallingModel,
-        timestamp,
-        "agent.model.calling",
-    );
-    if let Some(events) = result.get("events").and_then(serde_json::Value::as_array) {
-        for event in events {
-            let event_name = event
-                .get("eventName")
-                .and_then(serde_json::Value::as_str)
-                .filter(|value| !value.trim().is_empty());
-            let Some(event_name) = event_name else {
-                continue;
-            };
-            let next_phase = AgentRuntimePhase::for_legacy_event(event_name);
-            if event_name == "agent.done" {
-                native_agent_push_phase_transition(
-                    &mut trace_events,
-                    &mut appender,
-                    &mut current_phase,
-                    AgentRuntimePhase::Finalizing,
-                    timestamp,
-                    event_name,
-                );
-            }
-            native_agent_push_phase_transition(
-                &mut trace_events,
-                &mut appender,
-                &mut current_phase,
-                next_phase,
-                timestamp,
-                event_name,
-            );
-            let payload = event
-                .get("payload")
-                .cloned()
-                .unwrap_or(serde_json::Value::Null);
-            trace_events.push(native_agent_persisted_runtime_event(
-                appender.append_legacy_native_event(
-                    event_name,
-                    native_agent_trace_event_item_id(event),
-                    timestamp,
-                    payload,
-                ),
-            ));
-        }
-    }
-
-    trace_events
-}
-
 fn trace_context_from_result_or_spec(
     result: &serde_json::Value,
     spec: &serde_json::Value,
@@ -668,34 +547,4 @@ fn call_traced_state_service(
         }
     ));
     result
-}
-
-fn native_agent_push_phase_transition(
-    trace_events: &mut Vec<serde_json::Value>,
-    appender: &mut AgentRuntimeEventAppender,
-    current_phase: &mut AgentRuntimePhase,
-    next_phase: AgentRuntimePhase,
-    timestamp: &str,
-    trigger_event_name: &str,
-) {
-    if next_phase == *current_phase {
-        return;
-    }
-    trace_events.push(native_agent_persisted_runtime_event(appender.append(
-        AgentRuntimeEventAppendInput {
-            parent_turn_id: None,
-            item_id: None,
-            event_name: "agent.phase.changed".to_string(),
-            phase: next_phase.clone(),
-            timestamp: timestamp.to_string(),
-            source: AgentRuntimeEventSource::RustBackend,
-            visibility: AgentRuntimeEventVisibility::Debug,
-            payload: serde_json::json!({
-                "previousPhase": current_phase.clone(),
-                "nextPhase": next_phase.clone(),
-                "triggerEventName": trigger_event_name,
-            }),
-        },
-    )));
-    *current_phase = next_phase;
 }

@@ -138,6 +138,32 @@ pub(super) fn waiting_runtime_events(
 ) -> Vec<AgentRuntimeEventEnvelope> {
     let mut emitter =
         AgentRunEmitter::new_with_trace_context(&context.session_id, context.trace_context.clone());
+    if let Some(message) = super::state::current_user_message(&context.messages) {
+        let message_id = message
+            .get("messageId")
+            .or_else(|| message.get("message_id"))
+            .or_else(|| message.get("id"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("{}:user", context.run_id));
+        let client_event_id = message
+            .get("clientEventId")
+            .or_else(|| message.get("client_event_id"))
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let references = message
+            .get("references")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        emitter.user_turn_started(
+            runtime_event_timestamp(),
+            Some(message_id),
+            client_event_id,
+            super::state::user_message_text(&message),
+            references,
+        );
+    }
     emitter.emit(AgentRuntimeEventAppendInput {
         parent_turn_id: None,
         item_id: None,

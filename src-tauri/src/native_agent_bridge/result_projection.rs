@@ -1,6 +1,4 @@
-use crate::agent_loop_runtime_protocol::AgentRuntimeEventEnvelope;
-
-const NATIVE_AGENT_RUN_TRACE_STRING_LIMIT: usize = 256;
+use crate::worker_rollout::bound_persisted_trace_value;
 
 pub(crate) fn native_agent_run_status(stop_reason: Option<&str>) -> &'static str {
     match stop_reason {
@@ -206,35 +204,16 @@ pub(crate) fn native_agent_token_usage_info(
     }))
 }
 
-pub(crate) fn native_agent_persisted_runtime_event(
-    event: AgentRuntimeEventEnvelope,
-) -> serde_json::Value {
-    let value = serde_json::to_value(event).unwrap_or_else(|error| {
-        serde_json::json!({
-            "schemaVersion": crate::agent_loop_runtime_protocol::AGENT_RUNTIME_EVENT_SCHEMA_VERSION,
-            "eventName": "agent.trace.serialization_failed",
-            "payload": {
-                "error": error.to_string(),
-            },
-        })
-    });
-    native_agent_bound_persisted_trace_value(value).0
-}
-
-pub(crate) fn native_agent_trace_event_item_id(event: &serde_json::Value) -> Option<String> {
-    event.get("payload").and_then(|payload| {
-        native_agent_string_field(payload, "toolCallId")
-            .or_else(|| native_agent_string_field(payload, "tool_call_id"))
-            .or_else(|| native_agent_string_field(payload, "approvalId"))
-            .or_else(|| native_agent_string_field(payload, "approval_id"))
-            .or_else(|| native_agent_string_field(payload, "formId"))
-            .or_else(|| native_agent_string_field(payload, "form_id"))
-            .or_else(|| native_agent_string_field(payload, "delegateId"))
-            .or_else(|| native_agent_string_field(payload, "delegate_id"))
-    })
-}
-
 pub(crate) fn native_agent_persisted_trace_values(
+    values: &[serde_json::Value],
+) -> Vec<serde_json::Value> {
+    native_agent_canonical_trace_values(values)
+        .into_iter()
+        .map(bound_persisted_trace_value)
+        .collect()
+}
+
+pub(crate) fn native_agent_canonical_trace_values(
     values: &[serde_json::Value],
 ) -> Vec<serde_json::Value> {
     values
@@ -244,7 +223,6 @@ pub(crate) fn native_agent_persisted_trace_values(
                 != Some("agent.provider.requested")
         })
         .cloned()
-        .map(|value| native_agent_bound_persisted_trace_value(value).0)
         .collect()
 }
 
@@ -286,75 +264,4 @@ fn usage_i64_field(value: &serde_json::Value, keys: &[&str]) -> Option<i64> {
                 .or_else(|| value.as_u64().and_then(|number| i64::try_from(number).ok()))
         })
     })
-}
-
-fn native_agent_bound_persisted_trace_value(value: serde_json::Value) -> (serde_json::Value, bool) {
-    match value {
-        serde_json::Value::String(content) => {
-            let char_count = content.chars().count();
-            if char_count <= NATIVE_AGENT_RUN_TRACE_STRING_LIMIT {
-                (serde_json::Value::String(content), false)
-            } else {
-                (
-                    serde_json::Value::String(
-                        content
-                            .chars()
-                            .take(NATIVE_AGENT_RUN_TRACE_STRING_LIMIT)
-                            .collect(),
-                    ),
-                    true,
-                )
-            }
-        }
-        serde_json::Value::Array(items) => {
-            let mut truncated = false;
-            let items = items
-                .into_iter()
-                .map(|item| {
-                    let (item, item_truncated) = native_agent_bound_persisted_trace_value(item);
-                    truncated |= item_truncated;
-                    item
-                })
-                .collect();
-            (serde_json::Value::Array(items), truncated)
-        }
-        serde_json::Value::Object(entries) => {
-            let mut truncated = false;
-            let mut entries = entries;
-            let retain_trace_context = entries
-                .get("eventName")
-                .and_then(serde_json::Value::as_str)
-                .map(persisted_event_needs_trace_context)
-                .unwrap_or(true);
-            if !retain_trace_context {
-                entries.remove("traceContext");
-            }
-            let mut entries = entries
-                .into_iter()
-                .map(|(key, value)| {
-                    let (value, value_truncated) = native_agent_bound_persisted_trace_value(value);
-                    truncated |= value_truncated;
-                    (key, value)
-                })
-                .collect::<serde_json::Map<_, _>>();
-            if truncated {
-                entries.insert(
-                    "tracePersistence".to_string(),
-                    serde_json::json!({
-                        "truncated": true,
-                        "maxStringChars": NATIVE_AGENT_RUN_TRACE_STRING_LIMIT,
-                    }),
-                );
-            }
-            (serde_json::Value::Object(entries), truncated)
-        }
-        value => (value, false),
-    }
-}
-
-fn persisted_event_needs_trace_context(event_name: &str) -> bool {
-    matches!(
-        event_name,
-        "agent.provider.completed" | "agent.tool.result" | "agent.hook.decision"
-    )
 }

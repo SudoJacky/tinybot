@@ -569,7 +569,7 @@ fn context_messages_version(messages: &[Value]) -> String {
     format!("sha256:{:x}", Sha256::digest(encoded))
 }
 
-fn user_message_text(message: &Value) -> String {
+pub(super) fn user_message_text(message: &Value) -> String {
     let content = message.get("content").or_else(|| message.get("text"));
     if let Some(text) = content.and_then(Value::as_str) {
         return text.to_string();
@@ -628,7 +628,7 @@ fn user_reference_payloads(
         .collect()
 }
 
-fn current_user_message(messages: &[Value]) -> Option<Value> {
+pub(super) fn current_user_message(messages: &[Value]) -> Option<Value> {
     messages
         .iter()
         .rev()

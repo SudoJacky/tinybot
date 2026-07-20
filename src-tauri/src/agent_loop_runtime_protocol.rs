@@ -65,7 +65,9 @@ impl AgentRuntimePhase {
 
     pub fn for_legacy_event(event_name: &str) -> Self {
         match event_name {
-            "agent.reasoning_delta" | "agent.delta" => Self::StreamingModel,
+            "agent.reasoning_delta" | "agent.reasoning.completed" | "agent.delta" => {
+                Self::StreamingModel
+            }
             "agent.tool_call.delta" => Self::ToolCalling,
             "agent.tool.start" | "agent.tool.result" => Self::ToolRunning,
             "agent.awaiting_approval" | "agent.approval.decision" => Self::AwaitingApproval,
@@ -111,7 +113,7 @@ pub enum AgentTurnItemKind {
 impl AgentTurnItemKind {
     pub fn for_legacy_event(event_name: &str) -> Option<Self> {
         match event_name {
-            "agent.reasoning_delta" => Some(Self::Reasoning),
+            "agent.reasoning_delta" | "agent.reasoning.completed" => Some(Self::Reasoning),
             "agent.delta"
             | "agent.message.phase"
             | "agent.message.classified"
@@ -1944,6 +1946,7 @@ fn projected_item_status(event: &AgentRuntimeEventEnvelope) -> AgentTurnItemStat
         }
         "agent.message.classified"
         | "agent.message.completed"
+        | "agent.reasoning.completed"
         | "agent.done"
         | "agent.command.acknowledged"
         | "agent.paused"
@@ -1985,6 +1988,22 @@ fn projected_item_payload(
                 .to_string();
             content.push_str(payload_text_fragment(&event.payload).unwrap_or_default());
             payload.insert("content".to_string(), Value::String(content));
+            merge_message_identity_fields(&mut payload, &event.payload);
+            Value::Object(payload)
+        }
+        "agent.reasoning.completed" => {
+            let mut payload = existing_payload
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_default();
+            payload.insert(
+                "content".to_string(),
+                event
+                    .payload
+                    .get("summary")
+                    .cloned()
+                    .unwrap_or_else(|| Value::String(String::new())),
+            );
             merge_message_identity_fields(&mut payload, &event.payload);
             Value::Object(payload)
         }

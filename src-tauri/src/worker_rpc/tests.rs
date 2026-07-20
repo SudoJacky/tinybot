@@ -2855,9 +2855,19 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
                     "reasoningId": "reasoning-1"
                 }
             }, {
+                "eventId": "reasoning-reload-reasoning-completed",
+                "eventName": "agent.reasoning.completed",
+                "sequence": 3,
+                "turnId": "run-reasoning-reload",
+                "payload": {
+                    "summary": "Inspect first.",
+                    "modelCallId": "provider-1",
+                    "reasoningId": "reasoning-1"
+                }
+            }, {
                 "eventId": "reasoning-reload-tool-a",
                 "eventName": "agent.tool_call.delta",
-                "sequence": 3,
+                "sequence": 4,
                 "turnId": "run-reasoning-reload",
                 "payload": {
                     "toolCallId": "call-a",
@@ -2867,7 +2877,7 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
             }, {
                 "eventId": "reasoning-reload-tool-b",
                 "eventName": "agent.tool_call.delta",
-                "sequence": 4,
+                "sequence": 5,
                 "turnId": "run-reasoning-reload",
                 "payload": {
                     "toolCallId": "call-b",
@@ -2877,7 +2887,7 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
             }, {
                 "eventId": "reasoning-reload-result-b",
                 "eventName": "agent.tool.result",
-                "sequence": 5,
+                "sequence": 6,
                 "turnId": "run-reasoning-reload",
                 "payload": {
                     "toolCallId": "call-b",
@@ -2887,7 +2897,7 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
             }, {
                 "eventId": "reasoning-reload-result-a",
                 "eventName": "agent.tool.result",
-                "sequence": 6,
+                "sequence": 7,
                 "turnId": "run-reasoning-reload",
                 "payload": {
                     "toolCallId": "call-a",
@@ -2897,7 +2907,7 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
             }, {
                 "eventId": "reasoning-reload-completed",
                 "eventName": "agent.message.completed",
-                "sequence": 7,
+                "sequence": 8,
                 "turnId": "run-reasoning-reload",
                 "payload": {
                     "content": "Done.",
@@ -9148,7 +9158,7 @@ fn dispatches_agent_run_store_round_trip_requests() {
             "run_id": "run-1",
             "event": {
                 "eventId": "invalid-reasoning",
-                "eventName": "agent.reasoning_delta",
+                "eventName": "agent.reasoning.completed",
                 "payload": {
                     "modelCallId": "provider-invalid",
                     "reasoningId": "reasoning-invalid"

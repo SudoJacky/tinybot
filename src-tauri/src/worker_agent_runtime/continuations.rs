@@ -372,6 +372,7 @@ pub(super) async fn maybe_approval_resume_result(
                 "delta": final_content,
             }),
         ),
+        final_message_event(context, &final_content),
         event(
             "agent.done",
             serde_json::json!({
@@ -721,6 +722,7 @@ async fn approval_denied_guidance_result(
                     }),
                 ));
             }
+            events.push(final_message_event(context, &final_content));
             events.push(event(
                 "agent.done",
                 serde_json::json!({
@@ -1124,6 +1126,7 @@ pub(super) fn maybe_form_submit_result(
                 "delta": final_content,
             }),
         ),
+        final_message_event(context, &final_content),
         event(
             "agent.done",
             serde_json::json!({
@@ -1156,6 +1159,19 @@ pub(super) fn maybe_form_submit_result(
         "events": events,
         "runtimeEvents": runtime_events,
     })))
+}
+
+fn final_message_event(context: &NativeAgentRunContext, content: &str) -> NativeAgentEvent {
+    event(
+        "agent.message.completed",
+        serde_json::json!({
+            "runId": context.run_id,
+            "sessionId": context.session_id,
+            "messageId": format!("{}:assistant:0", context.run_id),
+            "messagePhase": "final_answer",
+            "content": content,
+        }),
+    )
 }
 
 fn form_resolution_event(

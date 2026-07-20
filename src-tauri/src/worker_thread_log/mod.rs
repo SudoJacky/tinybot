@@ -3745,6 +3745,7 @@ fn thread_item_from_agent_run_trace(
             | "agent.context.compacted"
             | "agent.delta"
             | "agent.reasoning_delta"
+            | "agent.reasoning.completed"
             | "agent.message.phase"
             | "agent.message.classified"
             | "agent.message.completed"
@@ -3928,23 +3929,44 @@ fn rollout_thread_item_id(item: &Value, thread_id: &str, sequence: u64) -> Strin
 }
 
 fn response_item_thread_kind(item: &Value) -> ThreadItemKind {
-    let payload = item
-        .get("threadItemPayload")
-        .cloned()
-        .unwrap_or_else(|| item.clone());
     match item.get("role").and_then(Value::as_str) {
-        Some("user") => ThreadItemKind::UserMessage(payload),
-        Some("assistant") => ThreadItemKind::AssistantMessageCompleted(payload),
-        Some("tool") => ThreadItemKind::ToolCallOutput(payload),
+        Some("user") => ThreadItemKind::UserMessage(response_item_thread_message_payload(item)),
+        Some("assistant") => {
+            ThreadItemKind::AssistantMessageCompleted(response_item_thread_message_payload(item))
+        }
+        Some("tool") => ThreadItemKind::ToolCallOutput(item.clone()),
         _ => match item.get("type").and_then(Value::as_str) {
             Some("reasoning") => ThreadItemKind::Reasoning(item.clone()),
-            Some("function_call" | "tool_call") => ThreadItemKind::ToolCallStarted(item.clone()),
-            Some("function_call_output" | "tool_result") => {
+            Some("function_call" | "tool_call" | "custom_tool_call") => {
+                ThreadItemKind::ToolCallStarted(item.clone())
+            }
+            Some("function_call_output" | "tool_result" | "custom_tool_call_output") => {
                 ThreadItemKind::ToolCallOutput(item.clone())
             }
             _ => ThreadItemKind::Event(item.clone()),
         },
     }
+}
+
+fn response_item_thread_message_payload(item: &Value) -> Value {
+    let mut payload = item.clone();
+    let content = match item.get("content") {
+        Some(Value::String(content)) => content.clone(),
+        Some(Value::Array(parts)) => parts
+            .iter()
+            .filter_map(|part| {
+                part.as_str()
+                    .or_else(|| part.get("text").and_then(Value::as_str))
+            })
+            .collect(),
+        Some(Value::Null) | None => String::new(),
+        Some(content) => content.to_string(),
+    };
+    payload["content"] = Value::String(content);
+    if let Some(object) = payload.as_object_mut() {
+        object.remove("threadItemPayload");
+    }
+    payload
 }
 
 fn thread_run_summary_from_agent_run(
@@ -4385,7 +4407,11 @@ fn thread_log_consistency_error(message: impl Into<String>, details: Value) -> W
     )
 }
 
-fn typed_response_item(value: Value, context: &str) -> Result<ResponseItem, WorkerProtocolError> {
+fn typed_response_item(
+    mut value: Value,
+    context: &str,
+) -> Result<ResponseItem, WorkerProtocolError> {
+    normalize_response_item_for_rollout(&mut value);
     let diagnostic_value = value.clone();
     ResponseItem::from_value(value).map_err(|error| {
         WorkerProtocolError::new(
@@ -4400,6 +4426,43 @@ fn typed_response_item(value: Value, context: &str) -> Result<ResponseItem, Work
             WorkerProtocolErrorSource::RustCore,
         )
     })
+}
+
+fn normalize_response_item_for_rollout(value: &mut Value) {
+    let Some(item) = value.as_object_mut() else {
+        return;
+    };
+    let role = item.get("role").and_then(Value::as_str).map(str::to_string);
+    if role.is_some() && !item.contains_key("type") {
+        item.insert("type".to_string(), Value::String("message".to_string()));
+    }
+    if item.get("type").and_then(Value::as_str) != Some("message") {
+        return;
+    }
+    if !item.contains_key("id") {
+        if let Some(message_id) = item
+            .get("messageId")
+            .or_else(|| item.get("message_id"))
+            .cloned()
+        {
+            item.insert("id".to_string(), message_id);
+        }
+    }
+    let Some(Value::String(content)) = item.get("content").cloned() else {
+        return;
+    };
+    let part_type = if role.as_deref() == Some("user") {
+        "input_text"
+    } else {
+        "output_text"
+    };
+    item.insert(
+        "content".to_string(),
+        serde_json::json!([{
+            "type": part_type,
+            "text": content,
+        }]),
+    );
 }
 
 fn typed_compacted_item(value: Value, context: &str) -> Result<CompactedItem, WorkerProtocolError> {

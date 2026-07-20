@@ -1,7 +1,5 @@
 use crate::call_rust_state_service;
-use crate::native_agent_bridge::{
-    native_agent_session_id, native_agent_string_field, native_agent_usage,
-};
+use crate::native_agent_bridge::{native_agent_session_id, native_agent_string_field};
 use crate::worker_protocol::WorkerRequest;
 use crate::worker_request_id::next_worker_request_correlation;
 use std::path::PathBuf;
@@ -53,54 +51,6 @@ pub(crate) fn native_agent_thread_id(spec: &serde_json::Value) -> Option<String>
             spec.get("metadata")
                 .and_then(|metadata| native_agent_string_field(metadata, "thread_id"))
         })
-}
-
-pub(crate) fn native_agent_message_id(message: &serde_json::Value) -> Option<String> {
-    message
-        .get("messageId")
-        .or_else(|| message.get("message_id"))
-        .or_else(|| message.get("id"))
-        .and_then(serde_json::Value::as_str)
-        .filter(|value| !value.trim().is_empty())
-        .map(str::to_string)
-}
-
-pub(crate) fn native_agent_assistant_messages(
-    result: &serde_json::Value,
-) -> Vec<serde_json::Value> {
-    result
-        .get("messages")
-        .and_then(serde_json::Value::as_array)
-        .map(|messages| {
-            messages
-                .iter()
-                .filter(|message| {
-                    message.get("role").and_then(serde_json::Value::as_str) == Some("assistant")
-                })
-                .cloned()
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-pub(crate) fn attach_native_agent_latest_usage(
-    messages: &mut [serde_json::Value],
-    result: &serde_json::Value,
-) {
-    let Some(usage) = native_agent_usage(result).into_iter().last() else {
-        return;
-    };
-    let Some(message) = messages.iter_mut().rev().find(|message| {
-        message.get("role").and_then(serde_json::Value::as_str) == Some("assistant")
-    }) else {
-        return;
-    };
-    let Some(object) = message.as_object_mut() else {
-        return;
-    };
-    if !object.get("usage").is_some_and(|value| !value.is_null()) {
-        object.insert("usage".to_string(), usage);
-    }
 }
 
 pub(crate) fn hydrate_native_agent_history_for_runtime(
