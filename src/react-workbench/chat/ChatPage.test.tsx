@@ -2828,8 +2828,7 @@ describe("ChatPage", () => {
     }));
   });
 
-  it("dispatches pause from Chat through the correlated run controller", async () => {
-    const user = userEvent.setup();
+  it("hides run controls and the queue notice from the Chat surface", async () => {
     const stores = createStores({
       sessions: [{
         id: "s1",
@@ -2850,12 +2849,11 @@ describe("ChatPage", () => {
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
-    await user.click(await screen.findByRole("button", { name: "Pause" }));
-    expect(stores.chatStore.dispatch).toHaveBeenCalledWith(expect.objectContaining({
-      kind: "agent.pause",
-      source: { control: "chat-pause", surface: "chat" },
-      target: expect.objectContaining({ runId: run.id, sessionId: "s1" }),
-    }));
+    expect(await screen.findByRole("button", { name: "Stop generation" })).toBeTruthy();
+    expect(screen.queryByLabelText("Agent run controls")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Resume" })).toBeNull();
+    expect(screen.queryByText("任务执行中；此时发送的新消息会排队，并在当前步骤结束后送达。")).toBeNull();
   });
 
   it("disables cancellation with the backend-authored unavailable reason", async () => {

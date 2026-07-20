@@ -16,7 +16,6 @@ import {
   MoreHorizontal,
   PanelRightClose,
   PanelRightOpen,
-  Pause,
   Plus,
   Search,
   Settings,
@@ -1749,13 +1748,6 @@ export function ChatPage({
           />
         ) : null}
         {queueMessage ? <p className="react-queued-inputs__message">{queueMessage}</p> : null}
-        {activeSession && activeRun ? (
-          <div aria-label="Agent run controls" className="react-agent-run-controls">
-            <span>Run {activeRun.id}</span>
-            <button disabled={!canPauseRun || cancelInFlight} title={canPauseRun ? "Pause at the next safe runtime boundary" : pauseUnavailableReason} type="button" onClick={() => void handleAgentRunControl("agent.pause", "chat")}><Pause aria-hidden="true" size={13} />Pause</button>
-            <button disabled={!canResumeRun || cancelInFlight} title={canResumeRun ? "Resume the same Agent run" : resumeUnavailableReason} type="button" onClick={() => void handleAgentRunControl("agent.resume", "chat")}><Play aria-hidden="true" size={13} />Resume</button>
-          </div>
-        ) : null}
         {commandLifecycle.stage !== "idle" ? (
           <p
             aria-live="polite"
