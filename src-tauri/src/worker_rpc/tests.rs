@@ -2798,7 +2798,27 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
         "currentIteration": 0,
         "conversationMessageIds": [],
         "traceMessages": [],
-        "traceEvents": [],
+        "traceEvents": [{
+            "eventId": "reasoning-reload-1",
+            "eventName": "agent.reasoning_delta",
+            "sequence": 1,
+            "turnId": "run-reasoning-reload",
+            "payload": {
+                "delta": "Inspect ",
+                "modelCallId": "provider-1",
+                "reasoningId": "reasoning-1"
+            }
+        }, {
+            "eventId": "reasoning-reload-2",
+            "eventName": "agent.reasoning_delta",
+            "sequence": 2,
+            "turnId": "run-reasoning-reload",
+            "payload": {
+                "delta": "first.",
+                "modelCallId": "provider-1",
+                "reasoningId": "reasoning-1"
+            }
+        }],
         "completedToolResults": [],
         "pendingToolCalls": [],
         "checkpoint": null,
@@ -2831,18 +2851,7 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
                     "modelCallId": "provider-1",
                     "reasoningId": "reasoning-1"
                 }
-            }]
-        }),
-    ));
-    assert_eq!(append_trace.error, None);
-    let append_trace = router.dispatch(&WorkerRequest::new(
-        "req-reasoning-reload-trace-continued",
-        "trace-reasoning-reload",
-        "agent_run.append_trace_batch",
-        json!({
-            "session_id": "session-reasoning-reload",
-            "run_id": "run-reasoning-reload",
-            "events": [{
+            }, {
                 "eventId": "reasoning-reload-2",
                 "eventName": "agent.reasoning_delta",
                 "sequence": 2,
@@ -2912,9 +2921,12 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
     let items = runtime_state.result.as_ref().unwrap()["timeline"]["items"]
         .as_array()
         .expect("timeline items should be an array");
-    assert!(items.iter().any(|item| {
-        item["kind"] == "reasoning" && item["data"]["summary"] == "Inspect first."
-    }));
+    let reasoning = items
+        .iter()
+        .filter(|item| item["kind"] == "reasoning")
+        .collect::<Vec<_>>();
+    assert_eq!(reasoning.len(), 1);
+    assert_eq!(reasoning[0]["data"]["summary"], "Inspect first.");
 }
 
 #[test]

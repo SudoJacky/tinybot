@@ -113,6 +113,35 @@ describe("desktop native app services", () => {
     });
   });
 
+  test("loads later Thread pages before filtering internal child sessions", async () => {
+    const childThread = {
+      ...thread,
+      parentThreadId: "thread-1",
+      source: "subagent",
+      threadId: "thread-child",
+      sessionKey: "thread-child",
+    };
+    mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "worker_threads_list") {
+        const body = (args?.input as { body?: Record<string, unknown> } | undefined)?.body;
+        return body?.offset === 1
+          ? { threads: [thread], total: 2 }
+          : { threads: [childThread], total: 2, nextOffset: 1 };
+      }
+      if (command === "worker_agent_runs_list") return { runs: [] };
+      if (command === "worker_agent_run_runtime_state") return null;
+      return {};
+    });
+    const services = createDesktopAppServices();
+
+    await expect(services.sessionStore.list()).resolves.toEqual([
+      expect.objectContaining({ id: "thread-1" }),
+    ]);
+    expect(mocks.invoke).toHaveBeenCalledWith("worker_threads_list", {
+      input: { body: { includeChildThreads: true, offset: 1 } },
+    });
+  });
+
   test("persists session renames through Thread metadata", async () => {
     const services = createDesktopAppServices();
 

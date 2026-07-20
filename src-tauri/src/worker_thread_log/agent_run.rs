@@ -14,7 +14,7 @@ use crate::worker_session::{
     AgentRunCheckpoint, AgentRunRecord, AgentRunRuntimeState, AgentRunStatus, AgentRunTracePage,
 };
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 impl WorkerThreadLogRpc {
@@ -376,6 +376,11 @@ impl WorkerThreadLogRpc {
             session_id,
             run_id,
         );
+        let canonical_reasoning_item_ids = canonical_events
+            .iter()
+            .filter(|event| event.event_name == "agent.reasoning_delta")
+            .filter_map(|event| event.item_id.clone())
+            .collect::<HashSet<_>>();
         let mut runtime_events = Vec::new();
         for event in canonical_events {
             if !runtime_events
@@ -389,6 +394,14 @@ impl WorkerThreadLogRpc {
             let Some(event) = runtime_event_from_trace_value(&record, index, event) else {
                 continue;
             };
+            if event.event_name == "agent.reasoning_delta"
+                && event
+                    .item_id
+                    .as_ref()
+                    .is_some_and(|item_id| canonical_reasoning_item_ids.contains(item_id))
+            {
+                continue;
+            }
             let already_projected = runtime_events
                 .iter()
                 .any(|existing| same_projected_runtime_event(existing, &event));

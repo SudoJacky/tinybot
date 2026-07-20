@@ -15,7 +15,11 @@ import { createDesktopNativeConfigApi } from "../app-core/native/desktopNativeCo
 import { applyNativeConfigPatch } from "../app-core/native/desktopNativeConfigPatch";
 import { createDesktopNativeSessionsApi } from "../app-core/native/desktopNativeSessions";
 import { createDesktopNativeSkillsApi } from "../app-core/native/desktopNativeSkills";
-import { createDesktopNativeThreadsApi } from "../app-core/native/desktopNativeThreads";
+import {
+  createDesktopNativeThreadsApi,
+  type NativeThreadListResult,
+  type NativeThreadRecord,
+} from "../app-core/native/desktopNativeThreads";
 import { createDesktopNativeHostCommandApi } from "../app-core/native/desktopNativeHostCommand";
 import { createDesktopNativeBrowserApi, normalizeNativeBrowserSnapshot } from "../app-core/native/desktopNativeBrowser";
 import { toDesktopNativeTauriEventName } from "../app-core/native/desktopNativeTauriEvents";
@@ -93,15 +97,32 @@ export function createDesktopAppServices(): AppServices {
   });
 
   async function listConversationThreads() {
-    const result = await requireNative(nativeThreads, "Thread").list({ includeChildThreads: true });
-    const threads = result.threads.filter((thread) => {
-      const parentThreadId = stringValue(thread.parentThreadId ?? thread.parent_thread_id);
-      return !parentThreadId || stringValue(thread.source) === "fork";
-    });
+    const threads: NativeThreadRecord[] = [];
+    let offset: number | undefined;
+    let result: NativeThreadListResult;
+    while (true) {
+      result = await requireNative(nativeThreads, "Thread").list({
+        includeChildThreads: true,
+        ...(offset === undefined ? {} : { offset }),
+      });
+      threads.push(...result.threads.filter((thread) => {
+        const parentThreadId = stringValue(thread.parentThreadId ?? thread.parent_thread_id);
+        return !parentThreadId || stringValue(thread.source) === "fork";
+      }));
+      const nextOffset = numberValue(result.nextOffset);
+      if (nextOffset === undefined) {
+        break;
+      }
+      if (nextOffset <= (offset ?? -1)) {
+        throw new Error("Thread pagination returned a non-advancing next offset");
+      }
+      offset = nextOffset;
+    }
     return {
       ...result,
       threads,
       total: threads.length,
+      nextOffset: undefined,
     };
   }
 
