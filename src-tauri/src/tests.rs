@@ -261,10 +261,11 @@ fn startup_reconciles_orphaned_run_and_preserves_waiting_checkpoint() {
         ))
         .expect("running recovery record should deserialize");
     running_record.thread_id = Some("thread-recovery".to_string());
+    running_record.trace_events.clear();
     thread_log
         .upsert_agent_run(running_record)
         .expect("running recovery record should persist");
-    let waiting_record: crate::worker_session::AgentRunRecord =
+    let mut waiting_record: crate::worker_session::AgentRunRecord =
         serde_json::from_value(native_agent_run_record(
             &serde_json::json!({
                 "runId": "run-waiting",
@@ -284,6 +285,7 @@ fn startup_reconciles_orphaned_run_and_preserves_waiting_checkpoint() {
             "run-waiting",
         ))
         .expect("waiting recovery record should deserialize");
+    waiting_record.trace_events.clear();
     thread_log
         .upsert_agent_run(waiting_record)
         .expect("waiting recovery record should persist");
@@ -2829,7 +2831,7 @@ fn canonical_thread_reads_supersede_stale_session_and_share_rollout_writes() {
     let fixture = WorkspaceFixture::new();
     let config = serde_json::json!({});
     let session_id = "canonical-thread-session";
-    let stale_record = native_agent_run_record(
+    let mut stale_record = native_agent_run_record(
         &serde_json::json!({
             "runtime": "rust",
             "runId": "stale-session-run",
@@ -2844,6 +2846,7 @@ fn canonical_thread_reads_supersede_stale_session_and_share_rollout_writes() {
         session_id,
         "stale-session-run",
     );
+    stale_record["traceEvents"] = serde_json::json!([]);
     call_rust_state_service(
         fixture.root.clone(),
         config.clone(),
@@ -2942,9 +2945,8 @@ fn canonical_thread_reads_supersede_stale_session_and_share_rollout_writes() {
         ),
         "list canonical thread runs",
     )
-    .expect("compatibility run list should project canonical thread");
-    assert_eq!(runs["runs"].as_array().map(Vec::len), Some(1));
-    assert_eq!(runs["runs"][0]["runId"], "canonical-thread-run");
+    .expect("agent run list should read only canonical agent run records");
+    assert!(runs["runs"].as_array().is_some_and(Vec::is_empty));
     let checkpoint = call_rust_state_service(
         fixture.root.clone(),
         config.clone(),
@@ -2977,7 +2979,7 @@ fn canonical_thread_reads_supersede_stale_session_and_share_rollout_writes() {
     .expect("thread-owned session.persist_turn should append to canonical Rollout");
     assert_eq!(compatibility_turn["saved_message_count"], 1);
 
-    let duplicate_record = native_agent_run_record(
+    let mut duplicate_record = native_agent_run_record(
         &serde_json::json!({
             "runtime": "rust",
             "sessionId": session_id,
@@ -2991,6 +2993,7 @@ fn canonical_thread_reads_supersede_stale_session_and_share_rollout_writes() {
         session_id,
         "duplicate-run",
     );
+    duplicate_record["traceEvents"] = serde_json::json!([]);
     let compatibility_run = call_rust_state_service(
         fixture.root.clone(),
         config,
