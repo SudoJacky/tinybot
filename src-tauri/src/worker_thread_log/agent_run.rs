@@ -89,6 +89,9 @@ impl WorkerThreadLogRpc {
         if events.is_empty() {
             return Err(empty_agent_run_trace_batch_error(session_id, run_id));
         }
+        for (index, event) in events.iter().enumerate() {
+            validate_agent_run_trace_event(session_id, run_id, index, event)?;
+        }
         let mut record = self
             .get_agent_run_record(session_id, run_id)?
             .ok_or_else(|| unknown_agent_run_error(session_id, run_id))?;
@@ -115,17 +118,10 @@ impl WorkerThreadLogRpc {
                 .and_then(Value::as_i64)
         });
         let has_response_items = events.iter().any(|event| {
-            matches!(
-                event.get("eventName").and_then(Value::as_str),
-                Some(
-                    "agent.turn.started"
-                        | "agent.reasoning_delta"
-                        | "agent.message.classified"
-                        | "agent.message.completed"
-                        | "agent.tool_call.delta"
-                        | "agent.tool.result"
-                )
-            )
+            event
+                .get("eventName")
+                .and_then(Value::as_str)
+                .is_some_and(agent_run_trace_event_is_response_backed)
         });
         let mut items = Vec::new();
         let mut pending_reasoning = None::<ReasoningResponseAccumulator>;
@@ -812,6 +808,70 @@ fn response_item_from_runtime_event(event: &Value) -> Option<Value> {
     }
 }
 
+fn agent_run_trace_event_is_response_backed(event_name: &str) -> bool {
+    matches!(
+        event_name,
+        "agent.turn.started"
+            | "agent.reasoning_delta"
+            | "agent.message.classified"
+            | "agent.message.completed"
+            | "agent.tool_call.delta"
+            | "agent.tool.result"
+    )
+}
+
+fn validate_agent_run_trace_event(
+    session_id: &str,
+    run_id: &str,
+    index: usize,
+    event: &Value,
+) -> Result<(), WorkerProtocolError> {
+    let event_name = event
+        .get("eventName")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            invalid_agent_run_trace_event_error(
+                "agent run trace event is missing eventName",
+                session_id,
+                run_id,
+                index,
+                None,
+            )
+        })?;
+    event
+        .get("eventId")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            invalid_agent_run_trace_event_error(
+                "agent run trace event is missing eventId",
+                session_id,
+                run_id,
+                index,
+                Some(event_name),
+            )
+        })?;
+    if !agent_run_trace_event_is_response_backed(event_name) {
+        return Ok(());
+    }
+    let materializes_response = if event_name == "agent.reasoning_delta" {
+        ReasoningResponseFragment::from_runtime_event(event).is_some()
+    } else {
+        response_item_from_runtime_event(event).is_some()
+    };
+    if !materializes_response {
+        return Err(invalid_agent_run_trace_event_error(
+            "response-backed agent run trace event cannot be materialized",
+            session_id,
+            run_id,
+            index,
+            Some(event_name),
+        ));
+    }
+    Ok(())
+}
+
 struct ReasoningResponseFragment {
     event_id: String,
     turn_id: String,
@@ -1421,6 +1481,27 @@ fn embedded_agent_run_trace_error(session_id: &str, run_id: &str) -> WorkerProto
         serde_json::json!({
             "session_id": session_id,
             "run_id": run_id,
+        }),
+        false,
+        WorkerProtocolErrorSource::RustCore,
+    )
+}
+
+fn invalid_agent_run_trace_event_error(
+    message: &str,
+    session_id: &str,
+    run_id: &str,
+    index: usize,
+    event_name: Option<&str>,
+) -> WorkerProtocolError {
+    WorkerProtocolError::new(
+        WorkerProtocolErrorCode::InvalidProtocol,
+        message,
+        serde_json::json!({
+            "session_id": session_id,
+            "run_id": run_id,
+            "event_index": index,
+            "event_name": event_name,
         }),
         false,
         WorkerProtocolErrorSource::RustCore,

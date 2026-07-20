@@ -9131,6 +9131,40 @@ fn dispatches_agent_run_store_round_trip_requests() {
         "agent_run.upsert",
         json!({ "record": record }),
     ));
+    let invalid_trace = router.dispatch(&WorkerRequest::new(
+        "req-invalid-trace",
+        "trace-agent-run",
+        "agent_run.append_trace",
+        json!({
+            "session_id": "session-1",
+            "run_id": "run-1",
+            "event": {
+                "eventName": "agent.reasoning_delta",
+                "payload": {
+                    "delta": "must not be persisted",
+                    "modelCallId": "provider-invalid",
+                    "reasoningId": "reasoning-invalid"
+                }
+            }
+        }),
+    ));
+    let invalid_response_trace = router.dispatch(&WorkerRequest::new(
+        "req-invalid-response-trace",
+        "trace-agent-run",
+        "agent_run.append_trace",
+        json!({
+            "session_id": "session-1",
+            "run_id": "run-1",
+            "event": {
+                "eventId": "invalid-reasoning",
+                "eventName": "agent.reasoning_delta",
+                "payload": {
+                    "modelCallId": "provider-invalid",
+                    "reasoningId": "reasoning-invalid"
+                }
+            }
+        }),
+    ));
     let append_trace = router.dispatch(&WorkerRequest::new(
         "req-trace",
         "trace-agent-run",
@@ -9227,6 +9261,22 @@ fn dispatches_agent_run_store_round_trip_requests() {
     ));
 
     assert!(upsert.error.is_none());
+    assert!(invalid_trace.result.is_none());
+    assert_eq!(
+        invalid_trace
+            .error
+            .as_ref()
+            .map(|error| error.message.as_str()),
+        Some("agent run trace event is missing eventId")
+    );
+    assert!(invalid_response_trace.result.is_none());
+    assert_eq!(
+        invalid_response_trace
+            .error
+            .as_ref()
+            .map(|error| error.message.as_str()),
+        Some("response-backed agent run trace event cannot be materialized")
+    );
     assert!(append_trace.error.is_none());
     assert!(append_second_trace.error.is_none());
     assert!(set_checkpoint.error.is_none());

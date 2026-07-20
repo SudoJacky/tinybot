@@ -1844,7 +1844,9 @@ External callers should usually prefer the Tauri commands above.
 events must be written with `agent_run.append_trace` or `agent_run.append_trace_batch`; semantic
 message, reasoning, and tool records are materialized as Rollout response items, while selected
 durable lifecycle events remain Rollout event records. Agent-run reads never fall back to the
-in-memory thread store.
+in-memory thread store. Appended events require non-empty `eventName` and `eventId` fields, and
+response-backed events are rejected unless they contain enough data to materialize their canonical
+Rollout response item.
 
 ### MCP Runtime RPC
 
