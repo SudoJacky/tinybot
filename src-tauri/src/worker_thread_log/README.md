@@ -60,8 +60,19 @@ context, agent runs, checkpoints, and token usage.
 - Diagnostic agent trace may be bounded, but canonical messages, completed
   reasoning, tool calls, and tool outputs are materialized from the lossless
   runtime event first and never reconstructed from truncated text.
-- Streaming reasoning deltas remain presentation events. One completed
-  reasoning ResponseItem is persisted per model call.
+- Streaming deltas, phase changes, and non-blocking status updates remain live
+  presentation events. Blocking status boundaries remain persisted for
+  recovery. One completed reasoning ResponseItem is persisted per model call.
+- Ordinary canonical runtime events are durably appended in batches of up to
+  64 events or 50 milliseconds. Blocking status and run/continuation exit
+  remain explicit synchronous durability barriers.
+- A trace batch is appended as one recorder transaction and response-backed
+  projection replays the Rollout at most once for the whole batch.
+- `AddItems` only stages ordered lines in the writer. `Persist`, `Flush`, or
+  `Shutdown` owns the file write/flush barrier; an append must not auto-flush
+  and then immediately flush again through `Persist`.
+- Repeating an identical full Thread record is a metadata no-op and must not
+  append another snapshot.
 
 See [`worker_thread`](../worker_thread/README.md) for the typed Thread domain and
 [`worker_session`](../worker_session/README.md) for session-shaped projections.

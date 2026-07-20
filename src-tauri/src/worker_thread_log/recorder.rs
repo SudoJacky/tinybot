@@ -910,6 +910,47 @@ mod tests {
     }
 
     #[test]
+    fn recorder_add_items_waits_for_an_explicit_durable_barrier() {
+        let root = temp_root("add-items-buffered");
+        let _ = fs::remove_dir_all(&root);
+        let recorder = ThreadRecorder::new(root.clone());
+        let path = recorder
+            .create_thread(thread_meta(
+                &root,
+                "thread-add-items-buffered",
+                "2026-07-08T10:12:30Z",
+            ))
+            .unwrap();
+
+        recorder
+            .add_items(
+                &path,
+                "2026-07-08T10:13:30Z".to_string(),
+                vec![value_event(
+                    EventKind::UserMessage,
+                    serde_json::json!({ "barrier": "persist" }),
+                )],
+            )
+            .unwrap();
+
+        assert_eq!(
+            recorder
+                .writer(&path)
+                .unwrap()
+                .pending_item_count()
+                .unwrap(),
+            1,
+            "AddItems must stay buffered until Persist, Flush, or Shutdown"
+        );
+        assert_eq!(read_thread_lines(&path).unwrap().len(), 1);
+
+        recorder.persist(&path).unwrap();
+        assert_eq!(read_thread_lines(&path).unwrap().len(), 2);
+        recorder.shutdown(&path).unwrap();
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn recorder_fails_fast_on_corrupt_canonical_ordinal() {
         let root = temp_root("corrupt-ordinal");
         let _ = fs::remove_dir_all(&root);
