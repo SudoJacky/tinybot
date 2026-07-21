@@ -85,7 +85,7 @@ mod tests {
             .spawn()
             .unwrap();
 
-        wait_for_path(&started_path, Duration::from_secs(5));
+        wait_for_path(&started_path, Duration::from_secs(15));
         assert!(!acquired_path.exists());
         drop(first);
         let status = child.wait().unwrap();

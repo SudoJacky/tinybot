@@ -763,7 +763,9 @@ export function canonicalTinyOsCommandAcknowledgement(
       const detail = recordValue(item.data.detail);
       const detailCommandId = stringValue(detail.commandId ?? detail.command_id);
       const commandStatus = stringValue(detail.commandStatus ?? detail.command_status);
-      if ((directCommandId === commandId || detailCommandId === commandId) && commandStatus === "acknowledged") {
+      const correlated = directCommandId === commandId || detailCommandId === commandId;
+      const resolvedApproval = item.kind === "approval" && item.status === "completed";
+      if (correlated && (commandStatus === "acknowledged" || resolvedApproval)) {
         return { itemId: item.itemId, revision: item.revision };
       }
     }

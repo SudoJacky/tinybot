@@ -271,6 +271,7 @@ export function createDesktopAppServices(): AppServices {
         threadId,
         approvalId: command.approval.approvalId,
         approved: command.approval.approved,
+        commandId: command.commandId,
         scope: command.approval.scope,
         ...(command.approval.guidance ? { guidance: command.approval.guidance } : {}),
       });

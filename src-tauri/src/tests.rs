@@ -3763,6 +3763,7 @@ fn worker_resolve_thread_approval_requires_rollout_checkpoint() {
             thread_id: thread_id.to_string(),
             approval_id: approval_id.to_string(),
             approved: true,
+            command_id: "command-missing-checkpoint".to_string(),
             scope: Some("once".to_string()),
             guidance: None,
         },
@@ -3829,6 +3830,7 @@ fn worker_resolve_thread_approval_resumes_checkpoint_and_updates_thread() {
             thread_id: thread_id.clone(),
             approval_id: "approval-thread-command".to_string(),
             approved: true,
+            command_id: "command-thread-approval".to_string(),
             scope: Some("once".to_string()),
             guidance: None,
         },
@@ -3841,6 +3843,16 @@ fn worker_resolve_thread_approval_resumes_checkpoint_and_updates_thread() {
     assert_eq!(result["threadId"], thread_id);
     assert_eq!(result["sessionId"], session_id);
     assert_eq!(result["approvalResult"]["stopReason"], "final_response");
+    let approval_decision = result["approvalResult"]["runtimeEvents"]
+        .as_array()
+        .expect("approval continuation should contain runtime events")
+        .iter()
+        .find(|event| event["eventName"] == "agent.approval.decision")
+        .expect("approval continuation should record its decision");
+    assert_eq!(
+        approval_decision["payload"]["commandId"],
+        "command-thread-approval"
+    );
     assert_eq!(result["snapshot"]["thread"]["status"], "idle");
     assert!(result["snapshot"]["latestCheckpoint"].is_null());
     assert!(result["snapshot"]["items"]
@@ -3998,6 +4010,7 @@ lines.on("line", (line) => {
             thread_id: thread_id.clone(),
             approval_id,
             approved: true,
+            command_id: "command-traced-approval".to_string(),
             scope: Some("once".to_string()),
             guidance: None,
         },

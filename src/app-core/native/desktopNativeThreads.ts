@@ -70,6 +70,7 @@ export type NativeThreadApprovalInput = {
   threadId: string;
   approvalId: string;
   approved: boolean;
+  commandId: string;
   scope?: "once" | "session";
   guidance?: string;
 };

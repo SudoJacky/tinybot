@@ -30,6 +30,7 @@ pub(crate) struct ResolveThreadApprovalInput {
     pub(crate) thread_id: String,
     pub(crate) approval_id: String,
     pub(crate) approved: bool,
+    pub(crate) command_id: String,
     pub(crate) scope: Option<String>,
     pub(crate) guidance: Option<String>,
 }
@@ -232,6 +233,7 @@ pub(crate) async fn resolve_thread_approval_with_services(
     let mut body = serde_json::json!({
         "session_key": session_id.clone(),
         "thread_id": thread_id.clone(),
+        "commandId": input.command_id,
         "scope": input.scope,
         "guidance": input.guidance,
     });

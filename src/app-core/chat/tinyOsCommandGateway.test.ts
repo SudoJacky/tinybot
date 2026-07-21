@@ -367,6 +367,10 @@ describe("TinyOS command lifecycle", () => {
         turnId: "run-1",
       }],
     } as unknown as ChatTurn;
+    expect(canonicalTinyOsCommandAcknowledgement([turn], "command-approval-1")).toEqual({
+      itemId: "run-1:approval:approval-1",
+      revision: 2,
+    });
     expect(canonicalTinyOsCommandCompletion([turn], "command-approval-1")).toEqual({
       itemId: "run-1:approval:approval-1",
       revision: 2,

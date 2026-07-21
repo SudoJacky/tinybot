@@ -470,6 +470,7 @@ describe("desktop native app services", () => {
         threadId: "thread-1",
         approvalId: "approval-1",
         approved: true,
+        commandId: "command-approval-1",
         scope: "session",
       },
     });

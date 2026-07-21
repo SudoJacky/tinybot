@@ -94,6 +94,7 @@ pub(crate) struct WorkerResolveThreadApprovalInput {
     pub(crate) thread_id: String,
     pub(crate) approval_id: String,
     pub(crate) approved: bool,
+    pub(crate) command_id: String,
     #[serde(default)]
     pub(crate) scope: Option<String>,
     #[serde(default)]
@@ -1082,6 +1083,7 @@ pub(crate) async fn worker_resolve_thread_approval_with_live_trace_sink_async(
             thread_id: input.thread_id,
             approval_id: input.approval_id,
             approved: input.approved,
+            command_id: input.command_id,
             scope: input.scope,
             guidance: input.guidance,
         },
