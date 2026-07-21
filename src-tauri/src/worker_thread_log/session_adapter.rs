@@ -52,7 +52,27 @@ pub fn session_history_from_replay(
     history_from_replay(replay, limit)
 }
 
+pub fn agent_context_from_replay(
+    mut replay: ThreadReplay,
+    limit: usize,
+) -> SessionHistoryProjection {
+    replay.messages.retain(|message| {
+        let is_materialized_instruction = matches!(
+            message.get("role").and_then(Value::as_str),
+            Some("system" | "developer")
+        ) && message.get("contentHash").is_some();
+        !is_materialized_instruction
+    });
+    history_from_replay(replay, limit)
+}
+
 fn is_visible_session_message(message: &Value) -> bool {
+    if matches!(
+        message.get("role").and_then(Value::as_str),
+        Some("system" | "developer")
+    ) {
+        return false;
+    }
     if message
         .get("_progress")
         .and_then(Value::as_bool)
@@ -269,7 +289,6 @@ mod tests {
             user_profile: serde_json::json!({}),
             token_usage_info: None,
             context_checkpoint: None,
-            world_state_baseline: None,
             compaction_overlap_candidate: None,
             ..Default::default()
         }

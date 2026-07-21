@@ -1180,11 +1180,12 @@ The removed `sessions/sessions.sqlite`, `.tinybot/state/thread-store.jsonl`, and
 `.tinybot/threads/threads.sqlite` stores are neither read nor written. There is no startup import,
 request-time compatibility fallback, or completed-result double write for those paths.
 
-Turn writes follow Codex-style ordering: `turn_started`, `user_message`, `turn_context`, typed
-`response_item`/tool/reasoning records, and `turn_complete`. Agent-run traces, resumable
-checkpoints, terminal state, compaction checkpoints, metadata changes, rollback, fork, archive, and
-subagent communication are appended to the same Rollout. UI thread snapshots, session history,
-model context, AgentRun records, and active checkpoints are reconstructed projections of that file.
+Turn writes follow Codex-style ordering: one start batch contains `turn_started`, `turn_context`,
+the materialized system/developer prompt when it changed, and the user message. Later batches append
+typed message/tool/reasoning records, per-provider-call `token_count`, resumable checkpoints, and one
+`turn_complete` or `turn_aborted`. Compaction, metadata changes, rollback, fork, archive, and
+subagent communication use the same Rollout authority. UI thread snapshots, session history, model
+context, AgentRun records, and active checkpoints are reconstructed projections of that file.
 Canonical append or reconstruction errors fail the operation instead of falling back to an old
 store.
 
@@ -1193,23 +1194,22 @@ returns a command error before the provider is called, and a run-record write fa
 command error instead of embedding a failed `runPersistence` diagnostic in an otherwise successful
 result.
 
-For direct-session native runs with a live desktop sink, runtime trace deltas are emitted to the
-frontend before durable persistence. Durable events enter a bounded ordered queue and ordinary
-`agent.delta` / `agent.reasoning_delta` events are appended through
-`agent_run.append_trace_batch`. Tool, approval, form, error, cancellation, and terminal boundaries
-flush the pending batch, and the run command waits for the queue to drain before final run-record
-persistence. Queue failure or flush failure fails the command explicitly; events are never silently
-dropped. Active canonical timeline patches are projected incrementally, while reload continues to
-reconstruct the authoritative snapshot from durable events.
+For direct-session native runs with a live desktop sink, runtime deltas, phase/status changes, and UI
+patches remain live-only. Stable semantic events enter a bounded ordered queue and are materialized
+through `agent_run.append_semantic_batch` as typed Rollout records. Tool-call confirmation, approval,
+tool output, usage, error, cancellation, and terminal boundaries flush the relevant batch before the
+runtime crosses that boundary. Queue or flush failure fails the command explicitly. Reload projects
+the authoritative timeline only from typed durable records; live event sequence never advances the
+durable Rollout revision.
 Thread-owned commands such as `worker_submit_thread_turn`, `worker_resolve_thread_approval`, and
 `worker_submit_thread_form` append their runtime events, run state, resumable checkpoint,
 approvals/forms, and final assistant or error items directly to the canonical Rollout. The native
-agent result is not replayed through `thread.apply_op`, so each logical event has one durable write.
-The terminal run item retains instruction provenance and diagnostics, so compatibility
+agent result is not replayed through `thread.apply_op`, so each logical value has one canonical
+payload. The turn-start seed retains instruction provenance and diagnostics, so derived
 `agent_run.get` projections preserve the effective working directory and instruction sources.
 Approval/form continuation restores `latestCheckpoint.restorePayload` from Rollout, including
 after a new runtime instance starts; a later terminal item makes that checkpoint inactive. Direct
-non-thread agent commands use the same Rollout authority through `session.persist_turn`.
+non-thread agent commands use the same start, semantic, checkpoint, and terminal batches.
 
 `clientEventId` is the retry/idempotency key for thread appends, starts, continuations, approvals,
 forms, and forks. A successful retry projects the original item IDs instead of appending another
@@ -1821,7 +1821,7 @@ External callers should usually prefer the Tauri commands above.
 
 | Namespace | Methods |
 | --- | --- |
-| `agent_run` | `append_trace`, `append_trace_batch`, `clear_checkpoint`, `get`, `get_checkpoint`, `list`, `list_trace`, `mark_cancelled`, `mark_completed`, `mark_failed`, `runtime_state`, `set_checkpoint`, `upsert` |
+| `agent_run` | `append_semantic_batch`, `clear_checkpoint`, `get`, `get_checkpoint`, `list`, `mark_cancelled`, `mark_completed`, `mark_failed`, `mark_interrupted`, `runtime_state`, `set_checkpoint`, `start` |
 | `approval` | `list_pending`, `request`, `resolve` |
 | `config` | `apply_operations`, `apply_patch_result`, `get`, `snapshot_public` |
 | `diagnostics` | `append` |
@@ -1840,13 +1840,11 @@ External callers should usually prefer the Tauri commands above.
 | `tool_registry` | `list`, `search` |
 | `workspace` | `apply_patch`, `create_dir`, `delete_file`, `list_dir`, `list_files`, `read_bootstrap_files`, `read_file`, `resolve_path`, `write_file` |
 
-`agent_run.upsert` persists run metadata only and requires an empty `traceEvents` field. Runtime
-events must be written with `agent_run.append_trace` or `agent_run.append_trace_batch`; semantic
-message, reasoning, and tool records are materialized as Rollout response items, while selected
-durable lifecycle events remain Rollout event records. Agent-run reads never fall back to the
-in-memory thread store. Appended events require non-empty `eventName` and `eventId` fields, and
-response-backed events are rejected unless they contain enough data to materialize their canonical
-Rollout response item.
+`agent_run.start` atomically appends the minimal run seed, turn context, changed materialized
+instructions, and current user message. `agent_run.append_semantic_batch` accepts only stable events
+that can be materialized as typed message, reasoning, tool, approval, usage, or terminal records;
+delta, phase, status, provider-start, and generic trace envelopes are rejected or kept live-only.
+Agent-run reads are derived from the thread JSONL and never fall back to the in-memory thread store.
 
 ### MCP Runtime RPC
 

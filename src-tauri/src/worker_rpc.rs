@@ -1016,8 +1016,12 @@ impl SessionPersistTurnParams {
 }
 
 #[derive(Deserialize)]
-struct AgentRunUpsertParams {
+struct AgentRunStartParams {
     record: AgentRunRecord,
+    #[serde(default)]
+    context: Option<crate::worker_rollout::TurnContextItem>,
+    #[serde(default)]
+    messages: Vec<crate::worker_rollout::ResponseItem>,
 }
 
 #[derive(Deserialize)]
@@ -1035,28 +1039,7 @@ struct AgentRunIdParams {
 }
 
 #[derive(Deserialize)]
-struct AgentRunListTraceParams {
-    #[serde(alias = "sessionId")]
-    session_id: String,
-    #[serde(alias = "runId")]
-    run_id: String,
-    #[serde(default)]
-    cursor: Option<String>,
-    #[serde(default)]
-    limit: Option<usize>,
-}
-
-#[derive(Deserialize)]
-struct AgentRunAppendTraceParams {
-    #[serde(alias = "sessionId")]
-    session_id: String,
-    #[serde(alias = "runId")]
-    run_id: String,
-    event: Value,
-}
-
-#[derive(Deserialize)]
-struct AgentRunAppendTraceBatchParams {
+struct AgentRunAppendSemanticBatchParams {
     #[serde(alias = "sessionId")]
     session_id: String,
     #[serde(alias = "runId")]
@@ -1083,6 +1066,8 @@ struct AgentRunMarkCompletedParams {
     stop_reason: String,
     #[serde(default, alias = "finalContent")]
     final_content: Option<String>,
+    #[serde(default, alias = "contextCheckpoint")]
+    context_checkpoint: Option<Value>,
 }
 
 #[derive(Deserialize)]
@@ -1094,6 +1079,8 @@ struct AgentRunMarkFailedParams {
     #[serde(alias = "stopReason")]
     stop_reason: String,
     error: Value,
+    #[serde(default, alias = "contextCheckpoint")]
+    context_checkpoint: Option<Value>,
 }
 
 #[derive(Deserialize)]

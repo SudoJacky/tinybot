@@ -1,9 +1,8 @@
-use super::result_projection::native_agent_canonical_trace_values;
 use crate::agent_loop_runtime_protocol::{AgentRuntimeEventEnvelope, AgentTimelinePatch};
 use crate::worker_agent_runtime::NativeAgentTraceSink;
 use crate::worker_protocol::WorkerRequest;
 use crate::worker_request_id::next_worker_request_correlation;
-use crate::worker_rollout::should_persist_agent_runtime_event;
+use crate::worker_thread_log::is_agent_run_semantic_event;
 use crate::{call_rust_state_service, tauri_safe_event_name};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -13,12 +12,12 @@ use std::time::{Duration, Instant};
 use tauri::{Emitter, Runtime};
 
 #[derive(Clone)]
-pub(crate) struct NativeAgentRunTraceSink {
+pub(crate) struct NativeAgentRunSemanticSink {
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 }
 
-impl NativeAgentRunTraceSink {
+impl NativeAgentRunSemanticSink {
     pub(crate) fn new(workspace_root: PathBuf, config_snapshot: serde_json::Value) -> Self {
         Self {
             workspace_root,
@@ -27,7 +26,7 @@ impl NativeAgentRunTraceSink {
     }
 }
 
-impl NativeAgentTraceSink for NativeAgentRunTraceSink {
+impl NativeAgentTraceSink for NativeAgentRunSemanticSink {
     fn load_runtime_events(
         &self,
         session_id: &str,
@@ -73,30 +72,27 @@ impl NativeAgentTraceSink for NativeAgentRunTraceSink {
         events: &[AgentRuntimeEventEnvelope],
     ) -> Result<(), String> {
         let first_event = events.first().ok_or_else(|| {
-            "native agent trace batch must contain at least one event".to_string()
+            "native agent semantic batch must contain at least one event".to_string()
         })?;
         let generated = next_worker_request_correlation();
         let request_id = first_event
             .trace_context
             .as_ref()
-            .map(|trace| format!("{}:trace-batch:{}", trace.request_id, first_event.event_id))
-            .unwrap_or_else(|| generated.id("agent-run-append-trace-batch"));
+            .map(|trace| {
+                format!(
+                    "{}:semantic-batch:{}",
+                    trace.request_id, first_event.event_id
+                )
+            })
+            .unwrap_or_else(|| generated.id("agent-run-append-semantic-batch"));
         let trace_id = first_event
             .trace_context
             .as_ref()
             .map(|trace| trace.trace_id.clone())
-            .unwrap_or_else(|| generated.trace_id("agent-run-append-trace-batch"));
-        let events = serde_json::to_value(events)
-            .map_err(|error| format!("native agent trace batch serialization failed: {error}"))?;
-        let events = native_agent_canonical_trace_values(
-            events
-                .as_array()
-                .expect("serialized native agent trace batch must be an array"),
-        );
-        if events.is_empty() {
-            return Ok(());
-        }
-        let events = serde_json::Value::Array(events);
+            .unwrap_or_else(|| generated.trace_id("agent-run-append-semantic-batch"));
+        let events = serde_json::to_value(events).map_err(|error| {
+            format!("native agent semantic batch serialization failed: {error}")
+        })?;
         let metrics = crate::runtime::observability::global_agent_runtime_metrics();
         metrics.increment("persistence.batch.started");
         let started_at = Instant::now();
@@ -106,14 +102,14 @@ impl NativeAgentTraceSink for NativeAgentRunTraceSink {
             WorkerRequest::new(
                 request_id,
                 trace_id,
-                "agent_run.append_trace_batch",
+                "agent_run.append_semantic_batch",
                 serde_json::json!({
                     "session_id": session_id,
                     "run_id": run_id,
                     "events": events,
                 }),
             ),
-            "native agent run trace batch append",
+            "native agent semantic batch append",
         );
         metrics.record_duration("persistence.batch.durationMs", started_at.elapsed());
         metrics.increment_by(
@@ -249,7 +245,7 @@ impl NativeAgentTraceSink for BufferedNativeAgentTraceSink {
         event: &AgentRuntimeEventEnvelope,
     ) -> Result<(), String> {
         let live_result = self.live_sink.append_trace_event(session_id, run_id, event);
-        if !should_persist_agent_runtime_event(&event.event_name, &event.payload) {
+        if !is_agent_run_semantic_event(&event.event_name) {
             crate::runtime::observability::global_agent_runtime_metrics()
                 .increment("persistence.events.filtered");
             return live_result;
@@ -401,12 +397,16 @@ fn run_trace_persistence_worker(
 }
 
 fn agent_runtime_event_requires_durable_boundary(event: &AgentRuntimeEventEnvelope) -> bool {
-    event.event_name == "agent.status"
-        && event
-            .payload
-            .get("isBlocking")
-            .and_then(|value| value.as_bool())
-            .unwrap_or(true)
+    matches!(
+        event.event_name.as_str(),
+        "agent.tool_call.delta"
+            | "agent.tool.result"
+            | "agent.token_count"
+            | "agent.awaiting_approval"
+            | "agent.approval.decision"
+            | "agent.error"
+            | "agent.cancelled"
+    )
 }
 
 fn persist_pending_trace_events(
@@ -510,7 +510,7 @@ pub(crate) fn native_agent_trace_sink(
     config_snapshot: serde_json::Value,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 ) -> Arc<dyn NativeAgentTraceSink> {
-    let persisted_sink: Arc<dyn NativeAgentTraceSink> = Arc::new(NativeAgentRunTraceSink::new(
+    let persisted_sink: Arc<dyn NativeAgentTraceSink> = Arc::new(NativeAgentRunSemanticSink::new(
         workspace_root,
         config_snapshot,
     ));
@@ -637,18 +637,9 @@ mod tests {
         let live = Arc::new(RecordingTraceSink::default());
         let sink = BufferedNativeAgentTraceSink::new(durable.clone(), live.clone());
         let mut emitter = AgentRunEmitter::new("session-1", "run-1");
-        let first = emitter.tool_start(
-            "unix-ms:1",
-            "tool-1",
-            "workspace.read_file",
-            serde_json::json!({ "path": "first.md" }),
-        );
-        let second = emitter.tool_result(
-            "unix-ms:2",
-            "tool-1",
-            "workspace.read_file",
-            serde_json::json!({ "content": "done" }),
-        );
+        let first = emitter.message_completed("unix-ms:1", Some("message-1".to_string()), "first");
+        let second =
+            emitter.message_completed("unix-ms:2", Some("message-2".to_string()), "second");
 
         sink.append_trace_event("session-1", "run-1", &first)
             .expect("first event should enqueue");
@@ -661,7 +652,7 @@ mod tests {
     }
 
     #[test]
-    fn buffered_trace_sink_persists_only_blocking_status_progress() {
+    fn buffered_trace_sink_keeps_all_status_progress_live_only() {
         let durable = Arc::new(RecordingTraceSink::default());
         let live = Arc::new(RecordingTraceSink::default());
         let sink = BufferedNativeAgentTraceSink::new(durable.clone(), live.clone());
@@ -716,15 +707,11 @@ mod tests {
         sink.append_trace_event("session-1", "run-1", &status)
             .expect("status event should remain live");
         sink.append_trace_event("session-1", "run-1", &blocking_status)
-            .expect("blocking status should persist");
-        assert_eq!(
-            durable.event_count(),
-            1,
-            "blocking status must cross a durable barrier before append returns"
-        );
+            .expect("blocking status should remain live");
+        assert_eq!(durable.event_count(), 0);
         sink.flush().expect("trace sink should flush");
 
         assert_eq!(live.event_count(), 3);
-        assert_eq!(durable.event_count(), 1);
+        assert_eq!(durable.event_count(), 0);
     }
 }

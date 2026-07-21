@@ -222,11 +222,10 @@ fn startup_reconciles_orphaned_run_and_preserves_waiting_checkpoint() {
         ))
         .expect("running recovery record should deserialize");
     running_record.thread_id = Some("thread-recovery".to_string());
-    running_record.trace_events.clear();
     thread_log
-        .upsert_agent_run(running_record)
+        .start_agent_run(running_record, None, Vec::new())
         .expect("running recovery record should persist");
-    let mut waiting_record: crate::worker_session::AgentRunRecord =
+    let waiting_record: crate::worker_session::AgentRunRecord =
         serde_json::from_value(native_agent_run_record(
             &serde_json::json!({
                 "runId": "run-waiting",
@@ -246,13 +245,12 @@ fn startup_reconciles_orphaned_run_and_preserves_waiting_checkpoint() {
             "run-waiting",
         ))
         .expect("waiting recovery record should deserialize");
-    waiting_record.trace_events.clear();
     let waiting_checkpoint = waiting_record
         .checkpoint
         .clone()
         .expect("waiting recovery record should contain a checkpoint");
     thread_log
-        .upsert_agent_run(waiting_record)
+        .start_agent_run(waiting_record, None, Vec::new())
         .expect("waiting recovery record should persist");
     thread_log
         .set_agent_run_checkpoint("session-recovery", "run-waiting", waiting_checkpoint)
@@ -1099,7 +1097,7 @@ fn worker_run_agent_uses_rust_runtime_when_selected() {
 }
 
 #[test]
-fn worker_run_agent_preserves_trace_from_ingress_through_persistence() {
+fn worker_run_agent_preserves_trace_context_without_persisting_runtime_trace() {
     let fixture = WorkspaceFixture::new();
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
     let config = serde_json::json!({
@@ -1143,26 +1141,7 @@ fn worker_run_agent_preserves_trace_from_ingress_through_persistence() {
         "request-ingress-persistence"
     );
     assert_eq!(run["traceContext"]["traceId"], "trace-ingress-persistence");
-    let trace_events = run["traceEvents"]
-        .as_array()
-        .expect("persisted trace events should be an array");
-    assert!(trace_events
-        .iter()
-        .any(|event| event["eventName"] == "agent.provider.completed"));
-    for event_name in ["agent.provider.completed"] {
-        let event = trace_events
-            .iter()
-            .find(|event| event["eventName"] == event_name)
-            .expect("provider boundary event should be persisted");
-        assert_eq!(
-            event["traceContext"]["requestId"],
-            "request-ingress-persistence"
-        );
-        assert_eq!(
-            event["traceContext"]["traceId"],
-            "trace-ingress-persistence"
-        );
-    }
+    assert!(run.get("traceEvents").is_none());
 }
 
 #[test]
@@ -1348,14 +1327,9 @@ fn worker_run_agent_persists_one_lossless_long_final_response() {
         .iter()
         .filter(|line| line["type"] == "response_item" && line["payload"]["role"] == "assistant")
         .collect::<Vec<_>>();
-    let diagnostic_final = rollout_lines
-        .iter()
-        .find(|line| {
-            line["type"] == "event_msg"
-                && line["payload"]["type"] == "agent_run_trace"
-                && line["payload"]["payload"]["event"]["eventName"] == "agent.message.completed"
-        })
-        .expect("diagnostic final response event should remain available");
+    assert!(rollout_lines.iter().all(|line| {
+        line["type"] != "event_msg" || line["payload"]["type"] != "agent_run_trace"
+    }));
     let session_meta = rollout_lines
         .first()
         .expect("rollout should start with session metadata");
@@ -1365,7 +1339,7 @@ fn worker_run_agent_persists_one_lossless_long_final_response() {
         .expect("turn context should be persisted");
     let terminal = rollout_lines
         .iter()
-        .find(|line| line["type"] == "event_msg" && line["payload"]["type"] == "agent_run_terminal")
+        .find(|line| line["type"] == "event_msg" && line["payload"]["type"] == "turn_complete")
         .expect("run terminal boundary should be persisted");
 
     assert_eq!(result["finalContent"], expected);
@@ -1376,18 +1350,6 @@ fn worker_run_agent_persists_one_lossless_long_final_response() {
     assert_eq!(
         assistant_items[0]["payload"]["content"][0]["text"],
         long_final_content()
-    );
-    assert_eq!(
-        diagnostic_final["payload"]["payload"]["event"]["payload"]["content"]
-            .as_str()
-            .unwrap()
-            .chars()
-            .count(),
-        crate::worker_rollout::ROLLOUT_TRACE_STRING_LIMIT
-    );
-    assert_eq!(
-        diagnostic_final["payload"]["payload"]["event"]["tracePersistence"]["truncated"],
-        true
     );
     assert!(session_meta["payload"]["id"].as_str().is_some());
     assert_eq!(session_meta["payload"]["session_id"], session_id);
@@ -1534,7 +1496,7 @@ fn worker_run_agent_fails_when_trace_persistence_breaks_after_provider_response(
     .expect_err("trace persistence failure should fail the command");
 
     assert!(
-        error.contains("native agent run trace batch append failed"),
+        error.contains("native agent semantic batch append failed"),
         "{error}"
     );
     assert_eq!(
@@ -1796,11 +1758,8 @@ fn worker_run_agent_hydrates_session_history_before_provider_call() {
 
     assert_eq!(result["stopReason"], "final_response");
     assert_eq!(messages.len(), 3);
-    assert_eq!(messages[0]["role"], "user");
     assert_eq!(messages[0]["content"], "a");
-    assert_eq!(messages[1]["role"], "assistant");
     assert_eq!(messages[1]["content"], "agent replied a");
-    assert_eq!(messages[2]["role"], "user");
     assert_eq!(messages[2]["content"], "what did I say before?");
 }
 
@@ -2142,67 +2101,16 @@ fn worker_run_agent_persists_agent_run_record_and_keeps_history_compact() {
         run["completedToolResults"][0]["toolCallId"],
         "call-run-trace"
     );
-    let trace_events = run["traceEvents"]
-        .as_array()
-        .expect("trace events should be an array");
     let result_runtime_events = result["runtimeEvents"]
         .as_array()
         .expect("runtime events should be returned");
-    let durable_runtime_events = result_runtime_events
-        .iter()
-        .filter(|event| {
-            event["eventName"].as_str().is_none_or(|event_name| {
-                crate::worker_rollout::should_persist_agent_runtime_event(
-                    event_name,
-                    event.get("payload").unwrap_or(event),
-                )
-            })
-        })
-        .collect::<Vec<_>>();
     assert!(result_runtime_events
         .iter()
         .any(|event| event["eventName"] == "agent.provider.requested"));
-    assert_eq!(trace_events.len(), durable_runtime_events.len());
     assert!(
-        trace_events.len() < result_runtime_events.len(),
-        "live-only progress must not be copied into the canonical Rollout"
+        run.get("traceEvents").is_none(),
+        "runtime trace must not be canonical"
     );
-    for (persisted, emitted) in trace_events.iter().zip(durable_runtime_events) {
-        assert_eq!(persisted["eventId"], emitted["eventId"]);
-    }
-    assert_eq!(trace_events[0]["schemaVersion"], "tinybot.agent_event.v1");
-    assert!(trace_events.iter().all(|event| {
-        event["eventName"] != "agent.delta"
-            && event["eventName"] != "agent.reasoning_delta"
-            && event["eventName"] != "agent.phase.changed"
-            && event["eventName"] != "agent.provider.requested"
-    }));
-    assert!(trace_events.iter().all(|event| {
-        event["eventName"] != "agent.status"
-            || event["payload"]["isBlocking"].as_bool() != Some(false)
-    }));
-    let turn_started = trace_events
-        .iter()
-        .find(|event| event["eventName"] == "agent.turn.started")
-        .expect("turn started trace event should persist");
-    assert_eq!(turn_started["payload"]["userMessageId"], "user-read-answer");
-    assert_eq!(
-        turn_started["payload"]["userMessage"]["content"],
-        "read and answer"
-    );
-    assert!(trace_events
-        .iter()
-        .any(|event| event["eventName"] == "agent.tool.result"));
-    let tool_result = trace_events
-        .iter()
-        .find(|event| event["eventName"] == "agent.tool.result")
-        .expect("tool result trace event should persist");
-    assert_eq!(tool_result["schemaVersion"], "tinybot.agent_event.v1");
-    assert_eq!(tool_result["itemId"], "call-run-trace");
-    assert_eq!(tool_result["phase"], "tool_running");
-    assert!(tool_result["sequence"]
-        .as_u64()
-        .is_some_and(|value| value > 1));
     assert_eq!(history["messages"].as_array().unwrap().len(), 2);
     assert!(history["messages"]
         .as_array()
@@ -2297,11 +2205,7 @@ fn worker_run_agent_projects_real_rust_run_into_canonical_session_history() {
         run["completedToolResults"][0]["toolCallId"],
         "call-thread-run-trace"
     );
-    assert!(run["traceEvents"]
-        .as_array()
-        .expect("trace events should be an array")
-        .iter()
-        .any(|event| event["eventName"] == "agent.tool.result"));
+    assert!(run.get("traceEvents").is_none());
 }
 
 #[test]
@@ -3052,7 +2956,7 @@ fn canonical_thread_reads_supersede_stale_session_and_share_rollout_writes() {
     let fixture = WorkspaceFixture::new();
     let config = serde_json::json!({});
     let session_id = "canonical-thread-session";
-    let mut stale_record = native_agent_run_record(
+    let stale_record = native_agent_run_record(
         &serde_json::json!({
             "runtime": "rust",
             "runId": "stale-session-run",
@@ -3067,14 +2971,13 @@ fn canonical_thread_reads_supersede_stale_session_and_share_rollout_writes() {
         session_id,
         "stale-session-run",
     );
-    stale_record["traceEvents"] = serde_json::json!([]);
     call_rust_state_service(
         fixture.root.clone(),
         config.clone(),
         WorkerRequest::new(
             "seed-stale-session-run",
             "trace-stale-session-run",
-            "agent_run.upsert",
+            "agent_run.start",
             serde_json::json!({ "record": stale_record }),
         ),
         "seed stale session run",
@@ -3200,7 +3103,7 @@ fn canonical_thread_reads_supersede_stale_session_and_share_rollout_writes() {
     .expect("thread-owned session.persist_turn should append to canonical Rollout");
     assert_eq!(compatibility_turn["saved_message_count"], 1);
 
-    let mut duplicate_record = native_agent_run_record(
+    let duplicate_record = native_agent_run_record(
         &serde_json::json!({
             "runtime": "rust",
             "sessionId": session_id,
@@ -3214,19 +3117,18 @@ fn canonical_thread_reads_supersede_stale_session_and_share_rollout_writes() {
         session_id,
         "duplicate-run",
     );
-    duplicate_record["traceEvents"] = serde_json::json!([]);
     let compatibility_run = call_rust_state_service(
         fixture.root.clone(),
         config,
         WorkerRequest::new(
             "reject-duplicate-agent-run",
             "trace-canonical-thread",
-            "agent_run.upsert",
+            "agent_run.start",
             serde_json::json!({ "record": duplicate_record }),
         ),
         "persist compatibility agent run",
     )
-    .expect("thread-owned agent_run.upsert should append to canonical Rollout");
+    .expect("thread-owned agent_run.start should append to canonical Rollout");
     assert_eq!(compatibility_run["runId"], "duplicate-run");
 }
 
@@ -3767,7 +3669,7 @@ fn worker_submit_thread_form_resumes_checkpoint_and_updates_thread() {
 }
 
 #[test]
-fn native_agent_trace_sink_updates_runtime_state_before_final_persistence() {
+fn native_agent_semantic_sink_updates_runtime_state_before_final_persistence() {
     let fixture = WorkspaceFixture::new();
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
     let config = serde_json::json!({});
@@ -3789,7 +3691,7 @@ fn native_agent_trace_sink_updates_runtime_state_before_final_persistence() {
             "summary": "Approval required: workspace.write_file",
         }),
     );
-    let sink = crate::native_agent_bridge::NativeAgentRunTraceSink::new(
+    let sink = crate::native_agent_bridge::NativeAgentRunSemanticSink::new(
         fixture.root.clone(),
         config.clone(),
     );
@@ -3822,7 +3724,7 @@ fn native_agent_trace_sink_updates_runtime_state_before_final_persistence() {
 }
 
 #[test]
-fn worker_run_agent_persists_failed_tool_run_with_accumulated_trace() {
+fn worker_run_agent_persists_failed_tool_run_with_typed_results() {
     let fixture = WorkspaceFixture::new();
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
     let config = serde_json::json!({
@@ -3883,12 +3785,7 @@ fn worker_run_agent_persists_failed_tool_run_with_accumulated_trace() {
         "call-tool-error"
     );
     assert_eq!(run["completedToolResults"][1]["status"], "error");
-    assert!(run["traceEvents"]
-        .as_array()
-        .expect("trace events should be an array")
-        .iter()
-        .any(|event| event["eventName"] == "agent.tool.result"
-            && event["payload"]["toolCallId"] == "call-tool-error"));
+    assert!(run.get("traceEvents").is_none());
 }
 
 #[test]
@@ -3925,7 +3822,7 @@ fn worker_run_agent_persists_cancelled_run_as_cancelled() {
 }
 
 #[test]
-fn worker_run_agent_persists_redacted_bounded_tool_trace() {
+fn worker_run_agent_projects_redacted_bounded_tool_result() {
     let fixture = WorkspaceFixture::new();
     fixture.write("README.md", "secret-token ABCDEFGHIJKLMNOP");
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
@@ -3977,12 +3874,11 @@ fn worker_run_agent_persists_redacted_bounded_tool_trace() {
         "run-redacted-trace",
     );
     let serialized = run.to_string();
-    let envelope = &run["completedToolResults"][0]["envelope"];
-
     assert!(!serialized.contains("secret-token"));
-    assert_eq!(envelope["truncation"]["truncated"], true);
-    assert_eq!(envelope["continuation"]["nextOffset"], 12);
-    assert!(envelope["modelContent"].as_str().unwrap().chars().count() <= 12);
+    assert!(!run["completedToolResults"][0]["summary"]
+        .to_string()
+        .contains("secret-token"));
+    assert!(run["completedToolResults"][0].get("envelope").is_none());
 }
 
 #[test]
@@ -4045,10 +3941,7 @@ fn worker_run_agent_omits_large_raw_tool_trace_from_persisted_run_record() {
         serialized.len()
     );
     assert!(!serialized.contains(&"A".repeat(512)));
-    assert_eq!(
-        run["completedToolResults"][0]["tracePersistence"]["truncated"],
-        true
-    );
+    assert!(run["completedToolResults"][0].get("envelope").is_none());
 }
 
 fn read_agent_run_record(
@@ -4357,7 +4250,10 @@ fn worker_webui_approval_resolution_clears_persisted_rust_checkpoint() {
         approval_resolution["headers"]["x-tinybot-route-owner"],
         "rust"
     );
-    assert_eq!(approval_resolution["body"]["ok"], true);
+    assert_eq!(
+        approval_resolution["body"]["ok"], true,
+        "{approval_resolution}"
+    );
     assert_eq!(approval_resolution["body"]["status"], "approved");
     assert_eq!(
         approval_resolution["body"]["approvalId"],
@@ -4505,7 +4401,10 @@ fn worker_webui_approval_denial_finalizes_with_rust_error_result() {
         approval_resolution["headers"]["x-tinybot-route-owner"],
         "rust"
     );
-    assert_eq!(approval_resolution["body"]["ok"], true);
+    assert_eq!(
+        approval_resolution["body"]["ok"], true,
+        "{approval_resolution}"
+    );
     assert_eq!(approval_resolution["body"]["status"], "denied");
     assert_eq!(approval_resolution["body"]["stopReason"], "provider_error");
     assert!(approval_resolution["body"]["error"]
@@ -5018,7 +4917,6 @@ fn worker_agent_run_runtime_commands_use_thread_log_agent_run_store() {
         "currentIteration": 1,
         "conversationMessageIds": [],
         "traceMessages": [],
-        "traceEvents": [],
         "completedToolResults": [],
         "pendingToolCalls": [],
         "checkpoint": null,
@@ -5032,7 +4930,7 @@ fn worker_agent_run_runtime_commands_use_thread_log_agent_run_store() {
         WorkerRequest::new(
             "req-seed-agent-run-thread-log",
             "trace-seed-agent-run-thread-log",
-            "agent_run.upsert",
+            "agent_run.start",
             serde_json::json!({ "record": record }),
         ),
         "agent run thread log seed",
@@ -5042,31 +4940,35 @@ fn worker_agent_run_runtime_commands_use_thread_log_agent_run_store() {
         fixture.root.clone(),
         serde_json::json!({}),
         WorkerRequest::new(
-            "req-seed-agent-run-trace",
+            "req-seed-agent-run-semantic",
             "trace-seed-agent-run-thread-log",
-            "agent_run.append_trace",
+            "agent_run.append_semantic_batch",
             serde_json::json!({
                 "session_id": "websocket:chat-1",
                 "run_id": "run-1",
-                "event": {
+                "events": [{
                     "schemaVersion": "tinybot.agent_event.v1",
                     "eventId": "run-1:agent-done:0000000000000001",
                     "sequence": 1,
                     "sessionId": "websocket:chat-1",
                     "turnId": "run-1",
                     "itemId": "run-1:assistant",
-                    "eventName": "agent.done",
+                    "eventName": "agent.message.completed",
                     "phase": "completed",
                     "timestamp": "2026-07-03T01:00:02Z",
                     "source": "rust_backend",
                     "visibility": "user",
-                    "payload": { "finalContent": "Done from runtime state" }
-                }
+                    "payload": {
+                        "content": "Done from runtime state",
+                        "messageId": "run-1:assistant",
+                        "messagePhase": "final_answer"
+                    }
+                }]
             }),
         ),
-        "agent run trace seed",
+        "agent run semantic seed",
     )
-    .expect("agent run trace should seed thread log store");
+    .expect("agent run semantic records should seed thread log store");
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
 
     let runs = worker_agent_runs_list_with_options(
@@ -6265,15 +6167,19 @@ fn worker_transport_agent_request_change_starts_new_correlated_run() {
         "The selected line is the project heading."
     );
     assert!(items.iter().any(|item| {
-        item["kind"] == "system_notice"
-            && item["data"]["detail"]["commandId"] == "command-agent-request-1"
-            && item["data"]["detail"]["commandKind"] == "agent.request_change"
+        item["kind"] == "tool_call"
+            && item["data"]["toolCallId"] == "command-agent-request-1"
+            && item["data"]["name"] == "agent.request_change"
     }));
-    assert!(items.iter().any(|item| {
-        item["kind"] == "user_message"
-            && item["data"]["references"] == references
-            && item["data"]["content"] == "Explain the selected file range. Do not modify files."
-    }));
+    assert!(
+        items.iter().any(|item| {
+            item["kind"] == "user_message"
+                && item["data"]["references"] == references
+                && item["data"]["content"]
+                    == "Explain the selected file range. Do not modify files."
+        }),
+        "{items:?}"
+    );
 }
 
 #[test]
@@ -6378,9 +6284,9 @@ fn worker_transport_operation_retry_starts_new_correlated_run() {
         .expect("retry timeline items should exist")
         .iter()
         .any(|item| {
-            item["kind"] == "system_notice"
-                && item["data"]["detail"]["commandId"] == "command-operation-retry-1"
-                && item["data"]["detail"]["commandKind"] == "operation.retry"
+            item["kind"] == "tool_call"
+                && item["data"]["toolCallId"] == "command-operation-retry-1"
+                && item["data"]["name"] == "operation.retry"
         }));
 }
 

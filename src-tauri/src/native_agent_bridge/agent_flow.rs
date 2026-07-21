@@ -1,9 +1,8 @@
 use crate::native_agent_bridge::{
     hydrate_native_agent_history_for_runtime, materialize_turn_attachments,
-    native_agent_context_checkpoint_committer, native_agent_run_id,
-    native_agent_services_with_tool_executor, native_agent_session_id, native_agent_trace_sink,
-    persist_native_agent_checkpoint_if_present, persist_native_agent_run_start,
-    persist_native_agent_run_terminal_if_present, persist_native_agent_turn_if_final,
+    native_agent_context_checkpoint_committer, native_agent_services_with_tool_executor,
+    native_agent_trace_sink, persist_native_agent_checkpoint_if_present,
+    persist_native_agent_run_start, persist_native_agent_run_terminal_if_present,
     reject_native_agent_terminal_run_reentry, turn_result_needs_attachment_files,
     TurnAttachmentLease,
 };
@@ -40,6 +39,8 @@ pub(crate) async fn run_agent_with_services(
         &config_snapshot,
     )?;
     instructions.attach_diagnostics(&mut persistence_spec)?;
+    persistence_spec["materializedSystemPrompt"] =
+        serde_json::Value::String(instructions.rendered_prompt().to_string());
     persist_native_agent_run_start(
         persistence_spec.clone(),
         workspace_root.clone(),
@@ -86,7 +87,6 @@ pub(crate) async fn run_agent_with_services(
     if turn_result_needs_attachment_files(&result) {
         attachment_lease.preserve();
     }
-    merge_persisted_runtime_events(&services, &persistence_spec, &mut result)?;
     persist_native_agent_run_terminal_if_present(
         persistence_spec.clone(),
         &mut result,
@@ -98,77 +98,5 @@ pub(crate) async fn run_agent_with_services(
         workspace_root.clone(),
         config_snapshot.clone(),
     )?;
-    persist_native_agent_turn_if_final(
-        persistence_spec,
-        &mut result,
-        workspace_root,
-        config_snapshot,
-    )?;
     Ok(result)
-}
-
-fn merge_persisted_runtime_events(
-    services: &NativeAgentRuntimeServices,
-    spec: &serde_json::Value,
-    result: &mut serde_json::Value,
-) -> Result<(), String> {
-    let runtime_events = result
-        .get("runtimeEvents")
-        .and_then(serde_json::Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let needs_command_acknowledgement = runtime_events.iter().any(|event| {
-        event
-            .get("payload")
-            .and_then(|payload| payload.get("commandId"))
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|command_id| !command_id.trim().is_empty())
-    });
-    if !needs_command_acknowledgement {
-        return Ok(());
-    }
-    let session_id = native_agent_session_id(result)
-        .or_else(|| native_agent_session_id(spec))
-        .ok_or_else(|| "Rust agent run missing session id for trace merge".to_string())?;
-    let run_id = native_agent_run_id(result)
-        .or_else(|| native_agent_run_id(spec))
-        .ok_or_else(|| "Rust agent run missing run id for trace merge".to_string())?;
-    let persisted_runtime_events = services.load_runtime_events(&session_id, &run_id)?;
-    let mut merged_runtime_events = runtime_events;
-    for event in persisted_runtime_events {
-        if event.event_name != "agent.command.acknowledged"
-            || merged_runtime_events.iter().any(|existing| {
-                existing.get("eventId").and_then(serde_json::Value::as_str)
-                    == Some(event.event_id.as_str())
-            })
-        {
-            continue;
-        }
-        merged_runtime_events.push(serde_json::to_value(event).map_err(|error| {
-            format!("failed to serialize merged command acknowledgement: {error}")
-        })?);
-    }
-    if merged_runtime_events.len()
-        > result
-            .get("runtimeEvents")
-            .and_then(serde_json::Value::as_array)
-            .map(Vec::len)
-            .unwrap_or_default()
-    {
-        merged_runtime_events.sort_by_key(|event| {
-            (
-                event
-                    .get("sequence")
-                    .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(u64::MAX),
-                event.get("eventName").and_then(serde_json::Value::as_str)
-                    != Some("agent.command.acknowledged"),
-            )
-        });
-        for (sequence, event) in merged_runtime_events.iter_mut().enumerate() {
-            event["sequence"] = serde_json::json!(sequence);
-        }
-        result["runtimeEvents"] = serde_json::Value::Array(merged_runtime_events);
-    }
-    Ok(())
 }

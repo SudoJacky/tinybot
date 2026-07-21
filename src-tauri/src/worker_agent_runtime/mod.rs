@@ -611,17 +611,6 @@ impl NativeAgentRuntimeServices {
             .map_or(Ok(()), |trace_sink| trace_sink.flush())
     }
 
-    pub(crate) fn load_runtime_events(
-        &self,
-        session_id: &str,
-        run_id: &str,
-    ) -> Result<Vec<AgentRuntimeEventEnvelope>, String> {
-        self.trace_sink.as_ref().map_or_else(
-            || Ok(Vec::new()),
-            |trace_sink| trace_sink.load_runtime_events(session_id, run_id),
-        )
-    }
-
     pub fn with_hook(mut self, hook: Arc<dyn AgentHook>) -> Self {
         self.hooks = self.hooks.with_hook(hook);
         self

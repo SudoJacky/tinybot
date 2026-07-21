@@ -22,7 +22,6 @@ pub enum RolloutItem {
     EventMsg(EventMsg),
     ResponseItem(ResponseItem),
     TurnContext(TurnContextItem),
-    WorldState(WorldStateItem),
     Compacted(CompactedItem),
     InterAgentCommunication(InterAgentCommunication),
     InterAgentCommunicationMetadata { trigger_turn: bool },
@@ -41,14 +40,9 @@ pub enum EventKind {
     MetadataUpdated,
     SessionCleared,
     SessionTrimmed,
-    TaskProgressUpdated,
     ThreadItem,
-    AgentRunUpsert,
-    AgentRunTrace,
     AgentRunCheckpointSet,
     AgentRunCheckpointClear,
-    AgentRunTerminal,
-    Legacy(String),
 }
 
 impl EventKind {
@@ -65,19 +59,14 @@ impl EventKind {
             Self::MetadataUpdated => "metadata_updated",
             Self::SessionCleared => "session_cleared",
             Self::SessionTrimmed => "session_trimmed",
-            Self::TaskProgressUpdated => "task_progress_updated",
             Self::ThreadItem => "thread_item",
-            Self::AgentRunUpsert => "agent_run_upsert",
-            Self::AgentRunTrace => "agent_run_trace",
             Self::AgentRunCheckpointSet => "agent_run_checkpoint_set",
             Self::AgentRunCheckpointClear => "agent_run_checkpoint_clear",
-            Self::AgentRunTerminal => "agent_run_terminal",
-            Self::Legacy(value) => value,
         }
     }
 
-    fn from_str(value: &str) -> Self {
-        match value {
+    fn from_str(value: &str) -> Result<Self, String> {
+        Ok(match value {
             "turn_started" => Self::TurnStarted,
             "task_started" => Self::TaskStarted,
             "turn_complete" => Self::TurnComplete,
@@ -89,15 +78,11 @@ impl EventKind {
             "metadata_updated" => Self::MetadataUpdated,
             "session_cleared" => Self::SessionCleared,
             "session_trimmed" => Self::SessionTrimmed,
-            "task_progress_updated" => Self::TaskProgressUpdated,
             "thread_item" => Self::ThreadItem,
-            "agent_run_upsert" => Self::AgentRunUpsert,
-            "agent_run_trace" => Self::AgentRunTrace,
             "agent_run_checkpoint_set" => Self::AgentRunCheckpointSet,
             "agent_run_checkpoint_clear" => Self::AgentRunCheckpointClear,
-            "agent_run_terminal" => Self::AgentRunTerminal,
-            other => Self::Legacy(other.to_string()),
-        }
+            other => return Err(format!("unsupported event_msg type `{other}`")),
+        })
     }
 
     pub fn starts_turn(&self) -> bool {
@@ -112,14 +97,9 @@ impl EventKind {
             | Self::MetadataUpdated
             | Self::SessionCleared
             | Self::SessionTrimmed
-            | Self::TaskProgressUpdated
             | Self::ThreadItem
-            | Self::AgentRunUpsert
-            | Self::AgentRunTrace
             | Self::AgentRunCheckpointSet
-            | Self::AgentRunCheckpointClear
-            | Self::AgentRunTerminal
-            | Self::Legacy(_) => false,
+            | Self::AgentRunCheckpointClear => false,
         }
     }
 
@@ -134,24 +114,15 @@ impl EventKind {
             | Self::MetadataUpdated
             | Self::SessionCleared
             | Self::SessionTrimmed
-            | Self::TaskProgressUpdated
             | Self::ThreadItem
-            | Self::AgentRunUpsert
-            | Self::AgentRunTrace
             | Self::AgentRunCheckpointSet
-            | Self::AgentRunCheckpointClear
-            | Self::AgentRunTerminal
-            | Self::Legacy(_) => false,
+            | Self::AgentRunCheckpointClear => false,
         }
     }
 
     pub fn is_agent_run_lifecycle(&self) -> bool {
         match self {
-            Self::AgentRunUpsert
-            | Self::AgentRunTrace
-            | Self::AgentRunCheckpointSet
-            | Self::AgentRunCheckpointClear
-            | Self::AgentRunTerminal => true,
+            Self::AgentRunCheckpointSet | Self::AgentRunCheckpointClear => true,
             Self::TurnStarted
             | Self::TaskStarted
             | Self::TurnComplete
@@ -163,9 +134,7 @@ impl EventKind {
             | Self::MetadataUpdated
             | Self::SessionCleared
             | Self::SessionTrimmed
-            | Self::TaskProgressUpdated
-            | Self::ThreadItem
-            | Self::Legacy(_) => false,
+            | Self::ThreadItem => false,
         }
     }
 }
@@ -209,7 +178,7 @@ impl EventMsg {
             .and_then(Value::as_str)
             .ok_or_else(|| "event_msg payload is missing string field `type`".to_string())?;
         Ok(Self {
-            kind: EventKind::from_str(event_type),
+            kind: EventKind::from_str(event_type)?,
             raw,
         })
     }
@@ -602,23 +571,6 @@ fn optional_string(
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorldStateItem {
-    pub full: bool,
-    pub state: Value,
-}
-
-impl WorldStateItem {
-    pub fn full(state: Value) -> Self {
-        Self { full: true, state }
-    }
-
-    pub fn patch(state: Value) -> Self {
-        Self { full: false, state }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct TurnContextItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<String>,
@@ -802,7 +754,6 @@ pub struct RolloutReconstruction {
     pub user_profile: Value,
     pub token_usage_info: Option<TokenUsageInfo>,
     pub context_checkpoint: Option<Value>,
-    pub world_state_baseline: Option<Value>,
     pub previous_turn_settings: Option<PreviousTurnSettings>,
     pub reference_context: Option<TurnContextItem>,
     pub compaction_window: CompactionWindowLineage,
@@ -903,25 +854,6 @@ mod tests {
     }
 
     #[test]
-    fn world_state_item_serializes_like_codex_rollout() {
-        let line = RolloutLine {
-            timestamp: "2026-07-17T10:00:00Z".to_string(),
-            ordinal: None,
-            item: RolloutItem::WorldState(WorldStateItem::patch(json!({
-                "environment": { "cwd": "D:/code/tinybot" }
-            }))),
-        };
-
-        let value = serde_json::to_value(line).unwrap();
-        assert_eq!(value["type"], "world_state");
-        assert_eq!(value["payload"]["full"], false);
-        assert_eq!(
-            value["payload"]["state"]["environment"]["cwd"],
-            "D:/code/tinybot"
-        );
-    }
-
-    #[test]
     fn typed_rollout_records_preserve_wire_values_and_discriminants() {
         let known_raw = json!({
             "type": "turn_started",
@@ -936,12 +868,10 @@ mod tests {
             "type": "future_event",
             "payload": {"newField": true}
         });
-        let legacy = EventMsg::from_value(legacy_raw.clone()).unwrap();
         assert_eq!(
-            legacy.kind(),
-            &EventKind::Legacy("future_event".to_string())
+            EventMsg::from_value(legacy_raw).unwrap_err(),
+            "unsupported event_msg type `future_event`"
         );
-        assert_eq!(serde_json::to_value(legacy).unwrap(), legacy_raw);
 
         let response_raw = json!({
             "type": "message",

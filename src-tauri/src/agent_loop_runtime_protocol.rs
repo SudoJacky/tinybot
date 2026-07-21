@@ -1226,7 +1226,9 @@ impl AgentTimelineProjector {
         else {
             return Ok(None);
         };
-        self.snapshot_revision = self.snapshot_revision.saturating_add(1);
+        if is_durable_agent_timeline_event(&event.event_name) {
+            self.snapshot_revision = self.snapshot_revision.saturating_add(1);
+        }
         self.validate_final_answer_boundary_for_item(&item_id)?;
         let item = self
             .items
@@ -1311,10 +1313,32 @@ pub fn project_timeline_snapshot(
         run_id: run_id.to_string(),
         snapshot_revision: events
             .iter()
-            .filter(|event| projected_item_kind(event).is_some())
+            .filter(|event| {
+                projected_item_kind(event).is_some()
+                    && is_durable_agent_timeline_event(&event.event_name)
+            })
             .count() as u64,
         items,
     })
+}
+
+pub fn is_durable_agent_timeline_event(event_name: &str) -> bool {
+    matches!(
+        event_name,
+        "agent.turn.started"
+            | "agent.reasoning.completed"
+            | "agent.message.classified"
+            | "agent.message.completed"
+            | "agent.tool_call.delta"
+            | "agent.tool.result"
+            | "agent.awaiting_approval"
+            | "agent.approval.decision"
+            | "agent.error"
+            | "agent.cancelled"
+            | "agent.delegate.spawned"
+            | "agent.delegate.message"
+            | "agent.delegate.completed"
+    )
 }
 
 pub fn project_timeline_patch(
@@ -3429,12 +3453,12 @@ mod tests {
             .expect("assistant delta should create a patch");
 
         assert_eq!(snapshot.schema_version, AGENT_TIMELINE_SCHEMA_VERSION);
-        assert_eq!(snapshot.snapshot_revision, 2);
+        assert_eq!(snapshot.snapshot_revision, 0);
         assert_eq!(snapshot.items.len(), 1);
         assert_eq!(snapshot.items[0].sequence, 7);
         assert_eq!(snapshot.items[0].revision, 2);
         assert_eq!(patch.schema_version, AGENT_TIMELINE_PATCH_SCHEMA_VERSION);
-        assert_eq!(patch.snapshot_revision, 2);
+        assert_eq!(patch.snapshot_revision, 0);
         assert_eq!(patch.item, snapshot.items[0]);
     }
 
@@ -3825,6 +3849,64 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn live_deltas_do_not_advance_durable_timeline_revision() {
+        let events = vec![
+            runtime_event(
+                "run-durable-revision",
+                "agent.reasoning_delta",
+                AgentRuntimePhase::StreamingModel,
+                Some("reasoning-1"),
+                1,
+                json!({"delta": "Inspect "}),
+            ),
+            runtime_event(
+                "run-durable-revision",
+                "agent.reasoning.completed",
+                AgentRuntimePhase::StreamingModel,
+                Some("reasoning-1"),
+                2,
+                json!({"summary": "Inspect first."}),
+            ),
+            runtime_event(
+                "run-durable-revision",
+                "agent.delta",
+                AgentRuntimePhase::Finalizing,
+                Some("assistant-1"),
+                3,
+                json!({"delta": "Done."}),
+            ),
+            runtime_event(
+                "run-durable-revision",
+                "agent.message.completed",
+                AgentRuntimePhase::Completed,
+                Some("assistant-1"),
+                4,
+                json!({"content": "Done.", "messagePhase": "final_answer"}),
+            ),
+        ];
+        let mut projector = AgentTimelineProjector::new("session-1", "run-durable-revision");
+        let revisions = events
+            .iter()
+            .map(|event| {
+                projector
+                    .apply_event(event)
+                    .unwrap()
+                    .map(|patch| patch.snapshot_revision)
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(revisions, vec![0, 1, 1, 2]);
+        assert_eq!(projector.snapshot().unwrap().snapshot_revision, 2);
+        assert_eq!(
+            project_timeline_snapshot("session-1", "run-durable-revision", &events)
+                .unwrap()
+                .snapshot_revision,
+            2
+        );
     }
 
     fn runtime_event(

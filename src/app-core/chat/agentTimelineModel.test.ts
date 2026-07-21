@@ -67,6 +67,19 @@ describe("canonical agent timeline model", () => {
     });
   });
 
+  test("applies live item deltas without advancing the durable snapshot revision", () => {
+    const model = createAgentTimelineModel();
+    model.load(sessionId, [runtimeState(1, [item({ revision: 2 })])]);
+
+    const snapshot = model.applyPatch(sessionId, patch(1, {
+      revision: 3,
+      data: { type: "assistant_message", messageId: "assistant-1", modelCallId: "call-1", phase: "unknown", content: "hello" },
+    }));
+
+    expect(snapshot.runRevisions).toEqual({ [runId]: 1 });
+    expect(snapshot.turns[0]?.canonicalItems?.[0]).toMatchObject({ revision: 3 });
+  });
+
   test("preserves reasoning, commentary, tools, and the terminal answer in canonical order", () => {
     const model = createAgentTimelineModel();
     const canonicalItems = [
