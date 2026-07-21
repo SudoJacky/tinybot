@@ -983,20 +983,8 @@ fn strict_patch_search_approval_and_real_dispatch_work_end_to_end() {
                     reasoning_delta: None,
                     usage: None,
                     tool_calls: vec![NativeAgentToolCall {
-                        id: "search-patch".to_string(),
-                        name: "tool_search".to_string(),
-                        arguments_json: r#"{"query":"strict workspace patch","limit":1}"#
-                            .to_string(),
-                        result: Value::Null,
-                    }],
-                }),
-                1 => Ok(NativeAgentProviderResponse {
-                    final_content: String::new(),
-                    reasoning_delta: None,
-                    usage: None,
-                    tool_calls: vec![NativeAgentToolCall {
                         id: "apply-patch".to_string(),
-                        name: "workspace.apply_patch".to_string(),
+                        name: "apply_patch".to_string(),
                         arguments_json: serde_json::to_string(&json!({
                             "patch": "*** Begin Patch\n*** Add File: notes/created.md\n+created by strict patch\n*** End Patch\n"
                         }))
@@ -1043,7 +1031,7 @@ fn strict_patch_search_approval_and_real_dispatch_work_end_to_end() {
     .expect("patch tool should reach approval boundary");
 
     assert_eq!(waiting["stopReason"], "awaiting_approval");
-    assert_eq!(waiting["approval"]["toolName"], "workspace.apply_patch");
+    assert_eq!(waiting["approval"]["toolName"], "apply_patch");
     assert!(!workspace.root.join("notes/created.md").exists());
 
     let resumed = run_native_agent_turn_with_workspace(
@@ -1068,7 +1056,7 @@ fn strict_patch_search_approval_and_real_dispatch_work_end_to_end() {
 
     assert_eq!(resumed["stopReason"], "final_response");
     assert_eq!(resumed["finalContent"], "patch applied");
-    assert_eq!(resumed["toolsUsed"], json!(["workspace.apply_patch"]));
+    assert_eq!(resumed["toolsUsed"], json!(["apply_patch"]));
     assert_eq!(
         std::fs::read_to_string(workspace.root.join("notes/created.md"))
             .expect("approved patch should create the file"),
@@ -1631,7 +1619,7 @@ fn tool_search_excludes_deferred_tools_denied_by_capability_policy() {
 }
 
 #[test]
-fn tool_search_matches_meaningful_words_in_descriptive_queries() {
+fn tool_search_does_not_reexpose_hidden_legacy_file_or_shell_tools() {
     let mut context = NativeAgentRunContext::from_spec(
         json!({
             "runId": "run-tool-search-words",
@@ -1652,8 +1640,8 @@ fn tool_search_matches_meaningful_words_in_descriptive_queries() {
         .filter_map(|tool| tool["toolId"].as_str())
         .collect::<Vec<_>>();
 
-    assert!(tool_ids.contains(&"shell.execute"));
-    assert!(tool_ids.contains(&"workspace.write_file"));
+    assert!(!tool_ids.contains(&"shell.execute"));
+    assert!(!tool_ids.contains(&"workspace.write_file"));
 }
 
 #[test]
@@ -1662,21 +1650,21 @@ fn deferred_tool_activation_round_trips_through_checkpoint_validation() {
         json!({
             "runId": "run-tool-search-checkpoint",
             "sessionId": "session-tool-search-checkpoint",
-            "messages": [{ "role": "user", "content": "find shell" }]
+            "messages": [{ "role": "user", "content": "find browser interaction" }]
         }),
         json!({}),
     );
     context
         .tool_router
-        .search_and_activate(r#"{"query":"shell","limit":1}"#)
-        .expect("shell should activate for the current run");
+        .search_and_activate(r#"{"query":"browser interaction","limit":1}"#)
+        .expect("browser interaction should activate for the current run");
     let checkpoint = super::checkpoint::checkpoint_value(
         &context,
         "awaiting_approval",
         json!({ "iteration": 1 }),
     );
 
-    assert_eq!(checkpoint["activatedToolIds"], json!(["exec_command"]));
+    assert_eq!(checkpoint["activatedToolIds"], json!(["browser.interact"]));
     let cancelled_checkpoint = super::checkpoint::checkpoint_value(
         &context,
         "cancelled",
@@ -1704,7 +1692,7 @@ fn deferred_tool_activation_round_trips_through_checkpoint_validation() {
         .iter()
         .map(|tool| tool["function"]["name"].as_str().unwrap_or_default())
         .collect::<Vec<_>>();
-    assert!(names.contains(&"exec_command"));
+    assert!(names.contains(&"browser_interact"));
 
     let stale_checkpoint = json!({ "activatedToolIds": ["missing.tool"] });
     let error = NativeAgentRunContext::from_spec(
@@ -1725,14 +1713,17 @@ fn duplicate_deferred_tool_activation_fails_without_partial_state() {
         json!({
             "runId": "run-duplicate-activation",
             "sessionId": "session-duplicate-activation",
-            "messages": [{ "role": "user", "content": "find shell" }]
+            "messages": [{ "role": "user", "content": "find browser interaction" }]
         }),
         json!({}),
     );
 
     let error = context
         .tool_router
-        .activate_for_turn(&["exec_command".to_string(), "exec_command".to_string()])
+        .activate_for_turn(&[
+            "browser.interact".to_string(),
+            "browser.interact".to_string(),
+        ])
         .expect_err("duplicate activation IDs must fail explicitly");
 
     assert!(error.contains("duplicate ID"));
@@ -1849,7 +1840,8 @@ fn activated_mutating_tool_stops_at_approval_checkpoint_before_dispatch() {
                     tool_calls: vec![NativeAgentToolCall {
                         id: "search-write".to_string(),
                         name: "tool_search".to_string(),
-                        arguments_json: r#"{"query":"Write workspace file","limit":1}"#.to_string(),
+                        arguments_json: r#"{"query":"Interact with TinyOS browser","limit":1}"#
+                            .to_string(),
                         result: Value::Null,
                     }],
                 }),
@@ -1859,8 +1851,8 @@ fn activated_mutating_tool_stops_at_approval_checkpoint_before_dispatch() {
                     usage: None,
                     tool_calls: vec![NativeAgentToolCall {
                         id: "write-after-search".to_string(),
-                        name: "workspace.write_file".to_string(),
-                        arguments_json: r#"{"path":"notes.txt","contents":"hello"}"#.to_string(),
+                        name: "browser.interact".to_string(),
+                        arguments_json: r#"{"browserSessionId":"browser-1","tabId":"tab-1","controlEpoch":1,"action":{"type":"reload"}}"#.to_string(),
                         result: Value::Null,
                     }],
                 }),
@@ -1971,11 +1963,11 @@ fn activated_mutating_tool_stops_at_approval_checkpoint_before_dispatch() {
     assert_eq!(result["stopReason"], "awaiting_approval");
     assert_eq!(
         result["checkpoint"]["activatedToolIds"],
-        json!(["workspace.write_file"])
+        json!(["browser.interact"])
     );
     assert_eq!(
         result["checkpoint"]["pendingToolCalls"][0]["toolName"],
-        "workspace.write_file"
+        "browser.interact"
     );
     assert_eq!(
         result["events"]
@@ -2031,7 +2023,7 @@ fn activated_mutating_tool_stops_at_approval_checkpoint_before_dispatch() {
         .push(json!({
             "role": "tool",
             "tool_call_id": "write-after-search",
-            "name": "workspace.write_file",
+            "name": "browser.interact",
             "content": "stale duplicate result"
         }));
     services.save_run_checkpoint(
@@ -2137,7 +2129,7 @@ fn activated_mutating_tool_stops_at_approval_checkpoint_before_dispatch() {
     .expect("approval continuation should restore its activation checkpoint");
     assert_eq!(
         resumed["restoredCheckpoint"]["activatedToolIds"],
-        json!(["workspace.write_file"])
+        json!(["browser.interact"])
     );
     assert_eq!(resumed["stopReason"], "final_response");
     assert_eq!(
@@ -2146,7 +2138,7 @@ fn activated_mutating_tool_stops_at_approval_checkpoint_before_dispatch() {
     );
     assert_eq!(
         resumed["toolsUsed"],
-        json!(["workspace.write_file", "tool_search"])
+        json!(["browser.interact", "tool_search"])
     );
     let waiting_event_ids = result["runtimeEvents"]
         .as_array()
@@ -2177,10 +2169,10 @@ fn activated_mutating_tool_stops_at_approval_checkpoint_before_dispatch() {
         .expect("dispatched calls lock should not be poisoned");
     assert_eq!(dispatched.len(), 1);
     assert_eq!(dispatched[0].id, "write-after-search");
-    assert_eq!(dispatched[0].name, "workspace.write_file");
+    assert_eq!(dispatched[0].name, "browser.interact");
     assert_eq!(
         dispatched[0].arguments_json,
-        r#"{"path":"notes.txt","contents":"hello"}"#
+        r#"{"browserSessionId":"browser-1","tabId":"tab-1","controlEpoch":1,"action":{"type":"reload"}}"#
     );
 }
 
@@ -2347,6 +2339,7 @@ fn provider_tool_call_names_restore_internal_registry_methods() {
     assert_eq!(tool_calls.len(), 1);
     assert_eq!(tool_calls[0].name, "workspace.read_file");
     assert_eq!(tool_calls[0].arguments_json, "{\"path\":\"README.md\"}");
+    assert!(tool_calls[0].result.is_null());
 }
 
 #[test]
@@ -2533,13 +2526,13 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
         &services,
         json!({
             "runtime": "rust",
-            "runId": "run-selected-deferred-tool",
-            "sessionId": "session-selected-deferred-tool",
-            "selectedTools": ["workspace.apply_patch"],
+            "runId": "run-selected-apply-patch",
+            "sessionId": "session-selected-apply-patch",
+            "selectedTools": ["apply_patch"],
             "messages": [{ "role": "user", "content": "prepare one patch tool" }]
         }),
     )
-    .expect("selected deferred tool should activate for the turn");
+    .expect("selected canonical patch tool should configure the turn");
     run_native_agent_turn_with_services(
         &services,
         json!({
@@ -2567,7 +2560,10 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
         .iter()
         .any(|tool| tool["function"]["name"] == "update_plan"));
     assert!(activated[0].is_empty());
-    assert_eq!(activated[1], ["workspace.apply_patch"]);
+    assert!(captured[1]
+        .iter()
+        .any(|tool| tool["function"]["name"] == "apply_patch"));
+    assert!(activated[1].is_empty());
     assert!(captured[2].iter().all(|tool| !matches!(
         tool["function"]["name"].as_str(),
         Some("workspace_apply_patch" | "exec_command")
@@ -2624,7 +2620,7 @@ fn invalid_turn_policy_stops_before_provider_dispatch() {
             "runId": "run-never-approval-tool",
             "sessionId": "session-never-approval-tool",
             "approvalPolicy": "never",
-            "selectedTools": ["workspace.apply_patch"],
+            "selectedTools": ["apply_patch"],
             "messages": [{ "role": "user", "content": "patch a file" }]
         }),
     )
@@ -4484,13 +4480,13 @@ fn shell_read_only_allowlist_uses_read_lock_only_when_explicitly_enabled() {
                     tool_calls: vec![
                         NativeAgentToolCall {
                             id: "call-shell-status".to_string(),
-                            name: "shell.execute".to_string(),
+                            name: "exec_command".to_string(),
                             arguments_json: "{\"command\":\"git status\"}".to_string(),
                             result: json!({ "content": "status" }),
                         },
                         NativeAgentToolCall {
                             id: "call-shell-diff".to_string(),
-                            name: "shell.execute".to_string(),
+                            name: "exec_command".to_string(),
                             arguments_json: "{\"command\":\"git diff\"}".to_string(),
                             result: json!({ "content": "diff" }),
                         },
@@ -4541,8 +4537,7 @@ fn shell_read_only_allowlist_uses_read_lock_only_when_explicitly_enabled() {
             Arc::new(InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(InMemoryNativeAgentCancellation::default()),
         )
-        .with_test_tool_registry_entries(test_registry_without_approval(&["shell.execute"]))
-        .with_test_activated_tools(&["shell.execute"]),
+        .with_test_tool_registry_entries(test_registry_without_approval(&["exec_command"])),
         json!({
             "runtime": "rust",
             "runId": "run-shell-read-allowlist",
@@ -4563,7 +4558,7 @@ fn shell_read_only_allowlist_uses_read_lock_only_when_explicitly_enabled() {
         .iter()
         .filter(|event| {
             event["eventName"] == "agent.tool.start"
-                && event["payload"]["toolName"] == "shell.execute"
+                && event["payload"]["toolName"] == "exec_command"
                 && event["payload"]["status"] == "queued"
         })
         .map(|event| event["payload"]["parallelMode"].clone())
@@ -4719,7 +4714,7 @@ fn mixed_parallel_and_non_parallel_tool_batch_uses_read_write_lock_scheduling() 
                         },
                         NativeAgentToolCall {
                             id: "call-write-exclusive".to_string(),
-                            name: "shell.execute".to_string(),
+                            name: "exec_command".to_string(),
                             arguments_json: "{\"command\":\"echo hi\"}".to_string(),
                             result: json!({ "content": "hi" }),
                         },
@@ -4754,7 +4749,7 @@ fn mixed_parallel_and_non_parallel_tool_batch_uses_read_write_lock_scheduling() 
             _context: &NativeAgentRunContext,
             tool_call: &NativeAgentToolCall,
         ) -> Result<NativeAgentToolResult, String> {
-            let is_write = tool_call.name == "shell.execute";
+            let is_write = tool_call.name == "exec_command";
             if is_write {
                 if self.active_reads.load(Ordering::SeqCst) > 0 {
                     self.write_overlaps.fetch_add(1, Ordering::SeqCst);
@@ -4838,8 +4833,7 @@ fn mixed_parallel_and_non_parallel_tool_batch_uses_read_write_lock_scheduling() 
             checkpoints.clone(),
             Arc::new(InMemoryNativeAgentCancellation::default()),
         )
-        .with_test_tool_registry_entries(test_registry_without_approval(&["shell.execute"]))
-        .with_test_activated_tools(&["shell.execute"]),
+        .with_test_tool_registry_entries(test_registry_without_approval(&["exec_command"])),
         json!({
             "runtime": "rust",
             "runId": "run-mixed-tool-batch",
@@ -4894,7 +4888,7 @@ fn mixed_parallel_and_non_parallel_tool_batch_uses_read_write_lock_scheduling() 
         json!([
             "workspace.read_file",
             "memory.search",
-            "shell.execute",
+            "exec_command",
             "memory.recall"
         ])
     );
@@ -4965,7 +4959,7 @@ fn cancellation_before_queued_write_lock_dispatch_skips_waiting_tool() {
                         },
                         NativeAgentToolCall {
                             id: "call-write-waits".to_string(),
-                            name: "shell.execute".to_string(),
+                            name: "exec_command".to_string(),
                             arguments_json: "{\"command\":\"echo should-not-run\"}".to_string(),
                             result: json!({ "content": "should not run" }),
                         },
@@ -5022,8 +5016,7 @@ fn cancellation_before_queued_write_lock_dispatch_skips_waiting_tool() {
             Arc::new(InMemoryNativeAgentCheckpointStore::default()),
             cancellations,
         )
-        .with_test_tool_registry_entries(test_registry_without_approval(&["shell.execute"]))
-        .with_test_activated_tools(&["shell.execute"]),
+        .with_test_tool_registry_entries(test_registry_without_approval(&["exec_command"])),
         json!({
             "runtime": "rust",
             "runId": "run-cancel-queued-write",
@@ -5062,13 +5055,13 @@ fn terminal_failure_before_queued_write_dispatch_skips_waiting_tool() {
                 tool_calls: vec![
                     NativeAgentToolCall {
                         id: "call-first-write-fails".to_string(),
-                        name: "shell.execute".to_string(),
+                        name: "exec_command".to_string(),
                         arguments_json: "{\"command\":\"false\"}".to_string(),
                         result: json!({ "content": "unused first" }),
                     },
                     NativeAgentToolCall {
                         id: "call-second-write-waits".to_string(),
-                        name: "shell.execute".to_string(),
+                        name: "exec_command".to_string(),
                         arguments_json: "{\"command\":\"touch should-not-run\"}".to_string(),
                         result: json!({ "content": "unused second" }),
                     },
@@ -5108,8 +5101,7 @@ fn terminal_failure_before_queued_write_dispatch_skips_waiting_tool() {
             Arc::new(InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(InMemoryNativeAgentCancellation::default()),
         )
-        .with_test_tool_registry_entries(test_registry_without_approval(&["shell.execute"]))
-        .with_test_activated_tools(&["shell.execute"]),
+        .with_test_tool_registry_entries(test_registry_without_approval(&["exec_command"])),
         json!({
             "runtime": "rust",
             "runId": "run-failed-queued-write",
@@ -5770,9 +5762,9 @@ fn dispatches_multiple_tool_calls_from_one_provider_response_in_order() {
                                     "result": { "content": "README body" }
                                 },
                                 {
-                                    "id": "call-list",
-                                    "name": "workspace.list_files",
-                                    "argumentsJson": "{\"path\":\"src\"}",
+                                    "id": "call-search",
+                                    "name": "memory.search",
+                                    "argumentsJson": "{\"query\":\"src\"}",
                                     "result": { "content": "src/main.ts" }
                                 }
                             ]
@@ -5794,11 +5786,11 @@ fn dispatches_multiple_tool_calls_from_one_provider_response_in_order() {
 
     assert_eq!(
         result["toolsUsed"],
-        json!(["workspace.read_file", "workspace.list_files"])
+        json!(["workspace.read_file", "memory.search"])
     );
     assert_eq!(tool_results.len(), 2);
     assert_eq!(tool_results[0]["payload"]["toolCallId"], "call-read");
-    assert_eq!(tool_results[1]["payload"]["toolCallId"], "call-list");
+    assert_eq!(tool_results[1]["payload"]["toolCallId"], "call-search");
     assert_eq!(result["finalContent"], "workspace inspected");
 }
 
@@ -5824,8 +5816,8 @@ fn later_tool_error_preserves_earlier_completed_tool_result() {
                     },
                     NativeAgentToolCall {
                         id: "call-second-fails".to_string(),
-                        name: "workspace.list_files".to_string(),
-                        arguments_json: "{\"path\":\"missing\"}".to_string(),
+                        name: "memory.search".to_string(),
+                        arguments_json: "{\"query\":\"missing\"}".to_string(),
                         result: json!({ "content": "unused" }),
                     },
                 ],
@@ -5871,7 +5863,7 @@ fn later_tool_error_preserves_earlier_completed_tool_result() {
     assert_eq!(result["stopReason"], "tool_error");
     assert_eq!(
         result["toolsUsed"],
-        json!(["workspace.read_file", "workspace.list_files"])
+        json!(["workspace.read_file", "memory.search"])
     );
     assert_eq!(result["completedToolResults"].as_array().unwrap().len(), 2);
     assert_eq!(

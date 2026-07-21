@@ -128,9 +128,6 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
                     ))
                 }
             }
-            Err(_error) if native_agent_tool_executor_can_fallback(tool_call) => {
-                self.fallback.dispatch(context, tool_call)
-            }
             Err(error) => Err(error),
         }
     }
@@ -711,10 +708,6 @@ fn native_agent_tool_executor_should_fallback(tool_name: &str) -> bool {
             | "close_agent"
             | "resume_agent"
     )
-}
-
-fn native_agent_tool_executor_can_fallback(tool_call: &NativeAgentToolCall) -> bool {
-    !tool_call.result.is_null()
 }
 
 fn native_tool_executor_model_content(value: &serde_json::Value) -> String {

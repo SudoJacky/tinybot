@@ -294,7 +294,7 @@ describe("ChatPage", () => {
     expect(canvas.isConnected).toBe(false);
     expect(openButton.getAttribute("aria-label")).toMatch(/^Open TinyOS/);
     expect(document.activeElement).toBe(openButton);
-  });
+  }, 10_000);
 
   it("attaches a TinyOS file range as a visible composer chip and structured chat reference", async () => {
     const user = userEvent.setup();

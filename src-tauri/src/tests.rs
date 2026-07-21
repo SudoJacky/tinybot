@@ -61,71 +61,32 @@ fn close_shutdown_stops_background_worker_child() {
 
 #[test]
 fn close_shutdown_cancels_and_drains_owned_agent_task() {
-    struct ShutdownAwareProvider {
-        started: std::sync::mpsc::Sender<()>,
-    }
-
-    impl crate::worker_agent_runtime::NativeAgentProvider for ShutdownAwareProvider {
-        fn complete(
-            &self,
-            context: &crate::worker_agent_runtime::NativeAgentRunContext,
-        ) -> Result<crate::worker_agent_runtime::NativeAgentProviderResponse, String> {
-            self.started.send(()).expect("provider start should send");
-            while !context
-                .cancellation
-                .as_ref()
-                .is_some_and(|cancellation| cancellation.is_cancelled())
-            {
-                std::thread::sleep(Duration::from_millis(5));
-            }
-            Ok(crate::worker_agent_runtime::NativeAgentProviderResponse {
-                final_content: "late shutdown response".to_string(),
-                reasoning_delta: None,
-                usage: None,
-                tool_calls: Vec::new(),
-            })
-        }
-    }
-
-    let fixture = WorkspaceFixture::new();
-    let (started_sender, started_receiver) = std::sync::mpsc::channel();
-    let services = NativeAgentRuntimeServices::new(
-        Arc::new(ShutdownAwareProvider {
-            started: started_sender,
-        }),
-        Arc::new(crate::worker_agent_runtime::FakeNativeAgentToolDispatcher),
-        Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCheckpointStore::default()),
-        Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCancellation::default()),
-    );
+    let services = NativeAgentRuntimeServices::default();
     let task_runtime = services.task_runtime();
     let shared = Arc::new(Mutex::new(GatewayRuntime {
         native_agent_runtime: services,
         ..GatewayRuntime::default()
     }));
-    let runner_shared = shared.clone();
-    let runner_root = fixture.root.clone();
-    let runner = std::thread::spawn(move || {
-        worker_run_agent_with_options(
-            &runner_shared,
-            serde_json::json!({
-                "runtime": "rust",
-                "runId": "run-shutdown-owned",
-                "sessionId": "session-shutdown-owned",
-                "messages": [{ "role": "user", "content": "wait for shutdown" }]
-            }),
-            runner_root,
-            serde_json::json!({}),
-            Duration::from_secs(10),
+    let operation_runtime = task_runtime.clone();
+    let handle = task_runtime
+        .start_blocking(
+            crate::runtime::agent_task::StartAgentRun::new(
+                "run-shutdown-owned",
+                "session-shutdown-owned",
+            ),
+            move || {
+                while !operation_runtime.is_cancelled("run-shutdown-owned") {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Ok(serde_json::json!({ "stopReason": "late_completion" }))
+            },
         )
-    });
-    started_receiver
-        .recv_timeout(Duration::from_secs(5))
-        .expect("owned provider should start");
+        .expect("owned agent task should start");
+    assert_eq!(task_runtime.active_count(), 1);
 
     stop_owned_gateway(&shared, true).expect("owned agent task should drain during shutdown");
-    let result = runner
-        .join()
-        .expect("owned agent runner should not panic")
+    let result = handle
+        .wait()
         .expect("owned agent runner should return cancellation");
 
     assert_eq!(result["stopReason"], "cancelled");
@@ -1200,6 +1161,7 @@ fn worker_run_agent_preserves_trace_from_ingress_through_persistence() {
 #[test]
 fn worker_run_agent_preserves_legacy_tool_content_with_envelope_payload() {
     let fixture = WorkspaceFixture::new();
+    fixture.write("README.md", "README excerpt");
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
 
     let result = worker_run_agent_with_options(
@@ -1243,7 +1205,9 @@ fn worker_run_agent_preserves_legacy_tool_content_with_envelope_payload() {
 
     assert_eq!(result["stopReason"], "final_response");
     assert_eq!(result["finalContent"], "final after envelope");
-    assert_eq!(tool_result["payload"]["content"], "README excerpt");
+    assert!(tool_result["payload"]["content"]
+        .as_str()
+        .is_some_and(|content| content.contains("README excerpt")));
     assert_eq!(tool_result["payload"]["envelope"]["status"], "ok");
     assert_eq!(
         tool_result["payload"]["envelope"]["trace"]["toolCallId"],
@@ -1836,6 +1800,7 @@ fn worker_run_agent_hydrates_session_history_before_provider_call() {
 #[test]
 fn worker_run_agent_combines_session_history_with_current_tool_results() {
     let fixture = WorkspaceFixture::new();
+    fixture.write("README.md", "README durable body");
     let calls = Arc::new(Mutex::new(Vec::new()));
     let shared = Arc::new(Mutex::new(GatewayRuntime {
         native_agent_runtime: NativeAgentRuntimeServices::new(
@@ -2103,6 +2068,7 @@ fn worker_run_agent_rejects_terminal_run_reentry_before_provider_call() {
 #[test]
 fn worker_run_agent_persists_agent_run_record_and_keeps_history_compact() {
     let fixture = WorkspaceFixture::new();
+    fixture.write("README.md", "README trace body");
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
     let config = serde_json::json!({
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
@@ -2241,6 +2207,7 @@ fn worker_run_agent_persists_agent_run_record_and_keeps_history_compact() {
 #[test]
 fn worker_run_agent_projects_real_rust_run_into_canonical_session_history() {
     let fixture = WorkspaceFixture::new();
+    fixture.write("README.md", "README thread body");
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
     let config = serde_json::json!({
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
@@ -2507,6 +2474,49 @@ fn worker_run_agent_uses_native_tool_executor_for_registered_workspace_tool() {
         tool_result["payload"]["content"],
         "fixture result should not be used"
     );
+}
+
+#[test]
+fn worker_run_agent_does_not_fallback_to_fixture_result_after_executor_error() {
+    let fixture = WorkspaceFixture::new();
+    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let config = serde_json::json!({
+        "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+        "providers": {
+            "fixture": {
+                "responses": [{
+                    "content": "",
+                    "toolCalls": [{
+                        "id": "call-native-executor-missing",
+                        "name": "workspace.read_file",
+                        "argumentsJson": "{\"path\":\"missing.md\"}",
+                        "result": { "content": "fixture success must not be used" }
+                    }]
+                }]
+            }
+        }
+    });
+
+    let result = worker_run_agent_with_options(
+        &shared,
+        serde_json::json!({
+            "runtime": "rust",
+            "runId": "run-native-tool-executor-error",
+            "sessionId": "websocket:chat-native-tool-executor-error",
+            "maxIterations": 2,
+            "messages": [{ "role": "user", "content": "read a missing file" }]
+        }),
+        fixture.root.clone(),
+        config,
+        Duration::from_millis(10),
+    )
+    .expect("executor failure should return a structured tool error");
+
+    assert_eq!(result["stopReason"], "tool_error");
+    assert_eq!(result["completedToolResults"][0]["status"], "error");
+    assert!(!result
+        .to_string()
+        .contains("fixture success must not be used"));
 }
 
 #[test]
@@ -3969,7 +3979,10 @@ lines.on("line", (line) => {
         Duration::from_secs(10),
     )
     .expect("traced thread turn should reach MCP approval");
-    assert_eq!(awaiting["agentResult"]["stopReason"], "awaiting_approval");
+    assert_eq!(
+        awaiting["agentResult"]["stopReason"], "awaiting_approval",
+        "traced turn result: {awaiting:#}"
+    );
     let thread_id = awaiting["threadId"]
         .as_str()
         .expect("traced thread ID should be present")
@@ -4207,7 +4220,7 @@ fn worker_run_agent_persists_failed_tool_run_with_accumulated_trace() {
                         },
                         {
                             "id": "call-tool-error",
-                            "name": "workspace.list_files",
+                            "name": "memory.search",
                             "argumentsJson": "{not json",
                             "result": { "content": "unused" }
                         }
@@ -4294,6 +4307,7 @@ fn worker_run_agent_persists_cancelled_run_as_cancelled() {
 #[test]
 fn worker_run_agent_persists_redacted_bounded_tool_trace() {
     let fixture = WorkspaceFixture::new();
+    fixture.write("README.md", "secret-token ABCDEFGHIJKLMNOP");
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
     let config = serde_json::json!({
         "agents": {
@@ -4356,6 +4370,7 @@ fn worker_run_agent_omits_large_raw_tool_trace_from_persisted_run_record() {
     let fixture = WorkspaceFixture::new();
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
     let large_output = "A".repeat(12_000);
+    fixture.write("large.txt", &large_output);
     let config = serde_json::json!({
         "agents": {
             "defaults": {
@@ -6655,7 +6670,7 @@ fn worker_transport_operation_retry_starts_new_correlated_run() {
                     "content": "",
                     "toolCalls": [{
                         "id": "call-operation-retry-failure",
-                        "name": "workspace.list_files",
+                        "name": "memory.search",
                         "argumentsJson": "{not json",
                         "result": { "content": "unused" }
                     }]

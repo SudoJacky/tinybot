@@ -1,10 +1,11 @@
-use super::ShellExecuteRequestParams;
+use super::{tool_executor_arguments_with_context, ShellExecuteRequestParams};
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_permission_profile::PermissionEvaluateToolRequest;
 use crate::worker_protocol::{WorkerRequest, WorkerRequestCancellation};
 use crate::worker_rpc::WorkerRpcRouter;
 use crate::worker_shell::WorkerShellRuntime;
 use crate::worker_subagent_manager::{SubagentSpawnParams, SubagentThreadManager};
+use crate::worker_tool_executor::ToolExecutorExecuteRequest;
 use serde_json::{json, Value};
 use std::{
     io::Write,
@@ -18,6 +19,26 @@ use std::{
 };
 
 static WORKSPACE_FIXTURE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+#[test]
+fn tool_executor_preserves_explicit_parent_run_context() {
+    let arguments = tool_executor_arguments_with_context(&ToolExecutorExecuteRequest {
+        tool_id: "subagent.spawn".to_string(),
+        arguments: json!({
+            "sessionKey": "session-parent",
+            "parentRunId": "run-parent",
+            "task": "Inspect one bounded boundary"
+        }),
+        thread_id: None,
+        run_id: Some("run-parent".to_string()),
+        session_id: Some("session-parent".to_string()),
+        turn_id: None,
+        tool_call_id: Some("call-subagent-spawn".to_string()),
+    });
+
+    assert_eq!(arguments["parentRunId"], "run-parent");
+    assert!(arguments.get("runId").is_none());
+}
 
 #[test]
 fn shell_request_uses_configured_defaults_when_call_omits_them() {
@@ -6158,7 +6179,7 @@ fn dispatches_tool_registry_list_with_capability_metadata() {
         .find(|tool| tool["method"] == "shell.execute")
         .expect("shell.execute should be registered");
     assert_eq!(shell["namespace"], "shell");
-    assert_eq!(shell["exposure"], "deferred");
+    assert_eq!(shell["exposure"], "hidden");
     assert_eq!(shell["available"], false);
     assert_eq!(shell["requiredCapabilities"], json!(["shell.execute"]));
     assert_eq!(shell["approval"]["required"], true);

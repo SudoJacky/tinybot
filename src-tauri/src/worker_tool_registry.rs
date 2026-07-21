@@ -570,7 +570,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "shell",
             "Execute shell command",
             "Run a shell command in the workspace.",
-            ToolExposure::Deferred,
+            ToolExposure::Hidden,
             false,
             runtime_policy(false, ToolCancellationMode::TerminateProcess, true, false),
             vec![WorkerCapability::ShellExecute],
@@ -599,7 +599,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "shell",
             "Start shell command",
             "Start a workspace shell command and retain it when it remains active.",
-            ToolExposure::Deferred,
+            ToolExposure::Model,
             false,
             runtime_policy(false, ToolCancellationMode::TerminateProcess, true, false),
             vec![WorkerCapability::ShellExecute],
@@ -631,7 +631,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "shell",
             "Write shell input",
             "Write input to a retained shell process and return newly available output.",
-            ToolExposure::Deferred,
+            ToolExposure::Model,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, true, false),
             vec![WorkerCapability::ShellExecute],
@@ -970,15 +970,19 @@ mod tests {
     }
 
     #[test]
-    fn apply_patch_is_deferred_and_approval_required() {
-        let tool = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
+    fn canonical_apply_patch_is_model_visible_and_legacy_name_is_hidden() {
+        let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
             WorkerCapability::FsWorkspaceWrite,
             WorkerCapability::ApprovalRequest,
-        ]))
-        .get_tool("workspace.apply_patch")
-        .expect("workspace.apply_patch should be registered");
+        ]));
+        let tool = registry
+            .get_tool("apply_patch")
+            .expect("apply_patch should be registered");
+        let legacy = registry
+            .get_tool("workspace.apply_patch")
+            .expect("workspace.apply_patch should remain an internal adapter");
 
-        assert_eq!(tool.exposure, ToolExposure::Deferred);
+        assert_eq!(tool.exposure, ToolExposure::Model);
         assert!(tool.available);
         assert!(tool.approval.required);
         assert!(tool.runtime_policy.mutates_workspace);
@@ -988,6 +992,7 @@ mod tests {
                 method: "workspace.apply_patch".to_string()
             }
         );
+        assert_eq!(legacy.exposure, ToolExposure::Hidden);
     }
 
     #[test]
@@ -1035,7 +1040,7 @@ mod tests {
             .get_tool("write_stdin")
             .expect("write_stdin should be registered");
 
-        assert_eq!(start.exposure, ToolExposure::Deferred);
+        assert_eq!(start.exposure, ToolExposure::Model);
         assert!(start.available);
         assert!(start.approval.required);
         assert_eq!(
@@ -1048,7 +1053,7 @@ mod tests {
                 method: "shell.start".to_string()
             }
         );
-        assert_eq!(input.exposure, ToolExposure::Deferred);
+        assert_eq!(input.exposure, ToolExposure::Model);
         assert!(input.available);
         assert!(!input.approval.required);
         assert_eq!(

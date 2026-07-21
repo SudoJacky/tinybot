@@ -364,10 +364,7 @@ fn fixture_agent_tool_calls(response: &Value) -> Result<Vec<NativeAgentToolCall>
                 arguments_json: string_field(tool, "argumentsJson")
                     .or_else(|| string_field(tool, "arguments_json"))
                     .unwrap_or_else(|| "{}".to_string()),
-                result: tool
-                    .get("result")
-                    .cloned()
-                    .unwrap_or_else(|| serde_json::json!({ "ok": true })),
+                result: tool.get("result").cloned().unwrap_or(Value::Null),
             })
         })
         .collect()
@@ -380,7 +377,7 @@ fn native_tool_calls(tool_calls: Vec<AgentToolCallItem>) -> Vec<NativeAgentToolC
             id: tool_call.id,
             name: tool_call.name,
             arguments_json: tool_call.arguments_json,
-            result: serde_json::json!({ "ok": true }),
+            result: Value::Null,
         })
         .collect()
 }

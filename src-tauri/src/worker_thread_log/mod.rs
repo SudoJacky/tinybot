@@ -30,6 +30,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 static CONTEXT_CHECKPOINT_COMMIT_LOCK: Mutex<()> = Mutex::new(());
 static THREAD_RECORD_CACHE: OnceLock<Mutex<HashMap<PathBuf, CachedThreadRecord>>> = OnceLock::new();
 const THREAD_RECORD_CACHE_CAPACITY: usize = 64;
+const STATE_INDEX_STABILITY_RETRY_COUNT: usize = 200;
+const STATE_INDEX_STABILITY_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(10);
 pub use self::reader::read_thread_lines;
 use self::reader::read_thread_lines_for_discovery;
 use self::recorder::ThreadLogHead;
@@ -1173,9 +1175,24 @@ impl WorkerThreadLogRpc {
         if self.state_index_fast_path()? {
             return Ok(());
         }
-        let report = self.state_index_consistency()?;
+        let mut report = self.state_index_consistency()?;
         if report.status == ThreadLogIndexConsistencyStatus::Clean {
             return Ok(());
+        }
+        if report.status == ThreadLogIndexConsistencyStatus::Diverged {
+            for attempt in 1..=STATE_INDEX_STABILITY_RETRY_COUNT {
+                std::thread::sleep(STATE_INDEX_STABILITY_RETRY_DELAY);
+                if self.state_index_fast_path()? {
+                    eprintln!(
+                        "thread_state_index_transient_divergence_resolved attempts={attempt}"
+                    );
+                    return Ok(());
+                }
+            }
+            report = self.state_index_consistency()?;
+            if report.status == ThreadLogIndexConsistencyStatus::Clean {
+                return Ok(());
+            }
         }
         eprintln!(
             "thread_state_index_rebuild status={:?} canonical_threads={} indexed_threads={} diagnostics={}",

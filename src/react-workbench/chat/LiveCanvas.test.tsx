@@ -834,6 +834,7 @@ describe("LiveCanvas TinyOS", () => {
   });
 
   it("shares a live browser surface across normal navigation and multiple tabs", async () => {
+    const user = userEvent.setup();
     const runtime = browserRuntimeMock();
     const browserEntry = entry(step({ id: "browser-native", kind: "browser" }));
     render(<LiveCanvas {...canvasProps([browserEntry], {
@@ -851,25 +852,25 @@ describe("LiveCanvas TinyOS", () => {
     expect(within(browser).queryByRole("img")).toBeNull();
     expect(within(browser).queryByText("Browser capture history")).toBeNull();
 
-    await userEvent.click(within(browser).getByRole("button", { name: "Browser back" }));
+    await user.click(within(browser).getByRole("button", { name: "Browser back" }));
     expect(runtime.back).toHaveBeenCalledWith("browser-session-1", "tab-1");
 
     const address = within(browser).getByRole("textbox", { name: "Browser address" });
-    await userEvent.clear(address);
-    await userEvent.type(address, "example.net/path");
-    await userEvent.click(within(browser).getByRole("button", { name: "Go" }));
+    await user.clear(address);
+    await user.type(address, "example.net/path");
+    await user.click(within(browser).getByRole("button", { name: "Go" }));
     expect(runtime.navigate).toHaveBeenCalledWith("browser-session-1", "tab-1", "https://example.net/path");
 
-    await userEvent.click(within(browser).getByRole("button", { name: "New browser tab" }));
+    await user.click(within(browser).getByRole("button", { name: "New browser tab" }));
     expect(runtime.createTab).toHaveBeenCalledWith("browser-session-1");
 
     fireEvent.keyDown(tabs[0], { key: "ArrowRight" });
     expect(runtime.activateTab).toHaveBeenCalledWith("browser-session-1", "tab-2");
     expect(tabs[1].getAttribute("aria-selected")).toBe("true");
     expect((within(browser).getByRole("textbox", { name: "Browser address" }) as HTMLInputElement).value).toBe("https://example.org");
-    await userEvent.click(within(browser).getByRole("button", { name: "Stop loading" }));
+    await user.click(within(browser).getByRole("button", { name: "Stop loading" }));
     expect(runtime.stop).toHaveBeenCalledWith("browser-session-1", "tab-2");
-    await userEvent.click(within(browser).getByRole("button", { name: "Close Second tab" }));
+    await user.click(within(browser).getByRole("button", { name: "Close Second tab" }));
     expect(runtime.closeTab).toHaveBeenCalledWith("browser-session-1", "tab-2");
   });
 

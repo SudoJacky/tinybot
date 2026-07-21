@@ -49,7 +49,7 @@ use crate::worker_tool_executor::{
     ToolExecutorExecuteResult,
 };
 use crate::worker_tool_registry::{
-    ToolExecutionTarget, ToolRegistrySearchRequest, WorkerToolRegistryRpc,
+    ToolExecutionTarget, ToolExposure, ToolRegistrySearchRequest, WorkerToolRegistryRpc,
 };
 use crate::worker_workspace::{WorkerWorkspaceRpc, WorkspaceReadFormat, WorkspaceReadOptions};
 use serde::Deserialize;
@@ -663,13 +663,15 @@ fn tool_executor_arguments_with_context(params: &ToolExecutorExecuteRequest) -> 
                 Value::String(session_id.to_string()),
             );
         }
-        if let Some(run_id) = params
-            .run_id
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-        {
-            object.remove("run_id");
-            object.insert("runId".to_string(), Value::String(run_id.to_string()));
+        if !object.contains_key("parentRunId") {
+            if let Some(run_id) = params
+                .run_id
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+            {
+                object.remove("run_id");
+                object.insert("runId".to_string(), Value::String(run_id.to_string()));
+            }
         }
         if let Some(tool_call_id) = params
             .tool_call_id

@@ -114,7 +114,7 @@ pub fn normalize_tool_effects(
                     .unwrap_or("."),
             );
         }
-        "workspace.apply_patch" => {
+        "workspace.apply_patch" | "apply_patch" => {
             effects = workspace_patch_permission_effects();
         }
         "mcp.call_tool" => {
