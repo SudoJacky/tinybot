@@ -2156,21 +2156,37 @@ fn worker_run_agent_persists_agent_run_record_and_keeps_history_compact() {
         .expect("runtime events should be returned");
     let durable_runtime_events = result_runtime_events
         .iter()
-        .filter(|event| event["eventName"] != "agent.provider.requested")
+        .filter(|event| {
+            event["eventName"].as_str().is_none_or(|event_name| {
+                crate::worker_rollout::should_persist_agent_runtime_event(
+                    event_name,
+                    event.get("payload").unwrap_or(event),
+                )
+            })
+        })
         .collect::<Vec<_>>();
     assert!(result_runtime_events
         .iter()
         .any(|event| event["eventName"] == "agent.provider.requested"));
     assert_eq!(trace_events.len(), durable_runtime_events.len());
+    assert!(
+        trace_events.len() < result_runtime_events.len(),
+        "live-only progress must not be copied into the canonical Rollout"
+    );
     for (persisted, emitted) in trace_events.iter().zip(durable_runtime_events) {
         assert_eq!(persisted["eventId"], emitted["eventId"]);
     }
     assert_eq!(trace_events[0]["schemaVersion"], "tinybot.agent_event.v1");
-    assert_eq!(trace_events[0]["eventName"], "agent.phase.changed");
-    assert_eq!(trace_events[0]["sequence"], 1);
-    assert_eq!(trace_events[0]["payload"]["nextPhase"], "hydrating_history");
-    assert_eq!(trace_events[1]["eventName"], "agent.phase.changed");
-    assert_eq!(trace_events[1]["payload"]["nextPhase"], "planning");
+    assert!(trace_events.iter().all(|event| {
+        event["eventName"] != "agent.delta"
+            && event["eventName"] != "agent.reasoning_delta"
+            && event["eventName"] != "agent.phase.changed"
+            && event["eventName"] != "agent.provider.requested"
+    }));
+    assert!(trace_events.iter().all(|event| {
+        event["eventName"] != "agent.status"
+            || event["payload"]["isBlocking"].as_bool() != Some(false)
+    }));
     let turn_started = trace_events
         .iter()
         .find(|event| event["eventName"] == "agent.turn.started")
@@ -2180,17 +2196,9 @@ fn worker_run_agent_persists_agent_run_record_and_keeps_history_compact() {
         turn_started["payload"]["userMessage"]["content"],
         "read and answer"
     );
-    assert!(trace_events.iter().any(|event| {
-        event["eventName"] == "agent.phase.changed"
-            && event["payload"]["nextPhase"] == "calling_model"
-    }));
     assert!(trace_events
         .iter()
         .any(|event| event["eventName"] == "agent.tool.result"));
-    assert!(trace_events.iter().any(|event| {
-        event["eventName"] == "agent.phase.changed"
-            && event["payload"]["nextPhase"] == "tool_calling"
-    }));
     let tool_result = trace_events
         .iter()
         .find(|event| event["eventName"] == "agent.tool.result")
@@ -2201,9 +2209,6 @@ fn worker_run_agent_persists_agent_run_record_and_keeps_history_compact() {
     assert!(tool_result["sequence"]
         .as_u64()
         .is_some_and(|value| value > 1));
-    assert!(trace_events.iter().any(|event| {
-        event["eventName"] == "agent.phase.changed" && event["payload"]["nextPhase"] == "finalizing"
-    }));
     assert_eq!(history["messages"].as_array().unwrap().len(), 2);
     assert!(history["messages"]
         .as_array()

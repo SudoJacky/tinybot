@@ -3,7 +3,8 @@ mod reconstruction;
 mod types;
 
 pub use self::policy::{
-    bound_persisted_trace_value, should_persist_rollout_item, ROLLOUT_TRACE_STRING_LIMIT,
+    bound_persisted_trace_value, should_persist_agent_runtime_event, should_persist_rollout_item,
+    ROLLOUT_TRACE_STRING_LIMIT,
 };
 pub use self::reconstruction::{
     effective_rollout_line_indexes, latest_effective_compaction_index, reconstruct_rollout,

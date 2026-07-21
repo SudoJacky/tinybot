@@ -219,8 +219,15 @@ pub(crate) fn native_agent_canonical_trace_values(
     values
         .iter()
         .filter(|value| {
-            value.get("eventName").and_then(serde_json::Value::as_str)
-                != Some("agent.provider.requested")
+            value
+                .get("eventName")
+                .and_then(serde_json::Value::as_str)
+                .is_none_or(|event_name| {
+                    crate::worker_rollout::should_persist_agent_runtime_event(
+                        event_name,
+                        value.get("payload").unwrap_or(value),
+                    )
+                })
         })
         .cloned()
         .collect()

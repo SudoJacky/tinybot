@@ -3,6 +3,7 @@ use crate::agent_loop_runtime_protocol::{AgentRuntimeEventEnvelope, AgentTimelin
 use crate::worker_agent_runtime::NativeAgentTraceSink;
 use crate::worker_protocol::WorkerRequest;
 use crate::worker_request_id::next_worker_request_correlation;
+use crate::worker_rollout::should_persist_agent_runtime_event;
 use crate::{call_rust_state_service, tauri_safe_event_name};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -137,7 +138,6 @@ enum TracePersistenceCommand {
         session_id: String,
         run_id: String,
         event: AgentRuntimeEventEnvelope,
-        flush_after: bool,
     },
     Flush(mpsc::SyncSender<Result<(), String>>),
     Shutdown,
@@ -222,10 +222,6 @@ impl BufferedNativeAgentTraceSink {
             session_id: session_id.to_string(),
             run_id: run_id.to_string(),
             event: event.clone(),
-            flush_after: !matches!(
-                event.event_name.as_str(),
-                "agent.delta" | "agent.reasoning_delta"
-            ),
         };
         if self.worker.sender.send(command).is_err() {
             self.worker.queued_events.fetch_sub(1, Ordering::Relaxed);
@@ -253,12 +249,14 @@ impl NativeAgentTraceSink for BufferedNativeAgentTraceSink {
         event: &AgentRuntimeEventEnvelope,
     ) -> Result<(), String> {
         let live_result = self.live_sink.append_trace_event(session_id, run_id, event);
+        if !should_persist_agent_runtime_event(&event.event_name, &event.payload) {
+            crate::runtime::observability::global_agent_runtime_metrics()
+                .increment("persistence.events.filtered");
+            return live_result;
+        }
         let enqueue_result = self.enqueue_event(session_id, run_id, event);
         live_result.and(enqueue_result)?;
-        if !matches!(
-            event.event_name.as_str(),
-            "agent.delta" | "agent.reasoning_delta"
-        ) {
+        if agent_runtime_event_requires_durable_boundary(event) {
             self.flush()?;
         }
         Ok(())
@@ -342,7 +340,6 @@ fn run_trace_persistence_worker(
                 session_id,
                 run_id,
                 event,
-                flush_after,
             } => {
                 if !pending_events.is_empty()
                     && (pending_session_id != session_id || pending_run_id != run_id)
@@ -363,7 +360,7 @@ fn run_trace_persistence_worker(
                     pending_started_at = Some(Instant::now());
                 }
                 pending_events.push(event);
-                if flush_after || pending_events.len() >= TRACE_PERSISTENCE_BATCH_SIZE {
+                if pending_events.len() >= TRACE_PERSISTENCE_BATCH_SIZE {
                     persist_pending_trace_events(
                         durable_sink.as_ref(),
                         &pending_session_id,
@@ -401,6 +398,15 @@ fn run_trace_persistence_worker(
             }
         }
     }
+}
+
+fn agent_runtime_event_requires_durable_boundary(event: &AgentRuntimeEventEnvelope) -> bool {
+    event.event_name == "agent.status"
+        && event
+            .payload
+            .get("isBlocking")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(true)
 }
 
 fn persist_pending_trace_events(
@@ -518,7 +524,10 @@ pub(crate) fn native_agent_trace_sink(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent_loop_runtime_protocol::AgentRunEmitter;
+    use crate::agent_loop_runtime_protocol::{
+        AgentRunEmitter, AgentRuntimeEventAppendInput, AgentRuntimeEventSource,
+        AgentRuntimeEventVisibility, AgentRuntimePhase,
+    };
 
     #[derive(Default)]
     struct RecordingTraceSink {
@@ -581,7 +590,7 @@ mod tests {
     }
 
     #[test]
-    fn buffered_trace_sink_emits_live_event_before_slow_persistence_finishes() {
+    fn buffered_trace_sink_keeps_delta_live_without_durable_persistence() {
         let durable = Arc::new(RecordingTraceSink::with_delay(Duration::from_millis(200)));
         let live = Arc::new(RecordingTraceSink::default());
         let sink = BufferedNativeAgentTraceSink::new(durable.clone(), live.clone());
@@ -599,11 +608,11 @@ mod tests {
         assert_eq!(live.event_count(), 1);
         assert_eq!(durable.event_count(), 0);
         sink.flush().expect("durable trace should flush");
-        assert_eq!(durable.event_count(), 1);
+        assert_eq!(durable.event_count(), 0);
     }
 
     #[test]
-    fn buffered_trace_sink_batches_adjacent_delta_events_in_order() {
+    fn buffered_trace_sink_does_not_queue_adjacent_delta_events_for_persistence() {
         let durable = Arc::new(RecordingTraceSink::default());
         let live = Arc::new(RecordingTraceSink::default());
         let sink = BufferedNativeAgentTraceSink::new(durable.clone(), live.clone());
@@ -618,7 +627,104 @@ mod tests {
         sink.flush().expect("durable trace should flush");
 
         assert_eq!(live.event_count(), 2);
+        assert!(durable.batch_sizes().is_empty());
+        assert_eq!(durable.event_count(), 0);
+    }
+
+    #[test]
+    fn buffered_trace_sink_batches_adjacent_canonical_events_until_explicit_flush() {
+        let durable = Arc::new(RecordingTraceSink::default());
+        let live = Arc::new(RecordingTraceSink::default());
+        let sink = BufferedNativeAgentTraceSink::new(durable.clone(), live.clone());
+        let mut emitter = AgentRunEmitter::new("session-1", "run-1");
+        let first = emitter.tool_start(
+            "unix-ms:1",
+            "tool-1",
+            "workspace.read_file",
+            serde_json::json!({ "path": "first.md" }),
+        );
+        let second = emitter.tool_result(
+            "unix-ms:2",
+            "tool-1",
+            "workspace.read_file",
+            serde_json::json!({ "content": "done" }),
+        );
+
+        sink.append_trace_event("session-1", "run-1", &first)
+            .expect("first event should enqueue");
+        sink.append_trace_event("session-1", "run-1", &second)
+            .expect("second event should enqueue");
+        sink.flush().expect("durable trace should flush");
+
+        assert_eq!(live.event_count(), 2);
         assert_eq!(durable.batch_sizes(), vec![2]);
-        assert_eq!(durable.event_count(), 2);
+    }
+
+    #[test]
+    fn buffered_trace_sink_persists_only_blocking_status_progress() {
+        let durable = Arc::new(RecordingTraceSink::default());
+        let live = Arc::new(RecordingTraceSink::default());
+        let sink = BufferedNativeAgentTraceSink::new(durable.clone(), live.clone());
+        let mut emitter = AgentRunEmitter::new("session-1", "run-1");
+        let phase = emitter.emit(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: None,
+            event_name: "agent.phase.changed".to_string(),
+            phase: AgentRuntimePhase::Planning,
+            timestamp: "unix-ms:1".to_string(),
+            source: AgentRuntimeEventSource::RustBackend,
+            visibility: AgentRuntimeEventVisibility::Debug,
+            payload: serde_json::json!({
+                "previousPhase": "queued",
+                "nextPhase": "planning",
+                "iteration": 1,
+            }),
+        });
+        let status = emitter.emit(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: None,
+            event_name: "agent.status".to_string(),
+            phase: AgentRuntimePhase::Planning,
+            timestamp: "unix-ms:2".to_string(),
+            source: AgentRuntimeEventSource::RustBackend,
+            visibility: AgentRuntimeEventVisibility::User,
+            payload: serde_json::json!({
+                "phase": "planning",
+                "label": "Planning",
+                "iteration": 1,
+                "isBlocking": false,
+            }),
+        });
+        let blocking_status = emitter.emit(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id: None,
+            event_name: "agent.status".to_string(),
+            phase: AgentRuntimePhase::AwaitingApproval,
+            timestamp: "unix-ms:3".to_string(),
+            source: AgentRuntimeEventSource::RustBackend,
+            visibility: AgentRuntimeEventVisibility::User,
+            payload: serde_json::json!({
+                "phase": "awaiting_approval",
+                "label": "Waiting for approval",
+                "iteration": 1,
+                "isBlocking": true,
+            }),
+        });
+
+        sink.append_trace_event("session-1", "run-1", &phase)
+            .expect("phase event should remain live");
+        sink.append_trace_event("session-1", "run-1", &status)
+            .expect("status event should remain live");
+        sink.append_trace_event("session-1", "run-1", &blocking_status)
+            .expect("blocking status should persist");
+        assert_eq!(
+            durable.event_count(),
+            1,
+            "blocking status must cross a durable barrier before append returns"
+        );
+        sink.flush().expect("trace sink should flush");
+
+        assert_eq!(live.event_count(), 3);
+        assert_eq!(durable.event_count(), 1);
     }
 }

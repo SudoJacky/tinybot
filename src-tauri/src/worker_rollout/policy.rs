@@ -6,6 +6,21 @@ use serde_json::Value;
 
 pub const ROLLOUT_TRACE_STRING_LIMIT: usize = 256;
 
+pub fn should_persist_agent_runtime_event(event_name: &str, payload: &Value) -> bool {
+    match event_name {
+        "agent.delta"
+        | "agent.reasoning_delta"
+        | "agent.timeline.patch"
+        | "agent.phase.changed"
+        | "agent.provider.requested" => false,
+        "agent.status" => payload
+            .get("isBlocking")
+            .and_then(Value::as_bool)
+            .unwrap_or(true),
+        _ => true,
+    }
+}
+
 pub fn should_persist_rollout_item(item: &RolloutItem) -> Result<bool, WorkerProtocolError> {
     match item {
         RolloutItem::SessionMeta(_)
@@ -130,13 +145,15 @@ fn persisted_event_needs_trace_context(event_name: &str) -> bool {
 }
 
 fn is_transient_agent_trace(payload: &Value) -> bool {
-    matches!(
-        payload
-            .get("event")
-            .and_then(|event| event.get("eventName"))
-            .and_then(Value::as_str),
-        Some("agent.delta" | "agent.reasoning_delta" | "agent.timeline.patch")
-    )
+    let Some(event) = payload.get("event") else {
+        return false;
+    };
+    event
+        .get("eventName")
+        .and_then(Value::as_str)
+        .is_some_and(|event_name| {
+            !should_persist_agent_runtime_event(event_name, event.get("payload").unwrap_or(event))
+        })
 }
 
 fn persistence_policy_error(message: &str, detail: Value) -> WorkerProtocolError {
@@ -159,14 +176,23 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn policy_drops_streaming_trace_but_keeps_durable_trace() {
-        let transient = RolloutItem::EventMsg(EventMsg::new(
-            EventKind::AgentRunTrace,
-            json!({
-                "runId": "run-1",
-                "event": {"eventName": "agent.delta", "payload": {"delta": "x"}}
-            }),
-        ));
+    fn policy_drops_live_only_trace_but_keeps_durable_trace() {
+        for event_name in [
+            "agent.delta",
+            "agent.reasoning_delta",
+            "agent.timeline.patch",
+            "agent.phase.changed",
+            "agent.provider.requested",
+        ] {
+            let transient = RolloutItem::EventMsg(EventMsg::new(
+                EventKind::AgentRunTrace,
+                json!({
+                    "runId": "run-1",
+                    "event": {"eventName": event_name, "payload": {"delta": "x"}}
+                }),
+            ));
+            assert!(!should_persist_rollout_item(&transient).unwrap());
+        }
         let durable = RolloutItem::EventMsg(EventMsg::new(
             EventKind::AgentRunTrace,
             json!({
@@ -175,8 +201,29 @@ mod tests {
             }),
         ));
 
-        assert!(!should_persist_rollout_item(&transient).unwrap());
         assert!(should_persist_rollout_item(&durable).unwrap());
+        let progress_status = RolloutItem::EventMsg(EventMsg::new(
+            EventKind::AgentRunTrace,
+            json!({
+                "runId": "run-1",
+                "event": {
+                    "eventName": "agent.status",
+                    "payload": {"phase": "planning", "isBlocking": false}
+                }
+            }),
+        ));
+        assert!(!should_persist_rollout_item(&progress_status).unwrap());
+        let blocking_status = RolloutItem::EventMsg(EventMsg::new(
+            EventKind::AgentRunTrace,
+            json!({
+                "runId": "run-1",
+                "event": {
+                    "eventName": "agent.status",
+                    "payload": {"phase": "awaiting_approval", "isBlocking": true}
+                }
+            }),
+        ));
+        assert!(should_persist_rollout_item(&blocking_status).unwrap());
     }
 
     #[test]

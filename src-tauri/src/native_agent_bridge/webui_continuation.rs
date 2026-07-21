@@ -74,7 +74,10 @@ pub(crate) fn pending_approvals_from_checkpoint(
 
 #[cfg(test)]
 mod tests {
-    use super::{native_approval_continuation_spec, pending_approvals_from_checkpoint};
+    use super::{
+        finish_native_agent_run, native_approval_continuation_spec,
+        pending_approvals_from_checkpoint,
+    };
 
     #[test]
     fn pending_approvals_preserve_runtime_tool_approval_id() {
@@ -128,6 +131,37 @@ mod tests {
 
         assert_eq!(continuation["traceContext"], checkpoint["traceContext"]);
         assert_eq!(continuation["metadata"]["commandId"], "command-approval-1");
+    }
+
+    #[test]
+    fn continuation_run_reports_both_runtime_and_flush_failures() {
+        let error = finish_native_agent_run::<()>(
+            Err("runtime failed".to_string()),
+            Err("flush failed".to_string()),
+            "native agent continuation",
+        )
+        .expect_err("both failures should be reported");
+
+        assert_eq!(
+            error,
+            "native agent continuation failed: runtime failed; trace persistence flush failed: \
+             flush failed"
+        );
+    }
+}
+
+fn finish_native_agent_run<T>(
+    run_result: Result<T, String>,
+    flush_result: Result<(), String>,
+    label: &str,
+) -> Result<T, String> {
+    match (run_result, flush_result) {
+        (Ok(result), Ok(())) => Ok(result),
+        (Err(run_error), Ok(())) => Err(run_error),
+        (Ok(_), Err(flush_error)) => Err(flush_error),
+        (Err(run_error), Err(flush_error)) => Err(format!(
+            "{label} failed: {run_error}; trace persistence flush failed: {flush_error}"
+        )),
     }
 }
 
@@ -333,14 +367,18 @@ pub(crate) async fn resolve_approval_continuation_with_services(
         config_snapshot.clone(),
         None,
     ));
-    let mut continuation = run_native_agent_turn_with_workspace_async(
+    let run_result = run_native_agent_turn_with_workspace_async(
         &services,
         continuation_spec.clone(),
         config_snapshot.clone(),
         &workspace_root,
     )
-    .await?;
-    services.flush_trace_sink()?;
+    .await;
+    let mut continuation = finish_native_agent_run(
+        run_result,
+        services.flush_trace_sink(),
+        "native approval continuation",
+    )?;
     persist_native_agent_run_terminal_if_present(
         continuation_spec.clone(),
         &mut continuation,
@@ -655,14 +693,18 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
         config_snapshot.clone(),
         None,
     ));
-    let mut continuation = run_native_agent_turn_with_workspace_async(
+    let run_result = run_native_agent_turn_with_workspace_async(
         &services,
         continuation_spec.clone(),
         config_snapshot.clone(),
         &workspace_root,
     )
-    .await?;
-    services.flush_trace_sink()?;
+    .await;
+    let mut continuation = finish_native_agent_run(
+        run_result,
+        services.flush_trace_sink(),
+        "native Agent UI form continuation",
+    )?;
     persist_native_agent_run_terminal_if_present(
         continuation_spec.clone(),
         &mut continuation,

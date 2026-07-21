@@ -14,6 +14,10 @@ static ROLLOUT_PATH_LOCKS: OnceLock<Mutex<HashMap<PathBuf, Weak<Mutex<()>>>>> = 
 
 enum RolloutWriterCommand {
     AddItems(Vec<RolloutLine>),
+    #[cfg(test)]
+    PendingItemCount {
+        ack: mpsc::Sender<usize>,
+    },
     Persist {
         ack: mpsc::Sender<Result<(), WorkerProtocolError>>,
     },
@@ -162,6 +166,18 @@ impl RolloutWriter {
 
     pub(super) fn flush(&self) -> Result<(), WorkerProtocolError> {
         self.barrier("flush", |ack| RolloutWriterCommand::Flush { ack })
+    }
+
+    #[cfg(test)]
+    pub(super) fn pending_item_count(&self) -> Result<usize, WorkerProtocolError> {
+        let (ack_tx, ack_rx) = mpsc::channel();
+        self.send_command(
+            "pending_item_count",
+            RolloutWriterCommand::PendingItemCount { ack: ack_tx },
+        )?;
+        ack_rx
+            .recv()
+            .map_err(|_| self.command_channel_error("pending_item_count"))
     }
 
     pub(super) fn shutdown(&self) -> Result<(), WorkerProtocolError> {
@@ -322,15 +338,6 @@ impl RolloutWriterState {
 
     fn add_items(&mut self, items: Vec<RolloutLine>) {
         self.pending_items.extend(items);
-    }
-
-    fn flush_if_materialized(&mut self) {
-        if self.file.is_none() {
-            return;
-        }
-        if let Err(error) = self.flush() {
-            self.enter_recovery_mode(&error);
-        }
     }
 
     fn persist(&mut self) -> Result<(), WorkerProtocolError> {
@@ -575,7 +582,10 @@ fn run_rollout_writer(
         match command {
             RolloutWriterCommand::AddItems(items) => {
                 state.add_items(items);
-                state.flush_if_materialized();
+            }
+            #[cfg(test)]
+            RolloutWriterCommand::PendingItemCount { ack } => {
+                let _ = ack.send(state.pending_items.len());
             }
             RolloutWriterCommand::Persist { ack } => {
                 let _ = ack.send(state.persist());

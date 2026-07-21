@@ -25,9 +25,11 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 static CONTEXT_CHECKPOINT_COMMIT_LOCK: Mutex<()> = Mutex::new(());
+static THREAD_RECORD_CACHE: OnceLock<Mutex<HashMap<PathBuf, CachedThreadRecord>>> = OnceLock::new();
+const THREAD_RECORD_CACHE_CAPACITY: usize = 64;
 pub use self::reader::read_thread_lines;
 use self::reader::read_thread_lines_for_discovery;
 use self::recorder::ThreadLogHead;
@@ -113,6 +115,12 @@ struct CanonicalThreadState {
 struct CachedRolloutReconstruction {
     head: ThreadLogHead,
     reconstruction: reconstruction::CanonicalRolloutReconstruction,
+}
+
+#[derive(Clone, Debug)]
+struct CachedThreadRecord {
+    head: ThreadLogHead,
+    record: ThreadRecord,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -376,7 +384,9 @@ impl WorkerThreadLogRpc {
                 archived_at: None,
             };
             let log_head = self.recorder.thread_log_head(&path)?;
-            self.state.upsert_thread_projection(&record, &log_head)
+            self.state.upsert_thread_projection(&record, &log_head)?;
+            cache_thread_record(&path, log_head, thread.clone());
+            Ok(())
         })();
         if let Err(error) = result {
             if let Err(cleanup_error) = self.recorder.delete_rollout(&path) {
@@ -395,6 +405,13 @@ impl WorkerThreadLogRpc {
         existing: &ThreadStateRecord,
         thread: &ThreadRecord,
     ) -> Result<(), WorkerProtocolError> {
+        let path = PathBuf::from(&existing.thread_path);
+        self.recorder.validate_thread_path(&path)?;
+        if self.latest_persisted_thread_record(&path)? == *thread {
+            crate::runtime::observability::global_agent_runtime_metrics()
+                .increment("persistence.metadata.noop");
+            return Ok(());
+        }
         let target_preview = thread.metadata.preview.clone().unwrap_or_default();
         let target_cwd = thread
             .metadata
@@ -441,8 +458,6 @@ impl WorkerThreadLogRpc {
                 .as_deref()
                 .unwrap_or(&thread.updated_at),
         )?;
-        let path = PathBuf::from(&existing.thread_path);
-        self.recorder.validate_thread_path(&path)?;
         self.recorder.append_item(
             &path,
             timestamp,
@@ -460,9 +475,64 @@ impl WorkerThreadLogRpc {
             canonical.latest_checkpoint.as_ref(),
             &ThreadLogHead {
                 byte_length: canonical.log_head.byte_length,
+                tail_hash: canonical.log_head.tail_hash.clone(),
+            },
+        )?;
+        cache_thread_record(
+            &path,
+            ThreadLogHead {
+                byte_length: canonical.log_head.byte_length,
                 tail_hash: canonical.log_head.tail_hash,
             },
-        )
+            thread.clone(),
+        );
+        Ok(())
+    }
+
+    fn latest_persisted_thread_record(
+        &self,
+        path: &Path,
+    ) -> Result<ThreadRecord, WorkerProtocolError> {
+        let head = self.recorder.thread_log_head(path)?;
+        {
+            let cache = thread_record_cache().lock().map_err(|_| {
+                thread_log_consistency_error(
+                    "thread record cache lock was poisoned",
+                    serde_json::json!({ "threadPath": path.display().to_string() }),
+                )
+            })?;
+            if let Some(cached) = cache.get(path) {
+                if cached.head == head {
+                    return Ok(cached.record.clone());
+                }
+            }
+        }
+        let lines = read_thread_lines(path)?;
+        let value = lines
+            .iter()
+            .rev()
+            .filter_map(|line| match &line.item {
+                ThreadLogItem::EventMsg(event) => event.payload().get("threadRecord"),
+                _ => None,
+            })
+            .next()
+            .ok_or_else(|| {
+                thread_log_consistency_error(
+                    "canonical Rollout is missing its thread record snapshot",
+                    serde_json::json!({ "threadPath": path.display().to_string() }),
+                )
+            })?;
+        let record = serde_json::from_value::<ThreadRecord>(value.clone()).map_err(|error| {
+            thread_log_consistency_error(
+                "canonical Rollout contains an invalid thread record snapshot",
+                serde_json::json!({
+                    "threadPath": path.display().to_string(),
+                    "error": error.to_string(),
+                }),
+            )
+        })?;
+        cache_thread_record_checked(path, head, record.clone())?;
+        Ok(record)
     }
 
     pub fn append_thread_items(
@@ -4429,6 +4499,35 @@ fn thread_log_consistency_error(message: impl Into<String>, details: Value) -> W
     )
 }
 
+fn thread_record_cache() -> &'static Mutex<HashMap<PathBuf, CachedThreadRecord>> {
+    THREAD_RECORD_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn cache_thread_record(path: &Path, head: ThreadLogHead, record: ThreadRecord) {
+    cache_thread_record_checked(path, head, record)
+        .expect("thread record cache lock should not be poisoned");
+}
+
+fn cache_thread_record_checked(
+    path: &Path,
+    head: ThreadLogHead,
+    record: ThreadRecord,
+) -> Result<(), WorkerProtocolError> {
+    let mut cache = thread_record_cache().lock().map_err(|_| {
+        thread_log_consistency_error(
+            "thread record cache lock was poisoned",
+            serde_json::json!({ "threadPath": path.display().to_string() }),
+        )
+    })?;
+    if cache.len() >= THREAD_RECORD_CACHE_CAPACITY && !cache.contains_key(path) {
+        if let Some(evicted) = cache.keys().next().cloned() {
+            cache.remove(&evicted);
+        }
+    }
+    cache.insert(path.to_path_buf(), CachedThreadRecord { head, record });
+    Ok(())
+}
+
 fn typed_response_item(
     mut value: Value,
     context: &str,
@@ -4595,5 +4694,88 @@ mod schema_tests {
             .message
             .contains("unsupported thread log schema version"));
         assert_eq!(error.details["supportedSchemaVersion"], 1);
+    }
+
+    #[test]
+    fn repeated_identical_thread_record_does_not_append_metadata_snapshot() {
+        let root = std::env::temp_dir().join(format!(
+            "tinybot-thread-metadata-noop-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock should be after unix epoch")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).expect("test workspace should create");
+        let rpc = WorkerThreadLogRpc::new(
+            root.clone(),
+            CapabilityPolicy::new([WorkerCapability::SessionWrite]),
+        );
+        let mut thread = ThreadRecord {
+            thread_id: "thread-metadata-noop".to_string(),
+            title: "Metadata no-op".to_string(),
+            status: ThreadStatus::Idle,
+            session_key: Some("session-metadata-noop".to_string()),
+            root_run_id: None,
+            active_run_id: None,
+            parent_thread_id: None,
+            source: "test".to_string(),
+            created_at: "2026-07-20T00:00:00Z".to_string(),
+            updated_at: "2026-07-20T00:00:00Z".to_string(),
+            archived_at: None,
+            metadata: ThreadMetadata {
+                preview: Some("first preview".to_string()),
+                last_activity_at: Some("2026-07-20T00:00:00Z".to_string()),
+                extra: serde_json::json!({"clientThreadId": "client-thread-1"}),
+                ..Default::default()
+            },
+        };
+
+        rpc.create_from_thread_record(&thread)
+            .expect("initial thread record should persist");
+        let record = rpc
+            .state
+            .find_by_session_or_thread_id(&thread.thread_id)
+            .expect("thread lookup should succeed")
+            .expect("thread should be indexed");
+        let path = PathBuf::from(record.thread_path);
+        let initial_line_count = read_thread_lines(&path)
+            .expect("initial Rollout should read")
+            .len();
+        thread_record_cache()
+            .lock()
+            .expect("thread record cache should lock")
+            .remove(&path);
+        drop(rpc);
+        let rpc = WorkerThreadLogRpc::new(
+            root.clone(),
+            CapabilityPolicy::new([WorkerCapability::SessionWrite]),
+        );
+
+        rpc.create_from_thread_record(&thread)
+            .expect("identical thread record should be accepted after cache reset");
+        assert_eq!(
+            read_thread_lines(&path)
+                .expect("Rollout after no-op should read")
+                .len(),
+            initial_line_count,
+            "an identical thread record must not append another metadata snapshot"
+        );
+
+        thread.updated_at = "2026-07-20T00:00:01Z".to_string();
+        thread.metadata.last_activity_at = Some("2026-07-20T00:00:01Z".to_string());
+        thread.metadata.extra = serde_json::json!({"clientThreadId": "client-thread-2"});
+        rpc.create_from_thread_record(&thread)
+            .expect("changed thread record should persist");
+        assert_eq!(
+            read_thread_lines(&path)
+                .expect("Rollout after metadata change should read")
+                .len(),
+            initial_line_count + 1,
+            "a changed thread record should append exactly one metadata snapshot"
+        );
+
+        drop(rpc);
+        std::fs::remove_dir_all(root).expect("test workspace should clean up");
     }
 }
