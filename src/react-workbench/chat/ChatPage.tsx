@@ -445,6 +445,10 @@ export function ChatPage({
     : liveCanvasEntries.find((entry) => entry.turnId === liveCanvas.selection?.turnId && entry.step.id === liveCanvas.selection.itemId);
 
   const openLiveCanvasItem = (turnId: string, step: ChatStep) => {
+    if (activeRun?.id === turnId && step.kind === "approval" && step.status === "blocked") {
+      dispatchLiveCanvas({ type: "return_live" });
+      return;
+    }
     const eventIndex = lastCanonicalEventIndex(liveCanvasCanonicalItems, turnId, step.id);
     const boundary = eventIndex >= 0 ? liveCanvasCanonicalItems[eventIndex] : undefined;
     dispatchLiveCanvas({

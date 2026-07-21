@@ -3578,7 +3578,7 @@ fn thread_items_from_effective_rollout(
             ThreadLogItem::EventMsg(event)
                 if matches!(
                     event.kind(),
-                    EventKind::TurnStarted | EventKind::TurnComplete
+                    EventKind::TurnStarted | EventKind::TurnComplete | EventKind::TurnAborted
                 ) =>
             {
                 Some(thread_boundary_item_from_rollout_event(
@@ -3735,7 +3735,9 @@ fn thread_boundary_item_from_rollout_event(
     }
     let kind = match event.kind() {
         EventKind::TurnStarted => ThreadItemKind::AgentRunStarted(logical_payload),
-        EventKind::TurnComplete => ThreadItemKind::AgentRunCompleted(logical_payload),
+        EventKind::TurnComplete | EventKind::TurnAborted => {
+            ThreadItemKind::AgentRunCompleted(logical_payload)
+        }
         _ => {
             return Err(thread_log_consistency_error(
                 "non-boundary event cannot project a thread lifecycle item",

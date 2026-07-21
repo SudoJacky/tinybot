@@ -1568,10 +1568,10 @@ fn thread_rollback_rejects_an_in_progress_turn() {
         json!({
             "sessionId": "thread-rollback-active",
             "context": {
-                "turnId": "turn-rollback-active",
+                "turn_id": "turn-rollback-active",
                 "cwd": "",
-                "approvalPolicy": {},
-                "sandboxPolicy": {},
+                "approval_policy": {},
+                "sandbox_policy": {},
                 "model": "fixture-model",
                 "summary": {}
             }

@@ -258,6 +258,7 @@ export function createDesktopAppServices(): AppServices {
       await controller.selectSession(session.key, session.chatId);
     }
     const threadId = session?.threadId || command.target.threadId || command.target.sessionId;
+    let canonicalTimeline: Awaited<ReturnType<typeof controller.reloadTimeline>> | null = null;
     if (command.kind === "agent.cancel") {
       await requireNative(nativeThreads, "Thread").interrupt({
         threadId,
@@ -273,6 +274,7 @@ export function createDesktopAppServices(): AppServices {
         scope: command.approval.scope,
         ...(command.approval.guidance ? { guidance: command.approval.guidance } : {}),
       });
+      canonicalTimeline = await controller.reloadTimeline(command.target.sessionId);
     } else if (command.kind === "form.submit" || command.kind === "form.cancel") {
       await requireNative(nativeThreads, "Thread").submitForm({
         threadId,
@@ -289,6 +291,10 @@ export function createDesktopAppServices(): AppServices {
       });
     }
     notifySession(command.target.sessionId, { commandId: command.commandId, type: "command.accepted" });
+    if (canonicalTimeline) {
+      notifySession(command.target.sessionId, { type: "timeline.patch", timeline: canonicalTimeline });
+      notifyTerminalTimelineState(command.target.sessionId, canonicalTimeline);
+    }
     notifySession(command.target.sessionId, { commandId: command.commandId, type: "command.canonical-updated" });
   }
 

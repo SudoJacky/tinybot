@@ -487,6 +487,51 @@ describe("ChatPage", () => {
     expect(within(canvas).getByRole("heading", { name: "TinyOS" })).toBeTruthy();
   });
 
+  it("keeps the current unresolved approval actionable when opened from Chat", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Approval session",
+        updatedAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+        status: "waiting_approval",
+      }],
+    });
+    const timeline = timelineFromReactMessages("s1", [{
+      id: "u-current-approval",
+      role: "user",
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+      text: "List the workspace files",
+      status: "complete",
+    }]);
+    const turn = timeline.turns[0];
+    const approvalStep = {
+      agentContext: { id: "main", title: "Tinybot", type: "main" } as const,
+      approval: { approvalId: "approval-current", riskLevel: "high" },
+      id: "approval-current",
+      kind: "approval" as const,
+      sequence: 1,
+      status: "blocked" as const,
+      summary: "Approval required: shell.execute",
+      title: "Approval required: shell.execute",
+    };
+    turn.status = "awaiting_approval";
+    turn.steps = [approvalStep];
+    turn.executionItems = turn.steps;
+    stores.chatStore.load = vi.fn(async () => timeline);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    await user.click(await screen.findByRole("button", { name: "Open details for Approval required: shell.execute" }));
+
+    const canvas = screen.getByLabelText("TinyOS shared desktop");
+    expect(canvas.getAttribute("data-mode")).toBe("live_follow");
+    const dialog = within(canvas).getByRole("dialog", { name: "TinyOS approval request" });
+    expect(within(dialog).getByRole("button", { name: "Approve once" })).toBeTruthy();
+    expect(within(canvas).queryByLabelText("Historical TinyOS request")).toBeNull();
+  });
+
   it("collapses and expands the session sidebar without losing session access", async () => {
     const user = userEvent.setup();
     const stores = createStores();

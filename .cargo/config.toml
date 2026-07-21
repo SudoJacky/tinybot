@@ -12,3 +12,6 @@ index = "https://rsproxy.cn/crates.io-index"
 
 [net]
 git-fetch-with-cli = true
+
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld"

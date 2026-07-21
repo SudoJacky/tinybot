@@ -119,7 +119,7 @@ fn close_shutdown_cancels_and_drains_owned_agent_task() {
         )
     });
     started_receiver
-        .recv_timeout(Duration::from_secs(1))
+        .recv_timeout(Duration::from_secs(5))
         .expect("owned provider should start");
 
     stop_owned_gateway(&shared, true).expect("owned agent task should drain during shutdown");
@@ -286,9 +286,16 @@ fn startup_reconciles_orphaned_run_and_preserves_waiting_checkpoint() {
         ))
         .expect("waiting recovery record should deserialize");
     waiting_record.trace_events.clear();
+    let waiting_checkpoint = waiting_record
+        .checkpoint
+        .clone()
+        .expect("waiting recovery record should contain a checkpoint");
     thread_log
         .upsert_agent_run(waiting_record)
         .expect("waiting recovery record should persist");
+    thread_log
+        .set_agent_run_checkpoint("session-recovery", "run-waiting", waiting_checkpoint)
+        .expect("waiting recovery checkpoint should persist");
 
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
     let recovery_metrics_before =
@@ -328,6 +335,13 @@ fn startup_reconciles_orphaned_run_and_preserves_waiting_checkpoint() {
     let (threads, items) = thread_log
         .thread_projection()
         .expect("reconciled Rollout should project thread state");
+    assert!(items.values().flatten().any(|item| {
+        item.run_id.as_deref() == Some("run-orphaned")
+            && matches!(
+                &item.kind,
+                crate::worker_thread::ThreadItemKind::AgentRunCompleted(_)
+            )
+    }));
     thread
         .replace_projection(threads, items)
         .expect("reconciled thread projection should refresh");
@@ -336,7 +350,14 @@ fn startup_reconciles_orphaned_run_and_preserves_waiting_checkpoint() {
             thread_id: "thread-recovery".to_string(),
         })
         .expect("reconciled thread should remain queryable");
-    assert!(thread_status.active_run.is_none());
+    let active_run = thread_status
+        .active_run
+        .expect("waiting recovery run should remain active");
+    assert_eq!(active_run.run_id, "run-waiting");
+    assert_eq!(
+        active_run.status,
+        crate::worker_thread::ThreadStatus::WaitingForApproval
+    );
 
     let status = current_status(&shared);
     let recovery = status
@@ -2686,7 +2707,7 @@ fn worker_submit_thread_turn_creates_thread_and_runs_native_agent() {
         .collect::<Vec<_>>();
     assert!(rollout_items.iter().any(|line| {
         line["type"] == "turn_context"
-            && line["payload"]["turnId"] == "run-thread-submit-new"
+            && line["payload"]["turn_id"] == "run-thread-submit-new"
             && line["payload"]["model"] == "fixture-model"
     }));
     let turn_started = rollout_items

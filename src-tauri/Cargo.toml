@@ -71,3 +71,18 @@ windows-sys = { version = "0.61", features = [
   "Win32_System_Pipes",
   "Win32_System_Threading",
 ] }
+
+[profile.dev]
+debug = 1
+codegen-units = 64
+
+[profile.dev.package."*"]
+debug = 0
+
+[profile.test]
+incremental = false
+debug = 1
+codegen-units = 32
+
+[profile.test.package."*"]
+debug = 0

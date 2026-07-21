@@ -790,22 +790,34 @@ impl WorkerThreadLogRpc {
         let mut state = self.ensure_agent_run_thread(session_id, &timestamp)?;
         let path = PathBuf::from(state.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
-        self.recorder.append_item(
-            &path,
-            timestamp.clone(),
-            value_event(
-                super::EventKind::AgentRunTerminal,
+        let mut items = vec![value_event(
+            super::EventKind::AgentRunTerminal,
+            serde_json::json!({
+                "sessionId": session_id,
+                "runId": run_id,
+                "status": status,
+                "phase": phase,
+                "stopReason": stop_reason,
+                "finalContent": final_content,
+                "error": error,
+            }),
+        )];
+        if status == AgentRunStatus::Interrupted {
+            items.push(value_event(
+                super::EventKind::TurnAborted,
                 serde_json::json!({
                     "sessionId": session_id,
                     "runId": run_id,
+                    "turnId": record.turn_id,
                     "status": status,
                     "phase": phase,
                     "stopReason": stop_reason,
-                    "finalContent": final_content,
                     "error": error,
                 }),
-            ),
-        )?;
+            ));
+        }
+        self.recorder
+            .append_items(&path, timestamp.clone(), items)?;
         let log_head = self.recorder.thread_log_head(&path)?;
         apply_terminal_to_record(
             &mut record,
@@ -1274,7 +1286,7 @@ fn completed_tool_result_from_response_item(item: &Value) -> Value {
         .or_else(|| item.get("output"))
         .cloned()
         .unwrap_or(Value::Null);
-    serde_json::json!({
+    crate::worker_rollout::bound_persisted_trace_value(serde_json::json!({
         "toolCallId": payload
             .get("toolCallId")
             .or_else(|| payload.get("tool_call_id"))
@@ -1290,7 +1302,7 @@ fn completed_tool_result_from_response_item(item: &Value) -> Value {
         "status": status,
         "summary": summary,
         "envelope": envelope,
-    })
+    }))
 }
 
 fn response_message_text(item: &Value) -> String {
