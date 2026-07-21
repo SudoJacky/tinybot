@@ -114,6 +114,30 @@ impl NativeAgentTraceSink for RecordingTraceSink {
     }
 }
 
+fn wait_for_approval_id(trace_sink: &RecordingTraceSink, run_id: &str) -> String {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        if let Some(approval_id) = trace_sink
+            .events
+            .lock()
+            .expect("trace sink lock should not be poisoned")
+            .iter()
+            .find(|event| {
+                event.event_name == "agent.awaiting_approval" && event.payload["runId"] == run_id
+            })
+            .and_then(|event| event.payload["approvalId"].as_str())
+            .map(str::to_string)
+        {
+            return approval_id;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "approval event for run `{run_id}` was not emitted"
+        );
+        thread::sleep(Duration::from_millis(5));
+    }
+}
+
 #[test]
 fn trace_sink_receives_waiting_boundary_before_runtime_returns() {
     let sink = Arc::new(RecordingTraceSink::default());
@@ -1011,52 +1035,50 @@ fn strict_patch_search_approval_and_real_dispatch_work_end_to_end() {
         Arc::new(InMemoryNativeAgentCheckpointStore::default()),
         Arc::new(InMemoryNativeAgentCancellation::default()),
     );
+    let trace_sink = Arc::new(RecordingTraceSink::default());
     let services = crate::native_agent_bridge::native_agent_services_with_tool_executor(
         services,
         workspace.root.clone(),
         json!({}),
-    );
-
-    let waiting = run_native_agent_turn_with_workspace(
-        &services,
-        json!({
-            "runId": "run-real-patch",
-            "sessionId": "session-real-patch",
-            "maxIterations": 4,
-            "messages": [{ "role": "user", "content": "create the note" }]
-        }),
-        json!({}),
-        &workspace.root,
     )
-    .expect("patch tool should reach approval boundary");
+    .with_trace_sink(trace_sink.clone());
 
-    assert_eq!(waiting["stopReason"], "awaiting_approval");
-    assert_eq!(waiting["approval"]["toolName"], "apply_patch");
+    let run_services = services.clone();
+    let run_workspace = workspace.root.clone();
+    let run = thread::spawn(move || {
+        run_native_agent_turn_with_workspace(
+            &run_services,
+            json!({
+                "runId": "run-real-patch",
+                "sessionId": "session-real-patch",
+                "maxIterations": 4,
+                "messages": [{ "role": "user", "content": "create the note" }]
+            }),
+            json!({}),
+            &run_workspace,
+        )
+    });
+    let approval_id = wait_for_approval_id(&trace_sink, "run-real-patch");
     assert!(!workspace.root.join("notes/created.md").exists());
+    services
+        .approval_broker()
+        .resolve(
+            "session-real-patch",
+            &approval_id,
+            crate::agent_loop_runtime_protocol::AgentApprovalDecision::Approved,
+            crate::agent_loop_runtime_protocol::AgentApprovalScope::Once,
+            None,
+            Some("command-approve-patch".to_string()),
+        )
+        .expect("approval decision should be delivered");
+    let completed = run
+        .join()
+        .expect("patch run thread should join")
+        .expect("approved patch should dispatch through the original tool future");
 
-    let resumed = run_native_agent_turn_with_workspace(
-        &services,
-        json!({
-            "runId": "run-real-patch",
-            "sessionId": "session-real-patch",
-            "maxIterations": 4,
-            "metadata": {
-                "agentContinuation": {
-                    "kind": "approval",
-                    "approvalId": waiting["approval"]["approvalId"],
-                    "decision": "approved",
-                    "scope": "once"
-                }
-            }
-        }),
-        json!({}),
-        &workspace.root,
-    )
-    .expect("approved patch should dispatch through the real workspace backend");
-
-    assert_eq!(resumed["stopReason"], "final_response");
-    assert_eq!(resumed["finalContent"], "patch applied");
-    assert_eq!(resumed["toolsUsed"], json!(["apply_patch"]));
+    assert_eq!(completed["stopReason"], "final_response");
+    assert_eq!(completed["finalContent"], "patch applied");
+    assert_eq!(completed["toolsUsed"], json!(["apply_patch"]));
     assert_eq!(
         std::fs::read_to_string(workspace.root.join("notes/created.md"))
             .expect("approved patch should create the file"),
@@ -1399,6 +1421,7 @@ lines.on("line", (line) => {
             "enabled_tools": ["echo"]
         }}}
     });
+    let trace_sink = Arc::new(RecordingTraceSink::default());
     let services = crate::native_agent_bridge::native_agent_services_with_tool_executor(
         NativeAgentRuntimeServices::new(
             Arc::new(McpDiscoveryProvider {
@@ -1411,56 +1434,48 @@ lines.on("line", (line) => {
         .with_metrics(metrics.clone()),
         workspace.root.clone(),
         config.clone(),
-    );
-
-    let waiting = run_native_agent_turn_with_workspace(
-        &services,
-        json!({
-            "runId": "run-real-mcp-router",
-            "sessionId": "session-real-mcp-router",
-            "maxIterations": 2,
-            "messages": [{ "role": "user", "content": "echo through docs" }]
-        }),
-        config.clone(),
-        &workspace.root,
     )
-    .expect("real MCP tool should reach approval boundary");
+    .with_trace_sink(trace_sink.clone());
 
-    assert_eq!(waiting["stopReason"], "awaiting_approval");
-    assert_eq!(
-        waiting["checkpoint"]["activatedToolIds"],
-        json!(["mcp.4:docs.4:echo"])
-    );
-    assert_eq!(
-        waiting["checkpoint"]["pendingToolCalls"][0]["toolName"],
-        "mcp.4:docs.4:echo"
-    );
-    let approval_id = waiting["approval"]["approvalId"]
-        .as_str()
-        .expect("MCP approval ID should be present");
-
-    let completed = run_native_agent_turn_with_workspace(
-        &services,
-        json!({
-            "runId": "run-real-mcp-router",
-            "sessionId": "session-real-mcp-router",
-            "metadata": {
-                "agentContinuation": {
-                    "kind": "approval",
-                    "approvalId": approval_id,
-                    "decision": "approved",
-                    "scope": "once"
-                }
-            }
-        }),
-        config,
-        &workspace.root,
-    )
-    .expect("approved dynamic MCP tool should execute through real transport");
+    let run_services = services.clone();
+    let run_config = config.clone();
+    let run_workspace = workspace.root.clone();
+    let run = thread::spawn(move || {
+        run_native_agent_turn_with_workspace(
+            &run_services,
+            json!({
+                "runId": "run-real-mcp-router",
+                "sessionId": "session-real-mcp-router",
+                "maxIterations": 3,
+                "messages": [{ "role": "user", "content": "echo through docs" }]
+            }),
+            run_config,
+            &run_workspace,
+        )
+    });
+    let approval_id = wait_for_approval_id(&trace_sink, "run-real-mcp-router");
+    services
+        .approval_broker()
+        .resolve(
+            "session-real-mcp-router",
+            &approval_id,
+            crate::agent_loop_runtime_protocol::AgentApprovalDecision::Approved,
+            crate::agent_loop_runtime_protocol::AgentApprovalScope::Once,
+            None,
+            None,
+        )
+        .expect("MCP approval should be delivered");
+    let completed = run
+        .join()
+        .expect("MCP run thread should join")
+        .expect("approved dynamic MCP tool should execute through real transport");
 
     assert_eq!(completed["stopReason"], "final_response");
     assert_eq!(completed["finalContent"], "real MCP complete");
-    assert_eq!(completed["toolsUsed"], json!(["mcp.4:docs.4:echo"]));
+    assert_eq!(
+        completed["toolsUsed"],
+        json!(["tool_search", "mcp.4:docs.4:echo"])
+    );
     tauri::async_runtime::block_on(services.mcp_runtime().shutdown())
         .expect("agent MCP fixture should shut down");
     let metric_snapshot = metrics.snapshot();
@@ -1822,12 +1837,12 @@ fn direct_calls_to_unactivated_deferred_tools_are_rejected() {
 }
 
 #[test]
-fn activated_mutating_tool_stops_at_approval_checkpoint_before_dispatch() {
-    struct SearchThenWriteProvider {
+fn approval_gates_the_original_batch_and_injects_all_results_before_the_next_model_call() {
+    struct BatchProvider {
         calls: AtomicUsize,
     }
 
-    impl NativeAgentProvider for SearchThenWriteProvider {
+    impl NativeAgentProvider for BatchProvider {
         fn complete(
             &self,
             context: &NativeAgentRunContext,
@@ -1837,74 +1852,31 @@ fn activated_mutating_tool_stops_at_approval_checkpoint_before_dispatch() {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
-                    tool_calls: vec![NativeAgentToolCall {
-                        id: "search-write".to_string(),
-                        name: "tool_search".to_string(),
-                        arguments_json: r#"{"query":"Interact with TinyOS browser","limit":1}"#
-                            .to_string(),
-                        result: Value::Null,
-                    }],
-                }),
-                1 => Ok(NativeAgentProviderResponse {
-                    final_content: String::new(),
-                    reasoning_delta: None,
-                    usage: None,
-                    tool_calls: vec![NativeAgentToolCall {
-                        id: "write-after-search".to_string(),
-                        name: "browser.interact".to_string(),
-                        arguments_json: r#"{"browserSessionId":"browser-1","tabId":"tab-1","controlEpoch":1,"action":{"type":"reload"}}"#.to_string(),
-                        result: Value::Null,
-                    }],
-                }),
-                2 => Ok(NativeAgentProviderResponse {
-                    final_content: String::new(),
-                    reasoning_delta: None,
-                    usage: None,
-                    tool_calls: vec![NativeAgentToolCall {
-                        id: "search-after-write".to_string(),
-                        name: "tool_search".to_string(),
-                        arguments_json: r#"{"query":"Read workspace file","limit":1}"#.to_string(),
-                        result: Value::Null,
-                    }],
+                    tool_calls: vec![
+                        NativeAgentToolCall {
+                            id: "batch-write".to_string(),
+                            name: "apply_patch".to_string(),
+                            arguments_json: r#"{"patch":"*** Begin Patch\n*** Add File: note.md\n+hello\n*** End Patch\n"}"#.to_string(),
+                            result: Value::Null,
+                        },
+                        NativeAgentToolCall {
+                            id: "batch-read".to_string(),
+                            name: "workspace.read_file".to_string(),
+                            arguments_json: r#"{"path":"note.md"}"#.to_string(),
+                            result: Value::Null,
+                        },
+                    ],
                 }),
                 _ => {
-                    let matching_calls = context
+                    let tool_result_ids = context
                         .messages
                         .iter()
-                        .filter_map(|message| message.get("tool_calls").and_then(Value::as_array))
-                        .flatten()
-                        .filter(|call| {
-                            call.get("id").and_then(Value::as_str) == Some("write-after-search")
-                        })
-                        .count();
-                    assert_eq!(
-                        matching_calls, 1,
-                        "approval continuation must not duplicate the pending tool call"
-                    );
-                    let matching_results = context
-                        .messages
-                        .iter()
-                        .filter(|message| {
-                            message["role"] == "tool"
-                                && message["tool_call_id"] == "write-after-search"
-                        })
+                        .filter(|message| message["role"] == "tool")
+                        .filter_map(|message| message["tool_call_id"].as_str())
                         .collect::<Vec<_>>();
-                    assert_eq!(
-                        matching_results.len(),
-                        1,
-                        "approval continuation must append exactly one tool result"
-                    );
-                    assert!(matching_results[0]["content"]
-                        .as_str()
-                        .is_some_and(|content| {
-                            content.contains("write dispatched")
-                                || content.contains("Approval denied by user")
-                        }));
-                    assert!(context.messages.iter().any(|message| {
-                        message["role"] == "tool" && message["tool_call_id"] == "search-after-write"
-                    }));
+                    assert_eq!(tool_result_ids, vec!["batch-write", "batch-read"]);
                     Ok(NativeAgentProviderResponse {
-                        final_content: "approved write and follow-up search complete".to_string(),
+                        final_content: "batch complete".to_string(),
                         reasoning_delta: None,
                         usage: None,
                         tool_calls: Vec::new(),
@@ -1914,11 +1886,11 @@ fn activated_mutating_tool_stops_at_approval_checkpoint_before_dispatch() {
         }
     }
 
-    struct RecordingMutatingDispatcher {
-        dispatched: Arc<Mutex<Vec<NativeAgentToolCall>>>,
+    struct RecordingBatchDispatcher {
+        dispatched: Arc<Mutex<Vec<String>>>,
     }
 
-    impl NativeAgentToolDispatcher for RecordingMutatingDispatcher {
+    impl NativeAgentToolDispatcher for RecordingBatchDispatcher {
         fn dispatch(
             &self,
             _context: &NativeAgentRunContext,
@@ -1927,10 +1899,10 @@ fn activated_mutating_tool_stops_at_approval_checkpoint_before_dispatch() {
             self.dispatched
                 .lock()
                 .expect("dispatched calls lock should not be poisoned")
-                .push(tool_call.clone());
+                .push(tool_call.id.clone());
             Ok(NativeAgentToolResult::generic_success(
                 tool_call,
-                json!({ "content": "write dispatched" }),
+                json!({ "content": format!("{} complete", tool_call.id) }),
             ))
         }
     }
@@ -1938,242 +1910,167 @@ fn activated_mutating_tool_stops_at_approval_checkpoint_before_dispatch() {
     let dispatched = Arc::new(Mutex::new(Vec::new()));
     let trace_sink = Arc::new(RecordingTraceSink::default());
     let services = NativeAgentRuntimeServices::new(
-        Arc::new(SearchThenWriteProvider {
+        Arc::new(BatchProvider {
             calls: AtomicUsize::new(0),
         }),
-        Arc::new(RecordingMutatingDispatcher {
+        Arc::new(RecordingBatchDispatcher {
             dispatched: dispatched.clone(),
         }),
         Arc::new(InMemoryNativeAgentCheckpointStore::default()),
         Arc::new(InMemoryNativeAgentCancellation::default()),
     )
-    .with_trace_sink(trace_sink);
-    let result = run_native_agent_turn_with_config(
-        &services,
-        json!({
-            "runId": "run-deferred-write-approval",
-            "sessionId": "session-deferred-write-approval",
-            "maxIterations": 4,
-            "messages": [{ "role": "user", "content": "write a note" }]
-        }),
-        json!({}),
-    )
-    .expect("approval boundary should return a structured waiting result");
+    .with_trace_sink(trace_sink.clone());
+    let run_services = services.clone();
+    let run = thread::spawn(move || {
+        run_native_agent_turn_with_config(
+            &run_services,
+            json!({
+                "runId": "run-approval-batch",
+                "sessionId": "session-approval-batch",
+                "maxIterations": 2,
+                "messages": [{ "role": "user", "content": "write then read" }]
+            }),
+            json!({}),
+        )
+    });
 
-    assert_eq!(result["stopReason"], "awaiting_approval");
+    let approval_id = wait_for_approval_id(&trace_sink, "run-approval-batch");
+    assert!(dispatched
+        .lock()
+        .expect("dispatched calls lock should not be poisoned")
+        .is_empty());
+    services
+        .approval_broker()
+        .resolve(
+            "session-approval-batch",
+            &approval_id,
+            crate::agent_loop_runtime_protocol::AgentApprovalDecision::Approved,
+            crate::agent_loop_runtime_protocol::AgentApprovalScope::Once,
+            None,
+            Some("command-approval-batch".to_string()),
+        )
+        .expect("batch approval should be delivered");
+    let result = run
+        .join()
+        .expect("batch run thread should join")
+        .expect("approved batch should complete in the original run");
+
+    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(result["finalContent"], "batch complete");
     assert_eq!(
-        result["checkpoint"]["activatedToolIds"],
-        json!(["browser.interact"])
+        *dispatched
+            .lock()
+            .expect("dispatched calls lock should not be poisoned"),
+        vec!["batch-write".to_string(), "batch-read".to_string()]
     );
-    assert_eq!(
-        result["checkpoint"]["pendingToolCalls"][0]["toolName"],
-        "browser.interact"
-    );
-    assert_eq!(
-        result["events"]
-            .as_array()
-            .expect("approval events should be returned")
-            .last()
-            .expect("approval events should not be empty")["payload"]["stopReason"],
-        "awaiting_approval"
-    );
-    assert!(!result["runtimeEvents"]
-        .as_array()
-        .expect("approval runtime events should be returned")
+    let events = trace_sink
+        .events
+        .lock()
+        .expect("trace sink lock should not be poisoned");
+    assert!(events
         .iter()
-        .any(|event| {
-            event["eventName"] == "agent.phase.changed" && event["payload"]["nextPhase"] == "failed"
-        }));
-    assert!(dispatched
-        .lock()
-        .expect("dispatched calls lock should not be poisoned")
-        .is_empty());
+        .any(|event| event.event_name == "agent.awaiting_approval"));
+    assert!(events
+        .iter()
+        .any(|event| event.event_name == "agent.approval.decision"));
+    assert!(!events.iter().any(|event| {
+        event.event_name == "agent.done" && event.payload["stopReason"] == "awaiting_approval"
+    }));
+}
 
-    let approval_id = result["approval"]["approvalId"]
-        .as_str()
-        .expect("approval ID should be returned")
-        .to_string();
-    let mismatch = run_native_agent_turn_with_config(
-        &services,
-        json!({
-            "runId": "run-deferred-write-approval",
-            "sessionId": "session-deferred-write-approval",
-            "metadata": {
-                "agentContinuation": {
-                    "kind": "approval",
-                    "approvalId": "approval:wrong",
-                    "decision": "approved",
-                    "scope": "once"
-                }
+#[test]
+fn denied_approval_becomes_a_tool_result_and_does_not_abort_the_turn() {
+    struct DeniedProvider {
+        calls: AtomicUsize,
+    }
+
+    impl NativeAgentProvider for DeniedProvider {
+        fn complete(
+            &self,
+            context: &NativeAgentRunContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                return Ok(NativeAgentProviderResponse {
+                    final_content: String::new(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: vec![NativeAgentToolCall {
+                        id: "denied-write".to_string(),
+                        name: "apply_patch".to_string(),
+                        arguments_json: r#"{"patch":"*** Begin Patch\n*** Add File: denied.md\n+no\n*** End Patch\n"}"#.to_string(),
+                        result: Value::Null,
+                    }],
+                });
             }
-        }),
-        json!({}),
-    )
-    .expect_err("mismatched approval continuation must not consume the checkpoint");
-    assert!(mismatch.contains("does not match checkpoint"));
-    assert!(dispatched
-        .lock()
-        .expect("dispatched calls lock should not be poisoned")
-        .is_empty());
+            assert!(context.messages.iter().any(|message| {
+                message["role"] == "tool"
+                    && message["tool_call_id"] == "denied-write"
+                    && message["content"]
+                        .as_str()
+                        .is_some_and(|content| content.contains("rejected by the user"))
+            }));
+            Ok(NativeAgentProviderResponse {
+                final_content: "continued after denial".to_string(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: Vec::new(),
+            })
+        }
+    }
 
-    let mut invalid_checkpoint = result["checkpoint"].clone();
-    invalid_checkpoint["messages"]
-        .as_array_mut()
-        .expect("approval checkpoint messages should be an array")
-        .push(json!({
-            "role": "tool",
-            "tool_call_id": "write-after-search",
-            "name": "browser.interact",
-            "content": "stale duplicate result"
-        }));
-    services.save_run_checkpoint(
-        "session-deferred-write-approval",
-        "run-deferred-write-approval",
-        invalid_checkpoint,
-    );
-    let invalid = run_native_agent_turn_with_config(
-        &services,
-        json!({
-            "runId": "run-deferred-write-approval",
-            "sessionId": "session-deferred-write-approval",
-            "metadata": {
-                "agentContinuation": {
-                    "kind": "approval",
-                    "approvalId": approval_id,
-                    "decision": "approved",
-                    "scope": "once"
-                }
-            }
-        }),
-        json!({}),
-    )
-    .expect_err("invalid approval checkpoint must fail before tool dispatch");
-    assert!(invalid.contains("already contains 1 tool results"));
-    assert!(dispatched
-        .lock()
-        .expect("dispatched calls lock should not be poisoned")
-        .is_empty());
+    struct PanickingDispatcher;
 
-    let denied_dispatched = Arc::new(Mutex::new(Vec::new()));
-    let denied_services = NativeAgentRuntimeServices::new(
-        Arc::new(SearchThenWriteProvider {
+    impl NativeAgentToolDispatcher for PanickingDispatcher {
+        fn dispatch(
+            &self,
+            _context: &NativeAgentRunContext,
+            _tool_call: &NativeAgentToolCall,
+        ) -> Result<NativeAgentToolResult, String> {
+            panic!("denied tool must not dispatch")
+        }
+    }
+
+    let trace_sink = Arc::new(RecordingTraceSink::default());
+    let services = NativeAgentRuntimeServices::new(
+        Arc::new(DeniedProvider {
             calls: AtomicUsize::new(0),
         }),
-        Arc::new(RecordingMutatingDispatcher {
-            dispatched: denied_dispatched.clone(),
-        }),
+        Arc::new(PanickingDispatcher),
         Arc::new(InMemoryNativeAgentCheckpointStore::default()),
         Arc::new(InMemoryNativeAgentCancellation::default()),
-    );
-    let denied_waiting = run_native_agent_turn_with_config(
-        &denied_services,
-        json!({
-            "runId": "run-deferred-write-approval-denied",
-            "sessionId": "session-deferred-write-approval",
-            "maxIterations": 2,
-            "messages": [{ "role": "user", "content": "write a denied note" }]
-        }),
-        json!({}),
     )
-    .expect("denial branch should reach its own approval checkpoint");
-    let denied_approval_id = denied_waiting["approval"]["approvalId"]
-        .as_str()
-        .expect("denial branch approval ID should be returned")
-        .to_string();
-    let denied = run_native_agent_turn_with_config(
-        &denied_services,
-        json!({
-            "runId": "run-deferred-write-approval-denied",
-            "sessionId": "session-deferred-write-approval",
-            "metadata": {
-                "agentContinuation": {
-                    "kind": "approval",
-                    "approvalId": denied_approval_id,
-                    "decision": "denied",
-                    "scope": "once",
-                    "guidance": "Explain how to make the change manually."
-                }
-            }
-        }),
-        json!({}),
-    )
-    .expect("denied approval continuation should return a structured result");
-    assert_eq!(denied["stopReason"], "final_response");
-    assert_eq!(denied["completedToolResults"][0]["status"], "denied");
-    assert!(denied_dispatched
-        .lock()
-        .expect("dispatched calls lock should not be poisoned")
-        .is_empty());
-    services.save_run_checkpoint(
-        "session-deferred-write-approval",
-        "run-deferred-write-approval",
-        result["checkpoint"].clone(),
-    );
-
-    let resumed = run_native_agent_turn_with_config(
-        &services,
-        json!({
-            "runId": "run-deferred-write-approval",
-            "sessionId": "session-deferred-write-approval",
-            "metadata": {
-                "agentContinuation": {
-                    "kind": "approval",
-                    "approvalId": approval_id,
-                    "decision": "approved",
-                    "scope": "once"
-                }
-            }
-        }),
-        json!({}),
-    )
-    .expect("approval continuation should restore its activation checkpoint");
-    assert_eq!(
-        resumed["restoredCheckpoint"]["activatedToolIds"],
-        json!(["browser.interact"])
-    );
-    assert_eq!(resumed["stopReason"], "final_response");
-    assert_eq!(
-        resumed["finalContent"],
-        "approved write and follow-up search complete"
-    );
-    assert_eq!(
-        resumed["toolsUsed"],
-        json!(["browser.interact", "tool_search"])
-    );
-    let waiting_event_ids = result["runtimeEvents"]
-        .as_array()
-        .expect("waiting runtime events should be returned")
-        .iter()
-        .filter_map(|event| event["eventId"].as_str())
-        .collect::<std::collections::HashSet<_>>();
-    let resumed_events = resumed["runtimeEvents"]
-        .as_array()
-        .expect("resumed runtime events should be returned");
-    assert!(resumed_events.iter().all(|event| event["eventId"]
-        .as_str()
-        .is_some_and(|event_id| !waiting_event_ids.contains(event_id))));
-    let resumed_event_names = resumed_events
-        .iter()
-        .filter_map(|event| event["eventName"].as_str())
-        .collect::<Vec<_>>();
-    assert!(
-        resumed_event_names.contains(&"agent.approval.decision"),
-        "resumed runtime events: {resumed_event_names:?}"
-    );
-    assert!(resumed_events.iter().any(|event| {
-        event["eventName"] == "agent.tool.result"
-            && event["payload"]["toolCallId"] == "search-after-write"
-    }));
-    let dispatched = dispatched
-        .lock()
-        .expect("dispatched calls lock should not be poisoned");
-    assert_eq!(dispatched.len(), 1);
-    assert_eq!(dispatched[0].id, "write-after-search");
-    assert_eq!(dispatched[0].name, "browser.interact");
-    assert_eq!(
-        dispatched[0].arguments_json,
-        r#"{"browserSessionId":"browser-1","tabId":"tab-1","controlEpoch":1,"action":{"type":"reload"}}"#
-    );
+    .with_trace_sink(trace_sink.clone());
+    let run_services = services.clone();
+    let run = thread::spawn(move || {
+        run_native_agent_turn_with_config(
+            &run_services,
+            json!({
+                "runId": "run-denied-approval",
+                "sessionId": "session-denied-approval",
+                "maxIterations": 2,
+                "messages": [{ "role": "user", "content": "try a write" }]
+            }),
+            json!({}),
+        )
+    });
+    let approval_id = wait_for_approval_id(&trace_sink, "run-denied-approval");
+    services
+        .approval_broker()
+        .resolve(
+            "session-denied-approval",
+            &approval_id,
+            crate::agent_loop_runtime_protocol::AgentApprovalDecision::Denied,
+            crate::agent_loop_runtime_protocol::AgentApprovalScope::Once,
+            Some("Do not change this file.".to_string()),
+            None,
+        )
+        .expect("denial should be delivered");
+    let result = run
+        .join()
+        .expect("denied run thread should join")
+        .expect("denied tool should remain recoverable");
+    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(result["finalContent"], "continued after denial");
 }
 
 #[test]

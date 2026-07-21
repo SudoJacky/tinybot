@@ -203,7 +203,9 @@ describe("chat UI projection", () => {
         argsText: "{\"path\":\"notes.md\"}",
         responseText: "Needs approval",
         kind: "result",
-        status: "blocked",
+        status: "awaiting_approval",
+        scopeKey: "filesystem.write:workspace",
+        scopeLabel: "Allow workspace writes for this session",
       }],
     }]);
 
@@ -296,6 +298,8 @@ function fixtureMessages(): NativeChatMessage[] {
           responseText: "Needs approval",
           kind: "result",
           approvalStatus: "pending",
+          scopeKey: "filesystem.write:workspace",
+          scopeLabel: "Allow workspace writes for this session",
           status: "waiting_approval",
         },
         {

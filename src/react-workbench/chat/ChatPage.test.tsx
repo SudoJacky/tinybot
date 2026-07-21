@@ -512,7 +512,7 @@ describe("ChatPage", () => {
       id: "approval-current",
       kind: "approval" as const,
       sequence: 1,
-      status: "blocked" as const,
+      status: "awaiting_approval" as const,
       summary: "Approval required: shell.execute",
       title: "Approval required: shell.execute",
     };

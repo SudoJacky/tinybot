@@ -262,6 +262,31 @@ describe("TinyOS command lifecycle", () => {
     expect(isTinyOsCommandInFlight(state)).toBe(false);
   });
 
+  test("acknowledges approval delivery as soon as the backend accepts the decision", () => {
+    const approvalCommand = createTinyOsApprovalResolveCommand({
+      action: "approveOnce",
+      approvalId: "approval-1",
+      commandId: "command-approval-1",
+      issuedAt: "2026-07-13T00:00:00Z",
+      runId: "run-1",
+      sessionId: "websocket:chat-1",
+      source: { control: "inspector-approval", surface: "tinyos" },
+    });
+    let state: TinyOsCommandLifecycle = { stage: "idle" };
+    state = reduceTinyOsCommandLifecycle(state, { command: approvalCommand, nowMs: 10, type: "dispatch" });
+    state = reduceTinyOsCommandLifecycle(state, {
+      commandId: approvalCommand.commandId,
+      nowMs: 20,
+      type: "transport_accepted",
+    });
+
+    expect(state).toMatchObject({
+      acknowledgement: { itemId: "approval-1", revision: 0 },
+      stage: "acknowledged",
+    });
+    expect(isTinyOsCommandPending(state)).toBe(false);
+  });
+
   test("ignores acknowledgements for a different correlation id", () => {
     const state = reduceTinyOsCommandLifecycle(
       { command, dispatchedAtMs: 10, stage: "sending" },

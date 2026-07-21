@@ -1025,42 +1025,6 @@ pub(crate) async fn worker_resume_agent_approval_with_options_async(
     .await
 }
 
-#[cfg(test)]
-pub(crate) fn worker_resolve_thread_approval_with_options(
-    shared: &SharedGateway,
-    input: WorkerResolveThreadApprovalInput,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    timeout: Duration,
-) -> Result<serde_json::Value, String> {
-    tauri::async_runtime::block_on(worker_resolve_thread_approval_with_options_async(
-        shared,
-        input,
-        workspace_root,
-        config_snapshot,
-        timeout,
-    ))
-}
-
-#[cfg(test)]
-pub(crate) async fn worker_resolve_thread_approval_with_options_async(
-    shared: &SharedGateway,
-    input: WorkerResolveThreadApprovalInput,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    timeout: Duration,
-) -> Result<serde_json::Value, String> {
-    worker_resolve_thread_approval_with_live_trace_sink_async(
-        shared,
-        input,
-        workspace_root,
-        config_snapshot,
-        timeout,
-        None,
-    )
-    .await
-}
-
 pub(crate) async fn worker_resolve_thread_approval_with_live_trace_sink_async(
     shared: &SharedGateway,
     input: WorkerResolveThreadApprovalInput,

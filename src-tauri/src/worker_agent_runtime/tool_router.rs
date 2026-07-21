@@ -290,6 +290,18 @@ impl NativeToolRouter {
             .map(|entry| entry.approval.clone())
     }
 
+    pub(super) fn approval_session_scope(
+        &self,
+        method: &str,
+        arguments: &serde_json::Value,
+    ) -> Result<(String, String), String> {
+        let entry = self
+            .visible_entry(method)
+            .ok_or_else(|| format!("native tool `{method}` is not visible"))?;
+        crate::worker_permission_profile::approval_session_scope(entry, arguments)
+            .map_err(|error| error.message)
+    }
+
     fn runtime_policy(&self, method: &str) -> Option<ToolRuntimePolicy> {
         self.visible_entry(method).map(|entry| entry.runtime_policy)
     }

@@ -49,6 +49,8 @@ export type NativeChatToolActivity = {
   name: string;
   argsText: string;
   responseText: string;
+  scopeKey?: string;
+  scopeLabel?: string;
   kind: "call" | "result";
   approvalStatus?: string;
   parentRunId?: string;
@@ -731,7 +733,7 @@ function areRelatedApprovalActivities(
     return false;
   }
   const currentStatus = (current.status || "").toLowerCase();
-  return ["", "pending", "running", "blocked"].includes(currentStatus)
+  return ["", "pending", "running", "awaiting_approval", "blocked"].includes(currentStatus)
     || isApprovalLifecycleActivity(current);
 }
 
@@ -739,6 +741,7 @@ function isPendingApprovalActivity(activity: NativeChatToolActivity): boolean {
   return Boolean(
     activity.approvalId
     || activity.approvalStatus === "approval_required"
+    || activity.status === "awaiting_approval"
     || activity.status === "blocked"
     || activity.responseText.trim() === "Waiting for approval.",
   );
@@ -942,6 +945,8 @@ function conversationMessagesToNativeMessages(messages: ReturnType<typeof turnsT
         parentRunId: activity.parentRunId,
         parentTurnId: activity.parentTurnId,
         responseText: activity.responseText,
+        scopeKey: activity.scopeKey,
+        scopeLabel: activity.scopeLabel,
         sessionKey: activity.sessionKey,
         status: activity.status,
         traceRef: activity.traceRef,
@@ -1083,7 +1088,7 @@ function normalizeToolActivities(message: Record<string, unknown>): NativeChatTo
       const approvalStatus = stringValue(message._approval_status ?? message.approval_status)
         || (awaitingApproval ? "approval_required" : "");
       const status = normalizeToolActivityStatus(message.status ?? message.state ?? message.phase)
-        || (awaitingApproval ? "blocked" : "");
+        || (awaitingApproval ? "awaiting_approval" : "");
       const isResult = message.role === "tool" || booleanValue(message._tool_result);
       activities.push({
         id: stringValue(message.tool_call_id ?? message.toolCallId ?? message._tool_call_id) || stringValue(message.message_id) || "tool-result",
@@ -1128,7 +1133,7 @@ function toolActivityFromMessage(message: Record<string, unknown>): NativeChatTo
   const approvalStatus = stringValue(message._approval_status ?? message.approval_status)
     || (awaitingApproval ? "approval_required" : "");
   const status = normalizeToolActivityStatus(message.status ?? message.state ?? message.phase)
-    || (awaitingApproval ? "blocked" : "");
+    || (awaitingApproval ? "awaiting_approval" : "");
   return {
     id: stringValue(message.tool_call_id ?? message.toolCallId ?? message._tool_call_id) || stringValue(message.message_id) || (isResult ? "tool-result" : "tool-detail"),
     name: stringValue(message._tool_name ?? message.name) || inferToolNameFromText(text) || "tool",
@@ -1180,7 +1185,7 @@ function delegatedToolActivityFromMessage(message: Record<string, unknown>, resp
   ) || (isAwaitingApprovalMessage(message, responseText) ? "blocked" : "completed");
   const approvalId = stringValue(message.approvalId ?? message.approval_id ?? message._approval_id ?? metadata.approvalId ?? metadata.approval_id);
   const approvalStatus = stringValue(message.approvalStatus ?? message.approval_status ?? message._approval_status ?? metadata.approvalStatus ?? metadata.approval_status)
-    || (status === "blocked" ? "approval_required" : "");
+    || (status === "awaiting_approval" || status === "blocked" ? "approval_required" : "");
   return {
     id: stringValue(message.tool_call_id ?? message.toolCallId ?? message._tool_call_id) || stringValue(message._delegate_id ?? metadata._delegate_id) || "delegate",
     name: stringValue(message._delegate_child_tool_name ?? metadata._delegate_child_tool_name ?? message._tool_name ?? message.name) || "spawn",
@@ -1275,6 +1280,8 @@ function directToolActivityRows(value: unknown): NativeChatToolActivity[] {
       ...(stringValue(row.parentRunId ?? row.parent_run_id) ? { parentRunId: stringValue(row.parentRunId ?? row.parent_run_id) } : {}),
       ...(stringValue(row.parentTurnId ?? row.parent_turn_id) ? { parentTurnId: stringValue(row.parentTurnId ?? row.parent_turn_id) } : {}),
       ...(stringValue(row.sessionKey ?? row.session_key) ? { sessionKey: stringValue(row.sessionKey ?? row.session_key) } : {}),
+      ...(stringValue(row.scopeKey ?? row.scope_key) ? { scopeKey: stringValue(row.scopeKey ?? row.scope_key) } : {}),
+      ...(stringValue(row.scopeLabel ?? row.scope_label) ? { scopeLabel: stringValue(row.scopeLabel ?? row.scope_label) } : {}),
       ...(status ? { status } : {}),
       ...(stringValue(row.traceRef ?? row.trace_ref) ? { traceRef: stringValue(row.traceRef ?? row.trace_ref) } : {}),
     };
@@ -1329,7 +1336,7 @@ function normalizeToolActivityStatus(value: unknown): string {
     return "failed";
   }
   if (["blocked", "approval_required", "awaiting_approval", "pending_approval", "waiting_approval"].includes(normalized)) {
-    return "blocked";
+    return "awaiting_approval";
   }
   if (["cancelled", "canceled", "interrupted", "stopped"].includes(normalized)) {
     return "cancelled";

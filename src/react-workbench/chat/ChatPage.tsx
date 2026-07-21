@@ -445,7 +445,7 @@ export function ChatPage({
     : liveCanvasEntries.find((entry) => entry.turnId === liveCanvas.selection?.turnId && entry.step.id === liveCanvas.selection.itemId);
 
   const openLiveCanvasItem = (turnId: string, step: ChatStep) => {
-    if (activeRun?.id === turnId && step.kind === "approval" && step.status === "blocked") {
+    if (activeRun?.id === turnId && step.kind === "approval" && step.status === "awaiting_approval") {
       dispatchLiveCanvas({ type: "return_live" });
       return;
     }
@@ -690,7 +690,7 @@ export function ChatPage({
         setTimelineError(`Approval failed: ${commandLifecycle.error}`);
         return;
       }
-      if (commandLifecycle.stage === "completed") {
+      if (commandLifecycle.stage === "acknowledged" || commandLifecycle.stage === "completed") {
         setResolvingApprovalId("");
       }
       return;
@@ -2487,7 +2487,7 @@ function ExecutionTimeline({
 }) {
   const contentId = useId();
   const timelineRef = useRef<HTMLElement | null>(null);
-  const abnormal = executionItems.some((step) => step.status === "failed" || step.status === "cancelled" || step.status === "blocked")
+  const abnormal = executionItems.some((step) => step.status === "failed" || step.status === "cancelled" || step.status === "awaiting_approval" || step.status === "blocked")
     || turn.status === "failed"
     || turn.status === "interrupted"
     || turn.status === "awaiting_approval"
@@ -3043,7 +3043,7 @@ function toolCallSummaryFromStep(step: ChatStep, toolCall: ToolCallState): ToolC
 function canonicalStepIconStatus(step: ChatStep): AgentStepStatus {
   if (step.status === "completed") return "success";
   if (step.status === "running") return "active";
-  if (step.status === "blocked") return "waiting";
+  if (step.status === "awaiting_approval" || step.status === "blocked") return "waiting";
   if (step.status === "failed" || step.status === "cancelled") return "error";
   return "pending";
 }

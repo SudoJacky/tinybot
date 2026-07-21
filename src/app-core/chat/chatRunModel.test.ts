@@ -187,7 +187,7 @@ describe("chat run model", () => {
     expect(turns[0].steps.map((step) => [step.kind, step.title, step.status])).toEqual([
       ["reasoning", "Thinking complete", "completed"],
       ["tool_call", "read_file", "completed"],
-      ["approval", "Run command?", "blocked"],
+      ["approval", "Run command?", "awaiting_approval"],
     ]);
     expect(turns[0].steps[1].toolCall).toMatchObject({
       id: "call-read",

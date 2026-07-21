@@ -1,4 +1,5 @@
 use crate::agent_loop_runtime_protocol::AgentTraceContext;
+use crate::agent_loop_runtime_protocol::{AgentApprovalDecision, AgentApprovalScope};
 use crate::call_rust_state_service;
 use crate::native_agent_bridge::{
     cleanup_turn_attachments, materialize_turn_attachments, native_agent_current_user_message,
@@ -17,7 +18,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::agent_flow::run_agent_with_services;
 use super::webui_continuation::{
     native_session_checkpoint, resolve_agent_ui_form_body_with_services,
-    resolve_approval_body_with_services,
 };
 
 pub(crate) struct SubmitThreadTurnInput {
@@ -209,59 +209,53 @@ pub(crate) async fn submit_thread_turn_with_services(
 pub(crate) async fn resolve_thread_approval_with_services(
     base_services: NativeAgentRuntimeServices,
     input: ResolveThreadApprovalInput,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
+    _workspace_root: PathBuf,
+    _config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let target_snapshot = read_thread_snapshot(
+    let decision = if input.approved {
+        AgentApprovalDecision::Approved
+    } else {
+        AgentApprovalDecision::Denied
+    };
+    let scope = match input.scope.as_deref().unwrap_or("once") {
+        "once" => AgentApprovalScope::Once,
+        "session" if input.approved => AgentApprovalScope::Session,
+        "session" => AgentApprovalScope::Once,
+        unsupported => {
+            return Err(format!(
+                "unsupported approval scope `{unsupported}`; expected `once` or `session`"
+            ));
+        }
+    };
+    let command_id = (!input.command_id.trim().is_empty()).then_some(input.command_id);
+    let acknowledgement = base_services.approval_broker().resolve(
         &input.thread_id,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-        "thread approval target read",
+        &input.approval_id,
+        decision.clone(),
+        scope.clone(),
+        input.guidance,
+        command_id.clone(),
     )?;
-    let thread = target_snapshot
-        .get("thread")
-        .cloned()
-        .ok_or_else(|| "thread approval target read returned no thread".to_string())?;
-    let thread_id = thread_thread_id(&thread)?;
-    let session_id = thread_id.clone();
-    let approval_checkpoint = native_session_checkpoint(
-        &session_id,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-        "thread approval Rollout checkpoint lookup",
-    )?;
-    let mut body = serde_json::json!({
-        "session_key": session_id.clone(),
-        "thread_id": thread_id.clone(),
-        "commandId": input.command_id,
-        "scope": input.scope,
-        "guidance": input.guidance,
-    });
-    if let Some(checkpoint) = approval_checkpoint {
-        body["threadCheckpoint"] = checkpoint;
-    }
-    let mut result = resolve_approval_body_with_services(
-        base_services,
-        input.approval_id,
-        &body,
-        input.approved,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-    )
-    .await?;
-    let snapshot = read_thread_snapshot(
-        &thread_id,
-        workspace_root,
-        config_snapshot,
-        "thread approval snapshot",
-    )?;
-    result["threadId"] = serde_json::Value::String(thread_id.clone());
-    result["threadSnapshot"] = snapshot.clone();
+    let status = match acknowledgement.decision {
+        AgentApprovalDecision::Approved => "approved",
+        AgentApprovalDecision::Denied => "denied",
+    };
+    let scope_name = match acknowledgement.scope {
+        AgentApprovalScope::Once => "once",
+        AgentApprovalScope::Session => "session",
+    };
     Ok(serde_json::json!({
-        "threadId": thread_id,
-        "sessionId": session_id,
-        "approvalResult": result,
-        "snapshot": snapshot,
+        "threadId": input.thread_id,
+        "sessionId": input.thread_id,
+        "approvalResult": {
+            "runtime": "rust",
+            "approvalId": acknowledgement.approval_id,
+            "status": status,
+            "decision": status,
+            "scope": scope_name,
+            "commandId": acknowledgement.command_id,
+            "delivered": true,
+        },
     }))
 }
 
@@ -617,4 +611,55 @@ fn start_native_agent_thread_turn(
         ),
         "native agent thread turn start",
     )
+}
+
+#[cfg(test)]
+mod approval_tests {
+    use super::{resolve_thread_approval_with_services, ResolveThreadApprovalInput};
+    use crate::agent_loop_runtime_protocol::{AgentApprovalDecision, AgentApprovalScope};
+    use crate::worker_agent_runtime::approvals::{
+        ApprovalRegistration, NativeAgentApprovalRequest,
+    };
+    use crate::worker_agent_runtime::NativeAgentRuntimeServices;
+
+    #[test]
+    fn thread_approval_resolution_only_delivers_the_decision() {
+        let services = NativeAgentRuntimeServices::default();
+        let receiver = match services
+            .approval_broker()
+            .register(NativeAgentApprovalRequest {
+                approval_id: "approval-live-1".to_string(),
+                session_id: "thread-live-1".to_string(),
+                run_id: "run-live-1".to_string(),
+                scope_key: "exec:echo-hi".to_string(),
+            })
+            .expect("approval should register")
+        {
+            ApprovalRegistration::Pending(receiver) => receiver,
+            ApprovalRegistration::ApprovedForSession(_) => panic!("unexpected session grant"),
+        };
+
+        let result = tauri::async_runtime::block_on(resolve_thread_approval_with_services(
+            services,
+            ResolveThreadApprovalInput {
+                thread_id: "thread-live-1".to_string(),
+                approval_id: "approval-live-1".to_string(),
+                approved: true,
+                command_id: "command-live-1".to_string(),
+                scope: Some("once".to_string()),
+                guidance: None,
+            },
+            std::path::PathBuf::new(),
+            serde_json::json!({}),
+        ))
+        .expect("approval decision should be delivered");
+        assert_eq!(result["approvalResult"]["delivered"], true);
+        assert_eq!(result["approvalResult"]["status"], "approved");
+
+        let resolution = tauri::async_runtime::block_on(receiver)
+            .expect("original tool future should receive the decision");
+        assert_eq!(resolution.decision, AgentApprovalDecision::Approved);
+        assert_eq!(resolution.scope, AgentApprovalScope::Once);
+        assert_eq!(resolution.command_id.as_deref(), Some("command-live-1"));
+    }
 }

@@ -449,6 +449,17 @@ fn approval_session_fingerprint(
     approval_fingerprint(tool, arguments, effects)
 }
 
+pub(crate) fn approval_session_scope(
+    tool: &ToolRegistryEntry,
+    arguments: &Value,
+) -> Result<(String, String), WorkerProtocolError> {
+    let effects = normalize_tool_effects(tool, arguments)?;
+    Ok((
+        approval_session_fingerprint(tool, arguments, &effects),
+        approval_summary(tool, arguments),
+    ))
+}
+
 fn normalize_path(path: &str) -> String {
     normalize_permission_path(path)
 }

@@ -729,6 +729,15 @@ export function reduceTinyOsCommandLifecycle(
   }
   if (state.stage === "acknowledged") return state;
   if (action.type === "transport_accepted") {
+    if (state.command.kind === "approval.resolve") {
+      return {
+        acknowledgement: { itemId: state.command.approval.approvalId, revision: 0 },
+        acknowledgedAtMs: action.nowMs,
+        command: state.command,
+        dispatchedAtMs: state.dispatchedAtMs,
+        stage: "acknowledged",
+      };
+    }
     return {
       command: state.command,
       dispatchedAtMs: state.dispatchedAtMs,
