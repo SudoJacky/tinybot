@@ -16,6 +16,7 @@ use tokio_util::sync::CancellationToken;
 
 pub(crate) const DEFAULT_NATIVE_AGENT_MAX_ITERATIONS: i64 = 200;
 
+pub(crate) mod approvals;
 mod checkpoint;
 mod context;
 mod context_contributors;
@@ -527,6 +528,7 @@ pub struct NativeAgentRuntimeServices {
     hooks: hooks::AgentHookPipeline,
     context_contributors: context_contributors::AgentContextContributorRegistry,
     metrics: AgentRuntimeMetrics,
+    approvals: approvals::NativeAgentApprovalBroker,
     #[cfg(test)]
     test_activated_tool_ids: Vec<String>,
     #[cfg(test)]
@@ -557,6 +559,7 @@ impl NativeAgentRuntimeServices {
             hooks: hooks::AgentHookPipeline::default(),
             context_contributors: context_contributors::AgentContextContributorRegistry::default(),
             metrics: crate::runtime::observability::global_agent_runtime_metrics().clone(),
+            approvals: approvals::NativeAgentApprovalBroker::default(),
             #[cfg(test)]
             test_activated_tool_ids: Vec::new(),
             #[cfg(test)]
@@ -606,17 +609,6 @@ impl NativeAgentRuntimeServices {
         self.trace_sink
             .as_ref()
             .map_or(Ok(()), |trace_sink| trace_sink.flush())
-    }
-
-    pub(crate) fn load_runtime_events(
-        &self,
-        session_id: &str,
-        run_id: &str,
-    ) -> Result<Vec<AgentRuntimeEventEnvelope>, String> {
-        self.trace_sink.as_ref().map_or_else(
-            || Ok(Vec::new()),
-            |trace_sink| trace_sink.load_runtime_events(session_id, run_id),
-        )
     }
 
     pub fn with_hook(mut self, hook: Arc<dyn AgentHook>) -> Self {
@@ -722,6 +714,7 @@ impl NativeAgentRuntimeServices {
         let task = self
             .task_runtime
             .request_cancel(run_id, AgentCancelReason::UserRequested);
+        self.approvals.cancel_run(run_id);
         serde_json::json!({
             "runtime": "rust",
             "runId": run_id,
@@ -771,6 +764,10 @@ impl NativeAgentRuntimeServices {
 
     pub fn clear_run_checkpoint(&self, session_id: &str, run_id: &str) {
         self.checkpoints.clear_for_run(session_id, run_id);
+    }
+
+    pub(crate) fn approval_broker(&self) -> approvals::NativeAgentApprovalBroker {
+        self.approvals.clone()
     }
 }
 

@@ -302,7 +302,7 @@ fn remember_client_event_items(extra: &mut Value, client_event_id: &str, items: 
 }
 
 fn now_timestamp() -> String {
-    now_millis().to_string()
+    crate::worker_thread_log::now_thread_timestamp()
 }
 
 fn now_millis() -> u128 {

@@ -1007,7 +1007,7 @@ describe("native chat state", () => {
       kind: "result",
       approvalId: "approval-1",
       approvalStatus: "approval_required",
-      status: "blocked",
+      status: "awaiting_approval",
     }]);
   });
 
@@ -1039,7 +1039,7 @@ describe("native chat state", () => {
       kind: "result",
       approvalId: "approval-1",
       approvalStatus: "approval_required",
-      status: "blocked",
+      status: "awaiting_approval",
     })]);
     expect(messages[0].toolActivities?.[0]?.argsText).toContain("Ask the delegated agent to say hello");
   });
@@ -1289,7 +1289,7 @@ describe("native chat state", () => {
 
     const assistantMessages = state.messages.get(sessionKeyForChat("chat-1"))?.filter((message) => message.role === "assistant") ?? [];
     expect(assistantMessages).toHaveLength(1);
-    expect(assistantMessages[0].toolActivities).toEqual([{
+    expect(assistantMessages[0].toolActivities).toEqual([expect.objectContaining({
       id: "call-spawn",
       name: "spawn",
       argsText: "spawn({\"task\":\"say hi\"})",
@@ -1297,8 +1297,8 @@ describe("native chat state", () => {
       kind: "call",
       approvalId: "approval-1",
       approvalStatus: "approval_required",
-      status: "blocked",
-    }]);
+      status: "awaiting_approval",
+    })]);
   });
 
   test("marks pending approval tool activities as resolved locally", () => {

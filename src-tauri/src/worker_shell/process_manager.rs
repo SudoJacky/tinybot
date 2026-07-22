@@ -17,6 +17,10 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::Globalization::{
+    GetOEMCP, IsDBCSLeadByteEx, MultiByteToWideChar, MB_ERR_INVALID_CHARS,
+};
 
 const MAX_PROCESS_RECORDS: usize = 64;
 const MAX_YIELD_TIME_MS: u64 = 30_000;
@@ -1624,7 +1628,7 @@ impl ProcessStatus {
 struct HeadTailOutput {
     head: Vec<BufferedOutputChunk>,
     tail: VecDeque<BufferedOutputChunk>,
-    pending_utf8: HashMap<String, Vec<u8>>,
+    pending_output: HashMap<String, Vec<u8>>,
     head_bytes: usize,
     tail_bytes: usize,
     dropped_bytes: u64,
@@ -1636,7 +1640,7 @@ impl HeadTailOutput {
         Self {
             head: Vec::new(),
             tail: VecDeque::new(),
-            pending_utf8: HashMap::new(),
+            pending_output: HashMap::new(),
             head_bytes: 0,
             tail_bytes: 0,
             dropped_bytes: 0,
@@ -1648,20 +1652,20 @@ impl HeadTailOutput {
         if bytes.is_empty() {
             return;
         }
-        let mut combined = self.pending_utf8.remove(stream).unwrap_or_default();
+        let mut combined = self.pending_output.remove(stream).unwrap_or_default();
         combined.extend_from_slice(bytes);
-        let (decoded, pending) = decode_available_utf8(&combined);
+        let (decoded, pending) = decode_available_shell_output(&combined);
         if !pending.is_empty() {
-            self.pending_utf8.insert(stream.to_string(), pending);
+            self.pending_output.insert(stream.to_string(), pending);
         }
         self.append_retained(stream, &decoded);
     }
 
     fn finish_stream(&mut self, stream: &str) -> bool {
-        let Some(pending) = self.pending_utf8.remove(stream) else {
+        let Some(pending) = self.pending_output.remove(stream) else {
             return false;
         };
-        let decoded = String::from_utf8_lossy(&pending).into_owned().into_bytes();
+        let decoded = decode_finished_shell_output(&pending).into_bytes();
         self.append_retained(stream, &decoded);
         !decoded.is_empty()
     }
@@ -1742,6 +1746,7 @@ impl HeadTailOutput {
     }
 }
 
+#[cfg(not(target_os = "windows"))]
 fn decode_available_utf8(bytes: &[u8]) -> (Vec<u8>, Vec<u8>) {
     let mut decoded = Vec::with_capacity(bytes.len());
     let mut offset = 0;
@@ -1766,6 +1771,94 @@ fn decode_available_utf8(bytes: &[u8]) -> (Vec<u8>, Vec<u8>) {
     (decoded, Vec::new())
 }
 
+#[cfg(not(target_os = "windows"))]
+fn decode_available_shell_output(bytes: &[u8]) -> (Vec<u8>, Vec<u8>) {
+    decode_available_utf8(bytes)
+}
+
+#[cfg(target_os = "windows")]
+fn decode_available_shell_output(bytes: &[u8]) -> (Vec<u8>, Vec<u8>) {
+    match std::str::from_utf8(bytes) {
+        Ok(_) => (bytes.to_vec(), Vec::new()),
+        Err(error) if error.error_len().is_none() => {
+            let valid_end = error.valid_up_to();
+            (bytes[..valid_end].to_vec(), bytes[valid_end..].to_vec())
+        }
+        Err(_) => decode_available_windows_code_page(bytes, unsafe { GetOEMCP() }),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn decode_available_windows_code_page(bytes: &[u8], code_page: u32) -> (Vec<u8>, Vec<u8>) {
+    if let Some(decoded) = decode_windows_code_page(bytes, code_page, MB_ERR_INVALID_CHARS) {
+        return (decoded.into_bytes(), Vec::new());
+    }
+    if bytes
+        .last()
+        .is_some_and(|byte| unsafe { IsDBCSLeadByteEx(code_page, *byte) != 0 })
+    {
+        let pending_at = bytes.len() - 1;
+        if let Some(decoded) =
+            decode_windows_code_page(&bytes[..pending_at], code_page, MB_ERR_INVALID_CHARS)
+        {
+            return (decoded.into_bytes(), bytes[pending_at..].to_vec());
+        }
+    }
+    let decoded = decode_windows_code_page(bytes, code_page, 0)
+        .unwrap_or_else(|| String::from_utf8_lossy(bytes).into_owned());
+    (decoded.into_bytes(), Vec::new())
+}
+
+#[cfg(target_os = "windows")]
+fn decode_windows_code_page(bytes: &[u8], code_page: u32, flags: u32) -> Option<String> {
+    if bytes.is_empty() {
+        return Some(String::new());
+    }
+    let byte_count = i32::try_from(bytes.len()).ok()?;
+    let wide_count = unsafe {
+        MultiByteToWideChar(
+            code_page,
+            flags,
+            bytes.as_ptr(),
+            byte_count,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if wide_count <= 0 {
+        return None;
+    }
+    let mut wide = vec![0_u16; wide_count as usize];
+    let written = unsafe {
+        MultiByteToWideChar(
+            code_page,
+            flags,
+            bytes.as_ptr(),
+            byte_count,
+            wide.as_mut_ptr(),
+            wide_count,
+        )
+    };
+    if written <= 0 {
+        return None;
+    }
+    wide.truncate(written as usize);
+    Some(String::from_utf16_lossy(&wide))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn decode_finished_shell_output(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+#[cfg(target_os = "windows")]
+fn decode_finished_shell_output(bytes: &[u8]) -> String {
+    String::from_utf8(bytes.to_vec()).unwrap_or_else(|error| {
+        decode_windows_code_page(error.as_bytes(), unsafe { GetOEMCP() }, 0)
+            .unwrap_or_else(|| String::from_utf8_lossy(error.as_bytes()).into_owned())
+    })
+}
+
 fn floor_utf8_boundary(bytes: &[u8], maximum: usize) -> usize {
     let text = std::str::from_utf8(bytes).expect("retained shell output must be valid UTF-8");
     let mut boundary = maximum.min(bytes.len());
@@ -1786,6 +1879,8 @@ fn ceil_utf8_boundary(bytes: &[u8], minimum: usize) -> usize {
 
 #[cfg(test)]
 mod output_tests {
+    #[cfg(target_os = "windows")]
+    use super::decode_available_windows_code_page;
     use super::HeadTailOutput;
 
     #[test]
@@ -1815,6 +1910,19 @@ mod output_tests {
             .collect::<String>();
         assert!(rendered.ends_with("中z"));
         assert!(!rendered.contains('�'));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn retains_windows_dbcs_characters_split_across_reader_chunks() {
+        let (_, pending) = decode_available_windows_code_page(&[0xce], 936);
+        assert_eq!(pending, [0xce]);
+
+        let mut combined = pending;
+        combined.push(0xc4);
+        let (decoded, pending) = decode_available_windows_code_page(&combined, 936);
+        assert!(pending.is_empty());
+        assert_eq!(String::from_utf8(decoded).unwrap(), "文");
     }
 }
 

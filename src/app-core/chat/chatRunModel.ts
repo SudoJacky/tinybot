@@ -1,7 +1,7 @@
 import type { NativeChatMessage, NativeChatReference } from "./nativeChat";
 
 export type ChatTurnStatus = "pending" | "running" | "awaiting_approval" | "awaiting_user" | "completed" | "failed" | "interrupted";
-export type ChatStepStatus = "pending" | "running" | "blocked" | "completed" | "failed" | "cancelled";
+export type ChatStepStatus = "pending" | "running" | "awaiting_approval" | "blocked" | "completed" | "failed" | "cancelled";
 export type AssistantMessagePhase = "unknown" | "commentary" | "final_answer";
 export type AgentContextType = "main" | "spawn" | "subagent" | "cowork" | "team";
 export type ArtifactKind =
@@ -79,6 +79,8 @@ export interface ChatToolActivityProjection {
   approvalId?: string;
   argsText: string;
   approvalStatus: string;
+  scopeKey?: string;
+  scopeLabel?: string;
   childRunId?: string;
   delegatedTrace?: Record<string, unknown>;
   delegateId?: string;
@@ -175,8 +177,11 @@ export type ApprovalState = {
   approvalId: string;
   decision?: string;
   riskLevel?: string;
+  scopeKey?: string;
+  scopeLabel?: string;
   title?: string;
   toolCallId?: string;
+  toolName?: string;
 };
 
 export type LoadedArtifactDetail = {
@@ -861,7 +866,7 @@ export function reduceAgentEvent(state: ChatRunState, event: AgentEventEnvelope)
         };
         Object.assign(existingToolStep, {
           completedAt: existingToolStep.completedAt,
-          status: "blocked",
+          status: "awaiting_approval",
           title: existingToolStep.title || toolCall.name,
           toolCall,
           updatedAt: event.created_at,
@@ -872,7 +877,7 @@ export function reduceAgentEvent(state: ChatRunState, event: AgentEventEnvelope)
     upsertStep(turn, event, {
       approval,
       kind: "approval",
-      status: event.event_type === "approval.resolved" ? "completed" : "blocked",
+      status: event.event_type === "approval.resolved" ? "completed" : "awaiting_approval",
       title: stringValue(event.payload.title) || "Approval",
     });
     return state;
@@ -1082,7 +1087,7 @@ function applyTurnItemToTurn(turn: ChatTurn, item: BackendAgentTurnItem): void {
     turn.steps.push(runtimeStep(item, sequence, {
       approval: approvalFromRuntimeItem(item),
       kind: "approval",
-      status: status === "completed" ? "completed" : "blocked",
+      status: status === "completed" ? "completed" : "awaiting_approval",
       summary: safeArtifactText(stringValue(payload.summary ?? payload.reason ?? item.summary)),
       title: item.title || "Approval",
     }));
@@ -1188,10 +1193,12 @@ function applyTurnItemToTurn(turn: ChatTurn, item: BackendAgentTurnItem): void {
     return;
   }
   if (item.kind === "usage") {
+    const providerUsage = normalizeUsage(payload.providerPayload);
     turn.usage = {
-      promptTokens: numberValue(payload.inputTokens),
-      completionTokens: numberValue(payload.outputTokens),
-      totalTokens: numberValue(payload.totalTokens),
+      ...(providerUsage ?? {}),
+      promptTokens: numberValue(payload.inputTokens) ?? providerUsage?.promptTokens,
+      completionTokens: numberValue(payload.outputTokens) ?? providerUsage?.completionTokens,
+      totalTokens: numberValue(payload.totalTokens) ?? providerUsage?.totalTokens,
     };
     return;
   }
@@ -1334,8 +1341,11 @@ function approvalFromRuntimeItem(item: BackendAgentTurnItem): ApprovalState {
     approvalId: stringValue(payload.approvalId) || item.itemId,
     decision: stringValue(payload.decision),
     riskLevel: stringValue(payload.riskLevel ?? payload.risk_level),
+    scopeKey: stringValue(payload.scopeKey ?? payload.scope_key),
+    scopeLabel: stringValue(payload.scopeLabel ?? payload.scope_label),
     title: item.title || stringValue(payload.title),
     toolCallId: stringValue(payload.toolCallId),
+    toolName: stringValue(payload.toolName ?? payload.name),
   };
 }
 
@@ -1361,7 +1371,7 @@ function itemStatusToStepStatus(status: string): ChatStepStatus {
     case "queued":
       return "pending";
     case "waiting":
-      return "blocked";
+      return "awaiting_approval";
     case "completed":
       return "completed";
     case "failed":
@@ -1419,7 +1429,7 @@ function reconcileTerminalStepStatuses(turn: ChatTurn): void {
       });
       step.plan.currentStep = undefined;
     }
-    if (step.status === "pending" || step.status === "running" || step.status === "blocked") {
+    if (step.status === "pending" || step.status === "running" || step.status === "awaiting_approval" || step.status === "blocked") {
       step.status = turn.status === "completed"
         ? "completed"
         : turn.status === "failed"
@@ -1541,6 +1551,20 @@ function stepToToolActivities(step: ChatStep): ChatMessageProjection["toolActivi
       kind: step.status === "completed" || step.status === "failed" ? "result" : "call",
       name: step.toolCall.name,
       responseText: step.toolCall.resultPreview ?? serialize(step.toolCall.resultJson ?? ""),
+      status: step.status,
+    }];
+  }
+  if (step.approval) {
+    return [{
+      approvalId: step.approval.approvalId,
+      approvalStatus: step.status === "completed" ? step.approval.decision ?? "completed" : "approval_required",
+      argsText: "",
+      id: step.approval.toolCallId || step.approval.approvalId,
+      kind: "call",
+      name: step.approval.toolName || step.title || "tool",
+      responseText: step.summary || step.approval.title || "Approval required",
+      scopeKey: step.approval.scopeKey,
+      scopeLabel: step.approval.scopeLabel,
       status: step.status,
     }];
   }
@@ -2203,11 +2227,11 @@ function agentContextType(value: string): AgentContextType {
 
 function statusValue(value: unknown): ChatStepStatus | "" {
   const normalized = stringValue(value).toLowerCase().replace(/[\s-]+/g, "_");
-  if (["pending", "running", "blocked", "completed", "failed", "cancelled"].includes(normalized)) {
+  if (["pending", "running", "awaiting_approval", "blocked", "completed", "failed", "cancelled"].includes(normalized)) {
     return normalized as ChatStepStatus;
   }
   if (["awaiting_approval", "approval_required"].includes(normalized)) {
-    return "blocked";
+    return "awaiting_approval";
   }
   if (["complete", "success", "succeeded", "done"].includes(normalized)) {
     return "completed";

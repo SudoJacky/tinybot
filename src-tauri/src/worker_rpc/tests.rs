@@ -1,10 +1,11 @@
-use super::ShellExecuteRequestParams;
+use super::{tool_executor_arguments_with_context, ShellExecuteRequestParams};
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_permission_profile::PermissionEvaluateToolRequest;
 use crate::worker_protocol::{WorkerRequest, WorkerRequestCancellation};
 use crate::worker_rpc::WorkerRpcRouter;
 use crate::worker_shell::WorkerShellRuntime;
 use crate::worker_subagent_manager::{SubagentSpawnParams, SubagentThreadManager};
+use crate::worker_tool_executor::ToolExecutorExecuteRequest;
 use serde_json::{json, Value};
 use std::{
     io::Write,
@@ -18,6 +19,26 @@ use std::{
 };
 
 static WORKSPACE_FIXTURE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+#[test]
+fn tool_executor_preserves_explicit_parent_run_context() {
+    let arguments = tool_executor_arguments_with_context(&ToolExecutorExecuteRequest {
+        tool_id: "subagent.spawn".to_string(),
+        arguments: json!({
+            "sessionKey": "session-parent",
+            "parentRunId": "run-parent",
+            "task": "Inspect one bounded boundary"
+        }),
+        thread_id: None,
+        run_id: Some("run-parent".to_string()),
+        session_id: Some("session-parent".to_string()),
+        turn_id: None,
+        tool_call_id: Some("call-subagent-spawn".to_string()),
+    });
+
+    assert_eq!(arguments["parentRunId"], "run-parent");
+    assert!(arguments.get("runId").is_none());
+}
 
 #[test]
 fn shell_request_uses_configured_defaults_when_call_omits_them() {
@@ -1568,10 +1589,10 @@ fn thread_rollback_rejects_an_in_progress_turn() {
         json!({
             "sessionId": "thread-rollback-active",
             "context": {
-                "turnId": "turn-rollback-active",
+                "turn_id": "turn-rollback-active",
                 "cwd": "",
-                "approvalPolicy": {},
-                "sandboxPolicy": {},
+                "approval_policy": {},
+                "sandbox_policy": {},
                 "model": "fixture-model",
                 "summary": {}
             }
@@ -1593,77 +1614,6 @@ fn thread_rollback_rejects_an_in_progress_turn() {
             .message
             .contains("cannot rollback while a turn is in progress")
     }));
-}
-
-#[test]
-fn rollout_world_state_appends_typed_full_and_patch_items() {
-    let fixture = WorkspaceFixture::new();
-    let mut router = WorkerRpcRouter::new_persistent_sessions(
-        fixture.root.clone(),
-        json!({}),
-        vec![],
-        50,
-        CapabilityPolicy::new([
-            WorkerCapability::SessionWrite,
-            WorkerCapability::SessionMetadataRead,
-        ]),
-    )
-    .unwrap();
-    for (index, world_state) in [
-        json!({
-            "full": true,
-            "state": {
-                "environment": {
-                    "cwd": "D:/workspace",
-                    "status": "starting"
-                }
-            }
-        }),
-        json!({
-            "full": false,
-            "state": {
-                "environment": {
-                    "status": "ready"
-                }
-            }
-        }),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let appended = router.dispatch(&WorkerRequest::new(
-            format!("req-world-state-{index}"),
-            "trace-world-state",
-            "rollout.append_world_state",
-            json!({
-                "sessionId": "thread-world-state",
-                "worldState": world_state
-            }),
-        ));
-        assert_eq!(appended.error, None);
-    }
-
-    let metadata = router.dispatch(&WorkerRequest::new(
-        "req-world-state-metadata",
-        "trace-world-state",
-        "session.get_metadata",
-        json!({ "session_id": "thread-world-state" }),
-    ));
-    let rollout_path = metadata.result.as_ref().unwrap()["extra"]["threadPath"]
-        .as_str()
-        .unwrap();
-    let lines =
-        crate::worker_thread_log::read_thread_lines(std::path::Path::new(rollout_path)).unwrap();
-    let reconstructed = crate::worker_rollout::reconstruct_rollout(&lines).unwrap();
-    assert_eq!(
-        reconstructed.world_state_baseline,
-        Some(json!({
-            "environment": {
-                "cwd": "D:/workspace",
-                "status": "ready"
-            }
-        }))
-    );
 }
 
 #[test]
@@ -2663,12 +2613,12 @@ fn rollout_native_session_mutations_survive_restart_without_legacy_stores() {
     );
     let rollout = std::fs::read_to_string(rollout_path).unwrap();
     assert!(rollout.contains("\"type\":\"session_trimmed\""));
-    assert!(rollout.contains("\"type\":\"task_progress_updated\""));
+    assert!(rollout.contains("\"_task_plan_id\""));
     assert_removed_persistence_paths_absent(&fixture.root);
 }
 
 #[test]
-fn agent_run_persistence_drops_transient_trace_and_does_not_write_legacy_session_store() {
+fn agent_run_semantic_persistence_rejects_transient_events() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new_persistent_sessions(
         fixture.root.clone(),
@@ -2696,7 +2646,6 @@ fn agent_run_persistence_drops_transient_trace_and_does_not_write_legacy_session
         "currentIteration": 0,
         "conversationMessageIds": [],
         "traceMessages": [],
-        "traceEvents": [],
         "completedToolResults": [],
         "pendingToolCalls": [],
         "checkpoint": null,
@@ -2708,13 +2657,13 @@ fn agent_run_persistence_drops_transient_trace_and_does_not_write_legacy_session
     let upsert = router.dispatch(&WorkerRequest::new(
         "req-agent-log-only-upsert",
         "trace-agent-log-only",
-        "agent_run.upsert",
+        "agent_run.start",
         json!({ "record": record }),
     ));
-    let append_trace = router.dispatch(&WorkerRequest::new(
+    let append_semantic = router.dispatch(&WorkerRequest::new(
         "req-agent-log-only-trace",
         "trace-agent-log-only",
-        "agent_run.append_trace_batch",
+        "agent_run.append_semantic_batch",
         json!({
             "session_id": "session-agent-log-only",
             "run_id": "run-agent-log-only",
@@ -2751,14 +2700,11 @@ fn agent_run_persistence_drops_transient_trace_and_does_not_write_legacy_session
     ));
 
     assert_eq!(upsert.error, None);
-    assert_eq!(append_trace.error, None);
+    assert!(append_semantic.error.is_some());
     assert_eq!(completed.error, None);
     assert_eq!(get.error, None);
     assert_eq!(get.result.as_ref().unwrap()["status"], "completed");
-    let trace_events = get.result.as_ref().unwrap()["traceEvents"]
-        .as_array()
-        .expect("trace events should be an array");
-    assert!(trace_events.is_empty());
+    assert!(get.result.as_ref().unwrap().get("traceEvents").is_none());
     assert_removed_persistence_paths_absent(&fixture.root);
     assert!(fixture
         .root
@@ -2772,8 +2718,8 @@ fn agent_run_persistence_drops_transient_trace_and_does_not_write_legacy_session
         .unwrap()
         .lines()
         .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
-        .find(|line| line["type"] == "event_msg" && line["payload"]["type"] == "agent_run_upsert")
-        .map(|line| line["payload"]["payload"]["record"].clone())
+        .find(|line| line["type"] == "event_msg" && line["payload"]["type"] == "turn_started")
+        .map(|line| line["payload"]["payload"]["agentRun"].clone())
         .expect("agent run seed should be persisted");
     assert_eq!(upsert_record["sessionId"], "session-agent-log-only");
     assert_eq!(upsert_record["runId"], "run-agent-log-only");
@@ -2785,7 +2731,6 @@ fn agent_run_persistence_drops_transient_trace_and_does_not_write_legacy_session
         "stopReason",
         "currentIteration",
         "traceMessages",
-        "traceEvents",
         "completedToolResults",
         "pendingToolCalls",
         "checkpoint",
@@ -2796,7 +2741,7 @@ fn agent_run_persistence_drops_transient_trace_and_does_not_write_legacy_session
     ] {
         assert!(
             upsert_record.get(derived_field).is_none(),
-            "agent_run_upsert must not persist derived field `{derived_field}`"
+            "turn_started seed must not persist derived field `{derived_field}`"
         );
     }
 }
@@ -2830,7 +2775,6 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
         "currentIteration": 0,
         "conversationMessageIds": [],
         "traceMessages": [],
-        "traceEvents": [],
         "completedToolResults": [],
         "pendingToolCalls": [],
         "checkpoint": null,
@@ -2841,7 +2785,7 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
     let upsert = router.dispatch(&WorkerRequest::new(
         "req-reasoning-reload-upsert",
         "trace-reasoning-reload",
-        "agent_run.upsert",
+        "agent_run.start",
         json!({ "record": record }),
     ));
     assert_eq!(upsert.error, None);
@@ -2859,37 +2803,17 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
         assert_eq!(padding.error, None);
     }
 
-    let append_trace = router.dispatch(&WorkerRequest::new(
+    let append_semantic = router.dispatch(&WorkerRequest::new(
         "req-reasoning-reload-trace",
         "trace-reasoning-reload",
-        "agent_run.append_trace_batch",
+        "agent_run.append_semantic_batch",
         json!({
             "session_id": "session-reasoning-reload",
             "run_id": "run-reasoning-reload",
             "events": [{
-                "eventId": "reasoning-reload-1",
-                "eventName": "agent.reasoning_delta",
-                "sequence": 1,
-                "turnId": "run-reasoning-reload",
-                "payload": {
-                    "delta": "Inspect ",
-                    "modelCallId": "provider-1",
-                    "reasoningId": "reasoning-1"
-                }
-            }, {
-                "eventId": "reasoning-reload-2",
-                "eventName": "agent.reasoning_delta",
-                "sequence": 2,
-                "turnId": "run-reasoning-reload",
-                "payload": {
-                    "delta": "first.",
-                    "modelCallId": "provider-1",
-                    "reasoningId": "reasoning-1"
-                }
-            }, {
                 "eventId": "reasoning-reload-reasoning-completed",
                 "eventName": "agent.reasoning.completed",
-                "sequence": 3,
+                "sequence": 1,
                 "turnId": "run-reasoning-reload",
                 "payload": {
                     "summary": "Inspect first.",
@@ -2899,7 +2823,7 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
             }, {
                 "eventId": "reasoning-reload-tool-a",
                 "eventName": "agent.tool_call.delta",
-                "sequence": 4,
+                "sequence": 2,
                 "turnId": "run-reasoning-reload",
                 "payload": {
                     "toolCallId": "call-a",
@@ -2909,7 +2833,7 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
             }, {
                 "eventId": "reasoning-reload-tool-b",
                 "eventName": "agent.tool_call.delta",
-                "sequence": 5,
+                "sequence": 3,
                 "turnId": "run-reasoning-reload",
                 "payload": {
                     "toolCallId": "call-b",
@@ -2919,7 +2843,7 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
             }, {
                 "eventId": "reasoning-reload-result-b",
                 "eventName": "agent.tool.result",
-                "sequence": 6,
+                "sequence": 4,
                 "turnId": "run-reasoning-reload",
                 "payload": {
                     "toolCallId": "call-b",
@@ -2929,7 +2853,7 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
             }, {
                 "eventId": "reasoning-reload-result-a",
                 "eventName": "agent.tool.result",
-                "sequence": 7,
+                "sequence": 5,
                 "turnId": "run-reasoning-reload",
                 "payload": {
                     "toolCallId": "call-a",
@@ -2939,7 +2863,7 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
             }, {
                 "eventId": "reasoning-reload-completed",
                 "eventName": "agent.message.completed",
-                "sequence": 8,
+                "sequence": 6,
                 "turnId": "run-reasoning-reload",
                 "payload": {
                     "content": "Done.",
@@ -2950,7 +2874,7 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
             }]
         }),
     ));
-    assert_eq!(append_trace.error, None);
+    assert_eq!(append_semantic.error, None);
     let completed = router.dispatch(&WorkerRequest::new(
         "req-reasoning-reload-complete",
         "trace-reasoning-reload",
@@ -3002,7 +2926,7 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
     assert_eq!(
         runtime_events
             .iter()
-            .filter(|event| event["eventName"] == "agent.reasoning_delta")
+            .filter(|event| event["eventName"] == "agent.reasoning.completed")
             .count(),
         1
     );
@@ -3049,7 +2973,7 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
 }
 
 #[test]
-fn agent_run_trace_append_preserves_thread_updated_at_and_keeps_index_clean() {
+fn agent_run_semantic_append_updates_projection_and_keeps_index_clean() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new_persistent_sessions(
         fixture.root.clone(),
@@ -3077,7 +3001,6 @@ fn agent_run_trace_append_preserves_thread_updated_at_and_keeps_index_clean() {
         "currentIteration": 0,
         "conversationMessageIds": [],
         "traceMessages": [],
-        "traceEvents": [],
         "completedToolResults": [],
         "pendingToolCalls": [],
         "checkpoint": null,
@@ -3089,7 +3012,7 @@ fn agent_run_trace_append_preserves_thread_updated_at_and_keeps_index_clean() {
     let upsert = router.dispatch(&WorkerRequest::new(
         "req-trace-state-index-upsert",
         "trace-state-index",
-        "agent_run.upsert",
+        "agent_run.start",
         json!({ "record": record }),
     ));
     assert_eq!(upsert.error, None);
@@ -3101,30 +3024,35 @@ fn agent_run_trace_append_preserves_thread_updated_at_and_keeps_index_clean() {
     let before_updated_at = thread_state_updated_at(&state_path, "session-trace-state-index");
     thread::sleep(Duration::from_millis(5));
 
-    let append_trace = router.dispatch(&WorkerRequest::new(
+    let append_semantic = router.dispatch(&WorkerRequest::new(
         "req-trace-state-index-append",
         "trace-state-index",
-        "agent_run.append_trace",
+        "agent_run.append_semantic_batch",
         json!({
             "session_id": "session-trace-state-index",
             "run_id": "run-trace-state-index",
-            "event": {
-                "eventId": "trace-state-index-delta",
-                "eventName": "agent.delta",
-                "payload": { "delta": "streamed" }
-            }
+            "events": [{
+                "eventId": "semantic-state-index-message",
+                "eventName": "agent.message.completed",
+                "turnId": "run-trace-state-index",
+                "payload": {
+                    "content": "completed",
+                    "messageId": "assistant-state-index",
+                    "messagePhase": "final_answer"
+                }
+            }]
         }),
     ));
-    assert_eq!(append_trace.error, None);
+    assert_eq!(append_semantic.error, None);
 
     let after_updated_at = thread_state_updated_at(&state_path, "session-trace-state-index");
-    assert_eq!(after_updated_at, before_updated_at);
+    assert!(after_updated_at > before_updated_at);
     let context = router
         .thread_log
         .get_agent_context("session-trace-state-index", 50)
         .unwrap()
         .unwrap();
-    assert!(context.messages.is_empty());
+    assert_eq!(context.messages.len(), 1);
     let consistency = router.dispatch(&WorkerRequest::new(
         "req-trace-state-index-consistency",
         "trace-state-index",
@@ -3133,10 +3061,12 @@ fn agent_run_trace_append_preserves_thread_updated_at_and_keeps_index_clean() {
     ));
     assert_eq!(consistency.error, None);
     assert_eq!(consistency.result.as_ref().unwrap()["status"], "clean");
-    assert_eq!(
-        append_trace.result.as_ref().unwrap()["traceEvents"][0]["eventName"],
-        "agent.delta"
-    );
+    assert!(append_semantic
+        .result
+        .as_ref()
+        .unwrap()
+        .get("traceEvents")
+        .is_none());
 }
 
 #[test]
@@ -6158,7 +6088,7 @@ fn dispatches_tool_registry_list_with_capability_metadata() {
         .find(|tool| tool["method"] == "shell.execute")
         .expect("shell.execute should be registered");
     assert_eq!(shell["namespace"], "shell");
-    assert_eq!(shell["exposure"], "deferred");
+    assert_eq!(shell["exposure"], "hidden");
     assert_eq!(shell["available"], false);
     assert_eq!(shell["requiredCapabilities"], json!(["shell.execute"]));
     assert_eq!(shell["approval"]["required"], true);
@@ -6221,7 +6151,7 @@ fn dispatches_tool_registry_search_with_filters() {
         json!({
             "namespace": "memory",
             "availableOnly": true,
-            "exposure": "model"
+            "exposure": "deferred"
         }),
     ));
     assert_eq!(memory.error, None);
@@ -6286,14 +6216,19 @@ fn dispatches_permission_profile_current_with_tool_decisions() {
         .any(|capability| capability["capability"] == "fs.workspace.read"
             && capability["granted"] == true
             && capability["scope"] == "workspace://current"));
-    let read_file = result["tools"]
+    assert!(result["tools"]
         .as_array()
         .unwrap()
         .iter()
-        .find(|tool| tool["toolId"] == "workspace.read_file")
-        .expect("workspace.read_file decision should be present");
-    assert_eq!(read_file["decision"], "allow");
-    assert_eq!(read_file["requiresApproval"], false);
+        .all(|tool| tool["toolId"] != "workspace.read_file"));
+    let memory_search = result["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tool| tool["toolId"] == "memory.search")
+        .expect("memory.search decision should be present");
+    assert_eq!(memory_search["decision"], "allow");
+    assert_eq!(memory_search["requiresApproval"], false);
     let write_file = result["tools"]
         .as_array()
         .unwrap()
@@ -7297,15 +7232,14 @@ fn dispatches_thread_activity_excludes_completed_tool_calls() {
 }
 
 #[test]
-fn dispatches_tool_executor_execute_for_registered_read_tool() {
+fn dispatches_tool_executor_execute_for_registered_memory_tool() {
     let fixture = WorkspaceFixture::new();
-    fixture.write("notes/today.md", "hello from executor");
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
         vec![],
         20,
-        CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]),
+        CapabilityPolicy::new([WorkerCapability::MemoryRead]),
     );
 
     let response = router.dispatch(&WorkerRequest::new(
@@ -7313,39 +7247,34 @@ fn dispatches_tool_executor_execute_for_registered_read_tool() {
         "trace-tool-executor",
         "tool_executor.execute",
         json!({
-            "toolId": "workspace.read_file",
-            "arguments": { "path": "notes/today.md" }
+            "toolId": "memory.search",
+            "arguments": { "query": "hello" }
         }),
     ));
 
     assert_eq!(response.error, None);
     let result = response.result.as_ref().unwrap();
-    assert_eq!(result["toolId"], "workspace.read_file");
-    assert_eq!(result["method"], "workspace.read_file");
-    assert_eq!(result["namespace"], "workspace");
-    assert_eq!(result["exposure"], "model");
+    assert_eq!(result["toolId"], "memory.search");
+    assert_eq!(result["method"], "memory.search");
+    assert_eq!(result["namespace"], "memory");
+    assert_eq!(result["exposure"], "deferred");
     assert_eq!(result["approval"]["required"], false);
     assert_eq!(result["permission"]["decision"], "allow");
     assert_eq!(result["permission"]["requiresApproval"], false);
-    assert_eq!(
-        result["permission"]["tool"]["toolId"],
-        "workspace.read_file"
-    );
-    assert_eq!(result["result"]["path"], "notes/today.md");
-    assert_eq!(result["result"]["contents"], "hello from executor");
+    assert_eq!(result["permission"]["tool"]["toolId"], "memory.search");
+    assert_eq!(result["result"]["notes"], json!([]));
 }
 
 #[test]
 fn dispatches_tool_executor_records_thread_tool_lifecycle() {
     let fixture = WorkspaceFixture::new();
-    fixture.write("notes/today.md", "hello thread executor");
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
         vec![],
         20,
         CapabilityPolicy::new([
-            WorkerCapability::FsWorkspaceRead,
+            WorkerCapability::MemoryRead,
             WorkerCapability::SessionMetadataRead,
             WorkerCapability::SessionWrite,
         ]),
@@ -7378,12 +7307,12 @@ fn dispatches_tool_executor_records_thread_tool_lifecycle() {
         "trace-tool-executor-thread",
         "tool_executor.execute",
         json!({
-            "toolId": "workspace.read_file",
+            "toolId": "memory.search",
             "threadId": "thread-tool-executor",
             "runId": "run-tool-executor",
             "turnId": "turn-tool-executor",
             "toolCallId": "call-tool-executor-read",
-            "arguments": { "path": "notes/today.md" }
+            "arguments": { "query": "hello" }
         }),
     ));
 
@@ -7429,8 +7358,8 @@ fn dispatches_tool_executor_records_thread_tool_lifecycle() {
         ]
     );
     assert_eq!(
-        snapshot.result.as_ref().unwrap()["items"][3]["kind"]["payload"]["output"]["contents"],
-        "hello thread executor"
+        snapshot.result.as_ref().unwrap()["items"][3]["kind"]["payload"]["output"]["notes"],
+        json!([])
     );
 }
 
@@ -8666,21 +8595,6 @@ fn dispatches_thread_apply_op_for_agent_step_events() {
         item_kinds,
         vec!["user_message", "agent_run_started", "agent_run_step"]
     );
-
-    let trace = router.dispatch(&WorkerRequest::new(
-        "req-thread-op-step-trace",
-        "trace-thread-op-step",
-        "agent_run.list_trace",
-        json!({
-            "sessionId": "session-agent-step-op",
-            "runId": "run-agent-step-op"
-        }),
-    ));
-    assert!(trace.result.is_none());
-    assert_eq!(
-        trace.error.as_ref().map(|error| error.message.as_str()),
-        Some("agent run not found")
-    );
 }
 
 #[test]
@@ -8808,21 +8722,6 @@ fn dispatches_thread_apply_op_for_runtime_events() {
     assert_eq!(
         item_kinds,
         vec!["user_message", "agent_run_started", "event"]
-    );
-
-    let trace = router.dispatch(&WorkerRequest::new(
-        "req-thread-op-runtime-event-trace",
-        "trace-thread-op-runtime-event",
-        "agent_run.list_trace",
-        json!({
-            "sessionId": "session-runtime-event-op",
-            "runId": "run-runtime-event-op"
-        }),
-    ));
-    assert!(trace.result.is_none());
-    assert_eq!(
-        trace.error.as_ref().map(|error| error.message.as_str()),
-        Some("agent run not found")
     );
 }
 
@@ -9149,7 +9048,6 @@ fn dispatches_agent_run_store_round_trip_requests() {
         "currentIteration": 0,
         "conversationMessageIds": [],
         "traceMessages": [],
-        "traceEvents": [],
         "completedToolResults": [],
         "pendingToolCalls": [],
         "checkpoint": null,
@@ -9161,72 +9059,60 @@ fn dispatches_agent_run_store_round_trip_requests() {
     let upsert = router.dispatch(&WorkerRequest::new(
         "req-upsert",
         "trace-agent-run",
-        "agent_run.upsert",
+        "agent_run.start",
         json!({ "record": record }),
     ));
-    let invalid_trace = router.dispatch(&WorkerRequest::new(
+    let invalid_semantic = router.dispatch(&WorkerRequest::new(
         "req-invalid-trace",
         "trace-agent-run",
-        "agent_run.append_trace",
+        "agent_run.append_semantic_batch",
         json!({
             "session_id": "session-1",
             "run_id": "run-1",
-            "event": {
+            "events": [{
                 "eventName": "agent.reasoning_delta",
                 "payload": {
                     "delta": "must not be persisted",
                     "modelCallId": "provider-invalid",
                     "reasoningId": "reasoning-invalid"
                 }
-            }
+            }]
         }),
     ));
-    let invalid_response_trace = router.dispatch(&WorkerRequest::new(
+    let invalid_response_semantic = router.dispatch(&WorkerRequest::new(
         "req-invalid-response-trace",
         "trace-agent-run",
-        "agent_run.append_trace",
+        "agent_run.append_semantic_batch",
         json!({
             "session_id": "session-1",
             "run_id": "run-1",
-            "event": {
+            "events": [{
                 "eventId": "invalid-reasoning",
                 "eventName": "agent.reasoning.completed",
                 "payload": {
                     "modelCallId": "provider-invalid",
                     "reasoningId": "reasoning-invalid"
                 }
-            }
+            }]
         }),
     ));
-    let append_trace = router.dispatch(&WorkerRequest::new(
+    let append_semantic = router.dispatch(&WorkerRequest::new(
         "req-trace",
         "trace-agent-run",
-        "agent_run.append_trace",
+        "agent_run.append_semantic_batch",
         json!({
             "session_id": "session-1",
             "run_id": "run-1",
-            "event": {
-                "eventId": "trace-status",
-                "eventName": "agent.status",
+            "events": [{
+                "eventId": "semantic-message",
+                "eventName": "agent.message.completed",
+                "turnId": "run-1",
                 "payload": {
-                    "phase": "active_turn",
-                    "status": "running"
+                    "content": "done",
+                    "messageId": "assistant-1",
+                    "messagePhase": "final_answer"
                 }
-            }
-        }),
-    ));
-    let append_second_trace = router.dispatch(&WorkerRequest::new(
-        "req-trace-2",
-        "trace-agent-run",
-        "agent_run.append_trace",
-        json!({
-            "session_id": "session-1",
-            "run_id": "run-1",
-            "event": {
-                "eventId": "trace-done",
-                "eventName": "agent.done",
-                "payload": { "finalContent": "done" }
-            }
+            }]
         }),
     ));
     let set_checkpoint = router.dispatch(&WorkerRequest::new(
@@ -9256,12 +9142,6 @@ fn dispatches_agent_run_store_round_trip_requests() {
         "trace-agent-run",
         "agent_run.get",
         json!({ "session_id": "session-1", "run_id": "run-1" }),
-    ));
-    let trace_page = router.dispatch(&WorkerRequest::new(
-        "req-list-trace",
-        "trace-agent-run",
-        "agent_run.list_trace",
-        json!({ "session_id": "session-1", "run_id": "run-1", "limit": 1 }),
     ));
     let runtime_state = router.dispatch(&WorkerRequest::new(
         "req-runtime-state",
@@ -9294,24 +9174,23 @@ fn dispatches_agent_run_store_round_trip_requests() {
     ));
 
     assert!(upsert.error.is_none());
-    assert!(invalid_trace.result.is_none());
+    assert!(invalid_semantic.result.is_none());
     assert_eq!(
-        invalid_trace
+        invalid_semantic
             .error
             .as_ref()
             .map(|error| error.message.as_str()),
-        Some("agent run trace event is missing eventId")
+        Some("agent run semantic event is missing eventId")
     );
-    assert!(invalid_response_trace.result.is_none());
+    assert!(invalid_response_semantic.result.is_none());
     assert_eq!(
-        invalid_response_trace
+        invalid_response_semantic
             .error
             .as_ref()
             .map(|error| error.message.as_str()),
-        Some("response-backed agent run trace event cannot be materialized")
+        Some("semantic runtime event cannot be materialized as a typed response item")
     );
-    assert!(append_trace.error.is_none());
-    assert!(append_second_trace.error.is_none());
+    assert!(append_semantic.error.is_none());
     assert!(set_checkpoint.error.is_none());
     assert_eq!(
         get_checkpoint.result.as_ref().unwrap()["checkpoint"]["phase"],
@@ -9319,7 +9198,7 @@ fn dispatches_agent_run_store_round_trip_requests() {
     );
     assert_eq!(upsert.result.as_ref().unwrap()["threadId"], json!(null));
     assert_eq!(
-        append_trace.result.as_ref().unwrap()["threadId"],
+        append_semantic.result.as_ref().unwrap()["threadId"],
         json!(null)
     );
     assert_eq!(
@@ -9336,26 +9215,14 @@ fn dispatches_agent_run_store_round_trip_requests() {
         .get("traceEvents")
         .is_none());
     assert_eq!(get.result.as_ref().unwrap()["threadId"], json!(null));
-    assert_eq!(
-        get.result.as_ref().unwrap()["traceEvents"]
-            .as_array()
-            .unwrap()
-            .len(),
-        2
-    );
-    assert_eq!(trace_page.error, None);
-    assert_eq!(
-        trace_page.result.as_ref().unwrap()["items"][0]["eventName"],
-        "agent.status"
-    );
-    assert_eq!(trace_page.result.as_ref().unwrap()["nextCursor"], "1");
+    assert!(get.result.as_ref().unwrap().get("traceEvents").is_none());
     assert_eq!(runtime_state.error, None);
     assert_eq!(
         runtime_state.result.as_ref().unwrap()["runtimeEvents"]
             .as_array()
             .unwrap()
             .len(),
-        2
+        1
     );
     assert_eq!(
         runtime_state.result.as_ref().unwrap()["runtimeEvents"][0]["sessionId"],
@@ -9491,21 +9358,6 @@ fn agent_run_requests_ignore_thread_only_items() {
         Some("agent run not found")
     );
 
-    let trace_page = router.dispatch(&WorkerRequest::new(
-        "req-thread-backed-run-trace",
-        "trace-thread-backed-run",
-        "agent_run.list_trace",
-        json!({ "session_id": "session-1", "run_id": "run-thread-only" }),
-    ));
-    assert!(trace_page.result.is_none());
-    assert_eq!(
-        trace_page
-            .error
-            .as_ref()
-            .map(|error| error.message.as_str()),
-        Some("agent run not found")
-    );
-
     let runtime_state = router.dispatch(&WorkerRequest::new(
         "req-thread-backed-run-state",
         "trace-thread-backed-run",
@@ -9582,7 +9434,6 @@ fn agent_run_list_reads_canonical_rollout_runs() {
         "currentIteration": 0,
         "conversationMessageIds": [],
         "traceMessages": [],
-        "traceEvents": [],
         "completedToolResults": [],
         "pendingToolCalls": [],
         "checkpoint": null,
@@ -9594,7 +9445,7 @@ fn agent_run_list_reads_canonical_rollout_runs() {
     let upsert = router.dispatch(&WorkerRequest::new(
         "req-mixed-agent-run-upsert",
         "trace-mixed-agent-runs",
-        "agent_run.upsert",
+        "agent_run.start",
         json!({ "record": thread_log_record }),
     ));
     assert_eq!(upsert.error, None);
@@ -9612,77 +9463,6 @@ fn agent_run_list_reads_canonical_rollout_runs() {
         .expect("agent_run.list should return runs");
     assert_eq!(runs.len(), 1);
     assert!(runs.iter().any(|run| run["runId"] == "run-thread-log"));
-}
-
-#[test]
-fn agent_run_requests_do_not_import_in_memory_legacy_sessions() {
-    let fixture = WorkspaceFixture::new();
-    let mut session = session_fixture();
-    session.extra = json!({
-        "agent_runs": [{
-            "sessionId": "session-1",
-            "runId": "run-legacy-session",
-            "status": "completed",
-            "phase": "completed",
-            "startedAt": "2026-07-05T00:00:00Z",
-            "updatedAt": "2026-07-05T00:00:02Z",
-            "completedAt": "2026-07-05T00:00:02Z",
-            "stopReason": "final_response",
-            "model": "fixture-model",
-            "provider": "fixture",
-            "maxIterations": 4,
-            "currentIteration": 1,
-            "conversationMessageIds": [],
-            "traceMessages": [],
-            "traceEvents": [{
-                "schemaVersion": "tinybot.agent_event.v1",
-                "eventId": "run-legacy-session:agent-done:0000000000000001",
-                "sequence": 1,
-                "sessionId": "session-1",
-                "turnId": "run-legacy-session",
-                "itemId": "run-legacy-session:assistant",
-                "eventName": "agent.done",
-                "phase": "completed",
-                "timestamp": "2026-07-05T00:00:02Z",
-                "source": "rust_backend",
-                "visibility": "user",
-                "payload": { "finalContent": "Legacy final response" }
-            }],
-            "completedToolResults": [],
-            "pendingToolCalls": [],
-            "checkpoint": null,
-            "artifacts": [],
-            "usage": [],
-            "error": null
-        }]
-    });
-    let mut router = WorkerRpcRouter::new(
-        fixture.root.clone(),
-        json!({}),
-        vec![session],
-        20,
-        CapabilityPolicy::new([WorkerCapability::SessionMetadataRead]),
-    );
-
-    let run_list = router.dispatch(&WorkerRequest::new(
-        "req-legacy-agent-run-list",
-        "trace-legacy-agent-run",
-        "agent_run.list",
-        json!({ "sessionId": "session-1" }),
-    ));
-    let get = router.dispatch(&WorkerRequest::new(
-        "req-legacy-agent-run-get",
-        "trace-legacy-agent-run",
-        "agent_run.get",
-        json!({ "session_id": "session-1", "run_id": "run-legacy-session" }),
-    ));
-    assert_eq!(run_list.error, None);
-    assert_eq!(run_list.result.as_ref().unwrap()["runs"], json!([]));
-    assert_eq!(
-        get.error.as_ref().unwrap().code,
-        crate::worker_protocol::WorkerProtocolErrorCode::InvalidProtocol
-    );
-    assert!(first_thread_log_file_under(&fixture.root, "threads").is_none());
 }
 
 #[test]

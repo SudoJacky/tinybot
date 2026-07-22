@@ -12,12 +12,6 @@ impl WorkerRpcRouter {
                     .append_turn_context(&params.session_id, params.context)?;
                 Ok(serde_json::json!({ "persisted": true }))
             }
-            "rollout.append_world_state" => {
-                let params: RolloutAppendWorldStateParams = parse_params(request)?;
-                self.thread_log
-                    .append_world_state(&params.session_id, params.world_state)?;
-                Ok(serde_json::json!({ "persisted": true }))
-            }
             "session.get_metadata" => {
                 let params: SessionIdParams = parse_params(request)?;
                 let session = self.thread_log.get_session_metadata(&params.session_id)?;
@@ -233,9 +227,13 @@ impl WorkerRpcRouter {
     ) -> Result<Value, WorkerProtocolError> {
         self.refresh_thread_projection()?;
         match request.method.as_str() {
-            "agent_run.upsert" => {
-                let params: AgentRunUpsertParams = parse_params(request)?;
-                let record = self.thread_log.upsert_agent_run(params.record)?;
+            "agent_run.start" => {
+                let params: AgentRunStartParams = parse_params(request)?;
+                let record = self.thread_log.start_agent_run(
+                    params.record,
+                    params.context,
+                    params.messages,
+                )?;
                 serde_json::to_value(record).map_err(serialization_error)
             }
             "agent_run.list" => {
@@ -264,19 +262,6 @@ impl WorkerRpcRouter {
                     .ok_or_else(|| agent_run_not_found_error(&params.session_id, &params.run_id))?;
                 serde_json::to_value(record).map_err(serialization_error)
             }
-            "agent_run.list_trace" => {
-                let params: AgentRunListTraceParams = parse_params(request)?;
-                let trace_page = self
-                    .thread_log
-                    .list_agent_run_trace_events(
-                        &params.session_id,
-                        &params.run_id,
-                        params.cursor.as_deref(),
-                        params.limit,
-                    )?
-                    .ok_or_else(|| agent_run_not_found_error(&params.session_id, &params.run_id))?;
-                serde_json::to_value(trace_page).map_err(serialization_error)
-            }
             "agent_run.runtime_state" => {
                 let params: AgentRunIdParams = parse_params(request)?;
                 let runtime_state = self
@@ -285,18 +270,9 @@ impl WorkerRpcRouter {
                     .ok_or_else(|| agent_run_not_found_error(&params.session_id, &params.run_id))?;
                 serde_json::to_value(runtime_state).map_err(serialization_error)
             }
-            "agent_run.append_trace" => {
-                let params: AgentRunAppendTraceParams = parse_params(request)?;
-                let record = self.thread_log.append_agent_run_trace_event(
-                    &params.session_id,
-                    &params.run_id,
-                    params.event,
-                )?;
-                serde_json::to_value(record).map_err(serialization_error)
-            }
-            "agent_run.append_trace_batch" => {
-                let params: AgentRunAppendTraceBatchParams = parse_params(request)?;
-                let record = self.thread_log.append_agent_run_trace_events(
+            "agent_run.append_semantic_batch" => {
+                let params: AgentRunAppendSemanticBatchParams = parse_params(request)?;
+                let record = self.thread_log.append_agent_run_semantic_events(
                     &params.session_id,
                     &params.run_id,
                     params.events,
@@ -334,6 +310,7 @@ impl WorkerRpcRouter {
                     &params.run_id,
                     &params.stop_reason,
                     params.final_content,
+                    params.context_checkpoint,
                 )?;
                 serde_json::to_value(record).map_err(serialization_error)
             }
@@ -344,6 +321,7 @@ impl WorkerRpcRouter {
                     &params.run_id,
                     &params.stop_reason,
                     params.error,
+                    params.context_checkpoint,
                 )?;
                 serde_json::to_value(record).map_err(serialization_error)
             }
@@ -373,13 +351,6 @@ impl WorkerRpcRouter {
 struct RolloutAppendTurnContextParams {
     session_id: String,
     context: crate::worker_rollout::TurnContextItem,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RolloutAppendWorldStateParams {
-    session_id: String,
-    world_state: crate::worker_rollout::WorldStateItem,
 }
 
 fn agent_run_not_found_error(session_id: &str, run_id: &str) -> WorkerProtocolError {

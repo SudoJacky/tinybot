@@ -75,6 +75,7 @@ impl WorkerRpcRouter {
             .list_tools()
             .tools
             .into_iter()
+            .filter(|tool| tool.exposure != ToolExposure::Hidden)
             .map(|tool| {
                 serde_json::json!({
                     "id": tool.tool_id,

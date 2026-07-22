@@ -40,6 +40,12 @@ const PRESERVED_MESSAGE_FIELDS: &[&str] = &[
     "function",
     "phase",
     "status",
+    "_progress",
+    "_task_event",
+    "_task_progress",
+    "_task_plan_id",
+    "_tool_name",
+    "_agent_item",
 ];
 
 pub fn reconstruct_rollout(
@@ -76,12 +82,8 @@ fn reconstruct_rollout_with_mode(
                 if apply_context_checkpoints {
                     apply_compacted(&mut replay, compacted, &line.timestamp)?;
                 }
-                replay.world_state_baseline = None;
             }
             RolloutItem::TurnContext(context) => apply_turn_context(&mut replay, context),
-            RolloutItem::WorldState(world_state) => {
-                apply_world_state(&mut replay, world_state);
-            }
             RolloutItem::InterAgentCommunication(_)
             | RolloutItem::InterAgentCommunicationMetadata { .. } => {}
         }
@@ -93,43 +95,6 @@ fn reconstruct_rollout_with_mode(
     }
     attach_token_usage_to_history(&mut replay);
     Ok(replay)
-}
-
-fn apply_world_state(replay: &mut RolloutReconstruction, world_state: &super::WorldStateItem) {
-    if world_state.full {
-        replay.world_state_baseline = world_state
-            .state
-            .is_object()
-            .then(|| world_state.state.clone());
-        return;
-    }
-    let Some(baseline) = replay.world_state_baseline.as_mut() else {
-        return;
-    };
-    apply_json_merge_patch(baseline, &world_state.state);
-    if !baseline.is_object() {
-        replay.world_state_baseline = None;
-    }
-}
-
-fn apply_json_merge_patch(target: &mut Value, patch: &Value) {
-    let Value::Object(patch) = patch else {
-        *target = patch.clone();
-        return;
-    };
-    if !target.is_object() {
-        *target = json!({});
-    }
-    let target = target
-        .as_object_mut()
-        .expect("merge-patch target was normalized to an object");
-    for (key, value) in patch {
-        if value.is_null() {
-            target.remove(key);
-            continue;
-        }
-        apply_json_merge_patch(target.entry(key.clone()).or_insert(Value::Null), value);
-    }
 }
 
 #[derive(Default)]
@@ -210,7 +175,6 @@ fn counts_as_user_turn(item: &RolloutItem) -> bool {
         RolloutItem::InterAgentCommunication(_) => true,
         RolloutItem::SessionMeta(_)
         | RolloutItem::TurnContext(_)
-        | RolloutItem::WorldState(_)
         | RolloutItem::Compacted(_)
         | RolloutItem::InterAgentCommunicationMetadata { .. } => false,
     }
@@ -278,6 +242,17 @@ fn apply_response_item(replay: &mut RolloutReconstruction, item: &ResponseItem, 
         "timestamp": timestamp
     });
     copy_optional_message_fields(&item, &mut message, PRESERVED_MESSAGE_FIELDS);
+    if let Some(plan_id) = message.get("_task_plan_id").and_then(Value::as_str) {
+        if let Some(existing) = replay
+            .messages
+            .iter_mut()
+            .find(|existing| existing.get("_task_plan_id").and_then(Value::as_str) == Some(plan_id))
+        {
+            *existing = message;
+            replay.updated_at = timestamp.to_string();
+            return;
+        }
+    }
     if role == "user" {
         if let Some(index) = replay.messages.iter().rposition(|candidate| {
             candidate
@@ -369,7 +344,12 @@ fn apply_event(
                     json!({ "event": event }),
                 )
             })?;
-            replay.token_usage_info = Some(parse_token_usage_info(info, timestamp)?);
+            let (usage, context_window) = parse_provider_call_usage(info, timestamp)?;
+            replay.token_usage_info = Some(TokenUsageInfo::new_or_append(
+                replay.token_usage_info.as_ref(),
+                usage,
+                context_window,
+            ));
             Ok(())
         }
         EventKind::SessionCleared => {
@@ -399,36 +379,6 @@ fn apply_event(
             replay.compaction_overlap_candidate = None;
             Ok(())
         }
-        EventKind::TaskProgressUpdated => {
-            let message = event.payload().get("message").cloned().ok_or_else(|| {
-                replay_semantic_error(
-                    "task_progress_updated event is missing message",
-                    timestamp,
-                    json!({ "event": event }),
-                )
-            })?;
-            let plan_id = message
-                .get("_task_plan_id")
-                .and_then(Value::as_str)
-                .ok_or_else(|| {
-                    replay_semantic_error(
-                        "task_progress_updated message is missing plan id",
-                        timestamp,
-                        json!({ "event": event }),
-                    )
-                })?;
-            if let Some(existing) = replay.messages.iter_mut().find(|existing| {
-                existing
-                    .get("_task_plan_id")
-                    .and_then(Value::as_str)
-                    .is_some_and(|existing_plan_id| existing_plan_id == plan_id)
-            }) {
-                *existing = message;
-            } else {
-                replay.messages.push(message);
-            }
-            Ok(())
-        }
         EventKind::UserMessage => {
             let payload = event.payload();
             let content = payload
@@ -454,12 +404,8 @@ fn apply_event(
         | EventKind::TurnAborted
         | EventKind::ThreadRolledBack
         | EventKind::ThreadItem
-        | EventKind::AgentRunUpsert
-        | EventKind::AgentRunTrace
         | EventKind::AgentRunCheckpointSet
-        | EventKind::AgentRunCheckpointClear
-        | EventKind::AgentRunTerminal
-        | EventKind::Legacy(_) => Ok(()),
+        | EventKind::AgentRunCheckpointClear => Ok(()),
     }
 }
 
@@ -539,35 +485,22 @@ fn token_usage_info_value(event: &Value) -> Option<&Value> {
         })
 }
 
-fn parse_token_usage_info(
+fn parse_provider_call_usage(
     value: &Value,
     timestamp: &str,
-) -> Result<TokenUsageInfo, WorkerProtocolError> {
-    parse_token_usage_info_fields(value, timestamp)
-}
-
-fn parse_token_usage_info_fields(
-    value: &Value,
-    timestamp: &str,
-) -> Result<TokenUsageInfo, WorkerProtocolError> {
-    Ok(TokenUsageInfo {
-        total_token_usage: parse_token_usage(
-            field_any(value, &["totalTokenUsage", "total_token_usage"])
-                .ok_or_else(|| missing_token_usage_field(timestamp, "totalTokenUsage", value))?,
-            timestamp,
-        )?,
-        last_token_usage: parse_token_usage(
-            field_any(value, &["lastTokenUsage", "last_token_usage"])
-                .ok_or_else(|| missing_token_usage_field(timestamp, "lastTokenUsage", value))?,
-            timestamp,
-        )?,
-        model_context_window: optional_i64_field_any(
+) -> Result<(TokenUsage, Option<i64>), WorkerProtocolError> {
+    let usage = value
+        .get("usage")
+        .ok_or_else(|| missing_token_usage_field(timestamp, "usage", value))?;
+    Ok((
+        parse_token_usage(usage, timestamp)?,
+        optional_i64_field_any(
             value,
             &["modelContextWindow", "model_context_window"],
             timestamp,
             "modelContextWindow",
         )?,
-    })
+    ))
 }
 
 fn parse_token_usage(value: &Value, timestamp: &str) -> Result<TokenUsage, WorkerProtocolError> {
@@ -805,7 +738,7 @@ mod tests {
         );
         assert_eq!(replay.messages[0]["usage"]["contextWindowUsedTokens"], 200);
         assert_eq!(replay.messages[0]["usage"]["contextWindowTokens"], 128000);
-        assert_eq!(replay.messages[0]["usage"]["cumulativeUsageTokens"], 1200);
+        assert_eq!(replay.messages[0]["usage"]["cumulativeUsageTokens"], 372);
         assert_eq!(
             replay
                 .token_usage_info
@@ -1002,8 +935,7 @@ mod tests {
                 item: ThreadLogItem::EventMsg(event_msg(json!({
                     "type": "token_count",
                     "info": {
-                        "totalTokenUsage": usage_value(1500),
-                        "lastTokenUsage": usage_value(300),
+                        "usage": usage_value(300),
                         "modelContextWindow": 128000
                     }
                 }))),
@@ -1053,8 +985,7 @@ mod tests {
                     "type": "token_count",
                     "payload": {
                         "tokenUsageInfo": {
-                            "totalTokenUsage": usage_value(1500),
-                            "lastTokenUsage": usage_value(300),
+                            "usage": usage_value(300),
                             "modelContextWindow": 128000
                         }
                     }
@@ -1070,7 +1001,7 @@ mod tests {
             300
         );
         assert_eq!(replay.messages[1]["usage"]["contextWindowUsedTokens"], 300);
-        assert_eq!(replay.messages[1]["usage"]["cumulativeUsageTokens"], 1500);
+        assert_eq!(replay.messages[1]["usage"]["cumulativeUsageTokens"], 300);
     }
 
     #[test]
@@ -1087,8 +1018,7 @@ mod tests {
                 item: ThreadLogItem::EventMsg(event_msg(json!({
                     "type": "token_count",
                     "info": {
-                        "totalTokenUsage": usage_value(1500),
-                        "lastTokenUsage": {
+                        "usage": {
                             "inputTokens": 1
                         },
                         "modelContextWindow": 128000
@@ -1118,8 +1048,7 @@ mod tests {
                 item: ThreadLogItem::EventMsg(event_msg(json!({
                     "type": "token_count",
                     "info": {
-                        "totalTokenUsage": usage_value(1500),
-                        "lastTokenUsage": {
+                        "usage": {
                             "inputTokens": 1,
                             "outputTokens": "162",
                             "totalTokens": 172
@@ -1239,69 +1168,6 @@ mod tests {
         assert!(replay.context_checkpoint.is_none());
     }
 
-    #[test]
-    fn replay_restores_world_state_from_latest_compaction_window() {
-        let lines = vec![
-            RolloutLine {
-                timestamp: "2026-07-17T10:00:00Z".to_string(),
-                ordinal: None,
-                item: RolloutItem::WorldState(super::super::WorldStateItem::full(json!({
-                    "environment": { "status": "old" }
-                }))),
-            },
-            compacted_line("2026-07-17T10:00:01Z", "summary"),
-            RolloutLine {
-                timestamp: "2026-07-17T10:00:02Z".to_string(),
-                ordinal: None,
-                item: RolloutItem::WorldState(super::super::WorldStateItem::full(json!({
-                    "environment": {
-                        "status": "starting",
-                        "cwd": "D:/workspace",
-                        "obsolete": true
-                    }
-                }))),
-            },
-            RolloutLine {
-                timestamp: "2026-07-17T10:00:03Z".to_string(),
-                ordinal: None,
-                item: RolloutItem::WorldState(super::super::WorldStateItem::patch(json!({
-                    "environment": {
-                        "status": "ready",
-                        "obsolete": null
-                    }
-                }))),
-            },
-        ];
-
-        let replay = reconstruct_rollout(&lines).unwrap();
-
-        assert_eq!(
-            replay.world_state_baseline,
-            Some(json!({
-                "environment": {
-                    "status": "ready",
-                    "cwd": "D:/workspace"
-                }
-            }))
-        );
-    }
-
-    #[test]
-    fn replay_ignores_world_state_patch_without_a_full_snapshot() {
-        let lines = vec![RolloutLine {
-            timestamp: "2026-07-17T10:00:00Z".to_string(),
-            ordinal: None,
-            item: RolloutItem::WorldState(super::super::WorldStateItem::patch(json!({
-                "environment": { "status": "ready" }
-            }))),
-        }];
-
-        assert!(reconstruct_rollout(&lines)
-            .unwrap()
-            .world_state_baseline
-            .is_none());
-    }
-
     fn meta_line(thread_id: &str, session_id: Option<&str>, timestamp: &str) -> ThreadLogLine {
         ThreadLogLine {
             timestamp: timestamp.to_string(),
@@ -1363,8 +1229,7 @@ mod tests {
             item: ThreadLogItem::EventMsg(event_msg(json!({
                 "type": "token_count",
                 "info": {
-                    "total_token_usage": usage_value(1000 + last_tokens),
-                    "last_token_usage": usage_value(last_tokens),
+                    "usage": usage_value(last_tokens),
                     "model_context_window": context_window
                 }
             }))),

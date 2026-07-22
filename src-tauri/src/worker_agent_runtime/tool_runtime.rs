@@ -1,3 +1,6 @@
+use super::approvals::{
+    ApprovalRegistration, NativeAgentApprovalRequest, NativeAgentApprovalResolution,
+};
 use super::checkpoint::save_phase_checkpoint;
 use super::result::cancelled_run_result;
 use super::state::NativeAgentRunState;
@@ -16,6 +19,7 @@ use super::{
     NativeAgentToolCall, NativeAgentToolDispatcher,
 };
 use crate::agent_loop_runtime_protocol::AgentRuntimePhase;
+use crate::agent_loop_runtime_protocol::{AgentApprovalDecision, AgentApprovalScope};
 use crate::worker_tool_registry::{ToolApprovalMetadata, ToolCancellationMode};
 use crate::worker_tool_registry::{
     REQUEST_USER_INPUT_METHOD, TOOL_SEARCH_METHOD, UPDATE_PLAN_METHOD,
@@ -27,7 +31,7 @@ use std::collections::BTreeMap;
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use tokio::sync::{mpsc, Notify};
 use tokio_util::sync::CancellationToken;
 
@@ -509,38 +513,14 @@ pub(super) async fn execute_tool_calls_for_iteration(
         };
     }
 
-    if let Some((tool_call, approval)) = tool_calls.iter().find_map(|tool_call| {
+    if tool_calls.iter().any(|tool_call| {
         context
             .tool_router
             .approval_metadata(&tool_call.name)
-            .filter(|approval| approval.required)
-            .map(|approval| (tool_call, approval))
+            .is_some_and(|approval| approval.required)
     }) {
-        if tool_calls.len() != 1 {
-            return tool_error_result(
-                services,
-                context,
-                state,
-                iteration,
-                tool_call,
-                "approval-required tools must be requested one at a time".to_string(),
-            );
-        }
-        let prepared_tool_call = match prepare_special_tool_call(context, state, tool_call.clone())
-        {
-            Ok(tool_call) => tool_call,
-            Err(error) => {
-                return tool_error_result(services, context, state, iteration, tool_call, error);
-            }
-        };
-        return awaiting_tool_approval_result(
-            services,
-            context,
-            state,
-            iteration,
-            prepared_tool_call,
-            approval,
-        );
+        return execute_approval_gated_tool_batch(services, context, state, iteration, tool_calls)
+            .await;
     }
 
     if tool_calls.len() == 1 {
@@ -602,28 +582,106 @@ fn prepare_special_tool_call(
     Ok(tool_call)
 }
 
-fn awaiting_tool_approval_result(
+enum AwaitToolApprovalOutcome {
+    Resolved(NativeAgentApprovalResolution),
+    Cancelled,
+    Failed(String),
+}
+
+async fn execute_approval_gated_tool_batch(
     services: &NativeAgentRuntimeServices,
     context: &NativeAgentRunContext,
     state: &mut NativeAgentRunState,
     iteration: i64,
-    tool_call: NativeAgentToolCall,
-    approval: ToolApprovalMetadata,
+    tool_calls: Vec<NativeAgentToolCall>,
 ) -> NativeAgentToolExecutionOutcome {
+    for mut tool_call in tool_calls {
+        if context_is_cancelled(context) {
+            return cancelled_result(services, context, state, iteration);
+        }
+        if let Some(approval) = context
+            .tool_router
+            .approval_metadata(&tool_call.name)
+            .filter(|approval| approval.required)
+        {
+            tool_call = match prepare_special_tool_call(context, state, tool_call.clone()) {
+                Ok(tool_call) => tool_call,
+                Err(error) => {
+                    return tool_error_result(
+                        services, context, state, iteration, &tool_call, error,
+                    );
+                }
+            };
+            match await_tool_approval(services, context, state, iteration, &tool_call, approval)
+                .await
+            {
+                AwaitToolApprovalOutcome::Resolved(resolution) => {
+                    emit_approval_decision(context, state, iteration, &resolution);
+                    state.clear_pending_tool_calls();
+                    if resolution.decision == AgentApprovalDecision::Denied {
+                        context.metrics().increment("approval.denied_by_user");
+                        let mut error =
+                            format!("native tool `{}` was rejected by the user", tool_call.name);
+                        if let Some(guidance) = resolution
+                            .guidance
+                            .as_deref()
+                            .map(str::trim)
+                            .filter(|guidance| !guidance.is_empty())
+                        {
+                            error.push_str(": ");
+                            error.push_str(guidance);
+                        }
+                        record_tool_failure(context, state, iteration, &tool_call, &error);
+                        state.transition_phase(
+                            AgentRuntimePhase::Planning,
+                            iteration,
+                            "agent.tool.result",
+                        );
+                        save_phase_checkpoint(
+                            services,
+                            context,
+                            state.phase.as_str(),
+                            state.active_checkpoint_payload("tool_rejected"),
+                        );
+                        continue;
+                    }
+                    context.metrics().increment("approval.approved");
+                }
+                AwaitToolApprovalOutcome::Cancelled => {
+                    return cancelled_result(services, context, state, iteration);
+                }
+                AwaitToolApprovalOutcome::Failed(error) => {
+                    return tool_error_result(
+                        services, context, state, iteration, &tool_call, error,
+                    );
+                }
+            }
+        }
+        let outcome =
+            execute_sequential_tool_batch(services, context, state, iteration, vec![tool_call])
+                .await;
+        if !matches!(outcome, NativeAgentToolExecutionOutcome::Continue) {
+            return outcome;
+        }
+    }
+    NativeAgentToolExecutionOutcome::Continue
+}
+
+async fn await_tool_approval(
+    services: &NativeAgentRuntimeServices,
+    context: &NativeAgentRunContext,
+    state: &mut NativeAgentRunState,
+    iteration: i64,
+    tool_call: &NativeAgentToolCall,
+    approval: ToolApprovalMetadata,
+) -> AwaitToolApprovalOutcome {
     let arguments = match serde_json::from_str::<Value>(&tool_call.arguments_json) {
         Ok(arguments) => arguments,
         Err(error) => {
-            return tool_error_result(
-                services,
-                context,
-                state,
-                iteration,
-                &tool_call,
-                format!(
-                    "native tool `{}` arguments are invalid JSON: {error}",
-                    tool_call.name
-                ),
-            );
+            return AwaitToolApprovalOutcome::Failed(format!(
+                "native tool `{}` arguments are invalid JSON: {error}",
+                tool_call.name
+            ));
         }
     };
     let permission_invocation = AgentHookInvocation::tool(
@@ -637,27 +695,39 @@ fn awaiting_tool_approval_result(
     let permission_evaluation = match context.evaluate_hook(permission_invocation.clone()) {
         Ok(evaluation) => evaluation,
         Err(error) => {
-            return tool_error_result(services, context, state, iteration, &tool_call, error);
+            return AwaitToolApprovalOutcome::Failed(error);
         }
     };
     state.emit_hook_evaluation(&permission_invocation, &permission_evaluation);
     if let Some(reason) = permission_evaluation.denied_reason {
         context.metrics().increment("approval.denied_by_hook");
-        return tool_error_result(
-            services,
-            context,
-            state,
-            iteration,
-            &tool_call,
-            format!(
-                "native tool `{}` approval denied by hook: {reason}",
-                tool_call.name
-            ),
-        );
+        return AwaitToolApprovalOutcome::Failed(format!(
+            "native tool `{}` approval denied by hook: {reason}",
+            tool_call.name
+        ));
     }
-    context.metrics().increment("approval.requested");
-    let approval_requested_at_unix_ms = now_unix_ms();
     let approval_id = format!("approval:{}:{}", context.run_id, tool_call.id);
+    let (scope_key, scope_label) = match context
+        .tool_router
+        .approval_session_scope(&tool_call.name, &arguments)
+    {
+        Ok(scope) => scope,
+        Err(error) => return AwaitToolApprovalOutcome::Failed(error),
+    };
+    let broker = services.approval_broker();
+    let receiver = match broker.register(NativeAgentApprovalRequest {
+        approval_id: approval_id.clone(),
+        session_id: context.session_id.clone(),
+        run_id: context.run_id.clone(),
+        scope_key: scope_key.clone(),
+    }) {
+        Ok(ApprovalRegistration::ApprovedForSession(resolution)) => {
+            return AwaitToolApprovalOutcome::Resolved(resolution);
+        }
+        Ok(ApprovalRegistration::Pending(receiver)) => receiver,
+        Err(error) => return AwaitToolApprovalOutcome::Failed(error),
+    };
+    context.metrics().increment("approval.requested");
     let summary = format!("Approval required: {}", tool_call.name);
     let risk = if matches!(
         tool_call.name.as_str(),
@@ -678,31 +748,6 @@ fn awaiting_tool_approval_result(
         "toolName": tool_call.name,
         "arguments": arguments,
     });
-    let checkpoint = save_phase_checkpoint(
-        services,
-        context,
-        state.phase.as_str(),
-        serde_json::json!({
-            "kind": "tool_approval",
-            "iteration": iteration,
-            "approvalId": approval_id,
-            "approvalRequestedAtUnixMs": approval_requested_at_unix_ms,
-            "operation": operation,
-            "pendingToolCalls": state.pending_tool_calls.clone(),
-            "completedToolResults": state.completed_tool_results.clone(),
-            "messages": state.history.messages(),
-            "resumeToken": format!("approval:{approval_id}"),
-        }),
-    );
-    state.emit_event(
-        "agent.checkpoint",
-        serde_json::json!({
-            "runId": context.run_id,
-            "sessionId": context.session_id,
-            "phase": "awaiting_approval",
-            "checkpoint": checkpoint.clone(),
-        }),
-    );
     state.emit_event(
         "agent.awaiting_approval",
         serde_json::json!({
@@ -719,50 +764,65 @@ fn awaiting_tool_approval_result(
             "risk": risk,
             "scope": approval.scope,
             "lifetime": approval.lifetime,
+            "scopeKey": scope_key,
+            "scopeLabel": scope_label,
+            "options": [
+                { "decision": "approved", "scope": "once" },
+                { "decision": "approved", "scope": "session" },
+                { "decision": "denied" }
+            ],
             "operation": operation,
         }),
     );
-    state.set_stop_reason("awaiting_approval", iteration, "agent.done");
+    let approval_wait_started = std::time::Instant::now();
+    tokio::select! {
+        resolution = receiver => match resolution {
+            Ok(resolution) => {
+                context
+                    .metrics()
+                    .record_duration("approval.wait.durationMs", approval_wait_started.elapsed());
+                context.metrics().increment("approval.resolved");
+                AwaitToolApprovalOutcome::Resolved(resolution)
+            },
+            Err(_) if context_is_cancelled(context) => AwaitToolApprovalOutcome::Cancelled,
+            Err(_) => AwaitToolApprovalOutcome::Failed(format!(
+                "native approval `{approval_id}` was closed before a decision was received"
+            )),
+        },
+        _ = wait_for_context_cancellation(context) => {
+            broker.cancel(&approval_id);
+            AwaitToolApprovalOutcome::Cancelled
+        }
+    }
+}
+
+fn emit_approval_decision(
+    context: &NativeAgentRunContext,
+    state: &mut NativeAgentRunState,
+    iteration: i64,
+    resolution: &NativeAgentApprovalResolution,
+) {
     state.emit_event(
-        "agent.done",
+        "agent.approval.decision",
         serde_json::json!({
             "runId": context.run_id,
             "sessionId": context.session_id,
             "iteration": iteration,
-            "stopReason": "awaiting_approval",
+            "approvalId": resolution.approval_id,
+            "detailId": format!("approval:{}", resolution.approval_id),
+            "status": "completed",
+            "decision": match resolution.decision {
+                AgentApprovalDecision::Approved => "approved",
+                AgentApprovalDecision::Denied => "denied",
+            },
+            "scope": match resolution.scope {
+                AgentApprovalScope::Once => "once",
+                AgentApprovalScope::Session => "session",
+            },
+            "guidance": resolution.guidance,
+            "commandId": resolution.command_id,
         }),
     );
-    let runtime_events = state.runtime_events();
-    let events = state.legacy_events();
-    NativeAgentToolExecutionOutcome::Finished(serde_json::json!({
-        "runtime": "rust",
-        "runId": context.run_id,
-        "sessionId": context.session_id,
-        "finalContent": "",
-        "stopReason": "awaiting_approval",
-        "messages": [],
-        "toolsUsed": state.tools_used,
-        "completedToolResults": state.completed_tool_results,
-        "checkpoint": checkpoint,
-        "approval": {
-            "approvalId": approval_id,
-            "toolCallId": tool_call.id,
-            "toolName": tool_call.name,
-            "risk": risk,
-            "scope": approval.scope,
-            "lifetime": approval.lifetime,
-            "operation": operation,
-        },
-        "events": events,
-        "runtimeEvents": runtime_events,
-    }))
-}
-
-fn now_unix_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis().min(u128::from(u64::MAX)) as u64)
-        .unwrap_or_default()
 }
 
 fn execute_tool_search(

@@ -8,7 +8,7 @@ use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource,
 };
 use crate::worker_session::{
-    AgentRunCheckpoint, AgentRunRecord, AgentRunRuntimeState, AgentRunStatus, AgentRunTracePage,
+    AgentRunCheckpoint, AgentRunRecord, AgentRunRuntimeState, AgentRunStatus,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -80,7 +80,6 @@ impl PersistedAgentRunSeed {
             current_iteration: 0,
             conversation_message_ids: Vec::new(),
             trace_messages: Vec::new(),
-            trace_events: Vec::new(),
             completed_tool_results: Vec::new(),
             pending_tool_calls: Vec::new(),
             checkpoint: None,
@@ -109,27 +108,25 @@ impl PersistedAgentRunSeed {
 }
 
 impl WorkerThreadLogRpc {
-    pub fn upsert_agent_run(
+    pub fn start_agent_run(
         &self,
         record: AgentRunRecord,
+        context: Option<crate::worker_rollout::TurnContextItem>,
+        messages: Vec<crate::worker_rollout::ResponseItem>,
     ) -> Result<AgentRunRecord, WorkerProtocolError> {
         let timestamp = now_thread_timestamp();
-        self.upsert_agent_run_at(record, timestamp)
+        self.start_agent_run_at(record, context, messages, timestamp)
     }
 
-    fn upsert_agent_run_at(
+    fn start_agent_run_at(
         &self,
         record: AgentRunRecord,
+        context: Option<crate::worker_rollout::TurnContextItem>,
+        messages: Vec<crate::worker_rollout::ResponseItem>,
         timestamp: String,
     ) -> Result<AgentRunRecord, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         validate_agent_run_key(&record.session_id, &record.run_id)?;
-        if !record.trace_events.is_empty() {
-            return Err(embedded_agent_run_trace_error(
-                &record.session_id,
-                &record.run_id,
-            ));
-        }
         let existing = self.get_agent_run_record(&record.session_id, &record.run_id)?;
         let mut persisted_record = record.clone();
         if let Some(existing) = existing {
@@ -138,12 +135,51 @@ impl WorkerThreadLogRpc {
         let mut state = self.ensure_agent_run_thread(&record.session_id, &timestamp)?;
         let path = PathBuf::from(state.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
-        let items = vec![value_event(
-            super::EventKind::AgentRunUpsert,
+        let mut items = vec![value_event(
+            super::EventKind::TurnStarted,
             serde_json::json!({
-                "record": PersistedAgentRunSeed::from_record(&persisted_record)
+                "sessionId": &record.session_id,
+                "runId": &record.run_id,
+                "turnId": record.turn_id.as_deref().unwrap_or(&record.run_id),
+                "agentRun": PersistedAgentRunSeed::from_record(&persisted_record)
             }),
         )];
+        if let Some(context) = context {
+            items.push(ThreadLogItem::TurnContext(context));
+        }
+        let existing_lines = read_thread_lines(&path)?;
+        for message in messages {
+            let content_hash = message
+                .get("contentHash")
+                .or_else(|| message.get("content_hash"))
+                .and_then(Value::as_str);
+            let message_id = message
+                .get("id")
+                .or_else(|| message.get("messageId"))
+                .and_then(Value::as_str);
+            let already_persisted = existing_lines.iter().any(|line| match &line.item {
+                ThreadLogItem::ResponseItem(existing) => {
+                    existing.role() == message.role()
+                        && (content_hash.is_some_and(|content_hash| {
+                            existing
+                                .get("contentHash")
+                                .or_else(|| existing.get("content_hash"))
+                                .and_then(Value::as_str)
+                                == Some(content_hash)
+                        }) || message_id.is_some_and(|message_id| {
+                            existing
+                                .get("id")
+                                .or_else(|| existing.get("messageId"))
+                                .and_then(Value::as_str)
+                                == Some(message_id)
+                        }))
+                }
+                _ => false,
+            });
+            if !already_persisted {
+                items.push(ThreadLogItem::ResponseItem(message));
+            }
+        }
         self.recorder
             .append_items(&path, timestamp.clone(), items)?;
         let log_head = self.recorder.thread_log_head(&path)?;
@@ -156,16 +192,16 @@ impl WorkerThreadLogRpc {
         Ok(persisted_record)
     }
 
-    pub fn append_agent_run_trace_event(
+    pub fn append_agent_run_semantic_event(
         &self,
         session_id: &str,
         run_id: &str,
         event: Value,
     ) -> Result<AgentRunRecord, WorkerProtocolError> {
-        self.append_agent_run_trace_events(session_id, run_id, vec![event])
+        self.append_agent_run_semantic_events(session_id, run_id, vec![event])
     }
 
-    pub fn append_agent_run_trace_events(
+    pub fn append_agent_run_semantic_events(
         &self,
         session_id: &str,
         run_id: &str,
@@ -174,10 +210,10 @@ impl WorkerThreadLogRpc {
         self.require(WorkerCapability::SessionWrite)?;
         validate_agent_run_key(session_id, run_id)?;
         if events.is_empty() {
-            return Err(empty_agent_run_trace_batch_error(session_id, run_id));
+            return Err(empty_agent_run_semantic_batch_error(session_id, run_id));
         }
         for (index, event) in events.iter().enumerate() {
-            validate_agent_run_trace_event(session_id, run_id, index, event)?;
+            validate_agent_run_semantic_event(session_id, run_id, index, event)?;
         }
         let mut record = self
             .get_agent_run_record(session_id, run_id)?
@@ -208,10 +244,9 @@ impl WorkerThreadLogRpc {
             event
                 .get("eventName")
                 .and_then(Value::as_str)
-                .is_some_and(agent_run_trace_event_is_response_backed)
+                .is_some_and(|event_name| response_item_from_runtime_event_name(event_name))
         });
         let mut items = Vec::new();
-        let mut persisted_events = Vec::with_capacity(events.len());
         for event in events.iter().cloned() {
             let response_item = response_item_from_runtime_event(&event)
                 .map(|mut item| {
@@ -223,10 +258,9 @@ impl WorkerThreadLogRpc {
                             .unwrap_or(run_id)
                             .to_string(),
                     );
-                    item["threadItemPayload"] = event.clone();
                     item
                 })
-                .map(|item| super::typed_response_item(item, "agent run trace"))
+                .map(|item| super::typed_response_item(item, "agent run semantic event"))
                 .transpose()?;
             let token_info = (event.get("eventName").and_then(Value::as_str)
                 == Some("agent.token_count"))
@@ -237,33 +271,54 @@ impl WorkerThreadLogRpc {
                     .cloned()
             })
             .flatten();
-            let persisted_event = crate::worker_rollout::bound_persisted_trace_value(event.clone());
-            items.push(value_event(
-                super::EventKind::AgentRunTrace,
-                serde_json::json!({
-                    "sessionId": session_id,
-                    "runId": run_id,
-                    "event": persisted_event.clone(),
-                }),
-            ));
             if let Some(info) = token_info {
+                let usage = canonical_provider_call_usage(&info).ok_or_else(|| {
+                    invalid_agent_run_semantic_event_error(
+                        "agent.token_count is missing lastTokenUsage",
+                        session_id,
+                        run_id,
+                        0,
+                        Some("agent.token_count"),
+                    )
+                })?;
                 items.push(value_event(
                     super::EventKind::TokenCount,
-                    serde_json::json!({ "info": info }),
+                    serde_json::json!({
+                        "runId": run_id,
+                        "turnId": event.get("turnId").cloned().unwrap_or_else(|| Value::String(run_id.to_string())),
+                        "providerCallId": event
+                            .get("payload")
+                            .and_then(|payload| payload.get("modelCallId").or_else(|| payload.get("providerCallId")))
+                            .cloned()
+                            .unwrap_or(Value::Null),
+                        "info": usage,
+                    }),
                 ));
             }
             if let Some(response_item) = response_item {
                 items.push(ThreadLogItem::ResponseItem(response_item));
             }
-            persisted_events.push(persisted_event);
+            if let Some(thread_item) =
+                semantic_thread_item_from_runtime_event(session_id, run_id, &timestamp, &event)
+            {
+                items.push(value_event(
+                    super::EventKind::ThreadItem,
+                    serde_json::json!({ "item": thread_item }),
+                ));
+            }
+        }
+        if items.is_empty() {
+            return Err(invalid_agent_run_semantic_event_error(
+                "agent run semantic batch contains no canonical records",
+                session_id,
+                run_id,
+                0,
+                None,
+            ));
         }
         self.recorder
             .append_items(&path, timestamp.clone(), items)?;
         let log_head = self.recorder.thread_log_head(&path)?;
-        for event in persisted_events {
-            upsert_trace_event(&mut record.trace_events, event.clone());
-            apply_agent_status_snapshot(&mut record, &event);
-        }
         record.updated_at = timestamp.clone();
         if let Some(total_tokens) = latest_total_tokens {
             state.tokens_used = total_tokens;
@@ -358,37 +413,6 @@ impl WorkerThreadLogRpc {
         self.require(WorkerCapability::SessionMetadataRead)?;
         validate_agent_run_key(session_id, run_id)?;
         self.get_agent_run_record(session_id, run_id)
-    }
-
-    pub fn list_agent_run_trace_events(
-        &self,
-        session_id: &str,
-        run_id: &str,
-        cursor: Option<&str>,
-        limit: Option<usize>,
-    ) -> Result<Option<AgentRunTracePage>, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionMetadataRead)?;
-        let Some(record) = self.get_agent_run(session_id, run_id)? else {
-            return Ok(None);
-        };
-        let offset = parse_trace_cursor(cursor)?;
-        let limit = limit.unwrap_or(100).clamp(1, 500);
-        let items = record
-            .trace_events
-            .iter()
-            .skip(offset)
-            .take(limit)
-            .cloned()
-            .collect::<Vec<_>>();
-        let next_offset = offset.saturating_add(items.len());
-        let next_cursor =
-            (next_offset < record.trace_events.len()).then(|| next_offset.to_string());
-        Ok(Some(AgentRunTracePage {
-            session_id: session_id.to_string(),
-            run_id: run_id.to_string(),
-            items,
-            next_cursor,
-        }))
     }
 
     pub fn get_agent_run_runtime_state(
@@ -576,6 +600,7 @@ impl WorkerThreadLogRpc {
         run_id: &str,
         stop_reason: &str,
         final_content: Option<String>,
+        context_checkpoint: Option<Value>,
     ) -> Result<AgentRunRecord, WorkerProtocolError> {
         self.mark_agent_run_terminal(
             session_id,
@@ -585,6 +610,7 @@ impl WorkerThreadLogRpc {
             Some(stop_reason.to_string()),
             final_content,
             None,
+            context_checkpoint,
         )
     }
 
@@ -594,6 +620,7 @@ impl WorkerThreadLogRpc {
         run_id: &str,
         stop_reason: &str,
         error: Value,
+        context_checkpoint: Option<Value>,
     ) -> Result<AgentRunRecord, WorkerProtocolError> {
         self.mark_agent_run_terminal(
             session_id,
@@ -603,6 +630,7 @@ impl WorkerThreadLogRpc {
             Some(stop_reason.to_string()),
             None,
             Some(error),
+            context_checkpoint,
         )
     }
 
@@ -617,6 +645,7 @@ impl WorkerThreadLogRpc {
             AgentRunStatus::Cancelled,
             "cancelled",
             Some("cancelled".to_string()),
+            None,
             None,
             None,
         )
@@ -634,7 +663,7 @@ impl WorkerThreadLogRpc {
         if record.status != AgentRunStatus::Running {
             return Ok(record);
         }
-        self.append_agent_run_trace_event(
+        self.append_agent_run_semantic_event(
             session_id,
             run_id,
             serde_json::json!({
@@ -672,6 +701,7 @@ impl WorkerThreadLogRpc {
                 "message": reason,
                 "source": "startup_recovery"
             })),
+            None,
         )
     }
 
@@ -780,6 +810,7 @@ impl WorkerThreadLogRpc {
         stop_reason: Option<String>,
         final_content: Option<String>,
         error: Option<Value>,
+        context_checkpoint: Option<Value>,
     ) -> Result<AgentRunRecord, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         validate_agent_run_key(session_id, run_id)?;
@@ -790,22 +821,41 @@ impl WorkerThreadLogRpc {
         let mut state = self.ensure_agent_run_thread(session_id, &timestamp)?;
         let path = PathBuf::from(state.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
-        self.recorder.append_item(
-            &path,
-            timestamp.clone(),
-            value_event(
-                super::EventKind::AgentRunTerminal,
-                serde_json::json!({
-                    "sessionId": session_id,
-                    "runId": run_id,
-                    "status": status,
-                    "phase": phase,
-                    "stopReason": stop_reason,
-                    "finalContent": final_content,
-                    "error": error,
-                }),
-            ),
-        )?;
+        let lifecycle_kind = if status == AgentRunStatus::Completed {
+            super::EventKind::TurnComplete
+        } else {
+            super::EventKind::TurnAborted
+        };
+        let mut items = vec![value_event(
+            lifecycle_kind,
+            serde_json::json!({
+                "sessionId": session_id,
+                "runId": run_id,
+                "turnId": record.turn_id.as_deref().unwrap_or(run_id),
+                "status": status,
+                "phase": phase,
+                "stopReason": stop_reason,
+                "error": error,
+            }),
+        )];
+        if let Some(context_checkpoint) = context_checkpoint {
+            validate_finalized_context_checkpoint(&path, &context_checkpoint)?;
+            items.insert(
+                0,
+                ThreadLogItem::Compacted(super::typed_compacted_item(
+                    context_checkpoint,
+                    "agent run terminal context finalization",
+                )?),
+            );
+        }
+        if record.checkpoint.is_some() {
+            items.push(value_event(
+                super::EventKind::AgentRunCheckpointClear,
+                serde_json::json!({ "sessionId": session_id, "runId": run_id }),
+            ));
+        }
+        self.recorder
+            .append_items(&path, timestamp.clone(), items)?;
         let log_head = self.recorder.thread_log_head(&path)?;
         apply_terminal_to_record(
             &mut record,
@@ -908,13 +958,134 @@ fn response_item_from_runtime_event(event: &Value) -> Option<Value> {
                 .cloned()
                 .unwrap_or_else(|| serde_json::json!("{}")),
         })),
-        "agent.tool.result" => Some(serde_json::json!({
-            "type": "custom_tool_call_output",
-            "call_id": payload.get("toolCallId")?.clone(),
-            "output": payload.get("content").cloned().unwrap_or(Value::Null),
+        "agent.command.acknowledged" => Some(serde_json::json!({
+            "type": "custom_tool_call",
+            "id": payload.get("commandId")?.clone(),
+            "call_id": payload.get("commandId")?.clone(),
+            "name": payload.get("commandKind")?.clone(),
+            "input": payload.get("target").cloned().unwrap_or_else(|| serde_json::json!({})),
         })),
+        "agent.tool.result" => {
+            let call_id = payload.get("toolCallId")?.clone();
+            let item_id = call_id
+                .as_str()
+                .map(|call_id| format!("tool-output:{call_id}"))?;
+            Some(serde_json::json!({
+                "type": "custom_tool_call_output",
+                "id": item_id,
+                "call_id": call_id,
+                "output": payload
+                    .get("content")
+                    .or_else(|| payload.get("result"))
+                    .or_else(|| payload.get("summary"))
+                    .cloned()
+                    .unwrap_or(Value::Null),
+            }))
+        }
         _ => None,
     }
+}
+
+fn validate_finalized_context_checkpoint(
+    path: &std::path::Path,
+    checkpoint: &Value,
+) -> Result<(), WorkerProtocolError> {
+    if checkpoint.get("checkpointStage").and_then(Value::as_str) != Some("finalized") {
+        return Err(super::thread_log_consistency_error(
+            "terminal context checkpoint must be finalized",
+            serde_json::json!({ "threadPath": path.display().to_string() }),
+        ));
+    }
+    let context_id = checkpoint
+        .get("contextId")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            super::thread_log_consistency_error(
+                "terminal context checkpoint is missing contextId",
+                serde_json::json!({ "threadPath": path.display().to_string() }),
+            )
+        })?;
+    let lines = read_thread_lines(path)?;
+    let latest = lines.iter().rev().find_map(|line| match &line.item {
+        ThreadLogItem::Compacted(existing) => Some(existing),
+        _ => None,
+    });
+    let Some(installed) = latest else {
+        return Err(super::thread_log_consistency_error(
+            "terminal context checkpoint has no installed predecessor",
+            serde_json::json!({ "contextId": context_id }),
+        ));
+    };
+    if installed.get("contextId").and_then(Value::as_str) != Some(context_id)
+        || installed.get("checkpointStage").and_then(Value::as_str) != Some("installed")
+    {
+        return Err(super::thread_log_consistency_error(
+            "terminal context checkpoint does not finalize the latest installed checkpoint",
+            serde_json::json!({
+                "contextId": context_id,
+                "latestContextId": installed.get("contextId"),
+                "latestCheckpointStage": installed.get("checkpointStage"),
+            }),
+        ));
+    }
+    Ok(())
+}
+
+fn canonical_provider_call_usage(info: &Value) -> Option<Value> {
+    let usage = info
+        .get("lastTokenUsage")
+        .or_else(|| info.get("last_token_usage"))?
+        .clone();
+    Some(serde_json::json!({
+        "usage": usage,
+        "modelContextWindow": info
+            .get("modelContextWindow")
+            .or_else(|| info.get("model_context_window"))
+            .cloned()
+            .unwrap_or(Value::Null),
+    }))
+}
+
+fn semantic_thread_item_from_runtime_event(
+    session_id: &str,
+    run_id: &str,
+    timestamp: &str,
+    event: &Value,
+) -> Option<crate::worker_thread::ThreadItem> {
+    let event_name = event.get("eventName").and_then(Value::as_str)?;
+    let payload = event.get("payload").cloned().unwrap_or(Value::Null);
+    let kind = match event_name {
+        "agent.awaiting_approval" => {
+            crate::worker_thread::ThreadItemKind::ApprovalRequested(payload)
+        }
+        "agent.approval.decision" => {
+            crate::worker_thread::ThreadItemKind::ApprovalResolved(payload)
+        }
+        "agent.error" => crate::worker_thread::ThreadItemKind::Error(payload),
+        "agent.cancelled" => crate::worker_thread::ThreadItemKind::Cancelled(payload),
+        "agent.delegate.spawned" => crate::worker_thread::ThreadItemKind::SubagentSpawned(payload),
+        "agent.delegate.message" => crate::worker_thread::ThreadItemKind::SubagentMessage(payload),
+        "agent.delegate.completed" => {
+            crate::worker_thread::ThreadItemKind::SubagentCompleted(payload)
+        }
+        _ => return None,
+    };
+    let event_id = event.get("eventId").and_then(Value::as_str)?;
+    Some(crate::worker_thread::ThreadItem {
+        item_id: format!("semantic:{session_id}:{run_id}:{event_id}"),
+        thread_id: session_id.to_string(),
+        run_id: Some(run_id.to_string()),
+        turn_id: event
+            .get("turnId")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .or_else(|| Some(run_id.to_string())),
+        parent_item_id: None,
+        sequence: 0,
+        created_at: timestamp.to_string(),
+        kind,
+    })
 }
 
 fn canonical_message_content(content: Value, part_type: &str) -> Value {
@@ -932,7 +1103,16 @@ fn canonical_message_content(content: Value, part_type: &str) -> Value {
     }
 }
 
-fn agent_run_trace_event_is_response_backed(event_name: &str) -> bool {
+pub(crate) fn is_agent_run_semantic_event(event_name: &str) -> bool {
+    event_name != "agent.turn.started"
+        && crate::agent_loop_runtime_protocol::is_durable_agent_timeline_event(event_name)
+        || matches!(
+            event_name,
+            "agent.command.acknowledged" | "agent.token_count"
+        )
+}
+
+fn response_item_from_runtime_event_name(event_name: &str) -> bool {
     matches!(
         event_name,
         "agent.turn.started"
@@ -941,10 +1121,11 @@ fn agent_run_trace_event_is_response_backed(event_name: &str) -> bool {
             | "agent.message.completed"
             | "agent.tool_call.delta"
             | "agent.tool.result"
+            | "agent.command.acknowledged"
     )
 }
 
-fn validate_agent_run_trace_event(
+fn validate_agent_run_semantic_event(
     session_id: &str,
     run_id: &str,
     index: usize,
@@ -955,8 +1136,8 @@ fn validate_agent_run_trace_event(
         .and_then(Value::as_str)
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| {
-            invalid_agent_run_trace_event_error(
-                "agent run trace event is missing eventName",
+            invalid_agent_run_semantic_event_error(
+                "agent run semantic event is missing eventName",
                 session_id,
                 run_id,
                 index,
@@ -968,21 +1149,36 @@ fn validate_agent_run_trace_event(
         .and_then(Value::as_str)
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| {
-            invalid_agent_run_trace_event_error(
-                "agent run trace event is missing eventId",
+            invalid_agent_run_semantic_event_error(
+                "agent run semantic event is missing eventId",
                 session_id,
                 run_id,
                 index,
                 Some(event_name),
             )
         })?;
-    if !agent_run_trace_event_is_response_backed(event_name) {
-        return Ok(());
+    if !is_agent_run_semantic_event(event_name) {
+        return Err(invalid_agent_run_semantic_event_error(
+            "runtime event has no canonical semantic representation",
+            session_id,
+            run_id,
+            index,
+            Some(event_name),
+        ));
     }
-    let materializes_response = response_item_from_runtime_event(event).is_some();
-    if !materializes_response {
-        return Err(invalid_agent_run_trace_event_error(
-            "response-backed agent run trace event cannot be materialized",
+    let requires_response_item = matches!(
+        event_name,
+        "agent.turn.started"
+            | "agent.reasoning.completed"
+            | "agent.message.classified"
+            | "agent.message.completed"
+            | "agent.tool_call.delta"
+            | "agent.tool.result"
+            | "agent.command.acknowledged"
+    );
+    if requires_response_item && response_item_from_runtime_event(event).is_none() {
+        return Err(invalid_agent_run_semantic_event_error(
+            "semantic runtime event cannot be materialized as a typed response item",
             session_id,
             run_id,
             index,
@@ -1012,18 +1208,14 @@ pub(super) fn agent_run_records_from_lines(
         };
         let payload = event.payload();
         match event.kind() {
-            super::EventKind::AgentRunUpsert => {
-                let record_value = payload.get("record").cloned().ok_or_else(|| {
-                    agent_run_replay_error(
-                        "agent_run_upsert event is missing its record",
-                        line,
-                        payload,
-                    )
+            super::EventKind::TurnStarted if payload.get("agentRun").is_some() => {
+                let record_value = payload.get("agentRun").cloned().ok_or_else(|| {
+                    agent_run_replay_error("turn_started is missing agentRun", line, payload)
                 })?;
                 let seed = serde_json::from_value::<PersistedAgentRunSeed>(record_value).map_err(
                     |error| {
                         agent_run_replay_error(
-                            "agent_run_upsert event contains an invalid record",
+                            "turn_started contains an invalid agentRun",
                             line,
                             &serde_json::json!({
                                 "payload": payload,
@@ -1036,7 +1228,7 @@ pub(super) fn agent_run_records_from_lines(
                 let belongs_to_thread = seed.session_id == thread_id;
                 if !belongs_to_session && !belongs_to_thread {
                     return Err(agent_run_replay_error(
-                        "agent_run_upsert record belongs to a different session",
+                        "turn_started agentRun belongs to a different session",
                         line,
                         &serde_json::json!({
                             "expectedSessionId": session_id,
@@ -1054,32 +1246,6 @@ pub(super) fn agent_run_records_from_lines(
                         entry.insert(seed.into_record());
                     }
                 }
-            }
-            super::EventKind::AgentRunTrace => {
-                let run_id = payload_run_id(payload).ok_or_else(|| {
-                    agent_run_replay_error(
-                        "agent_run_trace event is missing its run id",
-                        line,
-                        payload,
-                    )
-                })?;
-                let event = payload.get("event").cloned().ok_or_else(|| {
-                    agent_run_replay_error(
-                        "agent_run_trace event is missing its event payload",
-                        line,
-                        payload,
-                    )
-                })?;
-                let record = runs.get_mut(&run_id).ok_or_else(|| {
-                    agent_run_replay_error(
-                        "agent_run_trace event references an unknown run",
-                        line,
-                        payload,
-                    )
-                })?;
-                upsert_trace_event(&mut record.trace_events, event.clone());
-                apply_agent_status_snapshot(record, &event);
-                record.updated_at = line.timestamp.clone();
             }
             super::EventKind::AgentRunCheckpointSet => {
                 let run_id = payload_run_id(payload).ok_or_else(|| {
@@ -1119,27 +1285,20 @@ pub(super) fn agent_run_records_from_lines(
                 record.checkpoint = None;
                 record.updated_at = line.timestamp.clone();
             }
-            super::EventKind::AgentRunTerminal => {
-                let run_id = payload_run_id(payload).ok_or_else(|| {
-                    agent_run_replay_error(
-                        "agent_run_terminal event is missing its run id",
-                        line,
-                        payload,
-                    )
-                })?;
-                let record = runs.get_mut(&run_id).ok_or_else(|| {
-                    agent_run_replay_error(
-                        "agent_run_terminal event references an unknown run",
-                        line,
-                        payload,
-                    )
-                })?;
+            kind @ (super::EventKind::TurnComplete | super::EventKind::TurnAborted) => {
+                let Some(run_id) = payload_run_id(payload) else {
+                    continue;
+                };
+                let Some(record) = runs.get_mut(&run_id) else {
+                    continue;
+                };
                 let status = match payload.get("status").and_then(Value::as_str) {
                     Some("completed") => AgentRunStatus::Completed,
                     Some("failed") => AgentRunStatus::Failed,
                     Some("cancelled") => AgentRunStatus::Cancelled,
                     Some("interrupted") => AgentRunStatus::Interrupted,
-                    _ => record.status.clone(),
+                    _ if kind == &super::EventKind::TurnComplete => AgentRunStatus::Completed,
+                    _ => AgentRunStatus::Interrupted,
                 };
                 let phase = payload
                     .get("phase")
@@ -1148,10 +1307,6 @@ pub(super) fn agent_run_records_from_lines(
                     .to_string();
                 let stop_reason = payload
                     .get("stopReason")
-                    .and_then(Value::as_str)
-                    .map(str::to_string);
-                let final_content = payload
-                    .get("finalContent")
                     .and_then(Value::as_str)
                     .map(str::to_string);
                 let error = payload
@@ -1163,7 +1318,7 @@ pub(super) fn agent_run_records_from_lines(
                     status,
                     &phase,
                     stop_reason,
-                    final_content,
+                    None,
                     error,
                     &line.timestamp,
                 );
@@ -1176,17 +1331,13 @@ pub(super) fn agent_run_records_from_lines(
             }
             super::EventKind::TurnStarted
             | super::EventKind::TaskStarted
-            | super::EventKind::TurnComplete
             | super::EventKind::TaskComplete
-            | super::EventKind::TurnAborted
             | super::EventKind::UserMessage
             | super::EventKind::ThreadRolledBack
             | super::EventKind::TokenCount
             | super::EventKind::MetadataUpdated
             | super::EventKind::SessionTrimmed
-            | super::EventKind::TaskProgressUpdated
-            | super::EventKind::ThreadItem
-            | super::EventKind::Legacy(_) => {}
+            | super::EventKind::ThreadItem => {}
         }
     }
     Ok(runs.into_values().collect())
@@ -1257,39 +1408,23 @@ fn apply_response_item_to_agent_runs(
 }
 
 fn completed_tool_result_from_response_item(item: &Value) -> Value {
-    let payload = item
-        .get("threadItemPayload")
-        .or_else(|| item.get("thread_item_payload"))
-        .and_then(|event| event.get("payload"))
-        .unwrap_or(&Value::Null);
-    let envelope = payload.get("envelope").cloned().unwrap_or(Value::Null);
-    let status = envelope
-        .get("status")
-        .or_else(|| payload.get("resultStatus"))
-        .cloned()
-        .unwrap_or_else(|| serde_json::json!("ok"));
-    let summary = envelope
-        .get("summary")
-        .or_else(|| payload.get("summary"))
-        .or_else(|| item.get("output"))
-        .cloned()
-        .unwrap_or(Value::Null);
     serde_json::json!({
-        "toolCallId": payload
-            .get("toolCallId")
-            .or_else(|| payload.get("tool_call_id"))
-            .or_else(|| item.get("call_id"))
-            .cloned()
-            .unwrap_or(Value::Null),
-        "toolName": payload
-            .get("toolName")
-            .or_else(|| payload.get("tool_name"))
-            .or_else(|| payload.get("name"))
-            .cloned()
-            .unwrap_or(Value::Null),
-        "status": status,
-        "summary": summary,
-        "envelope": envelope,
+        "toolCallId": item.get("call_id").cloned().unwrap_or(Value::Null),
+        "summary": bounded_derived_tool_summary(
+            item.get("output").cloned().unwrap_or(Value::Null)
+        ),
+    })
+}
+
+fn bounded_derived_tool_summary(summary: Value) -> Value {
+    let serialized = summary.to_string();
+    let original_chars = serialized.chars().count();
+    if original_chars <= 2_048 {
+        return summary;
+    }
+    serde_json::json!({
+        "truncated": true,
+        "originalChars": original_chars,
     })
 }
 
@@ -1333,19 +1468,6 @@ fn payload_run_id(payload: &Value) -> Option<String> {
         .or_else(|| payload.get("run_id"))
         .and_then(Value::as_str)
         .map(str::to_string)
-}
-
-fn upsert_trace_event(events: &mut Vec<Value>, event: Value) {
-    if let Some(event_id) = event.get("eventId").and_then(Value::as_str) {
-        if let Some(existing) = events
-            .iter_mut()
-            .find(|existing| existing.get("eventId").and_then(Value::as_str) == Some(event_id))
-        {
-            *existing = event;
-            return;
-        }
-    }
-    events.push(event);
 }
 
 fn apply_checkpoint_to_record(record: &mut AgentRunRecord, checkpoint: Value, timestamp: &str) {
@@ -1487,7 +1609,6 @@ fn agent_run_from_checkpoint(
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default(),
-        trace_events: Vec::new(),
         completed_tool_results: checkpoint
             .get("completedToolResults")
             .or_else(|| checkpoint.get("completed_tool_results"))
@@ -1538,53 +1659,6 @@ fn agent_run_status_from_checkpoint(checkpoint: &Value) -> AgentRunStatus {
     }
 }
 
-fn apply_agent_status_snapshot(record: &mut AgentRunRecord, event: &Value) {
-    if event.get("eventName").and_then(Value::as_str) != Some("agent.status") {
-        return;
-    }
-    let payload = event.get("payload").unwrap_or(event);
-    if let Some(phase) = payload
-        .get("phase")
-        .or_else(|| event.get("phase"))
-        .and_then(Value::as_str)
-    {
-        record.phase = phase.to_string();
-        record.status = agent_run_status_from_phase(phase);
-    }
-    if let Some(iteration) = payload
-        .get("iteration")
-        .or_else(|| event.get("iteration"))
-        .and_then(Value::as_i64)
-    {
-        record.current_iteration = iteration;
-    }
-}
-
-fn agent_run_status_from_phase(phase: &str) -> AgentRunStatus {
-    match phase {
-        "awaiting_approval" | "awaiting_form" | "awaiting_subagent" | "paused" | "queued" => {
-            AgentRunStatus::Waiting
-        }
-        "interrupted" => AgentRunStatus::Interrupted,
-        _ => AgentRunStatus::Running,
-    }
-}
-
-fn parse_trace_cursor(cursor: Option<&str>) -> Result<usize, WorkerProtocolError> {
-    let Some(cursor) = cursor else {
-        return Ok(0);
-    };
-    cursor.parse::<usize>().map_err(|_| {
-        WorkerProtocolError::new(
-            WorkerProtocolErrorCode::InvalidProtocol,
-            "invalid agent run trace cursor",
-            serde_json::json!({ "cursor": cursor }),
-            false,
-            WorkerProtocolErrorSource::RustCore,
-        )
-    })
-}
-
 fn validate_agent_run_key(session_id: &str, run_id: &str) -> Result<(), WorkerProtocolError> {
     validate_path_safe_id(session_id, "session_id")?;
     validate_path_safe_id(run_id, "run_id")
@@ -1607,20 +1681,7 @@ fn invalid_agent_run_key(field: &str, value: &str) -> WorkerProtocolError {
     )
 }
 
-fn embedded_agent_run_trace_error(session_id: &str, run_id: &str) -> WorkerProtocolError {
-    WorkerProtocolError::new(
-        WorkerProtocolErrorCode::InvalidProtocol,
-        "agent_run.upsert must not embed trace events; use agent_run.append_trace",
-        serde_json::json!({
-            "session_id": session_id,
-            "run_id": run_id,
-        }),
-        false,
-        WorkerProtocolErrorSource::RustCore,
-    )
-}
-
-fn invalid_agent_run_trace_event_error(
+fn invalid_agent_run_semantic_event_error(
     message: &str,
     session_id: &str,
     run_id: &str,
@@ -1671,11 +1732,18 @@ mod tests {
         }))
         .unwrap();
         let result = response_item_from_runtime_event(&json!({
+            "eventId": "event-result-1",
             "eventName": "agent.tool.result",
             "payload": {
                 "toolCallId": "call-1",
                 "toolName": "workspace.read_file",
-                "content": "contents"
+                "content": "contents",
+                "summary": "contents",
+                "envelope": {
+                    "summary": "contents",
+                    "modelContent": "contents",
+                    "raw": { "content": "contents" }
+                }
             }
         }))
         .unwrap();
@@ -1683,16 +1751,22 @@ mod tests {
         assert_eq!(call["type"], "custom_tool_call");
         assert_eq!(call["call_id"], "call-1");
         assert_eq!(call["input"], "{\"path\":\"README.md\"}");
-        assert_eq!(result["type"], "custom_tool_call_output");
-        assert_eq!(result["call_id"], "call-1");
-        assert_eq!(result["output"], "contents");
+        assert_eq!(
+            result,
+            json!({
+                "type": "custom_tool_call_output",
+                "id": "tool-output:call-1",
+                "call_id": "call-1",
+                "output": "contents",
+            })
+        );
     }
 }
 
-fn empty_agent_run_trace_batch_error(session_id: &str, run_id: &str) -> WorkerProtocolError {
+fn empty_agent_run_semantic_batch_error(session_id: &str, run_id: &str) -> WorkerProtocolError {
     WorkerProtocolError::new(
         WorkerProtocolErrorCode::InvalidProtocol,
-        "agent run trace batch must contain at least one event",
+        "agent run semantic batch must contain at least one event",
         serde_json::json!({
             "session_id": session_id,
             "run_id": run_id,

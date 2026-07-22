@@ -67,6 +67,19 @@ describe("canonical agent timeline model", () => {
     });
   });
 
+  test("applies live item deltas without advancing the durable snapshot revision", () => {
+    const model = createAgentTimelineModel();
+    model.load(sessionId, [runtimeState(1, [item({ revision: 2 })])]);
+
+    const snapshot = model.applyPatch(sessionId, patch(1, {
+      revision: 3,
+      data: { type: "assistant_message", messageId: "assistant-1", modelCallId: "call-1", phase: "unknown", content: "hello" },
+    }));
+
+    expect(snapshot.runRevisions).toEqual({ [runId]: 1 });
+    expect(snapshot.turns[0]?.canonicalItems?.[0]).toMatchObject({ revision: 3 });
+  });
+
   test("preserves reasoning, commentary, tools, and the terminal answer in canonical order", () => {
     const model = createAgentTimelineModel();
     const canonicalItems = [
@@ -511,7 +524,12 @@ describe("canonical agent timeline model", () => {
         inputTokens: 100,
         outputTokens: 25,
         totalTokens: 125,
-        providerPayload: {},
+        providerPayload: {
+          contextWindowRemainingTokens: 127875,
+          contextWindowTokens: 128000,
+          contextWindowUsedTokens: 125,
+          percent: 0.09765625,
+        },
       }),
       canonicalItem("assistant-1", 12, 1, "assistant_message", "completed", {
         type: "assistant_message",
@@ -550,7 +568,15 @@ describe("canonical agent timeline model", () => {
       status: "completed",
       userMessage: { clientEventId: "client-message-1", id: "user-1" },
       finalAnswer: { id: "assistant-1", text: "Acceptance complete" },
-      usage: { promptTokens: 100, completionTokens: 25, totalTokens: 125 },
+      usage: {
+        promptTokens: 100,
+        completionTokens: 25,
+        totalTokens: 125,
+        contextWindowRemainingTokens: 127875,
+        contextWindowTokens: 128000,
+        contextWindowUsedTokens: 125,
+        percent: 0.09765625,
+      },
     });
     expect(live.turns[0].steps.map((step) => [step.id, step.status])).toEqual([
       ["reasoning-1", "completed"],

@@ -364,6 +364,7 @@ fn approval_summary(tool: &ToolRegistryEntry, arguments: &Value) -> String {
             .and_then(Value::as_str)
             .map(|path| format!("{} path=\"{}\"", tool.method, path))
             .unwrap_or_else(|| tool.method.to_string()),
+        "workspace.apply_patch" | "apply_patch" => tool.method.to_string(),
         "mcp.call_tool" => {
             let server = arguments
                 .get("server")
@@ -411,7 +412,7 @@ fn approval_fingerprint(
             .and_then(Value::as_str)
             .map(|path| permission_fingerprint("write_file", &normalize_path(path), effects))
             .unwrap_or_else(|| permission_fingerprint("write_file", "", effects)),
-        "workspace.apply_patch" => arguments
+        "workspace.apply_patch" | "apply_patch" => arguments
             .get("patch")
             .and_then(Value::as_str)
             .map(|patch| permission_fingerprint("apply_patch", patch, effects))
@@ -446,6 +447,17 @@ fn approval_session_fingerprint(
     effects: &PermissionEffects,
 ) -> String {
     approval_fingerprint(tool, arguments, effects)
+}
+
+pub(crate) fn approval_session_scope(
+    tool: &ToolRegistryEntry,
+    arguments: &Value,
+) -> Result<(String, String), WorkerProtocolError> {
+    let effects = normalize_tool_effects(tool, arguments)?;
+    Ok((
+        approval_session_fingerprint(tool, arguments, &effects),
+        approval_summary(tool, arguments),
+    ))
 }
 
 fn normalize_path(path: &str) -> String {

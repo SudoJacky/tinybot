@@ -136,32 +136,11 @@ pub(super) fn default_tool_contributors() -> Vec<Arc<dyn ToolContributor>> {
 pub(super) fn workspace_tool_entries() -> Vec<ToolRegistryEntry> {
     vec![
         tool(
-            "workspace.read_file",
-            "workspace",
-            "Read workspace file",
-            "Read a file under the current workspace.",
-            ToolExposure::Model,
-            false,
-            runtime_policy(true, ToolCancellationMode::Cooperative, false, false),
-            vec![WorkerCapability::FsWorkspaceRead],
-            approval(false, None, None),
-            json!({
-                "type": "object",
-                "required": ["path"],
-                "properties": {
-                    "path": { "type": "string" },
-                    "offset": { "type": "integer" },
-                    "limit": { "type": "integer" },
-                    "format": { "type": "string" }
-                }
-            }),
-        ),
-        tool(
             "workspace.write_file",
             "workspace",
             "Write workspace file",
             "Write a file under the current workspace.",
-            ToolExposure::Deferred,
+            ToolExposure::Hidden,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, true, false),
             vec![
@@ -184,7 +163,33 @@ pub(super) fn workspace_tool_entries() -> Vec<ToolRegistryEntry> {
             "workspace",
             "Apply workspace patch",
             "Apply a strict multi-file patch under the current workspace. Patch context must match exactly.",
-            ToolExposure::Deferred,
+            ToolExposure::Hidden,
+            false,
+            runtime_policy(false, ToolCancellationMode::DetachForbidden, true, false),
+            vec![
+                WorkerCapability::FsWorkspaceWrite,
+                WorkerCapability::ApprovalRequest,
+            ],
+            approval(true, Some("file"), Some("per_request")),
+            json!({
+                "type": "object",
+                "required": ["patch"],
+                "properties": {
+                    "patch": {
+                        "type": "string",
+                        "description": "Strict patch text delimited by *** Begin Patch and *** End Patch."
+                    }
+                },
+                "additionalProperties": false
+            }),
+        ),
+        worker_rpc_tool(
+            "apply_patch",
+            "workspace.apply_patch",
+            "workspace",
+            "Apply workspace patch",
+            "Apply a strict multi-file patch under the current workspace. Patch context must match exactly.",
+            ToolExposure::Model,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, true, false),
             vec![
@@ -209,7 +214,7 @@ pub(super) fn workspace_tool_entries() -> Vec<ToolRegistryEntry> {
             "workspace",
             "Delete workspace file",
             "Delete a file or directory under the current workspace.",
-            ToolExposure::Deferred,
+            ToolExposure::Hidden,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, true, false),
             vec![

@@ -729,6 +729,15 @@ export function reduceTinyOsCommandLifecycle(
   }
   if (state.stage === "acknowledged") return state;
   if (action.type === "transport_accepted") {
+    if (state.command.kind === "approval.resolve") {
+      return {
+        acknowledgement: { itemId: state.command.approval.approvalId, revision: 0 },
+        acknowledgedAtMs: action.nowMs,
+        command: state.command,
+        dispatchedAtMs: state.dispatchedAtMs,
+        stage: "acknowledged",
+      };
+    }
     return {
       command: state.command,
       dispatchedAtMs: state.dispatchedAtMs,
@@ -763,7 +772,9 @@ export function canonicalTinyOsCommandAcknowledgement(
       const detail = recordValue(item.data.detail);
       const detailCommandId = stringValue(detail.commandId ?? detail.command_id);
       const commandStatus = stringValue(detail.commandStatus ?? detail.command_status);
-      if ((directCommandId === commandId || detailCommandId === commandId) && commandStatus === "acknowledged") {
+      const correlated = directCommandId === commandId || detailCommandId === commandId;
+      const resolvedApproval = item.kind === "approval" && item.status === "completed";
+      if (correlated && (commandStatus === "acknowledged" || resolvedApproval)) {
         return { itemId: item.itemId, revision: item.revision };
       }
     }
@@ -820,7 +831,8 @@ export function isTinyOsCommandPending(state: TinyOsCommandLifecycle): boolean {
 }
 
 export function isTinyOsCommandInFlight(state: TinyOsCommandLifecycle): boolean {
-  return isTinyOsCommandPending(state) || state.stage === "acknowledged";
+  return isTinyOsCommandPending(state)
+    || (state.stage === "acknowledged" && state.command.kind !== "approval.resolve");
 }
 
 function createTinyOsCommandId(): string {

@@ -59,13 +59,6 @@ describe("desktop native chat session controller", () => {
         title: "README",
         detail: "selected file",
       }],
-      attachments: [{
-        type: "text",
-        name: "notes.md",
-        mimeType: "text/markdown",
-        sizeBytes: 7,
-        content: "# Notes",
-      }],
     });
     expect(result).toEqual({
       status: "sent",
@@ -89,13 +82,6 @@ describe("desktop native chat session controller", () => {
         content: "hello",
         clientEventId: "client-1",
         references: [{ kind: "reference", title: "README", detail: "selected file" }],
-        attachments: [{
-          type: "text",
-          name: "notes.md",
-          mimeType: "text/markdown",
-          sizeBytes: 7,
-          content: "# Notes",
-        }],
       },
       spec: {
         runId: "run-1",
@@ -108,6 +94,19 @@ describe("desktop native chat session controller", () => {
         },
       },
     });
+  });
+
+  test("submits frontend user content without rewriting it", async () => {
+    const { controller, submitThreadTurn } = createController();
+    await controller.loadSessions();
+    const content = "# Files mentioned by the user:\n\n## notes.md: C:\\Users\\tester\\notes.md\n\n## My request for Tinybot:\nReview this file\n";
+
+    const result = await controller.submitMessage(content);
+
+    expect(result).toEqual(expect.objectContaining({ content }));
+    expect(submitThreadTurn).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({ content }),
+    }));
   });
 
   test("uses the desktop command id as the Thread client event id", async () => {

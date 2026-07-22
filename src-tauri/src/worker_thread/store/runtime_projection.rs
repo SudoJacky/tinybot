@@ -5,96 +5,64 @@ use crate::agent_loop_runtime_protocol::{
 use crate::worker_thread::types::{ThreadItem, ThreadItemKind};
 use serde_json::Value;
 
-pub(super) fn trace_event_from_thread_item(item: &ThreadItem) -> Option<Value> {
-    if let ThreadItemKind::Reasoning(value) = &item.kind {
-        let has_trace_shape = value.get("eventName").is_some()
-            || value.get("event_name").is_some()
-            || value.get("schemaVersion").is_some()
-            || value.get("schema_version").is_some();
-        if has_trace_shape {
-            return Some(value.clone());
+fn semantic_event_from_thread_item(item: &ThreadItem) -> Option<(&'static str, Value)> {
+    match &item.kind {
+        ThreadItemKind::UserMessage(value) => Some((
+            "agent.turn.started",
+            serde_json::json!({ "userMessage": value }),
+        )),
+        ThreadItemKind::AssistantMessageCompleted(value) => Some((
+            "agent.message.completed",
+            serde_json::json!({
+                "content": response_item_text(value),
+                "messageId": value.get("messageId").or_else(|| value.get("id")).cloned().unwrap_or_else(|| Value::String(item.item_id.clone())),
+                "messagePhase": value.get("phase").cloned().unwrap_or_else(|| Value::String("final_answer".to_string())),
+            }),
+        )),
+        ThreadItemKind::Reasoning(value) => Some((
+            "agent.reasoning.completed",
+            serde_json::json!({
+                "summary": reasoning_response_text(value),
+                "reasoningId": value.get("reasoningId").or_else(|| value.get("id")).cloned().unwrap_or_else(|| Value::String(item.item_id.clone())),
+                "modelCallId": value.get("modelCallId").cloned().unwrap_or(Value::Null),
+            }),
+        )),
+        ThreadItemKind::ToolCallStarted(value) => Some((
+            "agent.tool_call.delta",
+            serde_json::json!({
+                "toolCallId": semantic_item_id(item),
+                "toolName": value.get("name").or_else(|| value.get("toolName")).cloned().unwrap_or(Value::Null),
+                "argumentsDelta": value.get("input").or_else(|| value.get("arguments")).cloned().unwrap_or_else(|| serde_json::json!({})),
+            }),
+        )),
+        ThreadItemKind::ToolCallOutput(value) => Some((
+            "agent.tool.result",
+            serde_json::json!({
+                "toolCallId": semantic_item_id(item),
+                "content": value.get("output").cloned().unwrap_or(Value::Null),
+            }),
+        )),
+        ThreadItemKind::ApprovalRequested(value) => {
+            Some(("agent.awaiting_approval", value.clone()))
         }
-        let mut payload = value.as_object().cloned().unwrap_or_default();
-        payload.insert(
-            "delta".to_string(),
-            Value::String(reasoning_response_text(value)),
-        );
-        return Some(serde_json::json!({
-            "eventName": "agent.reasoning_delta",
-            "payload": payload,
-        }));
-    }
-    if let ThreadItemKind::ToolCallStarted(value) = &item.kind {
-        if value.get("type").and_then(Value::as_str) == Some("custom_tool_call") {
-            return Some(serde_json::json!({
-                "eventName": "agent.tool_call.delta",
-                "payload": {
-                    "toolCallId": value
-                        .get("call_id")
-                        .or_else(|| value.get("callId"))
-                        .or_else(|| value.get("id"))
-                        .cloned()
-                        .unwrap_or(Value::Null),
-                    "toolName": value.get("name").cloned().unwrap_or(Value::Null),
-                    "argumentsDelta": value.get("input").cloned().unwrap_or(Value::Null),
-                },
-            }));
+        ThreadItemKind::ApprovalResolved(value) => Some(("agent.approval.decision", value.clone())),
+        ThreadItemKind::SubagentSpawned(value) => Some(("agent.delegate.spawned", value.clone())),
+        ThreadItemKind::SubagentMessage(value) => Some(("agent.delegate.message", value.clone())),
+        ThreadItemKind::SubagentCompleted(value) => {
+            Some(("agent.delegate.completed", value.clone()))
         }
-    }
-    if let ThreadItemKind::ToolCallOutput(value) = &item.kind {
-        if value.get("type").and_then(Value::as_str) == Some("custom_tool_call_output") {
-            return Some(serde_json::json!({
-                "eventName": "agent.tool.result",
-                "payload": {
-                    "toolCallId": value
-                        .get("call_id")
-                        .or_else(|| value.get("callId"))
-                        .or_else(|| value.get("id"))
-                        .cloned()
-                        .unwrap_or(Value::Null),
-                    "content": value.get("output").cloned().unwrap_or(Value::Null),
-                },
-            }));
-        }
-    }
-    let (payload, fallback_event_name) = match &item.kind {
-        ThreadItemKind::UserMessage(value) => (value, Some("agent.turn.started")),
-        ThreadItemKind::AssistantMessageDelta(value) => (value, Some("agent.delta")),
-        ThreadItemKind::AssistantMessageCompleted(value) => {
-            (value, Some("agent.message.completed"))
-        }
-        ThreadItemKind::Reasoning(_) => unreachable!("reasoning items return above"),
-        ThreadItemKind::ToolCallStarted(value) => (value, Some("agent.tool.start")),
-        ThreadItemKind::ToolCallOutput(value) => (value, Some("agent.tool.result")),
-        ThreadItemKind::ApprovalRequested(value) => (value, Some("agent.awaiting_approval")),
-        ThreadItemKind::ApprovalResolved(value) => (value, Some("agent.approval.decision")),
-        ThreadItemKind::AgentRunStep(value) => (value, Some("agent.step")),
-        ThreadItemKind::CheckpointCreated(value) => (value, None),
-        ThreadItemKind::ContextTrimmed(value) => (value, Some("agent.context.trimmed")),
-        ThreadItemKind::ContextCompaction(value) => (value, Some("agent.context.compacted")),
-        ThreadItemKind::SubagentSpawned(value) => (value, Some("agent.delegate.spawned")),
-        ThreadItemKind::SubagentMessage(value) => (value, Some("agent.delegate.message")),
-        ThreadItemKind::SubagentCompleted(value) => (value, Some("agent.delegate.completed")),
-        ThreadItemKind::Error(value) => (value, Some("agent.error")),
-        ThreadItemKind::Cancelled(value) => (value, Some("agent.cancelled")),
-        ThreadItemKind::Event(value) => (value, None),
-        ThreadItemKind::AgentRunStarted(_)
+        ThreadItemKind::Error(value) => Some(("agent.error", value.clone())),
+        ThreadItemKind::Cancelled(value) => Some(("agent.cancelled", value.clone())),
+        ThreadItemKind::AssistantMessageDelta(_)
+        | ThreadItemKind::AgentRunStarted(_)
+        | ThreadItemKind::AgentRunStep(_)
         | ThreadItemKind::AgentRunCompleted(_)
-        | ThreadItemKind::SettingsChanged(_) => return None,
-    };
-    let has_trace_shape = payload.get("eventName").is_some()
-        || payload.get("event_name").is_some()
-        || payload.get("schemaVersion").is_some()
-        || payload.get("schema_version").is_some();
-    if has_trace_shape {
-        return Some(payload.clone());
+        | ThreadItemKind::CheckpointCreated(_)
+        | ThreadItemKind::ContextTrimmed(_)
+        | ThreadItemKind::ContextCompaction(_)
+        | ThreadItemKind::SettingsChanged(_)
+        | ThreadItemKind::Event(_) => None,
     }
-    fallback_event_name.map(|event_name| {
-        serde_json::json!({
-            "eventName": event_name,
-            "payload": payload,
-        })
-    })
 }
 
 fn reasoning_response_text(value: &Value) -> String {
@@ -126,35 +94,8 @@ fn runtime_event_from_thread_item(
     session_id: &str,
     run_id: &str,
 ) -> Option<AgentRuntimeEventEnvelope> {
-    let event = trace_event_from_thread_item(item)?;
-    if let Ok(mut envelope) = serde_json::from_value::<AgentRuntimeEventEnvelope>(event.clone()) {
-        envelope.sequence = item.sequence;
-        envelope.timestamp = item.created_at.clone();
-        envelope.session_id = session_id.to_string();
-        envelope.thread_id = Some(item.thread_id.clone());
-        envelope.turn_id = item
-            .turn_id
-            .clone()
-            .or_else(|| item.run_id.clone())
-            .unwrap_or_else(|| run_id.to_string());
-        return Some(envelope);
-    }
-    let event_name = event
-        .get("eventName")
-        .or_else(|| event.get("event_name"))
-        .and_then(Value::as_str)?
-        .to_string();
-    let payload = event
-        .get("payload")
-        .cloned()
-        .unwrap_or_else(|| event.clone());
-    let item_id = event
-        .get("itemId")
-        .or_else(|| event.get("item_id"))
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .or_else(|| legacy_trace_item_id(&event_name, &payload))
-        .or_else(|| Some(item.item_id.clone()));
+    let (event_name, payload) = semantic_event_from_thread_item(item)?;
+    let item_id = semantic_item_id(item);
     Some(AgentRuntimeEventEnvelope::from_legacy_native_event(
         LegacyNativeAgentEventEnvelopeInput {
             session_id: session_id.to_string(),
@@ -164,18 +105,68 @@ fn runtime_event_from_thread_item(
                 .clone()
                 .or_else(|| item.run_id.clone())
                 .unwrap_or_else(|| run_id.to_string()),
-            parent_turn_id: event
-                .get("parentTurnId")
-                .or_else(|| event.get("parent_turn_id"))
-                .and_then(Value::as_str)
-                .map(str::to_string),
-            item_id,
-            event_name,
+            parent_turn_id: None,
+            item_id: Some(item_id),
+            event_name: event_name.to_string(),
             sequence: item.sequence,
             timestamp: item.created_at.clone(),
             payload,
         },
     ))
+}
+
+fn semantic_item_id(item: &ThreadItem) -> String {
+    if let ThreadItemKind::ApprovalRequested(value) | ThreadItemKind::ApprovalResolved(value) =
+        &item.kind
+    {
+        return value
+            .get("approvalId")
+            .or_else(|| value.get("approval_id"))
+            .or_else(|| value.get("id"))
+            .and_then(Value::as_str)
+            .unwrap_or(&item.item_id)
+            .to_string();
+    }
+    let value = match &item.kind {
+        ThreadItemKind::AssistantMessageCompleted(value)
+        | ThreadItemKind::Reasoning(value)
+        | ThreadItemKind::ToolCallStarted(value)
+        | ThreadItemKind::ToolCallOutput(value)
+        | ThreadItemKind::SubagentSpawned(value)
+        | ThreadItemKind::SubagentMessage(value)
+        | ThreadItemKind::SubagentCompleted(value) => value,
+        _ => return item.item_id.clone(),
+    };
+    [
+        "call_id",
+        "callId",
+        "toolCallId",
+        "messageId",
+        "reasoningId",
+        "approvalId",
+        "delegateId",
+        "subagentId",
+        "id",
+    ]
+    .into_iter()
+    .find_map(|key| value.get(key).and_then(Value::as_str))
+    .unwrap_or(&item.item_id)
+    .to_string()
+}
+
+fn response_item_text(value: &Value) -> String {
+    match value.get("content") {
+        Some(Value::String(content)) => content.clone(),
+        Some(Value::Array(parts)) => parts
+            .iter()
+            .filter_map(|part| {
+                part.as_str()
+                    .or_else(|| part.get("text").and_then(Value::as_str))
+            })
+            .collect(),
+        Some(Value::Null) | None => String::new(),
+        Some(content) => content.to_string(),
+    }
 }
 
 pub(crate) fn runtime_events_from_thread_items(
@@ -199,68 +190,12 @@ pub(super) fn turn_items_from_thread_items(
     project_turn_items_from_trace_events(&runtime_events)
 }
 
-fn legacy_trace_item_id(event_name: &str, payload: &Value) -> Option<String> {
-    match event_name {
-        "agent.delta"
-        | "agent.message.phase"
-        | "agent.message.classified"
-        | "agent.message.completed" => {
-            string_from_trace_payload(payload, &["messageId", "message_id"]).or_else(|| {
-                prefixed_string_from_trace_payload(
-                    payload,
-                    "assistant",
-                    &["modelCallId", "model_call_id"],
-                )
-            })
-        }
-        "agent.reasoning_delta" => {
-            string_from_trace_payload(payload, &["reasoningId", "reasoning_id"]).or_else(|| {
-                prefixed_string_from_trace_payload(
-                    payload,
-                    "reasoning",
-                    &["modelCallId", "model_call_id"],
-                )
-            })
-        }
-        "agent.tool_call.delta" | "agent.tool.start" | "agent.tool.result" => {
-            string_from_trace_payload(payload, &["toolCallId", "tool_call_id"])
-        }
-        "agent.awaiting_approval" | "agent.approval.decision" => {
-            string_from_trace_payload(payload, &["approvalId", "approval_id"])
-        }
-        "agent.awaiting_form" | "agent.form.resolution" => {
-            string_from_trace_payload(payload, &["formId", "form_id"])
-        }
-        event_name if event_name.starts_with("agent.delegate.") => {
-            string_from_trace_payload(payload, &["delegateId", "subagentId", "delegate_id"])
-        }
-        _ => None,
-    }
-}
-
-fn string_from_trace_payload(payload: &Value, keys: &[&str]) -> Option<String> {
-    keys.iter().find_map(|key| {
-        payload
-            .get(*key)
-            .and_then(Value::as_str)
-            .map(str::to_string)
-    })
-}
-
-fn prefixed_string_from_trace_payload(
-    payload: &Value,
-    prefix: &str,
-    keys: &[&str],
-) -> Option<String> {
-    string_from_trace_payload(payload, keys).map(|value| format!("{prefix}:{value}"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::{runtime_events_from_thread_items, turn_items_from_thread_items};
     use crate::agent_loop_runtime_protocol::{AgentTurnItemData, AgentTurnItemKind};
     use crate::worker_thread::types::{ThreadItem, ThreadItemKind};
-    use serde_json::{json, Value};
+    use serde_json::json;
 
     fn approval_item(
         item_id: &str,
@@ -276,17 +211,17 @@ mod tests {
             parent_item_id: None,
             sequence,
             created_at: sequence.to_string(),
-            kind: ThreadItemKind::Event(json!({
-                "eventName": event_name,
-                "payload": {
+            kind: if event_name == "agent.approval.decision" {
+                ThreadItemKind::ApprovalResolved(json!({
                     "approvalId": approval_id,
-                    "status": if event_name == "agent.approval.decision" {
-                        "completed"
-                    } else {
-                        "waiting"
-                    }
-                }
-            })),
+                    "status": "completed",
+                }))
+            } else {
+                ThreadItemKind::ApprovalRequested(json!({
+                    "approvalId": approval_id,
+                    "status": "waiting",
+                }))
+            },
         }
     }
 
@@ -316,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn full_envelope_uses_rollout_identity_sequence_and_timestamp() {
+    fn typed_record_uses_rollout_identity_sequence_and_timestamp() {
         let items = vec![ThreadItem {
             item_id: "rollout-item-99".to_string(),
             thread_id: "canonical-thread".to_string(),
@@ -325,19 +260,11 @@ mod tests {
             parent_item_id: None,
             sequence: 99,
             created_at: "2026-07-20T00:00:99Z".to_string(),
-            kind: ThreadItemKind::Event(json!({
-                "schemaVersion": "tinybot.agent_event.v1",
-                "eventId": "event-1",
-                "sequence": 1,
-                "sessionId": "embedded-session",
-                "threadId": "embedded-thread",
-                "turnId": "embedded-run",
-                "eventName": "agent.done",
-                "phase": "completed",
-                "timestamp": "2026-07-20T00:00:01Z",
-                "source": "rust_backend",
-                "visibility": "user",
-                "payload": { "finalContent": "Done." }
+            kind: ThreadItemKind::AssistantMessageCompleted(json!({
+                "type": "message",
+                "id": "assistant-1",
+                "role": "assistant",
+                "content": [{ "type": "output_text", "text": "Done." }],
             })),
         }];
 
@@ -352,69 +279,103 @@ mod tests {
     }
 
     #[test]
-    fn persisted_stream_chunks_replay_as_one_reasoning_and_one_assistant_item() {
-        let persisted_event =
-            |item_id: &str, sequence: u64, event_name: &str, payload: Value| ThreadItem {
-                item_id: item_id.to_string(),
-                thread_id: "thread-1".to_string(),
-                run_id: Some("run-1".to_string()),
-                turn_id: Some("run-1".to_string()),
-                parent_item_id: None,
-                sequence,
-                created_at: sequence.to_string(),
-                kind: ThreadItemKind::Event(json!({
-                    "eventId": format!("event-{sequence}"),
-                    "eventName": event_name,
-                    "payload": payload,
-                    "sequence": sequence,
-                    "timestamp": sequence.to_string(),
-                })),
-            };
+    fn slim_tool_output_replays_through_the_tool_call_item() {
+        let item = |item_id: &str, sequence: u64, kind: ThreadItemKind| ThreadItem {
+            item_id: item_id.to_string(),
+            thread_id: "thread-1".to_string(),
+            run_id: Some("run-1".to_string()),
+            turn_id: Some("turn-1".to_string()),
+            parent_item_id: None,
+            sequence,
+            created_at: sequence.to_string(),
+            kind,
+        };
         let items = vec![
-            persisted_event(
-                "thread-runtime:thread-1:run-1:event-id:event-1",
+            item(
+                "call-1",
                 1,
-                "agent.reasoning_delta",
-                json!({
-                    "delta": "Inspect ",
-                    "modelCallId": "provider-1",
-                    "reasoningId": "reasoning-1",
-                }),
+                ThreadItemKind::ToolCallStarted(json!({
+                    "type": "custom_tool_call",
+                    "id": "call-1",
+                    "call_id": "call-1",
+                    "name": "workspace.read_file",
+                    "input": "{\"path\":\"README.md\"}",
+                })),
             ),
-            persisted_event(
-                "thread-runtime:thread-1:run-1:event-id:event-2",
+            item(
+                "tool-output:call-1",
                 2,
-                "agent.reasoning_delta",
-                json!({
-                    "delta": "first.",
-                    "modelCallId": "provider-1",
-                    "reasoningId": "reasoning-1",
-                }),
-            ),
-            persisted_event(
-                "thread-runtime:thread-1:run-1:event-id:event-3",
-                3,
-                "agent.delta",
-                json!({
-                    "delta": "Hello ",
-                    "messageId": "assistant-1",
-                    "messagePhase": "final_answer",
-                    "modelCallId": "provider-1",
-                }),
-            ),
-            persisted_event(
-                "thread-runtime:thread-1:run-1:event-id:event-4",
-                4,
-                "agent.delta",
-                json!({
-                    "delta": "world.",
-                    "messageId": "assistant-1",
-                    "messagePhase": "final_answer",
-                    "modelCallId": "provider-1",
-                }),
+                ThreadItemKind::ToolCallOutput(json!({
+                    "type": "custom_tool_call_output",
+                    "id": "tool-output:call-1",
+                    "call_id": "call-1",
+                    "output": "README contents",
+                })),
             ),
         ];
 
+        let events = runtime_events_from_thread_items(&items, "thread-1", "run-1");
+        assert_eq!(
+            events[1].payload,
+            json!({
+                "toolCallId": "call-1",
+                "content": "README contents",
+            })
+        );
+
+        let projected = turn_items_from_thread_items(&items, "thread-1", "run-1");
+        assert_eq!(projected.len(), 1);
+        assert!(matches!(
+            &projected[0].data,
+            AgentTurnItemData::ToolCall { name, args, result, .. }
+                if name == "workspace.read_file"
+                    && args == "{\"path\":\"README.md\"}"
+                    && result == "README contents"
+        ));
+    }
+
+    #[test]
+    fn typed_completed_records_replay_without_stream_deltas() {
+        let persisted_item = |item_id: &str, sequence: u64, kind: ThreadItemKind| ThreadItem {
+            item_id: item_id.to_string(),
+            thread_id: "thread-1".to_string(),
+            run_id: Some("run-1".to_string()),
+            turn_id: Some("run-1".to_string()),
+            parent_item_id: None,
+            sequence,
+            created_at: sequence.to_string(),
+            kind,
+        };
+        let items = vec![
+            persisted_item(
+                "reasoning-1",
+                1,
+                ThreadItemKind::Reasoning(json!({
+                    "type": "reasoning",
+                    "summary": [{ "type": "summary_text", "text": "Inspect first." }],
+                    "modelCallId": "provider-1",
+                    "reasoningId": "reasoning-1",
+                })),
+            ),
+            persisted_item(
+                "assistant-1",
+                2,
+                ThreadItemKind::AssistantMessageCompleted(json!({
+                    "type": "message",
+                    "id": "assistant-1",
+                    "role": "assistant",
+                    "content": [{ "type": "output_text", "text": "Hello world." }],
+                    "phase": "final_answer",
+                })),
+            ),
+        ];
+
+        let events = runtime_events_from_thread_items(&items, "thread-1", "run-1");
+        assert_eq!(events.len(), 2);
+        assert!(events.iter().all(|event| !matches!(
+            event.event_name.as_str(),
+            "agent.delta" | "agent.reasoning_delta"
+        )));
         let projected = turn_items_from_thread_items(&items, "thread-1", "run-1");
 
         assert_eq!(projected.len(), 2);

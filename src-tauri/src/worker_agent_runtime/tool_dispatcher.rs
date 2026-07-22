@@ -244,14 +244,13 @@ pub(super) fn native_tool_is_permitted(context: &NativeAgentRunContext, name: &s
 
 pub(super) fn native_tool_supports_parallel(context: &NativeAgentRunContext, name: &str) -> bool {
     registry_tool_supports_parallel(context, name)
-        || legacy_native_tool_alias_supports_parallel(context, name)
 }
 
 pub(super) fn native_tool_call_supports_parallel(
     context: &NativeAgentRunContext,
     tool_call: &NativeAgentToolCall,
 ) -> bool {
-    if tool_call.name == "shell.execute" {
+    if matches!(tool_call.name.as_str(), "shell.execute" | "exec_command") {
         return shell_call_supports_parallel(context, tool_call);
     }
     native_tool_supports_parallel(context, &tool_call.name)
@@ -320,7 +319,6 @@ fn registry_tool_mutates_session(context: &NativeAgentRunContext, name: &str) ->
 
 fn legacy_native_tool_alias_is_permitted(context: &NativeAgentRunContext, name: &str) -> bool {
     match name {
-        "workspace.list_files" => registry_tool_available(context, "workspace.read_file"),
         "spawn_agent" => registry_tool_available(context, "subagent.spawn"),
         "send_input" => registry_tool_available(context, "subagent.send_input"),
         "wait_agent" => registry_tool_available(context, "subagent.wait"),
@@ -330,13 +328,6 @@ fn legacy_native_tool_alias_is_permitted(context: &NativeAgentRunContext, name: 
             registry_tool_available(context, "subagent.spawn")
                 || registry_tool_available(context, "subagent.send_input")
         }
-        _ => false,
-    }
-}
-
-fn legacy_native_tool_alias_supports_parallel(context: &NativeAgentRunContext, name: &str) -> bool {
-    match name {
-        "workspace.list_files" => registry_tool_supports_parallel(context, "workspace.read_file"),
         _ => false,
     }
 }
@@ -378,7 +369,6 @@ fn legacy_native_tool_alias_mutates_session(context: &NativeAgentRunContext, nam
 
 fn legacy_native_tool_alias_policy_method(name: &str) -> Option<&'static str> {
     match name {
-        "workspace.list_files" => Some("workspace.read_file"),
         "spawn_agent" => Some("subagent.spawn"),
         "send_input" => Some("subagent.send_input"),
         "wait_agent" => Some("subagent.wait"),
@@ -462,6 +452,20 @@ fn shell_command_contains_unsafe_syntax(command: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn removed_workspace_list_files_alias_is_not_permitted() {
+        let context = NativeAgentRunContext::from_spec(
+            serde_json::json!({
+                "runId": "run-no-list-alias",
+                "sessionId": "session-no-list-alias",
+                "messages": [{ "role": "user", "content": "list files" }]
+            }),
+            serde_json::json!({}),
+        );
+
+        assert!(!native_tool_is_permitted(&context, "workspace.list_files"));
+    }
 
     #[test]
     fn shell_read_only_allowlist_rejects_chained_commands() {

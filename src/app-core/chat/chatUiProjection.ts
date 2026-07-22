@@ -367,7 +367,9 @@ function approvalRequestsFromMessages(sessionKey: string, messages: NativeChatMe
         scopeKey: approvalScopeKey(activity),
         scopeLabel: approvalScopeLabel(activity),
         prompt: activity.responseText || "Approval required",
-        choices: ["allow_once", "allow_session", "deny"] as const,
+        choices: (approvalScopeKey(activity)
+          ? ["allow_once", "allow_session", "deny"]
+          : ["allow_once", "deny"]) as ApprovalRequest["choices"],
       })),
   );
 }
@@ -501,22 +503,9 @@ function previewText(activity: NativeChatToolActivity): string {
 }
 
 function approvalScopeKey(activity: NativeChatToolActivity): string | undefined {
-  if (activity.name.includes("write")) {
-    return "filesystem.write:workspace";
-  }
-  if (activity.name.includes("read")) {
-    return "filesystem.read:workspace";
-  }
-  return undefined;
+  return activity.scopeKey;
 }
 
 function approvalScopeLabel(activity: NativeChatToolActivity): string | undefined {
-  const scopeKey = approvalScopeKey(activity);
-  if (scopeKey === "filesystem.write:workspace") {
-    return "Allow workspace writes for this session";
-  }
-  if (scopeKey === "filesystem.read:workspace") {
-    return "Allow workspace reads for this session";
-  }
-  return undefined;
+  return activity.scopeLabel;
 }

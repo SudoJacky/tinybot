@@ -1,10 +1,10 @@
 use crate::agent_loop_runtime_protocol::AgentTraceContext;
 use crate::native_agent_bridge::{
-    native_agent_artifacts, native_agent_current_iteration, native_agent_max_iterations,
-    native_agent_model, native_agent_persisted_trace_values, native_agent_provider,
+    native_agent_artifacts, native_agent_current_iteration, native_agent_current_user_message,
+    native_agent_max_iterations, native_agent_model, native_agent_provider,
     native_agent_run_completed_at, native_agent_run_id, native_agent_run_phase_from_stop_reason,
     native_agent_run_status, native_agent_session_id, native_agent_thread_id,
-    native_agent_token_usage_info, native_agent_usage, native_agent_user_messages,
+    native_agent_token_usage_info, native_agent_usage,
 };
 use crate::worker_agent_runtime::{agent_trace_context_from_value, NativeAgentRuntimeServices};
 use crate::worker_protocol::WorkerRequest;
@@ -123,39 +123,64 @@ pub(crate) fn persist_native_agent_run_start(
         &run_id,
     );
     let turn_context = native_agent_turn_context(&spec, &config_snapshot, &run_id);
+    let messages = materialized_turn_messages(&spec, &run_id);
     let trace_context = agent_trace_context_from_value(&spec);
     call_traced_state_service(
-        workspace_root.clone(),
-        config_snapshot.clone(),
+        workspace_root,
+        config_snapshot,
         &trace_context,
         "run-start",
         WorkerRequest::new(
             format!("{}:run-start", trace_context.request_id),
             trace_context.trace_id.clone(),
-            "agent_run.upsert",
-            serde_json::json!({ "record": record }),
+            "agent_run.start",
+            serde_json::json!({
+                "record": record,
+                "context": turn_context,
+                "messages": messages,
+            }),
         ),
         "native agent run start persistence",
         "write",
     )?;
-    call_traced_state_service(
-        workspace_root,
-        config_snapshot,
-        &trace_context,
-        "turn-context",
-        WorkerRequest::new(
-            format!("{}:turn-context", trace_context.request_id),
-            trace_context.trace_id.clone(),
-            "rollout.append_turn_context",
-            serde_json::json!({
-                "sessionId": session_id,
-                "context": turn_context,
-            }),
-        ),
-        "native agent turn context persistence",
-        "write",
-    )?;
     Ok(())
+}
+
+fn materialized_turn_messages(spec: &serde_json::Value, run_id: &str) -> Vec<serde_json::Value> {
+    let mut messages = Vec::new();
+    if let Some(content) = spec
+        .get("materializedSystemPrompt")
+        .and_then(serde_json::Value::as_str)
+        .filter(|content| !content.is_empty())
+    {
+        let content_hash = spec
+            .get("instructionProvenance")
+            .and_then(|provenance| provenance.get("contentHash"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        messages.push(serde_json::json!({
+            "type": "message",
+            "id": format!("system:{content_hash}"),
+            "role": "system",
+            "content": [{ "type": "input_text", "text": content }],
+            "contentHash": content_hash,
+        }));
+    }
+    if let Some(mut user) = native_agent_current_user_message(spec) {
+        user["type"] = serde_json::Value::String("message".to_string());
+        user["role"] = serde_json::Value::String("user".to_string());
+        let message_id = user
+            .get("id")
+            .or_else(|| user.get("messageId"))
+            .cloned()
+            .unwrap_or_else(|| serde_json::Value::String(format!("user:{run_id}")));
+        user["id"] = message_id.clone();
+        user["messageId"] = message_id;
+        user["runId"] = serde_json::Value::String(run_id.to_string());
+        user["turnId"] = serde_json::Value::String(run_id.to_string());
+        messages.push(user);
+    }
+    messages
 }
 
 fn native_agent_turn_context(
@@ -268,6 +293,11 @@ pub(crate) fn persist_native_agent_run_terminal_if_present(
                     .or_else(|| result.get("final_content"))
                     .cloned()
                     .unwrap_or(serde_json::Value::Null),
+                "context_checkpoint": result
+                    .get("contextCheckpoint")
+                    .or_else(|| result.get("context_checkpoint"))
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null),
             }),
         ),
         "failed" => (
@@ -284,6 +314,11 @@ pub(crate) fn persist_native_agent_run_terminal_if_present(
                         "code": stop_reason,
                         "message": format!("agent run stopped: {stop_reason}"),
                     })),
+                "context_checkpoint": result
+                    .get("contextCheckpoint")
+                    .or_else(|| result.get("context_checkpoint"))
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null),
             }),
         ),
         "cancelled" => (
@@ -385,13 +420,7 @@ pub(crate) fn native_agent_run_record(
         "currentIteration": native_agent_current_iteration(result, checkpoint.as_ref()),
         "conversationMessageIds": [],
         "traceMessages": [],
-        "traceEvents": [],
-        "completedToolResults": result
-            .get("completedToolResults")
-            .or_else(|| result.get("completed_tool_results"))
-            .and_then(serde_json::Value::as_array)
-            .map(|values| native_agent_persisted_trace_values(values))
-            .unwrap_or_default(),
+        "completedToolResults": [],
         "pendingToolCalls": checkpoint
             .as_ref()
             .and_then(|value| value.get("pendingToolCalls").or_else(|| value.get("pending_tool_calls")))
@@ -437,54 +466,6 @@ pub(crate) fn persist_native_agent_checkpoint_if_present(
         "native agent checkpoint persistence",
         "write",
     )?;
-    Ok(())
-}
-
-pub(crate) fn persist_native_agent_turn_if_final(
-    spec: serde_json::Value,
-    result: &mut serde_json::Value,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-) -> Result<(), String> {
-    if result.get("stopReason").and_then(serde_json::Value::as_str) != Some("final_response") {
-        return Ok(());
-    }
-    let session_id = native_agent_rollout_id(&spec)
-        .ok_or_else(|| "Rust agent turn missing session id for persistence".to_string())?;
-    let run_id = result
-        .get("runId")
-        .or_else(|| result.get("run_id"))
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("native-rust-run");
-    let trace_context = trace_context_from_result_or_spec(result, &spec);
-    let persisted = call_traced_state_service(
-        workspace_root,
-        config_snapshot,
-        &trace_context,
-        "session-turn-write",
-        WorkerRequest::new(
-            format!("{}:session-turn-write", trace_context.request_id),
-            trace_context.trace_id.clone(),
-            "session.persist_turn",
-            serde_json::json!({
-                "session_id": session_id,
-                "run_id": run_id,
-                "messages": [],
-                "clear_checkpoint": true,
-                "context_metadata": {
-                    "runtime": "rust",
-                    "historyMessageCount": native_agent_user_messages(&spec).len(),
-                    "contextCheckpoint": result
-                        .get("contextCheckpoint")
-                        .cloned()
-                        .unwrap_or(serde_json::Value::Null),
-                }
-            }),
-        ),
-        "native agent session persistence",
-        "write",
-    )?;
-    result["sessionPersistence"] = persisted;
     Ok(())
 }
 
@@ -609,4 +590,27 @@ fn call_traced_state_service(
         }
     ));
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::materialized_turn_messages;
+
+    #[test]
+    fn materialized_turn_messages_preserve_frontend_user_content_verbatim() {
+        let content = "# Files mentioned by the user:\n\n## notes.md: C:\\Users\\tester\\notes.md\n\n## My request for Tinybot:\nReview this file\n";
+        let messages = materialized_turn_messages(
+            &serde_json::json!({
+                "messages": [{
+                    "role": "user",
+                    "content": content,
+                    "clientEventId": "client-1"
+                }]
+            }),
+            "run-1",
+        );
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0]["content"], content);
+    }
 }

@@ -73,6 +73,30 @@ fn windows_read_only_process_reads_workspace_and_denies_writes() {
 
 #[cfg(target_os = "windows")]
 #[test]
+fn windows_read_only_process_preserves_a_quoted_absolute_path() {
+    let fixture = ProcessFixture::new();
+    std::fs::write(fixture.root.join("listed-read-only.txt"), "listed")
+        .expect("read-only quoted path fixture should be written");
+    let rpc = shell_rpc(&fixture);
+
+    let result = rpc
+        .execute(ShellExecuteParams {
+            command: format!(r#"dir /B "{}""#, fixture.root.display()),
+            working_dir: Some(".".to_string()),
+            timeout: Some(10),
+            restrict_to_workspace: Some(true),
+            sandbox_mode: Some(ShellSandboxMode::ReadOnly),
+            network_mode: Some(PermissionNetworkMode::Unrestricted),
+            cancellation: None,
+        })
+        .expect("read-only quoted dir command should execute");
+
+    assert_eq!(result.exit_code, 0, "{result:?}");
+    assert!(result.stdout.contains("listed-read-only.txt"), "{result:?}");
+}
+
+#[cfg(target_os = "windows")]
+#[test]
 fn windows_read_only_job_terminates_descendant_processes() {
     use std::os::windows::process::CommandExt;
 
@@ -326,6 +350,61 @@ fn pipe_process_preserves_stdout_and_stderr_streams() {
     assert!(output.stderr.contains("stderr-line"), "{output:?}");
     assert!(output.chunks.iter().any(|chunk| chunk.stream == "stdout"));
     assert!(output.chunks.iter().any(|chunk| chunk.stream == "stderr"));
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn windows_pipe_process_preserves_a_quoted_absolute_path() {
+    let fixture = ProcessFixture::new();
+    std::fs::write(fixture.root.join("listed.txt"), "listed")
+        .expect("quoted path fixture should be written");
+    let rpc = shell_rpc(&fixture);
+    let output = rpc
+        .start(ShellStartParams {
+            command: format!(r#"dir /B "{}""#, fixture.root.display()),
+            working_dir: Some(".".to_string()),
+            restrict_to_workspace: Some(true),
+            tty: Some(false),
+            yield_time_ms: Some(2_000),
+            rows: None,
+            cols: None,
+            sandbox_mode: None,
+            network_mode: None,
+            run_id: Some("run-quoted-absolute-path".to_string()),
+            tool_call_id: Some("tool-quoted-absolute-path".to_string()),
+            cancellation: None,
+        })
+        .expect("quoted dir command should complete");
+
+    assert_eq!(output.exit_code, Some(0), "{output:?}");
+    assert!(output.stdout.contains("listed.txt"), "{output:?}");
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn windows_pipe_process_decodes_the_active_oem_code_page() {
+    let fixture = ProcessFixture::new();
+    let rpc = shell_rpc(&fixture);
+    let output = rpc
+        .start(ShellStartParams {
+            command: "echo é".to_string(),
+            working_dir: Some(".".to_string()),
+            restrict_to_workspace: Some(true),
+            tty: Some(false),
+            yield_time_ms: Some(2_000),
+            rows: None,
+            cols: None,
+            sandbox_mode: None,
+            network_mode: None,
+            run_id: Some("run-oem-output".to_string()),
+            tool_call_id: Some("tool-oem-output".to_string()),
+            cancellation: None,
+        })
+        .expect("OEM output command should complete");
+
+    assert_eq!(output.exit_code, Some(0), "{output:?}");
+    assert!(output.stdout.contains('é'), "{output:?}");
+    assert!(!output.stdout.contains('�'), "{output:?}");
 }
 
 #[test]

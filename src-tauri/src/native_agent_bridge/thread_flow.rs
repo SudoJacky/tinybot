@@ -1,8 +1,9 @@
 use crate::agent_loop_runtime_protocol::AgentTraceContext;
+use crate::agent_loop_runtime_protocol::{AgentApprovalDecision, AgentApprovalScope};
 use crate::call_rust_state_service;
 use crate::native_agent_bridge::{
-    cleanup_turn_attachments, materialize_turn_attachments, native_agent_current_user_message,
-    native_agent_model, native_agent_provider, native_agent_run_id, native_agent_string_field,
+    native_agent_current_user_message, native_agent_model, native_agent_provider,
+    native_agent_run_id, native_agent_string_field,
 };
 use crate::worker_agent_runtime::{
     ensure_agent_trace_context, AgentHookInvocation, AgentHookStage, NativeAgentRuntimeServices,
@@ -17,7 +18,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::agent_flow::run_agent_with_services;
 use super::webui_continuation::{
     native_session_checkpoint, resolve_agent_ui_form_body_with_services,
-    resolve_approval_body_with_services,
 };
 
 pub(crate) struct SubmitThreadTurnInput {
@@ -30,6 +30,7 @@ pub(crate) struct ResolveThreadApprovalInput {
     pub(crate) thread_id: String,
     pub(crate) approval_id: String,
     pub(crate) approved: bool,
+    pub(crate) command_id: String,
     pub(crate) scope: Option<String>,
     pub(crate) guidance: Option<String>,
 }
@@ -159,19 +160,14 @@ pub(crate) async fn submit_thread_turn_with_services(
         }));
     }
 
-    materialize_turn_attachments(&mut spec, &workspace_root)?;
-
-    if let Err(error) = start_native_agent_thread_turn(
+    start_native_agent_thread_turn(
         &thread_id,
         &run_id,
         &spec,
         &trace_context,
         workspace_root.clone(),
         config_snapshot.clone(),
-    ) {
-        cleanup_turn_attachments(&spec, &workspace_root);
-        return Err(error);
-    }
+    )?;
     let mut agent_result = run_agent_with_services(
         base_services,
         spec,
@@ -208,58 +204,53 @@ pub(crate) async fn submit_thread_turn_with_services(
 pub(crate) async fn resolve_thread_approval_with_services(
     base_services: NativeAgentRuntimeServices,
     input: ResolveThreadApprovalInput,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
+    _workspace_root: PathBuf,
+    _config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let target_snapshot = read_thread_snapshot(
+    let decision = if input.approved {
+        AgentApprovalDecision::Approved
+    } else {
+        AgentApprovalDecision::Denied
+    };
+    let scope = match input.scope.as_deref().unwrap_or("once") {
+        "once" => AgentApprovalScope::Once,
+        "session" if input.approved => AgentApprovalScope::Session,
+        "session" => AgentApprovalScope::Once,
+        unsupported => {
+            return Err(format!(
+                "unsupported approval scope `{unsupported}`; expected `once` or `session`"
+            ));
+        }
+    };
+    let command_id = (!input.command_id.trim().is_empty()).then_some(input.command_id);
+    let acknowledgement = base_services.approval_broker().resolve(
         &input.thread_id,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-        "thread approval target read",
+        &input.approval_id,
+        decision.clone(),
+        scope.clone(),
+        input.guidance,
+        command_id.clone(),
     )?;
-    let thread = target_snapshot
-        .get("thread")
-        .cloned()
-        .ok_or_else(|| "thread approval target read returned no thread".to_string())?;
-    let thread_id = thread_thread_id(&thread)?;
-    let session_id = thread_id.clone();
-    let approval_checkpoint = native_session_checkpoint(
-        &session_id,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-        "thread approval Rollout checkpoint lookup",
-    )?;
-    let mut body = serde_json::json!({
-        "session_key": session_id.clone(),
-        "thread_id": thread_id.clone(),
-        "scope": input.scope,
-        "guidance": input.guidance,
-    });
-    if let Some(checkpoint) = approval_checkpoint {
-        body["threadCheckpoint"] = checkpoint;
-    }
-    let mut result = resolve_approval_body_with_services(
-        base_services,
-        input.approval_id,
-        &body,
-        input.approved,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-    )
-    .await?;
-    let snapshot = read_thread_snapshot(
-        &thread_id,
-        workspace_root,
-        config_snapshot,
-        "thread approval snapshot",
-    )?;
-    result["threadId"] = serde_json::Value::String(thread_id.clone());
-    result["threadSnapshot"] = snapshot.clone();
+    let status = match acknowledgement.decision {
+        AgentApprovalDecision::Approved => "approved",
+        AgentApprovalDecision::Denied => "denied",
+    };
+    let scope_name = match acknowledgement.scope {
+        AgentApprovalScope::Once => "once",
+        AgentApprovalScope::Session => "session",
+    };
     Ok(serde_json::json!({
-        "threadId": thread_id,
-        "sessionId": session_id,
-        "approvalResult": result,
-        "snapshot": snapshot,
+        "threadId": input.thread_id,
+        "sessionId": input.thread_id,
+        "approvalResult": {
+            "runtime": "rust",
+            "approvalId": acknowledgement.approval_id,
+            "status": status,
+            "decision": status,
+            "scope": scope_name,
+            "commandId": acknowledgement.command_id,
+            "delivered": true,
+        },
     }))
 }
 
@@ -402,10 +393,6 @@ fn thread_working_directory(thread: &serde_json::Value) -> Option<String> {
         .or_else(|| native_agent_string_field(thread, "cwd"))
 }
 
-const MAX_TURN_ATTACHMENTS: usize = 10;
-const MAX_TURN_ATTACHMENT_BYTES: u64 = 256 * 1024;
-const MAX_TURN_ATTACHMENTS_BYTES: u64 = 1024 * 1024;
-
 fn normalize_thread_turn_messages(input: serde_json::Value) -> Result<serde_json::Value, String> {
     if input
         .as_array()
@@ -458,112 +445,10 @@ fn normalize_thread_turn_messages(input: serde_json::Value) -> Result<serde_json
 }
 
 fn validate_turn_messages(messages: &serde_json::Value) -> Result<(), String> {
-    let Some(messages) = messages.as_array() else {
+    if !messages.is_array() {
         return Err("thread turn messages must be a JSON array".to_string());
-    };
-    let mut total_bytes = 0_u64;
-    for message in messages {
-        let Some(attachments) = message.get("attachments") else {
-            continue;
-        };
-        let attachments = attachments
-            .as_array()
-            .ok_or_else(|| "turn attachments must be a JSON array".to_string())?;
-        if attachments.len() > MAX_TURN_ATTACHMENTS {
-            return Err(format!(
-                "turn accepts at most {MAX_TURN_ATTACHMENTS} attachments"
-            ));
-        }
-        for (index, attachment) in attachments.iter().enumerate() {
-            if attachment.get("type").and_then(serde_json::Value::as_str) != Some("text") {
-                return Err(format!(
-                    "turn attachment at index {index} must have type text"
-                ));
-            }
-            let name = attachment
-                .get("name")
-                .and_then(serde_json::Value::as_str)
-                .filter(|value| !value.trim().is_empty() && value.len() <= 255)
-                .ok_or_else(|| format!("turn attachment at index {index} has an invalid name"))?;
-            let content = attachment
-                .get("content")
-                .and_then(serde_json::Value::as_str)
-                .ok_or_else(|| format!("turn attachment {name:?} must contain text content"))?;
-            let content_bytes = u64::try_from(content.len()).unwrap_or(u64::MAX);
-            let declared_bytes = attachment
-                .get("sizeBytes")
-                .and_then(serde_json::Value::as_u64)
-                .ok_or_else(|| format!("turn attachment {name:?} must include sizeBytes"))?;
-            if content_bytes > MAX_TURN_ATTACHMENT_BYTES
-                || declared_bytes > MAX_TURN_ATTACHMENT_BYTES
-            {
-                return Err(format!(
-                    "turn attachment {name:?} exceeds the {MAX_TURN_ATTACHMENT_BYTES} byte limit"
-                ));
-            }
-            total_bytes = total_bytes.saturating_add(content_bytes);
-        }
-    }
-    if total_bytes > MAX_TURN_ATTACHMENTS_BYTES {
-        return Err(format!(
-            "turn attachments exceed the {MAX_TURN_ATTACHMENTS_BYTES} byte total limit"
-        ));
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod turn_attachment_tests {
-    use super::{normalize_thread_turn_messages, validate_turn_messages};
-
-    #[test]
-    fn normalizes_structured_text_attachments_without_losing_content() {
-        let messages = normalize_thread_turn_messages(serde_json::json!({
-            "content": "Review this file.",
-            "attachments": [{
-                "type": "text",
-                "name": "notes.md",
-                "mimeType": "text/markdown",
-                "sizeBytes": 7,
-                "content": "# Notes"
-            }]
-        }))
-        .expect("valid text attachment should normalize");
-
-        assert_eq!(messages[0]["role"], "user");
-        assert_eq!(messages[0]["attachments"][0]["content"], "# Notes");
-    }
-
-    #[test]
-    fn rejects_binary_and_oversized_turn_attachments() {
-        let binary = serde_json::json!([{
-            "role": "user",
-            "content": "Inspect this.",
-            "attachments": [{
-                "type": "binary",
-                "name": "photo.png",
-                "sizeBytes": 4,
-                "content": "data"
-            }]
-        }]);
-        assert!(validate_turn_messages(&binary)
-            .expect_err("binary attachment should fail")
-            .contains("must have type text"));
-
-        let oversized = serde_json::json!([{
-            "role": "user",
-            "content": "Inspect this.",
-            "attachments": [{
-                "type": "text",
-                "name": "large.txt",
-                "sizeBytes": 262_145,
-                "content": "small"
-            }]
-        }]);
-        assert!(validate_turn_messages(&oversized)
-            .expect_err("oversized attachment should fail")
-            .contains("exceeds the 262144 byte limit"));
-    }
 }
 
 fn generate_thread_turn_run_id() -> String {
@@ -615,4 +500,55 @@ fn start_native_agent_thread_turn(
         ),
         "native agent thread turn start",
     )
+}
+
+#[cfg(test)]
+mod approval_tests {
+    use super::{resolve_thread_approval_with_services, ResolveThreadApprovalInput};
+    use crate::agent_loop_runtime_protocol::{AgentApprovalDecision, AgentApprovalScope};
+    use crate::worker_agent_runtime::approvals::{
+        ApprovalRegistration, NativeAgentApprovalRequest,
+    };
+    use crate::worker_agent_runtime::NativeAgentRuntimeServices;
+
+    #[test]
+    fn thread_approval_resolution_only_delivers_the_decision() {
+        let services = NativeAgentRuntimeServices::default();
+        let receiver = match services
+            .approval_broker()
+            .register(NativeAgentApprovalRequest {
+                approval_id: "approval-live-1".to_string(),
+                session_id: "thread-live-1".to_string(),
+                run_id: "run-live-1".to_string(),
+                scope_key: "exec:echo-hi".to_string(),
+            })
+            .expect("approval should register")
+        {
+            ApprovalRegistration::Pending(receiver) => receiver,
+            ApprovalRegistration::ApprovedForSession(_) => panic!("unexpected session grant"),
+        };
+
+        let result = tauri::async_runtime::block_on(resolve_thread_approval_with_services(
+            services,
+            ResolveThreadApprovalInput {
+                thread_id: "thread-live-1".to_string(),
+                approval_id: "approval-live-1".to_string(),
+                approved: true,
+                command_id: "command-live-1".to_string(),
+                scope: Some("once".to_string()),
+                guidance: None,
+            },
+            std::path::PathBuf::new(),
+            serde_json::json!({}),
+        ))
+        .expect("approval decision should be delivered");
+        assert_eq!(result["approvalResult"]["delivered"], true);
+        assert_eq!(result["approvalResult"]["status"], "approved");
+
+        let resolution = tauri::async_runtime::block_on(receiver)
+            .expect("original tool future should receive the decision");
+        assert_eq!(resolution.decision, AgentApprovalDecision::Approved);
+        assert_eq!(resolution.scope, AgentApprovalScope::Once);
+        assert_eq!(resolution.command_id.as_deref(), Some("command-live-1"));
+    }
 }

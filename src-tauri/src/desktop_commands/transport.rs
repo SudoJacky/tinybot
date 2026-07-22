@@ -1,4 +1,6 @@
-use crate::agent_loop_runtime_protocol::AgentRuntimeEventEnvelope;
+use crate::agent_loop_runtime_protocol::{
+    AgentRuntimeEventEnvelope, LegacyNativeAgentEventEnvelopeInput,
+};
 use crate::desktop_commands::agent::worker_run_agent_with_live_trace_sink_async;
 use crate::native_agent_bridge::{desktop_agent_event_sink, persist_native_agent_run_start};
 use crate::native_browser::{BrowserInteractionInput, SharedBrowserRuntime};
@@ -1490,51 +1492,50 @@ fn append_tinyos_host_event(
         .and_then(serde_json::Value::as_str)
         .ok_or_else(|| "TinyOS host event is missing eventId".to_string())?
         .to_string();
-    let request_id = next_worker_request_correlation();
-    call_rust_state_service(
-        workspace_root.clone(),
-        config_snapshot.clone(),
-        WorkerRequest::new(
-            request_id.id("tinyos-host-event"),
-            request_id.trace_id("tinyos-host-event"),
-            "agent_run.append_trace",
-            serde_json::json!({
-                "session_id": session_id,
-                "run_id": run_id,
-                "event": event,
-            }),
-        ),
-        "TinyOS host event append",
-    )?;
-    if let Some(live_trace_sink) = live_trace_sink {
+    let event_name = event
+        .get("eventName")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "TinyOS host event is missing eventName".to_string())?;
+    if crate::worker_thread_log::is_agent_run_semantic_event(event_name) {
         let request_id = next_worker_request_correlation();
-        let runtime_state = call_rust_state_service(
-            workspace_root,
-            config_snapshot,
+        call_rust_state_service(
+            workspace_root.clone(),
+            config_snapshot.clone(),
             WorkerRequest::new(
-                request_id.id("tinyos-host-event-state"),
-                request_id.trace_id("tinyos-host-event-state"),
-                "agent_run.runtime_state",
+                request_id.id("tinyos-host-event"),
+                request_id.trace_id("tinyos-host-event"),
+                "agent_run.append_semantic_batch",
                 serde_json::json!({
                     "session_id": session_id,
                     "run_id": run_id,
+                    "events": [event.clone()],
                 }),
             ),
-            "TinyOS host event runtime state",
+            "TinyOS host semantic event append",
         )?;
-        let event = runtime_state
-            .get("runtimeEvents")
-            .and_then(serde_json::Value::as_array)
-            .and_then(|events| {
-                events.iter().find(|event| {
-                    event.get("eventId").and_then(serde_json::Value::as_str)
-                        == Some(event_id.as_str())
-                })
-            })
-            .cloned()
-            .ok_or_else(|| format!("TinyOS host event `{event_id}` was not persisted"))?;
-        let event: AgentRuntimeEventEnvelope = serde_json::from_value(event)
-            .map_err(|error| format!("TinyOS host event projection failed: {error}"))?;
+    }
+    if let Some(live_trace_sink) = live_trace_sink {
+        let event_name = event_name.to_string();
+        let event = AgentRuntimeEventEnvelope::from_legacy_native_event(
+            LegacyNativeAgentEventEnvelopeInput {
+                session_id: session_id.to_string(),
+                thread_id: Some(session_id.to_string()),
+                turn_id: run_id.to_string(),
+                parent_turn_id: None,
+                item_id: event
+                    .get("itemId")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+                    .or_else(|| Some(event_id)),
+                event_name,
+                sequence: 0,
+                timestamp: crate::worker_thread_log::now_thread_timestamp(),
+                payload: event
+                    .get("payload")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null),
+            },
+        );
         live_trace_sink.append_trace_event(session_id, run_id, &event)?;
     }
     Ok(())
@@ -1960,11 +1961,11 @@ fn persist_tinyos_command_acknowledgement(
         WorkerRequest::new(
             request_id.id("tinyos-command-acknowledge"),
             request_id.trace_id("tinyos-command-acknowledge"),
-            "agent_run.append_trace",
+            "agent_run.append_semantic_batch",
             serde_json::json!({
                 "session_id": session_id,
                 "run_id": run_id,
-                "event": {
+                "events": [{
                     "eventId": format!("{run_id}:command-ack:{command_id}"),
                     "itemId": format!("{run_id}:command-ack:{command_id}"),
                     "eventName": "agent.command.acknowledged",
@@ -1981,7 +1982,7 @@ fn persist_tinyos_command_acknowledgement(
                             "threadId": transport.get("threadId").cloned().unwrap_or(serde_json::Value::Null),
                         }
                     }
-                }
+                }]
             }),
         ),
         "TinyOS command acknowledgement append",

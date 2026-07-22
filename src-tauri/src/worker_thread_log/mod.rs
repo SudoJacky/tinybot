@@ -7,6 +7,8 @@ mod rollout_writer;
 mod session_adapter;
 mod state_db;
 
+pub(crate) use self::agent_run::is_agent_run_semantic_event;
+
 use crate::worker_capability::{CapabilityPolicy, WorkerCapability};
 use crate::worker_protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource,
@@ -30,13 +32,16 @@ use std::sync::{Arc, Mutex, OnceLock};
 static CONTEXT_CHECKPOINT_COMMIT_LOCK: Mutex<()> = Mutex::new(());
 static THREAD_RECORD_CACHE: OnceLock<Mutex<HashMap<PathBuf, CachedThreadRecord>>> = OnceLock::new();
 const THREAD_RECORD_CACHE_CAPACITY: usize = 64;
+const STATE_INDEX_STABILITY_RETRY_COUNT: usize = 200;
+const STATE_INDEX_STABILITY_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(10);
 pub use self::reader::read_thread_lines;
 use self::reader::read_thread_lines_for_discovery;
 use self::recorder::ThreadLogHead;
 use self::recorder::{canonicalize_thread_timestamp, is_canonical_thread_log_path};
 pub use self::recorder::{now_thread_timestamp, value_event, ThreadRecorder};
 pub use self::session_adapter::{
-    history_from_replay, metadata_from_state, session_history_from_replay,
+    agent_context_from_replay, history_from_replay, metadata_from_state,
+    session_history_from_replay,
 };
 pub use self::state_db::ThreadStateDb;
 use self::state_db::{thread_projection_hash, LatestContextCheckpointRecord, ThreadLogHeadRecord};
@@ -199,28 +204,28 @@ impl WorkerThreadLogRpc {
         reconstructed: &reconstruction::CanonicalRolloutReconstruction,
     ) -> Result<ThreadRecord, WorkerProtocolError> {
         let lines = read_thread_lines(path)?;
-        let mut thread = lines
-            .iter()
-            .rev()
-            .filter_map(|line| match &line.item {
-                ThreadLogItem::EventMsg(event) => event.payload().get("threadRecord"),
-                _ => None,
-            })
-            .find_map(|value| serde_json::from_value::<ThreadRecord>(value.clone()).ok())
-            .unwrap_or_else(|| ThreadRecord {
-                thread_id: record.id.clone(),
-                title: record.title.clone(),
-                status: ThreadStatus::Empty,
-                session_key: record.session_id.clone(),
-                root_run_id: None,
-                active_run_id: None,
-                parent_thread_id: reconstructed.meta.parent_thread_id.clone(),
-                source: record.source.clone(),
-                created_at: record.created_at.clone(),
-                updated_at: record.updated_at.clone(),
-                archived_at: record.archived_at.clone(),
-                metadata: ThreadMetadata::default(),
-            });
+        let mut thread = ThreadRecord {
+            thread_id: record.id.clone(),
+            title: record.title.clone(),
+            status: ThreadStatus::Empty,
+            session_key: record.session_id.clone(),
+            root_run_id: None,
+            active_run_id: None,
+            parent_thread_id: reconstructed.meta.parent_thread_id.clone(),
+            source: record.source.clone(),
+            created_at: record.created_at.clone(),
+            updated_at: record.updated_at.clone(),
+            archived_at: record.archived_at.clone(),
+            metadata: ThreadMetadata::default(),
+        };
+        for event in lines.iter().filter_map(|line| match &line.item {
+            ThreadLogItem::EventMsg(event) if event.kind() == &EventKind::MetadataUpdated => {
+                event.payload().get("metadata").and_then(Value::as_object)
+            }
+            _ => None,
+        }) {
+            apply_metadata_patch_to_thread(&mut thread, event)?;
+        }
         let mut runs = reconstructed
             .agent_runs
             .iter()
@@ -296,7 +301,12 @@ impl WorkerThreadLogRpc {
                                 &line.item,
                                 ThreadLogItem::EventMsg(event)
                                     if event.kind() == &EventKind::MetadataUpdated
-                                        && event.payload().get("threadRecord").is_some()
+                                        && event
+                                            .payload()
+                                            .get("metadata")
+                                            .and_then(|metadata| metadata.get("initial"))
+                                            .and_then(Value::as_bool)
+                                            == Some(true)
                             )
                         });
                         if !explicitly_created {
@@ -354,13 +364,7 @@ impl WorkerThreadLogRpc {
                 updated_at.clone(),
                 value_event(
                     EventKind::MetadataUpdated,
-                    serde_json::json!({
-                        "metadata": {
-                            "title": thread.title,
-                            "preview": thread.metadata.preview,
-                        },
-                        "threadRecord": thread,
-                    }),
+                    serde_json::json!({ "metadata": initial_thread_metadata(thread) }),
                 ),
             )?;
             let record = ThreadStateRecord {
@@ -407,50 +411,43 @@ impl WorkerThreadLogRpc {
     ) -> Result<(), WorkerProtocolError> {
         let path = PathBuf::from(&existing.thread_path);
         self.recorder.validate_thread_path(&path)?;
-        if self.latest_persisted_thread_record(&path)? == *thread {
+        let persisted = self.latest_persisted_thread_record(&path)?;
+        if persisted == *thread {
             crate::runtime::observability::global_agent_runtime_metrics()
                 .increment("persistence.metadata.noop");
             return Ok(());
         }
-        let target_preview = thread.metadata.preview.clone().unwrap_or_default();
-        let target_cwd = thread
-            .metadata
-            .working_directory
-            .clone()
-            .unwrap_or_default();
         let mut metadata = serde_json::Map::new();
-        if existing.title != thread.title {
+        if persisted.title != thread.title {
             metadata.insert("title".to_string(), Value::String(thread.title.clone()));
         }
-        if existing.preview != target_preview {
-            metadata.insert("preview".to_string(), Value::String(target_preview));
-        }
-        if existing.cwd != target_cwd {
-            metadata.insert("cwd".to_string(), Value::String(target_cwd));
-        }
-        if existing.model != thread.metadata.model {
+        insert_changed_json_field(
+            &mut metadata,
+            "rootRunId",
+            &persisted.root_run_id,
+            &thread.root_run_id,
+        )?;
+        insert_changed_json_field(
+            &mut metadata,
+            "archivedAt",
+            &persisted.archived_at,
+            &thread.archived_at,
+        )?;
+        let thread_metadata_patch = json_object_diff(
+            durable_thread_metadata(&persisted.metadata)?,
+            durable_thread_metadata(&thread.metadata)?,
+        );
+        if !thread_metadata_patch.is_empty() {
             metadata.insert(
-                "model".to_string(),
-                thread
-                    .metadata
-                    .model
-                    .clone()
-                    .map(Value::String)
-                    .unwrap_or(Value::Null),
+                "threadMetadataPatch".to_string(),
+                Value::Object(thread_metadata_patch),
             );
         }
-        metadata.insert(
-            "threadMetadata".to_string(),
-            serde_json::to_value(&thread.metadata).map_err(|error| {
-                thread_log_consistency_error(
-                    "thread metadata could not be serialized",
-                    serde_json::json!({
-                        "threadId": thread.thread_id,
-                        "error": error.to_string(),
-                    }),
-                )
-            })?,
-        );
+        if metadata.is_empty() {
+            crate::runtime::observability::global_agent_runtime_metrics()
+                .increment("persistence.metadata.noop");
+            return Ok(());
+        }
         let timestamp = canonicalize_thread_timestamp(
             thread
                 .metadata
@@ -463,10 +460,7 @@ impl WorkerThreadLogRpc {
             timestamp,
             value_event(
                 EventKind::MetadataUpdated,
-                serde_json::json!({
-                    "metadata": metadata,
-                    "threadRecord": thread,
-                }),
+                serde_json::json!({ "metadata": metadata }),
             ),
         )?;
         let canonical = self.canonical_thread_state(&path)?;
@@ -508,29 +502,29 @@ impl WorkerThreadLogRpc {
             }
         }
         let lines = read_thread_lines(path)?;
-        let value = lines
+        let thread_id = lines
             .iter()
-            .rev()
-            .filter_map(|line| match &line.item {
-                ThreadLogItem::EventMsg(event) => event.payload().get("threadRecord"),
+            .find_map(|line| match &line.item {
+                ThreadLogItem::SessionMeta(meta) => Some(meta.thread_id.as_str()),
                 _ => None,
             })
-            .next()
             .ok_or_else(|| {
                 thread_log_consistency_error(
-                    "canonical Rollout is missing its thread record snapshot",
+                    "canonical Rollout is missing session metadata",
                     serde_json::json!({ "threadPath": path.display().to_string() }),
                 )
             })?;
-        let record = serde_json::from_value::<ThreadRecord>(value.clone()).map_err(|error| {
-            thread_log_consistency_error(
-                "canonical Rollout contains an invalid thread record snapshot",
-                serde_json::json!({
-                    "threadPath": path.display().to_string(),
-                    "error": error.to_string(),
-                }),
-            )
-        })?;
+        let state = self
+            .state
+            .find_by_session_or_thread_id(thread_id)?
+            .ok_or_else(|| {
+                thread_log_consistency_error(
+                    "canonical Rollout is missing its derived thread projection",
+                    serde_json::json!({ "threadId": thread_id }),
+                )
+            })?;
+        let reconstructed = self.reconstruct_cached(path)?;
+        let record = self.thread_record_from_rollout(&state, path, &reconstructed)?;
         cache_thread_record_checked(path, head, record.clone())?;
         Ok(record)
     }
@@ -563,9 +557,10 @@ impl WorkerThreadLogRpc {
             .sort_by_key(|item| (!matches!(item.kind, ThreadItemKind::AgentRunStarted(_))) as u8);
         let mut lines = Vec::new();
         for item in pending_items {
+            let timestamp = canonicalize_thread_timestamp(&item.created_at)?;
             for rollout_item in thread_item_to_rollout_items(item)? {
                 lines.push(ThreadLogLine {
-                    timestamp: item.created_at.clone(),
+                    timestamp: timestamp.clone(),
                     ordinal: None,
                     item: rollout_item,
                 });
@@ -608,23 +603,6 @@ impl WorkerThreadLogRpc {
         }
         items.push(ThreadLogItem::TurnContext(context));
         self.recorder.append_items(&path, timestamp, items)?;
-        let log_head = self.recorder.thread_log_head(&path)?;
-        self.state.upsert_thread_projection(&record, &log_head)
-    }
-
-    pub fn append_world_state(
-        &self,
-        session_id: &str,
-        world_state: crate::worker_rollout::WorldStateItem,
-    ) -> Result<(), WorkerProtocolError> {
-        self.require(WorkerCapability::SessionWrite)?;
-        self.ensure_state_index()?;
-        let timestamp = now_thread_timestamp();
-        let record = self.ensure_session_record(session_id, &timestamp)?;
-        let path = PathBuf::from(&record.thread_path);
-        self.recorder.validate_thread_path(&path)?;
-        self.recorder
-            .append_item(&path, timestamp, ThreadLogItem::WorldState(world_state))?;
         let log_head = self.recorder.thread_log_head(&path)?;
         self.state.upsert_thread_projection(&record, &log_head)
     }
@@ -715,13 +693,8 @@ impl WorkerThreadLogRpc {
                 value_event(
                     EventKind::MetadataUpdated,
                     serde_json::json!({
-                        "metadata": {
-                            "title": fork.title,
-                            "preview": fork.metadata.preview,
-                            "archived": false,
-                        },
+                        "metadata": initial_thread_metadata(&fork),
                         "forkedFromThreadId": source_thread_id,
-                        "threadRecord": fork,
                     }),
                 ),
             )?;
@@ -920,7 +893,7 @@ impl WorkerThreadLogRpc {
                 return self.get_agent_context_from_canonical_rollout(&path, limit);
             }
         };
-        Ok(Some(history_from_replay(replay, limit)))
+        Ok(Some(agent_context_from_replay(replay, limit)))
     }
 
     fn get_agent_context_from_canonical_rollout(
@@ -946,7 +919,7 @@ impl WorkerThreadLogRpc {
                 canonical.record.id, error.message
             );
         }
-        Ok(Some(history_from_replay(replay, limit)))
+        Ok(Some(agent_context_from_replay(replay, limit)))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1173,9 +1146,24 @@ impl WorkerThreadLogRpc {
         if self.state_index_fast_path()? {
             return Ok(());
         }
-        let report = self.state_index_consistency()?;
+        let mut report = self.state_index_consistency()?;
         if report.status == ThreadLogIndexConsistencyStatus::Clean {
             return Ok(());
+        }
+        if report.status == ThreadLogIndexConsistencyStatus::Diverged {
+            for attempt in 1..=STATE_INDEX_STABILITY_RETRY_COUNT {
+                std::thread::sleep(STATE_INDEX_STABILITY_RETRY_DELAY);
+                if self.state_index_fast_path()? {
+                    eprintln!(
+                        "thread_state_index_transient_divergence_resolved attempts={attempt}"
+                    );
+                    return Ok(());
+                }
+            }
+            report = self.state_index_consistency()?;
+            if report.status == ThreadLogIndexConsistencyStatus::Clean {
+                return Ok(());
+            }
         }
         eprintln!(
             "thread_state_index_rebuild status={:?} canonical_threads={} indexed_threads={} diagnostics={}",
@@ -2108,10 +2096,7 @@ impl WorkerThreadLogRpc {
         self.recorder.append_item(
             &path,
             timestamp.clone(),
-            value_event(
-                EventKind::TaskProgressUpdated,
-                serde_json::json!({ "message": message }),
-            ),
+            ThreadLogItem::ResponseItem(typed_response_item(message, "task progress message")?),
         )?;
         record.updated_at = timestamp;
         record.preview = preview_from_messages(&next_messages);
@@ -2359,7 +2344,15 @@ impl WorkerThreadLogRpc {
         self.recorder.append_item(
             &path,
             timestamp.clone(),
-            value_event(EventKind::TokenCount, serde_json::json!({ "info": info })),
+            value_event(
+                EventKind::TokenCount,
+                serde_json::json!({
+                    "info": {
+                        "usage": info.last_token_usage.clone(),
+                        "modelContextWindow": info.model_context_window,
+                    }
+                }),
+            ),
         )?;
         let log_head = self.recorder.thread_log_head(&path)?;
         record.updated_at = timestamp;
@@ -2906,27 +2899,6 @@ fn thread_item_sequence_from_rollout_line(line: &ThreadLogLine, index: usize) ->
                 .get("_threadItemSequence")
                 .and_then(Value::as_u64)
                 .or(Some(rollout_sequence))
-        }
-        ThreadLogItem::EventMsg(event) if event.kind() == &EventKind::AgentRunTrace => {
-            let event_name = event
-                .payload()
-                .get("event")
-                .and_then(|event| event.get("eventName").or_else(|| event.get("event_name")))
-                .and_then(Value::as_str);
-            if matches!(
-                event_name,
-                Some(
-                    "agent.context.compacted"
-                        | "agent.delta"
-                        | "agent.message.phase"
-                        | "agent.message.classified"
-                        | "agent.message.completed"
-                )
-            ) {
-                None
-            } else {
-                Some(rollout_sequence)
-            }
         }
         ThreadLogItem::EventMsg(event) if event.kind() == &EventKind::AgentRunCheckpointSet => {
             Some(rollout_sequence)
@@ -3578,7 +3550,7 @@ fn thread_items_from_effective_rollout(
             ThreadLogItem::EventMsg(event)
                 if matches!(
                     event.kind(),
-                    EventKind::TurnStarted | EventKind::TurnComplete
+                    EventKind::TurnStarted | EventKind::TurnComplete | EventKind::TurnAborted
                 ) =>
             {
                 Some(thread_boundary_item_from_rollout_event(
@@ -3588,9 +3560,6 @@ fn thread_items_from_effective_rollout(
             ThreadLogItem::EventMsg(event) if event.kind() == &EventKind::UserMessage => Some(
                 thread_user_item_from_rollout_event(event.payload(), thread_id, sequence, line)?,
             ),
-            ThreadLogItem::EventMsg(event) if event.kind() == &EventKind::AgentRunTrace => {
-                thread_item_from_agent_run_trace(event.payload(), thread_id, sequence, line)?
-            }
             ThreadLogItem::EventMsg(event) if event.kind() == &EventKind::AgentRunCheckpointSet => {
                 Some(thread_checkpoint_item_from_agent_run_event(
                     event.payload(),
@@ -3632,7 +3601,6 @@ fn thread_items_from_effective_rollout(
             ThreadLogItem::SessionMeta(_)
             | ThreadLogItem::EventMsg(_)
             | ThreadLogItem::TurnContext(_)
-            | ThreadLogItem::WorldState(_)
             | ThreadLogItem::InterAgentCommunicationMetadata { .. } => None,
         };
         if let ThreadLogItem::EventMsg(event) = &line.item {
@@ -3735,7 +3703,9 @@ fn thread_boundary_item_from_rollout_event(
     }
     let kind = match event.kind() {
         EventKind::TurnStarted => ThreadItemKind::AgentRunStarted(logical_payload),
-        EventKind::TurnComplete => ThreadItemKind::AgentRunCompleted(logical_payload),
+        EventKind::TurnComplete | EventKind::TurnAborted => {
+            ThreadItemKind::AgentRunCompleted(logical_payload)
+        }
         _ => {
             return Err(thread_log_consistency_error(
                 "non-boundary event cannot project a thread lifecycle item",
@@ -3801,103 +3771,6 @@ fn thread_user_item_from_rollout_event(
         created_at: line.timestamp.clone(),
         kind: ThreadItemKind::UserMessage(logical_payload),
     })
-}
-
-fn thread_item_from_agent_run_trace(
-    payload: &Value,
-    thread_id: &str,
-    sequence: u64,
-    line: &ThreadLogLine,
-) -> Result<Option<ThreadItem>, WorkerProtocolError> {
-    let event = payload.get("event").ok_or_else(|| {
-        thread_log_consistency_error(
-            "agent_run_trace event is missing its event payload",
-            serde_json::json!({
-                "threadId": thread_id,
-                "ordinal": line.ordinal,
-            }),
-        )
-    })?;
-    let event_name = event
-        .get("eventName")
-        .or_else(|| event.get("event_name"))
-        .and_then(Value::as_str)
-        .ok_or_else(|| {
-            thread_log_consistency_error(
-                "agent_run_trace event is missing its event name",
-                serde_json::json!({
-                    "threadId": thread_id,
-                    "ordinal": line.ordinal,
-                }),
-            )
-        })?;
-    if matches!(
-        event_name,
-        "agent.turn.started"
-            | "agent.context.compacted"
-            | "agent.delta"
-            | "agent.reasoning_delta"
-            | "agent.reasoning.completed"
-            | "agent.message.phase"
-            | "agent.message.classified"
-            | "agent.message.completed"
-            | "agent.tool_call.delta"
-            | "agent.tool.result"
-    ) {
-        return Ok(None);
-    }
-    let run_id = string_value(payload, "runId")
-        .or_else(|| string_value(payload, "run_id"))
-        .or_else(|| string_value(event, "runId"))
-        .or_else(|| string_value(event, "run_id"))
-        .ok_or_else(|| {
-            thread_log_consistency_error(
-                "agent_run_trace event is missing its run id",
-                serde_json::json!({
-                    "threadId": thread_id,
-                    "ordinal": line.ordinal,
-                    "eventName": event_name,
-                }),
-            )
-        })?;
-    let turn_id = string_value(event, "turnId")
-        .or_else(|| string_value(event, "turn_id"))
-        .unwrap_or_else(|| run_id.clone());
-    let event_id = string_value(event, "eventId")
-        .or_else(|| string_value(event, "event_id"))
-        .unwrap_or_else(|| format!("{event_name}:{sequence}"));
-    let mut event_payload = event.clone();
-    if let Some(object) = event_payload.as_object_mut() {
-        object.insert(
-            "threadSource".to_string(),
-            Value::String("rollout.agent_run_trace".to_string()),
-        );
-    }
-    let kind = match event_name {
-        "agent.awaiting_approval" => ThreadItemKind::ApprovalRequested(event_payload),
-        "agent.approval.decision" => ThreadItemKind::ApprovalResolved(event_payload),
-        "agent.tool.start" | "agent.tool_call.delta" => {
-            ThreadItemKind::ToolCallStarted(event_payload)
-        }
-        "agent.tool.result" => ThreadItemKind::ToolCallOutput(event_payload),
-        "agent.reasoning_delta" => ThreadItemKind::Reasoning(event_payload),
-        "agent.context.trimmed" => ThreadItemKind::ContextTrimmed(event_payload),
-        _ => ThreadItemKind::Event(event_payload),
-    };
-    Ok(Some(ThreadItem {
-        item_id: format!("rollout:{thread_id}:{run_id}:trace:{event_id}"),
-        thread_id: thread_id.to_string(),
-        run_id: Some(run_id),
-        turn_id: Some(turn_id),
-        parent_item_id: event
-            .get("parentTurnId")
-            .or_else(|| event.get("parent_turn_id"))
-            .and_then(Value::as_str)
-            .map(str::to_string),
-        sequence,
-        created_at: line.timestamp.clone(),
-        kind,
-    }))
 }
 
 fn thread_checkpoint_item_from_agent_run_event(
@@ -4237,7 +4110,12 @@ fn thread_item_to_rollout_items(
             if let Some(info) = payload.get("tokenUsageInfo") {
                 items.push(value_event(
                     EventKind::TokenCount,
-                    serde_json::json!({ "info": info }),
+                    serde_json::json!({
+                        "info": {
+                            "usage": info.get("lastTokenUsage").cloned().unwrap_or(Value::Null),
+                            "modelContextWindow": info.get("modelContextWindow").cloned().unwrap_or(Value::Null),
+                        }
+                    }),
                 ));
             }
             return Ok(items);
@@ -4346,23 +4224,16 @@ fn state_projection_updated_at(created_at: &str, lines: &[ThreadLogLine]) -> Str
                 | EventKind::ThreadRolledBack
                 | EventKind::MetadataUpdated
                 | EventKind::SessionTrimmed
-                | EventKind::TaskProgressUpdated
-                | EventKind::AgentRunUpsert
                 | EventKind::AgentRunCheckpointSet
-                | EventKind::AgentRunCheckpointClear
-                | EventKind::AgentRunTerminal => true,
-                EventKind::TurnStarted
-                | EventKind::TaskStarted
-                | EventKind::TurnAborted
+                | EventKind::AgentRunCheckpointClear => true,
+                EventKind::TurnStarted | EventKind::TurnAborted => true,
+                EventKind::TaskStarted
                 | EventKind::UserMessage
                 | EventKind::SessionCleared
-                | EventKind::ThreadItem
-                | EventKind::AgentRunTrace
-                | EventKind::Legacy(_) => false,
+                | EventKind::ThreadItem => false,
             },
             ThreadLogItem::SessionMeta(_)
             | ThreadLogItem::TurnContext(_)
-            | ThreadLogItem::WorldState(_)
             | ThreadLogItem::InterAgentCommunication(_)
             | ThreadLogItem::InterAgentCommunicationMetadata { .. } => false,
         };
@@ -4383,10 +4254,10 @@ fn apply_agent_run_events_to_record(
         };
         let payload = event.payload();
         match event.kind() {
-            EventKind::AgentRunUpsert => {
-                let run = payload.get("record").ok_or_else(|| {
+            EventKind::TurnStarted if payload.get("agentRun").is_some() => {
+                let run = payload.get("agentRun").ok_or_else(|| {
                     thread_log_consistency_error(
-                        "agent_run_upsert event is missing its record",
+                        "turn_started event is missing agentRun",
                         serde_json::json!({ "timestamp": line.timestamp }),
                     )
                 })?;
@@ -4415,17 +4286,6 @@ fn apply_agent_run_events_to_record(
             EventKind::AgentRunCheckpointSet | EventKind::AgentRunCheckpointClear => {
                 record.updated_at = line.timestamp.clone();
             }
-            EventKind::AgentRunTerminal => {
-                record.updated_at = line.timestamp.clone();
-                if let Some(final_content) = payload
-                    .get("finalContent")
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .filter(|content| !content.is_empty())
-                {
-                    record.preview = final_content.chars().take(160).collect();
-                }
-            }
             EventKind::TurnStarted
             | EventKind::TaskStarted
             | EventKind::TurnComplete
@@ -4437,10 +4297,7 @@ fn apply_agent_run_events_to_record(
             | EventKind::MetadataUpdated
             | EventKind::SessionCleared
             | EventKind::SessionTrimmed
-            | EventKind::TaskProgressUpdated
-            | EventKind::ThreadItem
-            | EventKind::AgentRunTrace
-            | EventKind::Legacy(_) => {}
+            | EventKind::ThreadItem => {}
         }
     }
     Ok(())
@@ -4472,11 +4329,179 @@ fn apply_metadata_patch_to_record(
     if let Some(model) = patch.get("model") {
         record.model = model.as_str().map(str::to_string);
     }
+    let thread_metadata = patch
+        .get("threadMetadata")
+        .or_else(|| patch.get("threadMetadataPatch"))
+        .and_then(Value::as_object);
+    if let Some(thread_metadata) = thread_metadata {
+        if let Some(preview) = thread_metadata.get("preview") {
+            record.preview = preview.as_str().unwrap_or_default().to_string();
+        }
+        if let Some(cwd) = thread_metadata.get("workingDirectory") {
+            record.cwd = cwd.as_str().unwrap_or_default().to_string();
+        }
+        if let Some(model) = thread_metadata.get("model") {
+            record.model = model.as_str().map(str::to_string);
+        }
+    }
     if let Some(archived) = patch.get("archived").and_then(Value::as_bool) {
         record.archived = archived;
         record.archived_at = archived.then(|| timestamp.to_string());
     }
     record.updated_at = timestamp.to_string();
+}
+
+fn initial_thread_metadata(thread: &ThreadRecord) -> serde_json::Map<String, Value> {
+    let mut metadata = serde_json::Map::new();
+    metadata.insert("initial".to_string(), Value::Bool(true));
+    metadata.insert("title".to_string(), Value::String(thread.title.clone()));
+    metadata.insert(
+        "sessionKey".to_string(),
+        serde_json::to_value(&thread.session_key).expect("thread session key should serialize"),
+    );
+    metadata.insert(
+        "rootRunId".to_string(),
+        serde_json::to_value(&thread.root_run_id).expect("root run id should serialize"),
+    );
+    metadata.insert(
+        "archivedAt".to_string(),
+        serde_json::to_value(&thread.archived_at).expect("archived timestamp should serialize"),
+    );
+    metadata.insert(
+        "threadMetadata".to_string(),
+        durable_thread_metadata(&thread.metadata).expect("thread metadata should serialize"),
+    );
+    metadata
+}
+
+fn durable_thread_metadata(
+    metadata: &crate::worker_thread::ThreadMetadata,
+) -> Result<Value, WorkerProtocolError> {
+    let mut value = serde_json::to_value(metadata).map_err(thread_metadata_serialization_error)?;
+    let object = value.as_object_mut().ok_or_else(|| {
+        thread_log_consistency_error("thread metadata must serialize as an object", Value::Null)
+    })?;
+    for derived in [
+        "preview",
+        "lastActivityAt",
+        "itemCount",
+        "runCount",
+        "hasActiveRun",
+    ] {
+        object.remove(derived);
+    }
+    Ok(value)
+}
+
+fn insert_changed_json_field<T: Serialize>(
+    metadata: &mut serde_json::Map<String, Value>,
+    key: &str,
+    previous: &T,
+    current: &T,
+) -> Result<(), WorkerProtocolError> {
+    let previous = serde_json::to_value(previous).map_err(thread_metadata_serialization_error)?;
+    let current = serde_json::to_value(current).map_err(thread_metadata_serialization_error)?;
+    if previous != current {
+        metadata.insert(key.to_string(), current);
+    }
+    Ok(())
+}
+
+fn json_object_diff(previous: Value, current: Value) -> serde_json::Map<String, Value> {
+    let previous = previous.as_object().cloned().unwrap_or_default();
+    let current = current.as_object().cloned().unwrap_or_default();
+    previous
+        .keys()
+        .chain(current.keys())
+        .cloned()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .filter_map(|key| {
+            let value = current.get(&key).cloned().unwrap_or(Value::Null);
+            (previous.get(&key) != Some(&value)).then_some((key, value))
+        })
+        .collect()
+}
+
+fn thread_metadata_serialization_error(error: serde_json::Error) -> WorkerProtocolError {
+    thread_log_consistency_error(
+        "thread metadata could not be serialized",
+        serde_json::json!({ "error": error.to_string() }),
+    )
+}
+
+fn apply_metadata_patch_to_thread(
+    thread: &mut ThreadRecord,
+    patch: &serde_json::Map<String, Value>,
+) -> Result<(), WorkerProtocolError> {
+    if let Some(title) = patch.get("title").and_then(Value::as_str) {
+        thread.title = title.to_string();
+    }
+    if let Some(status) = patch.get("status") {
+        thread.status = serde_json::from_value(status.clone()).map_err(|error| {
+            thread_log_consistency_error(
+                "thread metadata patch contains invalid status",
+                serde_json::json!({ "error": error.to_string() }),
+            )
+        })?;
+    }
+    if let Some(session_key) = patch.get("sessionKey") {
+        thread.session_key = serde_json::from_value(session_key.clone()).map_err(|error| {
+            thread_log_consistency_error(
+                "thread metadata patch contains invalid sessionKey",
+                serde_json::json!({ "error": error.to_string() }),
+            )
+        })?;
+    }
+    if let Some(value) = patch.get("rootRunId") {
+        thread.root_run_id = serde_json::from_value(value.clone()).map_err(|error| {
+            thread_log_consistency_error(
+                "thread metadata patch contains invalid rootRunId",
+                serde_json::json!({ "error": error.to_string() }),
+            )
+        })?;
+    }
+    if let Some(value) = patch.get("activeRunId") {
+        thread.active_run_id = serde_json::from_value(value.clone()).map_err(|error| {
+            thread_log_consistency_error(
+                "thread metadata patch contains invalid activeRunId",
+                serde_json::json!({ "error": error.to_string() }),
+            )
+        })?;
+    }
+    if let Some(value) = patch.get("archivedAt") {
+        thread.archived_at = serde_json::from_value(value.clone()).map_err(|error| {
+            thread_log_consistency_error(
+                "thread metadata patch contains invalid archivedAt",
+                serde_json::json!({ "error": error.to_string() }),
+            )
+        })?;
+    }
+    if let Some(value) = patch.get("threadMetadata") {
+        thread.metadata = serde_json::from_value(value.clone()).map_err(|error| {
+            thread_log_consistency_error(
+                "thread metadata patch contains invalid threadMetadata",
+                serde_json::json!({ "error": error.to_string() }),
+            )
+        })?;
+    }
+    if let Some(metadata_patch) = patch.get("threadMetadataPatch").and_then(Value::as_object) {
+        let mut metadata =
+            serde_json::to_value(&thread.metadata).map_err(thread_metadata_serialization_error)?;
+        let target = metadata.as_object_mut().ok_or_else(|| {
+            thread_log_consistency_error("thread metadata must serialize as an object", Value::Null)
+        })?;
+        for (key, value) in metadata_patch {
+            target.insert(key.clone(), value.clone());
+        }
+        thread.metadata = serde_json::from_value(metadata).map_err(|error| {
+            thread_log_consistency_error(
+                "thread metadata patch is invalid",
+                serde_json::json!({ "error": error.to_string() }),
+            )
+        })?;
+    }
+    Ok(())
 }
 
 fn thread_log_state_io_error(error: std::io::Error) -> WorkerProtocolError {
@@ -4773,6 +4798,74 @@ mod schema_tests {
                 .len(),
             initial_line_count + 1,
             "a changed thread record should append exactly one metadata snapshot"
+        );
+
+        drop(rpc);
+        std::fs::remove_dir_all(root).expect("test workspace should clean up");
+    }
+
+    #[test]
+    fn thread_item_timestamp_is_persisted_as_iso_8601() {
+        let root = std::env::temp_dir().join(format!(
+            "tinybot-thread-item-timestamp-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock should be after unix epoch")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).expect("test workspace should create");
+        let rpc = WorkerThreadLogRpc::new(
+            root.clone(),
+            CapabilityPolicy::new([WorkerCapability::SessionWrite]),
+        );
+        let thread = ThreadRecord {
+            thread_id: "thread-item-timestamp".to_string(),
+            title: "Timestamp".to_string(),
+            status: ThreadStatus::Idle,
+            session_key: Some("session-item-timestamp".to_string()),
+            root_run_id: None,
+            active_run_id: None,
+            parent_thread_id: None,
+            source: "test".to_string(),
+            created_at: "2026-07-22T08:49:40.228Z".to_string(),
+            updated_at: "2026-07-22T08:49:40.228Z".to_string(),
+            archived_at: None,
+            metadata: ThreadMetadata::default(),
+        };
+        rpc.create_from_thread_record(&thread)
+            .expect("thread record should persist");
+        rpc.append_thread_items(
+            &thread.thread_id,
+            &[ThreadItem {
+                item_id: "thread-runtime:thread-item-timestamp:run-1:user".to_string(),
+                thread_id: thread.thread_id.clone(),
+                run_id: Some("run-1".to_string()),
+                turn_id: Some("run-1".to_string()),
+                parent_item_id: None,
+                sequence: 1,
+                created_at: "1784710180728".to_string(),
+                kind: ThreadItemKind::UserMessage(serde_json::json!({
+                    "content": "hello",
+                    "role": "user"
+                })),
+            }],
+        )
+        .expect("thread item should persist");
+
+        let record = rpc
+            .state
+            .find_by_session_or_thread_id(&thread.thread_id)
+            .expect("thread lookup should succeed")
+            .expect("thread should be indexed");
+        let lines = read_thread_lines(Path::new(&record.thread_path))
+            .expect("Rollout should read after thread item append");
+        assert_eq!(
+            lines
+                .last()
+                .expect("thread item line should exist")
+                .timestamp,
+            "2026-07-22T08:49:40.728Z"
         );
 
         drop(rpc);

@@ -107,8 +107,6 @@ pub struct AgentRunRecord {
     #[serde(default)]
     pub trace_messages: Vec<Value>,
     #[serde(default)]
-    pub trace_events: Vec<Value>,
-    #[serde(default)]
     pub completed_tool_results: Vec<Value>,
     #[serde(default)]
     pub pending_tool_calls: Vec<Value>,
@@ -219,26 +217,6 @@ pub struct AgentRunCheckpoint {
     pub session_id: String,
     pub run_id: String,
     pub checkpoint: Value,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentRunTracePage {
-    pub session_id: String,
-    pub run_id: String,
-    pub items: Vec<Value>,
-    pub next_cursor: Option<String>,
-}
-
-impl AgentRunTracePage {
-    pub fn new(session_id: &str, run_id: &str, items: Vec<Value>) -> Self {
-        Self {
-            session_id: session_id.to_string(),
-            run_id: run_id.to_string(),
-            items,
-            next_cursor: None,
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]

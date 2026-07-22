@@ -262,7 +262,6 @@ pub const NATIVE_AGENT_RUN_DETAIL_FIELDS: &[&str] = &[
     "currentIteration",
     "conversationMessageIds",
     "traceMessages",
-    "traceEvents",
     "completedToolResults",
     "pendingToolCalls",
     "checkpoint",
@@ -272,9 +271,6 @@ pub const NATIVE_AGENT_RUN_DETAIL_FIELDS: &[&str] = &[
 ];
 
 pub const NATIVE_AGENT_RUN_CHECKPOINT_FIELDS: &[&str] = &["sessionId", "runId", "checkpoint"];
-
-pub const NATIVE_AGENT_RUN_TRACE_PAGE_FIELDS: &[&str] =
-    &["sessionId", "runId", "items", "nextCursor"];
 
 const WEBUI_ROUTE_INVENTORY: &[NativeRouteInventoryEntry] = &[
     rust_webui("health", "GET", "/health", "health", "native health check"),
@@ -851,14 +847,10 @@ mod tests {
                 "artifactCount",
             ]
         );
-        assert!(NATIVE_AGENT_RUN_DETAIL_FIELDS.contains(&"traceEvents"));
+        assert!(!NATIVE_AGENT_RUN_DETAIL_FIELDS.contains(&"traceEvents"));
         assert!(NATIVE_AGENT_RUN_DETAIL_FIELDS.contains(&"completedToolResults"));
         assert!(NATIVE_AGENT_RUN_DETAIL_FIELDS.contains(&"pendingToolCalls"));
         assert!(NATIVE_AGENT_RUN_DETAIL_FIELDS.contains(&"checkpoint"));
-        assert_eq!(
-            NATIVE_AGENT_RUN_TRACE_PAGE_FIELDS,
-            &["sessionId", "runId", "items", "nextCursor"]
-        );
         assert!(NATIVE_AGENT_RUN_CHECKPOINT_FIELDS.contains(&"checkpoint"));
     }
 

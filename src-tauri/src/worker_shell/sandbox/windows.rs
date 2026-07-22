@@ -137,9 +137,9 @@ pub(in crate::worker_shell) fn spawn_read_only_pipe_process(
         .unwrap_or_else(|| PathBuf::from("cmd.exe"));
     let application = wide_null(command_shell.as_os_str());
     let command_line = format!(
-        "{} /D /S /C {}",
+        "{} /D /S /C \"{}\"",
         quote_windows_argument(command_shell.as_os_str()),
-        quote_windows_argument(OsStr::new(command))
+        command
     );
     let mut command_line = wide_null(OsStr::new(&command_line));
     let working_dir = super::super::process_working_dir(working_dir);

@@ -708,10 +708,11 @@ uses `200`. Explicit run or settings values still take precedence.
 
 ### Deferred tool discovery and checkpoints
 
-The native agent provider initially receives the capability-allowed model tools plus the runtime
-control tools `update_plan` and `tool_search`. `update_plan` remains available when `selectedTools`
-limits ordinary tools. Deferred tools are not included until the model searches for them in the
-current run.
+The native agent provider initially receives the foundational tools `exec_command`, `write_stdin`,
+`apply_patch`, `request_user_input`, `update_plan`, and `tool_search` when their capabilities are
+available. Memory, browser, subagent, and MCP tools are deferred until selected explicitly or found
+through `tool_search` in the current run. `update_plan` remains available when `selectedTools`
+limits ordinary tools.
 
 `update_plan` tracks the execution checklist for non-trivial work. Every call replaces the complete
 plan snapshot for the current run:
@@ -1180,11 +1181,12 @@ The removed `sessions/sessions.sqlite`, `.tinybot/state/thread-store.jsonl`, and
 `.tinybot/threads/threads.sqlite` stores are neither read nor written. There is no startup import,
 request-time compatibility fallback, or completed-result double write for those paths.
 
-Turn writes follow Codex-style ordering: `turn_started`, `user_message`, `turn_context`, typed
-`response_item`/tool/reasoning records, and `turn_complete`. Agent-run traces, resumable
-checkpoints, terminal state, compaction checkpoints, metadata changes, rollback, fork, archive, and
-subagent communication are appended to the same Rollout. UI thread snapshots, session history,
-model context, AgentRun records, and active checkpoints are reconstructed projections of that file.
+Turn writes follow Codex-style ordering: one start batch contains `turn_started`, `turn_context`,
+the materialized system/developer prompt when it changed, and the user message. Later batches append
+typed message/tool/reasoning records, per-provider-call `token_count`, resumable checkpoints, and one
+`turn_complete` or `turn_aborted`. Compaction, metadata changes, rollback, fork, archive, and
+subagent communication use the same Rollout authority. UI thread snapshots, session history, model
+context, AgentRun records, and active checkpoints are reconstructed projections of that file.
 Canonical append or reconstruction errors fail the operation instead of falling back to an old
 store.
 
@@ -1193,23 +1195,22 @@ returns a command error before the provider is called, and a run-record write fa
 command error instead of embedding a failed `runPersistence` diagnostic in an otherwise successful
 result.
 
-For direct-session native runs with a live desktop sink, runtime trace deltas are emitted to the
-frontend before durable persistence. Durable events enter a bounded ordered queue and ordinary
-`agent.delta` / `agent.reasoning_delta` events are appended through
-`agent_run.append_trace_batch`. Tool, approval, form, error, cancellation, and terminal boundaries
-flush the pending batch, and the run command waits for the queue to drain before final run-record
-persistence. Queue failure or flush failure fails the command explicitly; events are never silently
-dropped. Active canonical timeline patches are projected incrementally, while reload continues to
-reconstruct the authoritative snapshot from durable events.
+For direct-session native runs with a live desktop sink, runtime deltas, phase/status changes, and UI
+patches remain live-only. Stable semantic events enter a bounded ordered queue and are materialized
+through `agent_run.append_semantic_batch` as typed Rollout records. Tool-call confirmation, approval,
+tool output, usage, error, cancellation, and terminal boundaries flush the relevant batch before the
+runtime crosses that boundary. Queue or flush failure fails the command explicitly. Reload projects
+the authoritative timeline only from typed durable records; live event sequence never advances the
+durable Rollout revision.
 Thread-owned commands such as `worker_submit_thread_turn`, `worker_resolve_thread_approval`, and
 `worker_submit_thread_form` append their runtime events, run state, resumable checkpoint,
 approvals/forms, and final assistant or error items directly to the canonical Rollout. The native
-agent result is not replayed through `thread.apply_op`, so each logical event has one durable write.
-The terminal run item retains instruction provenance and diagnostics, so compatibility
+agent result is not replayed through `thread.apply_op`, so each logical value has one canonical
+payload. The turn-start seed retains instruction provenance and diagnostics, so derived
 `agent_run.get` projections preserve the effective working directory and instruction sources.
 Approval/form continuation restores `latestCheckpoint.restorePayload` from Rollout, including
 after a new runtime instance starts; a later terminal item makes that checkpoint inactive. Direct
-non-thread agent commands use the same Rollout authority through `session.persist_turn`.
+non-thread agent commands use the same start, semantic, checkpoint, and terminal batches.
 
 `clientEventId` is the retry/idempotency key for thread appends, starts, continuations, approvals,
 forms, and forks. A successful retry projects the original item IDs instead of appending another
@@ -1267,32 +1268,17 @@ Thread continuation helper commands:
 | `worker_resolve_thread_approval` | `{ input: { threadId, approvalId, approved, scope?, guidance? } }` |
 | `worker_submit_thread_form` | `{ input: { threadId, formId, values?, action? } }` |
 
-`worker_submit_thread_turn` accepts text attachments on the current user input. The runtime writes
-each attachment to a per-run file under `.tinybot/attachments`, removes the inline content before
-persistence, and gives only the current turn a workspace-relative path manifest. The agent reads
-the file on demand with `workspace.read_file`; attachments are not indexed or added to a retrieval
-store. The supported input shape is:
+The renderer prepares the final user text before calling `worker_submit_thread_turn`. When the user
+mentions files, it prepends their absolute paths to that text; the backend persists and forwards the
+message verbatim and does not copy attachment files. The agent reads a mentioned file through
+`exec_command`. The supported input shape is:
 
 ```json
 {
   "role": "user",
-  "content": "Review the attached files.",
-  "attachments": [
-    {
-      "type": "text",
-      "name": "notes.md",
-      "mimeType": "text/markdown",
-      "sizeBytes": 42,
-      "content": "# Notes"
-    }
-  ]
+  "content": "# Files mentioned by the user:\n\n## notes.md: C:\\work\\notes.md\n\n## My request for Tinybot:\nReview the file."
 }
 ```
-
-The runtime accepts at most 10 text attachments, at most 256 KiB per attachment, and at most 1 MiB
-across a turn. Files remain available while a run is waiting for approval or form input and are
-removed when the run becomes terminal. Binary files and PDF extraction are not supported by this
-path.
 
 `ThreadRecord`:
 
@@ -1662,10 +1648,11 @@ assigned to a kill-on-close Job Object before resume, and report
 
 ### Subagent lifecycle
 
-The desktop commands and model-visible tools share the same manager and canonical thread store.
-Model-visible lifecycle tools are `subagent.spawn`, `subagent.send_input`, `subagent.wait`,
-`subagent.close`, and `subagent.resume`; `subagent.list`, `subagent.query`, and `subagent.cancel`
-remain Worker RPC and desktop-control operations.
+The desktop commands and deferred Agent tools share the same manager and canonical thread store.
+The deferred lifecycle tools are `subagent.spawn`, `subagent.send_input`, `subagent.wait`,
+`subagent.close`, and `subagent.resume`; they become model-visible only after selection or
+`tool_search`. `subagent.list`, `subagent.query`, and `subagent.cancel` remain Worker RPC and
+desktop-control operations.
 
 The default limits are eight active children per session, 32 active children process-wide, and a
 maximum delegation depth of four. Nested spawns must name their direct `parentSubagentId` and exact
@@ -1821,7 +1808,7 @@ External callers should usually prefer the Tauri commands above.
 
 | Namespace | Methods |
 | --- | --- |
-| `agent_run` | `append_trace`, `append_trace_batch`, `clear_checkpoint`, `get`, `get_checkpoint`, `list`, `list_trace`, `mark_cancelled`, `mark_completed`, `mark_failed`, `runtime_state`, `set_checkpoint`, `upsert` |
+| `agent_run` | `append_semantic_batch`, `clear_checkpoint`, `get`, `get_checkpoint`, `list`, `mark_cancelled`, `mark_completed`, `mark_failed`, `mark_interrupted`, `runtime_state`, `set_checkpoint`, `start` |
 | `approval` | `list_pending`, `request`, `resolve` |
 | `config` | `apply_operations`, `apply_patch_result`, `get`, `snapshot_public` |
 | `diagnostics` | `append` |
@@ -1840,13 +1827,11 @@ External callers should usually prefer the Tauri commands above.
 | `tool_registry` | `list`, `search` |
 | `workspace` | `apply_patch`, `create_dir`, `delete_file`, `list_dir`, `list_files`, `read_bootstrap_files`, `read_file`, `resolve_path`, `write_file` |
 
-`agent_run.upsert` persists run metadata only and requires an empty `traceEvents` field. Runtime
-events must be written with `agent_run.append_trace` or `agent_run.append_trace_batch`; semantic
-message, reasoning, and tool records are materialized as Rollout response items, while selected
-durable lifecycle events remain Rollout event records. Agent-run reads never fall back to the
-in-memory thread store. Appended events require non-empty `eventName` and `eventId` fields, and
-response-backed events are rejected unless they contain enough data to materialize their canonical
-Rollout response item.
+`agent_run.start` atomically appends the minimal run seed, turn context, changed materialized
+instructions, and current user message. `agent_run.append_semantic_batch` accepts only stable events
+that can be materialized as typed message, reasoning, tool, approval, usage, or terminal records;
+delta, phase, status, provider-start, and generic trace envelopes are rejected or kept live-only.
+Agent-run reads are derived from the thread JSONL and never fall back to the in-memory thread store.
 
 ### MCP Runtime RPC
 
@@ -2197,12 +2182,13 @@ minimal build compiled with `--no-default-features` returns unavailable decision
 Non-Windows builds return unavailable decisions with reason code `platform_unsupported` rather than
 synthetic browser state.
 
-The native Agent registry exposes `browser.observe` as a model tool and `browser.interact` as a
-deferred, per-request-approved tool only in supported feature builds. Both are dispatched directly
-to the `SharedBrowserRuntime` installed in Tauri state; they do not pass through a second Worker RPC
-browser implementation. `browser.observe` creates or reuses the browser session owned by the current
-chat and returns its active identities. `browser.interact` rejects sessions or tabs not owned by that
-chat and requires the current control epoch plus observation/capture identity where applicable.
+The native Agent registry keeps both `browser.observe` and `browser.interact` deferred in supported
+feature builds; `browser.interact` additionally requires per-request approval. Both are dispatched
+directly to the `SharedBrowserRuntime` installed in Tauri state; they do not pass through a second
+Worker RPC browser implementation. `browser.observe` creates or reuses the browser session owned by
+the current chat and returns its active identities. `browser.interact` rejects sessions or tabs not
+owned by that chat and requires the current control epoch plus observation/capture identity where
+applicable.
 Agent cancellation is forwarded to the matching in-flight browser command. Capture `dataUrl` bytes
 remain available inside native snapshots for Agent observation but are neither rendered as a TinyOS
 fallback nor returned in model tool results, avoiding duplicate large images in provider context.

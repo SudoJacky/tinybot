@@ -24,13 +24,16 @@ pub(crate) fn native_agent_user_messages(spec: &serde_json::Value) -> Vec<serde_
     if content.trim().is_empty() {
         Vec::new()
     } else {
-        vec![serde_json::json!({
-            "role": input
+        let mut message = serde_json::Value::Object(input.clone());
+        message["role"] = serde_json::Value::String(
+            input
                 .get("role")
                 .and_then(serde_json::Value::as_str)
-                .unwrap_or("user"),
-            "content": content,
-        })]
+                .unwrap_or("user")
+                .to_string(),
+        );
+        message["content"] = serde_json::Value::String(content.to_string());
+        vec![message]
     }
 }
 
@@ -158,11 +161,45 @@ fn native_agent_merge_history_messages(
 
     if native_agent_messages_start_with(&requested_body, &history_body) {
         combined.extend(requested_body);
+    } else if native_agent_messages_end_with(&history_body, &requested_body) {
+        combined.extend(history_body);
     } else {
         combined.extend(history_body);
         combined.extend(requested_body);
     }
     combined
+}
+
+fn native_agent_messages_end_with(
+    messages: &[serde_json::Value],
+    suffix: &[serde_json::Value],
+) -> bool {
+    !suffix.is_empty()
+        && messages.len() >= suffix.len()
+        && messages[messages.len() - suffix.len()..]
+            .iter()
+            .zip(suffix.iter())
+            .all(|(message, suffix)| native_agent_logical_message_equal(message, suffix))
+}
+
+fn native_agent_logical_message_equal(left: &serde_json::Value, right: &serde_json::Value) -> bool {
+    left.get("role") == right.get("role")
+        && native_agent_message_text(left) == native_agent_message_text(right)
+}
+
+fn native_agent_message_text(message: &serde_json::Value) -> String {
+    match message.get("content") {
+        Some(serde_json::Value::String(content)) => content.clone(),
+        Some(serde_json::Value::Array(parts)) => parts
+            .iter()
+            .filter_map(|part| {
+                part.as_str()
+                    .or_else(|| part.get("text").and_then(serde_json::Value::as_str))
+            })
+            .collect(),
+        Some(serde_json::Value::Null) | None => String::new(),
+        Some(content) => content.to_string(),
+    }
 }
 
 fn native_agent_instruction_message(message: &serde_json::Value) -> bool {

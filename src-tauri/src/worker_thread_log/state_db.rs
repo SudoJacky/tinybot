@@ -6,6 +6,9 @@ use crate::worker_protocol::{
 use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+const SQLITE_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct LatestContextCheckpointRecord {
@@ -241,10 +244,32 @@ impl ThreadStateDb {
     }
 
     pub fn reset(&self) -> Result<(), WorkerProtocolError> {
-        if self.path.exists() {
-            std::fs::remove_file(&self.path).map_err(io_error)?;
+        if !self.path.exists() {
+            return Ok(());
         }
-        Ok(())
+        let mut connection = Connection::open(&self.path).map_err(sqlite_error)?;
+        connection
+            .busy_timeout(SQLITE_BUSY_TIMEOUT)
+            .map_err(sqlite_error)?;
+        match connection.query_row("PRAGMA schema_version", [], |row| row.get::<_, i64>(0)) {
+            Ok(_) => {}
+            Err(error) if is_corrupt_database_error(&error) => {
+                drop(connection);
+                std::fs::remove_file(&self.path).map_err(io_error)?;
+                return Ok(());
+            }
+            Err(error) => return Err(sqlite_error(error)),
+        }
+        ensure_schema(&connection)?;
+        let transaction = connection.transaction().map_err(sqlite_error)?;
+        transaction
+            .execute_batch(
+                "DELETE FROM latest_context_checkpoints;
+                 DELETE FROM thread_log_heads;
+                 DELETE FROM threads;",
+            )
+            .map_err(sqlite_error)?;
+        transaction.commit().map_err(sqlite_error)
     }
 
     pub fn find_by_session_or_thread_id(
@@ -337,9 +362,23 @@ impl ThreadStateDb {
             std::fs::create_dir_all(parent).map_err(io_error)?;
         }
         let connection = Connection::open(&self.path).map_err(sqlite_error)?;
+        connection
+            .busy_timeout(SQLITE_BUSY_TIMEOUT)
+            .map_err(sqlite_error)?;
         ensure_schema(&connection)?;
         Ok(connection)
     }
+}
+
+fn is_corrupt_database_error(error: &rusqlite::Error) -> bool {
+    matches!(
+        error,
+        rusqlite::Error::SqliteFailure(failure, _)
+            if matches!(
+                failure.code,
+                rusqlite::ErrorCode::DatabaseCorrupt | rusqlite::ErrorCode::NotADatabase
+            )
+    )
 }
 
 fn ensure_schema(connection: &Connection) -> Result<(), WorkerProtocolError> {
@@ -662,6 +701,31 @@ mod tests {
             "tinybot-thread-state-db-{name}-{}",
             std::process::id()
         ))
+    }
+
+    #[test]
+    fn reset_clears_an_open_database_without_replacing_the_file() {
+        let root = temp_root("reset-open");
+        let _ = fs::remove_dir_all(&root);
+        let db = ThreadStateDb::new(root.clone());
+        db.upsert_thread(&record(
+            "thread-reset-open",
+            Some("session-reset-open"),
+            "2026-07-21T00:00:00Z",
+        ))
+        .unwrap();
+        let open_connection = Connection::open(db.path()).unwrap();
+
+        db.reset().unwrap();
+
+        let count = open_connection
+            .query_row("SELECT COUNT(*) FROM threads", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap();
+        assert_eq!(count, 0);
+        assert!(db.path().exists());
+        let _ = fs::remove_dir_all(root);
     }
 
     fn record(id: &str, session_id: Option<&str>, updated_at: &str) -> ThreadStateRecord {

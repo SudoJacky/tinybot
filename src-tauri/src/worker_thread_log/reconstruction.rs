@@ -48,14 +48,9 @@ pub(super) fn reconstruct_canonical_rollout(
             | EventKind::MetadataUpdated
             | EventKind::SessionCleared
             | EventKind::SessionTrimmed
-            | EventKind::TaskProgressUpdated
             | EventKind::ThreadItem
-            | EventKind::AgentRunUpsert
-            | EventKind::AgentRunTrace
             | EventKind::AgentRunCheckpointSet
-            | EventKind::AgentRunCheckpointClear
-            | EventKind::AgentRunTerminal
-            | EventKind::Legacy(_) => active,
+            | EventKind::AgentRunCheckpointClear => active,
             EventKind::TurnStarted
             | EventKind::TaskStarted
             | EventKind::TurnComplete
@@ -83,7 +78,7 @@ mod tests {
     use super::*;
     use crate::worker_rollout::{
         CompactedItem, EventMsg, ResponseItem, RolloutItem, SessionMeta, TokenUsage,
-        TokenUsageInfo, TurnContextItem, WorldStateItem, ROLLOUT_SCHEMA_VERSION,
+        TokenUsageInfo, TurnContextItem, ROLLOUT_SCHEMA_VERSION,
     };
     use serde_json::{json, Value};
 
@@ -145,19 +140,17 @@ mod tests {
                 6,
                 RolloutItem::TurnContext(turn_context("turn-2", "model-current")),
             ),
-            line(
-                7,
-                RolloutItem::WorldState(WorldStateItem::full(json!({
-                    "environment": {"cwd": "D:/workspace", "status": "ready"}
-                }))),
-            ),
             event_line(
-                8,
+                7,
                 EventKind::TurnStarted,
-                json!({"runId": "run-1", "turnId": "turn-2"}),
+                json!({
+                    "runId": "run-1",
+                    "turnId": "turn-2",
+                    "agentRun": agent_run_record("session-child", "run-1", "turn-2")
+                }),
             ),
             response_line(
-                9,
+                8,
                 json!({
                     "role": "user",
                     "content": "current question",
@@ -168,7 +161,7 @@ mod tests {
                 }),
             ),
             response_line(
-                10,
+                9,
                 json!({
                     "role": "assistant",
                     "content": "current answer",
@@ -179,12 +172,7 @@ mod tests {
                 }),
             ),
             event_line(
-                11,
-                EventKind::AgentRunUpsert,
-                json!({"record": agent_run_record("session-child", "run-1", "turn-2")}),
-            ),
-            event_line(
-                12,
+                10,
                 EventKind::AgentRunCheckpointSet,
                 json!({
                     "runId": "run-1",
@@ -198,7 +186,7 @@ mod tests {
                 }),
             ),
             event_line(
-                13,
+                11,
                 EventKind::ThreadItem,
                 json!({
                     "item": {
@@ -207,7 +195,7 @@ mod tests {
                         "runId": "run-1",
                         "turnId": "turn-2",
                         "sequence": 5,
-                        "createdAt": timestamp(13),
+                        "createdAt": timestamp(11),
                         "kind": {
                             "type": "checkpoint_created",
                             "payload": {
@@ -220,22 +208,31 @@ mod tests {
                 }),
             ),
             event_line(
-                14,
+                12,
                 EventKind::TokenCount,
-                json!({"tokenUsageInfo": token_usage_info(1200, 200)}),
+                json!({
+                    "info": {
+                        "usage": token_usage_info(1200, 200).last_token_usage,
+                        "modelContextWindow": 128000
+                    }
+                }),
             ),
             event_line(
-                15,
+                13,
                 EventKind::TurnComplete,
                 json!({"runId": "run-1", "turnId": "turn-2"}),
             ),
             event_line(
-                16,
+                14,
                 EventKind::TurnStarted,
-                json!({"runId": "run-discarded", "turnId": "turn-3"}),
+                json!({
+                    "runId": "run-discarded",
+                    "turnId": "turn-3",
+                    "agentRun": agent_run_record("session-child", "run-discarded", "turn-3")
+                }),
             ),
             response_line(
-                17,
+                15,
                 json!({
                     "role": "user",
                     "content": "discarded question",
@@ -244,22 +241,11 @@ mod tests {
                 }),
             ),
             event_line(
-                18,
-                EventKind::AgentRunUpsert,
-                json!({
-                    "record": agent_run_record(
-                        "session-child",
-                        "run-discarded",
-                        "turn-3"
-                    )
-                }),
-            ),
-            event_line(
-                19,
+                16,
                 EventKind::TurnComplete,
                 json!({"runId": "run-discarded", "turnId": "turn-3"}),
             ),
-            event_line(20, EventKind::ThreadRolledBack, json!({"numTurns": 1})),
+            event_line(17, EventKind::ThreadRolledBack, json!({"numTurns": 1})),
         ];
 
         let reconstructed = reconstruct_canonical_rollout(&lines).unwrap();
@@ -315,12 +301,6 @@ mod tests {
             Some("thread-parent")
         );
         assert_eq!(
-            reconstructed.semantic.world_state_baseline,
-            Some(json!({
-                "environment": {"cwd": "D:/workspace", "status": "ready"}
-            }))
-        );
-        assert_eq!(
             reconstructed
                 .semantic
                 .token_usage_info
@@ -337,50 +317,13 @@ mod tests {
             .all(|item| item.item_id != "item-discarded"));
         assert_eq!(reconstructed.agent_runs.len(), 1);
         assert_eq!(reconstructed.agent_runs[0].run_id, "run-1");
-        assert_eq!(
-            reconstructed.agent_runs[0].checkpoint.as_ref().unwrap()["iteration"],
-            2
-        );
+        assert!(reconstructed.agent_runs[0].checkpoint.is_none());
         assert_eq!(reconstructed.checkpoints.len(), 2);
         assert!(reconstructed
             .checkpoints
             .iter()
             .any(|checkpoint| checkpoint.checkpoint_id == "checkpoint-1"));
         assert!(!reconstructed.active_turn);
-    }
-
-    #[test]
-    fn malformed_agent_run_lifecycle_record_fails_reconstruction() {
-        let lines = vec![
-            line(
-                0,
-                RolloutItem::SessionMeta(SessionMeta {
-                    schema_version: ROLLOUT_SCHEMA_VERSION,
-                    thread_id: "thread-invalid".to_string(),
-                    session_id: Some("session-invalid".to_string()),
-                    created_at: timestamp(0),
-                    cwd: "D:/workspace".to_string(),
-                    source: "desktop".to_string(),
-                    model_provider: None,
-                    model: None,
-                    base_instructions: None,
-                    history_mode: Some("default".to_string()),
-                    forked_from_thread_id: None,
-                    parent_thread_id: None,
-                    originator: Some("Tinybot Desktop".to_string()),
-                }),
-            ),
-            event_line(
-                1,
-                EventKind::AgentRunTrace,
-                json!({"runId": "missing-run", "event": {"eventId": "event-1"}}),
-            ),
-        ];
-
-        let error = reconstruct_canonical_rollout(&lines).unwrap_err();
-
-        assert_eq!(error.details["method"], "rollout.reconstruct.agent_runs");
-        assert!(error.message.contains("unknown run"));
     }
 
     fn line(ordinal: u64, item: RolloutItem) -> ThreadLogLine {
@@ -464,7 +407,6 @@ mod tests {
             "currentIteration": 1,
             "conversationMessageIds": [],
             "traceMessages": [],
-            "traceEvents": [],
             "completedToolResults": [],
             "pendingToolCalls": [],
             "checkpoint": null,

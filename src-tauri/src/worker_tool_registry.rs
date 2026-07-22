@@ -465,7 +465,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "memory",
             "Search memory",
             "Search saved memory notes.",
-            ToolExposure::Model,
+            ToolExposure::Deferred,
             false,
             runtime_policy(true, ToolCancellationMode::Cooperative, false, false),
             vec![WorkerCapability::MemoryRead],
@@ -484,7 +484,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "memory",
             "Recall memory",
             "Recall memory context for the current turn.",
-            ToolExposure::Model,
+            ToolExposure::Deferred,
             false,
             runtime_policy(true, ToolCancellationMode::Cooperative, false, false),
             vec![WorkerCapability::MemoryRead],
@@ -502,7 +502,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "browser",
             "Observe TinyOS browser",
             "Create or inspect the browser session owned by this chat. Returns the active session, tab, control epoch, capture, and bounded semantic targets. Use this before browser.interact.",
-            ToolExposure::Model,
+            ToolExposure::Deferred,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
             vec![WorkerCapability::BrowserObserve],
@@ -570,7 +570,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "shell",
             "Execute shell command",
             "Run a shell command in the workspace.",
-            ToolExposure::Deferred,
+            ToolExposure::Hidden,
             false,
             runtime_policy(false, ToolCancellationMode::TerminateProcess, true, false),
             vec![WorkerCapability::ShellExecute],
@@ -599,7 +599,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "shell",
             "Start shell command",
             "Start a workspace shell command and retain it when it remains active.",
-            ToolExposure::Deferred,
+            ToolExposure::Model,
             false,
             runtime_policy(false, ToolCancellationMode::TerminateProcess, true, false),
             vec![WorkerCapability::ShellExecute],
@@ -631,7 +631,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "shell",
             "Write shell input",
             "Write input to a retained shell process and return newly available output.",
-            ToolExposure::Deferred,
+            ToolExposure::Model,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, true, false),
             vec![WorkerCapability::ShellExecute],
@@ -652,7 +652,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "subagent",
             "Spawn subagent",
             "Create a child agent thread for delegated work.",
-            ToolExposure::Model,
+            ToolExposure::Deferred,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
             vec![
@@ -682,7 +682,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "subagent",
             "Send subagent input",
             "Send input to an active child agent thread.",
-            ToolExposure::Model,
+            ToolExposure::Deferred,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
             vec![
@@ -708,7 +708,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "subagent",
             "Wait for subagent",
             "Wait until a selected child agent reaches a result or input boundary.",
-            ToolExposure::Model,
+            ToolExposure::Deferred,
             false,
             runtime_policy(false, ToolCancellationMode::Cooperative, false, false),
             vec![
@@ -734,7 +734,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "subagent",
             "Close subagent",
             "Explicitly close a retained child agent. Closed children cannot be resumed.",
-            ToolExposure::Model,
+            ToolExposure::Deferred,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
             vec![
@@ -758,7 +758,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "subagent",
             "Resume subagent",
             "Resume one interrupted child agent after runtime restart.",
-            ToolExposure::Model,
+            ToolExposure::Deferred,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
             vec![
@@ -970,15 +970,19 @@ mod tests {
     }
 
     #[test]
-    fn apply_patch_is_deferred_and_approval_required() {
-        let tool = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
+    fn canonical_apply_patch_is_model_visible_and_legacy_name_is_hidden() {
+        let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
             WorkerCapability::FsWorkspaceWrite,
             WorkerCapability::ApprovalRequest,
-        ]))
-        .get_tool("workspace.apply_patch")
-        .expect("workspace.apply_patch should be registered");
+        ]));
+        let tool = registry
+            .get_tool("apply_patch")
+            .expect("apply_patch should be registered");
+        let legacy = registry
+            .get_tool("workspace.apply_patch")
+            .expect("workspace.apply_patch should remain an internal adapter");
 
-        assert_eq!(tool.exposure, ToolExposure::Deferred);
+        assert_eq!(tool.exposure, ToolExposure::Model);
         assert!(tool.available);
         assert!(tool.approval.required);
         assert!(tool.runtime_policy.mutates_workspace);
@@ -988,10 +992,11 @@ mod tests {
                 method: "workspace.apply_patch".to_string()
             }
         );
+        assert_eq!(legacy.exposure, ToolExposure::Hidden);
     }
 
     #[test]
-    fn browser_tools_separate_observation_from_approved_interaction() {
+    fn browser_tools_are_deferred_and_interaction_requires_approval() {
         let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
             WorkerCapability::BrowserObserve,
             WorkerCapability::BrowserInteract,
@@ -1004,7 +1009,7 @@ mod tests {
             .get_tool("browser.interact")
             .expect("browser.interact should be registered");
 
-        assert_eq!(observe.exposure, ToolExposure::Model);
+        assert_eq!(observe.exposure, ToolExposure::Deferred);
         assert!(observe.available);
         assert!(!observe.approval.required);
         assert!(observe.runtime_policy.mutates_session);
@@ -1035,7 +1040,7 @@ mod tests {
             .get_tool("write_stdin")
             .expect("write_stdin should be registered");
 
-        assert_eq!(start.exposure, ToolExposure::Deferred);
+        assert_eq!(start.exposure, ToolExposure::Model);
         assert!(start.available);
         assert!(start.approval.required);
         assert_eq!(
@@ -1048,7 +1053,7 @@ mod tests {
                 method: "shell.start".to_string()
             }
         );
-        assert_eq!(input.exposure, ToolExposure::Deferred);
+        assert_eq!(input.exposure, ToolExposure::Model);
         assert!(input.available);
         assert!(!input.approval.required);
         assert_eq!(
@@ -1085,7 +1090,7 @@ mod tests {
     }
 
     #[test]
-    fn model_registry_exposes_complete_subagent_lifecycle_controls() {
+    fn registry_keeps_complete_subagent_lifecycle_controls_deferred() {
         let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
             WorkerCapability::BackgroundRead,
             WorkerCapability::BackgroundWrite,
@@ -1103,7 +1108,7 @@ mod tests {
             let tool = registry
                 .get_tool(method)
                 .unwrap_or_else(|| panic!("{method} should be registered"));
-            assert_eq!(tool.exposure, ToolExposure::Model);
+            assert_eq!(tool.exposure, ToolExposure::Deferred);
             assert!(tool.available);
             assert_eq!(
                 tool.execution_target,
@@ -1151,15 +1156,16 @@ mod tests {
     }
 
     #[test]
-    fn workspace_and_mcp_tools_are_owned_by_named_contributors() {
+    fn workspace_internal_and_mcp_tools_are_owned_by_named_contributors() {
         let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
-            WorkerCapability::FsWorkspaceRead,
+            WorkerCapability::FsWorkspaceWrite,
             WorkerCapability::McpCall,
         ]));
         assert_eq!(
-            registry.contributor_id_for_tool("workspace.read_file"),
+            registry.contributor_id_for_tool("workspace.write_file"),
             Some("builtin.workspace".to_string())
         );
+        assert!(registry.get_tool("workspace.read_file").is_none());
         assert_eq!(
             registry.contributor_id_for_tool("mcp.call_tool"),
             Some("builtin.mcp".to_string())
@@ -1187,7 +1193,7 @@ mod tests {
         let error = registry
             .with_contributor(std::sync::Arc::new(DuplicateWorkspaceContributor))
             .expect_err("duplicate tool methods must fail before activation");
-        assert!(error.contains("workspace.read_file"));
+        assert!(error.contains("workspace.write_file"));
         assert!(error.contains("test.duplicate_workspace"));
     }
 

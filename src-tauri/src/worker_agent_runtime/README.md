@@ -19,8 +19,8 @@ to [`native_agent_bridge`](../native_agent_bridge/README.md).
 - Evaluate hooks around provider, tool, permission, turn, and context stages.
 - Emit correlated runtime events and project typed items for compatibility
   consumers.
-- Track token usage, cancellation, pause/resume continuations, and resumable
-  checkpoints.
+- Track token usage, cancellation, pause/resume continuations, live approval
+  waiters, and resumable checkpoints.
 
 This module does **not** choose the desktop transport, mutate Tauri state, or
 decide which durable conversation store a caller uses.
@@ -36,8 +36,9 @@ decide which durable conversation store a caller uses.
    provider events into runtime concepts.
 5. Assistant items are appended. Tool calls are routed through
    `tool_router.rs`, `tool_dispatcher.rs`, and `tool_runtime.rs`.
-6. Approval, form, or pause boundaries create a continuation/checkpoint rather
-   than pretending the turn completed.
+6. Approval registers an in-memory responder and suspends the original tool
+   future. Forms and pause boundaries still use their dedicated resumable
+   mechanisms. A tool batch is fully recorded before the next provider call.
 7. Usage and runtime events are emitted through the injected trace sink, and
    `result.rs` builds the terminal response.
 
@@ -69,8 +70,9 @@ conditionals to the provider loop.
   routing, execution, cleanup, and deferred tools.
 - `tool_projection.rs`, `tool_result.rs`: normalized tool lifecycle output.
 - `hooks.rs`, `events.rs`: runtime hooks and event construction.
-- `checkpoint.rs`, `continuations.rs`, `stores.rs`: resumable boundaries and
-  default in-memory services.
+- `approvals.rs`: live approval responders and exact per-session grants.
+- `checkpoint.rs`, `continuations.rs`, `stores.rs`: other resumable boundaries
+  and default in-memory services.
 - `settings.rs`, `state.rs`, `usage.rs`, `user_input.rs`, `result.rs`: validated
   turn state and result construction.
 

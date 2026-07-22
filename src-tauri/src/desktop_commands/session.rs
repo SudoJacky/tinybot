@@ -448,11 +448,11 @@ fn recover_interrupted_tinyos_host_operations(
             WorkerRequest::new(
                 request_id.id("tinyos-host-recovery-event"),
                 request_id.trace_id("tinyos-host-recovery-event"),
-                "agent_run.append_trace",
+                "agent_run.append_semantic_batch",
                 serde_json::json!({
                     "session_id": session_id,
                     "run_id": run_id,
-                    "event": {
+                    "events": [{
                         "eventId": format!("{run_id}:interrupted-recovery"),
                         "itemId": format!("{run_id}:interrupted-recovery"),
                         "eventName": "agent.error",
@@ -460,7 +460,7 @@ fn recover_interrupted_tinyos_host_operations(
                             "message": "TinyOS host operation was interrupted before completion and cannot be resumed.",
                             "recovery": "marked_failed",
                         }
-                    }
+                    }]
                 }),
             ),
             "TinyOS host recovery event append",

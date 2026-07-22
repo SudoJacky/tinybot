@@ -89,14 +89,13 @@ use crate::desktop_commands::agent::{
     worker_background_subagent_enqueue_input_with_options,
     worker_background_trace_append_with_options, worker_background_trace_list_with_options,
     worker_cancel_agent_with_options, worker_echo_agent_with_options,
-    worker_resolve_thread_approval_with_options, worker_restore_agent_checkpoint_with_options,
-    worker_run_agent_with_options, worker_submit_thread_form_with_options,
-    worker_submit_thread_turn_with_options, worker_task_plan_delete_with_options,
-    worker_task_plan_get_with_options, worker_task_plan_list_with_options,
-    worker_task_plan_save_with_options, WorkerBackgroundSubagentInputInput,
-    WorkerBackgroundTraceAppendInput, WorkerBackgroundTraceGetArtifactInput,
-    WorkerBackgroundTraceGetDelegateTraceInput, WorkerBackgroundTraceListInput,
-    WorkerResolveThreadApprovalInput, WorkerSubmitThreadFormInput, WorkerSubmitThreadTurnInput,
+    worker_restore_agent_checkpoint_with_options, worker_run_agent_with_options,
+    worker_submit_thread_form_with_options, worker_submit_thread_turn_with_options,
+    worker_task_plan_delete_with_options, worker_task_plan_get_with_options,
+    worker_task_plan_list_with_options, worker_task_plan_save_with_options,
+    WorkerBackgroundSubagentInputInput, WorkerBackgroundTraceAppendInput,
+    WorkerBackgroundTraceGetArtifactInput, WorkerBackgroundTraceGetDelegateTraceInput,
+    WorkerBackgroundTraceListInput, WorkerSubmitThreadFormInput, WorkerSubmitThreadTurnInput,
     WorkerTaskPlanListInput,
 };
 use crate::desktop_commands::agent::{
@@ -182,7 +181,9 @@ use crate::desktop_commands::workspace::{
     worker_workspace_file_with_options, worker_workspace_files_with_options,
     worker_workspace_put_file_with_options,
 };
-use crate::desktop_files::{pick_upload_file, reveal_workspace_file, save_export_file};
+use crate::desktop_files::{
+    pick_chat_files, pick_upload_file, reveal_workspace_file, save_export_file,
+};
 use crate::desktop_logging::append_native_backend_log_line;
 use crate::desktop_menu::{
     install_desktop_application_menu, is_desktop_menu_command, DesktopMenuCommandPayload,
@@ -655,6 +656,7 @@ pub fn run() {
             get_config_editor_snapshot,
             apply_config_patch_result,
             apply_config_operations,
+            pick_chat_files,
             pick_upload_file,
             reveal_workspace_file,
             save_export_file

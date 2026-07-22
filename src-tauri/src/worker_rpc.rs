@@ -49,7 +49,7 @@ use crate::worker_tool_executor::{
     ToolExecutorExecuteResult,
 };
 use crate::worker_tool_registry::{
-    ToolExecutionTarget, ToolRegistrySearchRequest, WorkerToolRegistryRpc,
+    ToolExecutionTarget, ToolExposure, ToolRegistrySearchRequest, WorkerToolRegistryRpc,
 };
 use crate::worker_workspace::{WorkerWorkspaceRpc, WorkspaceReadFormat, WorkspaceReadOptions};
 use serde::Deserialize;
@@ -663,13 +663,15 @@ fn tool_executor_arguments_with_context(params: &ToolExecutorExecuteRequest) -> 
                 Value::String(session_id.to_string()),
             );
         }
-        if let Some(run_id) = params
-            .run_id
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-        {
-            object.remove("run_id");
-            object.insert("runId".to_string(), Value::String(run_id.to_string()));
+        if !object.contains_key("parentRunId") {
+            if let Some(run_id) = params
+                .run_id
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+            {
+                object.remove("run_id");
+                object.insert("runId".to_string(), Value::String(run_id.to_string()));
+            }
         }
         if let Some(tool_call_id) = params
             .tool_call_id
@@ -1014,8 +1016,12 @@ impl SessionPersistTurnParams {
 }
 
 #[derive(Deserialize)]
-struct AgentRunUpsertParams {
+struct AgentRunStartParams {
     record: AgentRunRecord,
+    #[serde(default)]
+    context: Option<crate::worker_rollout::TurnContextItem>,
+    #[serde(default)]
+    messages: Vec<crate::worker_rollout::ResponseItem>,
 }
 
 #[derive(Deserialize)]
@@ -1033,28 +1039,7 @@ struct AgentRunIdParams {
 }
 
 #[derive(Deserialize)]
-struct AgentRunListTraceParams {
-    #[serde(alias = "sessionId")]
-    session_id: String,
-    #[serde(alias = "runId")]
-    run_id: String,
-    #[serde(default)]
-    cursor: Option<String>,
-    #[serde(default)]
-    limit: Option<usize>,
-}
-
-#[derive(Deserialize)]
-struct AgentRunAppendTraceParams {
-    #[serde(alias = "sessionId")]
-    session_id: String,
-    #[serde(alias = "runId")]
-    run_id: String,
-    event: Value,
-}
-
-#[derive(Deserialize)]
-struct AgentRunAppendTraceBatchParams {
+struct AgentRunAppendSemanticBatchParams {
     #[serde(alias = "sessionId")]
     session_id: String,
     #[serde(alias = "runId")]
@@ -1081,6 +1066,8 @@ struct AgentRunMarkCompletedParams {
     stop_reason: String,
     #[serde(default, alias = "finalContent")]
     final_content: Option<String>,
+    #[serde(default, alias = "contextCheckpoint")]
+    context_checkpoint: Option<Value>,
 }
 
 #[derive(Deserialize)]
@@ -1092,6 +1079,8 @@ struct AgentRunMarkFailedParams {
     #[serde(alias = "stopReason")]
     stop_reason: String,
     error: Value,
+    #[serde(default, alias = "contextCheckpoint")]
+    context_checkpoint: Option<Value>,
 }
 
 #[derive(Deserialize)]

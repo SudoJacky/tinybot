@@ -34,9 +34,9 @@ import {
 import type { QueuedInput } from "../../app-core/chat/chatUiProjection";
 import {
   ClaudeStyleAiInput,
+  type ComposerFileReference,
   type ComposerContextReference,
   type ComposerSendOptions,
-  type FileWithPreview,
   type ModelOption,
   type PastedContent,
 } from "../../components/ui/claude-style-ai-input";
@@ -44,7 +44,7 @@ import { TextType } from "../../components/ui/TextType";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
 import type { ApprovalAction, ChatEvent, ChatInput, ChatModelOption, ChatStore, SessionStore, SessionSummary, SettingsStore, WorkspaceStore } from "../services";
 import { createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
-import type { DesktopChatAttachment } from "../../app-core/chat/desktopCommand";
+import { pickDesktopChatFiles } from "../../app-core/native/desktopNativeFilePicker";
 import { reduceSessionDeleteState } from "../sessions/sessionDeleteState";
 import { canBranchFromMessage, canCopyMessage, type ContextReferenceSummary, type ReactChatMessage, type ToolCallSummary } from "./messageActions";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
@@ -167,7 +167,7 @@ function reduceLiveCanvasState(state: LiveCanvasState, action: LiveCanvasAction)
 
 type RecoveryAction = "continue" | "retry" | "restart";
 
-type QueuedComposerInput = QueuedInput & Pick<ChatInput, "model" | "references" | "attachments">;
+type QueuedComposerInput = QueuedInput & Pick<ChatInput, "model" | "references">;
 
 function shouldFrameBatchTimeline(timeline: ChatTimelineSnapshot): boolean {
   return timeline.turns[timeline.turns.length - 1]?.status === "running";
@@ -190,15 +190,6 @@ function readStoredTinyOsWidth(): number {
   const stored = Number(window.localStorage.getItem(TINYOS_WIDTH_STORAGE_KEY));
   return Number.isFinite(stored) && stored > 0 ? clampTinyOsWidth(stored) : 480;
 }
-
-const COMPOSER_ATTACHMENT_MAX_BYTES = 256 * 1024;
-const COMPOSER_ATTACHMENT_TOTAL_MAX_BYTES = 1024 * 1024;
-const COMPOSER_ATTACHMENT_TYPES = [
-  ".txt", ".md", ".markdown", ".json", ".jsonl", ".toml", ".yaml", ".yml",
-  ".rs", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".go",
-  ".java", ".kt", ".swift", ".c", ".h", ".cpp", ".hpp", ".cs", ".sh",
-  ".ps1", ".sql", ".html", ".css", ".xml", ".csv", ".log",
-] as const;
 
 const EMPTY_CHAT_PROMPTS = [
   "规划一个任务并列出执行步骤",
@@ -445,6 +436,10 @@ export function ChatPage({
     : liveCanvasEntries.find((entry) => entry.turnId === liveCanvas.selection?.turnId && entry.step.id === liveCanvas.selection.itemId);
 
   const openLiveCanvasItem = (turnId: string, step: ChatStep) => {
+    if (activeRun?.id === turnId && step.kind === "approval" && step.status === "awaiting_approval") {
+      dispatchLiveCanvas({ type: "return_live" });
+      return;
+    }
     const eventIndex = lastCanonicalEventIndex(liveCanvasCanonicalItems, turnId, step.id);
     const boundary = eventIndex >= 0 ? liveCanvasCanonicalItems[eventIndex] : undefined;
     dispatchLiveCanvas({
@@ -686,7 +681,7 @@ export function ChatPage({
         setTimelineError(`Approval failed: ${commandLifecycle.error}`);
         return;
       }
-      if (commandLifecycle.stage === "completed") {
+      if (commandLifecycle.stage === "acknowledged" || commandLifecycle.stage === "completed") {
         setResolvingApprovalId("");
       }
       return;
@@ -1051,16 +1046,16 @@ export function ChatPage({
 
   async function handleComposerSend(
     message: string,
-    files: FileWithPreview[],
+    files: ComposerFileReference[],
     pastedContent: PastedContent[],
     options: ComposerSendOptions,
   ) {
     const references = tinyOsContextReferences.map(nativeReferenceFromTinyOs);
-    const attachments = await readComposerAttachments(files);
-    const text = formatComposerMessage(
+    const visibleText = formatComposerMessage(
       message || (files.length ? "Review the attached files." : references.length ? "Use the attached TinyOS context." : ""),
       pastedContent,
     );
+    const text = formatComposerFileReferences(visibleText, files);
     const sendSession = activeSession ?? await createSessionForDraft();
     if (!text || !sendSession) {
       return;
@@ -1073,11 +1068,11 @@ export function ChatPage({
       queuedInputs: activeQueuedInputs,
     });
     if (queuedResult.kind !== "send_message") {
-      handleQueuedComposerResult(sendSession.id, queuedResult, options, references, attachments);
+      handleQueuedComposerResult(sendSession.id, queuedResult, options, references);
       return;
     }
     const optimisticSession = isDefaultSessionTitle(sendSession.title)
-      ? { ...sendSession, title: deriveSessionTitle(queuedResult.content) }
+      ? { ...sendSession, title: deriveSessionTitle(visibleText) }
       : sendSession;
     if (optimisticSession !== sendSession) {
       optimisticSessionTitlesRef.current.set(sendSession.id, optimisticSession.title);
@@ -1088,7 +1083,6 @@ export function ChatPage({
       text: queuedResult.content,
       ...(options.model ? { model: options.model } : {}),
       ...(references.length ? { references } : {}),
-      ...(attachments.length ? { attachments } : {}),
     }, "composer-send");
     await handleSessionStoreRefresh(optimisticSession);
   }
@@ -1174,7 +1168,6 @@ export function ChatPage({
     result: Exclude<SubmitComposerTextResult, { kind: "send_message" }>,
     options: ComposerSendOptions,
     references: NativeChatReference[],
-    attachments: DesktopChatAttachment[],
   ) {
     if (result.kind === "queue_limit_reached") {
       setQueueMessage("Already have 5 queued messages. Wait for processing or delete one before sending more.");
@@ -1190,7 +1183,6 @@ export function ChatPage({
         ...result.input,
         ...(options.model ? { model: options.model } : {}),
         ...(references.length ? { references } : {}),
-        ...(attachments.length ? { attachments } : {}),
       }]);
       return next;
     });
@@ -1779,11 +1771,10 @@ export function ChatPage({
           canStopResponding={canCancelRun}
           stopUnavailableReason={cancelUnavailableReason}
           placeholder={emptyActiveSession ? "输入任务，或粘贴/拖入文件" : "输入消息给 Tinybot"}
-          acceptedFileTypes={[...COMPOSER_ATTACHMENT_TYPES]}
-          maxFileSize={COMPOSER_ATTACHMENT_MAX_BYTES}
           value={composerDraft}
           onClearContextReferences={() => setTinyOsContextReferences([])}
           onRemoveContextReference={(id) => setTinyOsContextReferences((current) => current.filter((reference) => tinyOsContextReferenceId(reference) !== id))}
+          onSelectFiles={pickDesktopChatFiles}
           onValueChange={setComposerDraft}
           onSendMessage={(message, files, pastedContent, options) => handleComposerSend(message, files, pastedContent, options)}
             onStopResponding={() => activeSession && handleStopGeneration(activeSession, "chat")}
@@ -2106,7 +2097,6 @@ function toChatInput(input: QueuedComposerInput): ChatInput {
     text: input.content,
     ...(input.model ? { model: input.model } : {}),
     ...(input.references?.length ? { references: input.references } : {}),
-    ...(input.attachments?.length ? { attachments: input.attachments } : {}),
   };
 }
 
@@ -2249,28 +2239,12 @@ function formatComposerMessage(message: string, pastedContent: PastedContent[]):
   return segments.join("\n\n");
 }
 
-async function readComposerAttachments(files: FileWithPreview[]): Promise<DesktopChatAttachment[]> {
-  const attachments: DesktopChatAttachment[] = [];
-  let totalBytes = 0;
-  for (const item of files) {
-    const content = await item.file.text();
-    const contentBytes = new TextEncoder().encode(content).byteLength;
-    if (contentBytes > COMPOSER_ATTACHMENT_MAX_BYTES) {
-      throw new Error(`${item.file.name} exceeds the 256 KiB text attachment limit.`);
-    }
-    totalBytes += contentBytes;
-    if (totalBytes > COMPOSER_ATTACHMENT_TOTAL_MAX_BYTES) {
-      throw new Error("Attached files exceed the 1 MiB total text limit.");
-    }
-    attachments.push({
-      type: "text",
-      name: item.file.name,
-      mimeType: item.file.type || "text/plain",
-      sizeBytes: contentBytes,
-      content,
-    });
+function formatComposerFileReferences(message: string, files: ComposerFileReference[]): string {
+  if (!files.length) {
+    return message;
   }
-  return attachments;
+  const mentionedFiles = files.map((file) => `## ${file.name}: ${file.path}`).join("\n\n");
+  return `# Files mentioned by the user:\n\n${mentionedFiles}\n\n## My request for Tinybot:\n${message}`;
 }
 
 function toComposerModelOption(model: ChatModelOption): ModelOption {
@@ -2483,7 +2457,7 @@ function ExecutionTimeline({
 }) {
   const contentId = useId();
   const timelineRef = useRef<HTMLElement | null>(null);
-  const abnormal = executionItems.some((step) => step.status === "failed" || step.status === "cancelled" || step.status === "blocked")
+  const abnormal = executionItems.some((step) => step.status === "failed" || step.status === "cancelled" || step.status === "awaiting_approval" || step.status === "blocked")
     || turn.status === "failed"
     || turn.status === "interrupted"
     || turn.status === "awaiting_approval"
@@ -3039,7 +3013,7 @@ function toolCallSummaryFromStep(step: ChatStep, toolCall: ToolCallState): ToolC
 function canonicalStepIconStatus(step: ChatStep): AgentStepStatus {
   if (step.status === "completed") return "success";
   if (step.status === "running") return "active";
-  if (step.status === "blocked") return "waiting";
+  if (step.status === "awaiting_approval" || step.status === "blocked") return "waiting";
   if (step.status === "failed" || step.status === "cancelled") return "error";
   return "pending";
 }

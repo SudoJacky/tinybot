@@ -1,5 +1,3 @@
-use crate::worker_rollout::bound_persisted_trace_value;
-
 pub(crate) fn native_agent_run_status(stop_reason: Option<&str>) -> &'static str {
     match stop_reason {
         Some("final_response") => "completed",
@@ -202,35 +200,6 @@ pub(crate) fn native_agent_token_usage_info(
         },
         "modelContextWindow": usage_i64_field(&usage, &["contextWindowTokens", "context_window_tokens"]),
     }))
-}
-
-pub(crate) fn native_agent_persisted_trace_values(
-    values: &[serde_json::Value],
-) -> Vec<serde_json::Value> {
-    native_agent_canonical_trace_values(values)
-        .into_iter()
-        .map(bound_persisted_trace_value)
-        .collect()
-}
-
-pub(crate) fn native_agent_canonical_trace_values(
-    values: &[serde_json::Value],
-) -> Vec<serde_json::Value> {
-    values
-        .iter()
-        .filter(|value| {
-            value
-                .get("eventName")
-                .and_then(serde_json::Value::as_str)
-                .is_none_or(|event_name| {
-                    crate::worker_rollout::should_persist_agent_runtime_event(
-                        event_name,
-                        value.get("payload").unwrap_or(value),
-                    )
-                })
-        })
-        .cloned()
-        .collect()
 }
 
 pub(crate) fn native_agent_artifacts(result: &serde_json::Value) -> Vec<serde_json::Value> {

@@ -101,11 +101,11 @@ export function createAgentTimelineModel(): AgentTimelineModel {
 function applyPatchToSession(session: SessionTimelineState, patch: BackendAgentTimelinePatch): void {
   const run = session.runs.get(patch.runId);
   if (!run) {
-    if (patch.snapshotRevision !== 1) {
+    if (patch.snapshotRevision > 1) {
       throw new TimelineRevisionGapError(
-        `Canonical timeline patch gap for new run ${patch.runId}: expected 1, received ${patch.snapshotRevision}`,
+        `Canonical timeline patch gap for new run ${patch.runId}: expected 0 or 1, received ${patch.snapshotRevision}`,
         patch.runId,
-        1,
+        0,
         patch.snapshotRevision,
       );
     }
@@ -113,19 +113,36 @@ function applyPatchToSession(session: SessionTimelineState, patch: BackendAgentT
       schemaVersion: "tinybot.timeline.v2",
       sessionId: patch.sessionId,
       runId: patch.runId,
-      snapshotRevision: 1,
+      snapshotRevision: patch.snapshotRevision,
       items: [patch.item],
     });
     return;
   }
 
-  if (patch.snapshotRevision <= run.snapshotRevision) {
+  if (patch.snapshotRevision < run.snapshotRevision) {
+    return;
+  }
+  if (patch.snapshotRevision === run.snapshotRevision) {
     const current = run.items.find((item) => item.itemId === patch.item.itemId);
-    if (patch.snapshotRevision === run.snapshotRevision && current && patch.item.revision === current.revision) {
+    if (!current) {
+      run.items = [...run.items, patch.item].sort(compareCanonicalItems);
+      return;
+    }
+    if (patch.item.revision < current.revision) {
+      return;
+    }
+    if (patch.item.revision === current.revision) {
       if (stableSerialize(current) !== stableSerialize(patch.item)) {
         throw new Error(`Canonical timeline equal-revision conflict for item ${patch.item.itemId} revision ${patch.item.revision}`);
       }
+      return;
     }
+    if (patch.item.sequence !== current.sequence) {
+      throw new Error(`Canonical timeline item ${patch.item.itemId} changed sequence from ${current.sequence} to ${patch.item.sequence}`);
+    }
+    assertMonotonicStatus(current, patch.item);
+    assertMonotonicAssistantPhase(current, patch.item);
+    run.items = run.items.map((item) => item.itemId === patch.item.itemId ? patch.item : item);
     return;
   }
   if (patch.snapshotRevision !== run.snapshotRevision + 1) {

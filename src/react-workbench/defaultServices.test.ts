@@ -470,8 +470,46 @@ describe("desktop native app services", () => {
         threadId: "thread-1",
         approvalId: "approval-1",
         approved: true,
+        commandId: "command-approval-1",
         scope: "session",
       },
+    });
+  });
+
+  test("reloads the canonical timeline after resolving an approval", async () => {
+    let approved = false;
+    mocks.invoke.mockImplementation(async (command: string) => {
+      if (command === "worker_threads_list") return { threads: [thread], total: 1 };
+      if (command === "worker_agent_runs_list") return { runs: [{ runId: "run-live" }] };
+      if (command === "worker_agent_run_runtime_state") {
+        return canonicalRuntimeState("run-live", approved ? "completed" : "running");
+      }
+      if (command === "worker_resolve_thread_approval") {
+        approved = true;
+        return { approvalResult: { approved: true, status: "approved" } };
+      }
+      return {};
+    });
+    const services = createDesktopAppServices();
+    await services.sessionStore.list();
+
+    await expect(services.chatStore.load("thread-1")).resolves.toMatchObject({
+      turns: [expect.objectContaining({ status: "running" })],
+    });
+
+    await services.chatStore.dispatch(createTinyOsApprovalResolveCommand({
+      action: "approveOnce",
+      approvalId: "approval-1",
+      commandId: "command-approval-1",
+      runId: "run-live",
+      sessionId: "thread-1",
+      source: { control: "test", surface: "chat" },
+      threadId: "thread-1",
+      turnId: "run-live",
+    }));
+
+    await expect(services.chatStore.load("thread-1")).resolves.toMatchObject({
+      turns: [expect.objectContaining({ status: "completed" })],
     });
   });
 

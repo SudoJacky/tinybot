@@ -65,9 +65,25 @@ webview2-com = "=0.38.2"
 windows = "0.61"
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
+  "Win32_Globalization",
   "Win32_Security",
   "Win32_Security_Authorization",
   "Win32_System_JobObjects",
   "Win32_System_Pipes",
   "Win32_System_Threading",
 ] }
+
+[profile.dev]
+debug = 1
+codegen-units = 64
+
+[profile.dev.package."*"]
+debug = 0
+
+[profile.test]
+incremental = false
+debug = 1
+codegen-units = 32
+
+[profile.test.package."*"]
+debug = 0
