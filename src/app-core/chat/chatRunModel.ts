@@ -1193,10 +1193,12 @@ function applyTurnItemToTurn(turn: ChatTurn, item: BackendAgentTurnItem): void {
     return;
   }
   if (item.kind === "usage") {
+    const providerUsage = normalizeUsage(payload.providerPayload);
     turn.usage = {
-      promptTokens: numberValue(payload.inputTokens),
-      completionTokens: numberValue(payload.outputTokens),
-      totalTokens: numberValue(payload.totalTokens),
+      ...(providerUsage ?? {}),
+      promptTokens: numberValue(payload.inputTokens) ?? providerUsage?.promptTokens,
+      completionTokens: numberValue(payload.outputTokens) ?? providerUsage?.completionTokens,
+      totalTokens: numberValue(payload.totalTokens) ?? providerUsage?.totalTokens,
     };
     return;
   }

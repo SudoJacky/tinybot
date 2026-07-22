@@ -524,7 +524,12 @@ describe("canonical agent timeline model", () => {
         inputTokens: 100,
         outputTokens: 25,
         totalTokens: 125,
-        providerPayload: {},
+        providerPayload: {
+          contextWindowRemainingTokens: 127875,
+          contextWindowTokens: 128000,
+          contextWindowUsedTokens: 125,
+          percent: 0.09765625,
+        },
       }),
       canonicalItem("assistant-1", 12, 1, "assistant_message", "completed", {
         type: "assistant_message",
@@ -563,7 +568,15 @@ describe("canonical agent timeline model", () => {
       status: "completed",
       userMessage: { clientEventId: "client-message-1", id: "user-1" },
       finalAnswer: { id: "assistant-1", text: "Acceptance complete" },
-      usage: { promptTokens: 100, completionTokens: 25, totalTokens: 125 },
+      usage: {
+        promptTokens: 100,
+        completionTokens: 25,
+        totalTokens: 125,
+        contextWindowRemainingTokens: 127875,
+        contextWindowTokens: 128000,
+        contextWindowUsedTokens: 125,
+        percent: 0.09765625,
+      },
     });
     expect(live.turns[0].steps.map((step) => [step.id, step.status])).toEqual([
       ["reasoning-1", "completed"],
