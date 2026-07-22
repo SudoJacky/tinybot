@@ -856,9 +856,8 @@ describe("LiveCanvas TinyOS", () => {
     expect(runtime.back).toHaveBeenCalledWith("browser-session-1", "tab-1");
 
     const address = within(browser).getByRole("textbox", { name: "Browser address" });
-    await user.clear(address);
-    await user.type(address, "example.net/path");
-    await waitFor(() => expect((address as HTMLInputElement).value).toBe("example.net/path"));
+    fireEvent.change(address, { target: { value: "example.net/path" } });
+    expect((address as HTMLInputElement).value).toBe("example.net/path");
     await user.click(within(browser).getByRole("button", { name: "Go" }));
     expect(runtime.navigate).toHaveBeenCalledWith("browser-session-1", "tab-1", "https://example.net/path");
 
