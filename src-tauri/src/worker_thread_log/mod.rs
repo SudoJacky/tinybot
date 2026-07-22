@@ -557,9 +557,10 @@ impl WorkerThreadLogRpc {
             .sort_by_key(|item| (!matches!(item.kind, ThreadItemKind::AgentRunStarted(_))) as u8);
         let mut lines = Vec::new();
         for item in pending_items {
+            let timestamp = canonicalize_thread_timestamp(&item.created_at)?;
             for rollout_item in thread_item_to_rollout_items(item)? {
                 lines.push(ThreadLogLine {
-                    timestamp: item.created_at.clone(),
+                    timestamp: timestamp.clone(),
                     ordinal: None,
                     item: rollout_item,
                 });
@@ -4797,6 +4798,74 @@ mod schema_tests {
                 .len(),
             initial_line_count + 1,
             "a changed thread record should append exactly one metadata snapshot"
+        );
+
+        drop(rpc);
+        std::fs::remove_dir_all(root).expect("test workspace should clean up");
+    }
+
+    #[test]
+    fn thread_item_timestamp_is_persisted_as_iso_8601() {
+        let root = std::env::temp_dir().join(format!(
+            "tinybot-thread-item-timestamp-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock should be after unix epoch")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).expect("test workspace should create");
+        let rpc = WorkerThreadLogRpc::new(
+            root.clone(),
+            CapabilityPolicy::new([WorkerCapability::SessionWrite]),
+        );
+        let thread = ThreadRecord {
+            thread_id: "thread-item-timestamp".to_string(),
+            title: "Timestamp".to_string(),
+            status: ThreadStatus::Idle,
+            session_key: Some("session-item-timestamp".to_string()),
+            root_run_id: None,
+            active_run_id: None,
+            parent_thread_id: None,
+            source: "test".to_string(),
+            created_at: "2026-07-22T08:49:40.228Z".to_string(),
+            updated_at: "2026-07-22T08:49:40.228Z".to_string(),
+            archived_at: None,
+            metadata: ThreadMetadata::default(),
+        };
+        rpc.create_from_thread_record(&thread)
+            .expect("thread record should persist");
+        rpc.append_thread_items(
+            &thread.thread_id,
+            &[ThreadItem {
+                item_id: "thread-runtime:thread-item-timestamp:run-1:user".to_string(),
+                thread_id: thread.thread_id.clone(),
+                run_id: Some("run-1".to_string()),
+                turn_id: Some("run-1".to_string()),
+                parent_item_id: None,
+                sequence: 1,
+                created_at: "1784710180728".to_string(),
+                kind: ThreadItemKind::UserMessage(serde_json::json!({
+                    "content": "hello",
+                    "role": "user"
+                })),
+            }],
+        )
+        .expect("thread item should persist");
+
+        let record = rpc
+            .state
+            .find_by_session_or_thread_id(&thread.thread_id)
+            .expect("thread lookup should succeed")
+            .expect("thread should be indexed");
+        let lines = read_thread_lines(Path::new(&record.thread_path))
+            .expect("Rollout should read after thread item append");
+        assert_eq!(
+            lines
+                .last()
+                .expect("thread item line should exist")
+                .timestamp,
+            "2026-07-22T08:49:40.728Z"
         );
 
         drop(rpc);
