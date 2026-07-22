@@ -13,6 +13,14 @@ import { createTinyOsAgentCancelCommand } from "../../app-core/chat/tinyOsComman
 import type { TinyOsEffectiveCapabilities } from "../../app-core/chat/tinyOsCapabilities";
 import { timelineFromReactMessages } from "./testTimelineFixtures";
 
+const nativeFilePickerMocks = vi.hoisted(() => ({
+  pickDesktopChatFiles: vi.fn(),
+}));
+
+vi.mock("../../app-core/native/desktopNativeFilePicker", () => ({
+  pickDesktopChatFiles: nativeFilePickerMocks.pickDesktopChatFiles,
+}));
+
 afterEach(() => {
   cleanup();
   document.head.querySelectorAll("[data-test-style='workbench']").forEach((element) => element.remove());
@@ -530,6 +538,87 @@ describe("ChatPage", () => {
     const dialog = within(canvas).getByRole("dialog", { name: "TinyOS approval request" });
     expect(within(dialog).getByRole("button", { name: "Approve once" })).toBeTruthy();
     expect(within(canvas).queryByLabelText("Historical TinyOS request")).toBeNull();
+  });
+
+  it("allows a second approval after the backend accepts the first decision", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Approval session",
+        updatedAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+        status: "waiting_approval",
+      }],
+    });
+    const timeline = timelineFromReactMessages("s1", [{
+      id: "u-consecutive-approvals",
+      role: "user",
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+      text: "Run two commands",
+      status: "complete",
+    }]);
+    const turn = timeline.turns[0];
+    const firstApproval = {
+      agentContext: { id: "main", title: "Tinybot", type: "main" } as const,
+      approval: { approvalId: "approval-1", riskLevel: "high" },
+      id: "approval-1",
+      kind: "approval" as const,
+      sequence: 1,
+      status: "awaiting_approval" as const,
+      summary: "Approval required: first command",
+      title: "Approval required: first command",
+    };
+    turn.status = "awaiting_approval";
+    turn.steps = [firstApproval];
+    turn.executionItems = turn.steps;
+    stores.chatStore.load = vi.fn(async () => timeline);
+    let listener: ((event: ChatEvent) => void) | undefined;
+    stores.chatStore.subscribe = vi.fn((_sessionId, nextListener) => {
+      listener = nextListener;
+      return () => undefined;
+    });
+    const dispatch = vi.fn(async (command) => {
+      listener?.({ commandId: command.commandId, type: "command.accepted" });
+    });
+    stores.chatStore.dispatch = dispatch;
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    await user.click(await screen.findByRole("button", { name: "Open details for Approval required: first command" }));
+    let dialog = within(screen.getByLabelText("TinyOS shared desktop")).getByRole("dialog", { name: "TinyOS approval request" });
+    await user.click(within(dialog).getByRole("button", { name: "Approve once" }));
+    expect(dispatch).toHaveBeenCalledTimes(1);
+
+    const secondApproval = {
+      ...firstApproval,
+      approval: { approvalId: "approval-2", riskLevel: "high" },
+      id: "approval-2",
+      sequence: 2,
+      summary: "Approval required: second command",
+      title: "Approval required: second command",
+    };
+    const nextTimeline = {
+      ...timeline,
+      turns: [{
+        ...turn,
+        executionItems: [firstApproval, secondApproval],
+        steps: [firstApproval, secondApproval],
+      }],
+    };
+    act(() => listener?.({ timeline: nextTimeline, type: "timeline.patch" }));
+
+    dialog = within(screen.getByLabelText("TinyOS shared desktop")).getByRole("dialog", { name: "TinyOS approval request" });
+    expect(within(dialog).getByText("Approval required: second command")).toBeTruthy();
+    const secondApprove = within(dialog).getByRole("button", { name: "Approve once" }) as HTMLButtonElement;
+    expect(secondApprove.disabled).toBe(false);
+    await user.click(secondApprove);
+
+    expect(dispatch).toHaveBeenCalledTimes(2);
+    expect(dispatch).toHaveBeenLastCalledWith(expect.objectContaining({
+      approval: expect.objectContaining({ approvalId: "approval-2" }),
+      kind: "approval.resolve",
+    }));
   });
 
   it("collapses and expands the session sidebar without losing session access", async () => {
@@ -2200,24 +2289,26 @@ describe("ChatPage", () => {
     expect((input as HTMLTextAreaElement).value).toBe("");
   });
 
-  it("sends selected text files as bounded turn attachments", async () => {
+  it("sends native file paths inside the final user text", async () => {
     const user = userEvent.setup();
     const stores = createStores();
+    nativeFilePickerMocks.pickDesktopChatFiles.mockResolvedValueOnce([{
+      name: "notes.md",
+      path: "C:\\Users\\tester\\notes.md",
+      mimeType: "text/markdown",
+      sizeBytes: 16,
+    }]);
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
-    const file = new File(["# Notes\nattached"], "notes.md", { type: "text/markdown" });
-    await user.upload(await screen.findByLabelText("File attachments"), file);
+    const input = await screen.findByRole("textbox", { name: /message/i });
+    await user.click(screen.getByRole("button", { name: "Attach files" }));
+    await waitFor(() => expect(nativeFilePickerMocks.pickDesktopChatFiles).toHaveBeenCalledTimes(1));
+    expect((input as HTMLTextAreaElement).value).toBe("");
+    await user.type(input, "Review this file");
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
     expectTurnSubmit(stores.chatStore, "s1", {
-      text: "Review the attached files.",
-      attachments: [{
-        type: "text",
-        name: "notes.md",
-        mimeType: "text/markdown",
-        sizeBytes: 16,
-        content: "# Notes\nattached",
-      }],
+      text: "# Files mentioned by the user:\n\n## notes.md: C:\\Users\\tester\\notes.md\n\n## My request for Tinybot:\nReview this file",
     });
   });
 

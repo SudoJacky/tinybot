@@ -17,7 +17,6 @@ import {
 } from "./agentTimelineModel";
 import { logDesktopNativeDebug, summarizeDebugText } from "../native/desktopNativeChatDebug";
 import type { NativeThreadTurnInput, NativeThreadTurnResult } from "../native/desktopNativeThreads";
-import type { DesktopChatAttachment } from "./desktopCommand";
 
 export interface DesktopChatSessionControllerApi {
   listSessions(): Promise<unknown>;
@@ -58,7 +57,6 @@ export type ChatDeleteSessionResult =
 export type ChatSubmitOptions = {
   model?: string;
   references?: NativeChatReference[];
-  attachments?: DesktopChatAttachment[];
   clientEventId?: string;
 };
 
@@ -324,8 +322,7 @@ export function createDesktopChatSessionController({
   }
 
   async function submitMessage(content: string, options: ChatSubmitOptions = {}): Promise<ChatSubmitResult> {
-    const trimmed = content.trim();
-    if (!trimmed) {
+    if (!content.trim()) {
       logDesktopNativeDebug("session.message.empty", summarizeSessionState());
       return { status: "empty" };
     }
@@ -333,19 +330,18 @@ export function createDesktopChatSessionController({
       throw new Error("Cannot submit a turn without an active Thread");
     }
     const clientEventId = options.clientEventId || createClientEventId();
-    const { attachments, model, references } = options;
+    const { model, references } = options;
     const runId = createRunId();
     const activeSession = state.sessions.find((session) => session.key === state.activeSessionKey);
     const threadId = activeSession?.threadId || state.activeSessionKey;
-    appendUserMessage(state, trimmed, now(), references);
+    appendUserMessage(state, content, now(), references);
     const request: NativeThreadTurnInput = {
       threadId,
       input: {
         role: "user",
-        content: trimmed,
+        content,
         clientEventId,
         ...(references?.length ? { references } : {}),
-        ...(attachments?.length ? { attachments } : {}),
       },
       spec: {
         runId,
@@ -397,18 +393,17 @@ export function createDesktopChatSessionController({
       });
     logDesktopNativeDebug("session.message.sent", {
       ...summarizeSessionState(),
-      content: summarizeDebugText(trimmed),
+      content: summarizeDebugText(content),
       model: model || "",
       runId,
       threadId,
-      attachmentCount: attachments?.length ?? 0,
     });
     return {
       status: "sent",
       sessionId,
       threadId,
       runId,
-      content: trimmed,
+      content,
       clientEventId,
       completion,
     };

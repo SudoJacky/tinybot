@@ -831,7 +831,8 @@ export function isTinyOsCommandPending(state: TinyOsCommandLifecycle): boolean {
 }
 
 export function isTinyOsCommandInFlight(state: TinyOsCommandLifecycle): boolean {
-  return isTinyOsCommandPending(state) || state.stage === "acknowledged";
+  return isTinyOsCommandPending(state)
+    || (state.stage === "acknowledged" && state.command.kind !== "approval.resolve");
 }
 
 function createTinyOsCommandId(): string {

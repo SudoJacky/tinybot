@@ -136,27 +136,6 @@ pub(super) fn default_tool_contributors() -> Vec<Arc<dyn ToolContributor>> {
 pub(super) fn workspace_tool_entries() -> Vec<ToolRegistryEntry> {
     vec![
         tool(
-            "workspace.read_file",
-            "workspace",
-            "Read workspace file",
-            "Read a file under the current workspace.",
-            ToolExposure::Model,
-            false,
-            runtime_policy(true, ToolCancellationMode::Cooperative, false, false),
-            vec![WorkerCapability::FsWorkspaceRead],
-            approval(false, None, None),
-            json!({
-                "type": "object",
-                "required": ["path"],
-                "properties": {
-                    "path": { "type": "string" },
-                    "offset": { "type": "integer" },
-                    "limit": { "type": "integer" },
-                    "format": { "type": "string" }
-                }
-            }),
-        ),
-        tool(
             "workspace.write_file",
             "workspace",
             "Write workspace file",

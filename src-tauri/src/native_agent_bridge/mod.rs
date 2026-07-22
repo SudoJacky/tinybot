@@ -1,5 +1,4 @@
 mod agent_flow;
-mod attachments;
 mod context_checkpoint;
 mod history;
 mod persistence;
@@ -10,10 +9,6 @@ mod trace_sink;
 mod webui_continuation;
 
 pub(crate) use agent_flow::run_agent_with_services;
-pub(crate) use attachments::{
-    cleanup_turn_attachments, materialize_turn_attachments, turn_result_needs_attachment_files,
-    TurnAttachmentLease,
-};
 pub(crate) use context_checkpoint::native_agent_context_checkpoint_committer;
 pub(crate) use history::{
     hydrate_native_agent_history_for_runtime, native_agent_current_user_message,

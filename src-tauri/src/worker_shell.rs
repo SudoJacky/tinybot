@@ -119,15 +119,6 @@ impl WorkerShellRpc {
                 .unwrap_or(PermissionNetworkMode::Unrestricted),
             params.tty.unwrap_or(false),
         )?;
-        if let Some(reason) = guard_command(&params.command, &working_dir, &self.workspace_root) {
-            return Err(shell_error(
-                "shell command blocked by safety guard",
-                serde_json::json!({
-                    "blocked": true,
-                    "reason": reason,
-                }),
-            ));
-        }
         if is_cancelled(&params.cancellation) {
             return Err(shell_error(
                 "shell process start was cancelled",
@@ -253,21 +244,6 @@ impl WorkerShellRpc {
                 .unwrap_or(PermissionNetworkMode::Unrestricted),
             false,
         )?;
-        if let Some(reason) = guard_command(&params.command, &working_dir, &self.workspace_root) {
-            return Ok(ShellExecuteResult {
-                stdout: String::new(),
-                stderr: reason.clone(),
-                exit_code: 1,
-                timed_out: false,
-                cancelled: false,
-                blocked: true,
-                truncated: false,
-                content: reason,
-                sandbox_mode: sandbox.sandbox_label.to_string(),
-                network_mode: sandbox.network_label.to_string(),
-                approval_decision: approval_decision.to_string(),
-            });
-        }
         if is_cancelled(&params.cancellation) {
             return Ok(cancelled_shell_result(
                 String::new(),
@@ -730,77 +706,6 @@ fn shell_command(command: &str) -> Command {
     }
 }
 
-fn guard_command(command: &str, working_dir: &Path, workspace_root: &Path) -> Option<String> {
-    let lower = command.trim().to_ascii_lowercase();
-    if lower.contains("rm -rf node_modules")
-        || lower.contains("rm -rf dist")
-        || lower.contains("rm -rf build")
-        || lower.contains("rm -rf target")
-    {
-        return None;
-    }
-    let denied = [
-        "rm -rf", "rm -fr", "del /f", "del /q", "rmdir /s", "shred", "mkfs", "diskpart",
-        "shutdown", "reboot", "poweroff", "format ", "format\t", "format\n", "sudo rm", "sudo dd",
-    ];
-    if denied.iter().any(|pattern| lower.contains(pattern)) || lower.starts_with("format") {
-        return Some(
-            "Error: Command blocked by safety guard (dangerous pattern detected)".to_string(),
-        );
-    }
-    if lower.contains("../") || lower.contains("..\\") {
-        return Some(
-            "Error: Command blocked by safety guard (path traversal detected)".to_string(),
-        );
-    }
-    if contains_private_url(&lower) {
-        return Some(
-            "Error: Command blocked by safety guard (internal/private URL detected)".to_string(),
-        );
-    }
-    if contains_absolute_path_outside_workspace(command, working_dir, workspace_root) {
-        return Some(
-            "Error: Command blocked by safety guard (path outside working dir)".to_string(),
-        );
-    }
-    None
-}
-
-fn contains_private_url(command: &str) -> bool {
-    [
-        "127.0.0.1",
-        "localhost",
-        "0.0.0.0",
-        "10.",
-        "192.168.",
-        "169.254.",
-    ]
-    .iter()
-    .any(|needle| command.contains(needle))
-}
-
-fn contains_absolute_path_outside_workspace(
-    command: &str,
-    working_dir: &Path,
-    workspace_root: &Path,
-) -> bool {
-    let root = workspace_root
-        .canonicalize()
-        .unwrap_or_else(|_| workspace_root.to_path_buf());
-    let cwd = working_dir
-        .canonicalize()
-        .unwrap_or_else(|_| working_dir.to_path_buf());
-    command.split_whitespace().any(|token| {
-        let cleaned = token.trim_matches(|ch| ch == '"' || ch == '\'' || ch == ';' || ch == '|');
-        let path = PathBuf::from(cleaned);
-        if !path.is_absolute() {
-            return false;
-        }
-        let resolved = path.canonicalize().unwrap_or(path);
-        !resolved.starts_with(&cwd) && !resolved.starts_with(&root)
-    })
-}
-
 fn is_cancelled(cancellation: &Option<Arc<dyn WorkerRequestCancellation>>) -> bool {
     cancellation
         .as_ref()
@@ -896,6 +801,47 @@ mod tests {
         Arc,
     };
     use std::time::Duration;
+
+    #[test]
+    fn start_allows_approved_absolute_path_outside_workspace() {
+        let workspace = ShellFixture::new();
+        let mentioned_file = ShellFixture::new();
+        let file_path = mentioned_file.root.join("RAG.md");
+        std::fs::write(&file_path, "external document").expect("fixture file should write");
+        let command = if cfg!(target_os = "windows") {
+            format!("type \"{}\"", file_path.display())
+        } else {
+            format!("cat '{}'", file_path.display())
+        };
+        let rpc = WorkerShellRpc::new(
+            workspace.root.clone(),
+            CapabilityPolicy::new([WorkerCapability::ShellExecute]),
+        );
+
+        let result = rpc
+            .start_with_approval_decision(
+                ShellStartParams {
+                    command,
+                    working_dir: Some(".".to_string()),
+                    restrict_to_workspace: Some(true),
+                    tty: Some(false),
+                    yield_time_ms: Some(10_000),
+                    rows: None,
+                    cols: None,
+                    sandbox_mode: Some(ShellSandboxMode::Unsandboxed),
+                    network_mode: Some(PermissionNetworkMode::Unrestricted),
+                    run_id: Some("run-external-read".to_string()),
+                    tool_call_id: Some("call-external-read".to_string()),
+                    cancellation: None,
+                },
+                "approved",
+            )
+            .expect("approved shell command should read an absolute mentioned-file path");
+
+        assert!(!result.running, "{result:?}");
+        assert_eq!(result.exit_code, Some(0), "{result:?}");
+        assert!(result.stdout.contains("external document"), "{result:?}");
+    }
 
     #[test]
     fn execute_drains_large_output_while_command_is_running() {

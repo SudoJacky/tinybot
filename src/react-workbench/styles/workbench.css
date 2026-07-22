@@ -4868,14 +4868,6 @@ button.tinyos-overlay-backdrop:focus-visible {
   gap: 6px;
 }
 
-.claude-ai-input__file-input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-}
-
 .claude-ai-input__icon-button,
 .claude-ai-input__send {
   display: inline-grid;

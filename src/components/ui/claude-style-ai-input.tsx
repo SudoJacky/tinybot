@@ -1,6 +1,6 @@
 "use client";
 
-import type { ChangeEvent, ClipboardEvent, FormEvent, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import type { ClipboardEvent, FormEvent, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { TokenUsage } from "../../app-core/chat/chatRunModel";
 import {
@@ -21,16 +21,15 @@ import {
   X,
 } from "lucide-react";
 
-export interface FileWithPreview {
+export interface ComposerFileReference {
   id: string;
-  file: File;
-  preview?: string;
-  type: string;
-  uploadStatus: "pending" | "uploading" | "complete" | "error";
-  uploadProgress?: number;
-  abortController?: AbortController;
-  textContent?: string;
+  name: string;
+  path: string;
+  mimeType: string;
+  sizeBytes: number;
 }
+
+export type ComposerFileSelection = Omit<ComposerFileReference, "id">;
 
 export interface PastedContent {
   id: string;
@@ -70,7 +69,7 @@ export interface ClaudeStyleAiInputProps {
   contextReferences?: ComposerContextReference[];
   onSendMessage?: (
     message: string,
-    files: FileWithPreview[],
+    files: ComposerFileReference[],
     pastedContent: PastedContent[],
     options: ComposerSendOptions,
   ) => void | Promise<void>;
@@ -78,8 +77,7 @@ export interface ClaudeStyleAiInputProps {
   disabledReason?: string;
   placeholder?: string;
   maxFiles?: number;
-  maxFileSize?: number;
-  acceptedFileTypes?: string[];
+  onSelectFiles?: () => Promise<ComposerFileSelection[]>;
   models?: ModelOption[];
   defaultModel?: string;
   onModelChange?: (modelId: string) => void;
@@ -96,7 +94,6 @@ export interface ClaudeStyleAiInputProps {
 }
 
 const MAX_FILES = 10;
-const MAX_FILE_SIZE = 50 * 1024 * 1024;
 const PASTE_THRESHOLD = 200;
 const EMPTY_MODELS: ModelOption[] = [];
 const EMPTY_TOOLS: ComposerToolOption[] = [];
@@ -109,7 +106,6 @@ function nextInputId(prefix: string): string {
 }
 
 export function ClaudeStyleAiInput({
-  acceptedFileTypes = [],
   canStopResponding = true,
   className,
   contextReferences = [],
@@ -117,12 +113,12 @@ export function ClaudeStyleAiInput({
   defaultModel,
   disabled = false,
   disabledReason,
-  maxFileSize = MAX_FILE_SIZE,
   maxFiles = MAX_FILES,
   models = EMPTY_MODELS,
   onModelChange,
   onClearContextReferences,
   onRemoveContextReference,
+  onSelectFiles,
   onSendMessage,
   onStopResponding,
   onValueChange,
@@ -132,12 +128,11 @@ export function ClaudeStyleAiInput({
   tools = EMPTY_TOOLS,
   value,
 }: ClaudeStyleAiInputProps) {
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
   const toolMenuRef = useRef<HTMLDivElement | null>(null);
   const [message, setMessage] = useState("");
-  const [files, setFiles] = useState<FileWithPreview[]>([]);
+  const [files, setFiles] = useState<ComposerFileReference[]>([]);
   const [pastedContent, setPastedContent] = useState<PastedContent[]>([]);
   const [selectedModelId, setSelectedModelId] = useState(defaultModel ?? models[0]?.id ?? "");
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
@@ -145,6 +140,7 @@ export function ClaudeStyleAiInput({
   const [enabledToolIds, setEnabledToolIds] = useState<string[]>(() => tools.filter((tool) => tool.enabled).map((tool) => tool.id));
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
+  const [selectingFiles, setSelectingFiles] = useState(false);
   const currentMessage = value ?? message;
   const selectedModel = useMemo(
     () => models.find((model) => model.id === selectedModelId) ?? models[0],
@@ -245,38 +241,32 @@ export function ClaudeStyleAiInput({
     ]);
   }
 
-  function handleFilesSelected(event: ChangeEvent<HTMLInputElement>) {
-    const selectedFiles = Array.from(event.currentTarget.files ?? []);
-    if (!selectedFiles.length) {
-      return;
-    }
+  async function handleSelectFiles() {
     setError("");
-    setFiles((current) => {
-      const remainingSlots = Math.max(0, maxFiles - current.length);
-      const nextFiles: FileWithPreview[] = [];
-      for (const file of selectedFiles.slice(0, remainingSlots)) {
-        if (file.size > maxFileSize) {
-          setError(`${file.name} is larger than ${formatFileSize(maxFileSize)}.`);
-          continue;
-        }
-        if (!fileMatchesAcceptedTypes(file, acceptedFileTypes)) {
-          setError(`${file.name} is not an accepted file type.`);
-          continue;
-        }
-        nextFiles.push({
-          id: nextInputId("file"),
-          file,
-          type: file.type || inferTypeFromName(file.name),
-          uploadStatus: "complete",
-          uploadProgress: 100,
-        });
+    setSelectingFiles(true);
+    try {
+      const selectedFiles = await onSelectFiles?.() ?? [];
+      if (!selectedFiles.length) {
+        return;
       }
-      if (selectedFiles.length > remainingSlots) {
-        setError(`Only ${maxFiles} files can be attached.`);
-      }
-      return [...current, ...nextFiles];
-    });
-    event.currentTarget.value = "";
+      setFiles((current) => {
+        const remainingSlots = Math.max(0, maxFiles - current.length);
+        if (selectedFiles.length > remainingSlots) {
+          setError(`Only ${maxFiles} files can be attached.`);
+        }
+        return [
+          ...current,
+          ...selectedFiles.slice(0, remainingSlots).map((file) => ({
+            ...file,
+            id: nextInputId("file"),
+          })),
+        ];
+      });
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Files could not be selected.");
+    } finally {
+      setSelectingFiles(false);
+    }
   }
 
   function removeFile(id: string) {
@@ -370,12 +360,12 @@ export function ClaudeStyleAiInput({
           ))}
           {files.map((item) => (
             <AttachmentChip
-              detail={`${getFileTypeLabel(item.type)} - ${formatFileSize(item.file.size)}`}
-              icon={getFileIcon(item.type)}
+              detail={`${getFileTypeLabel(item.mimeType)} - ${formatFileSize(item.sizeBytes)}`}
+              icon={getFileIcon(item.mimeType)}
               key={item.id}
-              label={item.file.name}
+              label={item.name}
               onRemove={() => removeFile(item.id)}
-              removeLabel={`Remove ${item.file.name}`}
+              removeLabel={`Remove ${item.name}`}
             />
           ))}
         </div>
@@ -401,22 +391,13 @@ export function ClaudeStyleAiInput({
 
         <div className="claude-ai-input__toolbar">
           <div className="claude-ai-input__tools">
-            <input
-              ref={fileInputRef}
-              aria-label="File attachments"
-              className="claude-ai-input__file-input"
-              multiple
-              type="file"
-              accept={acceptedFileTypes.join(",") || undefined}
-              onChange={handleFilesSelected}
-            />
             <button
               aria-label="Attach files"
               className="claude-ai-input__icon-button"
-              disabled={disabled || files.length >= maxFiles}
+              disabled={disabled || selectingFiles || files.length >= maxFiles || !onSelectFiles}
               title="Attach files"
               type="button"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => void handleSelectFiles()}
             >
               <Plus aria-hidden="true" size={18} />
             </button>
@@ -694,26 +675,4 @@ function getFileTypeLabel(type: string): string {
 
 function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
-}
-
-function inferTypeFromName(name: string): string {
-  const extension = name.split(".").pop()?.toLowerCase();
-  return extension ? `.${extension}` : "application/octet-stream";
-}
-
-function fileMatchesAcceptedTypes(file: File, acceptedFileTypes: string[]): boolean {
-  if (!acceptedFileTypes.length) {
-    return true;
-  }
-  const lowerName = file.name.toLowerCase();
-  return acceptedFileTypes.some((acceptedType) => {
-    const normalized = acceptedType.toLowerCase();
-    if (normalized.endsWith("/*")) {
-      return file.type.toLowerCase().startsWith(normalized.slice(0, -1));
-    }
-    if (normalized.startsWith(".")) {
-      return lowerName.endsWith(normalized);
-    }
-    return file.type.toLowerCase() === normalized;
-  });
 }

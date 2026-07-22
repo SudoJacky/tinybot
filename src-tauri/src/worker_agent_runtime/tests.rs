@@ -13,6 +13,59 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+fn test_registry_with_model_tools(methods: &[&str]) -> Vec<ToolRegistryEntry> {
+    let mut entries =
+        WorkerToolRegistryRpc::new(crate::worker_capability::default_desktop_capability_policy())
+            .list_tools()
+            .tools;
+
+    if methods.contains(&"workspace.read_file") {
+        entries.push(ToolRegistryEntry {
+            tool_id: "workspace.read_file".to_string(),
+            method: "workspace.read_file".to_string(),
+            namespace: "test".to_string(),
+            title: "Test read tool".to_string(),
+            description: "Test-only read tool for generic runtime behavior.".to_string(),
+            exposure: ToolExposure::Model,
+            dynamic: false,
+            supports_parallel_tool_calls: true,
+            runtime_policy: ToolRuntimePolicy {
+                supports_parallel_tool_calls: true,
+                cancellation_mode: ToolCancellationMode::Cooperative,
+                cleanup_timeout_ms: 100,
+                mutates_workspace: false,
+                mutates_session: false,
+            },
+            required_capabilities: vec![WorkerCapability::FsWorkspaceRead],
+            available: true,
+            approval: ToolApprovalMetadata {
+                required: false,
+                scope: None,
+                lifetime: None,
+            },
+            input_schema: json!({
+                "type": "object",
+                "required": ["path"],
+                "properties": { "path": { "type": "string" } }
+            }),
+            output_schema: json!({ "type": "object" }),
+            execution_target: ToolExecutionTarget::WorkerRpc {
+                method: "workspace.read_file".to_string(),
+            },
+        });
+    }
+
+    for entry in &mut entries {
+        if methods.contains(&entry.method.as_str()) {
+            entry.exposure = ToolExposure::Model;
+            entry.approval.required = false;
+            entry.approval.scope = None;
+            entry.approval.lifetime = None;
+        }
+    }
+    entries
+}
+
 fn test_registry_without_approval(methods: &[&str]) -> Vec<ToolRegistryEntry> {
     let mut entries =
         WorkerToolRegistryRpc::new(crate::worker_capability::default_desktop_capability_policy())
@@ -697,7 +750,7 @@ fn malformed_context_config_fails_before_provider_execution() {
 }
 
 #[test]
-fn chat_completion_request_injects_available_model_tools() {
+fn chat_completion_request_exposes_only_foundational_model_tools() {
     let mut context = NativeAgentRunContext::from_spec(
         json!({
             "runtime": "rust",
@@ -708,19 +761,31 @@ fn chat_completion_request_injects_available_model_tools() {
         }),
         json!({}),
     );
-    context.tool_router = NativeToolRouter::new(
-        WorkerToolRegistryRpc::new(CapabilityPolicy::new([
-            WorkerCapability::FsWorkspaceRead,
-            WorkerCapability::MemoryRead,
-            WorkerCapability::BackgroundRead,
-            WorkerCapability::BackgroundWrite,
-            WorkerCapability::SessionMetadataRead,
-            WorkerCapability::SessionWrite,
-            WorkerCapability::FormRequest,
-        ]))
-        .list_tools()
-        .tools,
-    );
+    let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
+        WorkerCapability::FsWorkspaceRead,
+        WorkerCapability::MemoryRead,
+        WorkerCapability::BackgroundRead,
+        WorkerCapability::BackgroundWrite,
+        WorkerCapability::SessionMetadataRead,
+        WorkerCapability::SessionWrite,
+        WorkerCapability::FormRequest,
+    ]));
+    for method in [
+        "memory.search",
+        "memory.recall",
+        "subagent.spawn",
+        "subagent.send_input",
+        "subagent.wait",
+        "subagent.close",
+        "subagent.resume",
+    ] {
+        assert_eq!(
+            registry.get_tool(method).unwrap().exposure,
+            ToolExposure::Deferred
+        );
+    }
+    assert!(registry.get_tool("workspace.read_file").is_none());
+    context.tool_router = NativeToolRouter::new(registry.list_tools().tools);
 
     let request = agent_chat_completion_request(&context)
         .expect("available model tools should produce a chat completion request");
@@ -734,13 +799,14 @@ fn chat_completion_request_injects_available_model_tools() {
 
     assert_eq!(request["tool_choice"], "auto");
     assert!(request.get("parallel_tool_calls").is_none());
-    assert!(names.contains(&"workspace_read_file"));
-    assert!(names.contains(&"memory_search"));
-    assert!(names.contains(&"memory_recall"));
-    assert!(names.contains(&"subagent_spawn"));
-    assert!(names.contains(&"subagent_send_input"));
+    assert!(names.contains(&"update_plan"));
     assert!(names.contains(&"tool_search"));
     assert!(names.contains(&"request_user_input"));
+    assert!(!names.contains(&"workspace_read_file"));
+    assert!(!names.contains(&"memory_search"));
+    assert!(!names.contains(&"memory_recall"));
+    assert!(!names.contains(&"subagent_spawn"));
+    assert!(!names.contains(&"subagent_send_input"));
     assert!(!names.contains(&"workspace_write_file"));
     assert!(!names.contains(&"workspace_delete_file"));
     assert!(!names.contains(&"mcp_call_tool"));
@@ -749,27 +815,11 @@ fn chat_completion_request_injects_available_model_tools() {
         .chars()
         .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))));
     assert_eq!(tools[0]["type"], "function");
-    assert_eq!(
-        tools
-            .iter()
-            .find(|tool| tool["function"]["name"] == "workspace_read_file")
-            .expect("workspace_read_file spec should be present")["function"]["parameters"],
-        json!({
-            "type": "object",
-            "required": ["path"],
-            "properties": {
-                "path": { "type": "string" },
-                "offset": { "type": "integer" },
-                "limit": { "type": "integer" },
-                "format": { "type": "string" }
-            }
-        })
-    );
 }
 
 #[cfg(all(windows, feature = "native-browser-runtime"))]
 #[test]
-fn feature_build_exposes_shared_browser_observation_but_defers_interaction() {
+fn feature_build_defers_browser_tools_until_searched() {
     let context = NativeAgentRunContext::from_spec(
         json!({
             "runtime": "rust",
@@ -782,7 +832,7 @@ fn feature_build_exposes_shared_browser_observation_but_defers_interaction() {
     );
 
     let request = agent_chat_completion_request(&context)
-        .expect("feature build should expose the shared browser observation tool");
+        .expect("feature build should expose foundational tools");
     let names = request["tools"]
         .as_array()
         .unwrap()
@@ -790,7 +840,7 @@ fn feature_build_exposes_shared_browser_observation_but_defers_interaction() {
         .filter_map(|tool| tool["function"]["name"].as_str())
         .collect::<Vec<_>>();
 
-    assert!(names.contains(&"browser_observe"));
+    assert!(!names.contains(&"browser_observe"));
     assert!(!names.contains(&"browser_interact"));
     assert!(names.contains(&"tool_search"));
 }
@@ -1161,7 +1211,8 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
         Arc::new(FakeNativeAgentToolDispatcher),
         Arc::new(InMemoryNativeAgentCheckpointStore::default()),
         Arc::new(InMemoryNativeAgentCancellation::default()),
-    );
+    )
+    .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"]));
 
     let waiting = run_native_agent_turn_with_config(
         &services,
@@ -1747,20 +1798,16 @@ fn duplicate_deferred_tool_activation_fails_without_partial_state() {
 
 #[test]
 fn provider_tool_name_collisions_fail_before_request_dispatch() {
-    let registry =
-        WorkerToolRegistryRpc::new(CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]));
+    let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::default());
     for (method, expected_error) in [
         ("tool.search", "provider tool name collision"),
         ("tool_search", "duplicate tool method"),
     ] {
-        let mut read_file = registry
-            .get_tool("workspace.read_file")
-            .expect("read tool should be registered");
-        read_file.tool_id = method.to_string();
-        read_file.method = method.to_string();
-        read_file.execution_target = ToolExecutionTarget::WorkerRpc {
-            method: method.to_string(),
-        };
+        let mut duplicate = registry
+            .get_tool("update_plan")
+            .expect("update_plan should be registered");
+        duplicate.tool_id = method.to_string();
+        duplicate.method = method.to_string();
         let mut context = NativeAgentRunContext::from_spec(
             json!({
                 "messages": [{ "role": "user", "content": "test collision" }]
@@ -1768,8 +1815,8 @@ fn provider_tool_name_collisions_fail_before_request_dispatch() {
             json!({}),
         );
         let mut entries = registry.list_tools().tools;
-        entries.retain(|entry| entry.method != "workspace.read_file");
-        entries.push(read_file);
+        entries.retain(|entry| entry.method != "update_plan");
+        entries.push(duplicate);
         context.tool_router = NativeToolRouter::new(entries);
 
         let error = agent_chat_completion_request(&context)
@@ -1919,6 +1966,7 @@ fn approval_gates_the_original_batch_and_injects_all_results_before_the_next_mod
         Arc::new(InMemoryNativeAgentCheckpointStore::default()),
         Arc::new(InMemoryNativeAgentCancellation::default()),
     )
+    .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"]))
     .with_trace_sink(trace_sink.clone());
     let run_services = services.clone();
     let run = thread::spawn(move || {
@@ -2094,6 +2142,10 @@ fn chat_completion_request_enables_parallel_tool_calls_only_when_explicitly_requ
         .list_tools()
         .tools,
     );
+    context
+        .tool_router
+        .activate_for_turn(&["memory.search".to_string()])
+        .expect("parallel memory search tool should activate");
 
     let enabled_request = agent_chat_completion_request(&context)
         .expect("explicit parallel tool request should build");
@@ -2206,15 +2258,19 @@ fn provider_tool_call_names_restore_internal_registry_methods() {
             "runId": "run-provider-tool-name",
             "sessionId": "websocket:chat-provider-tool-name",
             "model": "fixture-model",
-            "messages": [{ "role": "user", "content": "read README" }]
+            "messages": [{ "role": "user", "content": "search memory" }]
         }),
         json!({}),
     );
     context.tool_router = NativeToolRouter::new(
-        WorkerToolRegistryRpc::new(CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]))
+        WorkerToolRegistryRpc::new(CapabilityPolicy::new([WorkerCapability::MemoryRead]))
             .list_tools()
             .tools,
     );
+    context
+        .tool_router
+        .activate_for_turn(&["memory.search".to_string()])
+        .expect("memory search tool should activate");
     let completion = json!({
         "choices": [{
             "message": {
@@ -2222,8 +2278,8 @@ fn provider_tool_call_names_restore_internal_registry_methods() {
                     "id": "call-read",
                     "type": "function",
                     "function": {
-                        "name": "workspace_read_file",
-                        "arguments": "{\"path\":\"README.md\"}"
+                        "name": "memory_search",
+                        "arguments": "{\"query\":\"README\"}"
                     }
                 }]
             }
@@ -2234,8 +2290,8 @@ fn provider_tool_call_names_restore_internal_registry_methods() {
         .expect("provider tool names should resolve");
 
     assert_eq!(tool_calls.len(), 1);
-    assert_eq!(tool_calls[0].name, "workspace.read_file");
-    assert_eq!(tool_calls[0].arguments_json, "{\"path\":\"README.md\"}");
+    assert_eq!(tool_calls[0].name, "memory.search");
+    assert_eq!(tool_calls[0].arguments_json, "{\"query\":\"README\"}");
     assert!(tool_calls[0].result.is_null());
 }
 
@@ -2414,8 +2470,8 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
             "runtime": "rust",
             "runId": "run-selected-tools",
             "sessionId": "session-selected-tools",
-            "selectedTools": ["workspace.read_file"],
-            "messages": [{ "role": "user", "content": "read one file" }]
+            "selectedTools": ["memory.search"],
+            "messages": [{ "role": "user", "content": "search memory" }]
         }),
     )
     .expect("selected tool should configure the final provider registry");
@@ -2452,11 +2508,11 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
     assert_eq!(captured.len(), 3);
     assert_eq!(captured[0].len(), 2);
     assert_eq!(captured[0][0]["function"]["name"], "update_plan");
-    assert_eq!(captured[0][1]["function"]["name"], "workspace_read_file");
+    assert_eq!(captured[0][1]["function"]["name"], "memory_search");
     assert!(captured[1]
         .iter()
         .any(|tool| tool["function"]["name"] == "update_plan"));
-    assert!(activated[0].is_empty());
+    assert_eq!(activated[0], vec!["memory.search"]);
     assert!(captured[1]
         .iter()
         .any(|tool| tool["function"]["name"] == "apply_patch"));
@@ -3379,7 +3435,7 @@ fn compacted_context_becomes_the_next_tool_iteration_baseline() {
             contexts: contexts.clone(),
         }),
         tools: Arc::new(ReadDispatcher),
-        test_tool_registry_entries: Some(test_registry_without_approval(&["workspace.read_file"])),
+        test_tool_registry_entries: Some(test_registry_with_model_tools(&["workspace.read_file"])),
         ..NativeAgentRuntimeServices::default()
     };
     let result = run_native_agent_turn_with_config(
@@ -3674,7 +3730,8 @@ fn emits_user_visible_status_events_without_legacy_event_projection() {
 
 #[test]
 fn runs_fixture_tool_event_sequence() {
-    let services = NativeAgentRuntimeServices::default();
+    let services = NativeAgentRuntimeServices::default()
+        .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"]));
     let result = run_native_agent_turn_with_config(
         &services,
         json!({
@@ -3797,7 +3854,8 @@ fn feeds_tool_observation_back_into_second_provider_call() {
         Arc::new(FakeNativeAgentToolDispatcher),
         Arc::new(InMemoryNativeAgentCheckpointStore::default()),
         Arc::new(InMemoryNativeAgentCancellation::default()),
-    );
+    )
+    .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"]));
 
     let result = run_native_agent_turn_with_services(
         &services,
@@ -3831,7 +3889,7 @@ fn feeds_tool_observation_back_into_second_provider_call() {
 }
 
 #[test]
-fn registry_model_tool_calls_are_permitted_by_runtime_dispatch() {
+fn selected_deferred_tool_calls_are_permitted_by_runtime_dispatch() {
     struct MemorySearchProvider {
         calls: Mutex<usize>,
     }
@@ -3884,6 +3942,7 @@ fn registry_model_tool_calls_are_permitted_by_runtime_dispatch() {
             "runId": "run-memory-search-tool",
             "sessionId": "websocket:chat-memory-search-tool",
             "maxIterations": 2,
+            "selectedTools": ["memory.search"],
             "messages": [{ "role": "user", "content": "search memory" }]
         }),
     )
@@ -3970,7 +4029,8 @@ fn tool_runtime_dispatches_through_async_dispatch_seam() {
             dispatcher.clone(),
             Arc::new(InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(InMemoryNativeAgentCancellation::default()),
-        ),
+        )
+        .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"])),
         json!({
             "runtime": "rust",
             "runId": "run-async-dispatch-seam",
@@ -4005,10 +4065,7 @@ fn registry_marks_only_read_only_model_tools_as_parallel_safe() {
         .map(|tool| tool.method.clone())
         .collect::<Vec<_>>();
 
-    assert_eq!(
-        parallel_methods,
-        vec!["workspace.read_file", "memory.search", "memory.recall"]
-    );
+    assert_eq!(parallel_methods, vec!["memory.search", "memory.recall"]);
     assert!(
         !tools
             .iter()
@@ -4045,10 +4102,9 @@ fn registry_exposes_runtime_policy_for_cancellation_and_mutation_classification(
         WorkerCapability::SessionWrite,
     ]));
     let tools = registry.list_tools().tools;
-    let read_file = tools
+    assert!(tools
         .iter()
-        .find(|tool| tool.method == "workspace.read_file")
-        .expect("workspace.read_file should be registered");
+        .all(|tool| tool.method != "workspace.read_file"));
     let write_file = tools
         .iter()
         .find(|tool| tool.method == "workspace.write_file")
@@ -4061,16 +4117,6 @@ fn registry_exposes_runtime_policy_for_cancellation_and_mutation_classification(
         .iter()
         .find(|tool| tool.method == "subagent.spawn")
         .expect("subagent.spawn should be registered");
-
-    assert!(read_file.runtime_policy.supports_parallel_tool_calls);
-    assert!(!read_file.runtime_policy.waits_for_runtime_cancellation());
-    assert_eq!(
-        read_file.runtime_policy.cancellation_mode,
-        ToolCancellationMode::Cooperative
-    );
-    assert_eq!(read_file.runtime_policy.cleanup_timeout_ms, 100);
-    assert!(!read_file.runtime_policy.mutates_workspace);
-    assert!(!read_file.runtime_policy.mutates_session);
 
     assert!(!write_file.runtime_policy.supports_parallel_tool_calls);
     assert!(write_file.runtime_policy.waits_for_runtime_cancellation());
@@ -4194,7 +4240,11 @@ fn read_only_tool_batch_runs_concurrently_and_preserves_model_ordered_observatio
             dispatcher.clone(),
             Arc::new(InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(InMemoryNativeAgentCancellation::default()),
-        ),
+        )
+        .with_test_tool_registry_entries(test_registry_with_model_tools(&[
+            "workspace.read_file",
+            "memory.search",
+        ])),
         json!({
             "runtime": "rust",
             "runId": "run-read-only-parallel-tools",
@@ -4434,7 +4484,7 @@ fn shell_read_only_allowlist_uses_read_lock_only_when_explicitly_enabled() {
             Arc::new(InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(InMemoryNativeAgentCancellation::default()),
         )
-        .with_test_tool_registry_entries(test_registry_without_approval(&["exec_command"])),
+        .with_test_tool_registry_entries(test_registry_with_model_tools(&["exec_command"])),
         json!({
             "runtime": "rust",
             "runId": "run-shell-read-allowlist",
@@ -4518,7 +4568,11 @@ fn parallel_tool_failures_use_model_order_for_the_single_terminal_error() {
             Arc::new(FailingParallelDispatcher),
             Arc::new(InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(InMemoryNativeAgentCancellation::default()),
-        ),
+        )
+        .with_test_tool_registry_entries(test_registry_with_model_tools(&[
+            "workspace.read_file",
+            "memory.search",
+        ])),
         json!({
             "runtime": "rust",
             "runId": "run-two-parallel-failures",
@@ -4730,7 +4784,12 @@ fn mixed_parallel_and_non_parallel_tool_batch_uses_read_write_lock_scheduling() 
             checkpoints.clone(),
             Arc::new(InMemoryNativeAgentCancellation::default()),
         )
-        .with_test_tool_registry_entries(test_registry_without_approval(&["exec_command"])),
+        .with_test_tool_registry_entries(test_registry_with_model_tools(&[
+            "workspace.read_file",
+            "memory.search",
+            "exec_command",
+            "memory.recall",
+        ])),
         json!({
             "runtime": "rust",
             "runId": "run-mixed-tool-batch",
@@ -4913,7 +4972,10 @@ fn cancellation_before_queued_write_lock_dispatch_skips_waiting_tool() {
             Arc::new(InMemoryNativeAgentCheckpointStore::default()),
             cancellations,
         )
-        .with_test_tool_registry_entries(test_registry_without_approval(&["exec_command"])),
+        .with_test_tool_registry_entries(test_registry_with_model_tools(&[
+            "workspace.read_file",
+            "exec_command",
+        ])),
         json!({
             "runtime": "rust",
             "runId": "run-cancel-queued-write",
@@ -4998,7 +5060,7 @@ fn terminal_failure_before_queued_write_dispatch_skips_waiting_tool() {
             Arc::new(InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(InMemoryNativeAgentCancellation::default()),
         )
-        .with_test_tool_registry_entries(test_registry_without_approval(&["exec_command"])),
+        .with_test_tool_registry_entries(test_registry_with_model_tools(&["exec_command"])),
         json!({
             "runtime": "rust",
             "runId": "run-failed-queued-write",
@@ -5104,6 +5166,10 @@ fn cancellation_during_non_cleanup_parallel_tool_returns_without_waiting_for_lat
                 Arc::new(InMemoryNativeAgentCheckpointStore::default()),
                 cancellations,
             )
+            .with_test_tool_registry_entries(test_registry_with_model_tools(&[
+                "workspace.read_file",
+                "memory.search",
+            ]))
             .with_trace_sink(trace_sink),
             json!({
                 "runtime": "rust",
@@ -5195,7 +5261,8 @@ fn provider_error_after_tool_result_preserves_accumulated_tool_state() {
         Arc::new(FakeNativeAgentToolDispatcher),
         Arc::new(InMemoryNativeAgentCheckpointStore::default()),
         Arc::new(InMemoryNativeAgentCancellation::default()),
-    );
+    )
+    .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"]));
     let result = run_native_agent_turn_with_services(
         &services,
         json!({
@@ -5231,7 +5298,8 @@ fn provider_error_after_tool_result_preserves_accumulated_tool_state() {
 
 #[test]
 fn emits_tool_result_envelope_with_legacy_content_projection() {
-    let services = NativeAgentRuntimeServices::default();
+    let services = NativeAgentRuntimeServices::default()
+        .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"]));
     let result = run_native_agent_turn_with_config(
         &services,
         json!({
@@ -5305,7 +5373,14 @@ fn emits_tool_result_envelope_with_legacy_content_projection() {
 
 #[test]
 fn subagent_tools_share_manager_state_without_copying_child_transcript_to_parent() {
-    let services = NativeAgentRuntimeServices::default();
+    let services = NativeAgentRuntimeServices::default().with_test_tool_registry_entries(
+        test_registry_with_model_tools(&[
+            "subagent.spawn",
+            "subagent.send_input",
+            "subagent.wait",
+            "subagent.close",
+        ]),
+    );
     let result = run_native_agent_turn_with_config(
             &services,
             json!({
@@ -5523,7 +5598,8 @@ fn private_user_subagent_input_is_not_added_to_main_model_context() {
         }),
         Arc::new(InMemoryNativeAgentCheckpointStore::default()),
         Arc::new(InMemoryNativeAgentCancellation::default()),
-    );
+    )
+    .with_test_tool_registry_entries(test_registry_with_model_tools(&["subagent.spawn"]));
 
     let result = run_native_agent_turn_with_services(
         &services,
@@ -5563,7 +5639,9 @@ fn private_user_subagent_input_is_not_added_to_main_model_context() {
 #[test]
 fn tool_result_projection_redacts_and_truncates_model_content() {
     let result = run_native_agent_turn_with_config(
-        &NativeAgentRuntimeServices::default(),
+        &NativeAgentRuntimeServices::default().with_test_tool_registry_entries(
+            test_registry_with_model_tools(&["workspace.read_file"]),
+        ),
         json!({
             "runtime": "rust",
             "runId": "run-tool-budget",
@@ -5634,7 +5712,9 @@ fn tool_result_projection_redacts_and_truncates_model_content() {
 
 #[test]
 fn dispatches_multiple_tool_calls_from_one_provider_response_in_order() {
-    let services = NativeAgentRuntimeServices::default();
+    let services = NativeAgentRuntimeServices::default().with_test_tool_registry_entries(
+        test_registry_with_model_tools(&["workspace.read_file", "memory.search"]),
+    );
     let result = run_native_agent_turn_with_config(
         &services,
         json!({
@@ -5746,7 +5826,11 @@ fn later_tool_error_preserves_earlier_completed_tool_result() {
             Arc::new(FailingSecondToolDispatcher),
             Arc::new(InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(InMemoryNativeAgentCancellation::default()),
-        ),
+        )
+        .with_test_tool_registry_entries(test_registry_with_model_tools(&[
+            "workspace.read_file",
+            "memory.search",
+        ])),
         json!({
             "runtime": "rust",
             "runId": "run-later-tool-error",
@@ -5865,7 +5949,9 @@ fn reports_provider_and_iteration_errors_as_frontend_events() {
 #[test]
 fn stops_with_max_iterations_after_bounded_tool_iterations() {
     let result = run_native_agent_turn_with_config(
-        &NativeAgentRuntimeServices::default(),
+        &NativeAgentRuntimeServices::default().with_test_tool_registry_entries(
+            test_registry_with_model_tools(&["workspace.read_file"]),
+        ),
         json!({
             "runtime": "rust",
             "runId": "run-max-iterations",
@@ -5998,7 +6084,8 @@ fn cancellation_before_tool_dispatch_stops_without_dispatching_tool() {
         Arc::new(PanickingToolDispatcher),
         Arc::new(InMemoryNativeAgentCheckpointStore::default()),
         cancellations,
-    );
+    )
+    .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"]));
 
     let result = run_native_agent_turn_with_services(
         &services,
@@ -6128,7 +6215,8 @@ fn cancellation_context_is_available_to_provider_and_tool_dispatch() {
         }),
         Arc::new(InMemoryNativeAgentCheckpointStore::default()),
         cancellations,
-    );
+    )
+    .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"]));
 
     let result = run_native_agent_turn_with_services(
         &services,
@@ -6213,7 +6301,8 @@ fn cancellation_after_tool_result_preserves_completed_tool_state() {
         }),
         Arc::new(InMemoryNativeAgentCheckpointStore::default()),
         cancellations,
-    );
+    )
+    .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"]));
 
     let result = run_native_agent_turn_with_services(
         &services,
@@ -6489,7 +6578,11 @@ fn cancellation_during_subagent_wait_prevents_followup_model_call() {
         }),
         Arc::new(InMemoryNativeAgentCheckpointStore::default()),
         cancellations,
-    );
+    )
+    .with_test_tool_registry_entries(test_registry_with_model_tools(&[
+        "subagent.spawn",
+        "subagent.wait",
+    ]));
 
     let result = run_native_agent_turn_with_services(
         &services,
@@ -6629,7 +6722,8 @@ fn stores_active_turn_tool_wait_and_cancellation_checkpoints() {
         }),
         checkpoints.clone(),
         Arc::new(InMemoryNativeAgentCancellation::default()),
-    );
+    )
+    .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"]));
     let result = run_native_agent_turn_with_services(
         &services,
         json!({
@@ -7037,6 +7131,7 @@ fn native_run_projects_core_canonical_timeline_equally_live_and_after_reload() {
         Arc::new(InMemoryNativeAgentCheckpointStore::default()),
         Arc::new(InMemoryNativeAgentCancellation::default()),
     )
+    .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"]))
     .with_trace_sink(sink);
     let session_id = "websocket:chat-canonical-acceptance";
     let run_id = "run-canonical-acceptance";
@@ -7718,7 +7813,8 @@ fn guidance_continuation_is_inserted_before_next_model_call_after_tools() {
         Arc::new(FakeNativeAgentToolDispatcher),
         Arc::new(InMemoryNativeAgentCheckpointStore::default()),
         Arc::new(InMemoryNativeAgentCancellation::default()),
-    );
+    )
+    .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"]));
 
     let result = run_native_agent_turn_with_services(
         &services,
@@ -8591,6 +8687,7 @@ fn trace_context_and_hook_rewrite_follow_provider_tool_and_completion() {
         Arc::new(InMemoryNativeAgentCheckpointStore::default()),
         Arc::new(InMemoryNativeAgentCancellation::default()),
     )
+    .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"]))
     .with_metrics(metrics.clone())
     .with_hook(Arc::new(RewriteToolInputHook));
 

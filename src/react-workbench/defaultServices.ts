@@ -316,7 +316,6 @@ export function createDesktopAppServices(): AppServices {
     const result = await controller.submitMessage(input.text, {
       ...(input.model ? { model: input.model } : {}),
       ...(input.references?.length ? { references: input.references } : {}),
-      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       clientEventId: command.commandId,
     });
     const optimisticText = result.status === "sent" ? result.content : "";

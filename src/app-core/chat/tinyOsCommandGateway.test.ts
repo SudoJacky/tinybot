@@ -285,6 +285,7 @@ describe("TinyOS command lifecycle", () => {
       stage: "acknowledged",
     });
     expect(isTinyOsCommandPending(state)).toBe(false);
+    expect(isTinyOsCommandInFlight(state)).toBe(false);
   });
 
   test("ignores acknowledgements for a different correlation id", () => {

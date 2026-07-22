@@ -1169,9 +1169,9 @@ fn worker_run_agent_preserves_runtime_tool_content_with_envelope_payload() {
                             "content": "",
                             "toolCalls": [{
                                 "id": "call-envelope",
-                                "name": "workspace.read_file",
-                                "argumentsJson": "{\"path\":\"README.md\"}",
-                                "result": { "content": "README excerpt" }
+                                "name": "update_plan",
+                                "argumentsJson": "{\"plan\":[{\"step\":\"Inspect the input\",\"status\":\"completed\"}]}",
+                                "result": { "content": "fixture result should not be used" }
                             }]
                         },
                         { "content": "final after envelope" }
@@ -1191,9 +1191,7 @@ fn worker_run_agent_preserves_runtime_tool_content_with_envelope_payload() {
 
     assert_eq!(result["stopReason"], "final_response");
     assert_eq!(result["finalContent"], "final after envelope");
-    assert!(tool_result["payload"]["content"]
-        .as_str()
-        .is_some_and(|content| content.contains("README excerpt")));
+    assert_eq!(tool_result["payload"]["content"], "Plan updated");
     assert_eq!(tool_result["payload"]["envelope"]["status"], "ok");
     assert_eq!(
         tool_result["payload"]["envelope"]["trace"]["toolCallId"],
@@ -1651,9 +1649,11 @@ impl crate::worker_agent_runtime::NativeAgentProvider for ToolLoopRecordingNativ
                 usage: None,
                 tool_calls: vec![crate::worker_agent_runtime::NativeAgentToolCall {
                     id: "call-durable-history".to_string(),
-                    name: "workspace.read_file".to_string(),
-                    arguments_json: "{\"path\":\"README.md\"}".to_string(),
-                    result: serde_json::json!({ "content": "README durable body" }),
+                    name: "update_plan".to_string(),
+                    arguments_json:
+                        "{\"plan\":[{\"step\":\"Inspect history\",\"status\":\"completed\"}]}"
+                            .to_string(),
+                    result: serde_json::json!({ "content": "fixture result should not be used" }),
                 }],
             })
         } else {
@@ -1878,9 +1878,7 @@ fn worker_run_agent_combines_session_history_with_current_tool_results() {
     assert!(second_messages.iter().any(|message| {
         message["role"] == "tool"
             && message["tool_call_id"] == "call-durable-history"
-            && message["content"]
-                .as_str()
-                .is_some_and(|content| content.contains("README durable body"))
+            && message["content"] == "Plan updated"
     }));
     assert_eq!(history["messages"].as_array().unwrap().len(), 4);
     assert!(history["messages"]
@@ -1903,7 +1901,7 @@ fn worker_run_agent_combines_session_history_with_current_tool_results() {
     assert_eq!(tool_output["payload"]["turnId"], "run-tool-memory");
     assert!(tool_output["payload"]["output"]
         .as_str()
-        .is_some_and(|output| output.contains("README durable body")));
+        .is_some_and(|output| output.contains("Plan updated")));
 }
 
 #[test]
@@ -2072,9 +2070,9 @@ fn worker_run_agent_persists_agent_run_record_and_keeps_history_compact() {
                         "content": "",
                         "toolCalls": [{
                             "id": "call-run-trace",
-                            "name": "workspace.read_file",
-                            "argumentsJson": "{\"path\":\"README.md\"}",
-                            "result": { "content": "README trace body" }
+                            "name": "update_plan",
+                            "argumentsJson": "{\"plan\":[{\"step\":\"Inspect trace\",\"status\":\"completed\"}]}",
+                            "result": { "content": "fixture result should not be used" }
                         }]
                     },
                     { "content": "run trace final" }
@@ -2160,9 +2158,9 @@ fn worker_run_agent_projects_real_rust_run_into_canonical_session_history() {
                         "content": "",
                         "toolCalls": [{
                             "id": "call-thread-run-trace",
-                            "name": "workspace.read_file",
-                            "argumentsJson": "{\"path\":\"README.md\"}",
-                            "result": { "content": "README thread body" }
+                            "name": "update_plan",
+                            "argumentsJson": "{\"plan\":[{\"step\":\"Project thread\",\"status\":\"completed\"}]}",
+                            "result": { "content": "fixture result should not be used" }
                         }]
                     },
                     { "content": "thread projected answer" }
@@ -2351,7 +2349,7 @@ fn session_owned_compaction_commits_installed_checkpoint_before_final_turn_persi
 }
 
 #[test]
-fn worker_run_agent_uses_native_tool_executor_for_registered_workspace_tool() {
+fn worker_run_agent_uses_native_tool_executor_for_registered_memory_tool() {
     let fixture = WorkspaceFixture::new();
     fixture.write("README.md", "actual executor README body");
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
@@ -2363,9 +2361,9 @@ fn worker_run_agent_uses_native_tool_executor_for_registered_workspace_tool() {
                     {
                         "content": "",
                         "toolCalls": [{
-                            "id": "call-native-executor-read",
-                            "name": "workspace.read_file",
-                            "argumentsJson": "{\"path\":\"README.md\"}",
+                            "id": "call-native-executor-search",
+                            "name": "memory.search",
+                            "argumentsJson": "{\"query\":\"README\"}",
                             "result": { "content": "fixture result should not be used" }
                         }]
                     },
@@ -2382,6 +2380,7 @@ fn worker_run_agent_uses_native_tool_executor_for_registered_workspace_tool() {
             "runId": "run-native-tool-executor",
             "sessionId": "websocket:chat-native-tool-executor",
             "maxIterations": 2,
+            "selectedTools": ["memory.search"],
             "messages": [{
                 "role": "user",
                 "content": "read README through executor"
@@ -2402,11 +2401,7 @@ fn worker_run_agent_uses_native_tool_executor_for_registered_workspace_tool() {
         .expect("tool result event should be emitted");
     assert_eq!(
         tool_result["payload"]["envelope"]["raw"]["executor"]["toolId"],
-        "workspace.read_file"
-    );
-    assert_eq!(
-        tool_result["payload"]["envelope"]["raw"]["result"]["contents"],
-        "actual executor README body"
+        "memory.search"
     );
     assert_ne!(
         tool_result["payload"]["content"],
@@ -2426,8 +2421,8 @@ fn worker_run_agent_does_not_fallback_to_fixture_result_after_executor_error() {
                     "content": "",
                     "toolCalls": [{
                         "id": "call-native-executor-missing",
-                        "name": "workspace.read_file",
-                        "argumentsJson": "{\"path\":\"missing.md\"}",
+                        "name": "memory.search",
+                        "argumentsJson": "{not json",
                         "result": { "content": "fixture success must not be used" }
                     }]
                 }]
@@ -2442,6 +2437,7 @@ fn worker_run_agent_does_not_fallback_to_fixture_result_after_executor_error() {
             "runId": "run-native-tool-executor-error",
             "sessionId": "websocket:chat-native-tool-executor-error",
             "maxIterations": 2,
+            "selectedTools": ["memory.search"],
             "messages": [{ "role": "user", "content": "read a missing file" }]
         }),
         fixture.root.clone(),
@@ -3763,9 +3759,9 @@ fn worker_run_agent_persists_failed_tool_run_with_typed_results() {
                     "toolCalls": [
                         {
                             "id": "call-before-tool-error",
-                            "name": "workspace.read_file",
-                            "argumentsJson": "{\"path\":\"README.md\"}",
-                            "result": { "content": "README before tool error" }
+                            "name": "memory.recall",
+                            "argumentsJson": "{\"query\":\"Prepare failure\"}",
+                            "result": { "content": "fixture result should not be used" }
                         },
                         {
                             "id": "call-tool-error",
@@ -3786,6 +3782,7 @@ fn worker_run_agent_persists_failed_tool_run_with_typed_results() {
             "runId": "run-tool-error-persist",
             "sessionId": "websocket:chat-tool-error-persist",
             "maxIterations": 3,
+            "selectedTools": ["memory.recall", "memory.search"],
             "messages": [{ "role": "user", "content": "read then fail" }]
         }),
         fixture.root.clone(),

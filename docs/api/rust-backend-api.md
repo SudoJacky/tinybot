@@ -708,10 +708,11 @@ uses `200`. Explicit run or settings values still take precedence.
 
 ### Deferred tool discovery and checkpoints
 
-The native agent provider initially receives the capability-allowed model tools plus the runtime
-control tools `update_plan` and `tool_search`. `update_plan` remains available when `selectedTools`
-limits ordinary tools. Deferred tools are not included until the model searches for them in the
-current run.
+The native agent provider initially receives the foundational tools `exec_command`, `write_stdin`,
+`apply_patch`, `request_user_input`, `update_plan`, and `tool_search` when their capabilities are
+available. Memory, browser, subagent, and MCP tools are deferred until selected explicitly or found
+through `tool_search` in the current run. `update_plan` remains available when `selectedTools`
+limits ordinary tools.
 
 `update_plan` tracks the execution checklist for non-trivial work. Every call replaces the complete
 plan snapshot for the current run:
@@ -1267,32 +1268,17 @@ Thread continuation helper commands:
 | `worker_resolve_thread_approval` | `{ input: { threadId, approvalId, approved, scope?, guidance? } }` |
 | `worker_submit_thread_form` | `{ input: { threadId, formId, values?, action? } }` |
 
-`worker_submit_thread_turn` accepts text attachments on the current user input. The runtime writes
-each attachment to a per-run file under `.tinybot/attachments`, removes the inline content before
-persistence, and gives only the current turn a workspace-relative path manifest. The agent reads
-the file on demand with `workspace.read_file`; attachments are not indexed or added to a retrieval
-store. The supported input shape is:
+The renderer prepares the final user text before calling `worker_submit_thread_turn`. When the user
+mentions files, it prepends their absolute paths to that text; the backend persists and forwards the
+message verbatim and does not copy attachment files. The agent reads a mentioned file through
+`exec_command`. The supported input shape is:
 
 ```json
 {
   "role": "user",
-  "content": "Review the attached files.",
-  "attachments": [
-    {
-      "type": "text",
-      "name": "notes.md",
-      "mimeType": "text/markdown",
-      "sizeBytes": 42,
-      "content": "# Notes"
-    }
-  ]
+  "content": "# Files mentioned by the user:\n\n## notes.md: C:\\work\\notes.md\n\n## My request for Tinybot:\nReview the file."
 }
 ```
-
-The runtime accepts at most 10 text attachments, at most 256 KiB per attachment, and at most 1 MiB
-across a turn. Files remain available while a run is waiting for approval or form input and are
-removed when the run becomes terminal. Binary files and PDF extraction are not supported by this
-path.
 
 `ThreadRecord`:
 
@@ -1662,10 +1648,11 @@ assigned to a kill-on-close Job Object before resume, and report
 
 ### Subagent lifecycle
 
-The desktop commands and model-visible tools share the same manager and canonical thread store.
-Model-visible lifecycle tools are `subagent.spawn`, `subagent.send_input`, `subagent.wait`,
-`subagent.close`, and `subagent.resume`; `subagent.list`, `subagent.query`, and `subagent.cancel`
-remain Worker RPC and desktop-control operations.
+The desktop commands and deferred Agent tools share the same manager and canonical thread store.
+The deferred lifecycle tools are `subagent.spawn`, `subagent.send_input`, `subagent.wait`,
+`subagent.close`, and `subagent.resume`; they become model-visible only after selection or
+`tool_search`. `subagent.list`, `subagent.query`, and `subagent.cancel` remain Worker RPC and
+desktop-control operations.
 
 The default limits are eight active children per session, 32 active children process-wide, and a
 maximum delegation depth of four. Nested spawns must name their direct `parentSubagentId` and exact
@@ -2195,12 +2182,13 @@ minimal build compiled with `--no-default-features` returns unavailable decision
 Non-Windows builds return unavailable decisions with reason code `platform_unsupported` rather than
 synthetic browser state.
 
-The native Agent registry exposes `browser.observe` as a model tool and `browser.interact` as a
-deferred, per-request-approved tool only in supported feature builds. Both are dispatched directly
-to the `SharedBrowserRuntime` installed in Tauri state; they do not pass through a second Worker RPC
-browser implementation. `browser.observe` creates or reuses the browser session owned by the current
-chat and returns its active identities. `browser.interact` rejects sessions or tabs not owned by that
-chat and requires the current control epoch plus observation/capture identity where applicable.
+The native Agent registry keeps both `browser.observe` and `browser.interact` deferred in supported
+feature builds; `browser.interact` additionally requires per-request approval. Both are dispatched
+directly to the `SharedBrowserRuntime` installed in Tauri state; they do not pass through a second
+Worker RPC browser implementation. `browser.observe` creates or reuses the browser session owned by
+the current chat and returns its active identities. `browser.interact` rejects sessions or tabs not
+owned by that chat and requires the current control epoch plus observation/capture identity where
+applicable.
 Agent cancellation is forwarded to the matching in-flight browser command. Capture `dataUrl` bytes
 remain available inside native snapshots for Agent observation but are neither rendered as a TinyOS
 fallback nor returned in model tool results, avoiding duplicate large images in provider context.

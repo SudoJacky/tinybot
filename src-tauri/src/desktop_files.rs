@@ -38,6 +38,15 @@ pub(crate) struct PickedUploadFile {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PickedChatFile {
+    pub(crate) name: String,
+    pub(crate) path: String,
+    pub(crate) mime_type: String,
+    pub(crate) size_bytes: u64,
+}
+
+#[derive(Serialize)]
 pub(crate) struct SavedExportFile {
     pub(crate) path: String,
 }
@@ -68,6 +77,26 @@ pub(crate) fn pick_upload_file(
         return Ok(None);
     };
     upload_file_from_path(&path).map(Some)
+}
+
+#[tauri::command]
+pub(crate) fn pick_chat_files(
+    options: UploadFilePickerOptions,
+) -> Result<Vec<PickedChatFile>, String> {
+    let mut dialog = rfd::FileDialog::new();
+    if let Some(title) = options.title {
+        dialog = dialog.set_title(&title);
+    }
+    for filter in options.filters.unwrap_or_default() {
+        let extensions: Vec<&str> = filter.extensions.iter().map(String::as_str).collect();
+        dialog = dialog.add_filter(&filter.name, &extensions);
+    }
+    dialog
+        .pick_files()
+        .unwrap_or_default()
+        .iter()
+        .map(|path| chat_file_from_path(path))
+        .collect()
 }
 
 #[tauri::command]
@@ -115,6 +144,28 @@ pub(crate) fn upload_file_from_path(path: &Path) -> Result<PickedUploadFile, Str
         mime_type: mime_type_for_path(path).to_string(),
         size_bytes: metadata.len(),
         bytes,
+    })
+}
+
+fn chat_file_from_path(path: &Path) -> Result<PickedChatFile, String> {
+    let path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|error| format!("failed to resolve selected file path: {error}"))?
+            .join(path)
+    };
+    let metadata = std::fs::metadata(&path)
+        .map_err(|error| format!("failed to inspect selected file: {error}"))?;
+    Ok(PickedChatFile {
+        name: path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("file")
+            .to_string(),
+        path: path.display().to_string(),
+        mime_type: mime_type_for_path(&path).to_string(),
+        size_bytes: metadata.len(),
     })
 }
 

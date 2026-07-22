@@ -465,7 +465,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "memory",
             "Search memory",
             "Search saved memory notes.",
-            ToolExposure::Model,
+            ToolExposure::Deferred,
             false,
             runtime_policy(true, ToolCancellationMode::Cooperative, false, false),
             vec![WorkerCapability::MemoryRead],
@@ -484,7 +484,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "memory",
             "Recall memory",
             "Recall memory context for the current turn.",
-            ToolExposure::Model,
+            ToolExposure::Deferred,
             false,
             runtime_policy(true, ToolCancellationMode::Cooperative, false, false),
             vec![WorkerCapability::MemoryRead],
@@ -502,7 +502,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "browser",
             "Observe TinyOS browser",
             "Create or inspect the browser session owned by this chat. Returns the active session, tab, control epoch, capture, and bounded semantic targets. Use this before browser.interact.",
-            ToolExposure::Model,
+            ToolExposure::Deferred,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
             vec![WorkerCapability::BrowserObserve],
@@ -652,7 +652,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "subagent",
             "Spawn subagent",
             "Create a child agent thread for delegated work.",
-            ToolExposure::Model,
+            ToolExposure::Deferred,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
             vec![
@@ -682,7 +682,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "subagent",
             "Send subagent input",
             "Send input to an active child agent thread.",
-            ToolExposure::Model,
+            ToolExposure::Deferred,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
             vec![
@@ -708,7 +708,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "subagent",
             "Wait for subagent",
             "Wait until a selected child agent reaches a result or input boundary.",
-            ToolExposure::Model,
+            ToolExposure::Deferred,
             false,
             runtime_policy(false, ToolCancellationMode::Cooperative, false, false),
             vec![
@@ -734,7 +734,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "subagent",
             "Close subagent",
             "Explicitly close a retained child agent. Closed children cannot be resumed.",
-            ToolExposure::Model,
+            ToolExposure::Deferred,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
             vec![
@@ -758,7 +758,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "subagent",
             "Resume subagent",
             "Resume one interrupted child agent after runtime restart.",
-            ToolExposure::Model,
+            ToolExposure::Deferred,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
             vec![
@@ -996,7 +996,7 @@ mod tests {
     }
 
     #[test]
-    fn browser_tools_separate_observation_from_approved_interaction() {
+    fn browser_tools_are_deferred_and_interaction_requires_approval() {
         let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
             WorkerCapability::BrowserObserve,
             WorkerCapability::BrowserInteract,
@@ -1009,7 +1009,7 @@ mod tests {
             .get_tool("browser.interact")
             .expect("browser.interact should be registered");
 
-        assert_eq!(observe.exposure, ToolExposure::Model);
+        assert_eq!(observe.exposure, ToolExposure::Deferred);
         assert!(observe.available);
         assert!(!observe.approval.required);
         assert!(observe.runtime_policy.mutates_session);
@@ -1090,7 +1090,7 @@ mod tests {
     }
 
     #[test]
-    fn model_registry_exposes_complete_subagent_lifecycle_controls() {
+    fn registry_keeps_complete_subagent_lifecycle_controls_deferred() {
         let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
             WorkerCapability::BackgroundRead,
             WorkerCapability::BackgroundWrite,
@@ -1108,7 +1108,7 @@ mod tests {
             let tool = registry
                 .get_tool(method)
                 .unwrap_or_else(|| panic!("{method} should be registered"));
-            assert_eq!(tool.exposure, ToolExposure::Model);
+            assert_eq!(tool.exposure, ToolExposure::Deferred);
             assert!(tool.available);
             assert_eq!(
                 tool.execution_target,
@@ -1156,15 +1156,16 @@ mod tests {
     }
 
     #[test]
-    fn workspace_and_mcp_tools_are_owned_by_named_contributors() {
+    fn workspace_internal_and_mcp_tools_are_owned_by_named_contributors() {
         let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
-            WorkerCapability::FsWorkspaceRead,
+            WorkerCapability::FsWorkspaceWrite,
             WorkerCapability::McpCall,
         ]));
         assert_eq!(
-            registry.contributor_id_for_tool("workspace.read_file"),
+            registry.contributor_id_for_tool("workspace.write_file"),
             Some("builtin.workspace".to_string())
         );
+        assert!(registry.get_tool("workspace.read_file").is_none());
         assert_eq!(
             registry.contributor_id_for_tool("mcp.call_tool"),
             Some("builtin.mcp".to_string())
@@ -1192,7 +1193,7 @@ mod tests {
         let error = registry
             .with_contributor(std::sync::Arc::new(DuplicateWorkspaceContributor))
             .expect_err("duplicate tool methods must fail before activation");
-        assert!(error.contains("workspace.read_file"));
+        assert!(error.contains("workspace.write_file"));
         assert!(error.contains("test.duplicate_workspace"));
     }
 

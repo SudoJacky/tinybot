@@ -6151,7 +6151,7 @@ fn dispatches_tool_registry_search_with_filters() {
         json!({
             "namespace": "memory",
             "availableOnly": true,
-            "exposure": "model"
+            "exposure": "deferred"
         }),
     ));
     assert_eq!(memory.error, None);
@@ -6216,14 +6216,19 @@ fn dispatches_permission_profile_current_with_tool_decisions() {
         .any(|capability| capability["capability"] == "fs.workspace.read"
             && capability["granted"] == true
             && capability["scope"] == "workspace://current"));
-    let read_file = result["tools"]
+    assert!(result["tools"]
         .as_array()
         .unwrap()
         .iter()
-        .find(|tool| tool["toolId"] == "workspace.read_file")
-        .expect("workspace.read_file decision should be present");
-    assert_eq!(read_file["decision"], "allow");
-    assert_eq!(read_file["requiresApproval"], false);
+        .all(|tool| tool["toolId"] != "workspace.read_file"));
+    let memory_search = result["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tool| tool["toolId"] == "memory.search")
+        .expect("memory.search decision should be present");
+    assert_eq!(memory_search["decision"], "allow");
+    assert_eq!(memory_search["requiresApproval"], false);
     let write_file = result["tools"]
         .as_array()
         .unwrap()
@@ -7227,15 +7232,14 @@ fn dispatches_thread_activity_excludes_completed_tool_calls() {
 }
 
 #[test]
-fn dispatches_tool_executor_execute_for_registered_read_tool() {
+fn dispatches_tool_executor_execute_for_registered_memory_tool() {
     let fixture = WorkspaceFixture::new();
-    fixture.write("notes/today.md", "hello from executor");
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
         vec![],
         20,
-        CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]),
+        CapabilityPolicy::new([WorkerCapability::MemoryRead]),
     );
 
     let response = router.dispatch(&WorkerRequest::new(
@@ -7243,39 +7247,34 @@ fn dispatches_tool_executor_execute_for_registered_read_tool() {
         "trace-tool-executor",
         "tool_executor.execute",
         json!({
-            "toolId": "workspace.read_file",
-            "arguments": { "path": "notes/today.md" }
+            "toolId": "memory.search",
+            "arguments": { "query": "hello" }
         }),
     ));
 
     assert_eq!(response.error, None);
     let result = response.result.as_ref().unwrap();
-    assert_eq!(result["toolId"], "workspace.read_file");
-    assert_eq!(result["method"], "workspace.read_file");
-    assert_eq!(result["namespace"], "workspace");
-    assert_eq!(result["exposure"], "model");
+    assert_eq!(result["toolId"], "memory.search");
+    assert_eq!(result["method"], "memory.search");
+    assert_eq!(result["namespace"], "memory");
+    assert_eq!(result["exposure"], "deferred");
     assert_eq!(result["approval"]["required"], false);
     assert_eq!(result["permission"]["decision"], "allow");
     assert_eq!(result["permission"]["requiresApproval"], false);
-    assert_eq!(
-        result["permission"]["tool"]["toolId"],
-        "workspace.read_file"
-    );
-    assert_eq!(result["result"]["path"], "notes/today.md");
-    assert_eq!(result["result"]["contents"], "hello from executor");
+    assert_eq!(result["permission"]["tool"]["toolId"], "memory.search");
+    assert_eq!(result["result"]["notes"], json!([]));
 }
 
 #[test]
 fn dispatches_tool_executor_records_thread_tool_lifecycle() {
     let fixture = WorkspaceFixture::new();
-    fixture.write("notes/today.md", "hello thread executor");
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
         vec![],
         20,
         CapabilityPolicy::new([
-            WorkerCapability::FsWorkspaceRead,
+            WorkerCapability::MemoryRead,
             WorkerCapability::SessionMetadataRead,
             WorkerCapability::SessionWrite,
         ]),
@@ -7308,12 +7307,12 @@ fn dispatches_tool_executor_records_thread_tool_lifecycle() {
         "trace-tool-executor-thread",
         "tool_executor.execute",
         json!({
-            "toolId": "workspace.read_file",
+            "toolId": "memory.search",
             "threadId": "thread-tool-executor",
             "runId": "run-tool-executor",
             "turnId": "turn-tool-executor",
             "toolCallId": "call-tool-executor-read",
-            "arguments": { "path": "notes/today.md" }
+            "arguments": { "query": "hello" }
         }),
     ));
 
