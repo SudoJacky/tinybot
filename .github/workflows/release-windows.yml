@@ -3,7 +3,7 @@ name: Release Windows x64
 on:
   push:
     tags:
-      - "v*"
+      - "v*.*.*"
 
 permissions:
   contents: write
@@ -20,6 +20,16 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify release source
+        shell: pwsh
+        run: |
+          git merge-base --is-ancestor "${{ github.sha }}" origin/master
+          if ($LASTEXITCODE -ne 0) {
+            throw "Release tags must point to a commit on master"
+          }
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -63,7 +73,10 @@ jobs:
           tagName: v__VERSION__
           releaseName: Tinybot Desktop v__VERSION__
           releaseBody: |
-            Initial Windows x64 release of Tinybot Desktop.
+            Tinybot Desktop for Windows x64.
+
+            > [!WARNING]
+            > Tinybot's Rust backend is under active development. This release may contain breaking changes, and data created by earlier versions may not remain compatible. Back up important `.tinybot` data before upgrading.
 
             The installer is not Authenticode-signed yet, so Windows SmartScreen may show an unknown publisher warning.
           releaseDraft: true
