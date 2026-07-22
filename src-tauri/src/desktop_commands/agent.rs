@@ -1,22 +1,22 @@
-use crate::config_application::{
-    experimental_worker_config_snapshot, native_backend_workspace_root,
-};
-use crate::desktop_commands::webui::{
-    native_webui_agent_ui_form_resolution_body_async, native_webui_approval_resolution_body_async,
-};
-use crate::native_agent_bridge::{
+use crate::agent::bridge::{
     cancel_agent_with_services, desktop_agent_event_sink, resolve_thread_approval_with_services,
     restore_agent_checkpoint_with_services, run_agent_with_services,
     submit_thread_form_with_services, submit_thread_turn_with_services, ResolveThreadApprovalInput,
     SubmitThreadFormInput, SubmitThreadTurnInput,
 };
-use crate::worker_agent_runtime::NativeAgentTraceSink;
-use crate::worker_client::WorkerClient;
-use crate::worker_protocol::WorkerRequest;
-use crate::worker_request_id::{next_worker_request_correlation, WorkerRequestCorrelation};
-use crate::worker_subagent_manager::{
+use crate::agent::runtime::NativeAgentTraceSink;
+use crate::collaboration::subagents::{
     SubagentSendInputParams, SubagentSpawnParams, SubagentTargetParams, SubagentWaitParams,
 };
+use crate::config::application::{
+    experimental_worker_config_snapshot, native_backend_workspace_root,
+};
+use crate::desktop_commands::webui::{
+    native_webui_agent_ui_form_resolution_body_async, native_webui_approval_resolution_body_async,
+};
+use crate::protocol::request_id::{next_worker_request_correlation, WorkerRequestCorrelation};
+use crate::protocol::WorkerRequest;
+use crate::transport::stdio_worker::client::WorkerClient;
 use crate::{experimental_worker_router, lock_runtime, SharedGateway};
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, sync::Arc, time::Duration};

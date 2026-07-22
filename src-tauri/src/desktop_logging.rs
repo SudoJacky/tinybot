@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::worker_protocol::WorkerDiagnosticLine;
+use crate::protocol::WorkerDiagnosticLine;
 
 pub(crate) fn append_native_backend_log_line(
     path: &Path,

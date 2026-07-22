@@ -1,8 +1,8 @@
 # Tinybot Rust Backend
 
-This crate is the native backend for Tinybot Desktop. It owns the in-process
-Tauri host, the native agent runtime, worker RPC services, runtime lifecycle,
-and workspace-backed persistence used by the desktop workbench.
+This single crate is the native backend for Tinybot Desktop. It owns the
+in-process Tauri host, the native agent runtime, RPC services, runtime
+lifecycle, and workspace-backed persistence used by the desktop workbench.
 
 This README is a maintainer map. For frontend-facing command and payload
 details, see [the Rust backend API reference](../docs/api/rust-backend-api.md).
@@ -24,33 +24,48 @@ local server.
 
 ## Architecture
 
-The backend is organized into five broad layers:
+The crate is organized by responsibility. `src/lib.rs` keeps these modules
+private and exposes the desktop application boundary instead of re-exporting
+the implementation tree.
+
+The main layers are:
 
 1. **Desktop boundary**
    - `lib.rs`, `desktop_commands/`, `desktop_files.rs`, and the desktop menu,
      logging, update, and heartbeat modules.
    - Owns Tauri state, command registration, native dialogs, and frontend
      events.
-2. **Application orchestration**
-   - [`native_agent_bridge/`](src/native_agent_bridge/README.md) coordinates a
-     complete run across history hydration, attachments, tools, trace sinks,
-     checkpoints, and persistence.
-3. **Runtime core**
-   - [`worker_agent_runtime/`](src/worker_agent_runtime/README.md) implements
-     the provider/tool loop.
+2. **Protocol and dispatch boundary**
+   - `protocol/` owns versioned envelopes, capability types, request IDs, and
+     parameter validation.
+   - [`rpc/`](src/rpc/README.md) dispatches validated requests to the owning
+     service without absorbing domain behavior.
+3. **Agent execution**
+   - [`agent/runtime/`](src/agent/runtime/README.md) implements the injected
+     provider/tool loop without Tauri or persistence dependencies.
+   - [`agent/bridge/`](src/agent/bridge/README.md) coordinates a complete run
+     across history hydration, attachments, tools, trace sinks, checkpoints,
+     and persistence.
+   - `agent/provider.rs` and `agent/runtime_protocol.rs` keep provider and
+     runtime-event boundary types beside the agent subsystem.
+4. **Conversation domain and persistence**
+   - [`threads/domain/`](src/threads/domain/README.md) owns typed Thread state
+     and in-process projections.
+   - `threads/rollout/format/` owns typed, versioned Rollout lines and pure
+     reconstruction.
+   - [`threads/rollout/store/`](src/threads/rollout/store/README.md) owns
+     canonical append-only Rollouts and their rebuildable SQLite index.
+   - [`threads/session/`](src/threads/session/README.md) exposes session-shaped
+     Rollout projections and owns temporary upload resources.
+5. **Domain services**
+   - `workspace/`, `memory/`, `tools/`, `automation/`, `collaboration/`, and
+     `config/` own their business rules and do not depend on RPC or Tauri.
+6. **Process and transport infrastructure**
    - [`runtime/`](src/runtime/README.md) owns live tasks, shared MCP state,
      startup recovery, shutdown, and operational metrics.
-4. **Service boundary**
-   - [`worker_rpc/`](src/worker_rpc/README.md) routes versioned methods to
-     capability-checked services such as workspace, shell, memory, tasks,
-     tools, and configuration.
-5. **Conversation persistence**
-   - [`worker_thread_log/`](src/worker_thread_log/README.md) owns canonical
-     append-only Rollouts and their rebuildable SQLite index.
-   - [`worker_thread/`](src/worker_thread/README.md) is the typed Thread domain
-     projected from those Rollouts.
-   - [`worker_session/`](src/worker_session/README.md) exposes session-shaped
-     Rollout projections and owns temporary upload resources.
+   - `transport/stdio_worker/` contains the optional stdio worker process,
+     connection, codec, client, status, and diagnostics implementation.
+   - `storage/` contains shared atomic file-write primitives.
 
 ## Typical agent flow
 
@@ -61,21 +76,20 @@ Tauri command / Worker RPC
 desktop_commands or WorkerRpcRouter
         |
         v
-native_agent_bridge
+agent::bridge
         |
-        +--> worker_agent_runtime --> provider + tools
+        +--> agent::runtime --> provider + injected tools
         |
-        +--> worker_thread_log canonical Rollout
+        +--> threads::rollout::store canonical Rollout
                     |
-                    +--> worker_thread / worker_session projections
+                    +--> threads::domain / threads::session projections
         |
         +--> runtime task ownership + live trace events
 ```
 
 Keep transport concerns at the boundary. Agent-loop behavior belongs in
-`worker_agent_runtime`; cross-service run orchestration belongs in
-`native_agent_bridge`; durable conversation writes belong in
-`worker_thread_log`.
+`agent::runtime`; cross-service run orchestration belongs in `agent::bridge`;
+durable conversation writes belong in `threads::rollout::store`.
 
 ## Persistence map
 
@@ -84,9 +98,9 @@ roles:
 
 | Path | Owner | Role |
 | --- | --- | --- |
-| `.tinybot/threads/<year>/<month>/<day>/*.jsonl` | `worker_thread_log` | Canonical append-only Rollouts |
-| `.tinybot/state/state.sqlite` | `worker_thread_log` | Rebuildable discovery and metadata index |
-| `.tinybot/resources/session-temporary-files.json` | `worker_session` | Temporary upload resource sidecar |
+| `.tinybot/threads/<year>/<month>/<day>/*.jsonl` | `threads::rollout::store` | Canonical append-only Rollouts |
+| `.tinybot/state/state.sqlite` | `threads::rollout::store` | Rebuildable discovery and metadata index |
+| `.tinybot/resources/session-temporary-files.json` | `threads::session` | Temporary upload resource sidecar |
 
 The removed `sessions/sessions.sqlite`, `.tinybot/state/thread-store.jsonl`,
 and `.tinybot/threads/threads.sqlite` paths are not compatibility authorities

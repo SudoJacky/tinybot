@@ -16,9 +16,10 @@ use tauri::{Emitter, Manager, Runtime, State, WindowEvent};
 use std::path::Path;
 
 mod adapters;
-pub mod agent_loop_runtime_protocol;
-mod config_application;
-pub mod config_store;
+mod agent;
+mod automation;
+mod collaboration;
+mod config;
 mod context_checkpoint_lineage;
 mod context_checkpoint_lock;
 pub mod desktop_commands;
@@ -29,57 +30,39 @@ pub mod desktop_logging;
 pub mod desktop_menu;
 mod desktop_update;
 mod mcp_capability_catalog;
-pub mod native_agent_bridge;
+mod memory;
 pub mod native_backend_contract;
 mod native_browser;
-pub mod native_provider_runtime;
+mod protocol;
+mod rpc;
 mod runtime;
-pub mod settings_registry;
 mod skill_definition;
 mod skill_resolver;
+mod storage;
 mod system_prompt;
-pub mod worker_agent_runtime;
-pub mod worker_background;
-pub mod worker_capability;
-pub mod worker_client;
-pub mod worker_config;
-pub mod worker_connection;
-pub mod worker_cowork_runtime;
-pub mod worker_cron;
-pub mod worker_diagnostics;
-pub mod worker_manager;
-pub mod worker_memory;
-pub mod worker_permission_profile;
-pub mod worker_protocol;
-pub mod worker_request_id;
-pub mod worker_rollout;
-pub mod worker_rpc;
-pub mod worker_runtime;
-pub mod worker_secret;
-pub mod worker_session;
-pub mod worker_shell;
-pub mod worker_stdio;
-pub mod worker_storage;
-pub mod worker_subagent_manager;
-pub mod worker_task;
-pub mod worker_thread;
-pub mod worker_thread_log;
-pub mod worker_tool_executor;
-pub mod worker_tool_registry;
-pub mod worker_workspace;
+mod threads;
+mod tools;
+mod transport;
+mod workspace;
 
 #[cfg(test)]
-use crate::config_application::{
+use crate::agent::bridge::{native_agent_run_record, persist_native_agent_run_start};
+use crate::agent::runtime::NativeAgentRuntimeServices;
+#[cfg(test)]
+use crate::agent::runtime::NativeAgentTraceSink;
+use crate::collaboration::subagents::SubagentThreadManager;
+#[cfg(test)]
+use crate::config::application::{
     apply_config_operations_to_path, apply_config_patch_result_to_path,
     config_editor_snapshot_from_path, default_tinybot_workspace_root,
     experimental_worker_config_snapshot_from_path, experimental_worker_default_config_snapshot,
     get_settings_snapshot_from_path,
 };
-use crate::config_application::{
+use crate::config::application::{
     default_tinybot_config_path, ensure_default_config_file, experimental_worker_config_snapshot,
     native_backend_workspace_root, resolve_native_backend_workspace_root_from_config_path,
 };
-use crate::config_store::ConfigDiagnosticCode;
+use crate::config::store::ConfigDiagnosticCode;
 #[cfg(test)]
 use crate::desktop_commands::agent::{
     build_worker_background_subagent_enqueue_input_request,
@@ -188,8 +171,6 @@ use crate::desktop_logging::append_native_backend_log_line;
 use crate::desktop_menu::{
     install_desktop_application_menu, is_desktop_menu_command, DesktopMenuCommandPayload,
 };
-#[cfg(test)]
-use crate::native_agent_bridge::{native_agent_run_record, persist_native_agent_run_start};
 use crate::native_backend_contract::NativeCompatibilityFallbackDiagnostic;
 use crate::native_browser::{
     browser_activate_tab, browser_back, browser_capabilities, browser_close_session,
@@ -198,21 +179,17 @@ use crate::native_browser::{
     browser_reload, browser_resolve_policy_request, browser_restart_tab, browser_snapshot,
     browser_stop, browser_update_surface,
 };
+use crate::protocol::capability::default_desktop_capability_policy;
+#[cfg(test)]
+use crate::protocol::request_id::{next_worker_request_correlation, WorkerRequestCorrelation};
+use crate::protocol::WorkerRequest;
+use crate::rpc::WorkerRpcRouter;
 use crate::runtime::lifecycle::RuntimeLifecycleStatus;
 use crate::runtime::mcp::McpRuntime;
 use crate::system_prompt::{load_or_create_system_prompt, SYSTEM_PROMPT_FILE_NAME};
-use crate::worker_agent_runtime::NativeAgentRuntimeServices;
 #[cfg(test)]
-use crate::worker_agent_runtime::NativeAgentTraceSink;
-use crate::worker_capability::default_desktop_capability_policy;
-#[cfg(test)]
-use crate::worker_manager::{WorkerCommandSpec, WorkerManagerState};
-use crate::worker_manager::{WorkerManager, WorkerManagerEvent};
-use crate::worker_protocol::WorkerRequest;
-#[cfg(test)]
-use crate::worker_request_id::{next_worker_request_correlation, WorkerRequestCorrelation};
-use crate::worker_rpc::WorkerRpcRouter;
-use crate::worker_subagent_manager::SubagentThreadManager;
+use crate::transport::stdio_worker::manager::{WorkerCommandSpec, WorkerManagerState};
+use crate::transport::stdio_worker::manager::{WorkerManager, WorkerManagerEvent};
 
 #[derive(Serialize)]
 struct DesktopStatus {
@@ -300,7 +277,7 @@ pub(crate) fn call_rust_state_service_with_mcp_runtime(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     mcp_runtime: McpRuntime,
-    shell_runtime: crate::worker_shell::WorkerShellRuntime,
+    shell_runtime: crate::tools::shell::WorkerShellRuntime,
     subagent_manager: SubagentThreadManager,
     request: WorkerRequest,
     label: &str,

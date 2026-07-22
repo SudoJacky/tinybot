@@ -1,4 +1,4 @@
-use crate::worker_protocol::WorkerEvent;
+use crate::protocol::WorkerEvent;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 

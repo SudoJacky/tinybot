@@ -1,5 +1,5 @@
 use crate::skill_definition::{SkillAvailability, SkillDefinition};
-use crate::worker_workspace::WorkspaceSkillEntry;
+use crate::workspace::WorkspaceSkillEntry;
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::{BTreeSet, HashSet};

@@ -1,19 +1,19 @@
-use crate::agent_loop_runtime_protocol::{
+use crate::agent::bridge::{desktop_agent_event_sink, persist_native_agent_run_start};
+use crate::agent::runtime::NativeAgentTraceSink;
+use crate::agent::runtime_protocol::{
     AgentRuntimeEventEnvelope, LegacyNativeAgentEventEnvelopeInput,
 };
 use crate::desktop_commands::agent::worker_run_agent_with_live_trace_sink_async;
-use crate::native_agent_bridge::{desktop_agent_event_sink, persist_native_agent_run_start};
 use crate::native_browser::{BrowserInteractionInput, SharedBrowserRuntime};
-use crate::worker_agent_runtime::NativeAgentTraceSink;
-use crate::worker_capability::default_desktop_capability_policy;
-use crate::worker_permission_profile::{PermissionNetworkMode, ShellSandboxMode};
-use crate::worker_protocol::WorkerRequest;
-use crate::worker_request_id::{next_worker_request_correlation, WorkerRequestCorrelation};
-use crate::worker_shell::{
+use crate::protocol::capability::default_desktop_capability_policy;
+use crate::protocol::request_id::{next_worker_request_correlation, WorkerRequestCorrelation};
+use crate::protocol::WorkerRequest;
+use crate::tools::permissions::{PermissionNetworkMode, ShellSandboxMode};
+use crate::tools::shell::{
     ShellProcessIdParams, ShellProcessListParams, ShellProcessOutput, ShellProcessPollParams,
     ShellStartParams, WorkerShellRpc,
 };
-use crate::worker_workspace::WorkerWorkspaceRpc;
+use crate::workspace::WorkerWorkspaceRpc;
 use crate::{
     call_rust_state_service, experimental_worker_config_snapshot, lock_runtime,
     native_backend_workspace_root, SharedGateway,
@@ -1443,7 +1443,7 @@ fn ensure_no_active_host_or_agent_run(
     Ok(())
 }
 
-fn worker_protocol_error_message(error: &crate::worker_protocol::WorkerProtocolError) -> String {
+fn worker_protocol_error_message(error: &crate::protocol::WorkerProtocolError) -> String {
     if error.details.is_null()
         || error
             .details
@@ -1496,7 +1496,7 @@ fn append_tinyos_host_event(
         .get("eventName")
         .and_then(serde_json::Value::as_str)
         .ok_or_else(|| "TinyOS host event is missing eventName".to_string())?;
-    if crate::worker_thread_log::is_agent_run_semantic_event(event_name) {
+    if crate::threads::rollout::store::is_agent_run_semantic_event(event_name) {
         let request_id = next_worker_request_correlation();
         call_rust_state_service(
             workspace_root.clone(),
@@ -1529,7 +1529,7 @@ fn append_tinyos_host_event(
                     .or_else(|| Some(event_id)),
                 event_name,
                 sequence: 0,
-                timestamp: crate::worker_thread_log::now_thread_timestamp(),
+                timestamp: crate::threads::rollout::store::now_thread_timestamp(),
                 payload: event
                     .get("payload")
                     .cloned()

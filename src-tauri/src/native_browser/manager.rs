@@ -2901,7 +2901,7 @@ mod tests {
     #[tokio::test]
     async fn agent_browser_tools_reuse_the_chat_owned_session() {
         let manager = manager(Arc::new(FakeAdapter::default()));
-        let observed = crate::native_agent_bridge::dispatch_agent_browser_observe(
+        let observed = crate::agent::bridge::dispatch_agent_browser_observe(
             &manager,
             "chat-shared-browser",
             serde_json::json!({}),
@@ -2914,7 +2914,7 @@ mod tests {
         let control_epoch = snapshot["control"]["controlEpoch"].as_u64().unwrap();
         let observation_revision = snapshot["tabs"][0]["observationRevision"].as_u64().unwrap();
 
-        let result = crate::native_agent_bridge::dispatch_agent_browser_interact(
+        let result = crate::agent::bridge::dispatch_agent_browser_interact(
             &manager,
             "chat-shared-browser",
             None,
@@ -2940,7 +2940,7 @@ mod tests {
                 .as_str(),
             browser_session_id
         );
-        let ownership_error = crate::native_agent_bridge::dispatch_agent_browser_observe(
+        let ownership_error = crate::agent::bridge::dispatch_agent_browser_observe(
             &manager,
             "other-chat",
             serde_json::json!({ "browserSessionId": browser_session_id }),

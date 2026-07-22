@@ -12,8 +12,8 @@ use crate::native_backend_contract::{
     NativeCompatibilityFallbackDiagnostic, NativeRouteInventoryEntry, NativeRouteOwnerSummary,
 };
 use crate::runtime::lifecycle::{RuntimeLifecycle, RuntimeLifecycleStatus};
-use crate::worker_manager::WorkerManagerState;
-use crate::worker_runtime::WorkerRuntimeStatus;
+use crate::transport::stdio_worker::manager::WorkerManagerState;
+use crate::transport::stdio_worker::status::WorkerRuntimeStatus;
 use crate::{
     append_log, lock_runtime, push_log, repo_root, SharedGateway, NATIVE_BACKEND_LOG_TAIL_LINES,
 };
@@ -264,11 +264,11 @@ pub(crate) fn current_status(shared: &SharedGateway) -> GatewayRuntimeStatus {
 }
 
 fn gateway_worker_runtime_status(
-    worker_status: &crate::worker_manager::WorkerManagerStatus,
+    worker_status: &crate::transport::stdio_worker::manager::WorkerManagerStatus,
 ) -> WorkerRuntimeStatus {
     match worker_status.state {
         WorkerManagerState::Running => WorkerRuntimeStatus::running(
-            crate::worker_protocol::WorkerTransportMode::Stdio,
+            crate::protocol::WorkerTransportMode::Stdio,
             worker_status.diagnostics.clone(),
         ),
         WorkerManagerState::Failed => WorkerRuntimeStatus::startup_failed(
@@ -280,10 +280,7 @@ fn gateway_worker_runtime_status(
         WorkerManagerState::Stopped
         | WorkerManagerState::Starting
         | WorkerManagerState::Stopping => WorkerRuntimeStatus::rust_backend_active(vec![
-            crate::worker_protocol::WorkerDiagnosticLine::new(
-                "stdout",
-                "Rust backend services active",
-            ),
+            crate::protocol::WorkerDiagnosticLine::new("stdout", "Rust backend services active"),
         ]),
     }
 }

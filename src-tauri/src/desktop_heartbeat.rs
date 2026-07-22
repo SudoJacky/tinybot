@@ -1,5 +1,5 @@
-use crate::worker_protocol::WorkerRequest;
-use crate::worker_request_id::WorkerRequestCorrelation;
+use crate::protocol::request_id::WorkerRequestCorrelation;
+use crate::protocol::WorkerRequest;
 
 pub(crate) fn build_worker_heartbeat_lifecycle_request(
     request_id: WorkerRequestCorrelation,

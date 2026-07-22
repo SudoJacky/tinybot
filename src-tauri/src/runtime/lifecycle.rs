@@ -1,17 +1,17 @@
+use crate::collaboration::subagents::{SubagentThreadManager, SubagentThreadStatus};
+use crate::protocol::capability::default_desktop_capability_policy;
+use crate::protocol::WorkerProtocolError;
 use crate::runtime::agent_task::{AgentTaskRuntime, ShutdownReport};
 use crate::runtime::mcp::McpRuntime;
-use crate::worker_capability::default_desktop_capability_policy;
-use crate::worker_manager::{WorkerManager, WorkerManagerState};
-use crate::worker_protocol::WorkerProtocolError;
-use crate::worker_shell::{ShellProcessCleanupReport, WorkerShellRuntime};
-use crate::worker_subagent_manager::{SubagentThreadManager, SubagentThreadStatus};
-use crate::worker_thread::{
+use crate::threads::domain::{
     InterruptThreadRequest, ListThreadsRequest, ThreadIdParams, WorkerThreadRpc,
 };
-use crate::worker_thread_log::{
+use crate::threads::rollout::store::{
     AgentRunRecoveryEntry, ThreadLogIndexConsistencyReport, ThreadLogIndexRepairReport,
     WorkerThreadLogRpc,
 };
+use crate::tools::shell::{ShellProcessCleanupReport, WorkerShellRuntime};
+use crate::transport::stdio_worker::manager::{WorkerManager, WorkerManagerState};
 use serde::Serialize;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -330,8 +330,8 @@ impl RuntimeLifecycle {
                 thread_id: Some(status.thread.thread_id.clone()),
             };
             match active_run.status {
-                crate::worker_thread::ThreadStatus::WaitingForApproval
-                | crate::worker_thread::ThreadStatus::WaitingForInput => {
+                crate::threads::domain::ThreadStatus::WaitingForApproval
+                | crate::threads::domain::ThreadStatus::WaitingForInput => {
                     if status.latest_checkpoint.as_ref().is_some_and(|checkpoint| {
                         checkpoint
                             .run_id
@@ -433,7 +433,7 @@ impl From<AgentRunRecoveryEntry> for LifecycleRunRef {
 
 fn list_all_threads(
     thread: &WorkerThreadRpc,
-) -> Result<Vec<crate::worker_thread::ThreadRecord>, WorkerProtocolError> {
+) -> Result<Vec<crate::threads::domain::ThreadRecord>, WorkerProtocolError> {
     let mut offset = 0;
     let mut threads = Vec::new();
     loop {

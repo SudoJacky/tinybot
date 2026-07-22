@@ -8,7 +8,7 @@ use crate::desktop_files::{
 };
 use crate::desktop_heartbeat::build_worker_heartbeat_lifecycle_request;
 use crate::desktop_menu::desktop_menu_item_descriptors;
-use crate::worker_manager::WorkerManagerStatus;
+use crate::transport::stdio_worker::manager::WorkerManagerStatus;
 
 fn test_request_correlation(suffix: &str) -> WorkerRequestCorrelation {
     WorkerRequestCorrelation::from_suffix(suffix)
@@ -51,7 +51,7 @@ fn close_shutdown_stops_background_worker_child() {
     let runtime = lock_runtime(&shared);
     assert_eq!(
         runtime.experimental_worker.status().state,
-        crate::worker_manager::WorkerManagerState::Stopped
+        crate::transport::stdio_worker::manager::WorkerManagerState::Stopped
     );
     assert!(runtime
         .logs
@@ -180,11 +180,13 @@ lines.on("close", () => {
 fn startup_reconciles_orphaned_run_and_preserves_waiting_checkpoint() {
     let fixture = WorkspaceFixture::new();
     let policy = default_desktop_capability_policy();
-    let thread_log =
-        crate::worker_thread_log::WorkerThreadLogRpc::new(fixture.root.clone(), policy.clone());
-    let thread = crate::worker_thread::WorkerThreadRpc::new(fixture.root.clone(), policy);
+    let thread_log = crate::threads::rollout::store::WorkerThreadLogRpc::new(
+        fixture.root.clone(),
+        policy.clone(),
+    );
+    let thread = crate::threads::domain::WorkerThreadRpc::new(fixture.root.clone(), policy);
     let created = thread
-        .create_thread(crate::worker_thread::CreateThreadRequest {
+        .create_thread(crate::threads::domain::CreateThreadRequest {
             thread_id: Some("thread-recovery".to_string()),
             session_key: Some("session-recovery".to_string()),
             ..Default::default()
@@ -194,7 +196,7 @@ fn startup_reconciles_orphaned_run_and_preserves_waiting_checkpoint() {
         .create_from_thread_record(&created)
         .expect("recovery thread Rollout should be created");
     let started = thread
-        .start_turn(crate::worker_thread::StartThreadTurnRequest {
+        .start_turn(crate::threads::domain::StartThreadTurnRequest {
             thread_id: "thread-recovery".to_string(),
             run_id: Some("run-orphaned".to_string()),
             input: serde_json::json!({ "content": "unfinished" }),
@@ -205,7 +207,7 @@ fn startup_reconciles_orphaned_run_and_preserves_waiting_checkpoint() {
         .append_thread_items("thread-recovery", &started.appended_items)
         .expect("orphaned thread run should persist to Rollout");
 
-    let mut running_record: crate::worker_session::AgentRunRecord =
+    let mut running_record: crate::threads::session::AgentRunRecord =
         serde_json::from_value(native_agent_run_record(
             &serde_json::json!({
                 "runId": "run-orphaned",
@@ -225,7 +227,7 @@ fn startup_reconciles_orphaned_run_and_preserves_waiting_checkpoint() {
     thread_log
         .start_agent_run(running_record, None, Vec::new())
         .expect("running recovery record should persist");
-    let waiting_record: crate::worker_session::AgentRunRecord =
+    let waiting_record: crate::threads::session::AgentRunRecord =
         serde_json::from_value(native_agent_run_record(
             &serde_json::json!({
                 "runId": "run-waiting",
@@ -271,7 +273,7 @@ fn startup_reconciles_orphaned_run_and_preserves_waiting_checkpoint() {
         .expect("orphaned run should exist");
     assert_eq!(
         recovered.status,
-        crate::worker_session::AgentRunStatus::Interrupted
+        crate::threads::session::AgentRunStatus::Interrupted
     );
     assert_eq!(recovered.phase, "interrupted");
     assert_eq!(recovered.stop_reason.as_deref(), Some("runtime_restarted"));
@@ -288,7 +290,7 @@ fn startup_reconciles_orphaned_run_and_preserves_waiting_checkpoint() {
         .expect("waiting run should exist");
     assert_eq!(
         waiting.status,
-        crate::worker_session::AgentRunStatus::Waiting
+        crate::threads::session::AgentRunStatus::Waiting
     );
     assert!(waiting.checkpoint.is_some());
     let (threads, items) = thread_log
@@ -298,14 +300,14 @@ fn startup_reconciles_orphaned_run_and_preserves_waiting_checkpoint() {
         item.run_id.as_deref() == Some("run-orphaned")
             && matches!(
                 &item.kind,
-                crate::worker_thread::ThreadItemKind::AgentRunCompleted(_)
+                crate::threads::domain::ThreadItemKind::AgentRunCompleted(_)
             )
     }));
     thread
         .replace_projection(threads, items)
         .expect("reconciled thread projection should refresh");
     let thread_status = thread
-        .get_thread_status(crate::worker_thread::ThreadIdParams {
+        .get_thread_status(crate::threads::domain::ThreadIdParams {
             thread_id: "thread-recovery".to_string(),
         })
         .expect("reconciled thread should remain queryable");
@@ -315,7 +317,7 @@ fn startup_reconciles_orphaned_run_and_preserves_waiting_checkpoint() {
     assert_eq!(active_run.run_id, "run-waiting");
     assert_eq!(
         active_run.status,
-        crate::worker_thread::ThreadStatus::WaitingForApproval
+        crate::threads::domain::ThreadStatus::WaitingForApproval
     );
 
     let status = current_status(&shared);
@@ -421,15 +423,15 @@ fn close_shutdown_stops_shell_and_interrupts_subagents_with_report() {
             runtime.subagent_manager.clone(),
         )
     };
-    let shell = crate::worker_shell::WorkerShellRpc::with_runtime(
+    let shell = crate::tools::shell::WorkerShellRpc::with_runtime(
         fixture.root.clone(),
-        crate::worker_capability::CapabilityPolicy::new([
-            crate::worker_capability::WorkerCapability::ShellExecute,
+        crate::protocol::capability::CapabilityPolicy::new([
+            crate::protocol::capability::WorkerCapability::ShellExecute,
         ]),
         shell_runtime.clone(),
     );
     let process = shell
-        .start(crate::worker_shell::ShellStartParams {
+        .start(crate::tools::shell::ShellStartParams {
             command: lifecycle_blocking_command(),
             working_dir: Some(".".to_string()),
             restrict_to_workspace: Some(true),
@@ -444,7 +446,7 @@ fn close_shutdown_stops_shell_and_interrupts_subagents_with_report() {
             cancellation: None,
         })
         .expect("shutdown shell fixture should start");
-    let spawned = subagents.spawn(crate::worker_subagent_manager::SubagentSpawnParams {
+    let spawned = subagents.spawn(crate::collaboration::subagents::SubagentSpawnParams {
         session_key: "session-shutdown".to_string(),
         parent_run_id: Some("run-parent".to_string()),
         parent_subagent_id: None,
@@ -466,7 +468,7 @@ fn close_shutdown_stops_shell_and_interrupts_subagents_with_report() {
     assert_eq!(shell_runtime.active_process_count(), 0);
     assert_eq!(
         subagents.list("session-shutdown").subagents[0].status,
-        crate::worker_subagent_manager::SubagentThreadStatus::Interrupted
+        crate::collaboration::subagents::SubagentThreadStatus::Interrupted
     );
     let report = current_status(&shared)
         .lifecycle
@@ -490,7 +492,7 @@ fn close_shutdown_stops_shell_and_interrupts_subagents_with_report() {
     )
     .expect("same-process runtime restart should resume shell starts");
     let resumed = shell
-        .start(crate::worker_shell::ShellStartParams {
+        .start(crate::tools::shell::ShellStartParams {
             command: lifecycle_echo_command(),
             working_dir: Some(".".to_string()),
             restrict_to_workspace: Some(true),
@@ -597,7 +599,7 @@ fn start_gateway_defaults_to_rust_backend() {
     assert_eq!(status.command, "Tauri Rust backend");
     assert_eq!(
         status.worker_runtime.state,
-        crate::worker_runtime::WorkerRuntimeState::Running
+        crate::transport::stdio_worker::status::WorkerRuntimeState::Running
     );
     assert_eq!(
         lock_runtime(&shared).experimental_worker.status().state,
@@ -667,11 +669,11 @@ fn gateway_status_reflects_running_managed_worker() {
 
     assert_eq!(
         status.worker_runtime.state,
-        crate::worker_runtime::WorkerRuntimeState::Running
+        crate::transport::stdio_worker::status::WorkerRuntimeState::Running
     );
     assert_eq!(
         status.worker_runtime.transport_mode,
-        Some(crate::worker_protocol::WorkerTransportMode::Stdio)
+        Some(crate::protocol::WorkerTransportMode::Stdio)
     );
 }
 
@@ -971,14 +973,14 @@ lines.on("line", (line) => {
         }),
     );
 
-    let memory_response = router.dispatch(&crate::worker_protocol::WorkerRequest::new(
+    let memory_response = router.dispatch(&crate::protocol::WorkerRequest::new(
         "memory-search-1",
         "trace-memory-search",
         "memory.search",
         serde_json::json!({ "query": "uv", "limit": 3 }),
     ));
     let mcp_response = router.dispatch(
-        &crate::worker_protocol::WorkerRequest::new(
+        &crate::protocol::WorkerRequest::new(
             "mcp-call-1",
             "trace-mcp-call",
             "mcp.call_tool",
@@ -1001,7 +1003,7 @@ lines.on("line", (line) => {
         mcp_response.result.as_ref().unwrap()["content"][0]["text"],
         "docs result"
     );
-    let shutdown = router.dispatch(&crate::worker_protocol::WorkerRequest::new(
+    let shutdown = router.dispatch(&crate::protocol::WorkerRequest::new(
         "mcp-shutdown-1",
         "trace-mcp-shutdown",
         "mcp.shutdown",
@@ -1209,9 +1211,9 @@ fn worker_run_agent_persists_rust_turn_messages_in_canonical_rollout() {
     let shared = Arc::new(Mutex::new(GatewayRuntime {
         native_agent_runtime: NativeAgentRuntimeServices::new(
             Arc::new(UsageNativeAgentProvider),
-            Arc::new(crate::worker_agent_runtime::FakeNativeAgentToolDispatcher),
-            Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCheckpointStore::default()),
-            Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCancellation::default()),
+            Arc::new(crate::agent::runtime::FakeNativeAgentToolDispatcher),
+            Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(crate::agent::runtime::InMemoryNativeAgentCancellation::default()),
         ),
         ..GatewayRuntime::default()
     }));
@@ -1258,9 +1260,9 @@ fn worker_run_agent_persists_one_lossless_long_final_response() {
     let shared = Arc::new(Mutex::new(GatewayRuntime {
         native_agent_runtime: NativeAgentRuntimeServices::new(
             Arc::new(LongFinalNativeAgentProvider),
-            Arc::new(crate::worker_agent_runtime::FakeNativeAgentToolDispatcher),
-            Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCheckpointStore::default()),
-            Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCancellation::default()),
+            Arc::new(crate::agent::runtime::FakeNativeAgentToolDispatcher),
+            Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(crate::agent::runtime::InMemoryNativeAgentCancellation::default()),
         ),
         ..GatewayRuntime::default()
     }));
@@ -1377,16 +1379,16 @@ fn worker_run_agent_stops_before_provider_when_run_start_persistence_fails() {
         calls: Arc<Mutex<usize>>,
     }
 
-    impl crate::worker_agent_runtime::NativeAgentProvider for CountingProvider {
+    impl crate::agent::runtime::NativeAgentProvider for CountingProvider {
         fn complete(
             &self,
-            _context: &crate::worker_agent_runtime::NativeAgentRunContext,
-        ) -> Result<crate::worker_agent_runtime::NativeAgentProviderResponse, String> {
+            _context: &crate::agent::runtime::NativeAgentRunContext,
+        ) -> Result<crate::agent::runtime::NativeAgentProviderResponse, String> {
             *self
                 .calls
                 .lock()
                 .expect("counting provider lock should not be poisoned") += 1;
-            Ok(crate::worker_agent_runtime::NativeAgentProviderResponse {
+            Ok(crate::agent::runtime::NativeAgentProviderResponse {
                 final_content: "provider should not run".to_string(),
                 reasoning_delta: None,
                 usage: None,
@@ -1403,9 +1405,9 @@ fn worker_run_agent_stops_before_provider_when_run_start_persistence_fails() {
             Arc::new(CountingProvider {
                 calls: calls.clone(),
             }),
-            Arc::new(crate::worker_agent_runtime::FakeNativeAgentToolDispatcher),
-            Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCheckpointStore::default()),
-            Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCancellation::default()),
+            Arc::new(crate::agent::runtime::FakeNativeAgentToolDispatcher),
+            Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(crate::agent::runtime::InMemoryNativeAgentCancellation::default()),
         ),
         ..GatewayRuntime::default()
     }));
@@ -1441,11 +1443,11 @@ fn worker_run_agent_fails_when_trace_persistence_breaks_after_provider_response(
         calls: Arc<Mutex<usize>>,
     }
 
-    impl crate::worker_agent_runtime::NativeAgentProvider for PersistenceBreakingProvider {
+    impl crate::agent::runtime::NativeAgentProvider for PersistenceBreakingProvider {
         fn complete(
             &self,
-            _context: &crate::worker_agent_runtime::NativeAgentRunContext,
-        ) -> Result<crate::worker_agent_runtime::NativeAgentProviderResponse, String> {
+            _context: &crate::agent::runtime::NativeAgentRunContext,
+        ) -> Result<crate::agent::runtime::NativeAgentProviderResponse, String> {
             *self
                 .calls
                 .lock()
@@ -1455,7 +1457,7 @@ fn worker_run_agent_fails_when_trace_persistence_breaks_after_provider_response(
                 .expect("provider fixture should remove the initialized thread log");
             std::fs::write(&thread_root, "blocks later thread-log writes")
                 .expect("provider fixture should replace thread log directory");
-            Ok(crate::worker_agent_runtime::NativeAgentProviderResponse {
+            Ok(crate::agent::runtime::NativeAgentProviderResponse {
                 final_content: "result must not be reported as durable".to_string(),
                 reasoning_delta: None,
                 usage: None,
@@ -1472,9 +1474,9 @@ fn worker_run_agent_fails_when_trace_persistence_breaks_after_provider_response(
                 workspace_root: fixture.root.clone(),
                 calls: calls.clone(),
             }),
-            Arc::new(crate::worker_agent_runtime::FakeNativeAgentToolDispatcher),
-            Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCheckpointStore::default()),
-            Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCancellation::default()),
+            Arc::new(crate::agent::runtime::FakeNativeAgentToolDispatcher),
+            Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(crate::agent::runtime::InMemoryNativeAgentCancellation::default()),
         ),
         ..GatewayRuntime::default()
     }));
@@ -1562,12 +1564,12 @@ fn native_agent_run_record_includes_structured_token_usage_info() {
 #[derive(Clone)]
 struct UsageNativeAgentProvider;
 
-impl crate::worker_agent_runtime::NativeAgentProvider for UsageNativeAgentProvider {
+impl crate::agent::runtime::NativeAgentProvider for UsageNativeAgentProvider {
     fn complete(
         &self,
-        _context: &crate::worker_agent_runtime::NativeAgentRunContext,
-    ) -> Result<crate::worker_agent_runtime::NativeAgentProviderResponse, String> {
-        Ok(crate::worker_agent_runtime::NativeAgentProviderResponse {
+        _context: &crate::agent::runtime::NativeAgentRunContext,
+    ) -> Result<crate::agent::runtime::NativeAgentProviderResponse, String> {
+        Ok(crate::agent::runtime::NativeAgentProviderResponse {
             final_content: "persisted assistant".to_string(),
             reasoning_delta: None,
             usage: Some(serde_json::json!({
@@ -1587,12 +1589,12 @@ fn long_final_content() -> String {
 #[derive(Clone)]
 struct LongFinalNativeAgentProvider;
 
-impl crate::worker_agent_runtime::NativeAgentProvider for LongFinalNativeAgentProvider {
+impl crate::agent::runtime::NativeAgentProvider for LongFinalNativeAgentProvider {
     fn complete(
         &self,
-        _context: &crate::worker_agent_runtime::NativeAgentRunContext,
-    ) -> Result<crate::worker_agent_runtime::NativeAgentProviderResponse, String> {
-        Ok(crate::worker_agent_runtime::NativeAgentProviderResponse {
+        _context: &crate::agent::runtime::NativeAgentRunContext,
+    ) -> Result<crate::agent::runtime::NativeAgentProviderResponse, String> {
+        Ok(crate::agent::runtime::NativeAgentProviderResponse {
             final_content: long_final_content(),
             reasoning_delta: None,
             usage: None,
@@ -1606,16 +1608,16 @@ struct RecordingNativeAgentProvider {
     calls: Arc<Mutex<Vec<Vec<serde_json::Value>>>>,
 }
 
-impl crate::worker_agent_runtime::NativeAgentProvider for RecordingNativeAgentProvider {
+impl crate::agent::runtime::NativeAgentProvider for RecordingNativeAgentProvider {
     fn complete(
         &self,
-        context: &crate::worker_agent_runtime::NativeAgentRunContext,
-    ) -> Result<crate::worker_agent_runtime::NativeAgentProviderResponse, String> {
+        context: &crate::agent::runtime::NativeAgentRunContext,
+    ) -> Result<crate::agent::runtime::NativeAgentProviderResponse, String> {
         self.calls
             .lock()
             .expect("recording provider calls lock should not be poisoned")
             .push(context.messages.clone());
-        Ok(crate::worker_agent_runtime::NativeAgentProviderResponse {
+        Ok(crate::agent::runtime::NativeAgentProviderResponse {
             final_content: "remembered answer".to_string(),
             reasoning_delta: None,
             usage: None,
@@ -1629,11 +1631,11 @@ struct ToolLoopRecordingNativeAgentProvider {
     calls: Arc<Mutex<Vec<Vec<serde_json::Value>>>>,
 }
 
-impl crate::worker_agent_runtime::NativeAgentProvider for ToolLoopRecordingNativeAgentProvider {
+impl crate::agent::runtime::NativeAgentProvider for ToolLoopRecordingNativeAgentProvider {
     fn complete(
         &self,
-        context: &crate::worker_agent_runtime::NativeAgentRunContext,
-    ) -> Result<crate::worker_agent_runtime::NativeAgentProviderResponse, String> {
+        context: &crate::agent::runtime::NativeAgentRunContext,
+    ) -> Result<crate::agent::runtime::NativeAgentProviderResponse, String> {
         let call_count = {
             let mut calls = self
                 .calls
@@ -1643,11 +1645,11 @@ impl crate::worker_agent_runtime::NativeAgentProvider for ToolLoopRecordingNativ
             calls.len()
         };
         if call_count == 1 {
-            Ok(crate::worker_agent_runtime::NativeAgentProviderResponse {
+            Ok(crate::agent::runtime::NativeAgentProviderResponse {
                 final_content: String::new(),
                 reasoning_delta: None,
                 usage: None,
-                tool_calls: vec![crate::worker_agent_runtime::NativeAgentToolCall {
+                tool_calls: vec![crate::agent::runtime::NativeAgentToolCall {
                     id: "call-durable-history".to_string(),
                     name: "update_plan".to_string(),
                     arguments_json:
@@ -1657,7 +1659,7 @@ impl crate::worker_agent_runtime::NativeAgentProvider for ToolLoopRecordingNativ
                 }],
             })
         } else {
-            Ok(crate::worker_agent_runtime::NativeAgentProviderResponse {
+            Ok(crate::agent::runtime::NativeAgentProviderResponse {
                 final_content: "combined history and tool result".to_string(),
                 reasoning_delta: None,
                 usage: None,
@@ -1672,11 +1674,11 @@ struct MultiExchangeRecallProvider {
     calls: Arc<Mutex<Vec<Vec<serde_json::Value>>>>,
 }
 
-impl crate::worker_agent_runtime::NativeAgentProvider for MultiExchangeRecallProvider {
+impl crate::agent::runtime::NativeAgentProvider for MultiExchangeRecallProvider {
     fn complete(
         &self,
-        context: &crate::worker_agent_runtime::NativeAgentRunContext,
-    ) -> Result<crate::worker_agent_runtime::NativeAgentProviderResponse, String> {
+        context: &crate::agent::runtime::NativeAgentRunContext,
+    ) -> Result<crate::agent::runtime::NativeAgentProviderResponse, String> {
         let call_count = {
             let mut calls = self
                 .calls
@@ -1690,7 +1692,7 @@ impl crate::worker_agent_runtime::NativeAgentProvider for MultiExchangeRecallPro
             2 => "stored banana",
             _ => "You previously said apple and banana.",
         };
-        Ok(crate::worker_agent_runtime::NativeAgentProviderResponse {
+        Ok(crate::agent::runtime::NativeAgentProviderResponse {
             final_content: final_content.to_string(),
             reasoning_delta: None,
             usage: None,
@@ -1708,9 +1710,9 @@ fn worker_run_agent_hydrates_session_history_before_provider_call() {
             Arc::new(RecordingNativeAgentProvider {
                 calls: calls.clone(),
             }),
-            Arc::new(crate::worker_agent_runtime::FakeNativeAgentToolDispatcher),
-            Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCheckpointStore::default()),
-            Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCancellation::default()),
+            Arc::new(crate::agent::runtime::FakeNativeAgentToolDispatcher),
+            Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(crate::agent::runtime::InMemoryNativeAgentCancellation::default()),
         ),
         ..GatewayRuntime::default()
     }));
@@ -1773,9 +1775,9 @@ fn worker_run_agent_combines_session_history_with_current_tool_results() {
             Arc::new(ToolLoopRecordingNativeAgentProvider {
                 calls: calls.clone(),
             }),
-            Arc::new(crate::worker_agent_runtime::FakeNativeAgentToolDispatcher),
-            Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCheckpointStore::default()),
-            Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCancellation::default()),
+            Arc::new(crate::agent::runtime::FakeNativeAgentToolDispatcher),
+            Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(crate::agent::runtime::InMemoryNativeAgentCancellation::default()),
         ),
         ..GatewayRuntime::default()
     }));
@@ -1913,9 +1915,9 @@ fn worker_run_agent_recalls_history_after_multiple_exchanges() {
             Arc::new(MultiExchangeRecallProvider {
                 calls: calls.clone(),
             }),
-            Arc::new(crate::worker_agent_runtime::FakeNativeAgentToolDispatcher),
-            Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCheckpointStore::default()),
-            Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCancellation::default()),
+            Arc::new(crate::agent::runtime::FakeNativeAgentToolDispatcher),
+            Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(crate::agent::runtime::InMemoryNativeAgentCancellation::default()),
         ),
         ..GatewayRuntime::default()
     }));
@@ -1998,9 +2000,9 @@ fn worker_run_agent_rejects_terminal_run_reentry_before_provider_call() {
             Arc::new(RecordingNativeAgentProvider {
                 calls: calls.clone(),
             }),
-            Arc::new(crate::worker_agent_runtime::FakeNativeAgentToolDispatcher),
-            Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCheckpointStore::default()),
-            Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCancellation::default()),
+            Arc::new(crate::agent::runtime::FakeNativeAgentToolDispatcher),
+            Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(crate::agent::runtime::InMemoryNativeAgentCancellation::default()),
         ),
         ..GatewayRuntime::default()
     }));
@@ -2308,7 +2310,7 @@ fn session_owned_compaction_commits_installed_checkpoint_before_final_turn_persi
         .expect("first context checkpoint should have an id")
         .to_string();
     assert_eq!(context["contextCheckpoint"]["contextId"], first_context_id);
-    let hydrated = crate::native_agent_bridge::hydrate_native_agent_history_for_runtime(
+    let hydrated = crate::agent::bridge::hydrate_native_agent_history_for_runtime(
         serde_json::json!({
             "runtime": "rust",
             "runId": "run-session-context-commit-next",
@@ -2334,12 +2336,12 @@ fn session_owned_compaction_commits_installed_checkpoint_before_final_turn_persi
 
     let thread_logs = compatibility_thread_log_paths(&fixture.root);
     assert_eq!(thread_logs.len(), 1);
-    let lines = crate::worker_thread_log::read_thread_lines(&thread_logs[0])
+    let lines = crate::threads::rollout::store::read_thread_lines(&thread_logs[0])
         .expect("session thread log should be readable");
     let stages = lines
         .iter()
         .filter_map(|line| match &line.item {
-            crate::worker_thread_log::ThreadLogItem::Compacted(checkpoint) => checkpoint
+            crate::threads::rollout::store::ThreadLogItem::Compacted(checkpoint) => checkpoint
                 .get("checkpointStage")
                 .and_then(serde_json::Value::as_str),
             _ => None,
@@ -2706,12 +2708,12 @@ fn worker_submit_thread_turn_creates_thread_and_runs_native_agent() {
 fn worker_submit_thread_turn_forwards_live_streaming_timeline_patches() {
     struct StreamingProvider;
 
-    impl crate::worker_agent_runtime::NativeAgentProvider for StreamingProvider {
+    impl crate::agent::runtime::NativeAgentProvider for StreamingProvider {
         fn complete(
             &self,
-            _context: &crate::worker_agent_runtime::NativeAgentRunContext,
-        ) -> Result<crate::worker_agent_runtime::NativeAgentProviderResponse, String> {
-            Ok(crate::worker_agent_runtime::NativeAgentProviderResponse {
+            _context: &crate::agent::runtime::NativeAgentRunContext,
+        ) -> Result<crate::agent::runtime::NativeAgentProviderResponse, String> {
+            Ok(crate::agent::runtime::NativeAgentProviderResponse {
                 final_content: "streamed desktop answer".to_string(),
                 reasoning_delta: None,
                 usage: None,
@@ -2721,17 +2723,17 @@ fn worker_submit_thread_turn_forwards_live_streaming_timeline_patches() {
 
         fn complete_streaming(
             &self,
-            context: &crate::worker_agent_runtime::NativeAgentRunContext,
-            observer: &mut (dyn FnMut(crate::worker_agent_runtime::NativeAgentProviderStreamEvent)
+            context: &crate::agent::runtime::NativeAgentRunContext,
+            observer: &mut (dyn FnMut(crate::agent::runtime::NativeAgentProviderStreamEvent)
                       + Send),
-        ) -> Result<crate::worker_agent_runtime::NativeAgentProviderResponse, String> {
+        ) -> Result<crate::agent::runtime::NativeAgentProviderResponse, String> {
             observer(
-                crate::worker_agent_runtime::NativeAgentProviderStreamEvent::ContentDelta(
+                crate::agent::runtime::NativeAgentProviderStreamEvent::ContentDelta(
                     "streamed ".to_string(),
                 ),
             );
             observer(
-                crate::worker_agent_runtime::NativeAgentProviderStreamEvent::ContentDelta(
+                crate::agent::runtime::NativeAgentProviderStreamEvent::ContentDelta(
                     "desktop answer".to_string(),
                 ),
             );
@@ -2741,15 +2743,15 @@ fn worker_submit_thread_turn_forwards_live_streaming_timeline_patches() {
 
     #[derive(Default)]
     struct LivePatchSink {
-        patches: Mutex<Vec<crate::agent_loop_runtime_protocol::AgentTimelinePatch>>,
+        patches: Mutex<Vec<crate::agent::runtime_protocol::AgentTimelinePatch>>,
     }
 
-    impl crate::worker_agent_runtime::NativeAgentTraceSink for LivePatchSink {
+    impl crate::agent::runtime::NativeAgentTraceSink for LivePatchSink {
         fn append_trace_event(
             &self,
             _session_id: &str,
             _run_id: &str,
-            _event: &crate::agent_loop_runtime_protocol::AgentRuntimeEventEnvelope,
+            _event: &crate::agent::runtime_protocol::AgentRuntimeEventEnvelope,
         ) -> Result<(), String> {
             Ok(())
         }
@@ -2758,7 +2760,7 @@ fn worker_submit_thread_turn_forwards_live_streaming_timeline_patches() {
             &self,
             _session_id: &str,
             _run_id: &str,
-            patch: &crate::agent_loop_runtime_protocol::AgentTimelinePatch,
+            patch: &crate::agent::runtime_protocol::AgentTimelinePatch,
         ) -> Result<(), String> {
             self.patches
                 .lock()
@@ -2771,9 +2773,9 @@ fn worker_submit_thread_turn_forwards_live_streaming_timeline_patches() {
     let fixture = WorkspaceFixture::new();
     let services = NativeAgentRuntimeServices::new(
         Arc::new(StreamingProvider),
-        Arc::new(crate::worker_agent_runtime::FakeNativeAgentToolDispatcher),
-        Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCheckpointStore::default()),
-        Arc::new(crate::worker_agent_runtime::InMemoryNativeAgentCancellation::default()),
+        Arc::new(crate::agent::runtime::FakeNativeAgentToolDispatcher),
+        Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(crate::agent::runtime::InMemoryNativeAgentCancellation::default()),
     );
     let shared = Arc::new(Mutex::new(GatewayRuntime {
         native_agent_runtime: services,
@@ -2805,20 +2807,19 @@ fn worker_submit_thread_turn_forwards_live_streaming_timeline_patches() {
     let assistant_patches = patches
         .iter()
         .filter(|patch| {
-            patch.item.kind
-                == crate::agent_loop_runtime_protocol::AgentTurnItemKind::AssistantMessage
+            patch.item.kind == crate::agent::runtime_protocol::AgentTurnItemKind::AssistantMessage
         })
         .collect::<Vec<_>>();
     assert!(
         assistant_patches.iter().any(|patch| {
             patch.item.status
-                == crate::agent_loop_runtime_protocol::AgentTurnItemStatus::Running
+                == crate::agent::runtime_protocol::AgentTurnItemStatus::Running
         }),
         "desktop live sink should receive a running assistant patch before completion: {assistant_patches:#?}"
     );
     assert!(
         assistant_patches.iter().any(|patch| {
-            patch.item.status == crate::agent_loop_runtime_protocol::AgentTurnItemStatus::Completed
+            patch.item.status == crate::agent::runtime_protocol::AgentTurnItemStatus::Completed
         }),
         "desktop live sink should receive the completed assistant patch"
     );
@@ -2829,13 +2830,10 @@ fn worker_submit_thread_turn_forwards_live_streaming_timeline_patches() {
         "streamed assistant content should grow monotonically"
     );
 
-    fn assistant_patch_content(
-        patch: &crate::agent_loop_runtime_protocol::AgentTimelinePatch,
-    ) -> &str {
+    fn assistant_patch_content(patch: &crate::agent::runtime_protocol::AgentTimelinePatch) -> &str {
         match &patch.item.data {
-            crate::agent_loop_runtime_protocol::AgentTurnItemData::AssistantMessage {
-                content,
-                ..
+            crate::agent::runtime_protocol::AgentTurnItemData::AssistantMessage {
+                content, ..
             } => content,
             _ => "",
         }
@@ -3705,7 +3703,7 @@ fn native_agent_semantic_sink_updates_runtime_state_before_final_persistence() {
     });
     persist_native_agent_run_start(spec, fixture.root.clone(), config.clone())
         .expect("run start should persist");
-    let mut emitter = crate::agent_loop_runtime_protocol::AgentRunEmitter::new(session_id, run_id);
+    let mut emitter = crate::agent::runtime_protocol::AgentRunEmitter::new(session_id, run_id);
     let event = emitter.awaiting_approval(
         "unix-ms:1",
         "approval-trace-sink",
@@ -3714,10 +3712,8 @@ fn native_agent_semantic_sink_updates_runtime_state_before_final_persistence() {
             "summary": "Approval required: workspace.write_file",
         }),
     );
-    let sink = crate::native_agent_bridge::NativeAgentRunSemanticSink::new(
-        fixture.root.clone(),
-        config.clone(),
-    );
+    let sink =
+        crate::agent::bridge::NativeAgentRunSemanticSink::new(fixture.root.clone(), config.clone());
 
     sink.append_trace_event(session_id, run_id, &event)
         .expect("trace sink should append event");
@@ -6516,7 +6512,7 @@ fn tinyos_effective_capabilities_are_backend_authored_and_run_scoped() {
 
 #[test]
 fn tinyos_terminal_result_payload_preserves_retained_execution_boundaries() {
-    let output = crate::worker_shell::ShellProcessOutput {
+    let output = crate::tools::shell::ShellProcessOutput {
         process_id: "shell-1".to_string(),
         system_process_id: Some(42),
         run_id: Some("tinyos-host-terminal-1".to_string()),
@@ -6904,7 +6900,7 @@ fn worker_diagnostics_append_to_persistent_backend_log() {
 
     record_worker_manager_event_for_logs(
         &shared,
-        &WorkerManagerEvent::Diagnostics(crate::worker_protocol::WorkerDiagnosticLine::new(
+        &WorkerManagerEvent::Diagnostics(crate::protocol::WorkerDiagnosticLine::new(
             "stderr",
             "[native-backend] worker.request.start route=POST /api/cowork/sessions",
         )),
@@ -7011,11 +7007,11 @@ fn native_config_patch_result_persists_legacy_compatible_config_file() {
     let result = apply_config_patch_result_to_path(
             &config_path,
             serde_json::json!({"agents":{"defaults":{"model":"gpt-4.1-mini","provider":"openai"}}}),
-            crate::config_store::ConfigPatchBridgeResult {
+            crate::config::store::ConfigPatchBridgeResult {
                 ok: true,
                 config: serde_json::json!({"agents":{"defaults":{"model":"gpt-4.1","provider":"openai"}}}),
                 updated_fields: vec!["agents.defaults.model".to_string()],
-                side_effects: crate::config_store::ConfigPatchSideEffects {
+                side_effects: crate::config::store::ConfigPatchSideEffects {
                     applied: vec!["providerRuntimeChanged".to_string()],
                     restart_required: vec![],
                     warnings: vec![],
@@ -7089,7 +7085,7 @@ fn ensure_default_config_file_creates_schema_v1_deepseek_profile_when_missing() 
             .iter()
             .map(|diagnostic| diagnostic.code)
             .collect::<Vec<_>>(),
-        vec![crate::config_store::ConfigDiagnosticCode::DefaultConfigCreated]
+        vec![crate::config::store::ConfigDiagnosticCode::DefaultConfigCreated]
     );
     let saved = serde_json::from_str::<serde_json::Value>(
         &std::fs::read_to_string(&config_path).expect("default config should be created"),
@@ -7176,7 +7172,7 @@ fn config_editor_snapshot_ensures_missing_default_config_before_loading() {
             .iter()
             .map(|diagnostic| diagnostic.code)
             .collect::<Vec<_>>(),
-        vec![crate::config_store::ConfigDiagnosticCode::DefaultConfigCreated]
+        vec![crate::config::store::ConfigDiagnosticCode::DefaultConfigCreated]
     );
 }
 
@@ -7200,8 +7196,8 @@ fn config_editor_snapshot_reports_default_config_create_failure_as_diagnostic() 
             .map(|diagnostic| diagnostic.code)
             .collect::<Vec<_>>(),
         vec![
-            crate::config_store::ConfigDiagnosticCode::DefaultConfigCreateFailed,
-            crate::config_store::ConfigDiagnosticCode::MissingConfig,
+            crate::config::store::ConfigDiagnosticCode::DefaultConfigCreateFailed,
+            crate::config::store::ConfigDiagnosticCode::MissingConfig,
         ]
     );
     assert_eq!(
@@ -7309,7 +7305,7 @@ fn native_config_operations_preserve_secret_while_saving_unrelated_field() {
             }"#,
     )
     .expect("fixture config should write");
-    let store = crate::config_store::ConfigStore::load(
+    let store = crate::config::store::ConfigStore::load(
         config_path.clone(),
         serde_json::json!({ "agents": { "defaults": { "model": "fallback" } } }),
     )
@@ -7318,9 +7314,9 @@ fn native_config_operations_preserve_secret_while_saving_unrelated_field() {
     let result = apply_config_operations_to_path(
         &config_path,
         serde_json::json!({ "agents": { "defaults": { "model": "fallback" } } }),
-        crate::config_store::ConfigOperationRequest {
+        crate::config::store::ConfigOperationRequest {
             expected_revision: Some(store.revision()),
-            operations: vec![crate::config_store::ConfigOperation::Replace {
+            operations: vec![crate::config::store::ConfigOperation::Replace {
                 path: "agents.defaults.timezone".to_string(),
                 value: serde_json::json!("Asia/Shanghai"),
             }],
@@ -7357,15 +7353,15 @@ fn native_config_operations_save_to_custom_config_path() {
     .expect("config directory should create");
     std::fs::write(&config_path, r#"{"agents":{"defaults":{"model":"gpt-5"}}}"#)
         .expect("fixture config should write");
-    let store = crate::config_store::ConfigStore::load(config_path.clone(), serde_json::json!({}))
+    let store = crate::config::store::ConfigStore::load(config_path.clone(), serde_json::json!({}))
         .expect("custom config should load");
 
     let result = apply_config_operations_to_path(
         &config_path,
         serde_json::json!({}),
-        crate::config_store::ConfigOperationRequest {
+        crate::config::store::ConfigOperationRequest {
             expected_revision: Some(store.revision()),
-            operations: vec![crate::config_store::ConfigOperation::Replace {
+            operations: vec![crate::config::store::ConfigOperation::Replace {
                 path: "agents.defaults.timezone".to_string(),
                 value: serde_json::json!("Asia/Shanghai"),
             }],
@@ -7402,7 +7398,7 @@ fn gateway_runtime_status_serializes_worker_runtime_status() {
         bootstrap_status: "ready".to_string(),
         response_class: Some("tinybot-bootstrap".to_string()),
         recovery_hint: None,
-        worker_runtime: crate::worker_runtime::WorkerRuntimeStatus::stopped(),
+        worker_runtime: crate::transport::stdio_worker::status::WorkerRuntimeStatus::stopped(),
         agent_tasks: crate::desktop_commands::gateway::AgentTaskRuntimeStatus {
             accepting: true,
             active_runs: 0,
@@ -7450,7 +7446,7 @@ fn worker_manager_status_event_maps_to_frontend_worker_status_event() {
 #[test]
 fn worker_manager_diagnostics_event_maps_to_frontend_diagnostics_log_event() {
     let (event_name, payload) = worker_manager_frontend_event(WorkerManagerEvent::Diagnostics(
-        crate::worker_protocol::WorkerDiagnosticLine::new("stderr", "worker ready"),
+        crate::protocol::WorkerDiagnosticLine::new("stderr", "worker ready"),
     ));
 
     assert_eq!(event_name, "diagnostics:log");
@@ -7460,14 +7456,13 @@ fn worker_manager_diagnostics_event_maps_to_frontend_diagnostics_log_event() {
 
 #[test]
 fn worker_manager_protocol_event_maps_to_frontend_protocol_event_name() {
-    let (event_name, payload) = worker_manager_frontend_event(WorkerManagerEvent::Protocol(
-        crate::worker_protocol::WorkerEvent {
-            protocol_version: crate::worker_protocol::WORKER_PROTOCOL_VERSION.to_string(),
+    let (event_name, payload) =
+        worker_manager_frontend_event(WorkerManagerEvent::Protocol(crate::protocol::WorkerEvent {
+            protocol_version: crate::protocol::WORKER_PROTOCOL_VERSION.to_string(),
             trace_id: "trace-agent".to_string(),
             event: "agent.delta".to_string(),
             payload: serde_json::json!({ "message": "starting" }),
-        },
-    ));
+        }));
 
     assert_eq!(event_name, "agent:delta");
     assert_eq!(payload["message"], "starting");
@@ -7484,7 +7479,7 @@ fn worker_probe_status_reports_protocol_metadata() {
         value["diagnostics"][0]["line"],
         format!(
             "rust backend protocol {}",
-            crate::worker_protocol::WORKER_PROTOCOL_VERSION
+            crate::protocol::WORKER_PROTOCOL_VERSION
         )
     );
 }
@@ -7602,10 +7597,12 @@ fn desktop_application_menu_describes_core_workbench_commands() {
     );
 }
 
-fn test_gateway_worker_spec(label: &str) -> crate::worker_manager::WorkerCommandSpec {
+fn test_gateway_worker_spec(
+    label: &str,
+) -> crate::transport::stdio_worker::manager::WorkerCommandSpec {
     #[cfg(target_os = "windows")]
     {
-        crate::worker_manager::WorkerCommandSpec::new(
+        crate::transport::stdio_worker::manager::WorkerCommandSpec::new(
             "cmd",
             ["/C", "ping", "-n", "30", "127.0.0.1", ">", "NUL"],
             PathBuf::from("."),
@@ -7615,15 +7612,21 @@ fn test_gateway_worker_spec(label: &str) -> crate::worker_manager::WorkerCommand
 
     #[cfg(not(target_os = "windows"))]
     {
-        crate::worker_manager::WorkerCommandSpec::new("sh", ["-c", "sleep 30"], PathBuf::from("."))
-            .with_label(label)
+        crate::transport::stdio_worker::manager::WorkerCommandSpec::new(
+            "sh",
+            ["-c", "sleep 30"],
+            PathBuf::from("."),
+        )
+        .with_label(label)
     }
 }
 
-fn test_gateway_short_worker_spec(label: &str) -> crate::worker_manager::WorkerCommandSpec {
+fn test_gateway_short_worker_spec(
+    label: &str,
+) -> crate::transport::stdio_worker::manager::WorkerCommandSpec {
     #[cfg(target_os = "windows")]
     {
-        crate::worker_manager::WorkerCommandSpec::new(
+        crate::transport::stdio_worker::manager::WorkerCommandSpec::new(
             "cmd",
             ["/C", "ping", "-n", "3", "127.0.0.1", ">", "NUL"],
             PathBuf::from("."),
@@ -7633,15 +7636,20 @@ fn test_gateway_short_worker_spec(label: &str) -> crate::worker_manager::WorkerC
 
     #[cfg(not(target_os = "windows"))]
     {
-        crate::worker_manager::WorkerCommandSpec::new("sh", ["-c", "sleep 2"], PathBuf::from("."))
-            .with_label(label)
+        crate::transport::stdio_worker::manager::WorkerCommandSpec::new(
+            "sh",
+            ["-c", "sleep 2"],
+            PathBuf::from("."),
+        )
+        .with_label(label)
     }
 }
 
-fn test_stdio_runtime_restart_worker_spec() -> crate::worker_manager::WorkerCommandSpec {
+fn test_stdio_runtime_restart_worker_spec(
+) -> crate::transport::stdio_worker::manager::WorkerCommandSpec {
     #[cfg(target_os = "windows")]
     {
-        crate::worker_manager::WorkerCommandSpec::new(
+        crate::transport::stdio_worker::manager::WorkerCommandSpec::new(
                 "powershell",
                 [
                     "-NoProfile",
@@ -7655,7 +7663,7 @@ fn test_stdio_runtime_restart_worker_spec() -> crate::worker_manager::WorkerComm
 
     #[cfg(not(target_os = "windows"))]
     {
-        crate::worker_manager::WorkerCommandSpec::new(
+        crate::transport::stdio_worker::manager::WorkerCommandSpec::new(
                 "sh",
                 [
                     "-c",
@@ -7667,10 +7675,11 @@ fn test_stdio_runtime_restart_worker_spec() -> crate::worker_manager::WorkerComm
     }
 }
 
-fn test_stdio_agent_echo_worker_spec() -> crate::worker_manager::WorkerCommandSpec {
+fn test_stdio_agent_echo_worker_spec() -> crate::transport::stdio_worker::manager::WorkerCommandSpec
+{
     #[cfg(target_os = "windows")]
     {
-        crate::worker_manager::WorkerCommandSpec::new(
+        crate::transport::stdio_worker::manager::WorkerCommandSpec::new(
                 "powershell",
                 [
                     "-NoProfile",
@@ -7684,7 +7693,7 @@ fn test_stdio_agent_echo_worker_spec() -> crate::worker_manager::WorkerCommandSp
 
     #[cfg(not(target_os = "windows"))]
     {
-        crate::worker_manager::WorkerCommandSpec::new(
+        crate::transport::stdio_worker::manager::WorkerCommandSpec::new(
                 "sh",
                 [
                     "-c",
@@ -7713,10 +7722,10 @@ fn wait_for_worker_status(
 fn test_logging_sleep_worker_spec(
     label: &str,
     message: &str,
-) -> crate::worker_manager::WorkerCommandSpec {
+) -> crate::transport::stdio_worker::manager::WorkerCommandSpec {
     #[cfg(target_os = "windows")]
     {
-        crate::worker_manager::WorkerCommandSpec::new(
+        crate::transport::stdio_worker::manager::WorkerCommandSpec::new(
             "cmd",
             ["/C", &format!("echo {message} & ping -n 3 127.0.0.1 > NUL")],
             PathBuf::from("."),
@@ -7726,7 +7735,7 @@ fn test_logging_sleep_worker_spec(
 
     #[cfg(not(target_os = "windows"))]
     {
-        crate::worker_manager::WorkerCommandSpec::new(
+        crate::transport::stdio_worker::manager::WorkerCommandSpec::new(
             "sh",
             ["-c", &format!("echo {message}; sleep 2")],
             PathBuf::from("."),
@@ -7737,8 +7746,8 @@ fn test_logging_sleep_worker_spec(
 
 fn wait_for_worker_diagnostics(
     manager: &WorkerManager,
-    predicate: impl Fn(&[crate::worker_protocol::WorkerDiagnosticLine]) -> bool,
-) -> Vec<crate::worker_protocol::WorkerDiagnosticLine> {
+    predicate: impl Fn(&[crate::protocol::WorkerDiagnosticLine]) -> bool,
+) -> Vec<crate::protocol::WorkerDiagnosticLine> {
     for _ in 0..30 {
         let diagnostics = manager.status().diagnostics;
         if predicate(&diagnostics) {
@@ -7778,11 +7787,11 @@ impl WorkspaceFixture {
     }
 
     fn seed_rollout_sessions(&self, store: serde_json::Value) {
-        let rpc = crate::worker_thread_log::WorkerThreadLogRpc::new(
+        let rpc = crate::threads::rollout::store::WorkerThreadLogRpc::new(
             self.root.clone(),
-            crate::worker_capability::CapabilityPolicy::new([
-                crate::worker_capability::WorkerCapability::SessionMetadataRead,
-                crate::worker_capability::WorkerCapability::SessionWrite,
+            crate::protocol::capability::CapabilityPolicy::new([
+                crate::protocol::capability::WorkerCapability::SessionMetadataRead,
+                crate::protocol::capability::WorkerCapability::SessionWrite,
             ]),
         );
         let sessions = store

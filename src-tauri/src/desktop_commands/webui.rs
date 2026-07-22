@@ -1,4 +1,9 @@
-use crate::config_application::{
+use crate::agent::bridge::{
+    native_session_checkpoint, pending_approvals_from_checkpoint,
+    resolve_agent_ui_form_body_with_services, resolve_approval_body_with_services,
+};
+use crate::collaboration::cowork::WorkerCoworkRuntime;
+use crate::config::application::{
     experimental_worker_config_snapshot, native_backend_workspace_root,
 };
 use crate::desktop_commands::session::{
@@ -18,16 +23,11 @@ use crate::desktop_commands::workspace::{
     worker_workspace_file_with_options, worker_workspace_files_with_options,
     worker_workspace_put_file_with_options,
 };
-use crate::native_agent_bridge::{
-    native_session_checkpoint, pending_approvals_from_checkpoint,
-    resolve_agent_ui_form_body_with_services, resolve_approval_body_with_services,
-};
 use crate::native_backend_contract::webui_route_inventory_entry;
-use crate::worker_cowork_runtime::WorkerCoworkRuntime;
-use crate::worker_manager::WorkerManagerState;
-use crate::worker_protocol::WorkerRequest;
-use crate::worker_request_id::next_worker_request_correlation;
-use crate::worker_runtime::WorkerRuntimeStatus;
+use crate::protocol::request_id::next_worker_request_correlation;
+use crate::protocol::WorkerRequest;
+use crate::transport::stdio_worker::manager::WorkerManagerState;
+use crate::transport::stdio_worker::status::WorkerRuntimeStatus;
 use crate::{call_rust_state_service, lock_runtime, SharedGateway, WORKER_WEBUI_ROUTE_TIMEOUT};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::PathBuf, time::Duration};
@@ -56,15 +56,13 @@ pub(crate) struct WorkerWebuiRouteInput {
 
 #[tauri::command]
 pub(crate) fn worker_probe_status() -> WorkerRuntimeStatus {
-    WorkerRuntimeStatus::rust_backend_active(vec![
-        crate::worker_protocol::WorkerDiagnosticLine::new(
-            "stdout",
-            format!(
-                "rust backend protocol {}",
-                crate::worker_protocol::WORKER_PROTOCOL_VERSION
-            ),
+    WorkerRuntimeStatus::rust_backend_active(vec![crate::protocol::WorkerDiagnosticLine::new(
+        "stdout",
+        format!(
+            "rust backend protocol {}",
+            crate::protocol::WORKER_PROTOCOL_VERSION
         ),
-    ])
+    )])
 }
 
 #[tauri::command]
@@ -319,11 +317,8 @@ async fn worker_webui_rust_route_with_options(
 
     if method == "POST" && path == "/v1/chat/completions" {
         return Ok(Some(
-            crate::native_provider_runtime::openai_chat_completions_route_async(
-                &config_snapshot,
-                &body,
-            )
-            .await,
+            crate::agent::provider::openai_chat_completions_route_async(&config_snapshot, &body)
+                .await,
         ));
     }
     if method == "POST" {
@@ -362,13 +357,14 @@ async fn worker_webui_rust_route_with_options(
         ("GET", "/api/tools") => Some(
             worker_webui_tools_body(shared, workspace_root.clone(), config_snapshot.clone()).await,
         ),
-        ("GET", "/api/providers") => Some(Ok(
-            crate::native_provider_runtime::provider_catalog_body(&config_snapshot),
-        )),
-        ("POST", "/api/provider-models") => Some(Ok(
-            crate::native_provider_runtime::provider_models_body(&config_snapshot, &body),
-        )),
-        ("GET", "/v1/models") => Some(Ok(crate::native_provider_runtime::openai_models_body(
+        ("GET", "/api/providers") => Some(Ok(crate::agent::provider::provider_catalog_body(
+            &config_snapshot,
+        ))),
+        ("POST", "/api/provider-models") => Some(Ok(crate::agent::provider::provider_models_body(
+            &config_snapshot,
+            &body,
+        ))),
+        ("GET", "/v1/models") => Some(Ok(crate::agent::provider::openai_models_body(
             &config_snapshot,
         ))),
         ("GET", "/api/sessions") => Some(worker_sessions_list_with_options(
@@ -689,7 +685,7 @@ fn native_webui_status_body(shared: &SharedGateway) -> serde_json::Value {
             }
         },
         "native_backend": status,
-        "provider": crate::native_provider_runtime::resolve_provider_profile(
+        "provider": crate::agent::provider::resolve_provider_profile(
             &experimental_worker_config_snapshot(),
             None,
             None,
@@ -699,7 +695,7 @@ fn native_webui_status_body(shared: &SharedGateway) -> serde_json::Value {
             "api_base": profile.api_base,
             "api_key_configured": profile.api_key_configured,
         })),
-        "model": crate::native_provider_runtime::configured_model(&experimental_worker_config_snapshot()),
+        "model": crate::agent::provider::configured_model(&experimental_worker_config_snapshot()),
     })
 }
 

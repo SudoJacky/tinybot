@@ -1,5 +1,5 @@
-use crate::worker_protocol::WorkerRequest;
-use crate::worker_request_id::next_worker_request_correlation;
+use crate::protocol::request_id::next_worker_request_correlation;
+use crate::protocol::WorkerRequest;
 use crate::{
     call_rust_state_service, experimental_worker_config_snapshot, experimental_worker_router,
     native_backend_workspace_root, SharedGateway,

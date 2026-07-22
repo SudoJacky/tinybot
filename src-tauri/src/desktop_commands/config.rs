@@ -1,14 +1,14 @@
-use crate::config_application::{
+use crate::config::application::{
     apply_config_operations_to_path, apply_config_patch_result_to_path,
     config_editor_snapshot_from_path, default_tinybot_config_path,
     experimental_worker_config_snapshot, experimental_worker_config_snapshot_from_path,
     experimental_worker_default_config_snapshot, get_settings_snapshot_from_path,
     native_backend_workspace_root, ConfigApplicationError, ConfigApplicationErrorCode,
 };
-use crate::config_store::{
+use crate::config::registry::{apply_mcp_runtime_statuses, SettingsSnapshot};
+use crate::config::store::{
     ConfigEditorSnapshot, ConfigOperationRequest, ConfigPatchApplyResult, ConfigPatchBridgeResult,
 };
-use crate::settings_registry::{apply_mcp_runtime_statuses, SettingsSnapshot};
 use crate::{lock_runtime, SharedGateway};
 use serde::Serialize;
 use std::path::PathBuf;
