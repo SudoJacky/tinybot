@@ -47,6 +47,7 @@ impl ThreadStateDb {
         &self.path
     }
 
+    #[cfg(test)]
     pub fn upsert_thread(&self, record: &ThreadStateRecord) -> Result<(), WorkerProtocolError> {
         self.maybe_fail_upsert(record)?;
         let connection = self.open()?;
@@ -234,13 +235,6 @@ impl ThreadStateDb {
         Ok(records)
     }
 
-    pub fn count_threads(&self) -> Result<i64, WorkerProtocolError> {
-        let connection = self.open()?;
-        connection
-            .query_row("SELECT COUNT(*) FROM threads", [], |row| row.get(0))
-            .map_err(sqlite_error)
-    }
-
     pub fn reset(&self) -> Result<(), WorkerProtocolError> {
         if !self.path.exists() {
             return Ok(());
@@ -292,6 +286,7 @@ impl ThreadStateDb {
         }
     }
 
+    #[cfg(test)]
     pub fn archive_thread(
         &self,
         id: &str,

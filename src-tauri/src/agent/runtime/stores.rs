@@ -63,25 +63,6 @@ impl NativeAgentCheckpointStore for InMemoryNativeAgentCheckpointStore {
             .map(|stored| stored.checkpoint.clone())
     }
 
-    fn clear(&self, session_id: &str) {
-        let mut checkpoints = self
-            .checkpoints
-            .lock()
-            .expect("checkpoint store lock should not be poisoned");
-        let Some(key) = checkpoints
-            .iter()
-            .filter(|(key, _stored)| {
-                checkpoint_key_session(key)
-                    .is_some_and(|key_session_id| key_session_id == session_id)
-            })
-            .max_by_key(|(_key, stored)| stored.sequence)
-            .map(|(key, _stored)| key.clone())
-        else {
-            return;
-        };
-        checkpoints.remove(&key);
-    }
-
     fn clear_for_run(&self, session_id: &str, run_id: &str) {
         self.checkpoints
             .lock()

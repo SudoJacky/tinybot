@@ -1,56 +1,6 @@
 use super::*;
 
 #[test]
-fn trace_sink_receives_waiting_boundary_before_runtime_returns() {
-    let sink = Arc::new(RecordingTraceSink::default());
-    let events = sink.events.clone();
-    let timeline_patches = sink.timeline_patches.clone();
-    let services = NativeAgentRuntimeServices::default().with_trace_sink(sink);
-
-    let result = run_native_agent_turn_with_services(
-        &services,
-        json!({
-            "runtime": "rust",
-            "runId": "run-sink-waiting",
-            "sessionId": "websocket:chat-sink-waiting",
-            "metadata": {
-                "fakeAwaitingApproval": {
-                    "approvalId": "approval-sink",
-                    "toolName": "workspace.write_file"
-                }
-            }
-        }),
-    )
-    .expect("waiting run should return");
-    let recorded = events
-        .lock()
-        .expect("trace sink lock should not be poisoned")
-        .clone();
-    let timeline_patches = timeline_patches
-        .lock()
-        .expect("timeline patch sink lock should not be poisoned")
-        .clone();
-    assert!(timeline_patches.iter().any(|patch| {
-        patch.run_id == "run-sink-waiting"
-            && patch.item.kind == crate::agent::runtime_protocol::AgentTurnItemKind::Approval
-            && patch.item.status == crate::agent::runtime_protocol::AgentTurnItemStatus::Waiting
-    }));
-
-    assert_eq!(result["stopReason"], "awaiting_approval");
-    assert!(recorded.iter().any(|event| {
-        event.event_name == "agent.phase.changed"
-            && event.payload["nextPhase"] == "awaiting_approval"
-    }));
-    assert!(recorded
-        .iter()
-        .any(|event| event.event_name == "agent.awaiting_approval"));
-    assert_eq!(
-        recorded.last().map(|event| event.event_name.as_str()),
-        Some("agent.done")
-    );
-}
-
-#[test]
 fn selects_rust_runtime_from_spec_or_config() {
     assert_eq!(
         resolve_native_agent_runtime_mode(&json!({ "runtime": "rust" }), &json!({})),

@@ -1,53 +1,5 @@
-use super::state::NativeAgentRunState;
-use super::{
-    string_field, NativeAgentRunContext, NativeAgentRuntimeServices, TEST_COMPAT_FAKE_CHECKPOINT,
-};
+use super::{string_field, NativeAgentRunContext, NativeAgentRuntimeServices};
 use serde_json::Value;
-
-pub(super) fn maybe_emit_checkpoint(
-    services: &NativeAgentRuntimeServices,
-    context: &NativeAgentRunContext,
-    state: &mut NativeAgentRunState,
-    default_phase: &str,
-) {
-    let Some(checkpoint_metadata) =
-        test_compat_runtime_metadata(&context.metadata, TEST_COMPAT_FAKE_CHECKPOINT)
-    else {
-        return;
-    };
-    let phase =
-        string_field(checkpoint_metadata, "phase").unwrap_or_else(|| default_phase.to_string());
-    let checkpoint = checkpoint_value(context, &phase, checkpoint_metadata.clone());
-    services
-        .checkpoints
-        .save_for_run(&context.session_id, &context.run_id, checkpoint.clone());
-    state.emit_event(
-        "agent.checkpoint",
-        serde_json::json!({
-            "runId": context.run_id,
-            "sessionId": context.session_id,
-            "phase": phase,
-            "checkpoint": checkpoint,
-        }),
-    );
-}
-
-pub(super) fn test_compat_runtime_metadata<'a>(
-    metadata: &'a Value,
-    key: &str,
-) -> Option<&'a Value> {
-    // Compatibility fixture hooks only. Normal runtime control should use typed
-    // continuations, checkpoints, provider responses, or tool/subagent results.
-    #[cfg(test)]
-    {
-        metadata.get(key)
-    }
-    #[cfg(not(test))]
-    {
-        let _ = (metadata, key);
-        None
-    }
-}
 
 pub(super) fn checkpoint_value(
     context: &NativeAgentRunContext,

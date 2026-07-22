@@ -45,16 +45,19 @@ mod user_input;
 pub(crate) use self::context::{agent_trace_context_from_value, ensure_agent_trace_context};
 pub(crate) use self::hooks::AgentHookEvaluation;
 
-pub use self::context_contributors::{
-    AgentContextContribution, AgentContextContributor, AgentContextRequest,
-};
-pub use self::hooks::{AgentHook, AgentHookDecision, AgentHookInvocation, AgentHookStage};
+#[cfg(test)]
+pub use self::context_contributors::AgentContextContribution;
+pub use self::context_contributors::{AgentContextContributor, AgentContextRequest};
+#[cfg(test)]
+pub use self::hooks::AgentHookDecision;
+pub use self::hooks::{AgentHook, AgentHookInvocation, AgentHookStage};
 pub(crate) use self::instructions::{ComposedInstructions, InstructionComposer};
+#[cfg(test)]
+pub use self::items::AgentPlanStepStatus;
 pub use self::items::{
     validate_and_normalize_plan_steps, AgentAssistantMessage, AgentInstructionMessage,
     AgentInstructionRole, AgentItem, AgentItemHistory, AgentMessageContent, AgentPlanProgressItem,
-    AgentPlanStep, AgentPlanStepStatus, AgentReasoningItem, AgentToolCallItem, AgentToolResultItem,
-    AgentUsageItem,
+    AgentPlanStep, AgentReasoningItem, AgentToolCallItem, AgentToolResultItem, AgentUsageItem,
 };
 #[cfg(test)]
 use self::provider::agent_chat_completion_request;
@@ -62,26 +65,27 @@ use self::provider::{agent_provider_config, chat_completion_content, RustNativeA
 use self::result::event_value;
 pub use self::settings::AgentTurnSettings;
 use self::tool_router::NativeToolRouter;
+use self::usage::context_window_messages_async;
 #[cfg(test)]
-use self::usage::enrich_usage_with_context_window;
-use self::usage::{context_window_messages, context_window_messages_async};
+use self::usage::{context_window_messages, enrich_usage_with_context_window};
 pub use crate::runtime::observability::AgentRuntimeMetrics;
 pub(crate) use provider_loop::run_native_agent_turn_with_workspace_and_instructions_async;
+pub use provider_loop::run_native_agent_turn_with_workspace_async;
+#[cfg(test)]
 pub use provider_loop::{
     run_native_agent_turn_with_config, run_native_agent_turn_with_config_async,
-    run_native_agent_turn_with_workspace, run_native_agent_turn_with_workspace_async,
+    run_native_agent_turn_with_workspace,
 };
 pub use stores::{InMemoryNativeAgentCancellation, InMemoryNativeAgentCheckpointStore};
-pub use tool_dispatcher::{FakeNativeAgentToolDispatcher, SubagentNativeAgentToolDispatcher};
+#[cfg(test)]
+pub use tool_dispatcher::FakeNativeAgentToolDispatcher;
+pub use tool_dispatcher::SubagentNativeAgentToolDispatcher;
 
+#[cfg(test)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum NativeAgentRuntimeMode {
     Rust,
 }
-
-const TEST_COMPAT_FAKE_AWAITING_APPROVAL: &str = "fakeAwaitingApproval";
-const TEST_COMPAT_FAKE_AWAITING_FORM: &str = "fakeAwaitingForm";
-const TEST_COMPAT_FAKE_CHECKPOINT: &str = "fakeCheckpoint";
 
 #[derive(Clone)]
 pub struct NativeAgentCancellationContext {
@@ -298,11 +302,13 @@ pub struct NativeToolResultEnvelope {
 }
 
 pub trait NativeAgentProvider: Send + Sync + 'static {
+    #[cfg(test)]
     fn complete(
         &self,
         context: &NativeAgentRunContext,
     ) -> Result<NativeAgentProviderResponse, String>;
 
+    #[cfg(test)]
     fn complete_streaming(
         &self,
         context: &NativeAgentRunContext,
@@ -392,7 +398,6 @@ pub trait NativeAgentCheckpointStore: Send + Sync {
     fn save_for_run(&self, session_id: &str, run_id: &str, checkpoint: Value);
     fn restore(&self, session_id: &str) -> Option<Value>;
     fn restore_for_run(&self, session_id: &str, run_id: &str) -> Option<Value>;
-    fn clear(&self, session_id: &str);
     fn clear_for_run(&self, session_id: &str, run_id: &str);
 }
 
@@ -401,7 +406,6 @@ pub struct NativeAgentContextCheckpointCommit {
     pub session_id: String,
     pub run_id: String,
     pub thread_id: Option<String>,
-    pub event_payload: Value,
     pub checkpoint: Value,
 }
 
@@ -609,11 +613,13 @@ impl NativeAgentRuntimeServices {
             .map_or(Ok(()), |trace_sink| trace_sink.flush())
     }
 
+    #[cfg(test)]
     pub fn with_hook(mut self, hook: Arc<dyn AgentHook>) -> Self {
         self.hooks = self.hooks.with_hook(hook);
         self
     }
 
+    #[cfg(test)]
     pub fn try_with_context_contributor(
         mut self,
         contributor: Arc<dyn AgentContextContributor>,
@@ -622,13 +628,10 @@ impl NativeAgentRuntimeServices {
         Ok(self)
     }
 
+    #[cfg(test)]
     pub fn with_metrics(mut self, metrics: AgentRuntimeMetrics) -> Self {
         self.metrics = metrics;
         self
-    }
-
-    pub fn metrics_snapshot(&self) -> Value {
-        self.metrics.snapshot()
     }
 
     pub(crate) fn evaluate_hook_invocation(
@@ -742,6 +745,7 @@ impl NativeAgentRuntimeServices {
         })
     }
 
+    #[cfg(test)]
     pub fn restore_run_checkpoint(&self, session_id: &str, run_id: &str) -> Value {
         serde_json::json!({
             "runtime": "rust",
@@ -755,11 +759,13 @@ impl NativeAgentRuntimeServices {
         self.checkpoints.save(session_id, checkpoint);
     }
 
+    #[cfg(test)]
     pub fn save_run_checkpoint(&self, session_id: &str, run_id: &str, checkpoint: Value) {
         self.checkpoints
             .save_for_run(session_id, run_id, checkpoint);
     }
 
+    #[cfg(test)]
     pub fn clear_run_checkpoint(&self, session_id: &str, run_id: &str) {
         self.checkpoints.clear_for_run(session_id, run_id);
     }
@@ -782,6 +788,7 @@ impl Default for NativeAgentRuntimeServices {
     }
 }
 
+#[cfg(test)]
 pub fn resolve_native_agent_runtime_mode(
     spec: &Value,
     config_snapshot: &Value,
@@ -790,6 +797,7 @@ pub fn resolve_native_agent_runtime_mode(
     NativeAgentRuntimeMode::Rust
 }
 
+#[cfg(test)]
 pub fn run_native_agent_turn(spec: Value) -> Result<Value, String> {
     let services = NativeAgentRuntimeServices::default();
     let config_snapshot = spec
@@ -799,6 +807,7 @@ pub fn run_native_agent_turn(spec: Value) -> Result<Value, String> {
     run_native_agent_turn_with_config(&services, spec, config_snapshot)
 }
 
+#[cfg(test)]
 pub fn run_native_agent_turn_with_services(
     services: &NativeAgentRuntimeServices,
     spec: Value,

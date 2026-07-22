@@ -71,15 +71,13 @@ use crate::desktop_commands::agent::{
     build_worker_background_trace_list_request,
     worker_background_subagent_enqueue_input_with_options,
     worker_background_trace_append_with_options, worker_background_trace_list_with_options,
-    worker_cancel_agent_with_options, worker_echo_agent_with_options,
-    worker_restore_agent_checkpoint_with_options, worker_run_agent_with_options,
-    worker_submit_thread_form_with_options, worker_submit_thread_turn_with_options,
+    worker_echo_agent_with_options, worker_restore_agent_checkpoint_with_options,
+    worker_run_agent_with_options, worker_submit_thread_turn_with_options,
     worker_task_plan_delete_with_options, worker_task_plan_get_with_options,
     worker_task_plan_list_with_options, worker_task_plan_save_with_options,
     WorkerBackgroundSubagentInputInput, WorkerBackgroundTraceAppendInput,
     WorkerBackgroundTraceGetArtifactInput, WorkerBackgroundTraceGetDelegateTraceInput,
-    WorkerBackgroundTraceListInput, WorkerSubmitThreadFormInput, WorkerSubmitThreadTurnInput,
-    WorkerTaskPlanListInput,
+    WorkerBackgroundTraceListInput, WorkerSubmitThreadTurnInput, WorkerTaskPlanListInput,
 };
 use crate::desktop_commands::agent::{
     worker_background_subagent_enqueue_input, worker_background_trace_append,

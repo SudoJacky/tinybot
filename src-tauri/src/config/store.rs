@@ -142,6 +142,7 @@ impl ConfigStore {
         }
     }
 
+    #[cfg(test)]
     pub fn from_snapshot(config_path: PathBuf, snapshot: Value) -> Self {
         Self {
             config_path,

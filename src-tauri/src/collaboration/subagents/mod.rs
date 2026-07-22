@@ -346,6 +346,7 @@ impl Default for SubagentThreadManager {
 }
 
 impl SubagentThreadManager {
+    #[cfg(test)]
     pub fn new(max_active_per_session: usize) -> Self {
         Self::with_limits(
             max_active_per_session,
@@ -748,6 +749,7 @@ impl SubagentThreadManager {
         }
     }
 
+    #[cfg(test)]
     pub fn consume_mailbox(&self, params: SubagentTargetParams) -> Vec<SubagentMailboxInput> {
         let mut state = self
             .state
@@ -762,6 +764,7 @@ impl SubagentThreadManager {
         record.mailbox.drain(..).collect()
     }
 
+    #[cfg(test)]
     pub fn wait(&self, params: SubagentWaitParams) -> SubagentWaitResult {
         self.wait_with_cancellation(params, || false)
     }
@@ -1072,6 +1075,7 @@ impl SubagentThreadManager {
         })
     }
 
+    #[cfg(test)]
     pub fn interrupt_non_terminal(&self, session_key: &str) -> Vec<SubagentLifecycleResult> {
         let ids = {
             let state = self

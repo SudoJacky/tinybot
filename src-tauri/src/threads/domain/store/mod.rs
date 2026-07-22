@@ -96,11 +96,6 @@ pub trait ThreadStore: Clone + std::fmt::Debug + Send + Sync + 'static {
         thread_id: &str,
         session_key: String,
     ) -> Result<ThreadRecord, WorkerProtocolError>;
-    fn archive_thread(
-        &self,
-        thread_id: &str,
-        archived: bool,
-    ) -> Result<ThreadRecord, WorkerProtocolError>;
     fn archive_thread_with_children(
         &self,
         thread_id: &str,

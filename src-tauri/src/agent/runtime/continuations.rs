@@ -1,12 +1,9 @@
-use super::checkpoint::{checkpoint_value, test_compat_runtime_metadata};
-use super::events::{
-    event, legacy_result_events_from_runtime_events, runtime_event_item_id, runtime_event_timestamp,
-};
-use super::result::{append_runtime_events_to_sink, cancelled_result, waiting_runtime_events};
+use super::events::{event, runtime_event_item_id, runtime_event_timestamp};
+use super::result::{append_runtime_events_to_sink, cancelled_result};
 use super::state::NativeAgentRunState;
 use super::tool_projection::{
     append_continuation_tool_error_observation, append_continuation_tool_observation,
-    assistant_tool_calls_message, completed_tool_result_entry, normalize_tool_result_for_context,
+    completed_tool_result_entry, normalize_tool_result_for_context,
     prepare_continuation_tool_observation, tool_observation_content,
 };
 use super::tool_runtime::{dispatch_owned_tool_call, OwnedToolCallResult};
@@ -14,11 +11,11 @@ use super::usage::{enrich_usage_with_context_window, estimate_context_tokens_for
 use super::{
     string_field, NativeAgentEvent, NativeAgentProviderFailureKind, NativeAgentProviderStreamEvent,
     NativeAgentRunContext, NativeAgentRuntimeServices, NativeAgentToolCall, NativeAgentToolResult,
-    NativeToolResultEnvelope, TEST_COMPAT_FAKE_AWAITING_APPROVAL, TEST_COMPAT_FAKE_AWAITING_FORM,
+    NativeToolResultEnvelope,
 };
 use crate::agent::runtime_protocol::{
-    AgentApprovalDecision, AgentApprovalScope, AgentContinuationInput, AgentFormAction,
-    AgentRuntimeEventAppender, AgentRuntimeEventEnvelope, AgentRuntimePhase,
+    AgentApprovalDecision, AgentApprovalScope, AgentContinuationInput, AgentRuntimeEventAppender,
+    AgentRuntimeEventEnvelope,
 };
 use serde_json::Value;
 
@@ -50,10 +47,8 @@ pub(super) fn restore_activated_tools_for_continuation(
             "approval and form continuations require a matching run checkpoint".to_string()
         })?;
     let checkpoint_kind = checkpoint.pointer("/payload/kind").and_then(Value::as_str);
-    let is_approval_checkpoint = checkpoint_kind == Some("tool_approval")
-        || (cfg!(test) && checkpoint_kind == Some("test_approval"));
-    let is_form_checkpoint = checkpoint_kind == Some("user_input")
-        || (cfg!(test) && checkpoint_kind == Some("test_form"));
+    let is_approval_checkpoint = checkpoint_kind == Some("tool_approval");
+    let is_form_checkpoint = checkpoint_kind == Some("user_input");
     if is_approval_checkpoint {
         if checkpoint.get("phase").and_then(Value::as_str) != Some("awaiting_approval") {
             return Err("invalid approval checkpoint: phase must be awaiting_approval".to_string());
@@ -128,116 +123,6 @@ fn user_continuation_message(content: String) -> Option<Value> {
     }
 }
 
-pub(super) fn maybe_awaiting_approval_result(
-    services: &NativeAgentRuntimeServices,
-    context: &NativeAgentRunContext,
-) -> Option<Value> {
-    let approval =
-        test_compat_runtime_metadata(&context.metadata, TEST_COMPAT_FAKE_AWAITING_APPROVAL)?
-            .clone();
-    let approval_id = string_field(&approval, "approvalId")
-        .or_else(|| string_field(&approval, "approval_id"))
-        .unwrap_or_else(|| "approval-1".to_string());
-    let tool_name = string_field(&approval, "toolName")
-        .or_else(|| string_field(&approval, "tool_name"))
-        .unwrap_or_else(|| "approval".to_string());
-    let tool_call_id = string_field(&approval, "toolCallId")
-        .or_else(|| string_field(&approval, "tool_call_id"))
-        .unwrap_or_else(|| approval_id.clone());
-    let arguments_json = string_field(&approval, "argumentsJson")
-        .or_else(|| string_field(&approval, "arguments_json"))
-        .unwrap_or_else(|| "{}".to_string());
-    let tool_call = NativeAgentToolCall {
-        id: tool_call_id.clone(),
-        name: tool_name.clone(),
-        arguments_json: arguments_json.clone(),
-        result: Value::Null,
-    };
-    let mut messages = context.messages.clone();
-    messages.push(assistant_tool_calls_message("", &[tool_call]));
-    let checkpoint = checkpoint_value(
-        context,
-        "awaiting_approval",
-        serde_json::json!({
-            "kind": "test_approval",
-            "iteration": 0,
-            "approvalId": approval_id,
-            "approval_id": approval_id,
-            "operation": approval,
-            "pendingToolCalls": [{
-                "toolCallId": tool_call_id,
-                "toolName": tool_name,
-                "argumentsJson": arguments_json,
-            }],
-            "resumeToken": format!("approval:{approval_id}"),
-            "messages": messages,
-        }),
-    );
-    services
-        .checkpoints
-        .save_for_run(&context.session_id, &context.run_id, checkpoint.clone());
-    let runtime_events = waiting_runtime_events(
-        context,
-        AgentRuntimePhase::AwaitingApproval,
-        "agent.awaiting_approval",
-        vec![
-            (
-                "agent.checkpoint",
-                None,
-                AgentRuntimePhase::Planning,
-                serde_json::json!({
-                    "runId": context.run_id,
-                    "sessionId": context.session_id,
-                    "phase": "awaiting_approval",
-                    "checkpoint": checkpoint.clone(),
-                }),
-            ),
-            (
-                "agent.awaiting_approval",
-                Some(approval_id.clone()),
-                AgentRuntimePhase::AwaitingApproval,
-                serde_json::json!({
-                    "runId": context.run_id,
-                    "sessionId": context.session_id,
-                    "approvalId": approval_id.clone(),
-                    "toolCallId": tool_call_id.clone(),
-                    "toolName": tool_name.clone(),
-                    "detailId": format!("approval:{approval_id}"),
-                    "status": "waiting",
-                    "summary": format!("Approval required: {tool_name}"),
-                    "options": approval_request_options(),
-                    "operation": approval.clone(),
-                    "content": format!("Approval required: {tool_name}"),
-                }),
-            ),
-            (
-                "agent.done",
-                None,
-                AgentRuntimePhase::AwaitingApproval,
-                serde_json::json!({
-                    "runId": context.run_id,
-                    "sessionId": context.session_id,
-                    "stopReason": "awaiting_approval",
-                }),
-            ),
-        ],
-    );
-    append_runtime_events_to_sink(context, services.trace_sink.as_ref(), &runtime_events);
-    let events = legacy_result_events_from_runtime_events(&runtime_events);
-    Some(serde_json::json!({
-        "runtime": "rust",
-        "runId": context.run_id,
-        "sessionId": context.session_id,
-        "finalContent": "",
-        "stopReason": "awaiting_approval",
-        "messages": [],
-        "toolsUsed": [],
-        "checkpoint": checkpoint,
-        "events": events,
-        "runtimeEvents": runtime_events,
-    }))
-}
-
 pub(super) async fn maybe_approval_resume_result(
     services: &NativeAgentRuntimeServices,
     context: &mut NativeAgentRunContext,
@@ -267,118 +152,50 @@ pub(super) async fn maybe_approval_resume_result(
             .record_duration_ms("approval.wait.durationMs", waited_ms);
         context.metrics().increment("approval.resolved");
     }
-    if approved
-        && checkpoint
-            .as_ref()
-            .and_then(|checkpoint| checkpoint.pointer("/payload/kind"))
-            .and_then(Value::as_str)
-            == Some("tool_approval")
-    {
+    if approved {
         let checkpoint = checkpoint
             .ok_or_else(|| "tool approval continuation checkpoint disappeared".to_string())?;
+        if checkpoint.pointer("/payload/kind").and_then(Value::as_str) != Some("tool_approval") {
+            return Err(
+                "approved continuation requires an exact tool_approval checkpoint".to_string(),
+            );
+        }
         return approved_tool_continuation_outcome(services, context, &continuation, checkpoint)
             .await
             .map(Some);
     }
-    if approved
-        && !(cfg!(test)
-            && checkpoint
-                .as_ref()
-                .and_then(|checkpoint| checkpoint.pointer("/payload/kind"))
-                .and_then(Value::as_str)
-                == Some("test_approval"))
-    {
-        return Err("approved continuation requires an exact tool_approval checkpoint".to_string());
-    }
-    if !approved {
-        if let Some(guidance) = continuation.guidance.clone() {
-            return Ok(Some(ApprovalContinuationOutcome::Finished(
-                approval_denied_guidance_result(
-                    services,
-                    context,
-                    &approval,
-                    &continuation,
-                    guidance,
-                    checkpoint,
-                )
-                .await?,
-            )));
-        }
-        services
-            .checkpoints
-            .clear_for_run(&context.session_id, &context.run_id);
-        let message = continuation
-            .guidance
-            .clone()
-            .or_else(|| string_field(&approval, "guidance"))
-            .map(|guidance| format!("Rust agent approval was denied. User guidance: {guidance}"))
-            .unwrap_or_else(|| "Rust agent approval was denied.".to_string());
-        let events = vec![
-            approval_decision_event(context, &continuation),
-            event(
-                "agent.error",
-                serde_json::json!({
-                    "runId": context.run_id,
-                    "sessionId": context.session_id,
-                    "stopReason": "approval_denied",
-                    "message": message,
-                    "error": message,
-                }),
-            ),
-        ];
-        let runtime_events = continuation_runtime_events(services, context, &events)?;
-        append_runtime_events_to_sink(context, services.trace_sink.as_ref(), &runtime_events);
+    if let Some(guidance) = continuation.guidance.clone() {
         return Ok(Some(ApprovalContinuationOutcome::Finished(
-            serde_json::json!({
-                "runtime": "rust",
-                "runId": context.run_id,
-                "sessionId": context.session_id,
-                "finalContent": "",
-                "stopReason": "approval_denied",
-                "messages": [],
-                "toolsUsed": [],
-                "error": message,
-                "events": events,
-                "runtimeEvents": runtime_events,
-            }),
+            approval_denied_guidance_result(
+                services,
+                context,
+                &approval,
+                &continuation,
+                guidance,
+                checkpoint,
+            )
+            .await?,
         )));
     }
     services
         .checkpoints
         .clear_for_run(&context.session_id, &context.run_id);
-    let final_content = string_field(&approval, "finalContent")
-        .or_else(|| string_field(&approval, "final_content"))
-        .unwrap_or_else(|| "Approved tool completed.".to_string());
-    let tool_call_id = string_field(&approval, "toolCallId")
-        .filter(|tool_call_id| tool_call_id != &continuation.approval_id)
-        .unwrap_or_else(|| format!("{}:tool", continuation.approval_id));
+    let message = continuation
+        .guidance
+        .clone()
+        .or_else(|| string_field(&approval, "guidance"))
+        .map(|guidance| format!("Rust agent approval was denied. User guidance: {guidance}"))
+        .unwrap_or_else(|| "Rust agent approval was denied.".to_string());
     let events = vec![
         approval_decision_event(context, &continuation),
         event(
-            "agent.tool.result",
+            "agent.error",
             serde_json::json!({
                 "runId": context.run_id,
                 "sessionId": context.session_id,
-                "toolCallId": tool_call_id,
-                "toolName": string_field(&approval, "toolName").unwrap_or_else(|| "approval".to_string()),
-                "content": string_field(&approval, "toolResult").unwrap_or_else(|| "approved".to_string()),
-            }),
-        ),
-        event(
-            "agent.delta",
-            serde_json::json!({
-                "runId": context.run_id,
-                "sessionId": context.session_id,
-                "delta": final_content,
-            }),
-        ),
-        final_message_event(context, &final_content),
-        event(
-            "agent.done",
-            serde_json::json!({
-                "runId": context.run_id,
-                "sessionId": context.session_id,
-                "stopReason": "final_response",
+                "stopReason": "approval_denied",
+                "message": message,
+                "error": message,
             }),
         ),
     ];
@@ -389,21 +206,11 @@ pub(super) async fn maybe_approval_resume_result(
             "runtime": "rust",
             "runId": context.run_id,
             "sessionId": context.session_id,
-            "finalContent": final_content,
-            "stopReason": "final_response",
-            "messages": [{ "role": "assistant", "content": final_content }],
+            "finalContent": "",
+            "stopReason": "approval_denied",
+            "messages": [],
             "toolsUsed": [],
-            "restoredCheckpoint": checkpoint,
-            "continuation": {
-                "kind": "approval",
-                "approvalId": continuation.approval_id,
-                "decision": if approved { "approved" } else { "denied" },
-                "scope": match continuation.scope {
-                    AgentApprovalScope::Once => "once",
-                    AgentApprovalScope::Session => "session",
-                },
-                "guidance": continuation.guidance,
-            },
+            "error": message,
             "events": events,
             "runtimeEvents": runtime_events,
         }),
@@ -821,14 +628,6 @@ fn approval_resume_tool_call(
     })
 }
 
-fn approval_request_options() -> Value {
-    serde_json::json!([
-        { "decision": "approved", "scope": "once" },
-        { "decision": "approved", "scope": "session" },
-        { "decision": "denied" }
-    ])
-}
-
 fn approval_decision_event(
     context: &NativeAgentRunContext,
     continuation: &ApprovalContinuationData,
@@ -976,191 +775,6 @@ fn typed_continuation_metadata(context: &NativeAgentRunContext) -> Option<AgentC
     typed_continuation_from_metadata(&context.metadata)
 }
 
-pub(super) fn maybe_awaiting_form_result(
-    services: &NativeAgentRuntimeServices,
-    context: &NativeAgentRunContext,
-) -> Option<Value> {
-    let form =
-        test_compat_runtime_metadata(&context.metadata, TEST_COMPAT_FAKE_AWAITING_FORM)?.clone();
-    let form_id = string_field(&form, "formId")
-        .or_else(|| string_field(&form, "form_id"))
-        .unwrap_or_else(|| "form-1".to_string());
-    let checkpoint = checkpoint_value(
-        context,
-        "awaiting_form",
-        serde_json::json!({
-            "kind": "test_form",
-            "iteration": 0,
-            "formId": form_id,
-            "form_id": form_id,
-            "form": form,
-            "pendingToolCalls": [],
-            "resumeToken": format!("form:{form_id}"),
-        }),
-    );
-    services
-        .checkpoints
-        .save_for_run(&context.session_id, &context.run_id, checkpoint.clone());
-    let runtime_events = waiting_runtime_events(
-        context,
-        AgentRuntimePhase::AwaitingForm,
-        "agent.awaiting_form",
-        vec![
-            (
-                "agent.checkpoint",
-                None,
-                AgentRuntimePhase::Planning,
-                serde_json::json!({
-                    "runId": context.run_id,
-                    "sessionId": context.session_id,
-                    "phase": "awaiting_form",
-                    "checkpoint": checkpoint.clone(),
-                }),
-            ),
-            (
-                "agent.awaiting_form",
-                Some(form_id.clone()),
-                AgentRuntimePhase::AwaitingForm,
-                serde_json::json!({
-                    "runId": context.run_id,
-                    "sessionId": context.session_id,
-                    "formId": form_id.clone(),
-                    "detailId": format!("form:{form_id}"),
-                    "status": "waiting",
-                    "summary": string_field(&form, "title")
-                        .unwrap_or_else(|| "Form input required".to_string()),
-                    "form": form,
-                }),
-            ),
-            (
-                "agent.done",
-                None,
-                AgentRuntimePhase::AwaitingForm,
-                serde_json::json!({
-                    "runId": context.run_id,
-                    "sessionId": context.session_id,
-                    "stopReason": "awaiting_form",
-                }),
-            ),
-        ],
-    );
-    append_runtime_events_to_sink(context, services.trace_sink.as_ref(), &runtime_events);
-    let events = legacy_result_events_from_runtime_events(&runtime_events);
-    Some(serde_json::json!({
-        "runtime": "rust",
-        "runId": context.run_id,
-        "sessionId": context.session_id,
-        "finalContent": "",
-        "stopReason": "awaiting_form",
-        "messages": [],
-        "toolsUsed": [],
-        "checkpoint": checkpoint,
-        "events": events,
-        "runtimeEvents": runtime_events,
-    }))
-}
-
-pub(super) fn maybe_form_submit_result(
-    services: &NativeAgentRuntimeServices,
-    context: &NativeAgentRunContext,
-) -> Result<Option<Value>, String> {
-    let Some((form, continuation)) = form_submit_metadata(context) else {
-        return Ok(None);
-    };
-    let checkpoint = services
-        .checkpoints
-        .restore_for_run(&context.session_id, &context.run_id)
-        .ok_or_else(|| "form continuation checkpoint is missing".to_string())?;
-    if !(cfg!(test)
-        && checkpoint.pointer("/payload/kind").and_then(Value::as_str) == Some("test_form"))
-    {
-        return Err("legacy form continuation requires a test_form checkpoint".to_string());
-    }
-    if matches!(continuation.action, AgentFormAction::Cancel) {
-        services
-            .checkpoints
-            .clear_for_run(&context.session_id, &context.run_id);
-        let message = "Rust agent form was cancelled.";
-        let events = vec![
-            form_resolution_event(context, &continuation),
-            event(
-                "agent.error",
-                serde_json::json!({
-                    "runId": context.run_id,
-                    "sessionId": context.session_id,
-                    "stopReason": "form_cancelled",
-                    "message": message,
-                    "error": message,
-                }),
-            ),
-        ];
-        let runtime_events = continuation_runtime_events(services, context, &events)?;
-        append_runtime_events_to_sink(context, services.trace_sink.as_ref(), &runtime_events);
-        return Ok(Some(serde_json::json!({
-            "runtime": "rust",
-            "runId": context.run_id,
-            "sessionId": context.session_id,
-            "finalContent": "",
-            "stopReason": "form_cancelled",
-            "messages": [],
-            "toolsUsed": [],
-            "error": message,
-            "events": events,
-            "runtimeEvents": runtime_events,
-            "restoredCheckpoint": checkpoint,
-        })));
-    }
-    services
-        .checkpoints
-        .clear_for_run(&context.session_id, &context.run_id);
-    let final_content = string_field(&form, "finalContent")
-        .or_else(|| string_field(&form, "final_content"))
-        .unwrap_or_else(|| "Form submitted.".to_string());
-    let events = vec![
-        form_resolution_event(context, &continuation),
-        event(
-            "agent.delta",
-            serde_json::json!({
-                "runId": context.run_id,
-                "sessionId": context.session_id,
-                "delta": final_content,
-            }),
-        ),
-        final_message_event(context, &final_content),
-        event(
-            "agent.done",
-            serde_json::json!({
-                "runId": context.run_id,
-                "sessionId": context.session_id,
-                "stopReason": "final_response",
-            }),
-        ),
-    ];
-    let runtime_events = continuation_runtime_events(services, context, &events)?;
-    append_runtime_events_to_sink(context, services.trace_sink.as_ref(), &runtime_events);
-    Ok(Some(serde_json::json!({
-        "runtime": "rust",
-        "runId": context.run_id,
-        "sessionId": context.session_id,
-        "finalContent": final_content,
-        "stopReason": "final_response",
-        "messages": [{ "role": "assistant", "content": final_content }],
-        "toolsUsed": [],
-        "restoredCheckpoint": checkpoint,
-        "continuation": {
-            "kind": "form",
-            "formId": continuation.form_id,
-            "action": match continuation.action {
-                AgentFormAction::Submit => "submit",
-                AgentFormAction::Cancel => "cancel",
-            },
-            "values": continuation.values,
-        },
-        "events": events,
-        "runtimeEvents": runtime_events,
-    })))
-}
-
 fn final_message_event(context: &NativeAgentRunContext, content: &str) -> NativeAgentEvent {
     event(
         "agent.message.completed",
@@ -1172,68 +786,4 @@ fn final_message_event(context: &NativeAgentRunContext, content: &str) -> Native
             "content": content,
         }),
     )
-}
-
-fn form_resolution_event(
-    context: &NativeAgentRunContext,
-    continuation: &FormContinuationData,
-) -> NativeAgentEvent {
-    let mut payload = serde_json::json!({
-        "runId": context.run_id,
-        "sessionId": context.session_id,
-        "formId": continuation.form_id,
-        "detailId": format!("form:{}", continuation.form_id),
-        "status": "completed",
-        "action": match continuation.action {
-            AgentFormAction::Submit => "submit",
-            AgentFormAction::Cancel => "cancel",
-        },
-        "values": continuation.values.clone(),
-    });
-    if let Some(command_id) = context
-        .metadata
-        .get("commandId")
-        .or_else(|| context.metadata.get("command_id"))
-        .and_then(serde_json::Value::as_str)
-    {
-        payload["commandId"] = serde_json::Value::String(command_id.to_string());
-    }
-    event("agent.form.resolution", payload)
-}
-
-#[derive(Clone, Debug)]
-struct FormContinuationData {
-    form_id: String,
-    action: AgentFormAction,
-    values: Option<Value>,
-}
-
-fn form_submit_metadata(context: &NativeAgentRunContext) -> Option<(Value, FormContinuationData)> {
-    if let Some(AgentContinuationInput::Form {
-        form_id,
-        action,
-        values,
-    }) = typed_continuation_metadata(context)
-    {
-        let mut form = serde_json::json!({
-            "formId": form_id,
-            "values": values.clone().unwrap_or(Value::Null),
-            "cancelled": matches!(action, AgentFormAction::Cancel),
-        });
-        if let Some(final_content) = string_field(&context.metadata, "finalContent")
-            .or_else(|| string_field(&context.metadata, "final_content"))
-        {
-            form["finalContent"] = Value::String(final_content);
-        }
-        return Some((
-            form,
-            FormContinuationData {
-                form_id,
-                action,
-                values,
-            },
-        ));
-    }
-
-    None
 }

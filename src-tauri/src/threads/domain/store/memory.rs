@@ -1112,14 +1112,6 @@ impl ThreadStore for MemoryThreadStore {
         Ok(record.clone())
     }
 
-    fn archive_thread(
-        &self,
-        thread_id: &str,
-        archived: bool,
-    ) -> Result<ThreadRecord, WorkerProtocolError> {
-        self.archive_thread_with_children(thread_id, archived, false)
-    }
-
     fn archive_thread_with_children(
         &self,
         thread_id: &str,

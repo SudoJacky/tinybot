@@ -44,10 +44,12 @@ pub use self::state_db::ThreadStateDb;
 use self::state_db::{thread_projection_hash, LatestContextCheckpointRecord, ThreadLogHeadRecord};
 pub use crate::threads::rollout::format::reconstruct_rollout as replay_thread;
 use crate::threads::rollout::format::reconstruct_transcript as replay_thread_transcript;
+#[cfg(test)]
+pub use crate::threads::rollout::format::TokenUsage;
 pub use crate::threads::rollout::format::{
     CompactedItem, EventKind, EventMsg, ResponseItem, RolloutItem as ThreadLogItem,
     RolloutLine as ThreadLogLine, RolloutReconstruction as ThreadReplay, SessionMeta as ThreadMeta,
-    ThreadStateRecord, TokenUsage, TokenUsageInfo,
+    ThreadStateRecord, TokenUsageInfo,
 };
 pub(crate) use crate::threads::time::now_thread_timestamp;
 pub const THREAD_LOG_SCHEMA_VERSION: u32 = crate::threads::rollout::format::ROLLOUT_SCHEMA_VERSION;
@@ -2325,6 +2327,7 @@ impl WorkerThreadLogRpc {
         })
     }
 
+    #[cfg(test)]
     pub fn append_token_count(
         &self,
         session_id: &str,

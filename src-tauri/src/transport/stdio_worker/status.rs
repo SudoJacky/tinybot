@@ -5,11 +5,8 @@ use serde::Serialize;
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkerRuntimeState {
-    Stopped,
-    Starting,
     Running,
     Failed,
-    Incompatible,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -29,17 +26,6 @@ impl WorkerRuntimeStatus {
             backend_kind: NativeBackendKind::Rust,
             transport_mode: None,
             diagnostics,
-            last_error: None,
-            recovery_hint: None,
-        }
-    }
-
-    pub fn stopped() -> Self {
-        Self {
-            state: WorkerRuntimeState::Stopped,
-            backend_kind: NativeBackendKind::Rust,
-            transport_mode: None,
-            diagnostics: Vec::new(),
             last_error: None,
             recovery_hint: None,
         }
@@ -78,17 +64,6 @@ impl WorkerRuntimeStatus {
 mod tests {
     use super::*;
     use crate::protocol::{WorkerDiagnosticLine, WorkerTransportMode};
-
-    #[test]
-    fn stopped_worker_status_reports_no_transport_or_diagnostics() {
-        let status = WorkerRuntimeStatus::stopped();
-
-        assert_eq!(status.state, WorkerRuntimeState::Stopped);
-        assert_eq!(status.backend_kind, NativeBackendKind::Rust);
-        assert_eq!(status.transport_mode, None);
-        assert!(status.diagnostics.is_empty());
-        assert!(status.last_error.is_none());
-    }
 
     #[test]
     fn rust_backend_active_reports_diagnostics() {

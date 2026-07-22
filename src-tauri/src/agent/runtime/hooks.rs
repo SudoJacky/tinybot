@@ -214,6 +214,7 @@ impl fmt::Debug for AgentHookPipeline {
 }
 
 impl AgentHookPipeline {
+    #[cfg(test)]
     pub(crate) fn with_hook(&self, hook: Arc<dyn AgentHook>) -> Self {
         let mut hooks = self.hooks.as_ref().clone();
         hooks.push(hook);

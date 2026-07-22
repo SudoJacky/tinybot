@@ -146,6 +146,7 @@ pub struct ToolApprovalMetadata {
 }
 
 impl WorkerToolRegistryRpc {
+    #[cfg(test)]
     pub fn new(policy: CapabilityPolicy) -> Self {
         Self::new_with_config(policy, Value::Null)
     }
@@ -224,13 +225,7 @@ impl WorkerToolRegistryRpc {
         }
     }
 
-    pub fn contributor_ids(&self) -> Vec<String> {
-        self.contributors
-            .iter()
-            .map(|contributor| contributor.id().to_string())
-            .collect()
-    }
-
+    #[cfg(test)]
     pub fn contributor_id_for_tool(&self, tool_id: &str) -> Option<String> {
         let tool_id = tool_id.trim();
         self.contributors.iter().find_map(|contributor| {

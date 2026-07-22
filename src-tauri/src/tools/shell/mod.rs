@@ -92,6 +92,7 @@ impl WorkerShellRpc {
         select_shell_sandbox(sandbox_mode, network_mode, tty).map(|_| ())
     }
 
+    #[cfg(test)]
     pub fn start(
         &self,
         params: ShellStartParams,
@@ -206,6 +207,7 @@ impl WorkerShellRpc {
         self.processes.shutdown()
     }
 
+    #[cfg(test)]
     pub fn active_process_count(&self) -> usize {
         self.processes.active_count()
     }
@@ -218,6 +220,7 @@ impl WorkerShellRpc {
         Ok(self.processes.list(params.run_id.as_deref()))
     }
 
+    #[cfg(test)]
     pub fn execute(
         &self,
         params: ShellExecuteParams,

@@ -308,6 +308,7 @@ pub fn provider_models_body(config: &Value, body: &Value) -> Value {
     }
 }
 
+#[cfg(test)]
 pub fn openai_chat_completions_route(config: &Value, body: &Value) -> Value {
     tauri::async_runtime::block_on(openai_chat_completions_route_async(config, body))
 }
@@ -329,11 +330,13 @@ pub async fn openai_chat_completions_route_async(config: &Value, body: &Value) -
     }
 }
 
+#[cfg(test)]
 pub fn complete_chat_for_agent(config: &Value, body: &Value) -> Result<Value, String> {
     let mut observer = |_event: NativeProviderStreamEvent| {};
     complete_chat_for_agent_with_observer(config, body, &mut observer)
 }
 
+#[cfg(test)]
 pub fn complete_chat_for_agent_with_observer(
     config: &Value,
     body: &Value,

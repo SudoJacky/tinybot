@@ -23,6 +23,7 @@ struct DurationAggregate {
 }
 
 impl AgentRuntimeMetrics {
+    #[cfg(test)]
     pub fn isolated() -> Self {
         Self::default()
     }

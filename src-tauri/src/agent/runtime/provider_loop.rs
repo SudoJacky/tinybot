@@ -1,7 +1,6 @@
-use super::checkpoint::{maybe_emit_checkpoint, save_phase_checkpoint};
+use super::checkpoint::save_phase_checkpoint;
 use super::continuations::{
-    maybe_approval_resume_result, maybe_awaiting_approval_result, maybe_awaiting_form_result,
-    maybe_form_submit_result, restore_activated_tools_for_continuation,
+    maybe_approval_resume_result, restore_activated_tools_for_continuation,
     ApprovalContinuationOutcome, ApprovalResume,
 };
 use super::events::runtime_event_timestamp;
@@ -17,7 +16,7 @@ use super::user_input::{
     prepare_user_input_continuation, UserInputContinuationOutcome, UserInputResume,
 };
 use super::{
-    bool_field, AgentContextRequest, AgentHookInvocation, AgentHookStage, ComposedInstructions,
+    AgentContextRequest, AgentHookInvocation, AgentHookStage, ComposedInstructions,
     InstructionComposer, NativeAgentContextCheckpointCommit, NativeAgentProviderFailure,
     NativeAgentProviderFailureKind, NativeAgentProviderStreamEvent, NativeAgentRunContext,
     NativeAgentRuntimeServices,
@@ -33,6 +32,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+#[cfg(test)]
 pub fn run_native_agent_turn_with_config(
     services: &NativeAgentRuntimeServices,
     spec: Value,
@@ -45,6 +45,7 @@ pub fn run_native_agent_turn_with_config(
     ))
 }
 
+#[cfg(test)]
 pub async fn run_native_agent_turn_with_config_async(
     services: &NativeAgentRuntimeServices,
     spec: Value,
@@ -53,6 +54,7 @@ pub async fn run_native_agent_turn_with_config_async(
     run_owned_native_agent_turn_async(services, spec, config_snapshot, None, None).await
 }
 
+#[cfg(test)]
 pub fn run_native_agent_turn_with_workspace(
     services: &NativeAgentRuntimeServices,
     spec: Value,
@@ -253,7 +255,7 @@ async fn run_native_agent_turn_with_instructions_async(
             "Rust agent runtime reached max iterations before provider call.",
         ));
     }
-    if run_context_is_cancelled(&context) || bool_field(&context.metadata, "fakeCancel") {
+    if run_context_is_cancelled(&context) {
         let checkpoint = save_phase_checkpoint(
             services,
             &context,
@@ -478,7 +480,6 @@ async fn run_native_agent_turn_with_instructions_async(
                     session_id: context.session_id.clone(),
                     run_id: context.run_id.clone(),
                     thread_id: context.thread_id.clone(),
-                    event_payload: payload.clone(),
                     checkpoint: checkpoint.clone(),
                 };
                 if let Err(error) = services.commit_context_checkpoint(commit).await {
@@ -740,8 +741,6 @@ async fn run_native_agent_turn_with_instructions_async(
             ));
         }
 
-        let current_phase = state.phase.as_str().to_string();
-        maybe_emit_checkpoint(services, &context, &mut state, &current_phase);
         if let Some(reasoning_delta) = provider_response
             .reasoning_delta
             .clone()
@@ -1256,9 +1255,6 @@ async fn prepare_continuation(
     mut context: NativeAgentRunContext,
 ) -> Result<PreparedContinuation, String> {
     restore_activated_tools_for_continuation(&services, &mut context)?;
-    if let Some(result) = maybe_awaiting_approval_result(&services, &context) {
-        return Ok(PreparedContinuation::Finished(result));
-    }
     if let Some(outcome) = maybe_approval_resume_result(&services, &mut context).await? {
         return Ok(match outcome {
             ApprovalContinuationOutcome::Resume(resume) => PreparedContinuation::Continue {
@@ -1268,9 +1264,6 @@ async fn prepare_continuation(
             ApprovalContinuationOutcome::Finished(result) => PreparedContinuation::Finished(result),
         });
     }
-    if let Some(result) = maybe_awaiting_form_result(&services, &context) {
-        return Ok(PreparedContinuation::Finished(result));
-    }
     let resume = match prepare_user_input_continuation(&services, &mut context)? {
         Some(UserInputContinuationOutcome::Finished(result)) => {
             return Ok(PreparedContinuation::Finished(result));
@@ -1278,12 +1271,7 @@ async fn prepare_continuation(
         Some(UserInputContinuationOutcome::Resume(resume)) => {
             Some(PreparedRunResume::UserInput(resume))
         }
-        None => {
-            if let Some(result) = maybe_form_submit_result(&services, &context)? {
-                return Ok(PreparedContinuation::Finished(result));
-            }
-            None
-        }
+        None => None,
     };
     Ok(PreparedContinuation::Continue { context, resume })
 }

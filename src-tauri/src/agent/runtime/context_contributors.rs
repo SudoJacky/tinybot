@@ -11,7 +11,6 @@ const MAX_CONTEXT_CONTRIBUTION_CHARS: usize = 12_000;
 pub struct AgentContextRequest {
     workspace_root: PathBuf,
     current_message: String,
-    session_id: String,
     config_snapshot: Value,
 }
 
@@ -22,10 +21,6 @@ impl AgentContextRequest {
 
     pub fn current_message(&self) -> &str {
         &self.current_message
-    }
-
-    pub fn session_id(&self) -> &str {
-        &self.session_id
     }
 
     pub fn config_snapshot(&self) -> &Value {
@@ -39,7 +34,6 @@ impl AgentContextRequest {
         Self {
             workspace_root,
             current_message: current_user_text(&context.messages),
-            session_id: context.session_id.clone(),
             config_snapshot: context.config_snapshot.clone(),
         }
     }
@@ -91,6 +85,7 @@ impl Default for AgentContextContributorRegistry {
 }
 
 impl AgentContextContributorRegistry {
+    #[cfg(test)]
     pub(super) fn with_contributor(
         mut self,
         contributor: Arc<dyn AgentContextContributor>,
@@ -216,10 +211,10 @@ impl AgentContextContributor for MemoryContextContributor {
             MAX_CONTEXT_CONTRIBUTION_CHARS,
         )?;
         let result = WorkerMemoryRpc::new(
-            request.workspace_root.clone(),
+            request.workspace_root().to_path_buf(),
             default_desktop_capability_policy(),
         )
-        .recall_context(request.current_message.clone(), max_notes, max_chars)
+        .recall_context(request.current_message().to_string(), max_notes, max_chars)
         .map_err(|error| error.message)?;
         let content = result
             .get("context")

@@ -152,13 +152,6 @@ pub fn effective_rollout_line_indexes(lines: &[RolloutLine]) -> Vec<usize> {
         .collect()
 }
 
-pub fn latest_effective_compaction_index(lines: &[RolloutLine]) -> Option<usize> {
-    effective_rollout_line_indexes(lines)
-        .into_iter()
-        .rev()
-        .find(|index| matches!(lines[*index].item, RolloutItem::Compacted(_)))
-}
-
 fn event_kind(item: &RolloutItem) -> Option<&EventKind> {
     let RolloutItem::EventMsg(event) = item else {
         return None;

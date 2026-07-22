@@ -1030,10 +1030,6 @@ fn mixed_parallel_and_non_parallel_tool_batch_uses_read_write_lock_scheduling() 
             self.inner.restore_for_run(session_id, run_id)
         }
 
-        fn clear(&self, session_id: &str) {
-            self.inner.clear(session_id);
-        }
-
         fn clear_for_run(&self, session_id: &str, run_id: &str) {
             self.inner.clear_for_run(session_id, run_id);
         }

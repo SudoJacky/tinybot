@@ -86,6 +86,7 @@ use self::errors::unknown_method_error;
 use self::form::WorkerFormRpc;
 use self::mcp::WorkerMcpRpc;
 use self::method::classify_method;
+#[cfg(test)]
 pub use self::runtime::RuntimeRestartRequest;
 use self::runtime::WorkerRuntimeRpc;
 use crate::protocol::params::parse_params;
@@ -116,6 +117,7 @@ pub struct WorkerRpcRouter {
 }
 
 impl WorkerRpcRouter {
+    #[cfg(test)]
     pub fn new(
         workspace_root: PathBuf,
         config_snapshot: Value,
@@ -202,6 +204,7 @@ impl WorkerRpcRouter {
         })
     }
 
+    #[cfg(test)]
     pub fn with_config_store(
         workspace_root: PathBuf,
         config_store: ConfigStore,
@@ -221,6 +224,7 @@ impl WorkerRpcRouter {
         router
     }
 
+    #[cfg(test)]
     pub fn with_runtime_restart_handler(
         mut self,
         handler: impl Fn(RuntimeRestartRequest) + Send + Sync + 'static,

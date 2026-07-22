@@ -19,21 +19,6 @@ impl<S: ThreadStore> LiveThread<S> {
         }
     }
 
-    pub fn thread_id(&self) -> &str {
-        &self.thread_id
-    }
-
-    pub fn append(&self, item: ThreadItem) -> Result<AppendThreadItemsResult, WorkerProtocolError> {
-        self.append_many(vec![item])
-    }
-
-    pub fn append_many(
-        &self,
-        items: Vec<ThreadItem>,
-    ) -> Result<AppendThreadItemsResult, WorkerProtocolError> {
-        self.store.append_items(&self.thread_id, items)
-    }
-
     pub fn append_with_client_event_id(
         &self,
         item: ThreadItem,

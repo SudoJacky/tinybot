@@ -147,6 +147,7 @@ impl WorkerManager {
         }
     }
 
+    #[cfg(test)]
     pub fn with_event_sink(
         self,
         event_sink: impl Fn(WorkerManagerEvent) + Send + Sync + 'static,
@@ -160,6 +161,7 @@ impl WorkerManager {
         *sink = Some(Arc::new(event_sink));
     }
 
+    #[cfg(test)]
     pub fn start(&self, spec: WorkerCommandSpec) -> Result<(), WorkerManagerError> {
         {
             let mut inner = lock_inner(&self.inner);
@@ -415,11 +417,13 @@ impl WorkerManager {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn restart(&self, spec: WorkerCommandSpec) -> Result<(), WorkerManagerError> {
         self.stop()?;
         self.start(spec)
     }
 
+    #[cfg(test)]
     pub fn restart_stdio_rpc(
         &self,
         spec: WorkerCommandSpec,
@@ -429,6 +433,7 @@ impl WorkerManager {
         self.start_stdio_rpc(spec, router)
     }
 
+    #[cfg(test)]
     pub fn health_check(&self) -> WorkerHealth {
         let mut inner = lock_inner(&self.inner);
         refresh_child_status(&mut inner).unwrap_or(WorkerHealth::Failed)

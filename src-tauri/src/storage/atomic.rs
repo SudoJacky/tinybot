@@ -17,6 +17,7 @@ pub struct AtomicWriteOptions {
 }
 
 impl AtomicWriteOptions {
+    #[cfg(test)]
     pub fn with_backup_suffix(mut self, suffix: impl Into<String>) -> Self {
         self.backup_suffix = Some(suffix.into());
         self

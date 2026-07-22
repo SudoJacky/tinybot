@@ -489,13 +489,6 @@ impl AgentMessageContent {
         Self::Text(content.into())
     }
 
-    pub fn as_text(&self) -> Option<&str> {
-        match self {
-            Self::Text(text) => Some(text),
-            Self::Parts(_) => None,
-        }
-    }
-
     pub fn to_value(&self) -> Value {
         match self {
             Self::Text(text) => Value::String(text.clone()),

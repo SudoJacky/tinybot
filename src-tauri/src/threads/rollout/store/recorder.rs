@@ -115,6 +115,7 @@ impl ThreadRecorder {
         self.persist(path)
     }
 
+    #[cfg(test)]
     pub fn add_items(
         &self,
         path: &Path,
@@ -141,6 +142,7 @@ impl ThreadRecorder {
         self.writer(path)?.flush()
     }
 
+    #[cfg(test)]
     pub fn shutdown(&self, path: &Path) -> Result<(), WorkerProtocolError> {
         self.validate_thread_path(path)?;
         let writer = {
@@ -164,19 +166,6 @@ impl ThreadRecorder {
                 thread_log_validation_error("thread log writer registry lock is poisoned")
             })?
             .remove(path);
-        Ok(())
-    }
-
-    pub fn shutdown_all(&self) -> Result<(), WorkerProtocolError> {
-        let paths = {
-            let writers = self.writers.lock().map_err(|_| {
-                thread_log_validation_error("thread log writer registry lock is poisoned")
-            })?;
-            writers.keys().cloned().collect::<Vec<_>>()
-        };
-        for path in paths {
-            self.shutdown(&path)?;
-        }
         Ok(())
     }
 

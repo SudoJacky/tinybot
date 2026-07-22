@@ -72,13 +72,6 @@ pub enum AgentRunStatus {
     Interrupted,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentRunKey {
-    pub session_id: String,
-    pub run_id: String,
-}
-
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentRunRecord {

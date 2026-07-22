@@ -1,14 +1,8 @@
 use super::checkpoint::save_phase_checkpoint;
-use super::events::{
-    event, legacy_result_events_from_runtime_events, runtime_event_source, runtime_event_timestamp,
-    runtime_event_visibility,
-};
+use super::events::{event, legacy_result_events_from_runtime_events, runtime_event_timestamp};
 use super::item_event_projection::attach_agent_item;
 use super::{NativeAgentRunContext, NativeAgentRuntimeServices, NativeAgentTraceSink};
-use crate::agent::runtime_protocol::{
-    AgentRunEmitter, AgentRuntimeEventAppendInput, AgentRuntimeEventEnvelope,
-    AgentRuntimeEventSource, AgentRuntimeEventVisibility, AgentRuntimePhase,
-};
+use crate::agent::runtime_protocol::{AgentRunEmitter, AgentRuntimeEventEnvelope};
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -128,73 +122,6 @@ pub(super) fn cancelled_run_result(
         "events": events,
         "runtimeEvents": runtime_events,
     })
-}
-
-pub(super) fn waiting_runtime_events(
-    context: &NativeAgentRunContext,
-    waiting_phase: AgentRuntimePhase,
-    trigger_event_name: &str,
-    events: Vec<(&'static str, Option<String>, AgentRuntimePhase, Value)>,
-) -> Vec<AgentRuntimeEventEnvelope> {
-    let mut emitter =
-        AgentRunEmitter::new_with_trace_context(&context.session_id, context.trace_context.clone());
-    if let Some(message) = super::state::current_user_message(&context.messages) {
-        let message_id = message
-            .get("messageId")
-            .or_else(|| message.get("message_id"))
-            .or_else(|| message.get("id"))
-            .and_then(Value::as_str)
-            .map(str::to_string)
-            .unwrap_or_else(|| format!("{}:user", context.run_id));
-        let client_event_id = message
-            .get("clientEventId")
-            .or_else(|| message.get("client_event_id"))
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        let references = message
-            .get("references")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        emitter.user_turn_started(
-            runtime_event_timestamp(),
-            Some(message_id),
-            client_event_id,
-            super::state::user_message_text(&message),
-            references,
-        );
-    }
-    emitter.emit(AgentRuntimeEventAppendInput {
-        parent_turn_id: None,
-        item_id: None,
-        event_name: "agent.phase.changed".to_string(),
-        phase: waiting_phase.clone(),
-        timestamp: runtime_event_timestamp(),
-        source: AgentRuntimeEventSource::RustBackend,
-        visibility: AgentRuntimeEventVisibility::Debug,
-        payload: serde_json::json!({
-            "runId": context.run_id,
-            "sessionId": context.session_id,
-            "iteration": 0,
-            "previousPhase": "planning",
-            "nextPhase": waiting_phase.as_str(),
-            "triggerEventName": trigger_event_name,
-        }),
-    });
-    for (event_name, item_id, phase, payload) in events {
-        let payload = attach_agent_item(event_name, payload);
-        emitter.emit(AgentRuntimeEventAppendInput {
-            parent_turn_id: None,
-            item_id,
-            event_name: event_name.to_string(),
-            phase,
-            timestamp: runtime_event_timestamp(),
-            source: runtime_event_source(event_name),
-            visibility: runtime_event_visibility(event_name),
-            payload,
-        });
-    }
-    emitter.take_events()
 }
 
 pub(super) fn append_runtime_events_to_sink(

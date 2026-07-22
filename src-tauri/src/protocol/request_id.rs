@@ -31,12 +31,14 @@ impl WorkerRequestCorrelation {
     }
 }
 
+#[cfg(test)]
 #[derive(Debug)]
 pub struct WorkerRequestIdGenerator {
     run_prefix: String,
     next_sequence: AtomicU64,
 }
 
+#[cfg(test)]
 impl WorkerRequestIdGenerator {
     pub fn with_run_prefix(run_prefix: impl Into<String>) -> Self {
         Self {

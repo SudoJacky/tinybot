@@ -86,8 +86,6 @@ pub struct ProviderResolveSecretParams {
     pub provider_id: String,
     #[serde(rename = "profileName", alias = "profile_name")]
     pub profile_name: Option<String>,
-    #[serde(default, rename = "apiKeyEnvVars", alias = "api_key_env_vars")]
-    pub api_key_env_vars: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -202,7 +200,6 @@ mod tests {
             .resolve_secret(ProviderResolveSecretParams {
                 provider_id: "dashscope".to_string(),
                 profile_name: Some("dashscope-search".to_string()),
-                api_key_env_vars: vec![],
             })
             .expect("profile secret should resolve");
 
@@ -240,12 +237,14 @@ mod tests {
             CapabilityPolicy::new([WorkerCapability::ProviderSecretRead]),
         );
 
+        let params = serde_json::from_value(json!({
+            "providerId": "custom",
+            "profileName": null,
+            "apiKeyEnvVars": ["TINYBOT_ARBITRARY_WORKER_SECRET"]
+        }))
+        .expect("legacy env-name input should deserialize without becoming executable");
         let result = rpc
-            .resolve_secret(ProviderResolveSecretParams {
-                provider_id: "custom".to_string(),
-                profile_name: None,
-                api_key_env_vars: vec!["TINYBOT_ARBITRARY_WORKER_SECRET".to_string()],
-            })
+            .resolve_secret(params)
             .expect("arbitrary worker env names should not fail protocol parsing");
 
         assert_eq!(
@@ -272,7 +271,6 @@ mod tests {
             .resolve_secret(ProviderResolveSecretParams {
                 provider_id: "openai".to_string(),
                 profile_name: None,
-                api_key_env_vars: vec!["TINYBOT_ARBITRARY_WORKER_SECRET".to_string()],
             })
             .expect("provider-owned env mapping should resolve");
 
@@ -289,7 +287,6 @@ mod tests {
         ProviderResolveSecretParams {
             provider_id: provider_id.to_string(),
             profile_name: None,
-            api_key_env_vars: vec![],
         }
     }
 

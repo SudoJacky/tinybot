@@ -537,7 +537,6 @@ fn in_memory_context_checkpoint_committer_bootstraps_and_enforces_lineage() {
         session_id: "session-context-lineage".to_string(),
         run_id: format!("run-{context_id}"),
         thread_id: None,
-        event_payload: json!({}),
         checkpoint: json!({
             "contextId": context_id,
             "sourceContextId": source_context_id,

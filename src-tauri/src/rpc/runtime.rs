@@ -38,6 +38,7 @@ impl WorkerRuntimeRpc {
         }
     }
 
+    #[cfg(test)]
     pub(super) fn with_restart_handler(
         handler: impl Fn(RuntimeRestartRequest) + Send + Sync + 'static,
     ) -> Self {

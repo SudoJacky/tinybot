@@ -129,6 +129,7 @@ impl WorkerResponse {
         }
     }
 
+    #[cfg(test)]
     pub fn matches_request(&self, request: &WorkerRequest) -> bool {
         self.id == request.id && self.trace_id == request.trace_id
     }

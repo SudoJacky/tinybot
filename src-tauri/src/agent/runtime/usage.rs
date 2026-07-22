@@ -51,6 +51,7 @@ struct CompactionSummary {
     request_count: usize,
 }
 
+#[cfg(test)]
 pub(super) fn context_window_messages(
     context: &NativeAgentRunContext,
 ) -> Result<Vec<Value>, String> {
@@ -71,6 +72,7 @@ pub(super) async fn context_window_messages_async(
         .map(|projection| projection.messages)
 }
 
+#[cfg(test)]
 pub(super) fn context_window_projection(
     context: &NativeAgentRunContext,
 ) -> Result<ContextWindowProjection, String> {

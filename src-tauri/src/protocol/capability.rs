@@ -57,6 +57,7 @@ pub enum WorkerCapability {
     BrowserInteract,
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct CapabilityGrant {
     pub capability: WorkerCapability,

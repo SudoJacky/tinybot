@@ -88,6 +88,7 @@ where
         decode_worker_line(line.trim_end_matches(['\r', '\n'])).map(Some)
     }
 
+    #[cfg(test)]
     pub fn round_trip(
         &mut self,
         request: &WorkerRequest,

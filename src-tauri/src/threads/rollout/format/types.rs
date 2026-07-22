@@ -158,10 +158,6 @@ impl EventMsg {
         &self.kind
     }
 
-    pub fn event_type(&self) -> &str {
-        self.kind.as_str()
-    }
-
     pub fn payload(&self) -> &Value {
         self.raw.get("payload").unwrap_or(&self.raw)
     }
@@ -302,10 +298,6 @@ impl ResponseItem {
 
     pub fn as_value(&self) -> &Value {
         &self.raw
-    }
-
-    pub fn into_value(self) -> Value {
-        self.raw
     }
 }
 
@@ -460,10 +452,6 @@ impl CompactedItem {
     pub fn as_value(&self) -> &Value {
         &self.raw
     }
-
-    pub fn into_value(self) -> Value {
-        self.raw
-    }
 }
 
 impl Deref for CompactedItem {
@@ -512,10 +500,6 @@ impl InterAgentCommunication {
             })
             .transpose()?;
         Ok(Self { trigger_turn, raw })
-    }
-
-    pub fn trigger_turn(&self) -> Option<bool> {
-        self.trigger_turn
     }
 
     pub fn as_value(&self) -> &Value {

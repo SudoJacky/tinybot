@@ -19,6 +19,7 @@ struct TemporaryFileResourceStore {
 }
 
 impl WorkerSessionRpc {
+    #[cfg(test)]
     pub fn new(sessions: Vec<SessionMetadata>, policy: CapabilityPolicy) -> Self {
         Self {
             sessions,

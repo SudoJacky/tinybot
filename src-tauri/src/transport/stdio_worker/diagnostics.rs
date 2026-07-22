@@ -31,6 +31,7 @@ impl WorkerDiagnosticsRpc {
         Ok(diagnostic)
     }
 
+    #[cfg(test)]
     pub fn lines(&self) -> Vec<WorkerDiagnosticLine> {
         self.diagnostics.lines()
     }

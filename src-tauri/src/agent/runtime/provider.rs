@@ -1,7 +1,9 @@
+#[cfg(test)]
+use super::context_window_messages;
 use super::provider_adapter::ChatCompletionsAdapter;
 use super::{
-    context_window_messages, context_window_messages_async, string_field, AgentItemHistory,
-    AgentMessageContent, AgentToolCallItem, NativeAgentProvider, NativeAgentProviderFailure,
+    context_window_messages_async, string_field, AgentItemHistory, AgentMessageContent,
+    AgentToolCallItem, NativeAgentProvider, NativeAgentProviderFailure,
     NativeAgentProviderFailureKind, NativeAgentProviderResponse, NativeAgentProviderStreamEvent,
     NativeAgentRunContext, NativeAgentToolCall,
 };
@@ -11,6 +13,7 @@ use std::sync::Arc;
 pub(super) struct RustNativeAgentProvider;
 
 impl NativeAgentProvider for RustNativeAgentProvider {
+    #[cfg(test)]
     fn complete(
         &self,
         context: &NativeAgentRunContext,
@@ -19,6 +22,7 @@ impl NativeAgentProvider for RustNativeAgentProvider {
         self.complete_streaming(context, &mut observer)
     }
 
+    #[cfg(test)]
     fn complete_streaming(
         &self,
         context: &NativeAgentRunContext,
@@ -183,6 +187,7 @@ fn map_provider_failure_kind(
     }
 }
 
+#[cfg(test)]
 pub(super) fn agent_chat_completion_request(
     context: &NativeAgentRunContext,
 ) -> Result<Value, String> {
@@ -280,6 +285,7 @@ fn set_agent_default(config: &mut Value, key: &str, value: Value) {
         .insert(key.to_string(), value);
 }
 
+#[cfg(test)]
 fn agent_chat_messages(context: &NativeAgentRunContext) -> Result<Value, String> {
     if !context.messages.is_empty() {
         return agent_chat_messages_from_window(context, context_window_messages(context)?);

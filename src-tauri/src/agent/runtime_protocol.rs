@@ -475,10 +475,12 @@ pub struct AgentRuntimeEventAppender {
 }
 
 impl AgentRuntimeEventAppender {
+    #[cfg(test)]
     pub fn new(session_id: impl Into<String>, turn_id: impl Into<String>) -> Self {
         Self::new_with_thread_id(session_id, turn_id, None)
     }
 
+    #[cfg(test)]
     pub fn new_with_thread_id(
         session_id: impl Into<String>,
         turn_id: impl Into<String>,
@@ -506,6 +508,7 @@ impl AgentRuntimeEventAppender {
         }
     }
 
+    #[cfg(test)]
     pub fn from_existing_events(
         session_id: impl Into<String>,
         turn_id: impl Into<String>,
@@ -584,6 +587,7 @@ impl AgentRuntimeEventAppender {
         event
     }
 
+    #[cfg(test)]
     pub fn next_sequence(&self) -> u64 {
         self.next_sequence
     }
@@ -602,10 +606,12 @@ pub struct AgentRunEmitter {
 }
 
 impl AgentRunEmitter {
+    #[cfg(test)]
     pub fn new(session_id: impl Into<String>, turn_id: impl Into<String>) -> Self {
         Self::new_with_thread_id(session_id, turn_id, None)
     }
 
+    #[cfg(test)]
     pub fn new_with_thread_id(
         session_id: impl Into<String>,
         turn_id: impl Into<String>,
@@ -625,14 +631,6 @@ impl AgentRunEmitter {
             appender: AgentRuntimeEventAppender::new_with_trace_context(session_id, trace_context),
             events: Vec::new(),
         }
-    }
-
-    pub fn from_existing_events(
-        session_id: impl Into<String>,
-        turn_id: impl Into<String>,
-        events: &[AgentRuntimeEventEnvelope],
-    ) -> Self {
-        Self::from_existing_events_with_thread_id(session_id, turn_id, None, events)
     }
 
     pub fn from_existing_events_with_thread_id(
@@ -663,10 +661,12 @@ impl AgentRunEmitter {
         std::mem::take(&mut self.events)
     }
 
+    #[cfg(test)]
     pub fn next_sequence(&self) -> u64 {
         self.appender.next_sequence()
     }
 
+    #[cfg(test)]
     pub fn phase_changed(
         &mut self,
         timestamp: impl Into<String>,
@@ -689,6 +689,7 @@ impl AgentRunEmitter {
         })
     }
 
+    #[cfg(test)]
     pub fn status(
         &mut self,
         timestamp: impl Into<String>,
@@ -770,6 +771,7 @@ impl AgentRunEmitter {
         })
     }
 
+    #[cfg(test)]
     pub fn assistant_delta(
         &mut self,
         timestamp: impl Into<String>,
@@ -787,6 +789,7 @@ impl AgentRunEmitter {
         })
     }
 
+    #[cfg(test)]
     pub fn message_completed(
         &mut self,
         timestamp: impl Into<String>,
@@ -808,6 +811,7 @@ impl AgentRunEmitter {
         })
     }
 
+    #[cfg(test)]
     pub fn tool_start(
         &mut self,
         timestamp: impl Into<String>,
@@ -832,6 +836,7 @@ impl AgentRunEmitter {
         })
     }
 
+    #[cfg(test)]
     pub fn tool_result(
         &mut self,
         timestamp: impl Into<String>,
@@ -856,23 +861,7 @@ impl AgentRunEmitter {
         })
     }
 
-    pub fn checkpoint(
-        &mut self,
-        timestamp: impl Into<String>,
-        payload: Value,
-    ) -> AgentRuntimeEventEnvelope {
-        self.emit(AgentRuntimeEventAppendInput {
-            parent_turn_id: None,
-            item_id: None,
-            event_name: "agent.checkpoint".to_string(),
-            phase: AgentRuntimePhase::Planning,
-            timestamp: timestamp.into(),
-            source: AgentRuntimeEventSource::RustBackend,
-            visibility: AgentRuntimeEventVisibility::Debug,
-            payload,
-        })
-    }
-
+    #[cfg(test)]
     pub fn awaiting_approval(
         &mut self,
         timestamp: impl Into<String>,
@@ -896,6 +885,7 @@ impl AgentRunEmitter {
         })
     }
 
+    #[cfg(test)]
     pub fn approval_decision(
         &mut self,
         timestamp: impl Into<String>,
@@ -930,104 +920,6 @@ impl AgentRunEmitter {
         })
     }
 
-    pub fn awaiting_form(
-        &mut self,
-        timestamp: impl Into<String>,
-        form_id: impl Into<String>,
-        payload: Value,
-    ) -> AgentRuntimeEventEnvelope {
-        let form_id = form_id.into();
-        let mut payload = object_payload(payload);
-        payload
-            .entry("formId".to_string())
-            .or_insert_with(|| Value::String(form_id.clone()));
-        self.emit(AgentRuntimeEventAppendInput {
-            parent_turn_id: None,
-            item_id: Some(form_id),
-            event_name: "agent.awaiting_form".to_string(),
-            phase: AgentRuntimePhase::AwaitingForm,
-            timestamp: timestamp.into(),
-            source: AgentRuntimeEventSource::RustBackend,
-            visibility: AgentRuntimeEventVisibility::User,
-            payload: Value::Object(payload),
-        })
-    }
-
-    pub fn form_resolution(
-        &mut self,
-        timestamp: impl Into<String>,
-        form_id: impl Into<String>,
-        action: AgentFormAction,
-        values: Option<Value>,
-    ) -> AgentRuntimeEventEnvelope {
-        let form_id = form_id.into();
-        let mut payload = serde_json::Map::new();
-        payload.insert("formId".to_string(), Value::String(form_id.clone()));
-        payload.insert(
-            "action".to_string(),
-            serde_json::to_value(action).unwrap_or(Value::Null),
-        );
-        if let Some(values) = values {
-            payload.insert("values".to_string(), values);
-        }
-        self.emit(AgentRuntimeEventAppendInput {
-            parent_turn_id: None,
-            item_id: Some(form_id),
-            event_name: "agent.form.resolution".to_string(),
-            phase: AgentRuntimePhase::AwaitingForm,
-            timestamp: timestamp.into(),
-            source: AgentRuntimeEventSource::User,
-            visibility: AgentRuntimeEventVisibility::User,
-            payload: Value::Object(payload),
-        })
-    }
-
-    pub fn guidance(
-        &mut self,
-        timestamp: impl Into<String>,
-        message_id: Option<String>,
-        content: impl Into<String>,
-    ) -> AgentRuntimeEventEnvelope {
-        self.emit(AgentRuntimeEventAppendInput {
-            parent_turn_id: None,
-            item_id: message_id.clone(),
-            event_name: "agent.guidance".to_string(),
-            phase: AgentRuntimePhase::Planning,
-            timestamp: timestamp.into(),
-            source: AgentRuntimeEventSource::User,
-            visibility: AgentRuntimeEventVisibility::User,
-            payload: serde_json::json!({
-                "messageId": message_id,
-                "content": content.into()
-            }),
-        })
-    }
-
-    pub fn error(
-        &mut self,
-        timestamp: impl Into<String>,
-        message: impl Into<String>,
-    ) -> AgentRuntimeEventEnvelope {
-        self.emit(AgentRuntimeEventAppendInput {
-            parent_turn_id: None,
-            item_id: None,
-            event_name: "agent.error".to_string(),
-            phase: AgentRuntimePhase::Failed,
-            timestamp: timestamp.into(),
-            source: AgentRuntimeEventSource::RustBackend,
-            visibility: AgentRuntimeEventVisibility::User,
-            payload: serde_json::json!({ "message": message.into() }),
-        })
-    }
-
-    pub fn cancelled(
-        &mut self,
-        timestamp: impl Into<String>,
-        reason: impl Into<String>,
-    ) -> AgentRuntimeEventEnvelope {
-        self.cancelled_with_payload(timestamp, reason, Value::Null)
-    }
-
     pub fn cancelled_with_payload(
         &mut self,
         timestamp: impl Into<String>,
@@ -1051,6 +943,7 @@ impl AgentRunEmitter {
         })
     }
 
+    #[cfg(test)]
     pub fn done(
         &mut self,
         timestamp: impl Into<String>,
@@ -1244,6 +1137,7 @@ impl AgentTimelineProjector {
         }))
     }
 
+    #[cfg(test)]
     pub fn snapshot(&self) -> Result<AgentTimelineSnapshot, String> {
         let mut items = self
             .order
@@ -1341,6 +1235,7 @@ pub fn is_durable_agent_timeline_event(event_name: &str) -> bool {
     )
 }
 
+#[cfg(test)]
 pub fn project_timeline_patch(
     session_id: &str,
     run_id: &str,
