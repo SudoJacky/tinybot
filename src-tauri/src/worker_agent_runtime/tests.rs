@@ -1716,21 +1716,21 @@ fn deferred_tool_activation_round_trips_through_checkpoint_validation() {
         json!({
             "runId": "run-tool-search-checkpoint",
             "sessionId": "session-tool-search-checkpoint",
-            "messages": [{ "role": "user", "content": "find browser interaction" }]
+            "messages": [{ "role": "user", "content": "find memory search" }]
         }),
         json!({}),
     );
     context
         .tool_router
-        .search_and_activate(r#"{"query":"browser interaction","limit":1}"#)
-        .expect("browser interaction should activate for the current run");
+        .search_and_activate(r#"{"query":"memory search","limit":1}"#)
+        .expect("memory search should activate for the current run");
     let checkpoint = super::checkpoint::checkpoint_value(
         &context,
         "awaiting_approval",
         json!({ "iteration": 1 }),
     );
 
-    assert_eq!(checkpoint["activatedToolIds"], json!(["browser.interact"]));
+    assert_eq!(checkpoint["activatedToolIds"], json!(["memory.search"]));
     let cancelled_checkpoint = super::checkpoint::checkpoint_value(
         &context,
         "cancelled",
@@ -1758,7 +1758,7 @@ fn deferred_tool_activation_round_trips_through_checkpoint_validation() {
         .iter()
         .map(|tool| tool["function"]["name"].as_str().unwrap_or_default())
         .collect::<Vec<_>>();
-    assert!(names.contains(&"browser_interact"));
+    assert!(names.contains(&"memory_search"));
 
     let stale_checkpoint = json!({ "activatedToolIds": ["missing.tool"] });
     let error = NativeAgentRunContext::from_spec(
@@ -1779,17 +1779,14 @@ fn duplicate_deferred_tool_activation_fails_without_partial_state() {
         json!({
             "runId": "run-duplicate-activation",
             "sessionId": "session-duplicate-activation",
-            "messages": [{ "role": "user", "content": "find browser interaction" }]
+            "messages": [{ "role": "user", "content": "find memory search" }]
         }),
         json!({}),
     );
 
     let error = context
         .tool_router
-        .activate_for_turn(&[
-            "browser.interact".to_string(),
-            "browser.interact".to_string(),
-        ])
+        .activate_for_turn(&["memory.search".to_string(), "memory.search".to_string()])
         .expect_err("duplicate activation IDs must fail explicitly");
 
     assert!(error.contains("duplicate ID"));

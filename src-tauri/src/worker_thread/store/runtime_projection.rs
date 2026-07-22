@@ -30,7 +30,7 @@ fn semantic_event_from_thread_item(item: &ThreadItem) -> Option<(&'static str, V
         ThreadItemKind::ToolCallStarted(value) => Some((
             "agent.tool_call.delta",
             serde_json::json!({
-                "toolCallId": value.get("call_id").or_else(|| value.get("callId")).or_else(|| value.get("toolCallId")).or_else(|| value.get("id")).cloned().unwrap_or_else(|| Value::String(item.item_id.clone())),
+                "toolCallId": semantic_item_id(item),
                 "toolName": value.get("name").or_else(|| value.get("toolName")).cloned().unwrap_or(Value::Null),
                 "argumentsDelta": value.get("input").or_else(|| value.get("arguments")).cloned().unwrap_or_else(|| serde_json::json!({})),
             }),
@@ -38,7 +38,7 @@ fn semantic_event_from_thread_item(item: &ThreadItem) -> Option<(&'static str, V
         ThreadItemKind::ToolCallOutput(value) => Some((
             "agent.tool.result",
             serde_json::json!({
-                "toolCallId": value.get("call_id").cloned().unwrap_or(Value::Null),
+                "toolCallId": semantic_item_id(item),
                 "content": value.get("output").cloned().unwrap_or(Value::Null),
             }),
         )),

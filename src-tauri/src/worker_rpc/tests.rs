@@ -7358,8 +7358,8 @@ fn dispatches_tool_executor_records_thread_tool_lifecycle() {
         ]
     );
     assert_eq!(
-        snapshot.result.as_ref().unwrap()["items"][3]["kind"]["payload"]["output"]["contents"],
-        "hello thread executor"
+        snapshot.result.as_ref().unwrap()["items"][3]["kind"]["payload"]["output"]["notes"],
+        json!([])
     );
 }
 
