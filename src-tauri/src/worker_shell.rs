@@ -714,8 +714,11 @@ fn required_process_owner(
 fn shell_command(command: &str) -> Command {
     #[cfg(target_os = "windows")]
     {
-        let mut shell = Command::new("cmd");
-        shell.args(["/C", command]);
+        use std::os::windows::process::CommandExt;
+
+        let mut shell = Command::new("cmd.exe");
+        shell.args(["/D", "/S", "/C"]);
+        shell.raw_arg(format!("\"{command}\""));
         shell
     }
 

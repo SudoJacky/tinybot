@@ -1145,7 +1145,7 @@ fn worker_run_agent_preserves_trace_context_without_persisting_runtime_trace() {
 }
 
 #[test]
-fn worker_run_agent_preserves_legacy_tool_content_with_envelope_payload() {
+fn worker_run_agent_preserves_runtime_tool_content_with_envelope_payload() {
     let fixture = WorkspaceFixture::new();
     fixture.write("README.md", "README excerpt");
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
@@ -1839,12 +1839,25 @@ fn worker_run_agent_combines_session_history_with_current_tool_results() {
     .expect("tool memory metadata should be readable");
     let rollout = std::fs::read_to_string(metadata["extra"]["threadPath"].as_str().unwrap())
         .expect("tool memory Rollout should be readable");
-    let response_types = rollout
+    let response_items = rollout
         .lines()
         .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
         .filter(|line| line["type"] == "response_item")
+        .collect::<Vec<_>>();
+    let response_types = response_items
+        .iter()
         .filter_map(|line| line["payload"]["type"].as_str().map(str::to_string))
         .collect::<Vec<_>>();
+    let tool_output = response_items
+        .iter()
+        .find(|line| line["payload"]["type"] == "custom_tool_call_output")
+        .expect("Rollout should contain a tool output");
+    let tool_output_fields = tool_output["payload"]
+        .as_object()
+        .expect("tool output payload should be an object")
+        .keys()
+        .map(String::as_str)
+        .collect::<std::collections::BTreeSet<_>>();
     let calls = calls
         .lock()
         .expect("recording provider calls lock should not be poisoned");
@@ -1877,6 +1890,20 @@ fn worker_run_agent_combines_session_history_with_current_tool_results() {
         .all(|message| message["role"] != "tool"));
     assert!(response_types.contains(&"custom_tool_call".to_string()));
     assert!(response_types.contains(&"custom_tool_call_output".to_string()));
+    assert_eq!(
+        tool_output_fields,
+        std::collections::BTreeSet::from(["call_id", "id", "output", "runId", "turnId", "type"])
+    );
+    assert_eq!(
+        tool_output["payload"]["id"],
+        "tool-output:call-durable-history"
+    );
+    assert_eq!(tool_output["payload"]["call_id"], "call-durable-history");
+    assert_eq!(tool_output["payload"]["runId"], "run-tool-memory");
+    assert_eq!(tool_output["payload"]["turnId"], "run-tool-memory");
+    assert!(tool_output["payload"]["output"]
+        .as_str()
+        .is_some_and(|output| output.contains("README durable body")));
 }
 
 #[test]
@@ -3784,7 +3811,10 @@ fn worker_run_agent_persists_failed_tool_run_with_typed_results() {
         run["completedToolResults"][1]["toolCallId"],
         "call-tool-error"
     );
-    assert_eq!(run["completedToolResults"][1]["status"], "error");
+    assert!(run["completedToolResults"][1].get("status").is_none());
+    assert!(run["completedToolResults"][1]["summary"]
+        .as_str()
+        .is_some_and(|summary| summary.contains("invalid JSON")));
     assert!(run.get("traceEvents").is_none());
 }
 

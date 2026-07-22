@@ -65,6 +65,7 @@ webview2-com = "=0.38.2"
 windows = "0.61"
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
+  "Win32_Globalization",
   "Win32_Security",
   "Win32_Security_Authorization",
   "Win32_System_JobObjects",

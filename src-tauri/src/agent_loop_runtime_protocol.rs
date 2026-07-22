@@ -1815,11 +1815,15 @@ fn legacy_item_data(
             args: payload
                 .get("arguments")
                 .or_else(|| payload.get("args"))
+                .or_else(|| payload.get("argumentsDelta"))
+                .or_else(|| payload.get("input"))
                 .cloned()
                 .unwrap_or(Value::Null),
             result: payload
                 .get("envelope")
-                .or_else(|| payload.get("result"))
+                .filter(|value| !value.is_null())
+                .or_else(|| payload.get("result").filter(|value| !value.is_null()))
+                .or_else(|| payload.get("content").filter(|value| !value.is_null()))
                 .cloned()
                 .unwrap_or(Value::Null),
             detail_id: item_string(payload, &["detailId", "detail_id"]),

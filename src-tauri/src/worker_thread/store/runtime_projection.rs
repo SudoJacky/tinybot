@@ -38,12 +38,8 @@ fn semantic_event_from_thread_item(item: &ThreadItem) -> Option<(&'static str, V
         ThreadItemKind::ToolCallOutput(value) => Some((
             "agent.tool.result",
             serde_json::json!({
-                "toolCallId": value.get("call_id").or_else(|| value.get("callId")).or_else(|| value.get("toolCallId")).or_else(|| value.get("id")).cloned().unwrap_or_else(|| Value::String(item.item_id.clone())),
-                "toolName": value.get("toolName").or_else(|| value.get("name")).cloned().unwrap_or(Value::Null),
-                "content": value.get("output").or_else(|| value.get("content")).cloned().unwrap_or(Value::Null),
-                "status": value.get("status").cloned().unwrap_or(Value::Null),
-                "summary": value.get("summary").cloned().unwrap_or(Value::Null),
-                "envelope": value.get("envelope").cloned().unwrap_or(Value::Null),
+                "toolCallId": value.get("call_id").cloned().unwrap_or(Value::Null),
+                "content": value.get("output").cloned().unwrap_or(Value::Null),
             }),
         )),
         ThreadItemKind::ApprovalRequested(value) => {
@@ -280,6 +276,62 @@ mod tests {
         assert_eq!(events[0].session_id, "canonical-session");
         assert_eq!(events[0].thread_id.as_deref(), Some("canonical-thread"));
         assert_eq!(events[0].turn_id, "canonical-run");
+    }
+
+    #[test]
+    fn slim_tool_output_replays_through_the_tool_call_item() {
+        let item = |item_id: &str, sequence: u64, kind: ThreadItemKind| ThreadItem {
+            item_id: item_id.to_string(),
+            thread_id: "thread-1".to_string(),
+            run_id: Some("run-1".to_string()),
+            turn_id: Some("turn-1".to_string()),
+            parent_item_id: None,
+            sequence,
+            created_at: sequence.to_string(),
+            kind,
+        };
+        let items = vec![
+            item(
+                "call-1",
+                1,
+                ThreadItemKind::ToolCallStarted(json!({
+                    "type": "custom_tool_call",
+                    "id": "call-1",
+                    "call_id": "call-1",
+                    "name": "workspace.read_file",
+                    "input": "{\"path\":\"README.md\"}",
+                })),
+            ),
+            item(
+                "tool-output:call-1",
+                2,
+                ThreadItemKind::ToolCallOutput(json!({
+                    "type": "custom_tool_call_output",
+                    "id": "tool-output:call-1",
+                    "call_id": "call-1",
+                    "output": "README contents",
+                })),
+            ),
+        ];
+
+        let events = runtime_events_from_thread_items(&items, "thread-1", "run-1");
+        assert_eq!(
+            events[1].payload,
+            json!({
+                "toolCallId": "call-1",
+                "content": "README contents",
+            })
+        );
+
+        let projected = turn_items_from_thread_items(&items, "thread-1", "run-1");
+        assert_eq!(projected.len(), 1);
+        assert!(matches!(
+            &projected[0].data,
+            AgentTurnItemData::ToolCall { name, args, result, .. }
+                if name == "workspace.read_file"
+                    && args == "{\"path\":\"README.md\"}"
+                    && result == "README contents"
+        ));
     }
 
     #[test]

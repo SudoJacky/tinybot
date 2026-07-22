@@ -965,31 +965,23 @@ fn response_item_from_runtime_event(event: &Value) -> Option<Value> {
             "name": payload.get("commandKind")?.clone(),
             "input": payload.get("target").cloned().unwrap_or_else(|| serde_json::json!({})),
         })),
-        "agent.tool.result" => Some(serde_json::json!({
-            "type": "custom_tool_call_output",
-            "call_id": payload.get("toolCallId")?.clone(),
-            "output": payload
-                .get("content")
-                .or_else(|| payload.get("result"))
-                .or_else(|| payload.get("summary"))
-                .cloned()
-                .unwrap_or(Value::Null),
-            "toolName": payload.get("toolName").or_else(|| payload.get("name")).cloned().unwrap_or(Value::Null),
-            "status": payload
-                .get("envelope")
-                .and_then(|envelope| envelope.get("status"))
-                .or_else(|| payload.get("resultStatus"))
-                .cloned()
-                .unwrap_or_else(|| serde_json::json!("ok")),
-            "summary": payload
-                .get("envelope")
-                .and_then(|envelope| envelope.get("summary"))
-                .or_else(|| payload.get("summary"))
-                .or_else(|| payload.get("content"))
-                .cloned()
-                .unwrap_or(Value::Null),
-            "envelope": payload.get("envelope").cloned().unwrap_or(Value::Null),
-        })),
+        "agent.tool.result" => {
+            let call_id = payload.get("toolCallId")?.clone();
+            let item_id = call_id
+                .as_str()
+                .map(|call_id| format!("tool-output:{call_id}"))?;
+            Some(serde_json::json!({
+                "type": "custom_tool_call_output",
+                "id": item_id,
+                "call_id": call_id,
+                "output": payload
+                    .get("content")
+                    .or_else(|| payload.get("result"))
+                    .or_else(|| payload.get("summary"))
+                    .cloned()
+                    .unwrap_or(Value::Null),
+            }))
+        }
         _ => None,
     }
 }
@@ -1416,25 +1408,11 @@ fn apply_response_item_to_agent_runs(
 }
 
 fn completed_tool_result_from_response_item(item: &Value) -> Value {
-    let status = item
-        .get("status")
-        .cloned()
-        .unwrap_or_else(|| serde_json::json!("ok"));
-    let summary = bounded_derived_tool_summary(item.get("summary").cloned().unwrap_or(Value::Null));
     serde_json::json!({
-        "toolCallId": item
-            .get("call_id")
-            .or_else(|| item.get("callId"))
-            .cloned()
-            .unwrap_or(Value::Null),
-        "toolName": item
-            .get("toolName")
-            .or_else(|| item.get("tool_name"))
-            .or_else(|| item.get("name"))
-            .cloned()
-            .unwrap_or(Value::Null),
-        "status": status,
-        "summary": summary,
+        "toolCallId": item.get("call_id").cloned().unwrap_or(Value::Null),
+        "summary": bounded_derived_tool_summary(
+            item.get("output").cloned().unwrap_or(Value::Null)
+        ),
     })
 }
 
@@ -1754,11 +1732,18 @@ mod tests {
         }))
         .unwrap();
         let result = response_item_from_runtime_event(&json!({
+            "eventId": "event-result-1",
             "eventName": "agent.tool.result",
             "payload": {
                 "toolCallId": "call-1",
                 "toolName": "workspace.read_file",
-                "content": "contents"
+                "content": "contents",
+                "summary": "contents",
+                "envelope": {
+                    "summary": "contents",
+                    "modelContent": "contents",
+                    "raw": { "content": "contents" }
+                }
             }
         }))
         .unwrap();
@@ -1766,9 +1751,15 @@ mod tests {
         assert_eq!(call["type"], "custom_tool_call");
         assert_eq!(call["call_id"], "call-1");
         assert_eq!(call["input"], "{\"path\":\"README.md\"}");
-        assert_eq!(result["type"], "custom_tool_call_output");
-        assert_eq!(result["call_id"], "call-1");
-        assert_eq!(result["output"], "contents");
+        assert_eq!(
+            result,
+            json!({
+                "type": "custom_tool_call_output",
+                "id": "tool-output:call-1",
+                "call_id": "call-1",
+                "output": "contents",
+            })
+        );
     }
 }
 

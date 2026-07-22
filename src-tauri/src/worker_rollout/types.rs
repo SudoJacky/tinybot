@@ -334,7 +334,10 @@ fn validate_response_item(kind: &ResponseItemKind, raw: &Value) -> Result<(), St
             }
         }
         ResponseItemKind::CustomToolCallOutput => {
-            required_response_string(raw, &["call_id", "callId"], "custom tool call output id")?;
+            required_response_string(raw, &["id"], "custom tool output item id")?;
+            required_response_string(raw, &["call_id"], "custom tool call output id")?;
+            required_response_string(raw, &["runId"], "custom tool output run id")?;
+            required_response_string(raw, &["turnId"], "custom tool output turn id")?;
             if raw.get("output").is_none() {
                 return Err("custom tool output response item is missing `output`".to_string());
             }
@@ -919,5 +922,31 @@ mod tests {
                 .unwrap_err()
                 .contains("boolean")
         );
+    }
+
+    #[test]
+    fn custom_tool_output_requires_the_slim_persisted_identity() {
+        let output = json!({
+            "type": "custom_tool_call_output",
+            "id": "tool-output:call-1",
+            "call_id": "call-1",
+            "runId": "run-1",
+            "turnId": "turn-1",
+            "output": "contents",
+        });
+        assert!(ResponseItem::from_value(output.clone()).is_ok());
+
+        let mut missing_item_id = output.clone();
+        missing_item_id.as_object_mut().unwrap().remove("id");
+        assert!(ResponseItem::from_value(missing_item_id)
+            .unwrap_err()
+            .contains("item id"));
+
+        let mut legacy_call_id = output;
+        legacy_call_id.as_object_mut().unwrap().remove("call_id");
+        legacy_call_id["callId"] = Value::String("call-1".to_string());
+        assert!(ResponseItem::from_value(legacy_call_id)
+            .unwrap_err()
+            .contains("call output id"));
     }
 }
