@@ -39,4 +39,5 @@ pub fn run_native_browser_integration() -> Result<(), String> {
 }
 
 #[cfg(test)]
+#[path = "../tests/crate/mod.rs"]
 mod tests;

@@ -222,28 +222,8 @@ impl ToolBatchTerminalOutcome {
 }
 
 #[cfg(test)]
-mod terminal_tests {
-    use super::*;
-
-    #[test]
-    fn lower_model_order_failure_replaces_a_faster_later_failure() {
-        let terminal = ToolBatchTerminal::new();
-
-        assert!(terminal.try_claim_failure(2));
-        assert!(terminal.try_claim_failure(0));
-        assert!(!terminal.try_claim_failure(1));
-        assert_eq!(terminal.skip_outcome_for(0), None);
-        assert_eq!(
-            terminal.skip_outcome_for(1),
-            Some(ToolBatchTerminalOutcome::Failed)
-        );
-        assert_eq!(
-            terminal.skip_outcome_for(2),
-            Some(ToolBatchTerminalOutcome::Failed)
-        );
-        assert_eq!(terminal.outcome(), Some(ToolBatchTerminalOutcome::Failed));
-    }
-}
+#[path = "tool_runtime_terminal_tests.rs"]
+mod terminal_tests;
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum ToolLockMode {
@@ -2239,47 +2219,5 @@ fn emit_pending_tool_hook_evaluations(context: &AgentTurnContext, state: &mut Ag
 }
 
 #[cfg(test)]
-mod update_plan_tests {
-    use super::*;
-
-    #[test]
-    fn update_plan_arguments_are_trimmed_and_typed() {
-        let args = parse_update_plan_args(
-            r#"{"explanation":"  Adjusted order  ","plan":[{"step":"  Inspect code  ","status":"in_progress"},{"step":"Run tests","status":"pending"}]}"#,
-        )
-        .expect("valid update_plan arguments should parse");
-
-        assert_eq!(args.explanation.as_deref(), Some("Adjusted order"));
-        assert_eq!(args.plan[0].step, "Inspect code");
-        assert_eq!(
-            args.plan[0].status,
-            super::super::AgentPlanStepStatus::InProgress
-        );
-    }
-
-    #[test]
-    fn update_plan_rejects_invalid_execution_state() {
-        for (arguments, expected) in [
-            (
-                r#"{"plan":[{"step":"One","status":"pending"}]}"#,
-                "exactly one in_progress",
-            ),
-            (
-                r#"{"plan":[{"step":"One","status":"in_progress"},{"step":"Two","status":"in_progress"}]}"#,
-                "at most one step",
-            ),
-            (
-                r#"{"plan":[{"step":"One","status":"in_progress"},{"step":"One","status":"pending"}]}"#,
-                "duplicate step",
-            ),
-            (r#"{"plan":[],"ignored":true}"#, "unknown field"),
-        ] {
-            let error = parse_update_plan_args(arguments)
-                .expect_err("invalid update_plan arguments should fail visibly");
-            assert!(
-                error.contains(expected),
-                "expected `{expected}` in `{error}`"
-            );
-        }
-    }
-}
+#[path = "tool_runtime_update_plan_tests.rs"]
+mod update_plan_tests;

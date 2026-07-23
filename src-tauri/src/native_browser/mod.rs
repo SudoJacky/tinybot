@@ -5,6 +5,7 @@ mod manager;
 mod model;
 mod platform;
 #[cfg(any(test, all(windows, feature = "native-browser-integration")))]
+#[path = "tests/fixture.rs"]
 mod test_fixture;
 #[cfg(any(
     test,

@@ -34,11 +34,5 @@ fn civil_from_days(days_since_unix_epoch: i64) -> (i32, u32, u32) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn unix_epoch_converts_to_utc() {
-        assert_eq!(unix_seconds_to_utc(0), (1970, 1, 1, 0, 0, 0));
-    }
-}
+#[path = "time_tests.rs"]
+mod tests;

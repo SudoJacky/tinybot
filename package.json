@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "test": "vitest run",
+    "analyze:rust": "node -e \"const fs=require('fs');fs.rmSync('src-tauri/target/code-analysis',{recursive:true,force:true});fs.mkdirSync('src-tauri/target/code-analysis',{recursive:true})\" && rust-code-analysis-cli --metrics --paths src-tauri/src --exclude \"**/tests/**\" \"**/*_tests.rs\" --output-format json --pr --output src-tauri/target/code-analysis",
     "preview": "vite preview",
     "tauri": "tauri"
   },

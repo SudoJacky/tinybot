@@ -162,6 +162,18 @@ The removed `sessions/sessions.sqlite`, `.tinybot/state/thread-store.jsonl`,
 and `.tinybot/threads/threads.sqlite` paths are not compatibility authorities
 and must not be reintroduced as fallback or double-write targets.
 
+## Test layout
+
+- Unit tests that require private implementation access live beside their
+  owner in `*_tests.rs` or a `tests/` subdirectory. Production modules include
+  them only under `#[cfg(test)]`.
+- Crate-wide RPC, persistence, lifecycle, and complete Turn-flow tests live in
+  `tests/crate/`. `src/lib.rs` includes this suite as a test-only module so it
+  can exercise private boundaries without widening the production API.
+- Run `npm run analyze:rust` from the repository root to regenerate Rust
+  metrics under `src-tauri/target/code-analysis`. The command excludes
+  `**/tests/**` and `**/*_tests.rs`.
+
 ## Maintenance rules
 
 - Keep Tauri command functions thin; move reusable behavior below the desktop
