@@ -32,10 +32,10 @@ impl NativeAgentContextCheckpointCommitter for NativeAgentContextCheckpointCommi
             WorkerRequest::new(
                 generated.id("session-context-checkpoint-commit"),
                 generated.trace_id("session-context-checkpoint-commit"),
-                "session.commit_context_checkpoint",
+                "thread.commit_context_checkpoint",
                 serde_json::json!({
-                    "session_id": rollout_id,
-                    "turn_id": input.turn_id,
+                    "threadId": rollout_id,
+                    "turnId": input.turn_id,
                     "checkpoint": input.checkpoint,
                 }),
             ),

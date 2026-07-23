@@ -492,24 +492,34 @@ fn dispatches_cron_due_and_record_run_updates_store() {
 }
 
 #[test]
-fn dispatches_session_task_progress_upsert_request() {
+fn dispatches_thread_task_progress_upsert_request() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![session_fixture()],
+        vec![],
         20,
-        CapabilityPolicy::new([WorkerCapability::SessionWrite]),
+        CapabilityPolicy::new([
+            WorkerCapability::SessionMetadataRead,
+            WorkerCapability::SessionWrite,
+        ]),
     );
+    let create = router.dispatch(&WorkerRequest::new(
+        "req-progress-thread",
+        "trace-progress",
+        "thread.create",
+        json!({ "threadId": "thread-progress-1" }),
+    ));
+    assert_eq!(create.error, None);
 
     let first = router.dispatch(&WorkerRequest::new(
         "req-progress-1",
         "trace-1",
-        "session.task_progress.upsert",
+        "thread.task_progress.upsert",
         json!({
-            "session_id": "session-1",
-            "turn_id": "turn-progress-1",
-            "plan_id": "plan-1",
+            "threadId": "thread-progress-1",
+            "turnId": "turn-progress-1",
+            "planId": "plan-1",
             "content": "first progress",
             "progress": {
                 "completed": 0,
@@ -524,11 +534,11 @@ fn dispatches_session_task_progress_upsert_request() {
     let second = router.dispatch(&WorkerRequest::new(
         "req-progress-2",
         "trace-2",
-        "session.task_progress.upsert",
+        "thread.task_progress.upsert",
         json!({
-            "session_id": "session-1",
-            "turn_id": "turn-progress-1",
-            "plan_id": "plan-1",
+            "threadId": "thread-progress-1",
+            "turnId": "turn-progress-1",
+            "planId": "plan-1",
             "content": "updated progress",
             "progress": {
                 "completed": 1,
@@ -543,14 +553,18 @@ fn dispatches_session_task_progress_upsert_request() {
 
     assert_eq!(first.error, None);
     assert_eq!(second.error, None);
-    let messages = second.result.as_ref().unwrap()["extra"]["messages"]
-        .as_array()
-        .expect("messages should be an array");
-    assert_eq!(messages.len(), 1);
-    assert_eq!(messages[0]["role"], "progress");
-    assert_eq!(messages[0]["content"], "updated progress");
-    assert_eq!(messages[0]["_task_plan_id"], "plan-1");
-    assert_eq!(messages[0]["_task_progress"]["completed"], 1);
+    let rollout = std::fs::read_to_string(first_thread_log_file(&fixture.root))
+        .expect("progress Rollout should be readable");
+    let messages = rollout
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .filter(|line| line["type"] == "response_item" && line["payload"]["role"] == "progress")
+        .collect::<Vec<_>>();
+    assert_eq!(messages.len(), 2);
+    let latest = &messages[1]["payload"];
+    assert_eq!(latest["content"][0]["text"], "updated progress");
+    assert_eq!(latest["_task_plan_id"], "plan-1");
+    assert_eq!(latest["_task_progress"]["completed"], 1);
 }
 
 #[test]

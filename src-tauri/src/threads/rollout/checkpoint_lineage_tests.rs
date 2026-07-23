@@ -91,27 +91,3 @@ fn validates_source_and_window_successor_together() {
         .unwrap_err();
     assert_eq!(error.field, SOURCE_CONTEXT_ID);
 }
-
-#[test]
-fn finalized_revision_must_match_the_current_window_identity() {
-    let installed = json!({
-        "contextId": "context-2",
-        "sourceContextId": "context-1",
-        "windowNumber": 2,
-        "firstWindowId": "session-1:context-window:0",
-        "previousWindowId": "context-1",
-        "windowId": "context-2",
-        "checkpointStage": "installed",
-        "replacementHistory": [],
-    });
-    let mut finalized = installed.clone();
-    finalized["checkpointStage"] = json!("finalized");
-    finalized["replacementHistory"] = json!([
-        { "role": "assistant", "content": "final answer" }
-    ]);
-    validate_context_checkpoint_revision(Some(&installed), &finalized).unwrap();
-
-    finalized["windowId"] = json!("older-context");
-    let error = validate_context_checkpoint_revision(Some(&installed), &finalized).unwrap_err();
-    assert_eq!(error.field, WINDOW_ID);
-}

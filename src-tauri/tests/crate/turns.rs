@@ -261,16 +261,18 @@ fn worker_run_agent_persists_one_lossless_long_final_response() {
         WorkerRequest::new(
             "req-long-final-metadata",
             "trace-long-final-metadata",
-            "session.get_metadata",
-            serde_json::json!({ "session_id": session_id }),
+            "thread.read",
+            serde_json::json!({
+                "threadId": crate::threads::rollout::store::thread_id_for_session_id(session_id)
+            }),
         ),
-        "long final session metadata",
+        "long final thread",
     )
-    .expect("long final session metadata should be readable");
-    let rollout_path = metadata["extra"]["threadPath"]
-        .as_str()
-        .expect("session metadata should expose the canonical Rollout path");
-    let rollout_lines = std::fs::read_to_string(rollout_path)
+    .expect("long final thread should be readable");
+    assert_eq!(metadata["thread"]["sessionKey"], session_id);
+    let rollout_paths = compatibility_thread_log_paths(&fixture.root);
+    assert_eq!(rollout_paths.len(), 1, "{rollout_paths:?}");
+    let rollout_lines = std::fs::read_to_string(&rollout_paths[0])
         .expect("canonical Rollout should be readable")
         .lines()
         .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
@@ -671,26 +673,14 @@ fn worker_run_agent_hydrates_session_history_before_provider_call() {
     let config = serde_json::json!({
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
     });
-    call_rust_state_service(
-        fixture.root.clone(),
-        config.clone(),
-        WorkerRequest::new(
-            "req-seed-history",
-            "trace-seed-history",
-            "session.persist_turn",
-            serde_json::json!({
-                "session_id": "websocket:chat-memory",
-                "turn_id": "turn-previous",
-                "messages": [
-                    { "role": "user", "content": "a" },
-                    { "role": "assistant", "content": "agent replied a" }
-                ],
-                "clear_checkpoint": true
-            }),
-        ),
-        "seed session history",
-    )
-    .expect("session history should seed");
+    fixture.seed_thread_messages(
+        "websocket:chat-memory",
+        "turn-previous",
+        vec![
+            serde_json::json!({ "role": "user", "content": "a" }),
+            serde_json::json!({ "role": "assistant", "content": "agent replied a" }),
+        ],
+    );
 
     let result = worker_run_agent_with_options(
         &shared,
@@ -736,26 +726,14 @@ fn worker_run_agent_combines_session_history_with_current_tool_results() {
     let config = serde_json::json!({
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
     });
-    call_rust_state_service(
-        fixture.root.clone(),
-        config.clone(),
-        WorkerRequest::new(
-            "req-seed-tool-history",
-            "trace-seed-tool-history",
-            "session.persist_turn",
-            serde_json::json!({
-                "session_id": "websocket:chat-tool-memory",
-                "turn_id": "turn-previous-tool-memory",
-                "messages": [
-                    { "role": "user", "content": "remember alpha" },
-                    { "role": "assistant", "content": "alpha stored" }
-                ],
-                "clear_checkpoint": true
-            }),
-        ),
-        "seed tool session history",
-    )
-    .expect("session history should seed");
+    fixture.seed_thread_messages(
+        "websocket:chat-tool-memory",
+        "turn-previous-tool-memory",
+        vec![
+            serde_json::json!({ "role": "user", "content": "remember alpha" }),
+            serde_json::json!({ "role": "assistant", "content": "alpha stored" }),
+        ],
+    );
 
     let result = worker_run_agent_with_options(
         &shared,
@@ -785,14 +763,24 @@ fn worker_run_agent_combines_session_history_with_current_tool_results() {
         WorkerRequest::new(
             "req-tool-memory-metadata",
             "trace-tool-memory-metadata",
-            "session.get_metadata",
-            serde_json::json!({ "session_id": "websocket:chat-tool-memory" }),
+            "thread.read",
+            serde_json::json!({
+                "threadId": crate::threads::rollout::store::thread_id_for_session_id(
+                    "websocket:chat-tool-memory"
+                )
+            }),
         ),
-        "tool memory session metadata",
+        "tool memory thread",
     )
-    .expect("tool memory metadata should be readable");
-    let rollout = std::fs::read_to_string(metadata["extra"]["threadPath"].as_str().unwrap())
-        .expect("tool memory Rollout should be readable");
+    .expect("tool memory thread should be readable");
+    assert_eq!(
+        metadata["thread"]["sessionKey"],
+        "websocket:chat-tool-memory"
+    );
+    let rollout_paths = compatibility_thread_log_paths(&fixture.root);
+    assert_eq!(rollout_paths.len(), 1, "{rollout_paths:?}");
+    let rollout =
+        std::fs::read_to_string(&rollout_paths[0]).expect("tool memory Rollout should be readable");
     let response_items = rollout
         .lines()
         .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
@@ -1057,8 +1045,8 @@ fn worker_run_agent_persists_agent_turn_record_and_keeps_history_compact() {
             "trace-agent-turn-get",
             "thread.turn.get",
             serde_json::json!({
-                "session_id": "websocket:chat-run-trace",
-                "turn_id": "turn-trace-persist"
+                "threadId": "websocket:chat-run-trace",
+                "turnId": "turn-trace-persist"
             }),
         ),
         "agent turn read",
@@ -1171,8 +1159,8 @@ fn worker_run_agent_projects_real_rust_run_into_canonical_session_history() {
             "trace-real-run-agent-get",
             "thread.turn.get",
             serde_json::json!({
-                "session_id": session_id,
-                "turn_id": "turn-thread-real"
+                "threadId": session_id,
+                "turnId": "turn-thread-real"
             }),
         ),
         "real Rust run agent record",
@@ -1237,8 +1225,8 @@ fn session_owned_compaction_commits_installed_checkpoint_before_final_turn_persi
         WorkerRequest::new(
             "req-session-context-after-commit",
             "trace-session-context-after-commit",
-            "session.get_agent_context",
-            serde_json::json!({ "session_id": session_id, "limit": 50 }),
+            "thread.context",
+            serde_json::json!({ "threadId": session_id, "limit": 50 }),
         ),
         "session context after durable compaction",
     )

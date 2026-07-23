@@ -1,11 +1,11 @@
 use super::{
-    is_default_session_title, now_thread_timestamp, preview_from_messages, read_thread_lines,
+    is_default_thread_title, now_thread_timestamp, preview_from_messages, read_thread_lines,
     thread_id_for_session_id, title_from_messages, value_event, AgentTurnRecoveryEntry,
     AgentTurnRecoveryReport, ThreadLogItem, WorkerThreadLogRpc,
 };
 use crate::protocol::capability::WorkerCapability;
 use crate::protocol::{WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource};
-use crate::threads::session::{
+use crate::threads::turn::{
     AgentTurnCheckpoint, AgentTurnRecord, AgentTurnRuntimeState, AgentTurnStatus,
 };
 use serde::{Deserialize, Serialize};
@@ -318,7 +318,7 @@ impl WorkerThreadLogRpc {
             let replay =
                 super::reconstruction::reconstruct_canonical_rollout(&read_thread_lines(&path)?)?
                     .semantic;
-            if is_default_session_title(&state.title) {
+            if is_default_thread_title(&state.title) {
                 if let Some(title) = title_from_messages(&replay.messages) {
                     state.title = title;
                 }

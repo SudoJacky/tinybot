@@ -33,8 +33,8 @@ use crate::threads::domain::{
     ThreadAgentRegistryRequest, ThreadApplyOpRequest, ThreadEventsRequest, ThreadIdParams,
     ThreadOp, ThreadPersistenceRepairRequest, UpdateThreadMetadataRequest, WorkerThreadRpc,
 };
-use crate::threads::rollout::store::{ThreadLogIndexRepairRequest, WorkerThreadLogRpc};
-use crate::threads::session::{AgentTurnRecord, AgentTurnSummary, SessionMetadata};
+use crate::threads::rollout::store::WorkerThreadLogRpc;
+use crate::threads::turn::{AgentTurnRecord, AgentTurnSummary};
 use crate::tools::executor::{
     tool_not_found_error, tool_unavailable_error, ToolExecutorExecuteRequest,
     ToolExecutorExecuteResult,
@@ -68,12 +68,12 @@ mod interaction_dispatch;
 mod mcp;
 mod memory_dispatch;
 mod method;
-mod persistence_facade;
 mod runtime;
 mod runtime_dispatch;
 mod subagent_dispatch;
 mod thread_dispatch;
 mod tool_dispatch;
+mod turn_dispatch;
 mod workspace_dispatch;
 
 use self::approval::{
@@ -120,7 +120,7 @@ impl WorkerRpcRouter {
     pub fn new(
         workspace_root: PathBuf,
         config_snapshot: Value,
-        _sessions: Vec<SessionMetadata>,
+        _sessions: Vec<crate::threads::domain::ThreadRecord>,
         diagnostic_capacity: usize,
         policy: CapabilityPolicy,
     ) -> Self {
@@ -159,7 +159,7 @@ impl WorkerRpcRouter {
     pub fn new_persistent_sessions(
         workspace_root: PathBuf,
         config_snapshot: Value,
-        _sessions: Vec<SessionMetadata>,
+        _sessions: Vec<crate::threads::domain::ThreadRecord>,
         diagnostic_capacity: usize,
         policy: CapabilityPolicy,
     ) -> Result<Self, crate::protocol::WorkerProtocolError> {
@@ -200,7 +200,7 @@ impl WorkerRpcRouter {
     pub fn with_config_store(
         workspace_root: PathBuf,
         config_store: ConfigStore,
-        sessions: Vec<SessionMetadata>,
+        sessions: Vec<crate::threads::domain::ThreadRecord>,
         diagnostic_capacity: usize,
         policy: CapabilityPolicy,
     ) -> Self {
@@ -267,9 +267,6 @@ impl WorkerRpcRouter {
             }
             method if method.starts_with("config.") || method == "provider.resolve_secret" => {
                 self.dispatch_config_method(request)
-            }
-            method if method.starts_with("session.") || method.starts_with("rollout.") => {
-                self.dispatch_session_persistence(request)
             }
             method if method.starts_with("thread.turn.") => self.dispatch_turn_persistence(request),
             method if method.starts_with("thread.") => self.dispatch_thread_method(request),
@@ -907,55 +904,37 @@ fn configured_bool(config_snapshot: &Value, pointer: &str) -> Option<bool> {
 }
 
 #[derive(Deserialize)]
-struct SessionIdParams {
-    session_id: String,
-}
-
-#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ThreadRollbackParams {
-    #[serde(alias = "thread_id", alias = "session_id")]
     thread_id: String,
-    #[serde(alias = "num_turns")]
     num_turns: u32,
 }
 
 #[derive(Deserialize)]
-struct SessionHistoryParams {
-    session_id: String,
+#[serde(rename_all = "camelCase")]
+struct ThreadHistoryParams {
+    thread_id: String,
     limit: Option<usize>,
 }
 
 #[derive(Deserialize)]
-struct SessionCheckpointParams {
-    session_id: String,
-    checkpoint: Value,
+#[serde(rename_all = "camelCase")]
+struct ThreadResolveParams {
+    identity: String,
 }
 
 #[derive(Deserialize)]
-struct SessionPatchMetadataParams {
-    session_id: String,
-    metadata: Value,
-}
-
-#[derive(Deserialize)]
-struct SessionPatchUserProfileParams {
-    session_id: String,
-    #[serde(alias = "userProfile")]
-    user_profile: Value,
-    metadata: Option<Value>,
-}
-
-#[derive(Deserialize)]
-struct SessionAppendMessagesParams {
-    session_id: String,
+#[serde(rename_all = "camelCase")]
+struct ThreadAppendMessagesParams {
+    thread_id: String,
     turn_id: String,
     messages: Vec<Value>,
 }
 
 #[derive(Deserialize)]
-struct SessionTaskProgressUpsertParams {
-    session_id: String,
+#[serde(rename_all = "camelCase")]
+struct ThreadTaskProgressUpsertParams {
+    thread_id: String,
     turn_id: String,
     plan_id: String,
     progress: Value,
@@ -963,39 +942,18 @@ struct SessionTaskProgressUpsertParams {
 }
 
 #[derive(Deserialize)]
-struct SessionTrimParams {
-    session_id: String,
-    keep_recent_messages: usize,
-}
-
-#[derive(Deserialize)]
-struct SessionPersistTurnParams {
-    session_id: String,
-    turn_id: String,
-    messages: Vec<Value>,
-    #[serde(default)]
-    clear_checkpoint: bool,
-    #[serde(default)]
-    context_metadata: Option<Value>,
-    #[serde(default, rename = "contextMetadata")]
-    context_metadata_camel: Option<Value>,
-}
-
-#[derive(Deserialize)]
-struct SessionCommitContextCheckpointParams {
-    #[serde(alias = "sessionId")]
-    session_id: String,
-    #[serde(alias = "turnId")]
+#[serde(rename_all = "camelCase")]
+struct ThreadCommitContextCheckpointParams {
+    thread_id: String,
     turn_id: String,
     checkpoint: Value,
 }
 
-impl SessionPersistTurnParams {
-    fn context_metadata(&self) -> Option<Value> {
-        self.context_metadata
-            .clone()
-            .or_else(|| self.context_metadata_camel.clone())
-    }
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ThreadAppendTurnContextParams {
+    thread_id: String,
+    context: crate::threads::rollout::format::TurnContextItem,
 }
 
 #[derive(Deserialize)]
@@ -1009,22 +967,22 @@ struct AgentTurnStartParams {
 
 #[derive(Deserialize)]
 struct AgentTurnListParams {
-    #[serde(alias = "sessionId")]
-    session_id: String,
+    #[serde(rename = "threadId")]
+    thread_id: String,
 }
 
 #[derive(Deserialize)]
 struct AgentTurnIdParams {
-    #[serde(alias = "sessionId")]
-    session_id: String,
+    #[serde(rename = "threadId")]
+    thread_id: String,
     #[serde(alias = "turnId")]
     turn_id: String,
 }
 
 #[derive(Deserialize)]
 struct AgentTurnAppendSemanticBatchParams {
-    #[serde(alias = "sessionId")]
-    session_id: String,
+    #[serde(rename = "threadId")]
+    thread_id: String,
     #[serde(alias = "turnId")]
     turn_id: String,
     events: Vec<Value>,
@@ -1032,8 +990,8 @@ struct AgentTurnAppendSemanticBatchParams {
 
 #[derive(Deserialize)]
 struct AgentTurnCheckpointParams {
-    #[serde(alias = "sessionId")]
-    session_id: String,
+    #[serde(rename = "threadId")]
+    thread_id: String,
     #[serde(alias = "turnId")]
     turn_id: String,
     checkpoint: Value,
@@ -1041,8 +999,8 @@ struct AgentTurnCheckpointParams {
 
 #[derive(Deserialize)]
 struct AgentTurnMarkCompletedParams {
-    #[serde(alias = "sessionId")]
-    session_id: String,
+    #[serde(rename = "threadId")]
+    thread_id: String,
     #[serde(alias = "turnId")]
     turn_id: String,
     #[serde(alias = "stopReason")]
@@ -1055,8 +1013,8 @@ struct AgentTurnMarkCompletedParams {
 
 #[derive(Deserialize)]
 struct AgentTurnMarkFailedParams {
-    #[serde(alias = "sessionId")]
-    session_id: String,
+    #[serde(rename = "threadId")]
+    thread_id: String,
     #[serde(alias = "turnId")]
     turn_id: String,
     #[serde(alias = "stopReason")]
@@ -1068,8 +1026,8 @@ struct AgentTurnMarkFailedParams {
 
 #[derive(Deserialize)]
 struct AgentTurnMarkInterruptedParams {
-    #[serde(alias = "sessionId")]
-    session_id: String,
+    #[serde(rename = "threadId")]
+    thread_id: String,
     #[serde(alias = "turnId")]
     turn_id: String,
     reason: String,
@@ -1114,73 +1072,6 @@ fn serialization_error(error: serde_json::Error) -> crate::protocol::WorkerProto
         false,
         crate::protocol::WorkerProtocolErrorSource::RustCore,
     )
-}
-
-fn session_updated_sort_millis(value: &str) -> i128 {
-    if let Some(rest) = value.strip_prefix("unix-ms:") {
-        let digits = rest
-            .chars()
-            .take_while(|character| character.is_ascii_digit())
-            .collect::<String>();
-        return digits.parse::<i128>().unwrap_or_default();
-    }
-    parse_utc_iso_millis(value).unwrap_or_default()
-}
-
-fn parse_utc_iso_millis(value: &str) -> Option<i128> {
-    let value = value.strip_suffix('Z')?;
-    let (date, time) = value.split_once('T')?;
-    let mut date_parts = date.split('-');
-    let year = date_parts.next()?.parse::<i32>().ok()?;
-    let month = date_parts.next()?.parse::<u32>().ok()?;
-    let day = date_parts.next()?.parse::<u32>().ok()?;
-    if date_parts.next().is_some() {
-        return None;
-    }
-
-    let mut time_parts = time.split(':');
-    let hour = time_parts.next()?.parse::<u32>().ok()?;
-    let minute = time_parts.next()?.parse::<u32>().ok()?;
-    let second_part = time_parts.next()?;
-    if time_parts.next().is_some() {
-        return None;
-    }
-    let (second, millis) = match second_part.split_once('.') {
-        Some((second, fraction)) => {
-            let mut millis = fraction.chars().take(3).collect::<String>();
-            while millis.len() < 3 {
-                millis.push('0');
-            }
-            (second.parse::<u32>().ok()?, millis.parse::<u32>().ok()?)
-        }
-        None => (second_part.parse::<u32>().ok()?, 0),
-    };
-    if !(1..=12).contains(&month)
-        || !(1..=31).contains(&day)
-        || hour > 23
-        || minute > 59
-        || second > 60
-    {
-        return None;
-    }
-
-    let days = days_from_civil(year, month, day);
-    Some(
-        ((((days * 24) + hour as i128) * 60 + minute as i128) * 60 + second as i128) * 1000
-            + millis as i128,
-    )
-}
-
-fn days_from_civil(year: i32, month: u32, day: u32) -> i128 {
-    let year = year - i32::from(month <= 2);
-    let era = if year >= 0 { year } else { year - 399 } / 400;
-    let year_of_era = year - era * 400;
-    let month = month as i32;
-    let day = day as i32;
-    let month_prime = month + if month > 2 { -3 } else { 9 };
-    let day_of_year = (153 * month_prime + 2) / 5 + day - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    i128::from(era * 146_097 + day_of_era - 719_468)
 }
 
 fn unavailable_subagent_manager() -> crate::protocol::WorkerProtocolError {

@@ -3,12 +3,13 @@ use crate::desktop::state::lock_runtime;
 use crate::desktop::state::GatewayRuntime;
 use crate::desktop_commands::agent::worker_run_agent_with_options;
 use crate::desktop_commands::session::worker_turn_runtime_state_with_options;
-use crate::desktop_commands::session::worker_turns_list_with_options;
 use crate::desktop_commands::transport::native_websocket_transport_result;
 use crate::desktop_commands::transport::validate_tinyos_host_command_frame;
 use crate::desktop_commands::transport::worker_transport_dispatch_websocket_message_with_options;
 use crate::desktop_commands::transport::WorkerTransportWebSocketDispatchInput;
 use crate::protocol::capability::default_desktop_capability_policy;
+use crate::protocol::WorkerRequest;
+use crate::rpc::call_rust_state_service;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -137,20 +138,24 @@ fn worker_transport_dispatches_a_revision_guarded_file_command_and_rejects_fake_
         Duration::from_millis(100),
     )
     .expect("confirmed file command should dispatch");
-    let turns = worker_turns_list_with_options(
-        &shared,
-        session_id.to_string(),
+    let threads = call_rust_state_service(
         fixture.root.clone(),
         serde_json::json!({}),
-        Duration::from_millis(10),
+        WorkerRequest::new(
+            "req-host-file-thread-list",
+            "trace-host-file-thread-list",
+            "thread.list",
+            serde_json::json!({}),
+        ),
+        "host file thread list",
     )
-    .expect("turn list should remain readable");
+    .expect("thread list should remain readable");
 
     assert_eq!(dispatched["transport"]["commandKind"], "file.save");
     assert_eq!(dispatched["operation"]["path"], "notes/created.md");
-    assert!(turns["turns"]
+    assert!(threads["threads"]
         .as_array()
-        .expect("turns should be an array")
+        .expect("threads should be an array")
         .is_empty());
     assert_eq!(
         std::fs::read_to_string(fixture.root.join("notes/created.md"))
@@ -262,18 +267,22 @@ fn worker_transport_dispatches_a_revision_guarded_file_command_and_rejects_fake_
             && invalid_action_error.contains("unsupported"),
         "{invalid_action_error}"
     );
-    let turns_after_rejections = worker_turns_list_with_options(
-        &shared,
-        session_id.to_string(),
+    let threads_after_rejections = call_rust_state_service(
         fixture.root.clone(),
         serde_json::json!({}),
-        Duration::from_millis(10),
+        WorkerRequest::new(
+            "req-host-browser-rejection-thread-list",
+            "trace-host-browser-rejection-thread-list",
+            "thread.list",
+            serde_json::json!({}),
+        ),
+        "host browser rejection thread list",
     )
-    .expect("turn list should remain readable after browser rejections");
+    .expect("thread list should remain readable after browser rejections");
     assert_eq!(
-        turns_after_rejections["turns"]
+        threads_after_rejections["threads"]
             .as_array()
-            .expect("turns should be an array")
+            .expect("threads should be an array")
             .len(),
         0,
         "direct host commands must not create Agent turns"
@@ -659,17 +668,21 @@ fn tinyos_terminal_execute_fails_closed_without_network_enforcement_and_leaks_no
         0
     );
 
-    let turns = worker_turns_list_with_options(
-        &shared,
-        session_id.to_string(),
+    let threads = call_rust_state_service(
         fixture.root.clone(),
         serde_json::json!({}),
-        Duration::from_millis(10),
+        WorkerRequest::new(
+            "req-host-terminal-thread-list",
+            "trace-host-terminal-thread-list",
+            "thread.list",
+            serde_json::json!({}),
+        ),
+        "host terminal thread list",
     )
-    .expect("turn list should remain readable");
-    assert!(turns["turns"]
+    .expect("thread list should remain readable");
+    assert!(threads["threads"]
         .as_array()
-        .expect("turns should be an array")
+        .expect("threads should be an array")
         .is_empty());
 }
 

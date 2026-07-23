@@ -216,22 +216,26 @@ pub(crate) fn worker_sessions_list_with_options(
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
     let request_id = next_worker_request_correlation();
-    let sessions = call_rust_state_service(
+    let result = call_rust_state_service(
         workspace_root,
         config_snapshot,
         WorkerRequest::new(
-            request_id.id("sessions-list"),
-            request_id.trace_id("sessions-list"),
-            "session.list_metadata",
-            serde_json::json!({}),
+            request_id.id("threads-list"),
+            request_id.trace_id("threads-list"),
+            "thread.list",
+            serde_json::json!({
+                "includeArchived": false,
+                "includeChildThreads": true,
+            }),
         ),
-        "worker sessions list",
+        "worker threads list",
     )?;
-    let items = sessions
-        .as_array()
-        .ok_or_else(|| "worker sessions list failed: response was not an array".to_string())?
+    let items = result
+        .get("threads")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| "worker threads list failed: response did not contain threads".to_string())?
         .iter()
-        .map(webui_session_item)
+        .map(webui_thread_item)
         .collect::<Result<Vec<_>, _>>()?;
     Ok(serde_json::json!({ "items": items }))
 }
@@ -243,35 +247,48 @@ pub(crate) fn worker_session_messages_with_options(
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_id = resolve_thread_id(&key, workspace_root.clone(), config_snapshot.clone())?;
     let request_id = next_worker_request_correlation();
     let mut history = call_rust_state_service(
         workspace_root.clone(),
         config_snapshot.clone(),
         WorkerRequest::new(
-            request_id.id("session-messages"),
-            request_id.trace_id("session-messages"),
-            "session.get_history",
-            serde_json::json!({ "session_id": key, "limit": 500 }),
+            request_id.id("thread-messages"),
+            request_id.trace_id("thread-messages"),
+            "thread.history",
+            serde_json::json!({ "threadId": thread_id, "limit": 500 }),
         ),
-        "worker session messages",
+        "worker thread messages",
     )?;
     let object = history
         .as_object_mut()
         .ok_or_else(|| "worker session messages failed: response was not an object".to_string())?;
-    let session_id = object
-        .get("session_id")
+    let canonical_thread_id = object
+        .get("threadId")
         .and_then(serde_json::Value::as_str)
         .unwrap_or_default()
         .to_string();
     object.insert(
-        "key".to_string(),
-        serde_json::Value::String(session_id.clone()),
+        "session_id".to_string(),
+        serde_json::Value::String(key.clone()),
     );
+    object.insert("key".to_string(), serde_json::Value::String(key.clone()));
     object.insert(
         "chat_id".to_string(),
-        serde_json::Value::String(session_chat_id_from_key(&session_id)),
+        serde_json::Value::String(session_chat_id_from_key(&key)),
     );
-    enrich_session_history_metadata(object, &session_id, workspace_root, config_snapshot);
+    if let Some(user_profile) = object.get("userProfile").cloned() {
+        object.insert("user_profile".to_string(), user_profile);
+    }
+    if let Some(updated_at) = object.get("updatedAt").cloned() {
+        object.insert("updated_at".to_string(), updated_at);
+    }
+    enrich_thread_history_metadata(
+        object,
+        &canonical_thread_id,
+        workspace_root,
+        config_snapshot,
+    )?;
     Ok(history)
 }
 
@@ -282,6 +299,11 @@ pub(crate) fn worker_turns_list_with_options(
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_id = resolve_thread_id(
+        &session_key,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+    )?;
     let request_id = next_worker_request_correlation();
     call_rust_state_service(
         workspace_root,
@@ -290,7 +312,7 @@ pub(crate) fn worker_turns_list_with_options(
             request_id.id("agent-turn-list"),
             request_id.trace_id("agent-turn-list"),
             "thread.turn.list",
-            serde_json::json!({ "session_id": session_key }),
+            serde_json::json!({ "threadId": thread_id }),
         ),
         "worker agent turn list",
     )
@@ -304,8 +326,13 @@ pub(crate) fn worker_turn_runtime_state_with_options(
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_id = resolve_thread_id(
+        &session_key,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+    )?;
     let request_id = next_worker_request_correlation();
-    call_rust_state_service(
+    let mut runtime_state = call_rust_state_service(
         workspace_root,
         config_snapshot,
         WorkerRequest::new(
@@ -313,12 +340,22 @@ pub(crate) fn worker_turn_runtime_state_with_options(
             request_id.trace_id("agent-turn-runtime-state"),
             "thread.turn.runtime_state",
             serde_json::json!({
-                "session_id": session_key,
-                "turn_id": turn_id,
+                "threadId": thread_id,
+                "turnId": turn_id,
             }),
         ),
         "worker agent turn runtime state",
-    )
+    )?;
+    if let Some(timeline) = runtime_state
+        .get_mut("timeline")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        timeline.insert(
+            "sessionId".to_string(),
+            serde_json::Value::String(session_key),
+        );
+    }
+    Ok(runtime_state)
 }
 
 pub(crate) fn worker_session_effective_capabilities_with_options(
@@ -538,19 +575,21 @@ pub(crate) fn worker_session_delete_with_options(
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_id = resolve_thread_id(&key, workspace_root.clone(), config_snapshot.clone())?;
     let request_id = next_worker_request_correlation();
     let mut result = call_rust_state_service(
         workspace_root,
         config_snapshot,
         WorkerRequest::new(
-            request_id.id("session-delete"),
-            request_id.trace_id("session-delete"),
-            "session.delete",
-            serde_json::json!({ "session_id": key }),
+            request_id.id("thread-delete"),
+            request_id.trace_id("thread-delete"),
+            "thread.delete",
+            serde_json::json!({ "threadId": thread_id, "deleteChildren": false }),
         ),
-        "worker session delete",
+        "worker thread delete",
     )?;
-    add_session_key_fields(&mut result)?;
+    add_session_key_fields(&mut result, &key)?;
+    result["deleted"] = serde_json::Value::Bool(true);
     Ok(result)
 }
 
@@ -566,19 +605,23 @@ pub(crate) fn worker_session_patch_with_options(
         .get("metadata")
         .cloned()
         .unwrap_or_else(|| body.clone());
+    let metadata_patch = thread_metadata_patch(&metadata)?;
+    let thread_id = resolve_thread_id(&key, workspace_root.clone(), config_snapshot.clone())?;
     let request_id = next_worker_request_correlation();
-    let session = call_rust_state_service(
+    let thread = call_rust_state_service(
         workspace_root,
         config_snapshot,
         WorkerRequest::new(
-            request_id.id("session-patch"),
-            request_id.trace_id("session-patch"),
-            "session.patch_metadata",
-            serde_json::json!({ "session_id": key, "metadata": metadata }),
+            request_id.id("thread-patch"),
+            request_id.trace_id("thread-patch"),
+            "thread.update_metadata",
+            serde_json::json!({ "threadId": thread_id, "metadata": metadata_patch }),
         ),
-        "worker session patch",
+        "worker thread patch",
     )?;
-    webui_session_item(&session)
+    let mut item = webui_thread_item(&thread)?;
+    item["metadata"] = metadata;
+    Ok(item)
 }
 
 pub(crate) fn worker_session_branch_with_options(
@@ -601,6 +644,11 @@ pub(crate) fn worker_session_branch_with_options(
     let source_session = branch_string(&body, "branchedFromSessionId")
         .or_else(|| branch_string(&body, "branched_from_session_id"))
         .unwrap_or_default();
+    let source_thread_id = resolve_thread_id(
+        &source_session,
+        workspace_root.clone(),
+        config_snapshot.clone(),
+    )?;
     let source_message = branch_string(&body, "branchedFromMessageId")
         .or_else(|| branch_string(&body, "branched_from_message_id"))
         .unwrap_or_default();
@@ -609,43 +657,53 @@ pub(crate) fn worker_session_branch_with_options(
         .or_else(|| body.get("portable_context"))
         .cloned()
         .unwrap_or_else(|| serde_json::json!({}));
-    call_rust_state_service(
+    let created = call_rust_state_service(
         workspace_root.clone(),
         config_snapshot.clone(),
         WorkerRequest::new(
-            request_id.id("session-branch-append"),
-            request_id.trace_id("session-branch-append"),
-            "session.append_messages",
+            request_id.id("thread-branch-create"),
+            request_id.trace_id("thread-branch-create"),
+            "thread.create",
             serde_json::json!({
-                "session_id": branch_key.clone(),
-                "turn_id": branch_turn_id,
-                "messages": messages,
-            }),
-        ),
-        "worker session branch append",
-    )?;
-    let session = call_rust_state_service(
-        workspace_root,
-        config_snapshot,
-        WorkerRequest::new(
-            request_id.id("session-branch-metadata"),
-            request_id.trace_id("session-branch-metadata"),
-            "session.patch_metadata",
-            serde_json::json!({
-                "session_id": branch_key,
+                "title": title,
+                "sessionKey": branch_key.clone(),
+                "rootTurnId": branch_turn_id,
+                "source": "desktop",
                 "metadata": {
-                    "title": title,
-                    "branch": {
-                        "branchedFromSessionId": source_session,
-                        "branchedFromMessageId": source_message,
-                        "portableContext": portable_context,
+                    "extra": {
+                        "branch": {
+                            "branchedFromThreadId": source_thread_id,
+                            "branchedFromSessionId": source_session,
+                            "branchedFromMessageId": source_message,
+                            "portableContext": portable_context,
+                        },
                     },
                 },
             }),
         ),
-        "worker session branch metadata",
+        "worker thread branch create",
     )?;
-    webui_session_item(&session)
+    let thread_id = created
+        .get("threadId")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "worker thread branch create failed: missing threadId".to_string())?
+        .to_string();
+    let thread = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("thread-branch-append"),
+            request_id.trace_id("thread-branch-append"),
+            "thread.append_messages",
+            serde_json::json!({
+                "threadId": thread_id,
+                "turnId": branch_turn_id,
+                "messages": messages,
+            }),
+        ),
+        "worker thread branch append",
+    )?;
+    webui_thread_item(&thread)
 }
 
 pub(crate) fn worker_session_clear_with_options(
@@ -655,19 +713,29 @@ pub(crate) fn worker_session_clear_with_options(
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_id = resolve_thread_id(&key, workspace_root.clone(), config_snapshot.clone())?;
     let request_id = next_worker_request_correlation();
     let mut result = call_rust_state_service(
         workspace_root,
         config_snapshot,
         WorkerRequest::new(
-            request_id.id("session-clear"),
-            request_id.trace_id("session-clear"),
-            "session.clear",
-            serde_json::json!({ "session_id": key }),
+            request_id.id("thread-clear"),
+            request_id.trace_id("thread-clear"),
+            "thread.clear",
+            serde_json::json!({ "threadId": thread_id }),
         ),
-        "worker session clear",
+        "worker thread clear",
     )?;
-    add_session_key_fields(&mut result)?;
+    add_session_key_fields(&mut result, &key)?;
+    for (camel, snake) in [
+        ("messagesBefore", "messages_before"),
+        ("messagesAfter", "messages_after"),
+        ("checkpointCleared", "checkpoint_cleared"),
+    ] {
+        if let Some(value) = result.get(camel).cloned() {
+            result[snake] = value;
+        }
+    }
     Ok(result)
 }
 
@@ -699,89 +767,142 @@ pub(crate) fn worker_session_task_progress_with_options(
         .or_else(|| body.get("message"))
         .and_then(serde_json::Value::as_str)
         .unwrap_or("Task progress updated.");
+    let thread_id = resolve_thread_id(&key, workspace_root.clone(), config_snapshot.clone())?;
     let request_id = next_worker_request_correlation();
-    let session = call_rust_state_service(
+    let thread = call_rust_state_service(
         workspace_root,
         config_snapshot,
         WorkerRequest::new(
-            request_id.id("session-task-progress"),
-            request_id.trace_id("session-task-progress"),
-            "session.task_progress.upsert",
+            request_id.id("thread-task-progress"),
+            request_id.trace_id("thread-task-progress"),
+            "thread.task_progress.upsert",
             serde_json::json!({
-                "session_id": key,
-                "turn_id": turn_id,
-                "plan_id": plan_id,
-                "progress": progress,
+                "threadId": thread_id,
+                "turnId": turn_id,
+                "planId": plan_id,
+                "progress": progress.clone(),
                 "content": content,
             }),
         ),
-        "worker session task progress",
+        "worker thread task progress",
     )?;
-    webui_session_item(&session)
+    let mut item = webui_thread_item(&thread)?;
+    let extra = item
+        .get_mut("extra")
+        .and_then(serde_json::Value::as_object_mut)
+        .ok_or_else(|| "worker thread task progress failed: missing extra object".to_string())?;
+    extra.insert(
+        "messages".to_string(),
+        serde_json::json!([{
+            "role": "progress",
+            "content": content,
+            "turnId": turn_id,
+            "_progress": true,
+            "_task_plan_id": plan_id,
+            "_task_progress": progress,
+        }]),
+    );
+    Ok(item)
 }
 
-fn webui_session_item(session: &serde_json::Value) -> Result<serde_json::Value, String> {
-    let mut item = session
+fn webui_thread_item(thread: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let mut item = thread
         .as_object()
         .cloned()
-        .ok_or_else(|| "worker sessions list failed: session item was not an object".to_string())?;
-    let session_id = item
-        .get("session_id")
+        .ok_or_else(|| "worker threads list failed: thread item was not an object".to_string())?;
+    let thread_id = item
+        .get("threadId")
         .and_then(serde_json::Value::as_str)
         .unwrap_or_default()
         .to_string();
+    let session_key = item
+        .get("sessionKey")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(&thread_id)
+        .to_string();
+    item.insert(
+        "session_id".to_string(),
+        serde_json::Value::String(session_key.clone()),
+    );
     item.insert(
         "key".to_string(),
-        serde_json::Value::String(session_id.clone()),
+        serde_json::Value::String(session_key.clone()),
     );
     item.insert(
         "chat_id".to_string(),
-        serde_json::Value::String(session_chat_id_from_key(&session_id)),
+        serde_json::Value::String(session_chat_id_from_key(&session_key)),
     );
-    if let Some(metadata) = item
-        .get("extra")
-        .and_then(|extra| extra.get("metadata"))
-        .cloned()
-    {
-        if let Some(title) = metadata.get("title").and_then(serde_json::Value::as_str) {
-            item.insert(
-                "title".to_string(),
-                serde_json::Value::String(title.to_string()),
-            );
-        }
-        item.insert("metadata".to_string(), metadata);
+    if let Some(created_at) = item.get("createdAt").cloned() {
+        item.insert("created_at".to_string(), created_at);
+    }
+    if let Some(updated_at) = item.get("updatedAt").cloned() {
+        item.insert("updated_at".to_string(), updated_at);
+    }
+    if let Some(metadata) = item.get("metadata").cloned() {
+        item.insert(
+            "extra".to_string(),
+            serde_json::json!({
+                "threadId": thread_id,
+                "metadata": metadata.get("extra").cloned().unwrap_or_else(|| serde_json::json!({})),
+            }),
+        );
     }
     Ok(serde_json::Value::Object(item))
 }
 
-fn enrich_session_history_metadata(
+fn enrich_thread_history_metadata(
     object: &mut serde_json::Map<String, serde_json::Value>,
-    session_id: &str,
+    thread_id: &str,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
-) {
+) -> Result<(), String> {
     let request_id = next_worker_request_correlation();
-    let Ok(metadata) = call_rust_state_service(
+    let snapshot = call_rust_state_service(
         workspace_root,
         config_snapshot,
         WorkerRequest::new(
-            request_id.id("session-history-metadata"),
-            request_id.trace_id("session-history-metadata"),
-            "session.get_metadata",
-            serde_json::json!({ "session_id": session_id }),
+            request_id.id("thread-history-metadata"),
+            request_id.trace_id("thread-history-metadata"),
+            "thread.read",
+            serde_json::json!({ "threadId": thread_id, "limit": 1 }),
         ),
-        "worker session history metadata",
-    ) else {
-        return;
-    };
-    if let Some(branch) = metadata
-        .get("extra")
-        .and_then(|extra| extra.get("metadata"))
-        .and_then(|metadata| metadata.get("branch"))
+        "worker thread history metadata",
+    )?;
+    if let Some(branch) = snapshot
+        .get("thread")
+        .and_then(|thread| thread.get("metadata"))
+        .and_then(|metadata| metadata.get("extra"))
+        .and_then(|extra| extra.get("branch"))
         .cloned()
     {
         object.insert("branch".to_string(), branch);
     }
+    Ok(())
+}
+
+fn thread_metadata_patch(metadata: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let source = metadata
+        .as_object()
+        .ok_or_else(|| "worker thread metadata patch must be an object".to_string())?;
+    let mut patch = serde_json::Map::new();
+    for key in [
+        "title",
+        "summary",
+        "preview",
+        "tags",
+        "model",
+        "workingDirectory",
+        "lastUserMessageAt",
+        "lastAssistantMessageAt",
+        "lastActivityAt",
+        "hasActiveTurn",
+    ] {
+        if let Some(value) = source.get(key) {
+            patch.insert(key.to_string(), value.clone());
+        }
+    }
+    patch.insert("extra".to_string(), metadata.clone());
+    Ok(serde_json::Value::Object(patch))
 }
 
 fn branch_session_key(body: &serde_json::Value, fallback_suffix: &str) -> String {
@@ -819,22 +940,47 @@ fn branch_string(value: &serde_json::Value, key: &str) -> Option<String> {
         .map(ToString::to_string)
 }
 
-fn add_session_key_fields(value: &mut serde_json::Value) -> Result<(), String> {
+fn resolve_thread_id(
+    session_key: &str,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> Result<String, String> {
+    let request_id = next_worker_request_correlation();
+    let result = call_rust_state_service(
+        workspace_root,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("thread-resolve-session-key"),
+            request_id.trace_id("thread-resolve-session-key"),
+            "thread.resolve",
+            serde_json::json!({ "identity": session_key }),
+        ),
+        "worker thread resolve session key",
+    )?;
+    result
+        .get("threadId")
+        .and_then(serde_json::Value::as_str)
+        .map(ToString::to_string)
+        .ok_or_else(|| {
+            "worker thread resolve failed: response did not contain threadId".to_string()
+        })
+}
+
+fn add_session_key_fields(value: &mut serde_json::Value, session_key: &str) -> Result<(), String> {
     let object = value
         .as_object_mut()
         .ok_or_else(|| "worker session operation failed: response was not an object".to_string())?;
-    let session_id = object
-        .get("session_id")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default()
-        .to_string();
+    object.insert(
+        "session_id".to_string(),
+        serde_json::Value::String(session_key.to_string()),
+    );
     object.insert(
         "key".to_string(),
-        serde_json::Value::String(session_id.clone()),
+        serde_json::Value::String(session_key.to_string()),
     );
     object.insert(
         "chat_id".to_string(),
-        serde_json::Value::String(session_chat_id_from_key(&session_id)),
+        serde_json::Value::String(session_chat_id_from_key(session_key)),
     );
     Ok(())
 }

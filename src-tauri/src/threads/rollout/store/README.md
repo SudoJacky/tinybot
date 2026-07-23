@@ -1,32 +1,32 @@
 # Worker Thread Log
 
 `threads::rollout::store` owns Tinybot's canonical append-only Rollout. It validates
-paths, records typed lines, reconstructs Thread/session/runtime projections,
+paths, records typed lines, reconstructs Thread and runtime projections,
 and maintains a rebuildable SQLite index for discovery and startup recovery.
 
-`threads::domain` and `threads::session` are projections of this authority. They
-must not introduce a durable journal, database, fallback read, or completed
-turn double write.
+`threads::domain` is the live typed projection of this authority. It must not
+introduce a durable journal, database, fallback read, or completed-turn double
+write.
 
 ## Storage model
 
 | Path | Role |
 | --- | --- |
 | `.tinybot/threads/<year>/<month>/<day>/thread-*.jsonl` | Canonical per-thread append-only log |
-| `.tinybot/state/state.sqlite` | Queryable index of thread/session metadata |
+| `.tinybot/state/state.sqlite` | Queryable index of Thread metadata |
 
 A log begins with `ThreadMeta` and can contain event messages, strongly typed
 response items, turn context, world state, compaction records, and inter-agent
 communication.
-Canonical reconstruction produces Thread items, session history, model
-context, agent turns, checkpoints, and token usage.
+Canonical reconstruction produces Thread items, Thread history, model context,
+agent turns, checkpoints, and token usage.
 
 ## Responsibilities
 
 - Generate and validate canonical log paths under the workspace thread root.
 - Append complete JSON lines and flush them before reporting success.
 - Replay log history without mutating the source log.
-- Project replayed state into typed Thread and session compatibility shapes.
+- Project replayed state into typed Thread history and runtime context shapes.
 - Maintain the `ThreadStateDb` index used for listing and lookup.
 - Detect missing, unreadable, or divergent indexes.
 - Rebuild the index explicitly from canonical logs.
@@ -38,9 +38,9 @@ context, agent turns, checkpoints, and token usage.
 - `rollout_writer.rs`, `recorder.rs`: ordered append, flushing, path validation,
   archive/delete, and compression-aware IO.
 - `reader.rs`: bounded line reads.
-- `reconstruction.rs`: canonical Thread/session/runtime projection.
+- `reconstruction.rs`: canonical Thread and runtime projection.
+- `projection.rs`: Thread history and model-context projection.
 - `state_db.rs`: SQLite index schema and queries.
-- `../../session/projection.rs`: session compatibility projection.
 - `turn.rs`: agent-turn persistence and recovery over log/index state.
 - `mod.rs`: capability-checked service and index consistency/repair behavior.
 
@@ -74,5 +74,4 @@ context, agent turns, checkpoints, and token usage.
 - Repeating an identical full Thread record is a metadata no-op and must not
   append another snapshot.
 
-See [`threads::domain`](../../domain/README.md) for the typed Thread domain and
-[`threads::session`](../../session/README.md) for session-shaped projections.
+See [`threads::domain`](../../domain/README.md) for the typed Thread domain.

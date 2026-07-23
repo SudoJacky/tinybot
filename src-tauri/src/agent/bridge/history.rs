@@ -119,8 +119,8 @@ fn native_agent_session_history_messages(
         WorkerRequest::new(
             request_id.id("session-history-for-agent-turn"),
             request_id.trace_id("session-history-for-agent-turn"),
-            "session.get_agent_context",
-            serde_json::json!({ "session_id": session_id, "limit": 500 }),
+            "thread.context",
+            serde_json::json!({ "threadId": session_id, "limit": 500 }),
         ),
         "native agent context hydration",
     )?;

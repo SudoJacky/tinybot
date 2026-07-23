@@ -37,8 +37,8 @@ pub(super) fn read_agent_turn_record(
             "trace-agent-turn-get",
             "thread.turn.get",
             serde_json::json!({
-                "session_id": session_id,
-                "turn_id": turn_id,
+                "threadId": session_id,
+                "turnId": turn_id,
             }),
         ),
         "agent turn read",
@@ -121,28 +121,85 @@ impl WorkspaceFixture {
                 .as_array()
                 .cloned()
                 .unwrap_or_default();
-            rpc.append_session_messages(
-                session_id,
-                &format!("turn-fixture-{session_id}"),
-                messages,
-            )
-            .expect("fixture Rollout messages should append");
-            let mut metadata = session["extra"]["metadata"]
+            let metadata = session["extra"]["metadata"]
                 .as_object()
                 .cloned()
                 .unwrap_or_default();
-            metadata.insert("title".to_string(), session["title"].clone());
-            metadata.insert(
-                "workingDirectory".to_string(),
-                session["workspace_dir"].clone(),
-            );
-            rpc.patch_metadata(session_id, &serde_json::Value::Object(metadata))
-                .expect("fixture Rollout metadata should patch");
-            if let Some(user_profile) = session["extra"].get("user_profile") {
-                rpc.patch_user_profile(session_id, user_profile.clone(), serde_json::json!({}))
-                    .expect("fixture Rollout user profile should patch");
-            }
+            let fixture_identity = format!("{}:{session_id}", self.root.display());
+            let thread_id =
+                crate::threads::rollout::store::thread_id_for_session_id(&fixture_identity);
+            let thread = crate::threads::domain::ThreadRecord {
+                thread_id: thread_id.clone(),
+                title: session["title"]
+                    .as_str()
+                    .unwrap_or("Fixture thread")
+                    .to_string(),
+                status: crate::threads::domain::ThreadStatus::Idle,
+                session_key: Some(session_id.to_string()),
+                root_turn_id: None,
+                active_turn_id: None,
+                parent_thread_id: None,
+                source: "test".to_string(),
+                created_at: session["created_at"]
+                    .as_str()
+                    .unwrap_or("2026-01-01T00:00:00Z")
+                    .to_string(),
+                updated_at: session["updated_at"]
+                    .as_str()
+                    .unwrap_or("2026-01-01T00:00:00Z")
+                    .to_string(),
+                archived_at: None,
+                metadata: crate::threads::domain::ThreadMetadata {
+                    working_directory: session["workspace_dir"].as_str().map(str::to_string),
+                    extra: serde_json::json!({
+                        "metadata": metadata,
+                        "userProfile": session["extra"]
+                            .get("user_profile")
+                            .cloned()
+                            .unwrap_or_else(|| serde_json::json!({})),
+                    }),
+                    ..crate::threads::domain::ThreadMetadata::default()
+                },
+            };
+            rpc.create_from_thread_record(&thread)
+                .expect("fixture thread should be created");
+            rpc.append_thread_messages(&thread_id, &format!("turn-fixture-{thread_id}"), messages)
+                .expect("fixture Rollout messages should append");
         }
+    }
+
+    pub(super) fn seed_thread_messages(
+        &self,
+        session_key: &str,
+        turn_id: &str,
+        messages: Vec<serde_json::Value>,
+    ) {
+        let rpc = crate::threads::rollout::store::WorkerThreadLogRpc::new(
+            self.root.clone(),
+            crate::protocol::capability::CapabilityPolicy::new([
+                crate::protocol::capability::WorkerCapability::SessionMetadataRead,
+                crate::protocol::capability::WorkerCapability::SessionWrite,
+            ]),
+        );
+        let thread_id = crate::threads::rollout::store::thread_id_for_session_id(session_key);
+        let thread = crate::threads::domain::ThreadRecord {
+            thread_id: thread_id.clone(),
+            title: "Fixture thread".to_string(),
+            status: crate::threads::domain::ThreadStatus::Idle,
+            session_key: Some(session_key.to_string()),
+            root_turn_id: None,
+            active_turn_id: None,
+            parent_thread_id: None,
+            source: "test".to_string(),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            updated_at: "2026-01-01T00:00:00Z".to_string(),
+            archived_at: None,
+            metadata: crate::threads::domain::ThreadMetadata::default(),
+        };
+        rpc.create_from_thread_record(&thread)
+            .expect("fixture thread should be created");
+        rpc.append_thread_messages(&thread_id, turn_id, messages)
+            .expect("fixture thread messages should append");
     }
 }
 

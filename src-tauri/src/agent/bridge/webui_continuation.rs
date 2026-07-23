@@ -671,8 +671,8 @@ pub(crate) fn clear_native_session_checkpoint(
         WorkerRequest::new(
             request_id.id("session-clear-checkpoint"),
             request_id.trace_id("session-clear-checkpoint"),
-            "session.clear_checkpoint",
-            serde_json::json!({ "session_id": session_key }),
+            "thread.clear_latest_checkpoint",
+            serde_json::json!({ "threadId": session_key }),
         ),
         label,
     )?;
@@ -692,8 +692,8 @@ pub(crate) fn native_session_checkpoint(
         WorkerRequest::new(
             request_id.id("session-get-checkpoint"),
             request_id.trace_id("session-get-checkpoint"),
-            "session.get_checkpoint",
-            serde_json::json!({ "session_id": session_key }),
+            "thread.latest_checkpoint",
+            serde_json::json!({ "threadId": session_key }),
         ),
         label,
     )?;

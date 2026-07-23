@@ -45,8 +45,8 @@ impl NativeAgentTraceSink for AgentTurnSemanticSink {
                 generated.trace_id("agent-turn-runtime-state"),
                 "thread.turn.runtime_state",
                 serde_json::json!({
-                    "session_id": session_id,
-                    "turn_id": turn_id,
+                    "threadId": session_id,
+                    "turnId": turn_id,
                 }),
             ),
             "native agent turn runtime state",
@@ -108,8 +108,8 @@ impl NativeAgentTraceSink for AgentTurnSemanticSink {
                 trace_id,
                 "thread.turn.append_semantic_batch",
                 serde_json::json!({
-                    "session_id": session_id,
-                    "turn_id": turn_id,
+                    "threadId": session_id,
+                    "turnId": turn_id,
                     "events": events,
                 }),
             ),

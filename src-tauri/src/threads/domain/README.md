@@ -6,8 +6,8 @@ in-process projection used by Thread-owned flows.
 
 The durable authority is the Rollout owned by
 [`threads::rollout::store`](../rollout/store/README.md). This module deliberately
-keeps typed Thread behavior separate from both persistence and session-shaped
-compatibility APIs.
+keeps typed Thread behavior separate from canonical persistence and runtime
+projection details.
 
 ## Responsibilities
 

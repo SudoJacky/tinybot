@@ -27,8 +27,6 @@ pub(super) struct ThreadLogHeadRecord {
 #[derive(Clone, Debug)]
 pub struct ThreadStateDb {
     path: PathBuf,
-    #[cfg(test)]
-    fail_next_upserts: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl ThreadStateDb {
@@ -38,8 +36,6 @@ impl ThreadStateDb {
                 .join(".tinybot")
                 .join("state")
                 .join("state.sqlite"),
-            #[cfg(test)]
-            fail_next_upserts: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         }
     }
 
@@ -49,7 +45,6 @@ impl ThreadStateDb {
 
     #[cfg(test)]
     pub fn upsert_thread(&self, record: &ThreadStateRecord) -> Result<(), WorkerProtocolError> {
-        self.maybe_fail_upsert(record)?;
         let connection = self.open()?;
         upsert_thread(&connection, record)?;
         Ok(())
@@ -60,7 +55,6 @@ impl ThreadStateDb {
         record: &ThreadStateRecord,
         log_head: &ThreadLogHead,
     ) -> Result<(), WorkerProtocolError> {
-        self.maybe_fail_upsert(record)?;
         let mut connection = self.open()?;
         let transaction = connection.transaction().map_err(sqlite_error)?;
         upsert_thread(&transaction, record)?;
@@ -76,7 +70,6 @@ impl ThreadStateDb {
         latest_checkpoint: Option<&LatestContextCheckpointRecord>,
         log_head: &ThreadLogHead,
     ) -> Result<(), WorkerProtocolError> {
-        self.maybe_fail_upsert(record)?;
         let mut connection = self.open()?;
         let transaction = connection.transaction().map_err(sqlite_error)?;
         upsert_thread(&transaction, record)?;
@@ -186,12 +179,6 @@ impl ThreadStateDb {
             checkpoints.push(row.map_err(sqlite_error)?);
         }
         Ok(checkpoints)
-    }
-
-    #[cfg(test)]
-    pub fn fail_next_upserts(&self, count: usize) {
-        self.fail_next_upserts
-            .store(count, std::sync::atomic::Ordering::SeqCst);
     }
 
     pub fn list_threads(&self) -> Result<Vec<ThreadStateRecord>, WorkerProtocolError> {
@@ -326,28 +313,6 @@ impl ThreadStateDb {
             > 0;
         transaction.commit().map_err(sqlite_error)?;
         Ok(deleted)
-    }
-
-    fn maybe_fail_upsert(&self, _record: &ThreadStateRecord) -> Result<(), WorkerProtocolError> {
-        #[cfg(test)]
-        if self
-            .fail_next_upserts
-            .fetch_update(
-                std::sync::atomic::Ordering::SeqCst,
-                std::sync::atomic::Ordering::SeqCst,
-                |remaining| remaining.checked_sub(1),
-            )
-            .is_ok()
-        {
-            return Err(WorkerProtocolError::new(
-                WorkerProtocolErrorCode::WorkerError,
-                "injected thread state index upsert failure",
-                serde_json::json!({ "threadId": _record.id }),
-                true,
-                WorkerProtocolErrorSource::RustCore,
-            ));
-        }
-        Ok(())
     }
 
     fn open(&self) -> Result<Connection, WorkerProtocolError> {

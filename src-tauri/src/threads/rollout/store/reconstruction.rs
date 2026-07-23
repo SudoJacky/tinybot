@@ -5,7 +5,7 @@ use super::{
 };
 use crate::protocol::WorkerProtocolError;
 use crate::threads::domain::{ThreadCheckpoint, ThreadItem};
-use crate::threads::session::AgentTurnRecord;
+use crate::threads::turn::AgentTurnRecord;
 
 #[derive(Clone, Debug)]
 pub(super) struct CanonicalRolloutReconstruction {

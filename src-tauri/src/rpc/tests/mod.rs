@@ -10,7 +10,6 @@ use crate::tools::permissions::PermissionEvaluateToolRequest;
 use crate::tools::shell::WorkerShellRuntime;
 use serde_json::{json, Value};
 use std::{
-    io::Write,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -25,7 +24,6 @@ static WORKSPACE_FIXTURE_COUNTER: AtomicU64 = AtomicU64::new(0);
 mod approval_and_shell;
 mod automation_and_collaboration;
 mod request_boundary;
-mod sessions;
 mod threads_and_tools;
 
 fn approve_once(
@@ -131,14 +129,24 @@ impl WorkerRequestCancellation for TestCancellation {
     }
 }
 
-fn session_fixture() -> crate::threads::session::SessionMetadata {
-    crate::threads::session::SessionMetadata {
-        session_id: "session-1".to_string(),
+fn thread_fixture() -> crate::threads::domain::ThreadRecord {
+    crate::threads::domain::ThreadRecord {
+        thread_id: "session-1".to_string(),
         title: "Native Core Migration".to_string(),
-        workspace_dir: "D:/code/tinybot/tinybot".to_string(),
+        status: crate::threads::domain::ThreadStatus::Idle,
+        session_key: Some("session-1".to_string()),
+        root_turn_id: None,
+        active_turn_id: None,
+        parent_thread_id: None,
+        source: "desktop".to_string(),
         created_at: "2026-06-09T09:00:00Z".to_string(),
         updated_at: "2026-06-09T09:30:00Z".to_string(),
-        extra: json!({ "mode": "desktop" }),
+        archived_at: None,
+        metadata: crate::threads::domain::ThreadMetadata {
+            working_directory: Some("D:/code/tinybot/tinybot".to_string()),
+            extra: json!({ "mode": "desktop" }),
+            ..crate::threads::domain::ThreadMetadata::default()
+        },
     }
 }
 
@@ -186,48 +194,6 @@ fn assert_removed_persistence_paths_absent(root: &Path) {
     for path in removed_paths {
         assert!(!path.exists(), "removed persistence path exists: {path:?}");
     }
-}
-
-fn prepare_session_log_index_for_startup(root: &Path) {
-    let rpc = crate::threads::rollout::store::WorkerThreadLogRpc::new(
-        root.to_path_buf(),
-        CapabilityPolicy::new([
-            WorkerCapability::SessionMetadataRead,
-            WorkerCapability::SessionWrite,
-        ]),
-    );
-    let migration = rpc
-        .prepare_state_index_for_startup()
-        .expect("startup index preparation should succeed");
-    assert!(migration.is_some(), "missing index should be migrated");
-}
-
-fn repair_session_log_index(root: &Path) {
-    let rpc = crate::threads::rollout::store::WorkerThreadLogRpc::new(
-        root.to_path_buf(),
-        CapabilityPolicy::new([
-            WorkerCapability::SessionMetadataRead,
-            WorkerCapability::SessionWrite,
-        ]),
-    );
-    let repair = rpc
-        .repair_state_index(crate::threads::rollout::store::ThreadLogIndexRepairMode::RebuildIndex)
-        .expect("explicit index repair should succeed");
-    assert_eq!(
-        repair.after.status,
-        crate::threads::rollout::store::ThreadLogIndexConsistencyStatus::Clean
-    );
-}
-
-fn thread_state_updated_at(state_path: &Path, session_id: &str) -> String {
-    let connection = rusqlite::Connection::open(state_path).expect("state db should open");
-    connection
-        .query_row(
-            "SELECT updated_at FROM threads WHERE session_id = ?1",
-            [session_id],
-            |row| row.get(0),
-        )
-        .expect("thread state row should exist")
 }
 
 struct WorkspaceFixture {

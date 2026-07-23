@@ -42,6 +42,26 @@ impl WorkerRpcRouter {
                 )?)
                 .map_err(serialization_error)
             }
+            "thread.history" => {
+                let params: ThreadHistoryParams = parse_params(request)?;
+                let projection = self
+                    .thread_log
+                    .get_thread_history(&params.thread_id, params.limit.unwrap_or(500))?;
+                serde_json::to_value(projection).map_err(serialization_error)
+            }
+            "thread.resolve" => {
+                let params: ThreadResolveParams = parse_params(request)?;
+                Ok(serde_json::json!({
+                    "threadId": self.thread_log.resolve_thread_id(&params.identity)?,
+                }))
+            }
+            "thread.context" => {
+                let params: ThreadHistoryParams = parse_params(request)?;
+                let projection = self
+                    .thread_log
+                    .get_thread_context(&params.thread_id, params.limit.unwrap_or(500))?;
+                serde_json::to_value(projection).map_err(serialization_error)
+            }
             "thread.resume" => {
                 let params: ResumeThreadRequest = parse_params(request)?;
                 let cursor = params.cursor.clone();
@@ -180,6 +200,26 @@ impl WorkerRpcRouter {
                     .append_thread_items(&result.thread.thread_id, &result.items)?;
                 serde_json::to_value(result).map_err(serialization_error)
             }
+            "thread.append_messages" => {
+                let params: ThreadAppendMessagesParams = parse_params(request)?;
+                serde_json::to_value(self.thread_log.append_thread_messages(
+                    &params.thread_id,
+                    &params.turn_id,
+                    params.messages,
+                )?)
+                .map_err(serialization_error)
+            }
+            "thread.task_progress.upsert" => {
+                let params: ThreadTaskProgressUpsertParams = parse_params(request)?;
+                serde_json::to_value(self.thread_log.upsert_thread_task_progress(
+                    &params.thread_id,
+                    &params.turn_id,
+                    &params.plan_id,
+                    params.progress,
+                    params.content,
+                )?)
+                .map_err(serialization_error)
+            }
             "thread.events" => {
                 let params: ThreadEventsRequest = parse_params(request)?;
                 serde_json::to_value(self.thread.thread_events(params)?)
@@ -296,6 +336,42 @@ impl WorkerRpcRouter {
                 let result = self.thread.interrupt(params)?;
                 self.persist_thread_runtime_result(&result)?;
                 serde_json::to_value(result).map_err(serialization_error)
+            }
+            "thread.append_turn_context" => {
+                let params: ThreadAppendTurnContextParams = parse_params(request)?;
+                self.thread_log
+                    .append_turn_context(&params.thread_id, params.context)?;
+                Ok(serde_json::json!({ "persisted": true }))
+            }
+            "thread.latest_checkpoint" => {
+                let params: ThreadIdParams = parse_params(request)?;
+                let checkpoint = self
+                    .thread_log
+                    .latest_turn_checkpoint(&params.thread_id)?
+                    .map(|checkpoint| checkpoint.checkpoint);
+                serde_json::to_value(checkpoint).map_err(serialization_error)
+            }
+            "thread.clear_latest_checkpoint" => {
+                let params: ThreadIdParams = parse_params(request)?;
+                serde_json::to_value(
+                    self.thread_log
+                        .clear_latest_turn_checkpoint(&params.thread_id)?,
+                )
+                .map_err(serialization_error)
+            }
+            "thread.commit_context_checkpoint" => {
+                let params: ThreadCommitContextCheckpointParams = parse_params(request)?;
+                serde_json::to_value(self.thread_log.commit_context_checkpoint(
+                    &params.thread_id,
+                    &params.turn_id,
+                    params.checkpoint,
+                )?)
+                .map_err(serialization_error)
+            }
+            "thread.clear" => {
+                let params: ThreadIdParams = parse_params(request)?;
+                serde_json::to_value(self.thread_log.clear_thread(&params.thread_id)?)
+                    .map_err(serialization_error)
             }
             "thread.persistence.check" => {
                 serde_json::to_value(self.thread_log.check_state_index()?)

@@ -325,8 +325,8 @@ fn worker_agent_turn_runtime_commands_use_thread_log_turn_store() {
             "trace-seed-agent-turn-thread-log",
             "thread.turn.append_semantic_batch",
             serde_json::json!({
-                "session_id": "websocket:chat-1",
-                "turn_id": "turn-1",
+                "threadId": "websocket:chat-1",
+                "turnId": "turn-1",
                 "events": [{
                     "schemaVersion": "tinybot.agent_event.v1",
                     "eventId": "turn-1:agent-done:0000000000000001",

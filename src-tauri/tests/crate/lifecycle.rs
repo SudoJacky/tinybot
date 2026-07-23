@@ -167,7 +167,7 @@ fn startup_reconciles_orphaned_turn_and_preserves_waiting_checkpoint() {
         .append_thread_items("thread-recovery", &started.appended_items)
         .expect("orphaned thread turn should persist to Rollout");
 
-    let mut running_record: crate::threads::session::AgentTurnRecord =
+    let mut running_record: crate::threads::turn::AgentTurnRecord =
         serde_json::from_value(native_agent_turn_record(
             &serde_json::json!({
                 "turnId": "turn-orphaned",
@@ -187,7 +187,7 @@ fn startup_reconciles_orphaned_turn_and_preserves_waiting_checkpoint() {
     thread_log
         .start_turn(running_record, None, Vec::new())
         .expect("running recovery record should persist");
-    let waiting_record: crate::threads::session::AgentTurnRecord =
+    let waiting_record: crate::threads::turn::AgentTurnRecord =
         serde_json::from_value(native_agent_turn_record(
             &serde_json::json!({
                 "turnId": "turn-waiting",
@@ -233,7 +233,7 @@ fn startup_reconciles_orphaned_turn_and_preserves_waiting_checkpoint() {
         .expect("orphaned turn should exist");
     assert_eq!(
         recovered.status,
-        crate::threads::session::AgentTurnStatus::Interrupted
+        crate::threads::turn::AgentTurnStatus::Interrupted
     );
     assert_eq!(recovered.phase, "interrupted");
     assert_eq!(recovered.stop_reason.as_deref(), Some("runtime_restarted"));
@@ -250,7 +250,7 @@ fn startup_reconciles_orphaned_turn_and_preserves_waiting_checkpoint() {
         .expect("waiting turn should exist");
     assert_eq!(
         waiting.status,
-        crate::threads::session::AgentTurnStatus::Waiting
+        crate::threads::turn::AgentTurnStatus::Waiting
     );
     assert!(waiting.checkpoint.is_some());
     let (threads, items) = thread_log
@@ -681,7 +681,7 @@ fn native_request_router_keeps_builtin_skills_root_separate_from_workspace_root(
 }
 
 #[test]
-fn native_request_router_ignores_corrupt_session_store() {
+fn native_request_router_ignores_removed_session_store() {
     let fixture = WorkspaceFixture::new();
     fixture.write("sessions/store.json", "{not valid json");
     let mut router = native_request_router(fixture.root.clone(), serde_json::json!({}));
@@ -689,15 +689,19 @@ fn native_request_router_ignores_corrupt_session_store() {
     let response = router.dispatch(&WorkerRequest::new(
         "req-sessions",
         "trace-sessions",
-        "session.list_metadata",
+        "thread.list",
         serde_json::json!({}),
     ));
 
     assert_eq!(response.error, None);
     assert_eq!(
-        response.result,
-        Some(serde_json::json!([])),
-        "corrupt session stores should not block native worker startup"
+        response
+            .result
+            .as_ref()
+            .and_then(|result| result["threads"].as_array())
+            .map(Vec::len),
+        Some(0),
+        "removed session stores should not affect canonical thread reads"
     );
 }
 

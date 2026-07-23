@@ -41,7 +41,7 @@ pub(crate) fn reject_native_agent_terminal_turn_reentry(
             format!("{}:terminal-check", trace_context.request_id),
             trace_context.trace_id.clone(),
             "thread.turn.list",
-            serde_json::json!({ "session_id": session_id }),
+            serde_json::json!({ "threadId": session_id }),
         ),
         "native agent terminal turn check",
         "read",
@@ -291,15 +291,15 @@ pub(crate) fn persist_native_agent_turn_terminal_if_present(
         "completed" => (
             "thread.turn.mark_completed",
             serde_json::json!({
-                "session_id": session_id,
-                "turn_id": turn_id,
-                "stop_reason": stop_reason,
-                "final_content": result
+                "threadId": session_id,
+                "turnId": turn_id,
+                "stopReason": stop_reason,
+                "finalContent": result
                     .get("finalContent")
                     .or_else(|| result.get("final_content"))
                     .cloned()
                     .unwrap_or(serde_json::Value::Null),
-                "context_checkpoint": result
+                "contextCheckpoint": result
                     .get("contextCheckpoint")
                     .or_else(|| result.get("context_checkpoint"))
                     .cloned()
@@ -309,9 +309,9 @@ pub(crate) fn persist_native_agent_turn_terminal_if_present(
         "failed" => (
             "thread.turn.mark_failed",
             serde_json::json!({
-                "session_id": session_id,
-                "turn_id": turn_id,
-                "stop_reason": stop_reason,
+                "threadId": session_id,
+                "turnId": turn_id,
+                "stopReason": stop_reason,
                 "error": result
                     .get("error")
                     .filter(|value| !value.is_null())
@@ -320,7 +320,7 @@ pub(crate) fn persist_native_agent_turn_terminal_if_present(
                         "code": stop_reason,
                         "message": format!("agent turn stopped: {stop_reason}"),
                     })),
-                "context_checkpoint": result
+                "contextCheckpoint": result
                     .get("contextCheckpoint")
                     .or_else(|| result.get("context_checkpoint"))
                     .cloned()
@@ -330,15 +330,15 @@ pub(crate) fn persist_native_agent_turn_terminal_if_present(
         "cancelled" => (
             "thread.turn.mark_cancelled",
             serde_json::json!({
-                "session_id": session_id,
-                "turn_id": turn_id,
+                "threadId": session_id,
+                "turnId": turn_id,
             }),
         ),
         "interrupted" => (
             "thread.turn.mark_interrupted",
             serde_json::json!({
-                "session_id": session_id,
-                "turn_id": turn_id,
+                "threadId": session_id,
+                "turnId": turn_id,
                 "reason": result
                     .get("error")
                     .and_then(serde_json::Value::as_str)
@@ -454,6 +454,12 @@ pub(crate) fn persist_native_agent_checkpoint_if_present(
     };
     let session_id = native_agent_rollout_id(result)
         .ok_or_else(|| "Rust agent checkpoint missing session id".to_string())?;
+    let turn_id = checkpoint
+        .get("turnId")
+        .or_else(|| checkpoint.get("turn_id"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "Rust agent checkpoint missing turn id".to_string())?;
     let trace_context = agent_trace_context_from_value(result);
     call_traced_state_service(
         workspace_root,
@@ -463,9 +469,10 @@ pub(crate) fn persist_native_agent_checkpoint_if_present(
         WorkerRequest::new(
             format!("{}:checkpoint-write", trace_context.request_id),
             trace_context.trace_id.clone(),
-            "session.set_checkpoint",
+            "thread.turn.set_checkpoint",
             serde_json::json!({
-                "session_id": session_id,
+                "threadId": session_id,
+                "turnId": turn_id,
                 "checkpoint": checkpoint,
             }),
         ),
@@ -515,8 +522,8 @@ fn restore_native_agent_checkpoint_from_session_store(
         WorkerRequest::new(
             request_id.id("session-get-native-checkpoint"),
             request_id.trace_id("session-get-native-checkpoint"),
-            "session.get_checkpoint",
-            serde_json::json!({ "session_id": session_id.clone() }),
+            "thread.latest_checkpoint",
+            serde_json::json!({ "threadId": session_id.clone() }),
         ),
         "native agent checkpoint restore",
     )?;

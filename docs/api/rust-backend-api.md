@@ -1164,11 +1164,14 @@ Key response shapes used by the lower-level session RPC:
 }
 ```
 
-## Session and Thread Persistence
+## Thread and Turn Persistence
 
-Tinybot keeps the existing `session.*`, `thread.*`, and `thread.turn.*` response shapes for frontend
-compatibility, but all conversation and runtime state has one persistence authority: typed,
-append-only Rollout files under `.tinybot/threads/YYYY/MM/DD/thread-*.jsonl`.
+The Rust persistence RPC exposes only `thread.*` and `thread.turn.*`. The removed `session.*`
+namespace is not routed or accepted. Desktop `worker_session_*` Tauri commands remain UI adapters:
+they resolve a UI session key to a canonical Thread ID and call the Thread/Turn RPCs, but they are
+not a second persistence interface. All conversation and runtime state has one persistence
+authority: typed, append-only Rollout files under
+`.tinybot/threads/YYYY/MM/DD/thread-*.jsonl`.
 `.tinybot/state/state.sqlite` is only a rebuildable discovery and metadata index. Deleting the
 index and restarting rebuilds it from Rollouts; it is never a second conversation authority.
 
@@ -1185,7 +1188,7 @@ Turn writes follow Codex-style ordering: one start batch contains `turn_started`
 the materialized system/developer prompt when it changed, and the user message. Later batches append
 typed message/tool/reasoning records, per-provider-call `token_count`, resumable checkpoints, and one
 `turn_complete` or `turn_aborted`. Compaction, metadata changes, rollback, fork, archive, and
-subagent communication use the same Rollout authority. UI thread snapshots, session history, model
+subagent communication use the same Rollout authority. UI thread snapshots, thread history, model
 context, AgentTurn records, and active checkpoints are reconstructed projections of that file.
 Canonical append or reconstruction errors fail the operation instead of falling back to an old
 store.
@@ -1223,16 +1226,18 @@ Persistence verification and repair are lower-level Worker RPC methods:
 | --- | --- | --- |
 | `thread.persistence.check` | `{}` | Compare canonical Rollouts, their heads, reconstructed records/checkpoints, and `state.sqlite`. |
 | `thread.persistence.repair` | `{ mode: "migrate_legacy_projection" | "rebuild_projection" }` | Compatibility mode names; both rebuild `state.sqlite` from canonical Rollouts and never import a removed store. |
-| `session.persistence.check` | `{}` | Alias of the same canonical Rollout/index consistency check. |
-| `session.persistence.repair` | `{ mode: "rebuild_index" }` | Rebuild `state.sqlite` from canonical Rollouts. |
 
 Normal reads never run these repairs. `clean`, `legacy_projection`/`missing_index`, `diverged`, and
 `unreadable` are observable states; writes fail while their authority is not clean.
 
-`session.get_history` returns frontend-compatible messages. When a thread has token usage, the
+`thread.history` returns the persisted message projection and `thread.context` returns the model
+context projection. When a thread has token usage, the
 backend derives the message `usage` field from the latest persisted `token_count` event. A malformed
 thread log line, malformed `token_count` event, or malformed compaction payload is treated as a
 backend error instead of being silently ignored.
+
+`thread.resolve` accepts `{ identity }` and resolves an exact Thread ID or UI session key through
+the rebuildable state index. It does not scan or mutate Rollouts.
 
 ## Thread Commands
 
@@ -2032,11 +2037,11 @@ post-final work, and terminal-state regressions are rejected;
 lower item revisions are ignored with a diagnostic. Raw events remain available for traces but are
 not a second Chat state source.
 
-`session.task_progress.upsert` requires a non-empty `turnId` plus the same complete `steps` snapshot,
-and persists the resulting `plan_progress` item under `_agent_item` in its compatibility progress
-message. Counter-only payloads are rejected; provided counters and current-step values must match
-the backend-derived values. `session.append_messages` likewise requires `turn_id` and writes that
-identity into every persisted message. User
+`thread.task_progress.upsert` requires non-empty `threadId` and `turnId` values plus the same
+complete `steps` snapshot, and persists the resulting `plan_progress` item under `_agent_item`.
+Counter-only payloads are rejected; provided counters and current-step values must match the
+backend-derived values. `thread.append_messages` likewise requires `threadId` and `turnId` and
+writes the Turn identity into every persisted message. User
 message content parts of type `file`, `input_file`,
 `image_url`, or `input_image` emit one `agent.file.reference` event per reference; image references
 use `referenceKind: "image"` and file references use `referenceKind: "file"`.

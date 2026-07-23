@@ -1028,7 +1028,7 @@ fn validate_tinyos_followup_turn_state(
             request_id.id("tinyos-followup-turn-list"),
             request_id.trace_id("tinyos-followup-turn-list"),
             "thread.turn.list",
-            serde_json::json!({ "session_id": session_id }),
+            serde_json::json!({ "threadId": session_id }),
         ),
         "TinyOS follow-up turn lookup",
     )?;
@@ -1075,7 +1075,7 @@ fn validate_tinyos_retry_source(
             request_id.id("tinyos-retry-turn-list"),
             request_id.trace_id("tinyos-retry-turn-list"),
             "thread.turn.list",
-            serde_json::json!({ "session_id": session_id }),
+            serde_json::json!({ "threadId": session_id }),
         ),
         "TinyOS retry turn lookup",
     )?;
@@ -1112,8 +1112,8 @@ fn validate_tinyos_retry_source(
             request_id.trace_id("tinyos-retry-runtime-state"),
             "thread.turn.runtime_state",
             serde_json::json!({
-                "session_id": session_id,
-                "turn_id": source_turn_id,
+                "threadId": session_id,
+                "turnId": source_turn_id,
             }),
         ),
         "TinyOS retry source item lookup",
@@ -1165,7 +1165,7 @@ fn ensure_no_active_agent_turn(
             request_id.id("tinyos-host-active-turns"),
             request_id.trace_id("tinyos-host-active-turns"),
             "thread.turn.list",
-            serde_json::json!({ "session_id": session_id }),
+            serde_json::json!({ "threadId": session_id }),
         ),
         "TinyOS host operation active-turn validation",
     )?;
@@ -1330,8 +1330,8 @@ fn persist_tinyos_command_acknowledgement(
             request_id.trace_id("tinyos-command-acknowledge"),
             "thread.turn.append_semantic_batch",
             serde_json::json!({
-                "session_id": session_id,
-                "turn_id": turn_id,
+                "threadId": session_id,
+                "turnId": turn_id,
                 "events": [{
                     "eventId": format!("{turn_id}:command-ack:{command_id}"),
                     "itemId": format!("{turn_id}:command-ack:{command_id}"),

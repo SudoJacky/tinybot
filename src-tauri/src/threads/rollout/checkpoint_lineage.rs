@@ -170,40 +170,6 @@ pub(crate) fn validate_context_checkpoint_successor(
     )
 }
 
-pub(crate) fn validate_context_checkpoint_revision(
-    current_checkpoint: Option<&Value>,
-    candidate: &Value,
-) -> Result<(), ContextCheckpointLineageError> {
-    let candidate_context_id = string_field(candidate, "contextId");
-    if candidate_context_id.is_none() {
-        return Ok(());
-    }
-    let current_context_id =
-        current_checkpoint.and_then(|checkpoint| string_field(checkpoint, "contextId"));
-    compare_optional_string(
-        "contextId",
-        current_context_id.as_deref(),
-        candidate_context_id.as_deref(),
-    )?;
-    for (camel, snake) in [
-        (SOURCE_CONTEXT_ID, "source_context_id"),
-        (WINDOW_NUMBER, "window_number"),
-        (FIRST_WINDOW_ID, "first_window_id"),
-        (PREVIOUS_WINDOW_ID, "previous_window_id"),
-        (WINDOW_ID, "window_id"),
-    ] {
-        let expected = current_checkpoint
-            .and_then(|checkpoint| aliased_value(checkpoint, camel, snake))
-            .cloned()
-            .unwrap_or(Value::Null);
-        let actual = aliased_value(candidate, camel, snake)
-            .cloned()
-            .unwrap_or(Value::Null);
-        compare_value(camel, expected, actual)?;
-    }
-    Ok(())
-}
-
 fn initial_context_window_id(session_id: &str) -> String {
     format!("{session_id}:context-window:0")
 }

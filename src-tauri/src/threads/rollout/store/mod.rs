@@ -1,4 +1,5 @@
 mod compression;
+mod projection;
 mod reader;
 mod reconstruction;
 mod recorder;
@@ -6,19 +7,17 @@ mod rollout_writer;
 mod state_db;
 mod turn;
 
+pub use self::projection::ThreadHistoryProjection;
 pub(crate) use self::turn::is_turn_semantic_event;
 
+use self::projection::{thread_agent_context_from_replay, thread_history_from_replay};
 use crate::protocol::capability::{CapabilityPolicy, WorkerCapability};
 use crate::protocol::{WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource};
 use crate::threads::domain::{
     turn_summaries_from_items, ThreadCheckpoint, ThreadItem, ThreadItemKind, ThreadMetadata,
     ThreadPagination, ThreadRecord, ThreadSnapshot, ThreadStatus, ThreadTurnSummary,
 };
-use crate::threads::session::{
-    agent_context_from_replay, metadata_from_state, session_history_from_replay, AgentTurnRecord,
-    AgentTurnStatus, ClearSessionResult, DeleteSessionResult, PersistTurnResult,
-    SessionHistoryProjection, SessionMetadata, TrimSessionResult,
-};
+use crate::threads::turn::{AgentTurnRecord, AgentTurnStatus};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -48,8 +47,6 @@ pub use crate::threads::rollout::format::{
     RolloutLine as ThreadLogLine, RolloutReconstruction as ThreadReplay, SessionMeta as ThreadMeta,
     ThreadStateRecord,
 };
-#[cfg(test)]
-pub use crate::threads::rollout::format::{TokenUsage, TokenUsageInfo};
 pub(crate) use crate::threads::time::now_thread_timestamp;
 pub const THREAD_LOG_SCHEMA_VERSION: u32 = crate::threads::rollout::format::ROLLOUT_SCHEMA_VERSION;
 
@@ -84,7 +81,7 @@ pub struct AgentTurnRecoveryReport {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContextCheckpointCommitResult {
-    pub session_id: String,
+    pub thread_id: String,
     pub context_id: String,
     pub committed: bool,
     pub duplicate: bool,
@@ -100,6 +97,16 @@ pub struct ThreadRollbackResult {
     pub num_turns: u32,
     pub remaining_message_count: usize,
     pub context_checkpoint_retained: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadClearResult {
+    pub thread_id: String,
+    pub messages_before: usize,
+    pub messages_after: usize,
+    pub checkpoint_cleared: bool,
+    pub thread: ThreadRecord,
 }
 
 struct DerivedIndexSyncResult {
@@ -148,12 +155,6 @@ pub struct ThreadLogIndexConsistencyReport {
 #[serde(rename_all = "snake_case")]
 pub enum ThreadLogIndexRepairMode {
     RebuildIndex,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ThreadLogIndexRepairRequest {
-    pub mode: ThreadLogIndexRepairMode,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -594,20 +595,20 @@ impl WorkerThreadLogRpc {
 
     pub fn append_turn_context(
         &self,
-        session_id: &str,
+        thread_id: &str,
         context: crate::threads::rollout::format::TurnContextItem,
     ) -> Result<(), WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         self.ensure_state_index()?;
         let timestamp = now_thread_timestamp();
-        let record = self.ensure_session_record(session_id, &timestamp)?;
+        let record = self.require_thread_record(thread_id)?;
         let path = PathBuf::from(&record.thread_path);
         self.recorder.validate_thread_path(&path)?;
         let turn_id = context.turn_id.clone();
         if turn_id.trim().is_empty() {
             return Err(thread_log_consistency_error(
                 "turn context turnId must not be empty",
-                serde_json::json!({ "sessionId": session_id }),
+                serde_json::json!({ "threadId": thread_id }),
             ));
         }
         let mut items = Vec::with_capacity(2);
@@ -801,74 +802,45 @@ impl WorkerThreadLogRpc {
         })
     }
 
-    #[cfg(test)]
-    pub(crate) fn fail_next_state_index_upserts(&self, count: usize) {
-        self.state.fail_next_upserts(count);
-    }
-
-    pub fn list_session_metadata(&self) -> Result<Vec<SessionMetadata>, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionMetadataRead)?;
-        self.ensure_state_index()?;
-        self.state
-            .list_threads()
-            .map(|records| records.into_iter().map(metadata_from_state).collect())
-    }
-
-    pub fn get_session_metadata(
+    pub fn get_thread_history(
         &self,
-        session_id: &str,
-    ) -> Result<Option<SessionMetadata>, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionMetadataRead)?;
-        self.ensure_state_index()?;
-        let Some(record) = self.find_live_record(session_id)? else {
-            return Ok(None);
-        };
-        let path = PathBuf::from(&record.thread_path);
-        Ok(Some(self.session_metadata_from_rollout(record, &path)?))
-    }
-
-    pub fn get_session_metadata_for_write_response(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<SessionMetadata>, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionWrite)?;
-        self.ensure_state_index()?;
-        let Some(record) = self.find_live_record(session_id)? else {
-            return Ok(None);
-        };
-        let path = PathBuf::from(&record.thread_path);
-        Ok(Some(self.session_metadata_from_rollout(record, &path)?))
-    }
-
-    pub fn get_session_history(
-        &self,
-        session_id: &str,
+        thread_id: &str,
         limit: usize,
-    ) -> Result<Option<SessionHistoryProjection>, WorkerProtocolError> {
+    ) -> Result<Option<ThreadHistoryProjection>, WorkerProtocolError> {
         self.require(WorkerCapability::SessionMetadataRead)?;
         self.ensure_state_index()?;
-        let Some(record) = self.find_live_record(session_id)? else {
+        let Some(record) = self.find_live_record(thread_id)? else {
             return Ok(None);
         };
         let path = PathBuf::from(&record.thread_path);
         self.recorder.validate_thread_path(&path)?;
         let reconstructed = self.reconstruct_cached(&path)?;
-        Ok(Some(session_history_from_replay(
+        Ok(Some(thread_history_from_replay(
+            &record.id,
             reconstructed.transcript,
             limit,
         )))
     }
 
-    pub fn get_agent_context(
+    pub fn resolve_thread_id(&self, identity: &str) -> Result<String, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionMetadataRead)?;
+        self.ensure_state_index()?;
+        self.state
+            .find_by_session_or_thread_id(identity)?
+            .map(|record| record.id)
+            .ok_or_else(|| thread_mutation_error("thread not found", identity))
+    }
+
+    pub fn get_thread_context(
         &self,
-        session_id: &str,
+        thread_id: &str,
         limit: usize,
-    ) -> Result<Option<SessionHistoryProjection>, WorkerProtocolError> {
+    ) -> Result<Option<ThreadHistoryProjection>, WorkerProtocolError> {
         self.require(WorkerCapability::SessionMetadataRead)?;
         if !self.state.path().exists() {
             self.ensure_state_index()?;
         }
-        let Some(record) = self.find_live_record(session_id)? else {
+        let Some(record) = self.find_live_record(thread_id)? else {
             return Ok(None);
         };
         let path = PathBuf::from(&record.thread_path);
@@ -878,7 +850,7 @@ impl WorkerThreadLogRpc {
                 "thread_state_index_targeted_rebuild thread_id={} reason={} details={}",
                 record.id, error.message, error.details
             );
-            return self.get_agent_context_from_canonical_rollout(&path, limit);
+            return self.get_thread_context_from_canonical_rollout(&path, limit);
         }
         let lines = read_thread_lines(&path)?;
         if let Err(error) = self.ensure_thread_log_head_current(&record, &path) {
@@ -886,16 +858,16 @@ impl WorkerThreadLogRpc {
                 "thread_state_index_targeted_rebuild thread_id={} reason={} details={}",
                 record.id, error.message, error.details
             );
-            return self.get_agent_context_from_canonical_rollout(&path, limit);
+            return self.get_thread_context_from_canonical_rollout(&path, limit);
         }
-        let latest_checkpoint = match self.state.latest_context_checkpoint(session_id) {
+        let latest_checkpoint = match self.state.latest_context_checkpoint(&record.id) {
             Ok(checkpoint) => checkpoint,
             Err(error) => {
                 eprintln!(
                     "thread_state_index_targeted_rebuild thread_id={} reason={} details={}",
                     record.id, error.message, error.details
                 );
-                return self.get_agent_context_from_canonical_rollout(&path, limit);
+                return self.get_thread_context_from_canonical_rollout(&path, limit);
             }
         };
         let replay = match replay_agent_context_from_checkpoint(&lines, latest_checkpoint.as_ref())
@@ -906,17 +878,19 @@ impl WorkerThreadLogRpc {
                     "thread_state_index_targeted_rebuild thread_id={} reason={} details={}",
                     record.id, error.message, error.details
                 );
-                return self.get_agent_context_from_canonical_rollout(&path, limit);
+                return self.get_thread_context_from_canonical_rollout(&path, limit);
             }
         };
-        Ok(Some(agent_context_from_replay(replay, limit)))
+        Ok(Some(thread_agent_context_from_replay(
+            &record.id, replay, limit,
+        )))
     }
 
-    fn get_agent_context_from_canonical_rollout(
+    fn get_thread_context_from_canonical_rollout(
         &self,
         path: &Path,
         limit: usize,
-    ) -> Result<Option<SessionHistoryProjection>, WorkerProtocolError> {
+    ) -> Result<Option<ThreadHistoryProjection>, WorkerProtocolError> {
         let canonical = self.canonical_thread_state(path)?;
         let lines = read_thread_lines(path)?;
         let replay =
@@ -935,7 +909,11 @@ impl WorkerThreadLogRpc {
                 canonical.record.id, error.message
             );
         }
-        Ok(Some(agent_context_from_replay(replay, limit)))
+        Ok(Some(thread_agent_context_from_replay(
+            &canonical.record.id,
+            replay,
+            limit,
+        )))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1293,7 +1271,7 @@ impl WorkerThreadLogRpc {
             return Ok(());
         }
         Err(thread_log_consistency_error(
-            "thread log file version does not match the SQLite state index; turn session.persistence.repair explicitly",
+            "thread log file version does not match the SQLite state index; run thread.persistence.repair explicitly",
             serde_json::json!({
                 "threadId": record.id,
                 "threadPath": record.thread_path,
@@ -1326,50 +1304,12 @@ impl WorkerThreadLogRpc {
         Ok(record)
     }
 
-    fn ensure_session_record(
+    fn require_thread_record(
         &self,
-        session_id: &str,
-        timestamp: &str,
+        thread_id: &str,
     ) -> Result<ThreadStateRecord, WorkerProtocolError> {
-        if let Some(record) = self.state.find_by_session_or_thread_id(session_id)? {
-            return Ok(record);
-        }
-        let thread_id = thread_id_for_session_id(session_id);
-        let meta = ThreadMeta {
-            schema_version: THREAD_LOG_SCHEMA_VERSION,
-            thread_id: thread_id.clone(),
-            session_id: Some(session_id.to_string()),
-            created_at: timestamp.to_string(),
-            cwd: String::new(),
-            source: "desktop".to_string(),
-            model_provider: None,
-            model: None,
-            base_instructions: None,
-            history_mode: Some("default".to_string()),
-            forked_from_thread_id: None,
-            parent_thread_id: None,
-            originator: Some("Tinybot Desktop".to_string()),
-        };
-        let path = self.recorder.create_thread(meta)?;
-        let record = ThreadStateRecord {
-            id: thread_id,
-            session_id: Some(session_id.to_string()),
-            thread_path: path.display().to_string(),
-            created_at: timestamp.to_string(),
-            updated_at: timestamp.to_string(),
-            source: "desktop".to_string(),
-            title: "New session".to_string(),
-            preview: String::new(),
-            cwd: String::new(),
-            model_provider: None,
-            model: None,
-            tokens_used: 0,
-            archived: false,
-            archived_at: None,
-        };
-        let log_head = self.recorder.thread_log_head(&path)?;
-        self.state.upsert_thread_projection(&record, &log_head)?;
-        Ok(record)
+        self.find_live_record(thread_id)?
+            .ok_or_else(|| thread_mutation_error("thread not found", thread_id))
     }
 
     fn canonical_thread_states(&self) -> Result<Vec<CanonicalThreadState>, WorkerProtocolError> {
@@ -1464,7 +1404,7 @@ impl WorkerThreadLogRpc {
             .map(|settings| settings.model.clone())
             .filter(|model| !model.trim().is_empty())
             .or(meta.model);
-        let title = if is_default_session_title(&replay.title) {
+        let title = if is_default_thread_title(&replay.title) {
             title_from_messages(&replay.messages).unwrap_or(replay.title)
         } else {
             replay.title
@@ -1537,7 +1477,7 @@ impl WorkerThreadLogRpc {
             .map(|settings| settings.model.clone())
             .filter(|model| !model.trim().is_empty())
             .or(meta.model);
-        let title = if is_default_session_title(&replay.title) {
+        let title = if is_default_thread_title(&replay.title) {
             title_from_messages(&replay.messages).unwrap_or(replay.title)
         } else {
             replay.title
@@ -1705,7 +1645,7 @@ impl WorkerThreadLogRpc {
 
     pub fn commit_context_checkpoint(
         &self,
-        session_id: &str,
+        thread_id: &str,
         turn_id: &str,
         mut checkpoint: Value,
     ) -> Result<ContextCheckpointCommitResult, WorkerProtocolError> {
@@ -1730,7 +1670,7 @@ impl WorkerThreadLogRpc {
                     format!("failed to acquire cross-process context checkpoint lock: {error}"),
                     serde_json::json!({
                         "turnId": turn_id,
-                        "sessionId": session_id,
+                        "threadId": thread_id,
                     }),
                     true,
                     WorkerProtocolErrorSource::RustCore,
@@ -1768,11 +1708,11 @@ impl WorkerThreadLogRpc {
         checkpoint["preserveTranscript"] = Value::Bool(true);
 
         let timestamp = now_thread_timestamp();
-        let mut record = self.ensure_session_record(session_id, &timestamp)?;
+        let mut record = self.require_thread_record(thread_id)?;
         let thread_path = PathBuf::from(record.thread_path.clone());
         self.recorder.validate_thread_path(&thread_path)?;
         let lines = read_thread_lines(&thread_path)?;
-        let latest_checkpoint = self.state.latest_context_checkpoint(session_id)?;
+        let latest_checkpoint = self.state.latest_context_checkpoint(thread_id)?;
         let current_checkpoint = latest_checkpoint
             .as_ref()
             .map(|record| {
@@ -1810,7 +1750,7 @@ impl WorkerThreadLogRpc {
                 ));
             }
             return Ok(ContextCheckpointCommitResult {
-                session_id: session_id.to_string(),
+                thread_id: record.id,
                 context_id,
                 committed: false,
                 duplicate: true,
@@ -1849,13 +1789,13 @@ impl WorkerThreadLogRpc {
                 .map(|_| checkpoint)
         });
         crate::threads::rollout::checkpoint_lineage::validate_context_checkpoint_successor(
-            session_id,
+            thread_id,
             current_checkpoint,
             &checkpoint,
         )
         .map_err(|error| stale_context_checkpoint_error(turn_id, &context_id, error))?;
 
-        let derived_title = is_default_session_title(&record.title)
+        let derived_title = is_default_thread_title(&record.title)
             .then(|| title_from_messages(&replacement_history))
             .flatten();
         let mut items = vec![ThreadLogItem::Compacted(typed_compacted_item(
@@ -1891,7 +1831,7 @@ impl WorkerThreadLogRpc {
         let index =
             self.synchronize_derived_index_after_checkpoint(&record, &checkpoint_record, &log_head);
         Ok(ContextCheckpointCommitResult {
-            session_id: session_id.to_string(),
+            thread_id: record.id,
             context_id,
             committed: true,
             duplicate: false,
@@ -1944,22 +1884,24 @@ impl WorkerThreadLogRpc {
         }
     }
 
-    pub fn append_session_messages(
+    pub fn append_thread_messages(
         &self,
-        session_id: &str,
+        thread_id: &str,
         turn_id: &str,
         messages: Vec<Value>,
-    ) -> Result<SessionMetadata, WorkerProtocolError> {
+    ) -> Result<ThreadRecord, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         if turn_id.trim().is_empty() {
-            return Err(session_mutation_error(
-                "session message append requires a non-empty turn id",
-                session_id,
+            return Err(thread_mutation_error(
+                "thread message append requires a non-empty turn id",
+                thread_id,
             ));
         }
         self.ensure_state_index()?;
         let timestamp = now_thread_timestamp();
-        let mut record = self.ensure_session_record(session_id, &timestamp)?;
+        let Some(mut record) = self.find_live_record(thread_id)? else {
+            return Err(thread_mutation_error("thread not found", thread_id));
+        };
         let path = PathBuf::from(record.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
         let replay =
@@ -1968,13 +1910,13 @@ impl WorkerThreadLogRpc {
         let saved_messages = saved_messages
             .into_iter()
             .map(|mut message| {
-                insert_required_turn_id(&mut message, turn_id, "append session messages")?;
+                insert_required_turn_id(&mut message, turn_id, "append thread messages")?;
                 Ok(message)
             })
             .collect::<Result<Vec<_>, WorkerProtocolError>>()?;
         let mut next_messages = replay.messages;
         next_messages.extend(saved_messages.iter().cloned());
-        let derived_title = is_default_session_title(&record.title)
+        let derived_title = is_default_thread_title(&record.title)
             .then(|| title_from_messages(&next_messages))
             .flatten();
         let mut items = Vec::with_capacity(saved_messages.len() + 3);
@@ -1990,7 +1932,7 @@ impl WorkerThreadLogRpc {
             saved_messages
                 .into_iter()
                 .map(|message| {
-                    typed_response_item(message, "append session messages")
+                    typed_response_item(message, "append thread messages")
                         .map(ThreadLogItem::ResponseItem)
                 })
                 .collect::<Result<Vec<_>, _>>()?,
@@ -2021,117 +1963,25 @@ impl WorkerThreadLogRpc {
             let log_head = self.recorder.thread_log_head(&path)?;
             self.state.upsert_thread_projection(&record, &log_head)?;
         }
-        self.session_metadata_with_history(record, &path, next_messages)
+        self.latest_persisted_thread_record(&path)
     }
 
-    pub fn trim_session(
+    pub fn upsert_thread_task_progress(
         &self,
-        session_id: &str,
-        keep_recent_messages: usize,
-    ) -> Result<TrimSessionResult, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionWrite)?;
-        self.ensure_state_index()?;
-        let timestamp = now_thread_timestamp();
-        let mut record = self.ensure_session_record(session_id, &timestamp)?;
-        let path = PathBuf::from(record.thread_path.clone());
-        self.recorder.validate_thread_path(&path)?;
-        let replay =
-            reconstruction::reconstruct_canonical_rollout(&read_thread_lines(&path)?)?.semantic;
-        let messages_before = replay.messages.len();
-        let retained = recent_legal_message_suffix(&replay.messages, keep_recent_messages);
-        let messages_after = retained.len();
-        self.recorder.append_item(
-            &path,
-            timestamp.clone(),
-            value_event(
-                EventKind::SessionTrimmed,
-                serde_json::json!({
-                    "keepRecentMessages": keep_recent_messages,
-                    "messages": retained.clone(),
-                }),
-            ),
-        )?;
-        record.updated_at = timestamp;
-        record.preview = preview_from_messages(&retained);
-        if retained.is_empty() {
-            record.tokens_used = 0;
-        }
-        let log_head = self.recorder.thread_log_head(&path)?;
-        self.state.upsert_thread_projection(&record, &log_head)?;
-        let session = self.session_metadata_with_history(record, &path, retained)?;
-        Ok(TrimSessionResult {
-            session_id: session.session_id.clone(),
-            messages_before,
-            messages_after,
-            session,
-        })
-    }
-
-    pub fn patch_user_profile(
-        &self,
-        session_id: &str,
-        user_profile: Value,
-        metadata: Value,
-    ) -> Result<SessionMetadata, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionWrite)?;
-        let Some(user_profile) = user_profile.as_object() else {
-            return Err(session_mutation_error(
-                "session user_profile patch must be a JSON object",
-                session_id,
-            ));
-        };
-        let Some(metadata_patch) = metadata.as_object() else {
-            return Err(session_mutation_error(
-                "session profile metadata patch must be a JSON object",
-                session_id,
-            ));
-        };
-        self.ensure_state_index()?;
-        let Some(mut record) = self.state.find_by_session_or_thread_id(session_id)? else {
-            return Err(session_mutation_error(
-                "session metadata not found",
-                session_id,
-            ));
-        };
-        let timestamp = now_thread_timestamp();
-        let path = PathBuf::from(record.thread_path.clone());
-        self.recorder.validate_thread_path(&path)?;
-        let mut canonical_metadata = metadata_patch.clone();
-        canonical_metadata.insert(
-            "userProfile".to_string(),
-            Value::Object(user_profile.clone()),
-        );
-        self.recorder.append_item(
-            &path,
-            timestamp.clone(),
-            value_event(
-                EventKind::MetadataUpdated,
-                serde_json::json!({
-                    "metadata": canonical_metadata,
-                    "sessionMetadata": metadata_patch,
-                }),
-            ),
-        )?;
-        apply_metadata_patch_to_record(&mut record, metadata_patch, &timestamp);
-        let log_head = self.recorder.thread_log_head(&path)?;
-        self.state.upsert_thread_projection(&record, &log_head)?;
-        self.session_metadata_from_rollout(record, &path)
-    }
-
-    pub fn upsert_task_progress(
-        &self,
-        session_id: &str,
+        thread_id: &str,
         turn_id: &str,
         plan_id: &str,
         progress: Value,
         content: String,
-    ) -> Result<SessionMetadata, WorkerProtocolError> {
+    ) -> Result<ThreadRecord, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         let mut message = normalized_task_progress_message(plan_id, progress, content)?;
         insert_required_turn_id(&mut message, turn_id, "task progress message")?;
         self.ensure_state_index()?;
         let timestamp = now_thread_timestamp();
-        let mut record = self.ensure_session_record(session_id, &timestamp)?;
+        let Some(mut record) = self.find_live_record(thread_id)? else {
+            return Err(thread_mutation_error("thread not found", thread_id));
+        };
         let path = PathBuf::from(record.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
         let replay =
@@ -2156,280 +2006,16 @@ impl WorkerThreadLogRpc {
         record.preview = preview_from_messages(&next_messages);
         let log_head = self.recorder.thread_log_head(&path)?;
         self.state.upsert_thread_projection(&record, &log_head)?;
-        self.session_metadata_with_history(record, &path, next_messages)
+        self.latest_persisted_thread_record(&path)
     }
 
-    fn session_metadata_with_history(
-        &self,
-        record: ThreadStateRecord,
-        path: &Path,
-        messages: Vec<Value>,
-    ) -> Result<SessionMetadata, WorkerProtocolError> {
-        let mut session = self.session_metadata_from_rollout(record, path)?;
-        session.extra["messages"] = Value::Array(messages);
-        Ok(session)
-    }
-
-    pub fn persist_session_turn(
-        &self,
-        session_id: &str,
-        turn_id: &str,
-        messages: Vec<Value>,
-        context_checkpoint: Option<Value>,
-    ) -> Result<PersistTurnResult, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionWrite)?;
-        let _checkpoint_guard = if context_checkpoint.is_some() {
-            let process_guard = CONTEXT_CHECKPOINT_COMMIT_LOCK.lock().map_err(|_| {
-                WorkerProtocolError::new(
-                    WorkerProtocolErrorCode::WorkerError,
-                    "context compaction checkpoint commit lock is poisoned",
-                    serde_json::json!({ "turnId": turn_id }),
-                    false,
-                    WorkerProtocolErrorSource::RustCore,
-                )
-            })?;
-            let tinybot_root = self
-                .thread_root
-                .parent()
-                .unwrap_or(self.thread_root.as_path());
-            let file_guard = checkpoint_lock::acquire_context_checkpoint_lock(tinybot_root)
-                .map_err(|error| {
-                    WorkerProtocolError::new(
-                        WorkerProtocolErrorCode::WorkerError,
-                        format!("failed to acquire cross-process context checkpoint lock: {error}"),
-                        serde_json::json!({
-                            "turnId": turn_id,
-                            "sessionId": session_id,
-                        }),
-                        true,
-                        WorkerProtocolErrorSource::RustCore,
-                    )
-                })?;
-            Some((process_guard, file_guard))
-        } else {
-            None
-        };
-        self.ensure_state_index()?;
-        let timestamp = now_thread_timestamp();
-        let mut record = self.ensure_session_record(session_id, &timestamp)?;
-        let thread_path = PathBuf::from(record.thread_path.clone());
-        self.recorder.validate_thread_path(&thread_path)?;
-        let lines = read_thread_lines(&thread_path)?;
-        let replay = reconstruction::reconstruct_canonical_rollout(&lines)?.semantic;
-        let messages_before = replay.messages.len();
-        let (saved_messages, duplicate_message_count) =
-            filter_new_session_messages(&replay.messages, messages);
-        let saved_messages = saved_messages
-            .into_iter()
-            .map(|mut message| {
-                insert_required_turn_id(&mut message, turn_id, "persist turn")?;
-                Ok(message)
-            })
-            .collect::<Result<Vec<_>, WorkerProtocolError>>()?;
-        let turn_already_started = match thread_turn_state(&thread_path, turn_id)? {
-            ThreadTurnState::Complete if saved_messages.is_empty() => {
-                return Ok(PersistTurnResult {
-                    session_id: session_id.to_string(),
-                    messages_before,
-                    messages_after: messages_before,
-                    saved_message_count: 0,
-                    saved_messages,
-                    checkpoint_cleared: false,
-                    duplicate_message_count,
-                    truncated_tool_result_count: 0,
-                    omitted_side_effects: default_omitted_side_effects(),
-                });
-            }
-            ThreadTurnState::Complete => {
-                return Err(WorkerProtocolError::new(
-                    WorkerProtocolErrorCode::InvalidProtocol,
-                    "thread log already contains a completed turn for this turn_id with different messages",
-                    serde_json::json!({
-                        "method": "thread_log.persist_turn",
-                        "turnId": turn_id,
-                        "threadPath": thread_path.display().to_string()
-                    }),
-                    false,
-                    WorkerProtocolErrorSource::RustCore,
-                ));
-            }
-            ThreadTurnState::Incomplete => true,
-            ThreadTurnState::Missing => false,
-        };
-
-        let compacted = context_checkpoint
-            .map(|mut checkpoint| {
-                let replacement_history = checkpoint
-                    .get("replacementHistory")
-                    .and_then(Value::as_array)
-                    .ok_or_else(|| {
-                        WorkerProtocolError::new(
-                            WorkerProtocolErrorCode::InvalidProtocol,
-                            "context compaction checkpoint is missing replacementHistory",
-                            serde_json::json!({ "turnId": turn_id }),
-                            false,
-                            WorkerProtocolErrorSource::RustCore,
-                        )
-                    })?
-                    .clone();
-                insert_required_turn_id(&mut checkpoint, turn_id, "persist turn compaction")?;
-                checkpoint["preserveTranscript"] = Value::Bool(true);
-                Ok::<_, WorkerProtocolError>((checkpoint, replacement_history))
-            })
-            .transpose()?;
-        if let Some((checkpoint, _replacement_history)) = compacted.as_ref() {
-            if let Some(context_id) = checkpoint
-                .get("contextId")
-                .and_then(Value::as_str)
-                .filter(|value| !value.trim().is_empty())
-            {
-                let latest_checkpoint = self.state.latest_context_checkpoint(session_id)?;
-                let current_checkpoint = latest_checkpoint
-                    .as_ref()
-                    .map(|record| {
-                        indexed_context_checkpoint(&lines, record)
-                            .map(|(_line_number, checkpoint)| checkpoint)
-                    })
-                    .transpose()?;
-                crate::threads::rollout::checkpoint_lineage::validate_context_checkpoint_revision(
-                    current_checkpoint,
-                    checkpoint,
-                )
-                .map_err(|error| stale_context_checkpoint_error(turn_id, context_id, error))?;
-            }
-        }
-        let mut next_messages = compacted
-            .as_ref()
-            .map(|(_, replacement_history)| replacement_history.clone())
-            .unwrap_or_else(|| replay.messages.clone());
-        if compacted.is_none() {
-            next_messages.extend(saved_messages.clone());
-        }
-        let derived_title = is_default_session_title(&record.title)
-            .then(|| title_from_messages(&next_messages))
-            .flatten();
-        let persists_checkpoint = compacted.is_some();
-        let mut turn_items = Vec::with_capacity(saved_messages.len() + 3);
-        if !turn_already_started {
-            turn_items.push(value_event(
-                EventKind::TurnStarted,
-                serde_json::json!({ "turnId": turn_id }),
-            ));
-        }
-        for message in saved_messages.iter().cloned() {
-            turn_items.push(ThreadLogItem::ResponseItem(typed_response_item(
-                message,
-                "persist turn",
-            )?));
-        }
-        if let Some((checkpoint, _replacement_history)) = compacted {
-            turn_items.push(ThreadLogItem::Compacted(typed_compacted_item(
-                checkpoint,
-                "persist turn compaction",
-            )?));
-        }
-        if let Some(title) = derived_title.as_ref() {
-            turn_items.push(value_event(
-                EventKind::MetadataUpdated,
-                serde_json::json!({ "metadata": { "title": title } }),
-            ));
-        }
-        turn_items.push(value_event(
-            EventKind::TurnComplete,
-            serde_json::json!({ "turnId": turn_id }),
-        ));
-        self.recorder
-            .append_items(&thread_path, timestamp.clone(), turn_items)?;
-        let indexed_checkpoint = if persists_checkpoint {
-            let persisted_lines = read_thread_lines(&thread_path)?;
-            Some(
-                latest_context_checkpoint_from_lines(&record.id, &persisted_lines)?.ok_or_else(
-                    || {
-                        thread_log_consistency_error(
-                            "persisted context checkpoint is absent from the canonical Rollout",
-                            serde_json::json!({ "threadId": record.id, "turnId": turn_id }),
-                        )
-                    },
-                )?,
-            )
-        } else {
-            None
-        };
-        let log_head = self.recorder.thread_log_head(&thread_path)?;
-
-        let saved_message_count = saved_messages.len();
-        let messages_after = next_messages.len();
-        record.updated_at = timestamp;
-        if let Some(title) = derived_title {
-            record.title = title;
-        }
-        record.preview = preview_from_messages(&next_messages);
-        if indexed_checkpoint.is_some() {
-            record.tokens_used = 0;
-        }
-        match indexed_checkpoint.as_ref() {
-            Some(checkpoint) => {
-                self.state
-                    .replace_thread_projection(&record, Some(checkpoint), &log_head)?
-            }
-            None => self.state.upsert_thread_projection(&record, &log_head)?,
-        }
-        Ok(PersistTurnResult {
-            session_id: session_id.to_string(),
-            messages_before,
-            messages_after,
-            saved_message_count,
-            saved_messages,
-            checkpoint_cleared: false,
-            duplicate_message_count,
-            truncated_tool_result_count: 0,
-            omitted_side_effects: default_omitted_side_effects(),
-        })
-    }
-
-    #[cfg(test)]
-    pub fn append_token_count(
-        &self,
-        session_id: &str,
-        info: TokenUsageInfo,
-    ) -> Result<(), WorkerProtocolError> {
-        self.require(WorkerCapability::SessionWrite)?;
-        self.ensure_state_index()?;
-        let Some(mut record) = self.state.find_by_session_or_thread_id(session_id)? else {
-            return Ok(());
-        };
-        let timestamp = now_thread_timestamp();
-        let path = PathBuf::from(record.thread_path.clone());
-        self.recorder.validate_thread_path(&path)?;
-        self.recorder.append_item(
-            &path,
-            timestamp.clone(),
-            value_event(
-                EventKind::TokenCount,
-                serde_json::json!({
-                    "info": {
-                        "usage": info.last_token_usage.clone(),
-                        "modelContextWindow": info.model_context_window,
-                    }
-                }),
-            ),
-        )?;
-        let log_head = self.recorder.thread_log_head(&path)?;
-        record.updated_at = timestamp;
-        record.tokens_used = info.total_token_usage.total_tokens;
-        self.state.upsert_thread_projection(&record, &log_head)
-    }
-
-    pub fn clear_session(
-        &self,
-        session_id: &str,
-    ) -> Result<ClearSessionResult, WorkerProtocolError> {
+    pub fn clear_thread(&self, thread_id: &str) -> Result<ThreadClearResult, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         let _process_guard = CONTEXT_CHECKPOINT_COMMIT_LOCK.lock().map_err(|_| {
             WorkerProtocolError::new(
                 WorkerProtocolErrorCode::WorkerError,
                 "context compaction checkpoint commit lock is poisoned",
-                serde_json::json!({ "sessionId": session_id }),
+                serde_json::json!({ "threadId": thread_id }),
                 false,
                 WorkerProtocolErrorSource::RustCore,
             )
@@ -2443,14 +2029,16 @@ impl WorkerThreadLogRpc {
                 WorkerProtocolError::new(
                     WorkerProtocolErrorCode::WorkerError,
                     format!("failed to acquire cross-process context checkpoint lock: {error}"),
-                    serde_json::json!({ "sessionId": session_id }),
+                    serde_json::json!({ "threadId": thread_id }),
                     true,
                     WorkerProtocolErrorSource::RustCore,
                 )
             })?;
         self.ensure_state_index()?;
         let timestamp = now_thread_timestamp();
-        let mut record = self.ensure_session_record(session_id, &timestamp)?;
+        let Some(mut record) = self.find_live_record(thread_id)? else {
+            return Err(thread_mutation_error("thread not found", thread_id));
+        };
         let path = PathBuf::from(record.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
         let lines = read_thread_lines(&path)?;
@@ -2468,10 +2056,10 @@ impl WorkerThreadLogRpc {
             &path,
             timestamp.clone(),
             vec![
-                ThreadLogItem::Compacted(typed_compacted_item(checkpoint, "session clear")?),
+                ThreadLogItem::Compacted(typed_compacted_item(checkpoint, "thread clear")?),
                 value_event(
                     EventKind::SessionCleared,
-                    serde_json::json!({ "sessionId": session_id }),
+                    serde_json::json!({ "threadId": record.id }),
                 ),
             ],
         )?;
@@ -2492,33 +2080,13 @@ impl WorkerThreadLogRpc {
         record.tokens_used = 0;
         self.state
             .replace_thread_projection(&record, Some(&indexed_checkpoint), &log_head)?;
-        let mut session = metadata_from_state(record.clone());
-        session.extra["messages"] = serde_json::json!([]);
-        session.extra["user_profile"] = serde_json::json!({});
-        Ok(ClearSessionResult {
-            session_id: record
-                .session_id
-                .clone()
-                .unwrap_or_else(|| record.id.clone()),
+        let thread = self.latest_persisted_thread_record(&path)?;
+        Ok(ThreadClearResult {
+            thread_id: record.id,
             messages_before,
             messages_after: 0,
             checkpoint_cleared,
-            session,
-        })
-    }
-
-    pub fn delete_session(
-        &self,
-        session_id: &str,
-    ) -> Result<DeleteSessionResult, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionWrite)?;
-        let archived = self.set_thread_archived(session_id, true)?;
-        Ok(DeleteSessionResult {
-            session_id: archived
-                .as_ref()
-                .and_then(|record| record.session_id.clone())
-                .unwrap_or_else(|| session_id.to_string()),
-            deleted: archived.is_some(),
+            thread,
         })
     }
 
@@ -2635,82 +2203,6 @@ impl WorkerThreadLogRpc {
             target.display()
         );
         Ok(Some(canonical.record))
-    }
-
-    pub fn patch_metadata(
-        &self,
-        session_id: &str,
-        metadata: &Value,
-    ) -> Result<Option<SessionMetadata>, WorkerProtocolError> {
-        self.require(WorkerCapability::SessionWrite)?;
-        self.ensure_state_index()?;
-        let Some(mut record) = self.state.find_by_session_or_thread_id(session_id)? else {
-            return Ok(None);
-        };
-        let Some(patch) = metadata.as_object() else {
-            return Err(WorkerProtocolError::new(
-                WorkerProtocolErrorCode::InvalidProtocol,
-                "session metadata patch must be a JSON object",
-                serde_json::json!({ "session_id": session_id }),
-                false,
-                WorkerProtocolErrorSource::RustCore,
-            ));
-        };
-        let timestamp = now_thread_timestamp();
-        let path = PathBuf::from(record.thread_path.clone());
-        self.recorder.validate_thread_path(&path)?;
-        self.recorder.append_item(
-            &path,
-            timestamp.clone(),
-            value_event(
-                EventKind::MetadataUpdated,
-                serde_json::json!({
-                    "metadata": metadata,
-                    "sessionMetadata": metadata
-                }),
-            ),
-        )?;
-        let log_head = self.recorder.thread_log_head(&path)?;
-        apply_metadata_patch_to_record(&mut record, patch, &timestamp);
-        self.state.upsert_thread_projection(&record, &log_head)?;
-        Ok(Some(self.session_metadata_from_rollout(record, &path)?))
-    }
-
-    fn session_metadata_from_rollout(
-        &self,
-        record: ThreadStateRecord,
-        path: &Path,
-    ) -> Result<SessionMetadata, WorkerProtocolError> {
-        self.recorder.validate_thread_path(path)?;
-        let lines = read_thread_lines(path)?;
-        let replay = reconstruction::reconstruct_canonical_rollout(&lines)?.semantic;
-        let mut metadata = serde_json::Map::new();
-        for line in &lines {
-            let ThreadLogItem::EventMsg(event) = &line.item else {
-                continue;
-            };
-            if event.kind() != &EventKind::MetadataUpdated {
-                continue;
-            }
-            let Some(patch) = event
-                .payload()
-                .get("sessionMetadata")
-                .and_then(Value::as_object)
-            else {
-                continue;
-            };
-            metadata.extend(patch.clone());
-        }
-        let mut session = metadata_from_state(record);
-        session.extra["user_profile"] = if replay.user_profile.is_null() {
-            serde_json::json!({})
-        } else {
-            replay.user_profile
-        };
-        if !metadata.is_empty() {
-            session.extra["metadata"] = Value::Object(metadata);
-        }
-        Ok(session)
     }
 
     fn require(&self, capability: WorkerCapability) -> Result<(), WorkerProtocolError> {
@@ -3163,7 +2655,7 @@ fn thread_meta_from_lines(lines: &[ThreadLogLine]) -> Result<ThreadMeta, WorkerP
     Ok(meta)
 }
 
-fn is_default_session_title(title: &str) -> bool {
+fn is_default_thread_title(title: &str) -> bool {
     let title = title.trim();
     title.is_empty() || title == "New session" || title.starts_with("Desktop Session websocket:")
 }
@@ -3273,83 +2765,11 @@ fn message_array_any<'a>(message: &'a Value, keys: &[&str]) -> Option<&'a Vec<Va
         .find_map(|key| message.get(key).and_then(Value::as_array))
 }
 
-fn message_role(message: &Value) -> Option<&str> {
-    message.get("role").and_then(Value::as_str)
-}
-
-fn message_string_any(message: &Value, keys: &[&str]) -> Option<String> {
-    keys.iter().find_map(|key| message_string(message, key))
-}
-
-fn assistant_tool_call_ids(message: &Value) -> Vec<String> {
-    message_array_any(message, &["tool_calls", "toolCalls"])
-        .map(|tool_calls| {
-            tool_calls
-                .iter()
-                .filter_map(|tool_call| message_string(tool_call, "id"))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-fn find_legal_message_start(messages: &[Value]) -> usize {
-    let mut declared = Vec::new();
-    let mut start = 0;
-    for (index, message) in messages.iter().enumerate() {
-        match message_role(message) {
-            Some("assistant") => {
-                for tool_call_id in assistant_tool_call_ids(message) {
-                    if !declared.contains(&tool_call_id) {
-                        declared.push(tool_call_id);
-                    }
-                }
-            }
-            Some("tool") => {
-                let Some(tool_call_id) =
-                    message_string_any(message, &["tool_call_id", "toolCallId"])
-                else {
-                    continue;
-                };
-                if !declared.contains(&tool_call_id) {
-                    start = index + 1;
-                    declared.clear();
-                    for previous in &messages[start..=index] {
-                        if message_role(previous) == Some("assistant") {
-                            for previous_tool_call_id in assistant_tool_call_ids(previous) {
-                                if !declared.contains(&previous_tool_call_id) {
-                                    declared.push(previous_tool_call_id);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    start
-}
-
-fn recent_legal_message_suffix(messages: &[Value], keep_recent_messages: usize) -> Vec<Value> {
-    if keep_recent_messages == 0 {
-        return Vec::new();
-    }
-    if messages.len() <= keep_recent_messages {
-        return messages.to_vec();
-    }
-    let mut start = messages.len().saturating_sub(keep_recent_messages);
-    while start > 0 && message_role(&messages[start]) != Some("user") {
-        start -= 1;
-    }
-    let retained = &messages[start..];
-    retained[find_legal_message_start(retained)..].to_vec()
-}
-
-fn session_mutation_error(message: &str, session_id: &str) -> WorkerProtocolError {
+fn thread_mutation_error(message: &str, thread_id: &str) -> WorkerProtocolError {
     WorkerProtocolError::new(
         WorkerProtocolErrorCode::InvalidProtocol,
         message,
-        serde_json::json!({ "session_id": session_id }),
+        serde_json::json!({ "threadId": thread_id }),
         false,
         WorkerProtocolErrorSource::RustCore,
     )
@@ -3455,18 +2875,6 @@ fn normalized_task_progress_message(
         "_tool_name": "task",
         "_agent_item": agent_item,
     }))
-}
-
-fn default_omitted_side_effects() -> Vec<String> {
-    [
-        "conversation_evidence",
-        "memory_extraction",
-        "consolidation",
-        "user_profile_update",
-    ]
-    .into_iter()
-    .map(str::to_string)
-    .collect()
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -4769,7 +4177,7 @@ fn stale_context_checkpoint_error(
     )
 }
 
-fn thread_id_for_session_id(session_id: &str) -> String {
+pub(crate) fn thread_id_for_session_id(session_id: &str) -> String {
     if is_path_safe_id(session_id) {
         return session_id.to_string();
     }

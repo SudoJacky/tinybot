@@ -1,30 +1,23 @@
-use super::{SessionHistoryProjection, SessionMetadata};
-use crate::threads::rollout::format::{
-    RolloutReconstruction as ThreadReplay, ThreadStateRecord, TokenUsageInfo,
-};
+use crate::threads::rollout::format::{RolloutReconstruction as ThreadReplay, TokenUsageInfo};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-pub(crate) fn metadata_from_state(record: ThreadStateRecord) -> SessionMetadata {
-    SessionMetadata {
-        session_id: record.session_id.unwrap_or_else(|| record.id.clone()),
-        title: record.title,
-        workspace_dir: record.cwd,
-        created_at: record.created_at,
-        updated_at: record.updated_at,
-        extra: json!({
-            "threadId": record.id,
-            "threadPath": record.thread_path,
-            "threadSource": "thread_log",
-            "source": "thread.metadata_projection",
-            "preview": record.preview,
-            "model": record.model,
-            "provider": record.model_provider,
-            "tokensUsed": record.tokens_used
-        }),
-    }
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadHistoryProjection {
+    pub thread_id: String,
+    pub messages: Vec<Value>,
+    pub user_profile: Value,
+    pub updated_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_checkpoint: Option<Value>,
 }
 
-fn history_from_replay(replay: ThreadReplay, limit: usize) -> SessionHistoryProjection {
+fn history_from_replay(
+    thread_id: &str,
+    replay: ThreadReplay,
+    limit: usize,
+) -> ThreadHistoryProjection {
     let mut messages = replay.messages;
     if limit == 0 {
         messages.clear();
@@ -33,8 +26,8 @@ fn history_from_replay(replay: ThreadReplay, limit: usize) -> SessionHistoryProj
         messages = messages.split_off(start);
     }
     attach_usage(&mut messages, replay.token_usage_info.as_ref());
-    SessionHistoryProjection {
-        session_id: replay.session_id,
+    ThreadHistoryProjection {
+        thread_id: thread_id.to_string(),
         messages,
         user_profile: if replay.user_profile.is_null() {
             json!({})
@@ -46,18 +39,20 @@ fn history_from_replay(replay: ThreadReplay, limit: usize) -> SessionHistoryProj
     }
 }
 
-pub(crate) fn session_history_from_replay(
+pub(super) fn thread_history_from_replay(
+    thread_id: &str,
     mut replay: ThreadReplay,
     limit: usize,
-) -> SessionHistoryProjection {
-    replay.messages.retain(is_visible_session_message);
-    history_from_replay(replay, limit)
+) -> ThreadHistoryProjection {
+    replay.messages.retain(is_visible_thread_message);
+    history_from_replay(thread_id, replay, limit)
 }
 
-pub(crate) fn agent_context_from_replay(
+pub(super) fn thread_agent_context_from_replay(
+    thread_id: &str,
     mut replay: ThreadReplay,
     limit: usize,
-) -> SessionHistoryProjection {
+) -> ThreadHistoryProjection {
     replay.messages.retain(|message| {
         let is_materialized_instruction = matches!(
             message.get("role").and_then(Value::as_str),
@@ -65,10 +60,10 @@ pub(crate) fn agent_context_from_replay(
         ) && message.get("contentHash").is_some();
         !is_materialized_instruction
     });
-    history_from_replay(replay, limit)
+    history_from_replay(thread_id, replay, limit)
 }
 
-fn is_visible_session_message(message: &Value) -> bool {
+fn is_visible_thread_message(message: &Value) -> bool {
     if matches!(
         message.get("role").and_then(Value::as_str),
         Some("system" | "developer")
@@ -142,7 +137,3 @@ fn usage_from_token_usage_info(info: &TokenUsageInfo) -> Value {
         "percent": percent,
     })
 }
-
-#[cfg(test)]
-#[path = "projection_tests.rs"]
-mod tests;

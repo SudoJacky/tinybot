@@ -1,5 +1,4 @@
 use super::support::*;
-use crate::agent::bridge::native_agent_turn_record;
 use crate::agent::bridge::persist_native_agent_turn_start;
 use crate::agent::runtime::NativeAgentRuntimeServices;
 use crate::agent::runtime::NativeAgentTraceSink;
@@ -86,18 +85,17 @@ fn worker_submit_thread_turn_creates_thread_and_runs_native_agent() {
         WorkerRequest::new(
             "req-thread-submit-session-metadata",
             "trace-thread-submit-session-metadata",
-            "session.get_metadata",
-            serde_json::json!({ "session_id": thread_id }),
+            "thread.read",
+            serde_json::json!({ "threadId": thread_id }),
         ),
         "thread submit session metadata",
     )
-    .expect("agent turn session metadata should be readable");
-    assert_eq!(metadata["session_id"], thread_id);
-    let rollout_path = metadata["extra"]["threadPath"]
-        .as_str()
-        .expect("Rollout metadata should expose its journal path");
-    assert!(std::path::Path::new(rollout_path).exists());
-    assert_eq!(metadata["extra"]["threadSource"], "thread_log");
+    .expect("agent turn thread should be readable");
+    assert_eq!(metadata["thread"]["threadId"], thread_id);
+    let rollout_paths = compatibility_thread_log_paths(&fixture.root);
+    assert_eq!(rollout_paths.len(), 1, "{rollout_paths:?}");
+    let rollout_path = &rollout_paths[0];
+    assert!(rollout_path.exists());
     let rollout =
         std::fs::read_to_string(rollout_path).expect("Rollout journal should be readable");
     let rollout_items = rollout
@@ -134,8 +132,8 @@ fn worker_submit_thread_turn_creates_thread_and_runs_native_agent() {
         WorkerRequest::new(
             "req-thread-submit-rollout-history",
             "trace-thread-submit-rollout-history",
-            "session.get_history",
-            serde_json::json!({ "session_id": thread_id }),
+            "thread.history",
+            serde_json::json!({ "threadId": thread_id }),
         ),
         "thread submit Rollout history",
     )
@@ -354,14 +352,16 @@ fn thread_owned_compaction_commits_installed_checkpoint_before_finalization() {
         WorkerRequest::new(
             "req-thread-compact-rollout-metadata",
             "trace-thread-compact-rollout-metadata",
-            "session.get_metadata",
-            serde_json::json!({ "session_id": thread_id }),
+            "thread.read",
+            serde_json::json!({ "threadId": thread_id }),
         ),
         "thread compact Rollout metadata",
     )
-    .expect("thread compact Rollout metadata should be readable");
-    let rollout_path = metadata["extra"]["threadPath"].as_str().unwrap();
-    let rollout = std::fs::read_to_string(rollout_path).unwrap();
+    .expect("thread compact Rollout should be readable");
+    assert_eq!(metadata["thread"]["threadId"], thread_id);
+    let rollout_paths = compatibility_thread_log_paths(&fixture.root);
+    assert_eq!(rollout_paths.len(), 1, "{rollout_paths:?}");
+    let rollout = std::fs::read_to_string(&rollout_paths[0]).unwrap();
     let compacted = rollout
         .lines()
         .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
@@ -423,185 +423,6 @@ fn thread_owned_terminal_reentry_uses_rollout_authority_after_restart() {
     assert_eq!(retry["snapshot"]["thread"]["status"], "idle");
     let rollout_paths = compatibility_thread_log_paths(&fixture.root);
     assert_eq!(rollout_paths.len(), 1, "{rollout_paths:?}");
-}
-
-#[test]
-fn canonical_thread_reads_supersede_stale_session_and_share_rollout_writes() {
-    let fixture = WorkspaceFixture::new();
-    let config = serde_json::json!({});
-    let session_id = "canonical-thread-session";
-    let stale_record = native_agent_turn_record(
-        &serde_json::json!({
-            "runtime": "rust",
-            "turnId": "stale-session-run",
-            "sessionId": session_id,
-        }),
-        &serde_json::json!({
-            "turnId": "stale-session-run",
-            "sessionId": session_id,
-            "stopReason": "awaiting_form",
-        }),
-        &config,
-        session_id,
-        "stale-session-run",
-    );
-    call_rust_state_service(
-        fixture.root.clone(),
-        config.clone(),
-        WorkerRequest::new(
-            "seed-stale-session-run",
-            "trace-stale-session-run",
-            "thread.turn.start",
-            serde_json::json!({ "record": stale_record }),
-        ),
-        "seed stale session run",
-    )
-    .expect("stale compatibility run should seed before thread ownership exists");
-    call_rust_state_service(
-        fixture.root.clone(),
-        config.clone(),
-        WorkerRequest::new(
-            "seed-stale-session-checkpoint",
-            "trace-stale-session-checkpoint",
-            "session.set_checkpoint",
-            serde_json::json!({
-                "session_id": session_id,
-                "checkpoint": {
-                    "schemaVersion": 1,
-                    "turnId": "stale-session-run",
-                    "sessionId": session_id,
-                    "phase": "awaiting_form"
-                }
-            }),
-        ),
-        "seed stale session checkpoint",
-    )
-    .expect("stale compatibility checkpoint should seed before thread ownership exists");
-
-    call_rust_state_service(
-        fixture.root.clone(),
-        config.clone(),
-        WorkerRequest::new(
-            "create-canonical-thread",
-            "trace-canonical-thread",
-            "thread.create",
-            serde_json::json!({
-                "threadId": "canonical-thread",
-                "sessionKey": session_id,
-            }),
-        ),
-        "create canonical thread",
-    )
-    .expect("canonical thread should create");
-    call_rust_state_service(
-        fixture.root.clone(),
-        config.clone(),
-        WorkerRequest::new(
-            "start-canonical-thread-run",
-            "trace-canonical-thread",
-            "thread.start_turn",
-            serde_json::json!({
-                "threadId": "canonical-thread",
-                "turnId": "canonical-thread-run",
-                "input": { "role": "user", "content": "canonical input" },
-            }),
-        ),
-        "start canonical thread run",
-    )
-    .expect("canonical thread run should start");
-    call_rust_state_service(
-        fixture.root.clone(),
-        config.clone(),
-        WorkerRequest::new(
-            "complete-canonical-thread-run",
-            "trace-canonical-thread",
-            "thread.apply_op",
-            serde_json::json!({
-                "threadId": "canonical-thread",
-                "op": {
-                    "type": "assistant_response",
-                    "turnId": "canonical-thread-run",
-                    "content": "canonical answer",
-                    "stopReason": "final_response"
-                }
-            }),
-        ),
-        "complete canonical thread run",
-    )
-    .expect("canonical thread run should complete");
-
-    let turns = call_rust_state_service(
-        fixture.root.clone(),
-        config.clone(),
-        WorkerRequest::new(
-            "list-canonical-thread-turns",
-            "trace-canonical-thread",
-            "thread.turn.list",
-            serde_json::json!({ "session_id": session_id }),
-        ),
-        "list canonical thread turns",
-    )
-    .expect("agent turn list should read only canonical agent turn records");
-    assert!(turns["turns"].as_array().is_some_and(Vec::is_empty));
-    let checkpoint = call_rust_state_service(
-        fixture.root.clone(),
-        config.clone(),
-        WorkerRequest::new(
-            "get-canonical-thread-checkpoint",
-            "trace-canonical-thread",
-            "session.get_checkpoint",
-            serde_json::json!({ "session_id": session_id }),
-        ),
-        "get canonical thread checkpoint",
-    )
-    .expect("compatibility checkpoint read should use canonical thread");
-    assert!(checkpoint.is_null());
-
-    let compatibility_turn = call_rust_state_service(
-        fixture.root.clone(),
-        config.clone(),
-        WorkerRequest::new(
-            "reject-duplicate-session-turn",
-            "trace-canonical-thread",
-            "session.persist_turn",
-            serde_json::json!({
-                "session_id": session_id,
-                "turn_id": "duplicate-run",
-                "messages": [{ "role": "assistant", "content": "duplicate" }]
-            }),
-        ),
-        "persist compatibility session turn",
-    )
-    .expect("thread-owned session.persist_turn should append to canonical Rollout");
-    assert_eq!(compatibility_turn["saved_message_count"], 1);
-
-    let duplicate_record = native_agent_turn_record(
-        &serde_json::json!({
-            "runtime": "rust",
-            "sessionId": session_id,
-            "turnId": "duplicate-run",
-        }),
-        &serde_json::json!({
-            "sessionId": session_id,
-            "turnId": "duplicate-run",
-        }),
-        &config,
-        session_id,
-        "duplicate-run",
-    );
-    let compatibility_run = call_rust_state_service(
-        fixture.root.clone(),
-        config,
-        WorkerRequest::new(
-            "reject-duplicate-agent-turn",
-            "trace-canonical-thread",
-            "thread.turn.start",
-            serde_json::json!({ "record": duplicate_record }),
-        ),
-        "persist compatibility agent turn",
-    )
-    .expect("thread-owned thread.turn.start should append to canonical Rollout");
-    assert_eq!(compatibility_run["turnId"], "duplicate-run");
 }
 
 #[test]
@@ -696,8 +517,8 @@ fn worker_submit_thread_turn_uses_thread_id_as_rollout_id() {
             run_request.trace_id("existing-thread-agent-turn-read"),
             "thread.turn.get",
             serde_json::json!({
-                "session_id": "thread-existing-submit",
-                "turn_id": "turn-thread-submit-existing"
+                "threadId": "thread-existing-submit",
+                "turnId": "turn-thread-submit-existing"
             }),
         ),
         "existing thread agent turn read",

@@ -105,13 +105,14 @@ fn dispatches_thread_store_round_trip_requests() {
 }
 
 #[test]
-fn thread_list_does_not_merge_in_memory_session_metadata_at_request_time() {
+fn thread_list_does_not_merge_constructor_fixtures_at_request_time() {
     let fixture = WorkspaceFixture::new();
-    let mut legacy_session = session_fixture();
-    legacy_session.session_id = "session:websocket-1".to_string();
-    legacy_session.title = "Legacy Websocket Session".to_string();
-    legacy_session.updated_at = "2026-06-09T11:00:00Z".to_string();
-    legacy_session.extra = json!({
+    let mut constructor_thread = thread_fixture();
+    constructor_thread.thread_id = "session:websocket-1".to_string();
+    constructor_thread.session_key = Some("session:websocket-1".to_string());
+    constructor_thread.title = "Legacy Websocket Session".to_string();
+    constructor_thread.updated_at = "2026-06-09T11:00:00Z".to_string();
+    constructor_thread.metadata.extra = json!({
         "mode": "desktop",
         "metadata": {
             "topic": "reactbits"
@@ -132,7 +133,7 @@ fn thread_list_does_not_merge_in_memory_session_metadata_at_request_time() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![legacy_session.clone()],
+        vec![constructor_thread],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -729,15 +730,14 @@ fn thread_fork_inherits_effective_history_from_canonical_rollout() {
         let persist = router.dispatch(&WorkerRequest::new(
             format!("req-rollout-fork-{turn_id}"),
             "trace-rollout-fork",
-            "session.persist_turn",
+            "thread.append_messages",
             json!({
-                "session_id": "thread-rollout-fork-source",
-                "turn_id": turn_id,
+                "threadId": "thread-rollout-fork-source",
+                "turnId": turn_id,
                 "messages": [
                     { "role": "user", "content": format!("{content} user") },
                     { "role": "assistant", "content": format!("{content} assistant") }
-                ],
-                "clear_checkpoint": false
+                ]
             }),
         ));
         assert_eq!(persist.error, None);
@@ -795,8 +795,8 @@ fn thread_fork_inherits_effective_history_from_canonical_rollout() {
     let history = router.dispatch(&WorkerRequest::new(
         "req-rollout-fork-history",
         "trace-rollout-fork",
-        "session.get_history",
-        json!({ "session_id": fork_thread_id, "limit": 80 }),
+        "thread.history",
+        json!({ "threadId": fork_thread_id, "limit": 80 }),
     ));
     assert_eq!(history.error, None);
     let contents = history.result.as_ref().unwrap()["messages"]
@@ -811,7 +811,7 @@ fn thread_fork_inherits_effective_history_from_canonical_rollout() {
         "req-rollout-fork-turns",
         "trace-rollout-fork",
         "thread.turn.list",
-        json!({ "sessionId": fork_thread_id }),
+        json!({ "threadId": fork_thread_id }),
     ));
     assert_eq!(turns.error, None);
     assert!(turns.result.as_ref().unwrap()["turns"]
@@ -3576,7 +3576,7 @@ fn dispatches_thread_apply_op_records_terminal_error() {
         "req-thread-error-op-turn-get",
         "trace-thread-error-op",
         "thread.turn.get",
-        json!({ "session_id": "session-error-op", "turn_id": "turn-error-op-1" }),
+        json!({ "threadId": "session-error-op", "turnId": "turn-error-op-1" }),
     ));
     assert!(turn_get.result.is_none());
     assert_eq!(
@@ -4280,8 +4280,8 @@ fn dispatches_agent_turn_store_round_trip_requests() {
         "trace-agent-turn",
         "thread.turn.append_semantic_batch",
         json!({
-            "session_id": "session-1",
-            "turn_id": "turn-1",
+            "threadId": "session-1",
+            "turnId": "turn-1",
             "events": [{
                 "eventName": "agent.reasoning_delta",
                 "payload": {
@@ -4297,8 +4297,8 @@ fn dispatches_agent_turn_store_round_trip_requests() {
         "trace-agent-turn",
         "thread.turn.append_semantic_batch",
         json!({
-            "session_id": "session-1",
-            "turn_id": "turn-1",
+            "threadId": "session-1",
+            "turnId": "turn-1",
             "events": [{
                 "eventId": "invalid-reasoning",
                 "eventName": "agent.reasoning.completed",
@@ -4314,8 +4314,8 @@ fn dispatches_agent_turn_store_round_trip_requests() {
         "trace-agent-turn",
         "thread.turn.append_semantic_batch",
         json!({
-            "session_id": "session-1",
-            "turn_id": "turn-1",
+            "threadId": "session-1",
+            "turnId": "turn-1",
             "events": [{
                 "eventId": "semantic-message",
                 "eventName": "agent.message.completed",
@@ -4333,8 +4333,8 @@ fn dispatches_agent_turn_store_round_trip_requests() {
         "trace-agent-turn",
         "thread.turn.set_checkpoint",
         json!({
-            "session_id": "session-1",
-            "turn_id": "turn-1",
+            "threadId": "session-1",
+            "turnId": "turn-1",
             "checkpoint": { "sessionId": "session-1", "turnId": "turn-1", "phase": "awaiting_tool" }
         }),
     ));
@@ -4342,48 +4342,48 @@ fn dispatches_agent_turn_store_round_trip_requests() {
         "req-get-checkpoint",
         "trace-agent-turn",
         "thread.turn.get_checkpoint",
-        json!({ "session_id": "session-1", "turn_id": "turn-1" }),
+        json!({ "threadId": "session-1", "turnId": "turn-1" }),
     ));
     let list = router.dispatch(&WorkerRequest::new(
         "req-list",
         "trace-agent-turn",
         "thread.turn.list",
-        json!({ "sessionId": "session-1" }),
+        json!({ "threadId": "session-1" }),
     ));
     let get = router.dispatch(&WorkerRequest::new(
         "req-get",
         "trace-agent-turn",
         "thread.turn.get",
-        json!({ "session_id": "session-1", "turn_id": "turn-1" }),
+        json!({ "threadId": "session-1", "turnId": "turn-1" }),
     ));
     let runtime_state = router.dispatch(&WorkerRequest::new(
         "req-runtime-state",
         "trace-agent-turn",
         "thread.turn.runtime_state",
-        json!({ "session_id": "session-1", "turn_id": "turn-1" }),
+        json!({ "threadId": "session-1", "turnId": "turn-1" }),
     ));
     let completed = router.dispatch(&WorkerRequest::new(
         "req-complete",
         "trace-agent-turn",
         "thread.turn.mark_completed",
         json!({
-            "session_id": "session-1",
-            "turn_id": "turn-1",
-            "stop_reason": "final_response",
-            "final_content": "done"
+            "threadId": "session-1",
+            "turnId": "turn-1",
+            "stopReason": "final_response",
+            "finalContent": "done"
         }),
     ));
     let get_completed = router.dispatch(&WorkerRequest::new(
         "req-get-completed",
         "trace-agent-turn",
         "thread.turn.get",
-        json!({ "session_id": "session-1", "turn_id": "turn-1" }),
+        json!({ "threadId": "session-1", "turnId": "turn-1" }),
     ));
     let clear_checkpoint = router.dispatch(&WorkerRequest::new(
         "req-clear-checkpoint",
         "trace-agent-turn",
         "thread.turn.clear_checkpoint",
-        json!({ "session_id": "session-1", "turn_id": "turn-1" }),
+        json!({ "threadId": "session-1", "turnId": "turn-1" }),
     ));
 
     assert!(upsert.error.is_none());
@@ -4418,7 +4418,7 @@ fn dispatches_agent_turn_store_round_trip_requests() {
         set_checkpoint.result.as_ref().unwrap()["threadId"],
         json!(null)
     );
-    assert_eq!(list.result.as_ref().unwrap()["sessionId"], "session-1");
+    assert_eq!(list.result.as_ref().unwrap()["threadId"], "session-1");
     assert_eq!(
         list.result.as_ref().unwrap()["turns"][0]["turnId"],
         "turn-1"
@@ -4475,14 +4475,13 @@ fn dispatches_agent_turn_store_round_trip_requests() {
     let metadata = router.dispatch(&WorkerRequest::new(
         "req-session-metadata-after-agent-turn",
         "trace-agent-turn",
-        "session.get_metadata",
-        json!({ "session_id": "session-1" }),
+        "thread.read",
+        json!({ "threadId": "session-1" }),
     ));
     assert_eq!(metadata.error, None);
-    assert_eq!(metadata.result.as_ref().unwrap()["session_id"], "session-1");
     assert_eq!(
-        metadata.result.as_ref().unwrap()["extra"]["threadSource"],
-        "thread_log"
+        metadata.result.as_ref().unwrap()["thread"]["threadId"],
+        "session-1"
     );
 }
 
@@ -4551,10 +4550,10 @@ fn agent_turn_requests_ignore_thread_only_items() {
         "req-thread-backed-turn-list",
         "trace-thread-backed-turn",
         "thread.turn.list",
-        json!({ "sessionId": "session-1" }),
+        json!({ "threadId": "session-1" }),
     ));
     assert_eq!(turn_list.error, None);
-    assert_eq!(turn_list.result.as_ref().unwrap()["sessionId"], "session-1");
+    assert_eq!(turn_list.result.as_ref().unwrap()["threadId"], "session-1");
     assert!(turn_list.result.as_ref().unwrap()["turns"]
         .as_array()
         .unwrap()
@@ -4564,7 +4563,7 @@ fn agent_turn_requests_ignore_thread_only_items() {
         "req-thread-backed-turn-get",
         "trace-thread-backed-turn",
         "thread.turn.get",
-        json!({ "session_id": "session-1", "turn_id": "turn-thread-only" }),
+        json!({ "threadId": "session-1", "turnId": "turn-thread-only" }),
     ));
     assert!(turn_get.result.is_none());
     assert_eq!(
@@ -4576,7 +4575,7 @@ fn agent_turn_requests_ignore_thread_only_items() {
         "req-thread-backed-turn-state",
         "trace-thread-backed-turn",
         "thread.turn.runtime_state",
-        json!({ "session_id": "session-1", "turn_id": "turn-thread-only" }),
+        json!({ "threadId": "session-1", "turnId": "turn-thread-only" }),
     ));
     assert!(runtime_state.result.is_none());
     assert_eq!(
@@ -4668,7 +4667,7 @@ fn agent_turn_list_reads_canonical_rollout_turns() {
         "req-mixed-agent-turn-list",
         "trace-mixed-agent-turns",
         "thread.turn.list",
-        json!({ "sessionId": "session-1" }),
+        json!({ "threadId": "session-1" }),
     ));
 
     assert_eq!(turn_list.error, None);
@@ -4840,7 +4839,7 @@ fn agent_turn_rpc_enforces_capabilities_and_unknown_turn_errors() {
         "req-denied",
         "trace-agent-turn",
         "thread.turn.list",
-        json!({ "session_id": "session-1" }),
+        json!({ "threadId": "session-1" }),
     ));
     assert_eq!(
         denied.error.as_ref().unwrap().code,
@@ -4858,14 +4857,14 @@ fn agent_turn_rpc_enforces_capabilities_and_unknown_turn_errors() {
         "req-missing",
         "trace-agent-turn",
         "thread.turn.get",
-        json!({ "session_id": "session-1", "turn_id": "missing-turn" }),
+        json!({ "threadId": "session-1", "turnId": "missing-turn" }),
     ));
     assert_eq!(
         missing.error.as_ref().unwrap().code,
         crate::protocol::WorkerProtocolErrorCode::InvalidProtocol
     );
     assert_eq!(
-        missing.error.as_ref().unwrap().details["turn_id"],
+        missing.error.as_ref().unwrap().details["turnId"],
         "missing-turn"
     );
 
@@ -4873,7 +4872,7 @@ fn agent_turn_rpc_enforces_capabilities_and_unknown_turn_errors() {
         "req-malformed",
         "trace-agent-turn",
         "thread.turn.get",
-        json!({ "session_id": "session-1" }),
+        json!({ "threadId": "session-1" }),
     ));
     assert_eq!(
         malformed.error.as_ref().unwrap().code,
@@ -4883,55 +4882,4 @@ fn agent_turn_rpc_enforces_capabilities_and_unknown_turn_errors() {
         malformed.error.as_ref().unwrap().details["method"],
         "thread.turn.get"
     );
-}
-
-#[test]
-fn dispatches_session_writes_for_new_experimental_session() {
-    let fixture = WorkspaceFixture::new();
-    let mut router = WorkerRpcRouter::new(
-        fixture.root.clone(),
-        json!({}),
-        vec![],
-        20,
-        CapabilityPolicy::new([WorkerCapability::SessionWrite]),
-    );
-    let set_checkpoint = WorkerRequest::new(
-        "req-1",
-        "trace-1",
-        "session.set_checkpoint",
-        json!({
-            "session_id": "desktop-session-1",
-            "checkpoint": { "turnId": "turn-1", "phase": "awaiting_tools" }
-        }),
-    );
-    let append_messages = WorkerRequest::new(
-        "req-2",
-        "trace-1",
-        "session.append_messages",
-        json!({
-            "session_id": "desktop-session-1",
-            "turn_id": "turn-1",
-            "messages": [
-                { "role": "assistant", "content": "done" }
-            ]
-        }),
-    );
-
-    let checkpoint_response = router.dispatch(&set_checkpoint);
-    let append_response = router.dispatch(&append_messages);
-
-    assert_eq!(
-        checkpoint_response.result.as_ref().unwrap()["session_id"],
-        "desktop-session-1"
-    );
-    assert_eq!(
-        checkpoint_response.result.as_ref().unwrap()["extra"]["runtime_checkpoint"],
-        json!({ "turnId": "turn-1", "phase": "awaiting_tools" })
-    );
-    assert_eq!(
-        append_response.result.as_ref().unwrap()["extra"]["messages"],
-        json!([{ "role": "assistant", "content": "done", "turnId": "turn-1" }])
-    );
-    assert!(checkpoint_response.error.is_none());
-    assert!(append_response.error.is_none());
 }
