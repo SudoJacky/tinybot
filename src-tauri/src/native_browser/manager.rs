@@ -61,7 +61,7 @@ impl Default for BrowserRuntimeState {
 struct BrowserSessionRecord {
     id: BrowserSessionId,
     owner_session_id: String,
-    run_id: String,
+    operation_id: String,
     profile: BrowserPlatformProfile,
     lifecycle: BrowserSessionLifecycle,
     active_tab_id: BrowserTabId,
@@ -287,7 +287,7 @@ impl BrowserSessionManager {
             let session = BrowserSessionRecord {
                 id: session_id.clone(),
                 owner_session_id: owner_session_id.clone(),
-                run_id: format!("tinyos-browser-session-{session_id}"),
+                operation_id: format!("tinyos-browser-session-{session_id}"),
                 profile: profile.clone(),
                 lifecycle: BrowserSessionLifecycle::Creating,
                 active_tab_id: tab_id.clone(),
@@ -2346,7 +2346,7 @@ fn snapshot_from_state(
             contract: "browser_session_v1",
             browser_session_id: session.id.clone(),
             session_id: session.owner_session_id.clone(),
-            run_id: session.run_id.clone(),
+            operation_id: session.operation_id.clone(),
             state: process_state(session.lifecycle),
             runtime_kind: adapter.runtime_kind().to_string(),
             runtime_version: adapter.runtime_version().to_string(),

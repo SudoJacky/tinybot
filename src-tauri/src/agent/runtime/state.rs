@@ -10,13 +10,12 @@ use super::usage::{
     enrich_usage_with_context_window, latest_cumulative_usage_tokens, usage_context_used_tokens,
 };
 use super::{
-    string_field, AgentHookInvocation, NativeAgentEvent, NativeAgentRunContext,
-    NativeAgentToolCall, NativeAgentTraceSink,
+    string_field, AgentHookInvocation, AgentTurnContext, NativeAgentEvent, NativeAgentToolCall,
+    NativeAgentTraceSink,
 };
 use crate::agent::runtime_protocol::{
-    AgentRunEmitter, AgentRuntimeEventAppendInput, AgentRuntimeEventEnvelope,
-    AgentRuntimeEventSource, AgentRuntimeEventVisibility, AgentRuntimePhase,
-    AgentTimelineProjector,
+    AgentRuntimeEventAppendInput, AgentRuntimeEventEnvelope, AgentRuntimeEventSource,
+    AgentRuntimeEventVisibility, AgentRuntimePhase, AgentTimelineProjector, AgentTurnEmitter,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -24,8 +23,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 #[derive(Clone)]
-pub(super) struct NativeAgentRunState {
-    pub(super) run_id: String,
+pub(super) struct AgentTurnState {
+    pub(super) turn_id: String,
     pub(super) session_id: String,
     pub(super) phase: AgentRuntimePhase,
     pub(super) iteration: i64,
@@ -33,7 +32,7 @@ pub(super) struct NativeAgentRunState {
     pub(super) pending_tool_calls: Vec<Value>,
     pub(super) completed_tool_results: Vec<Value>,
     pub(super) history: ContextManager,
-    emitter: AgentRunEmitter,
+    emitter: AgentTurnEmitter,
     timeline_projector: AgentTimelineProjector,
     usage: Vec<Value>,
     pub(super) tools_used: Vec<String>,
@@ -44,13 +43,13 @@ pub(super) struct NativeAgentRunState {
     trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 }
 
-impl NativeAgentRunState {
+impl AgentTurnState {
     pub(super) fn new(
-        context: &NativeAgentRunContext,
+        context: &AgentTurnContext,
         trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
     ) -> Result<Self, String> {
         Ok(Self {
-            run_id: context.run_id.clone(),
+            turn_id: context.turn_id.clone(),
             session_id: context.session_id.clone(),
             phase: AgentRuntimePhase::Queued,
             iteration: 0,
@@ -58,11 +57,11 @@ impl NativeAgentRunState {
             pending_tool_calls: Vec::new(),
             completed_tool_results: Vec::new(),
             history: ContextManager::from_legacy_messages(&context.messages)?,
-            emitter: AgentRunEmitter::new_with_trace_context(
+            emitter: AgentTurnEmitter::new_with_trace_context(
                 &context.session_id,
                 context.trace_context.clone(),
             ),
-            timeline_projector: AgentTimelineProjector::new(&context.session_id, &context.run_id),
+            timeline_projector: AgentTimelineProjector::new(&context.session_id, &context.turn_id),
             usage: Vec::new(),
             tools_used: Vec::new(),
             stop_reason: None,
@@ -85,13 +84,14 @@ impl NativeAgentRunState {
 
     fn append_trace_event(&mut self, event: &AgentRuntimeEventEnvelope) {
         if let Some(trace_sink) = self.trace_sink.as_ref() {
-            if let Err(error) = trace_sink.append_trace_event(&self.session_id, &self.run_id, event)
+            if let Err(error) =
+                trace_sink.append_trace_event(&self.session_id, &self.turn_id, event)
             {
                 crate::runtime::observability::global_agent_runtime_metrics()
                     .increment("trace.sink.failed");
                 eprintln!(
                     "native agent trace sink failed for run {} event {}: {}",
-                    self.run_id, event.event_id, error
+                    self.turn_id, event.event_id, error
                 );
             }
             let projection_started_at = Instant::now();
@@ -103,13 +103,13 @@ impl NativeAgentRunState {
             match projection {
                 Ok(Some(patch)) => {
                     if let Err(error) =
-                        trace_sink.append_timeline_patch(&self.session_id, &self.run_id, &patch)
+                        trace_sink.append_timeline_patch(&self.session_id, &self.turn_id, &patch)
                     {
                         crate::runtime::observability::global_agent_runtime_metrics()
                             .increment("timeline.patch.sink.failed");
                         eprintln!(
                             "canonical timeline patch sink failed for run {} item {} revision {}: {}",
-                            self.run_id, patch.item.item_id, patch.item.revision, error
+                            self.turn_id, patch.item.item_id, patch.item.revision, error
                         );
                     }
                 }
@@ -119,7 +119,7 @@ impl NativeAgentRunState {
                         .increment("timeline.patch.projection.failed");
                     eprintln!(
                         "canonical timeline patch projection failed for run {} event {}: {}",
-                        self.run_id, event.event_id, error
+                        self.turn_id, event.event_id, error
                     );
                 }
             }
@@ -127,25 +127,25 @@ impl NativeAgentRunState {
     }
 
     pub(super) fn new_for_continuation(
-        context: &NativeAgentRunContext,
+        context: &AgentTurnContext,
         trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
     ) -> Result<Self, String> {
         let existing = trace_sink
             .as_ref()
-            .map(|sink| sink.load_runtime_events(&context.session_id, &context.run_id))
+            .map(|sink| sink.load_runtime_events(&context.session_id, &context.turn_id))
             .transpose()?
             .unwrap_or_default();
         let mut state = Self::new(context, trace_sink)?;
         if !existing.is_empty() {
-            state.emitter = AgentRunEmitter::from_existing_events_with_thread_id(
+            state.emitter = AgentTurnEmitter::from_existing_events_with_thread_id(
                 &context.session_id,
-                &context.run_id,
+                &context.turn_id,
                 context.thread_id.clone(),
                 &existing,
             );
             state.timeline_projector = AgentTimelineProjector::from_events(
                 &context.session_id,
-                &context.run_id,
+                &context.turn_id,
                 &existing,
             )?;
         }
@@ -174,7 +174,7 @@ impl NativeAgentRunState {
             source: AgentRuntimeEventSource::RustBackend,
             visibility: AgentRuntimeEventVisibility::Debug,
             payload: serde_json::json!({
-                "runId": self.run_id,
+                "turnId": self.turn_id,
                 "sessionId": self.session_id,
                 "iteration": iteration,
                 "previousPhase": previous_phase.as_str(),
@@ -206,7 +206,7 @@ impl NativeAgentRunState {
             source: AgentRuntimeEventSource::RustBackend,
             visibility: AgentRuntimeEventVisibility::User,
             payload: serde_json::json!({
-                "runId": self.run_id.clone(),
+                "turnId": self.turn_id.clone(),
                 "sessionId": self.session_id.clone(),
                 "phase": self.phase.as_str(),
                 "label": label,
@@ -395,7 +395,7 @@ impl NativeAgentRunState {
         self.emit_event("agent.hook.decision", evaluation.event_payload(invocation));
     }
 
-    pub(super) fn emit_turn_started(&mut self, context: &NativeAgentRunContext) {
+    pub(super) fn emit_turn_started(&mut self, context: &AgentTurnContext) {
         let current = current_user_message(&context.messages);
         let message_id = current
             .as_ref()
@@ -410,7 +410,7 @@ impl NativeAgentRunState {
                     .as_ref()
                     .and_then(|message| string_field(message, "id"))
             })
-            .unwrap_or_else(|| format!("{}:user", context.run_id));
+            .unwrap_or_else(|| format!("{}:user", context.turn_id));
         let content = current.as_ref().map(user_message_text).unwrap_or_default();
         let reference_payloads = current
             .as_ref()
@@ -447,7 +447,7 @@ impl NativeAgentRunState {
 
     pub(super) fn emit_tinyos_command_acknowledgement(
         &mut self,
-        context: &NativeAgentRunContext,
+        context: &AgentTurnContext,
     ) -> Result<(), String> {
         let Some(command) = context.metadata.get("_tinyosCommand") else {
             return Ok(());
@@ -458,7 +458,7 @@ impl NativeAgentRunState {
             .ok_or_else(|| "TinyOS runtime command metadata is missing commandKind".to_string())?;
         let event = self.emitter.emit(AgentRuntimeEventAppendInput {
             parent_turn_id: None,
-            item_id: Some(format!("{}:command-ack:{}", self.run_id, command_id)),
+            item_id: Some(format!("{}:command-ack:{}", self.turn_id, command_id)),
             event_name: "agent.command.acknowledged".to_string(),
             phase: self.phase.clone(),
             timestamp: runtime_event_timestamp(),
@@ -470,7 +470,7 @@ impl NativeAgentRunState {
                 "commandStatus": "acknowledged",
                 "message": "Agent command acknowledged",
                 "operation": command.get("operation").cloned().unwrap_or(Value::Null),
-                "runId": self.run_id,
+                "turnId": self.turn_id,
                 "sessionId": self.session_id,
                 "source": command.get("source").cloned().unwrap_or(Value::Null),
                 "target": command.get("target").cloned().unwrap_or(Value::Null),
@@ -502,7 +502,7 @@ impl NativeAgentRunState {
 
     pub(super) fn record_usage(
         &mut self,
-        context: &NativeAgentRunContext,
+        context: &AgentTurnContext,
         iteration: i64,
         model_call_id: &str,
         usage: Value,
@@ -531,7 +531,7 @@ impl NativeAgentRunState {
         self.emit_event(
             "agent.model_call.completed",
             serde_json::json!({
-                "runId": context.run_id,
+                "turnId": context.turn_id,
                 "sessionId": context.session_id,
                 "turnId": context.trace_context.turn_id,
                 "iteration": iteration,
@@ -542,7 +542,7 @@ impl NativeAgentRunState {
         self.emit_event(
             "agent.token_count",
             serde_json::json!({
-                "runId": context.run_id,
+                "turnId": context.turn_id,
                 "sessionId": context.session_id,
                 "turnId": context.trace_context.turn_id,
                 "iteration": iteration,
@@ -553,7 +553,7 @@ impl NativeAgentRunState {
         self.emit_event(
             "agent.usage",
             serde_json::json!({
-                "runId": context.run_id,
+                "turnId": context.turn_id,
                 "sessionId": context.session_id,
                 "turnId": context.trace_context.turn_id,
                 "iteration": iteration,
@@ -585,7 +585,7 @@ pub(super) fn user_message_text(message: &Value) -> String {
 }
 
 fn user_reference_payloads(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     message: &Value,
     message_id: &str,
 ) -> Vec<Value> {
@@ -616,7 +616,7 @@ fn user_reference_payloads(
                 _ => return None,
             };
             Some(serde_json::json!({
-                "runId": context.run_id,
+                "turnId": context.turn_id,
                 "sessionId": context.session_id,
                 "referenceId": format!("{message_id}:reference:{index}"),
                 "messageId": message_id,

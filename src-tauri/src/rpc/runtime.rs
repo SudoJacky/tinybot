@@ -11,7 +11,7 @@ use crate::protocol::params::parse_params;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RuntimeRestartRequest {
-    pub run_id: Option<String>,
+    pub turn_id: Option<String>,
     pub session_id: Option<String>,
 }
 
@@ -71,7 +71,7 @@ impl WorkerRuntimeRpc {
 
     fn restart(&self, params: RuntimeRestartParams) -> Result<Value, WorkerProtocolError> {
         let request = RuntimeRestartRequest {
-            run_id: params.run_id,
+            turn_id: params.turn_id,
             session_id: params.session_id,
         };
         if let Some(handler) = &self.restart_handler {
@@ -79,7 +79,7 @@ impl WorkerRuntimeRpc {
         }
         Ok(serde_json::json!({
             "restart_requested": true,
-            "run_id": request.run_id,
+            "turn_id": request.turn_id,
             "session_id": request.session_id,
         }))
     }
@@ -92,8 +92,8 @@ struct RuntimeNowParams {
 
 #[derive(Deserialize)]
 struct RuntimeRestartParams {
-    #[serde(default, alias = "runId")]
-    run_id: Option<String>,
+    #[serde(default, alias = "turnId")]
+    turn_id: Option<String>,
     #[serde(default, alias = "sessionId")]
     session_id: Option<String>,
 }
@@ -144,7 +144,7 @@ mod tests {
             "trace-restart",
             "runtime.restart",
             json!({
-                "run_id": "run-1",
+                "turn_id": "run-1",
                 "session_id": "session-1"
             }),
         );
@@ -157,7 +157,7 @@ mod tests {
             result,
             json!({
                 "restart_requested": true,
-                "run_id": "run-1",
+                "turn_id": "run-1",
                 "session_id": "session-1"
             })
         );
@@ -167,7 +167,7 @@ mod tests {
                 .expect("restart request log should lock")
                 .as_slice(),
             [RuntimeRestartRequest {
-                run_id: Some("run-1".to_string()),
+                turn_id: Some("run-1".to_string()),
                 session_id: Some("session-1".to_string())
             }]
         );
@@ -195,7 +195,7 @@ mod tests {
             "trace-restart",
             "runtime.restart",
             json!({
-                "run_id": "run-1",
+                "turn_id": "run-1",
                 "session_id": "session-1"
             }),
         );
@@ -207,7 +207,7 @@ mod tests {
             response.result.expect("restart result should be present"),
             json!({
                 "restart_requested": true,
-                "run_id": "run-1",
+                "turn_id": "run-1",
                 "session_id": "session-1"
             })
         );
@@ -217,7 +217,7 @@ mod tests {
                 .expect("restart request log should lock")
                 .as_slice(),
             [RuntimeRestartRequest {
-                run_id: Some("run-1".to_string()),
+                turn_id: Some("run-1".to_string()),
                 session_id: Some("session-1".to_string())
             }]
         );
@@ -238,7 +238,7 @@ mod tests {
             "trace-restart",
             "runtime.restart",
             json!({
-                "runId": "run-1",
+                "turnId": "run-1",
                 "sessionId": "session-1"
             }),
         );
@@ -252,7 +252,7 @@ mod tests {
                 .expect("restart request log should lock")
                 .as_slice(),
             [RuntimeRestartRequest {
-                run_id: Some("run-1".to_string()),
+                turn_id: Some("run-1".to_string()),
                 session_id: Some("session-1".to_string())
             }]
         );

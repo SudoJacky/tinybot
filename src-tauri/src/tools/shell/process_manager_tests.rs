@@ -149,7 +149,7 @@ fn windows_read_only_job_terminates_descendant_processes() {
             cols: None,
             sandbox_mode: Some(ShellSandboxMode::ReadOnly),
             network_mode: Some(PermissionNetworkMode::Unrestricted),
-            run_id: Some("run-read-only-job".to_string()),
+            owner_id: Some("run-read-only-job".to_string()),
             tool_call_id: Some("tool-read-only-job".to_string()),
             cancellation: None,
         })
@@ -159,7 +159,7 @@ fn windows_read_only_job_terminates_descendant_processes() {
     let terminated = rpc
         .terminate(ShellProcessIdParams {
             process_id: started.process_id,
-            run_id: Some("run-read-only-job".to_string()),
+            owner_id: Some("run-read-only-job".to_string()),
         })
         .expect("read-only job should terminate");
     assert_eq!(terminated.status, "terminated", "{terminated:?}");
@@ -212,7 +212,7 @@ fn windows_unsandboxed_termination_stops_descendant_processes() {
             cols: None,
             sandbox_mode: Some(ShellSandboxMode::Unsandboxed),
             network_mode: Some(PermissionNetworkMode::Unrestricted),
-            run_id: Some("run-unsandboxed-tree".to_string()),
+            owner_id: Some("run-unsandboxed-tree".to_string()),
             tool_call_id: Some("tool-unsandboxed-tree".to_string()),
             cancellation: None,
         })
@@ -231,7 +231,7 @@ fn windows_unsandboxed_termination_stops_descendant_processes() {
     let terminated = rpc
         .terminate(ShellProcessIdParams {
             process_id: started.process_id,
-            run_id: Some("run-unsandboxed-tree".to_string()),
+            owner_id: Some("run-unsandboxed-tree".to_string()),
         })
         .expect("unsandboxed process tree should terminate");
     assert_eq!(terminated.status, "terminated", "{terminated:?}");
@@ -257,7 +257,7 @@ fn interactive_process_accepts_input_resizes_and_exits_cleanly() {
             cols: Some(80),
             sandbox_mode: None,
             network_mode: None,
-            run_id: Some("run-interactive-process".to_string()),
+            owner_id: Some("run-interactive-process".to_string()),
             tool_call_id: Some("tool-interactive-process".to_string()),
             cancellation: None,
         })
@@ -268,7 +268,7 @@ fn interactive_process_accepts_input_resizes_and_exits_cleanly() {
     let mut transcript = started.output.clone();
     rpc.resize(ShellProcessResizeParams {
         process_id: started.process_id.clone(),
-        run_id: Some("run-interactive-process".to_string()),
+        owner_id: Some("run-interactive-process".to_string()),
         rows: 32,
         cols: 100,
     })
@@ -277,7 +277,7 @@ fn interactive_process_accepts_input_resizes_and_exits_cleanly() {
     let mut output = rpc
         .write_stdin(ShellProcessInputParams {
             process_id: started.process_id.clone(),
-            run_id: Some("run-interactive-process".to_string()),
+            owner_id: Some("run-interactive-process".to_string()),
             input: interactive_input().to_string(),
             cursor: Some(started.cursor),
             yield_time_ms: Some(2_000),
@@ -290,7 +290,7 @@ fn interactive_process_accepts_input_resizes_and_exits_cleanly() {
             let complete_output = rpc
                 .poll(ShellProcessPollParams {
                     process_id: started.process_id.clone(),
-                    run_id: Some("run-interactive-process".to_string()),
+                    owner_id: Some("run-interactive-process".to_string()),
                     cursor: Some(0),
                     yield_time_ms: Some(0),
                 })
@@ -302,7 +302,7 @@ fn interactive_process_accepts_input_resizes_and_exits_cleanly() {
         output = rpc
             .poll(ShellProcessPollParams {
                 process_id: started.process_id.clone(),
-                run_id: Some("run-interactive-process".to_string()),
+                owner_id: Some("run-interactive-process".to_string()),
                 cursor: Some(output.cursor),
                 yield_time_ms: Some(100),
             })
@@ -338,7 +338,7 @@ fn pipe_process_preserves_stdout_and_stderr_streams() {
             cols: None,
             sandbox_mode: None,
             network_mode: None,
-            run_id: Some("run-pipe-process".to_string()),
+            owner_id: Some("run-pipe-process".to_string()),
             tool_call_id: Some("tool-pipe-process".to_string()),
             cancellation: None,
         })
@@ -370,7 +370,7 @@ fn windows_pipe_process_preserves_a_quoted_absolute_path() {
             cols: None,
             sandbox_mode: None,
             network_mode: None,
-            run_id: Some("run-quoted-absolute-path".to_string()),
+            owner_id: Some("run-quoted-absolute-path".to_string()),
             tool_call_id: Some("tool-quoted-absolute-path".to_string()),
             cancellation: None,
         })
@@ -396,7 +396,7 @@ fn windows_pipe_process_decodes_the_active_oem_code_page() {
             cols: None,
             sandbox_mode: None,
             network_mode: None,
-            run_id: Some("run-oem-output".to_string()),
+            owner_id: Some("run-oem-output".to_string()),
             tool_call_id: Some("tool-oem-output".to_string()),
             cancellation: None,
         })
@@ -414,7 +414,7 @@ fn unknown_process_poll_fails_explicitly() {
     let error = rpc
         .poll(ShellProcessPollParams {
             process_id: "process-missing".to_string(),
-            run_id: Some("run-missing".to_string()),
+            owner_id: Some("run-missing".to_string()),
             cursor: None,
             yield_time_ms: Some(0),
         })
@@ -439,13 +439,13 @@ fn retained_process_start_requires_run_and_tool_owners() {
             cols: None,
             sandbox_mode: None,
             network_mode: None,
-            run_id: None,
+            owner_id: None,
             tool_call_id: None,
             cancellation: None,
         })
         .expect_err("retained process must have an owner");
 
-    assert!(error.message.contains("runId is required"));
+    assert!(error.message.contains("ownerId is required"));
     assert_eq!(rpc.active_process_count(), 0);
 }
 
@@ -464,7 +464,7 @@ fn writing_after_a_polled_process_exits_fails_explicitly() {
             cols: None,
             sandbox_mode: None,
             network_mode: None,
-            run_id: Some("run-exit-race".to_string()),
+            owner_id: Some("run-exit-race".to_string()),
             tool_call_id: Some("tool-exit-race".to_string()),
             cancellation: None,
         })
@@ -481,7 +481,7 @@ fn writing_after_a_polled_process_exits_fails_explicitly() {
         output = rpc
             .poll(ShellProcessPollParams {
                 process_id: output.process_id.clone(),
-                run_id: Some("run-exit-race".to_string()),
+                owner_id: Some("run-exit-race".to_string()),
                 cursor: Some(output.cursor),
                 yield_time_ms: Some(100),
             })
@@ -491,7 +491,7 @@ fn writing_after_a_polled_process_exits_fails_explicitly() {
     let error = rpc
         .write_stdin(ShellProcessInputParams {
             process_id: output.process_id,
-            run_id: Some("run-exit-race".to_string()),
+            owner_id: Some("run-exit-race".to_string()),
             input: "late input".to_string(),
             cursor: Some(output.cursor),
             yield_time_ms: Some(0),
@@ -502,7 +502,7 @@ fn writing_after_a_polled_process_exits_fails_explicitly() {
 }
 
 #[test]
-fn terminate_run_stops_every_owned_process() {
+fn terminate_owner_stops_every_owned_process() {
     let fixture = ProcessFixture::new();
     let rpc = shell_rpc(&fixture);
     let first = start_blocking_process(&rpc, "run-cleanup", "tool-cleanup-1");
@@ -511,7 +511,7 @@ fn terminate_run_stops_every_owned_process() {
     assert!(second.running);
     assert_eq!(rpc.active_process_count(), 2);
 
-    let report = rpc.terminate_run("run-cleanup");
+    let report = rpc.terminate_owner("run-cleanup");
 
     assert_eq!(report.requested_process_ids.len(), 2, "{report:?}");
     assert_eq!(report.terminated_process_ids.len(), 2, "{report:?}");
@@ -521,7 +521,7 @@ fn terminate_run_stops_every_owned_process() {
         let output = rpc
             .poll(ShellProcessPollParams {
                 process_id,
-                run_id: Some("run-cleanup".to_string()),
+                owner_id: Some("run-cleanup".to_string()),
                 cursor: Some(0),
                 yield_time_ms: Some(0),
             })
@@ -545,7 +545,7 @@ fn concurrent_termination_waits_for_one_verified_exit() {
             barrier.wait();
             rpc.terminate(ShellProcessIdParams {
                 process_id,
-                run_id: Some("run-concurrent-terminate".to_string()),
+                owner_id: Some("run-concurrent-terminate".to_string()),
             })
         }));
     }
@@ -583,7 +583,7 @@ fn output_buffer_preserves_bounded_head_and_tail() {
             cols: None,
             sandbox_mode: None,
             network_mode: None,
-            run_id: Some("run-bounded-output".to_string()),
+            owner_id: Some("run-bounded-output".to_string()),
             tool_call_id: Some("tool-bounded-output".to_string()),
             cancellation: None,
         })
@@ -597,7 +597,7 @@ fn output_buffer_preserves_bounded_head_and_tail() {
         output = rpc
             .poll(ShellProcessPollParams {
                 process_id: output.process_id.clone(),
-                run_id: Some("run-bounded-output".to_string()),
+                owner_id: Some("run-bounded-output".to_string()),
                 cursor: Some(0),
                 yield_time_ms: Some(500),
             })
@@ -628,7 +628,7 @@ fn cancellation_terminates_the_owned_process() {
             cols: None,
             sandbox_mode: None,
             network_mode: None,
-            run_id: Some("run-cancel-process".to_string()),
+            owner_id: Some("run-cancel-process".to_string()),
             tool_call_id: Some("tool-cancel-process".to_string()),
             cancellation: Some(cancellation.clone()),
         })
@@ -646,7 +646,7 @@ fn cancellation_terminates_the_owned_process() {
         output = rpc
             .poll(ShellProcessPollParams {
                 process_id: output.process_id.clone(),
-                run_id: Some("run-cancel-process".to_string()),
+                owner_id: Some("run-cancel-process".to_string()),
                 cursor: Some(output.cursor),
                 yield_time_ms: Some(100),
             })
@@ -693,7 +693,7 @@ fn shutdown_releases_terminal_process_records() {
             cols: None,
             sandbox_mode: None,
             network_mode: None,
-            run_id: Some("run-shutdown".to_string()),
+            owner_id: Some("run-shutdown".to_string()),
             tool_call_id: Some("tool-shutdown".to_string()),
             cancellation: None,
         })
@@ -701,7 +701,7 @@ fn shutdown_releases_terminal_process_records() {
     assert!(!output.running);
     assert_eq!(
         rpc.list(ShellProcessListParams {
-            run_id: Some("run-shutdown".to_string())
+            owner_id: Some("run-shutdown".to_string())
         })
         .expect("terminal process should remain listed")
         .len(),
@@ -726,7 +726,7 @@ fn shutdown_releases_terminal_process_records() {
             cols: None,
             sandbox_mode: None,
             network_mode: None,
-            run_id: Some("run-after-shutdown".to_string()),
+            owner_id: Some("run-after-shutdown".to_string()),
             tool_call_id: Some("tool-after-shutdown".to_string()),
             cancellation: None,
         })
@@ -736,7 +736,7 @@ fn shutdown_releases_terminal_process_records() {
 
 fn start_blocking_process(
     rpc: &WorkerShellRpc,
-    run_id: &str,
+    owner_id: &str,
     tool_call_id: &str,
 ) -> ShellProcessOutput {
     rpc.start(ShellStartParams {
@@ -749,7 +749,7 @@ fn start_blocking_process(
         cols: None,
         sandbox_mode: None,
         network_mode: None,
-        run_id: Some(run_id.to_string()),
+        owner_id: Some(owner_id.to_string()),
         tool_call_id: Some(tool_call_id.to_string()),
         cancellation: None,
     })

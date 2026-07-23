@@ -1,5 +1,5 @@
 use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
-use crate::desktop::{state::lock_runtime, SharedGateway};
+use crate::desktop::SharedGateway;
 use crate::native_browser::SharedBrowserRuntime;
 use crate::protocol::capability::{
     default_desktop_capability_policy, CapabilityPolicy, WorkerCapability,
@@ -7,7 +7,6 @@ use crate::protocol::capability::{
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
 use crate::rpc::call_rust_state_service;
-use crate::tools::shell::{ShellProcessListParams, WorkerShellRpc};
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, time::Duration};
 use tauri::State;
@@ -20,9 +19,9 @@ pub(crate) struct WorkerSessionInput {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct WorkerAgentRunInput {
+pub(crate) struct WorkerAgentTurnInput {
     session_key: String,
-    run_id: String,
+    turn_id: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -72,11 +71,11 @@ pub(crate) fn worker_session_messages(
 }
 
 #[tauri::command]
-pub(crate) fn worker_agent_runs_list(
+pub(crate) fn worker_turns_list(
     input: WorkerSessionInput,
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
-    worker_agent_runs_list_with_options(
+    worker_turns_list_with_options(
         state.inner(),
         input.key,
         native_backend_workspace_root(),
@@ -86,14 +85,14 @@ pub(crate) fn worker_agent_runs_list(
 }
 
 #[tauri::command]
-pub(crate) fn worker_agent_run_runtime_state(
-    input: WorkerAgentRunInput,
+pub(crate) fn worker_turn_runtime_state(
+    input: WorkerAgentTurnInput,
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
-    worker_agent_run_runtime_state_with_options(
+    worker_turn_runtime_state_with_options(
         state.inner(),
         input.session_key,
-        input.run_id,
+        input.turn_id,
         native_backend_workspace_root(),
         native_config_snapshot(),
         Duration::from_secs(10),
@@ -276,7 +275,7 @@ pub(crate) fn worker_session_messages_with_options(
     Ok(history)
 }
 
-pub(crate) fn worker_agent_runs_list_with_options(
+pub(crate) fn worker_turns_list_with_options(
     _shared: &SharedGateway,
     session_key: String,
     workspace_root: PathBuf,
@@ -288,19 +287,19 @@ pub(crate) fn worker_agent_runs_list_with_options(
         workspace_root,
         config_snapshot,
         WorkerRequest::new(
-            request_id.id("agent-run-list"),
-            request_id.trace_id("agent-run-list"),
-            "agent_run.list",
+            request_id.id("agent-turn-list"),
+            request_id.trace_id("agent-turn-list"),
+            "thread.turn.list",
             serde_json::json!({ "session_id": session_key }),
         ),
-        "worker agent run list",
+        "worker agent turn list",
     )
 }
 
-pub(crate) fn worker_agent_run_runtime_state_with_options(
+pub(crate) fn worker_turn_runtime_state_with_options(
     _shared: &SharedGateway,
     session_key: String,
-    run_id: String,
+    turn_id: String,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
@@ -310,15 +309,15 @@ pub(crate) fn worker_agent_run_runtime_state_with_options(
         workspace_root,
         config_snapshot,
         WorkerRequest::new(
-            request_id.id("agent-run-runtime-state"),
-            request_id.trace_id("agent-run-runtime-state"),
-            "agent_run.runtime_state",
+            request_id.id("agent-turn-runtime-state"),
+            request_id.trace_id("agent-turn-runtime-state"),
+            "thread.turn.runtime_state",
             serde_json::json!({
                 "session_id": session_key,
-                "run_id": run_id,
+                "turn_id": turn_id,
             }),
         ),
-        "worker agent run runtime state",
+        "worker agent turn runtime state",
     )
 }
 
@@ -330,206 +329,81 @@ pub(crate) fn worker_session_effective_capabilities_with_options(
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
     let workspace_available = workspace_root.is_dir();
-    let mut runs = worker_agent_runs_list_with_options(
+    let turns = worker_turns_list_with_options(
         shared,
         session_key.clone(),
-        workspace_root.clone(),
-        config_snapshot.clone(),
+        workspace_root,
+        config_snapshot,
         timeout,
     )?;
-    if recover_interrupted_tinyos_host_operations(
-        shared,
-        &session_key,
-        &runs,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-    )? {
-        runs = worker_agent_runs_list_with_options(
-            shared,
-            session_key.clone(),
-            workspace_root,
-            config_snapshot,
-            timeout,
-        )?;
-    }
     Ok(build_worker_session_effective_capabilities(
         &session_key,
-        &runs,
+        &turns,
         workspace_available,
         &default_desktop_capability_policy(),
     ))
 }
 
-fn recover_interrupted_tinyos_host_operations(
-    shared: &SharedGateway,
-    session_id: &str,
-    runs: &serde_json::Value,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-) -> Result<bool, String> {
-    let shell_runtime = {
-        let runtime = lock_runtime(shared);
-        runtime.native_agent_runtime.shell_runtime()
-    };
-    let shell = WorkerShellRpc::with_runtime(
-        workspace_root.clone(),
-        default_desktop_capability_policy(),
-        shell_runtime,
-    );
-    let live_process_runs = shell
-        .list(ShellProcessListParams::default())
-        .map_err(|error| {
-            format!(
-                "TinyOS host recovery failed to inspect shell processes: {}",
-                error.message
-            )
-        })?
-        .into_iter()
-        .filter(|process| process.running)
-        .filter_map(|process| process.run_id)
-        .collect::<std::collections::HashSet<_>>();
-    let interrupted = interrupted_tinyos_host_run_ids(runs, &live_process_runs);
-    for run_id in &interrupted {
-        let request_id = next_worker_request_correlation();
-        call_rust_state_service(
-            workspace_root.clone(),
-            config_snapshot.clone(),
-            WorkerRequest::new(
-                request_id.id("tinyos-host-recovery-event"),
-                request_id.trace_id("tinyos-host-recovery-event"),
-                "agent_run.append_semantic_batch",
-                serde_json::json!({
-                    "session_id": session_id,
-                    "run_id": run_id,
-                    "events": [{
-                        "eventId": format!("{run_id}:interrupted-recovery"),
-                        "itemId": format!("{run_id}:interrupted-recovery"),
-                        "eventName": "agent.error",
-                        "payload": {
-                            "message": "TinyOS host operation was interrupted before completion and cannot be resumed.",
-                            "recovery": "marked_failed",
-                        }
-                    }]
-                }),
-            ),
-            "TinyOS host recovery event append",
-        )?;
-        let request_id = next_worker_request_correlation();
-        call_rust_state_service(
-            workspace_root.clone(),
-            config_snapshot.clone(),
-            WorkerRequest::new(
-                request_id.id("tinyos-host-recovery-failed"),
-                request_id.trace_id("tinyos-host-recovery-failed"),
-                "agent_run.mark_failed",
-                serde_json::json!({
-                    "session_id": session_id,
-                    "run_id": run_id,
-                    "stop_reason": "host_operation_interrupted",
-                    "error": "TinyOS host operation was interrupted before completion.",
-                }),
-            ),
-            "TinyOS host recovery terminal update",
-        )?;
-    }
-    Ok(!interrupted.is_empty())
-}
-
-pub(crate) fn interrupted_tinyos_host_run_ids(
-    runs: &serde_json::Value,
-    live_process_runs: &std::collections::HashSet<String>,
-) -> Vec<String> {
-    runs.get("runs")
-        .and_then(serde_json::Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|run| {
-            let run_id = run.get("runId").and_then(serde_json::Value::as_str)?;
-            let active = matches!(
-                run.get("status").and_then(serde_json::Value::as_str),
-                Some("running" | "waiting")
-            );
-            let host_run = run_id.starts_with("tinyos-host-");
-            let terminal_live =
-                run_id.starts_with("tinyos-host-terminal-") && live_process_runs.contains(run_id);
-            (active && host_run && !terminal_live).then(|| run_id.to_string())
-        })
-        .collect()
-}
-
 pub(crate) fn build_worker_session_effective_capabilities(
     session_key: &str,
-    runs: &serde_json::Value,
+    turns: &serde_json::Value,
     workspace_available: bool,
     policy: &CapabilityPolicy,
 ) -> serde_json::Value {
-    let evaluated_run = runs
-        .get("runs")
+    let evaluated_turn = turns
+        .get("turns")
         .and_then(serde_json::Value::as_array)
         .and_then(|items| {
             items
                 .iter()
-                .find(|run| {
+                .find(|turn| {
                     matches!(
-                        run.get("status").and_then(serde_json::Value::as_str),
+                        turn.get("status").and_then(serde_json::Value::as_str),
                         Some("running" | "waiting")
                     )
                 })
                 .or_else(|| items.first())
         });
-    let evaluated_run_id = evaluated_run
-        .and_then(|run| run.get("runId"))
+    let evaluated_turn_id = evaluated_turn
+        .and_then(|turn| turn.get("turnId"))
         .and_then(serde_json::Value::as_str);
-    let evaluated_run_status = evaluated_run
-        .and_then(|run| run.get("status"))
+    let evaluated_turn_status = evaluated_turn
+        .and_then(|turn| turn.get("status"))
         .and_then(serde_json::Value::as_str);
-    let evaluated_run_phase = evaluated_run
-        .and_then(|run| run.get("phase"))
+    let evaluated_turn_phase = evaluated_turn
+        .and_then(|turn| turn.get("phase"))
         .and_then(serde_json::Value::as_str);
-    let evaluated_is_host_run =
-        evaluated_run_id.is_some_and(|run_id| run_id.starts_with("tinyos-host-"));
-    let evaluated_is_terminal_run =
-        evaluated_run_id.is_some_and(|run_id| run_id.starts_with("tinyos-host-terminal-"));
-    let cancel = match (
-        evaluated_run_status,
-        evaluated_run_phase,
-        evaluated_is_host_run,
-    ) {
-        (_, _, true) => unavailable_capability(
-            "host_operation_active",
-            "The active operation is controlled from its TinyOS application.",
+    let cancel = match (evaluated_turn_status, evaluated_turn_phase) {
+        (Some("running"), _) | (Some("waiting"), Some("paused")) => available_capability(),
+        (Some("waiting"), _) => unavailable_capability(
+            "turn_waiting",
+            "Cancellation of a turn waiting for user input is not supported yet.",
         ),
-        (Some("running"), _, false) | (Some("waiting"), Some("paused"), false) => {
+        _ => unavailable_capability("no_active_turn", "The session has no active Agent turn."),
+    };
+    let pause = if evaluated_turn_status == Some("running") {
+        available_capability()
+    } else {
+        unavailable_capability(
+            "turn_not_running",
+            "Only a running Agent turn can be paused.",
+        )
+    };
+    let resume =
+        if evaluated_turn_status == Some("waiting") && evaluated_turn_phase == Some("paused") {
             available_capability()
-        }
-        (Some("waiting"), _, false) => unavailable_capability(
-            "run_waiting",
-            "Cancellation of a run waiting for user input is not supported yet.",
-        ),
-        _ => unavailable_capability("no_active_run", "The session has no active Agent run."),
-    };
-    let pause = if evaluated_run_status == Some("running") && !evaluated_is_host_run {
-        available_capability()
-    } else {
-        unavailable_capability("run_not_running", "Only a running Agent run can be paused.")
-    };
-    let resume = if !evaluated_is_host_run
-        && evaluated_run_status == Some("waiting")
-        && evaluated_run_phase == Some("paused")
-    {
-        available_capability()
-    } else {
-        unavailable_capability("run_not_paused", "The Agent run is not paused.")
-    };
-    let retry = match evaluated_run_status {
+        } else {
+            unavailable_capability("turn_not_paused", "The Agent turn is not paused.")
+        };
+    let retry = match evaluated_turn_status {
         Some("failed") => available_capability(),
         Some("running" | "waiting") => unavailable_capability(
-            "run_active",
-            "Retry is unavailable while an Agent run is active.",
+            "turn_active",
+            "Retry is unavailable while an Agent turn is active.",
         ),
         _ => unavailable_capability(
-            "no_failed_run",
-            "The session has no latest failed Agent run to retry.",
+            "no_failed_turn",
+            "The session has no latest failed Agent turn to retry.",
         ),
     };
     let files_read = if policy.allows(&WorkerCapability::FsWorkspaceRead) && workspace_available {
@@ -545,10 +419,10 @@ pub(crate) fn build_worker_session_effective_capabilities(
             "Workspace read permission is not granted.",
         )
     };
-    let request_change = if matches!(evaluated_run_status, Some("running" | "waiting")) {
+    let request_change = if matches!(evaluated_turn_status, Some("running" | "waiting")) {
         unavailable_capability(
-            "run_active",
-            "Agent requests are unavailable while a run is active.",
+            "turn_active",
+            "Agent requests are unavailable while a turn is active.",
         )
     } else if policy.allows(&WorkerCapability::FsWorkspaceRead) && workspace_available {
         available_capability()
@@ -563,11 +437,11 @@ pub(crate) fn build_worker_session_effective_capabilities(
             "Workspace read permission is not granted.",
         )
     };
-    let host_operation_active = matches!(evaluated_run_status, Some("running" | "waiting"));
-    let workspace_write = if host_operation_active {
+    let turn_active = matches!(evaluated_turn_status, Some("running" | "waiting"));
+    let workspace_write = if turn_active {
         unavailable_capability(
-            "run_active",
-            "Direct file operations are unavailable while another run is active.",
+            "turn_active",
+            "Direct file operations are unavailable while another turn is active.",
         )
     } else if policy.allows(&WorkerCapability::FsWorkspaceWrite) && workspace_available {
         available_capability()
@@ -582,10 +456,10 @@ pub(crate) fn build_worker_session_effective_capabilities(
             "Workspace write permission is not granted.",
         )
     };
-    let terminal_execute = if host_operation_active {
+    let terminal_execute = if turn_active {
         unavailable_capability(
-            "run_active",
-            "Terminal execution is unavailable while another run is active.",
+            "turn_active",
+            "Terminal execution is unavailable while another turn is active.",
         )
     } else if !workspace_available {
         unavailable_capability(
@@ -603,19 +477,15 @@ pub(crate) fn build_worker_session_effective_capabilities(
             "Terminal execution requires denied-network enforcement, which is unavailable in the current native shell backend.",
         )
     };
-    let terminal_cancel = if evaluated_is_terminal_run && evaluated_run_status == Some("running") {
-        available_capability()
-    } else {
-        unavailable_capability(
-            "no_active_terminal",
-            "There is no running TinyOS terminal process to cancel.",
-        )
-    };
+    let terminal_cancel = unavailable_capability(
+        "no_active_terminal",
+        "There is no running TinyOS terminal process to cancel.",
+    );
 
     serde_json::json!({
         "schemaVersion": "tinybot.effective_capabilities.v1",
         "sessionId": session_key,
-        "evaluatedRunId": evaluated_run_id,
+        "evaluatedTurnId": evaluated_turn_id,
         "capabilities": {
             "agent": {
                 "pause": pause,

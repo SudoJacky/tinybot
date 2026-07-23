@@ -10,7 +10,7 @@ fn owned_task_runtime_cancels_normal_turn_and_ignores_late_provider_result() {
     impl NativeAgentProvider for BlockingOwnedProvider {
         fn complete(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             self.started.send(()).expect("provider start should send");
             self.release
@@ -44,7 +44,7 @@ fn owned_task_runtime_cancels_normal_turn_and_ignores_late_provider_result() {
             &runner_services,
             json!({
                 "runtime": "rust",
-                "runId": "run-owned-cancel",
+                "turnId": "run-owned-cancel",
                 "sessionId": "session-owned-cancel",
                 "messages": [{ "role": "user", "content": "wait" }]
             }),
@@ -57,7 +57,7 @@ fn owned_task_runtime_cancels_normal_turn_and_ignores_late_provider_result() {
     let active = services
         .task_runtime
         .status("run-owned-cancel")
-        .expect("owned run status should exist");
+        .expect("owned turn status should exist");
     assert!(active.active);
     assert_eq!(active.phase, "running");
 
@@ -77,7 +77,7 @@ fn owned_task_runtime_cancels_normal_turn_and_ignores_late_provider_result() {
     let cancelled = services
         .task_runtime
         .status("run-owned-cancel")
-        .expect("cancelled run status should remain");
+        .expect("cancelled turn status should remain");
     assert_eq!(services.task_runtime.draining_count(), 0);
     assert_eq!(cancelled.terminal_outcome.as_deref(), Some("cancelled"));
     assert_eq!(cancelled.late_results_ignored, 0);
@@ -92,7 +92,7 @@ fn cancellation_during_subagent_wait_prevents_followup_model_call() {
     impl NativeAgentProvider for SpawnWaitProvider {
         fn complete(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             let mut calls = self
                 .calls
@@ -137,19 +137,19 @@ fn cancellation_during_subagent_wait_prevents_followup_model_call() {
     impl NativeAgentToolDispatcher for CancellingSubagentWaitDispatcher {
         fn dispatch(
             &self,
-            context: &NativeAgentRunContext,
+            context: &AgentTurnContext,
             tool_call: &NativeAgentToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             let result = self.fallback.dispatch(context, tool_call)?;
             if matches!(tool_call.name.as_str(), "subagent.wait" | "wait_agent") {
-                self.cancellations.cancel(&context.run_id);
+                self.cancellations.cancel(&context.turn_id);
             }
             Ok(result)
         }
 
         fn dispatch_async(
             self: Arc<Self>,
-            context: NativeAgentRunContext,
+            context: AgentTurnContext,
             tool_call: NativeAgentToolCall,
         ) -> std::pin::Pin<
             Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send>,
@@ -159,9 +159,9 @@ fn cancellation_during_subagent_wait_prevents_followup_model_call() {
                 return Box::pin(async move { result });
             }
             let cancellations = self.cancellations.clone();
-            let run_id = context.run_id.clone();
+            let turn_id = context.turn_id.clone();
             Box::pin(async move {
-                cancellations.cancel(&run_id);
+                cancellations.cancel(&turn_id);
                 tokio::time::sleep(Duration::from_millis(10)).await;
                 result
             })
@@ -191,7 +191,7 @@ fn cancellation_during_subagent_wait_prevents_followup_model_call() {
         &services,
         json!({
             "runtime": "rust",
-            "runId": "run-cancel-subagent-wait",
+            "turnId": "run-cancel-subagent-wait",
             "sessionId": "websocket:chat-cancel-subagent-wait",
             "maxIterations": 4,
             "messages": [{ "role": "user", "content": "spawn then wait" }]
@@ -239,7 +239,7 @@ fn stores_active_turn_tool_wait_and_cancellation_checkpoints() {
     impl NativeAgentProvider for CheckpointAwareProvider {
         fn complete(
             &self,
-            context: &NativeAgentRunContext,
+            context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             let checkpoint = self
                 .checkpoints
@@ -281,7 +281,7 @@ fn stores_active_turn_tool_wait_and_cancellation_checkpoints() {
     impl NativeAgentToolDispatcher for CheckpointAwareToolDispatcher {
         fn dispatch(
             &self,
-            context: &NativeAgentRunContext,
+            context: &AgentTurnContext,
             tool_call: &NativeAgentToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             let checkpoint = self
@@ -291,7 +291,7 @@ fn stores_active_turn_tool_wait_and_cancellation_checkpoints() {
             assert_eq!(checkpoint["phase"], "tool_running");
             assert_eq!(checkpoint["schemaVersion"], 1);
             assert_eq!(checkpoint["runtime"], "rust");
-            assert_eq!(checkpoint["runId"], context.run_id);
+            assert_eq!(checkpoint["turnId"], context.turn_id);
             assert_eq!(checkpoint["sessionId"], context.session_id);
             assert_eq!(checkpoint["iteration"], 0);
             assert_eq!(checkpoint["maxIterations"], 2);
@@ -331,7 +331,7 @@ fn stores_active_turn_tool_wait_and_cancellation_checkpoints() {
         &services,
         json!({
             "runtime": "rust",
-            "runId": "run-checkpoint-storage",
+            "turnId": "run-checkpoint-storage",
             "sessionId": "websocket:chat-checkpoint-storage",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "read" }]
@@ -349,7 +349,7 @@ fn stores_active_turn_tool_wait_and_cancellation_checkpoints() {
         &services,
         json!({
             "runtime": "rust",
-            "runId": "run-cancel-checkpoint",
+            "turnId": "run-cancel-checkpoint",
             "sessionId": "websocket:chat-cancel-checkpoint"
         }),
     )
@@ -371,7 +371,7 @@ fn runtime_checkpoint_store_isolates_same_session_runs() {
         "run-1",
         json!({
             "sessionId": "websocket:chat-1",
-            "runId": "run-1",
+            "turnId": "run-1",
             "phase": "tool_running"
         }),
     );
@@ -380,24 +380,24 @@ fn runtime_checkpoint_store_isolates_same_session_runs() {
         "run-2",
         json!({
             "sessionId": "websocket:chat-1",
-            "runId": "run-2",
+            "turnId": "run-2",
             "phase": "awaiting_approval"
         }),
     );
 
     assert_eq!(
-        services.restore_run_checkpoint("websocket:chat-1", "run-1")["checkpoint"]["runId"],
+        services.restore_run_checkpoint("websocket:chat-1", "run-1")["checkpoint"]["turnId"],
         "run-1"
     );
     assert_eq!(
-        services.restore_run_checkpoint("websocket:chat-1", "run-2")["checkpoint"]["runId"],
+        services.restore_run_checkpoint("websocket:chat-1", "run-2")["checkpoint"]["turnId"],
         "run-2"
     );
 
     services.clear_run_checkpoint("websocket:chat-1", "run-1");
     assert!(services.restore_run_checkpoint("websocket:chat-1", "run-1")["checkpoint"].is_null());
     assert_eq!(
-        services.restore_run_checkpoint("websocket:chat-1", "run-2")["checkpoint"]["runId"],
+        services.restore_run_checkpoint("websocket:chat-1", "run-2")["checkpoint"]["turnId"],
         "run-2"
     );
 }
@@ -410,7 +410,7 @@ fn runtime_checkpoint_restore_by_session_uses_latest_resumable_run() {
         "run-old",
         json!({
             "sessionId": "websocket:chat-1",
-            "runId": "run-old",
+            "turnId": "run-old",
             "phase": "tool_running"
         }),
     );
@@ -419,14 +419,14 @@ fn runtime_checkpoint_restore_by_session_uses_latest_resumable_run() {
         "run-new",
         json!({
             "sessionId": "websocket:chat-1",
-            "runId": "run-new",
+            "turnId": "run-new",
             "phase": "awaiting_form"
         }),
     );
 
     let restored = services.restore_checkpoint("websocket:chat-1");
 
-    assert_eq!(restored["checkpoint"]["runId"], "run-new");
+    assert_eq!(restored["checkpoint"]["turnId"], "run-new");
 }
 
 #[test]
@@ -438,7 +438,7 @@ fn native_run_projects_core_canonical_timeline_equally_live_and_after_reload() {
     impl NativeAgentProvider for AcceptanceProvider {
         fn complete(
             &self,
-            context: &NativeAgentRunContext,
+            context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             match self.calls.fetch_add(1, Ordering::SeqCst) {
                 0 => Ok(NativeAgentProviderResponse {
@@ -527,13 +527,13 @@ fn native_run_projects_core_canonical_timeline_equally_live_and_after_reload() {
     .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"]))
     .with_trace_sink(sink);
     let session_id = "websocket:chat-canonical-acceptance";
-    let run_id = "run-canonical-acceptance";
+    let turn_id = "run-canonical-acceptance";
 
     let result = run_native_agent_turn_with_services(
         &services,
         json!({
             "runtime": "rust",
-            "runId": run_id,
+            "turnId": turn_id,
             "sessionId": session_id,
             "metadata": { "clientEventId": "client-canonical-acceptance" },
             "messages": [{
@@ -556,7 +556,7 @@ fn native_run_projects_core_canonical_timeline_equally_live_and_after_reload() {
         .clone();
     let reloaded = crate::agent::runtime_protocol::project_timeline_snapshot(
         session_id,
-        run_id,
+        turn_id,
         &recorded_events,
     )
     .expect("native acceptance events should reload into one canonical snapshot");
@@ -606,7 +606,7 @@ fn native_run_projects_core_canonical_timeline_equally_live_and_after_reload() {
         .iter()
         .find(|item| item["kind"] == "plan_progress")
         .expect("canonical plan item should exist");
-    assert_eq!(plan["itemId"], format!("{run_id}:plan"));
+    assert_eq!(plan["itemId"], format!("{turn_id}:plan"));
     assert_eq!(plan["revision"], 2);
     assert_eq!(plan["status"], "completed");
     assert_eq!(plan["data"]["completed"], 2);
@@ -668,7 +668,7 @@ fn invalid_update_plan_returns_a_tool_error_that_the_model_can_correct() {
     impl NativeAgentProvider for RecoveringPlanProvider {
         fn complete(
             &self,
-            context: &NativeAgentRunContext,
+            context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             match self.calls.fetch_add(1, Ordering::SeqCst) {
                 0 => Ok(NativeAgentProviderResponse {
@@ -726,7 +726,7 @@ fn invalid_update_plan_returns_a_tool_error_that_the_model_can_correct() {
         &services,
         json!({
             "runtime": "rust",
-            "runId": "run-plan-correction",
+            "turnId": "run-plan-correction",
             "sessionId": "session-plan-correction",
             "maxIterations": 3,
             "messages": [{ "role": "user", "content": "Use a plan" }]
@@ -754,7 +754,7 @@ fn approval_and_form_continuations_fail_without_matching_checkpoints() {
     let approval_error = run_native_agent_turn_with_services(
         &services,
         json!({
-            "runId": "run-missing-approval-checkpoint",
+            "turnId": "run-missing-approval-checkpoint",
             "sessionId": "session-missing-approval-checkpoint",
             "metadata": {
                 "agentContinuation": {
@@ -770,7 +770,7 @@ fn approval_and_form_continuations_fail_without_matching_checkpoints() {
     let form_error = run_native_agent_turn_with_services(
         &services,
         json!({
-            "runId": "run-missing-form-checkpoint",
+            "turnId": "run-missing-form-checkpoint",
             "sessionId": "session-missing-form-checkpoint",
             "metadata": {
                 "agentContinuation": {
@@ -784,8 +784,8 @@ fn approval_and_form_continuations_fail_without_matching_checkpoints() {
     )
     .expect_err("form continuation must not synthesize success without a checkpoint");
 
-    assert!(approval_error.contains("matching run checkpoint"));
-    assert!(form_error.contains("matching run checkpoint"));
+    assert!(approval_error.contains("matching turn checkpoint"));
+    assert!(form_error.contains("matching turn checkpoint"));
 }
 
 #[test]
@@ -797,7 +797,7 @@ fn queued_user_message_continuation_becomes_next_turn_input() {
     impl NativeAgentProvider for RecordingProvider {
         fn complete(
             &self,
-            context: &NativeAgentRunContext,
+            context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             self.seen_messages
                 .lock()
@@ -826,7 +826,7 @@ fn queued_user_message_continuation_becomes_next_turn_input() {
         &services,
         json!({
             "runtime": "rust",
-            "runId": "run-queued-message",
+            "turnId": "run-queued-message",
             "sessionId": "websocket:chat-queued-message",
             "metadata": {
                 "agentContinuation": {
@@ -858,7 +858,7 @@ fn guidance_continuation_is_inserted_before_next_model_call_after_tools() {
     impl NativeAgentProvider for ToolThenFinalProvider {
         fn complete(
             &self,
-            context: &NativeAgentRunContext,
+            context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             let call_count = {
                 let mut seen_messages = self
@@ -906,7 +906,7 @@ fn guidance_continuation_is_inserted_before_next_model_call_after_tools() {
         &services,
         json!({
             "runtime": "rust",
-            "runId": "run-guided-message",
+            "turnId": "run-guided-message",
             "sessionId": "websocket:chat-guided-message",
             "maxIterations": 3,
             "messages": [{ "role": "user", "content": "read first" }],
@@ -950,7 +950,7 @@ fn provider_stream_observer_emits_live_deltas_without_duplicate_final_delta() {
     impl NativeAgentProvider for StreamingProvider {
         fn complete(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             Ok(NativeAgentProviderResponse {
                 final_content: "Hello".to_string(),
@@ -962,7 +962,7 @@ fn provider_stream_observer_emits_live_deltas_without_duplicate_final_delta() {
 
         fn complete_streaming(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
             observer: &mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
         ) -> Result<NativeAgentProviderResponse, String> {
             observer(NativeAgentProviderStreamEvent::ReasoningDelta(
@@ -994,7 +994,7 @@ fn provider_stream_observer_emits_live_deltas_without_duplicate_final_delta() {
         &services,
         json!({
             "runtime": "rust",
-            "runId": "run-streaming-provider",
+            "turnId": "run-streaming-provider",
             "sessionId": "websocket:chat-streaming-provider",
             "stream": true,
             "messages": [{ "role": "user", "content": "hello" }]
@@ -1037,7 +1037,7 @@ fn async_provider_is_not_called_when_run_was_cancelled_before_request() {
     impl NativeAgentProvider for CountingProvider {
         fn complete(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             self.0.fetch_add(1, Ordering::SeqCst);
             Ok(NativeAgentProviderResponse {
@@ -1063,7 +1063,7 @@ fn async_provider_is_not_called_when_run_was_cancelled_before_request() {
             &services,
             json!({
                 "runtime": "rust",
-                "runId": "run-async-cancel-before-request",
+                "turnId": "run-async-cancel-before-request",
                 "sessionId": "websocket:chat-async-cancel-before-request",
                 "messages": [{ "role": "user", "content": "hello" }]
             }),
@@ -1087,14 +1087,14 @@ fn async_provider_run_pauses_at_safe_boundary_and_resumes_same_run() {
     impl NativeAgentProvider for BoundaryProvider {
         fn complete(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             panic!("async provider path should not call blocking completion");
         }
 
         fn complete_streaming_async<'a>(
             self: Arc<Self>,
-            _context: &'a NativeAgentRunContext,
+            _context: &'a AgentTurnContext,
             _observer: &'a mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
         ) -> std::pin::Pin<
             Box<
@@ -1153,7 +1153,7 @@ fn async_provider_run_pauses_at_safe_boundary_and_resumes_same_run() {
                 &run_services,
                 json!({
                     "runtime": "rust",
-                    "runId": "run-safe-boundary-pause",
+                    "turnId": "run-safe-boundary-pause",
                     "sessionId": "websocket:chat-safe-boundary-pause",
                     "messages": [{ "role": "user", "content": "pause safely" }]
                 }),
@@ -1189,7 +1189,7 @@ fn async_provider_run_pauses_at_safe_boundary_and_resumes_same_run() {
         let paused_status = services
             .task_runtime()
             .status("run-safe-boundary-pause")
-            .expect("paused run status should exist");
+            .expect("paused turn status should exist");
         assert_eq!(paused_status.phase, "paused");
         assert!(paused_status.active);
 
@@ -1206,7 +1206,7 @@ fn async_provider_run_pauses_at_safe_boundary_and_resumes_same_run() {
             .expect("recorded events lock should not be poisoned")
             .clone();
 
-        assert_eq!(result["runId"], "run-safe-boundary-pause");
+        assert_eq!(result["turnId"], "run-safe-boundary-pause");
         assert_eq!(result["finalContent"], "done after resume");
         assert!(events.iter().any(|event| {
             event.event_name == "agent.paused" && event.payload["commandId"] == "command-pause-1"
@@ -1235,14 +1235,14 @@ fn async_provider_cancellation_after_partial_output_drops_stream_without_late_ev
     impl NativeAgentProvider for PendingStreamingProvider {
         fn complete(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             panic!("async provider path should not call the blocking completion method");
         }
 
         fn complete_streaming_async<'a>(
             self: Arc<Self>,
-            _context: &'a NativeAgentRunContext,
+            _context: &'a AgentTurnContext,
             observer: &'a mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
         ) -> std::pin::Pin<
             Box<
@@ -1295,7 +1295,7 @@ fn async_provider_cancellation_after_partial_output_drops_stream_without_late_ev
                 &run_services,
                 json!({
                     "runtime": "rust",
-                    "runId": "run-async-stream-cancel",
+                    "turnId": "run-async-stream-cancel",
                     "sessionId": "websocket:chat-async-stream-cancel",
                     "stream": true,
                     "messages": [{ "role": "user", "content": "hello" }]
@@ -1346,14 +1346,14 @@ fn async_provider_failures_keep_distinct_stop_reasons() {
     impl NativeAgentProvider for FailingProvider {
         fn complete(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             panic!("async provider path should not call the blocking completion method");
         }
 
         fn complete_streaming_async<'a>(
             self: Arc<Self>,
-            _context: &'a NativeAgentRunContext,
+            _context: &'a AgentTurnContext,
             _observer: &'a mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
         ) -> std::pin::Pin<
             Box<
@@ -1386,7 +1386,7 @@ fn async_provider_failures_keep_distinct_stop_reasons() {
             (NativeAgentProviderFailureKind::Provider, "provider_error"),
         ];
         for (index, (kind, expected_stop_reason)) in cases.into_iter().enumerate() {
-            let run_id = format!("run-async-provider-failure-{index}");
+            let turn_id = format!("run-async-provider-failure-{index}");
             let services = NativeAgentRuntimeServices::new(
                 Arc::new(FailingProvider(kind)),
                 Arc::new(FakeNativeAgentToolDispatcher),
@@ -1397,7 +1397,7 @@ fn async_provider_failures_keep_distinct_stop_reasons() {
                 &services,
                 json!({
                     "runtime": "rust",
-                    "runId": run_id,
+                    "turnId": turn_id,
                     "sessionId": format!("websocket:chat-provider-failure-{index}"),
                     "messages": [{ "role": "user", "content": "hello" }]
                 }),
@@ -1418,7 +1418,7 @@ fn hanging_cleanup_tool_batch_times_out_without_hanging_the_owned_run() {
     impl NativeAgentProvider for HangingToolProvider {
         fn complete(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             Ok(NativeAgentProviderResponse {
                 final_content: String::new(),
@@ -1458,7 +1458,7 @@ fn hanging_cleanup_tool_batch_times_out_without_hanging_the_owned_run() {
     impl NativeAgentToolDispatcher for HangingCleanupDispatcher {
         fn dispatch(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
             _tool_call: &NativeAgentToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             panic!("hanging cleanup test must use async dispatch");
@@ -1466,7 +1466,7 @@ fn hanging_cleanup_tool_batch_times_out_without_hanging_the_owned_run() {
 
         fn dispatch_async(
             self: Arc<Self>,
-            _context: NativeAgentRunContext,
+            _context: AgentTurnContext,
             _tool_call: NativeAgentToolCall,
         ) -> std::pin::Pin<
             Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send>,
@@ -1536,7 +1536,7 @@ fn hanging_cleanup_tool_batch_times_out_without_hanging_the_owned_run() {
                 &run_services,
                 json!({
                     "runtime": "rust",
-                    "runId": "run-hanging-tool-cleanup",
+                    "turnId": "run-hanging-tool-cleanup",
                     "sessionId": "session-hanging-tool-cleanup",
                     "maxIterations": 2,
                     "messages": [{ "role": "user", "content": "run hanging tool" }]
@@ -1578,7 +1578,7 @@ fn trace_context_and_hook_rewrite_follow_provider_tool_and_completion() {
     impl NativeAgentProvider for ToolThenFinalProvider {
         fn complete(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             let call = self.calls.fetch_add(1, Ordering::SeqCst);
             if call == 0 {
@@ -1623,7 +1623,7 @@ fn trace_context_and_hook_rewrite_follow_provider_tool_and_completion() {
     impl NativeAgentToolDispatcher for RecordingDispatcher {
         fn dispatch(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
             tool_call: &NativeAgentToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             let arguments = serde_json::from_str(&tool_call.arguments_json)
@@ -1663,7 +1663,6 @@ fn trace_context_and_hook_rewrite_follow_provider_tool_and_completion() {
             "traceId": "trace-traced-hook",
             "threadId": "thread-traced-hook",
             "turnId": "turn-traced-hook",
-            "runId": "run-traced-hook",
             "sessionId": "session-traced-hook",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "read" }]
@@ -1729,7 +1728,7 @@ fn lifecycle_hook_denial_aborts_before_provider_call() {
     impl NativeAgentProvider for CountingProvider {
         fn complete(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             self.0.fetch_add(1, Ordering::SeqCst);
             Ok(NativeAgentProviderResponse {
@@ -1756,7 +1755,7 @@ fn lifecycle_hook_denial_aborts_before_provider_call() {
         &services,
         json!({
             "runtime": "rust",
-            "runId": "run-hook-denied",
+            "turnId": "run-hook-denied",
             "sessionId": "session-hook-denied",
             "messages": [{ "role": "user", "content": "hello" }]
         }),

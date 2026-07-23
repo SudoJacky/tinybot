@@ -1,11 +1,11 @@
 use super::{
-    agent_run, replay_thread, replay_thread_transcript, thread_checkpoint_from_item,
-    thread_items_from_effective_rollout, thread_meta_from_lines, EventKind, ThreadLogItem,
+    replay_thread, replay_thread_transcript, thread_checkpoint_from_item,
+    thread_items_from_effective_rollout, thread_meta_from_lines, turn, EventKind, ThreadLogItem,
     ThreadLogLine, ThreadMeta, ThreadReplay,
 };
 use crate::protocol::WorkerProtocolError;
 use crate::threads::domain::{ThreadCheckpoint, ThreadItem};
-use crate::threads::session::AgentRunRecord;
+use crate::threads::session::AgentTurnRecord;
 
 #[derive(Clone, Debug)]
 pub(super) struct CanonicalRolloutReconstruction {
@@ -13,7 +13,7 @@ pub(super) struct CanonicalRolloutReconstruction {
     pub(super) transcript: ThreadReplay,
     pub(super) meta: ThreadMeta,
     pub(super) thread_items: Vec<ThreadItem>,
-    pub(super) agent_runs: Vec<AgentRunRecord>,
+    pub(super) turns: Vec<AgentTurnRecord>,
     pub(super) checkpoints: Vec<ThreadCheckpoint>,
     pub(super) active_turn: bool,
 }
@@ -31,8 +31,7 @@ pub(super) fn reconstruct_canonical_rollout(
         .iter()
         .map(|index| lines[*index].clone())
         .collect::<Vec<_>>();
-    let agent_runs =
-        agent_run::agent_run_records_from_lines(&session_id, &thread_id, &effective_lines)?;
+    let turns = turn::turn_records_from_lines(&session_id, &thread_id, &effective_lines)?;
     let thread_items =
         thread_items_from_effective_rollout(lines, &semantic.effective_line_indexes, &thread_id)?;
     let active_turn = effective_lines.iter().fold(false, |active, line| {
@@ -49,8 +48,8 @@ pub(super) fn reconstruct_canonical_rollout(
             | EventKind::SessionCleared
             | EventKind::SessionTrimmed
             | EventKind::ThreadItem
-            | EventKind::AgentRunCheckpointSet
-            | EventKind::AgentRunCheckpointClear => active,
+            | EventKind::TurnCheckpointSet
+            | EventKind::TurnCheckpointClear => active,
             EventKind::TurnStarted
             | EventKind::TaskStarted
             | EventKind::TurnComplete
@@ -67,7 +66,7 @@ pub(super) fn reconstruct_canonical_rollout(
         transcript,
         meta,
         thread_items,
-        agent_runs,
+        turns,
         checkpoints,
         active_turn,
     })
@@ -144,9 +143,8 @@ mod tests {
                 7,
                 EventKind::TurnStarted,
                 json!({
-                    "runId": "run-1",
                     "turnId": "turn-2",
-                    "agentRun": agent_run_record("session-child", "run-1", "turn-2")
+                    "turn": turn_record("session-child", "turn-2")
                 }),
             ),
             response_line(
@@ -154,7 +152,6 @@ mod tests {
                 json!({
                     "role": "user",
                     "content": "current question",
-                    "runId": "run-1",
                     "turnId": "turn-2",
                     "threadItemId": "item-current-user",
                     "threadItemSequence": 3
@@ -165,7 +162,6 @@ mod tests {
                 json!({
                     "role": "assistant",
                     "content": "current answer",
-                    "runId": "run-1",
                     "turnId": "turn-2",
                     "threadItemId": "item-current-assistant",
                     "threadItemSequence": 4
@@ -173,9 +169,9 @@ mod tests {
             ),
             event_line(
                 10,
-                EventKind::AgentRunCheckpointSet,
+                EventKind::TurnCheckpointSet,
                 json!({
-                    "runId": "run-1",
+                    "turnId": "turn-2",
                     "checkpoint": {
                         "phase": "tool_execution",
                         "status": "waiting",
@@ -192,7 +188,6 @@ mod tests {
                     "item": {
                         "itemId": "checkpoint-item",
                         "threadId": "thread-child",
-                        "runId": "run-1",
                         "turnId": "turn-2",
                         "sequence": 5,
                         "createdAt": timestamp(11),
@@ -217,18 +212,13 @@ mod tests {
                     }
                 }),
             ),
-            event_line(
-                13,
-                EventKind::TurnComplete,
-                json!({"runId": "run-1", "turnId": "turn-2"}),
-            ),
+            event_line(13, EventKind::TurnComplete, json!({"turnId": "turn-2"})),
             event_line(
                 14,
                 EventKind::TurnStarted,
                 json!({
-                    "runId": "run-discarded",
                     "turnId": "turn-3",
-                    "agentRun": agent_run_record("session-child", "run-discarded", "turn-3")
+                    "turn": turn_record("session-child", "turn-3")
                 }),
             ),
             response_line(
@@ -243,7 +233,7 @@ mod tests {
             event_line(
                 16,
                 EventKind::TurnComplete,
-                json!({"runId": "run-discarded", "turnId": "turn-3"}),
+                json!({"turnId": "turn-discarded", "turnId": "turn-3"}),
             ),
             event_line(17, EventKind::ThreadRolledBack, json!({"numTurns": 1})),
         ];
@@ -315,9 +305,9 @@ mod tests {
             .thread_items
             .iter()
             .all(|item| item.item_id != "item-discarded"));
-        assert_eq!(reconstructed.agent_runs.len(), 1);
-        assert_eq!(reconstructed.agent_runs[0].run_id, "run-1");
-        assert!(reconstructed.agent_runs[0].checkpoint.is_none());
+        assert_eq!(reconstructed.turns.len(), 1);
+        assert_eq!(reconstructed.turns[0].turn_id, "turn-1");
+        assert!(reconstructed.turns[0].checkpoint.is_none());
         assert_eq!(reconstructed.checkpoints.len(), 2);
         assert!(reconstructed
             .checkpoints
@@ -387,10 +377,10 @@ mod tests {
         }
     }
 
-    fn agent_run_record(session_id: &str, run_id: &str, turn_id: &str) -> Value {
+    fn turn_record(session_id: &str, turn_id: &str) -> Value {
         json!({
             "sessionId": session_id,
-            "runId": run_id,
+            "turnId": turn_id,
             "threadId": "thread-child",
             "turnId": turn_id,
             "parentThreadId": null,

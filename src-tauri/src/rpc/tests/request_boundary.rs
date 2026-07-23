@@ -6,18 +6,17 @@ fn tool_executor_preserves_explicit_parent_run_context() {
         tool_id: "subagent.spawn".to_string(),
         arguments: json!({
             "sessionKey": "session-parent",
-            "parentRunId": "run-parent",
+            "parentTurnId": "run-parent",
             "task": "Inspect one bounded boundary"
         }),
         thread_id: None,
-        run_id: Some("run-parent".to_string()),
         session_id: Some("session-parent".to_string()),
         turn_id: None,
         tool_call_id: Some("call-subagent-spawn".to_string()),
     });
 
-    assert_eq!(arguments["parentRunId"], "run-parent");
-    assert!(arguments.get("runId").is_none());
+    assert_eq!(arguments["parentTurnId"], "run-parent");
+    assert!(arguments.get("turnId").is_none());
 }
 
 #[test]

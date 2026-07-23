@@ -38,7 +38,7 @@ import {
   X,
 } from "lucide-react";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
-import type { ArtifactRef, ChatStep, ChatStepStatus } from "../../app-core/chat/chatRunModel";
+import type { ArtifactRef, ChatStep, ChatStepStatus } from "../../app-core/chat/chatTurnModel";
 import type { TinyOsBrowserAction, TinyOsCommandLifecycle } from "../../app-core/chat/tinyOsCommandGateway";
 import { validateTinyOsBrowserInteractionTarget } from "../../app-core/chat/tinyOsBrowserSession";
 import { createTinyOsShellCommandRegistry, defineTinyOsShellCommand, type TinyOsShellCommand, type TinyOsShellCommandId, type TinyOsShellCommandInput, type TinyOsShellCommandRegistry } from "../../app-core/chat/tinyOsShellCommandRegistry";
@@ -119,7 +119,7 @@ export function TinyOsShell({
   canExecuteTerminal = false,
   canInteractBrowser = false,
   canRequestChange,
-  canRetryRun,
+  canRetryTurn,
   canSaveFile = false,
   filesController,
   history = false,
@@ -141,7 +141,7 @@ export function TinyOsShell({
   resolvingApprovalId,
   requestChangeUnavailableReason,
   directEditUnavailableReason,
-  retryRunId,
+  retryTurnId,
   retryUnavailableReason,
   runtimeCommandRegistry,
   saveFileUnavailableReason,
@@ -149,7 +149,7 @@ export function TinyOsShell({
   terminalExecuteUnavailableReason,
   browserInteractUnavailableReason,
   browserRuntime,
-  runningTerminalRunId,
+  runningTerminalOperationId,
   sessionKey,
   submittingFormId,
   snapshot: sourceSnapshot,
@@ -162,7 +162,7 @@ export function TinyOsShell({
   canExecuteTerminal?: boolean;
   canInteractBrowser?: boolean;
   canRequestChange: boolean;
-  canRetryRun: boolean;
+  canRetryTurn: boolean;
   canSaveFile?: boolean;
   filesController?: TinyOsFilesController;
   history?: boolean;
@@ -184,7 +184,7 @@ export function TinyOsShell({
   resolvingApprovalId: string;
   requestChangeUnavailableReason?: string;
   directEditUnavailableReason?: string;
-  retryRunId?: string;
+  retryTurnId?: string;
   retryUnavailableReason?: string;
   runtimeCommandRegistry: TinyOsShellCommandRegistry;
   saveFileUnavailableReason?: string;
@@ -192,7 +192,7 @@ export function TinyOsShell({
   terminalExecuteUnavailableReason?: string;
   browserInteractUnavailableReason?: string;
   browserRuntime?: NativeBrowserRuntimeApi;
-  runningTerminalRunId?: string;
+  runningTerminalOperationId?: string;
   sessionKey?: string;
   submittingFormId?: string;
   snapshot: TinyOsDesktopSnapshot;
@@ -465,7 +465,7 @@ export function TinyOsShell({
     : { available: true as const };
   const retryAvailability = history
     ? { available: false as const, reason: "History snapshots are read-only.", reasonCode: "history_read_only" }
-    : canRetryRun
+    : canRetryTurn
       ? { available: true as const }
       : { available: false as const, reason: retryUnavailableReason || "The backend reports that retry is unavailable." };
   const terminalExecuteAvailability = history
@@ -475,7 +475,7 @@ export function TinyOsShell({
       : { available: false as const, reason: terminalExecuteUnavailableReason || "Terminal execution is unavailable." };
   const terminalCancelAvailability = history
     ? { available: false as const, reason: "Direct host actions are disabled while viewing History.", reasonCode: "history_read_only" }
-    : canCancelTerminal && runningTerminalRunId
+    : canCancelTerminal && runningTerminalOperationId
       ? { available: true as const }
       : { available: false as const, reason: terminalCancelUnavailableReason || "There is no running Terminal execution to cancel." };
   const browserSession = snapshot.kernel?.browserSessions[0];
@@ -522,7 +522,7 @@ export function TinyOsShell({
       keywords: ["terminal", "cancel", "stop", "interrupt"],
       label: "Cancel Terminal execution",
       scope: "runtime",
-      target: { kind: "run", runId: runningTerminalRunId ?? "no-active-terminal" },
+      target: { kind: "process", processId: runningTerminalOperationId ?? "no-active-terminal" },
     }),
     ...(["navigate", "click", "type"] as const).map((kind) => defineTinyOsShellCommand({
       availability: browserCommandAvailability(kind),
@@ -702,7 +702,7 @@ export function TinyOsShell({
       keywords: [entry.step.title, "retry", "operation"],
       label: `Retry ${entry.step.title}`,
       scope: "runtime",
-      target: { itemId: entry.step.id, kind: "operation", runId: entry.turnId, turnId: entry.turnId },
+      target: { itemId: entry.step.id, kind: "operation", turnId: entry.turnId },
     })),
     ...snapshot.notifications.flatMap((notification) => [
       defineTinyOsShellCommand({
@@ -803,7 +803,7 @@ export function TinyOsShell({
           keywords: [process.title, "reveal", "application"],
           label: `Reveal ${process.title}`,
           scope: "local_presentation",
-          target: { kind: "process", processId: process.id, runId: process.correlation.runId },
+          target: { kind: "process", processId: process.id },
         }),
         defineTinyOsShellCommand({
           availability: inspectable ? { available: true } : { available: false, reason: "No correlated canonical item is available to inspect." },
@@ -817,7 +817,7 @@ export function TinyOsShell({
           keywords: [process.title, "inspect", "evidence"],
           label: `Inspect ${process.title}`,
           scope: "local_presentation",
-          target: { kind: "process", processId: process.id, runId: process.correlation.runId },
+          target: { kind: "process", processId: process.id },
         }),
       ];
     }) ?? []),
@@ -825,18 +825,18 @@ export function TinyOsShell({
   const pauseCommand = requiredShellCommand(shellCommandRegistry, "agent.pause");
   const resumeCommand = requiredShellCommand(shellCommandRegistry, "agent.resume");
   const cancelCommand = requiredShellCommand(shellCommandRegistry, "agent.cancel");
-  const activeRunId = pauseCommand.target.kind === "run" ? pauseCommand.target.runId : undefined;
+  const activeTurnId = pauseCommand.target.kind === "turn" ? pauseCommand.target.turnId : undefined;
   const systemMonitorControls: TinyOsSystemMonitorControls = {
-    activeRunId,
-    canCancelRun: cancelCommand.availability.available,
-    canPauseRun: pauseCommand.availability.available,
-    canResumeRun: resumeCommand.availability.available,
-    canRetryRun,
+    activeTurnId,
+    canCancelTurn: cancelCommand.availability.available,
+    canPauseTurn: pauseCommand.availability.available,
+    canResumeTurn: resumeCommand.availability.available,
+    canRetryTurn,
     cancelUnavailableReason: cancelCommand.availability.available ? undefined : cancelCommand.availability.reason,
     commandLifecycle,
     history,
     inspectableItemIds: allEntries.map((entry) => entry.step.id),
-    onCancelRun: () => void shellCommandRegistry.execute(cancelCommand.id),
+    onCancelTurn: () => void shellCommandRegistry.execute(cancelCommand.id),
     onInspect: (process) => {
       void shellCommandRegistry.execute(`process.inspect:${process.id}`);
     },
@@ -848,8 +848,8 @@ export function TinyOsShell({
     onOpenResourceMenu: (resource, clientX, clientY) => openContextMenuAt(clientX, clientY, `${resource.title} resource menu`, [
       `resource.reveal:${resource.id}`,
     ]),
-    onPauseRun: () => void shellCommandRegistry.execute(pauseCommand.id),
-    onResumeRun: () => void shellCommandRegistry.execute(resumeCommand.id),
+    onPauseTurn: () => void shellCommandRegistry.execute(pauseCommand.id),
+    onResumeTurn: () => void shellCommandRegistry.execute(resumeCommand.id),
     onRetry: (process) => {
       if (process.correlation.itemId) void shellCommandRegistry.execute(`operation.retry:${process.correlation.itemId}`);
     },
@@ -858,7 +858,7 @@ export function TinyOsShell({
     },
     pauseUnavailableReason: pauseCommand.availability.available ? undefined : pauseCommand.availability.reason,
     resumeUnavailableReason: resumeCommand.availability.available ? undefined : resumeCommand.availability.reason,
-    retryRunId,
+    retryTurnId,
     retryUnavailableReason,
     revealableApplicationIds: [...availableApps],
   };
@@ -866,7 +866,6 @@ export function TinyOsShell({
     const cursor = snapshot.kernel?.cursor ?? {
       boundary: {
         itemId: entry.step.id,
-        runId: entry.turnId,
         sequence: entry.step.sequence,
         turnId: entry.turnId,
       },
@@ -1097,7 +1096,7 @@ export function TinyOsShell({
             requestChangeUnavailableReason={requestChangeUnavailableReason}
             directEditUnavailableReason={history ? "Direct host actions are disabled while viewing History." : directEditUnavailableReason}
             saveFileUnavailableReason={history ? "Direct host actions are disabled while viewing History." : saveFileUnavailableReason}
-            runningTerminalRunId={runningTerminalRunId}
+            runningTerminalOperationId={runningTerminalOperationId}
           />
         ))}
 
@@ -1438,7 +1437,7 @@ function TinyOsAppWindow({
   onSnap,
   onTabChange,
   requestChangeUnavailableReason,
-  runningTerminalRunId,
+  runningTerminalOperationId,
   saveFileUnavailableReason,
   systemMonitorControls,
   window,
@@ -1472,7 +1471,7 @@ function TinyOsAppWindow({
   onSnap: (edge: "left" | "right") => void;
   onTabChange: (tabId: string) => void;
   requestChangeUnavailableReason?: string;
-  runningTerminalRunId?: string;
+  runningTerminalOperationId?: string;
   saveFileUnavailableReason?: string;
   systemMonitorControls: TinyOsSystemMonitorControls;
   window: TinyOsWindow;
@@ -1652,7 +1651,7 @@ function TinyOsAppWindow({
           onSaveFile={onSaveFile}
           onTabChange={onTabChange}
           requestChangeUnavailableReason={requestChangeUnavailableReason}
-          runningTerminalRunId={runningTerminalRunId}
+          runningTerminalOperationId={runningTerminalOperationId}
           saveFileUnavailableReason={saveFileUnavailableReason}
           systemMonitorControls={systemMonitorControls}
         />
@@ -1670,7 +1669,7 @@ function TinyOsAppWindow({
   );
 }
 
-function TinyOsAppContent({ activeTabId, browserRuntime, browserSurfaceVisible, canDirectEdit, canRequestChange, canSaveFile, commandLifecycle, commandRegistry, directEditUnavailableReason, filesController, kernel, layoutMode, window, onAgentRequest, onAttachContext, onDeleteFile, onMoveFile, onOpenArtifact, onSaveFile, onTabChange, requestChangeUnavailableReason, runningTerminalRunId, saveFileUnavailableReason, systemMonitorControls }: {
+function TinyOsAppContent({ activeTabId, browserRuntime, browserSurfaceVisible, canDirectEdit, canRequestChange, canSaveFile, commandLifecycle, commandRegistry, directEditUnavailableReason, filesController, kernel, layoutMode, window, onAgentRequest, onAttachContext, onDeleteFile, onMoveFile, onOpenArtifact, onSaveFile, onTabChange, requestChangeUnavailableReason, runningTerminalOperationId, saveFileUnavailableReason, systemMonitorControls }: {
   activeTabId?: string;
   browserRuntime?: NativeBrowserRuntimeApi;
   browserSurfaceVisible: boolean;
@@ -1691,7 +1690,7 @@ function TinyOsAppContent({ activeTabId, browserRuntime, browserSurfaceVisible, 
   onSaveFile: (input: TinyOsFileSaveInput) => Promise<void>;
   onTabChange: (tabId: string) => void;
   requestChangeUnavailableReason?: string;
-  runningTerminalRunId?: string;
+  runningTerminalOperationId?: string;
   saveFileUnavailableReason?: string;
   systemMonitorControls: TinyOsSystemMonitorControls;
   window: TinyOsWindow;
@@ -1702,7 +1701,7 @@ function TinyOsAppContent({ activeTabId, browserRuntime, browserSurfaceVisible, 
         ? <TinyOsFilesExplorer canDirectEdit={canDirectEdit} canRequestChange={canRequestChange} canSave={canSaveFile} commandLifecycle={commandLifecycle} commandRegistry={commandRegistry} controller={filesController} directEditUnavailableReason={directEditUnavailableReason} kernel={kernel} layoutMode={layoutMode} onAttachContext={onAttachContext} onDeleteFile={onDeleteFile} onMoveFile={onMoveFile} onRequestExplanation={(reference) => onAgentRequest(reference, "explain")} onRequestModification={(reference) => onAgentRequest(reference, "modify")} onSaveFile={onSaveFile} requestChangeUnavailableReason={requestChangeUnavailableReason} saveUnavailableReason={saveFileUnavailableReason} />
         : <EmptyCopy text="Workspace Explorer is unavailable." />
       : <TinyOsFiles activeTabId={activeTabId} canRequestChange={canRequestChange} window={window} onAgentRequest={onAgentRequest} onAttachContext={onAttachContext} onTabChange={onTabChange} requestChangeUnavailableReason={requestChangeUnavailableReason} />;
-    case "terminal": return <div className="tinyos-terminal-host"><TinyOsTerminalHostControls commandLifecycle={commandLifecycle} commandRegistry={commandRegistry} runningRunId={runningTerminalRunId} />{window.entries.length ? <TinyOsTerminal activeTabId={activeTabId} canRequestChange={canRequestChange} kernel={kernel} window={window} onAgentRequest={onAgentRequest} onAttachContext={onAttachContext} onTabChange={onTabChange} requestChangeUnavailableReason={requestChangeUnavailableReason} /> : <EmptyCopy text="Run a reviewed command to create a retained canonical execution. TinyOS does not present this as a persistent PTY session." />}</div>;
+    case "terminal": return <div className="tinyos-terminal-host"><TinyOsTerminalHostControls commandLifecycle={commandLifecycle} commandRegistry={commandRegistry} runningOperationId={runningTerminalOperationId} />{window.entries.length ? <TinyOsTerminal activeTabId={activeTabId} canRequestChange={canRequestChange} kernel={kernel} window={window} onAgentRequest={onAgentRequest} onAttachContext={onAttachContext} onTabChange={onTabChange} requestChangeUnavailableReason={requestChangeUnavailableReason} /> : <EmptyCopy text="Run a reviewed command to create a retained canonical execution. TinyOS does not present this as a persistent PTY session." />}</div>;
     case "browser": return <TinyOsBrowser browserRuntime={browserRuntime} kernel={kernel} surfaceVisible={browserSurfaceVisible} />;
     case "plan": return <TinyOsPlan canRequestChange={canRequestChange} entry={[...window.entries].reverse().find(({ step }) => Boolean(step.plan)) ?? window.entries[window.entries.length - 1]} onAgentRequest={onAgentRequest} requestChangeUnavailableReason={requestChangeUnavailableReason} />;
     case "memory": return <TinyOsMemory window={window} />;
@@ -1767,10 +1766,10 @@ function TinyOsFiles({ activeTabId, canRequestChange, onAgentRequest, onAttachCo
   );
 }
 
-function TinyOsTerminalHostControls({ commandLifecycle, commandRegistry, runningRunId }: {
+function TinyOsTerminalHostControls({ commandLifecycle, commandRegistry, runningOperationId }: {
   commandLifecycle: TinyOsCommandLifecycle;
   commandRegistry: TinyOsShellCommandRegistry;
-  runningRunId?: string;
+  runningOperationId?: string;
 }) {
   const [command, setCommand] = useState("");
   const [cwd, setCwd] = useState(".");
@@ -1794,12 +1793,12 @@ function TinyOsTerminalHostControls({ commandLifecycle, commandRegistry, running
         setReviewed(false);
       }).catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
     }}>
-      <label><span>Command</span><input aria-label="TinyOS terminal command" disabled={!canExecute || Boolean(runningRunId)} placeholder="Enter a workspace command" value={command} onChange={(event) => { setCommand(event.currentTarget.value); setReviewed(false); }} /></label>
-      <label><span>cwd</span><input aria-label="TinyOS terminal working directory" disabled={!canExecute || Boolean(runningRunId)} value={cwd} onChange={(event) => { setCwd(event.currentTarget.value); setReviewed(false); }} /></label>
+      <label><span>Command</span><input aria-label="TinyOS terminal command" disabled={!canExecute || Boolean(runningOperationId)} placeholder="Enter a workspace command" value={command} onChange={(event) => { setCommand(event.currentTarget.value); setReviewed(false); }} /></label>
+      <label><span>cwd</span><input aria-label="TinyOS terminal working directory" disabled={!canExecute || Boolean(runningOperationId)} value={cwd} onChange={(event) => { setCwd(event.currentTarget.value); setReviewed(false); }} /></label>
       <div>
-        <button disabled={!canExecute || !command.trim() || Boolean(runningRunId)} title={canExecute ? "Review the exact command and execution boundary" : executeCommand.availability.reason} type="button" onClick={() => setReviewed(true)}>Review command</button>
-        <button disabled={!canExecute || !reviewed || !command.trim() || Boolean(runningRunId)} title="Execute read-only with network denied" type="submit"><Play aria-hidden="true" size={12} />Run command</button>
-        <button disabled={!canCancel || !runningRunId} title={canCancel ? "Interrupt the correlated TinyOS terminal process" : cancelCommand.availability.reason} type="button" onClick={() => {
+        <button disabled={!canExecute || !command.trim() || Boolean(runningOperationId)} title={canExecute ? "Review the exact command and execution boundary" : executeCommand.availability.reason} type="button" onClick={() => setReviewed(true)}>Review command</button>
+        <button disabled={!canExecute || !reviewed || !command.trim() || Boolean(runningOperationId)} title="Execute read-only with network denied" type="submit"><Play aria-hidden="true" size={12} />Run command</button>
+        <button disabled={!canCancel || !runningOperationId} title={canCancel ? "Interrupt the correlated TinyOS terminal process" : cancelCommand.availability.reason} type="button" onClick={() => {
           setError("");
           void commandRegistry.execute("terminal.cancel").then((execution) => {
             if (execution.status === "rejected") throw new Error(execution.reason);
@@ -1890,7 +1889,7 @@ function TinyOsTerminal({ activeTabId, canRequestChange, kernel, onAgentRequest,
       </div>
       <dl aria-label="Terminal execution identity" className="tinyos-terminal__identity" role="group">
         <div><dt>Contract</dt><dd>retained execution v1</dd></div>
-        <div><dt>Run / item</dt><dd><code>{active.turnId} / {active.step.id}</code></dd></div>
+        <div><dt>Turn / item</dt><dd><code>{active.turnId} / {active.step.id}</code></dd></div>
         <div><dt>Process</dt><dd><code>{execution.processId || "Unavailable"}</code></dd></div>
         <div><dt>cwd</dt><dd><code>{metadata.cwd || "Unavailable"}</code></dd></div>
         <div><dt>Boundary</dt><dd>{execution.sandboxMode} · network {execution.networkMode} · non-TTY</dd></div>

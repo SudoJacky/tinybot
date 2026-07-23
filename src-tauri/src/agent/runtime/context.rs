@@ -3,9 +3,9 @@ use super::continuations::queued_user_continuation_message;
 use super::hooks::AgentHookEvaluation;
 use super::tool_router::NativeToolRouter;
 use super::{
-    string_field, AgentHookInvocation, AgentTurnSettings, ComposedInstructions,
-    NativeAgentCancellation, NativeAgentCancellationContext, NativeAgentRunContext,
-    NativeAgentRuntimeServices, DEFAULT_NATIVE_AGENT_MAX_ITERATIONS,
+    string_field, AgentHookInvocation, AgentTurnContext, AgentTurnSettings, ComposedInstructions,
+    NativeAgentCancellation, NativeAgentCancellationContext, NativeAgentRuntimeServices,
+    DEFAULT_NATIVE_AGENT_MAX_ITERATIONS,
 };
 use crate::agent::runtime_protocol::AgentTraceContext;
 use crate::protocol::capability::default_desktop_capability_policy;
@@ -16,11 +16,8 @@ use serde_json::Value;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
-impl NativeAgentRunContext {
+impl AgentTurnContext {
     pub(super) fn from_spec(spec: Value, config_snapshot: Value) -> Self {
-        let run_id = string_field(&spec, "runId")
-            .or_else(|| string_field(&spec, "run_id"))
-            .unwrap_or_else(|| "native-rust-run".to_string());
         let session_id =
             normalized_session_id(&spec).unwrap_or_else(|| "native-rust-session".to_string());
         let metadata = spec
@@ -84,37 +81,36 @@ impl NativeAgentRunContext {
             .or_else(|| string_field(trace_value, "turn_id"))
             .or_else(|| string_field(&metadata, "turnId"))
             .or_else(|| string_field(&metadata, "turn_id"))
-            .unwrap_or_else(|| run_id.clone());
+            .unwrap_or_else(|| "native-rust-turn".to_string());
         let request_id = string_field(&spec, "requestId")
             .or_else(|| string_field(&spec, "request_id"))
             .or_else(|| string_field(trace_value, "requestId"))
             .or_else(|| string_field(trace_value, "request_id"))
             .or_else(|| string_field(&metadata, "requestId"))
             .or_else(|| string_field(&metadata, "request_id"))
-            .unwrap_or_else(|| format!("agent-run-{run_id}"));
+            .unwrap_or_else(|| format!("agent-turn-{turn_id}"));
         let trace_id = string_field(&spec, "traceId")
             .or_else(|| string_field(&spec, "trace_id"))
             .or_else(|| string_field(trace_value, "traceId"))
             .or_else(|| string_field(trace_value, "trace_id"))
             .or_else(|| string_field(&metadata, "traceId"))
             .or_else(|| string_field(&metadata, "trace_id"))
-            .unwrap_or_else(|| format!("trace-agent-run-{run_id}"));
-        let parent_run_id = string_field(&spec, "parentRunId")
-            .or_else(|| string_field(&spec, "parent_run_id"))
-            .or_else(|| string_field(trace_value, "parentRunId"))
-            .or_else(|| string_field(trace_value, "parent_run_id"))
-            .or_else(|| string_field(&metadata, "parentRunId"))
-            .or_else(|| string_field(&metadata, "parent_run_id"));
+            .unwrap_or_else(|| format!("trace-agent-turn-{turn_id}"));
+        let parent_turn_id = string_field(&spec, "parentTurnId")
+            .or_else(|| string_field(&spec, "parent_turn_id"))
+            .or_else(|| string_field(trace_value, "parentTurnId"))
+            .or_else(|| string_field(trace_value, "parent_turn_id"))
+            .or_else(|| string_field(&metadata, "parentTurnId"))
+            .or_else(|| string_field(&metadata, "parent_turn_id"));
         let trace_context = AgentTraceContext {
             request_id,
             trace_id,
-            run_id: run_id.clone(),
-            turn_id,
+            turn_id: turn_id.clone(),
             thread_id: thread_id.clone(),
-            parent_run_id,
+            parent_turn_id,
         };
         Self {
-            run_id,
+            turn_id,
             session_id,
             thread_id,
             messages,
@@ -178,10 +174,10 @@ impl NativeAgentRunContext {
     pub(super) fn attach_cancellation(
         &mut self,
         cancellations: Arc<dyn NativeAgentCancellation>,
-        task_runtime: crate::runtime::agent_task::AgentTaskRuntime,
+        task_runtime: crate::runtime::turn_execution::TurnExecutionRuntime,
     ) {
         self.cancellation = Some(NativeAgentCancellationContext::new(
-            self.run_id.clone(),
+            self.turn_id.clone(),
             cancellations,
             task_runtime,
         ));
@@ -221,36 +217,30 @@ impl NativeAgentRunContext {
 
 pub(crate) fn ensure_agent_trace_context(spec: &mut Value) -> Result<AgentTraceContext, String> {
     if !spec.is_object() {
-        return Err("agent run spec must be a JSON object before trace initialization".to_string());
+        return Err(
+            "agent turn spec must be a JSON object before trace initialization".to_string(),
+        );
     }
-    let existing_run_id = string_field(spec, "runId").or_else(|| string_field(spec, "run_id"));
+    let existing_turn_id = string_field(spec, "turnId").or_else(|| string_field(spec, "turn_id"));
     let correlation = next_worker_request_correlation();
-    let run_id = existing_run_id.unwrap_or_else(|| correlation.id("agent-run"));
+    let turn_id = existing_turn_id.unwrap_or_else(|| correlation.id("agent-turn"));
     let request_id = string_field(spec, "requestId")
         .or_else(|| string_field(spec, "request_id"))
         .or_else(|| {
             spec.get("traceContext")
                 .and_then(|trace| string_field(trace, "requestId"))
         })
-        .unwrap_or_else(|| correlation.id("agent-run-request"));
+        .unwrap_or_else(|| correlation.id("agent-turn-request"));
     let trace_id = string_field(spec, "traceId")
         .or_else(|| string_field(spec, "trace_id"))
         .or_else(|| {
             spec.get("traceContext")
                 .and_then(|trace| string_field(trace, "traceId"))
         })
-        .unwrap_or_else(|| correlation.trace_id("agent-run"));
-    let turn_id = string_field(spec, "turnId")
-        .or_else(|| string_field(spec, "turn_id"))
-        .or_else(|| {
-            spec.get("traceContext")
-                .and_then(|trace| string_field(trace, "turnId"))
-        })
-        .unwrap_or_else(|| run_id.clone());
+        .unwrap_or_else(|| correlation.trace_id("agent-turn"));
     let object = spec
         .as_object_mut()
-        .ok_or_else(|| "agent run spec must remain a JSON object".to_string())?;
-    object.insert("runId".to_string(), Value::String(run_id));
+        .ok_or_else(|| "agent turn spec must remain a JSON object".to_string())?;
     object.insert("turnId".to_string(), Value::String(turn_id));
     object.insert("requestId".to_string(), Value::String(request_id));
     object.insert("traceId".to_string(), Value::String(trace_id));
@@ -260,28 +250,22 @@ pub(crate) fn ensure_agent_trace_context(spec: &mut Value) -> Result<AgentTraceC
 pub(crate) fn agent_trace_context_from_value(value: &Value) -> AgentTraceContext {
     let trace_value = value.get("traceContext").unwrap_or(&Value::Null);
     let metadata = value.get("metadata").unwrap_or(&Value::Null);
-    let run_id = string_field(value, "runId")
-        .or_else(|| string_field(value, "run_id"))
-        .or_else(|| string_field(trace_value, "runId"))
-        .or_else(|| string_field(trace_value, "run_id"))
-        .unwrap_or_else(|| "native-rust-run".to_string());
     let turn_id = string_field(value, "turnId")
         .or_else(|| string_field(value, "turn_id"))
         .or_else(|| string_field(trace_value, "turnId"))
         .or_else(|| string_field(trace_value, "turn_id"))
-        .unwrap_or_else(|| run_id.clone());
+        .unwrap_or_else(|| "native-rust-turn".to_string());
     AgentTraceContext {
         request_id: string_field(value, "requestId")
             .or_else(|| string_field(value, "request_id"))
             .or_else(|| string_field(trace_value, "requestId"))
             .or_else(|| string_field(trace_value, "request_id"))
-            .unwrap_or_else(|| format!("agent-run-{run_id}")),
+            .unwrap_or_else(|| format!("agent-turn-{turn_id}")),
         trace_id: string_field(value, "traceId")
             .or_else(|| string_field(value, "trace_id"))
             .or_else(|| string_field(trace_value, "traceId"))
             .or_else(|| string_field(trace_value, "trace_id"))
-            .unwrap_or_else(|| format!("trace-agent-run-{run_id}")),
-        run_id: run_id.clone(),
+            .unwrap_or_else(|| format!("trace-agent-turn-{turn_id}")),
         turn_id,
         thread_id: string_field(value, "threadId")
             .or_else(|| string_field(value, "thread_id"))
@@ -289,12 +273,12 @@ pub(crate) fn agent_trace_context_from_value(value: &Value) -> AgentTraceContext
             .or_else(|| string_field(trace_value, "thread_id"))
             .or_else(|| string_field(metadata, "threadId"))
             .or_else(|| string_field(metadata, "thread_id")),
-        parent_run_id: string_field(value, "parentRunId")
-            .or_else(|| string_field(value, "parent_run_id"))
-            .or_else(|| string_field(trace_value, "parentRunId"))
-            .or_else(|| string_field(trace_value, "parent_run_id"))
-            .or_else(|| string_field(metadata, "parentRunId"))
-            .or_else(|| string_field(metadata, "parent_run_id")),
+        parent_turn_id: string_field(value, "parentTurnId")
+            .or_else(|| string_field(value, "parent_turn_id"))
+            .or_else(|| string_field(trace_value, "parentTurnId"))
+            .or_else(|| string_field(trace_value, "parent_turn_id"))
+            .or_else(|| string_field(metadata, "parentTurnId"))
+            .or_else(|| string_field(metadata, "parent_turn_id")),
     }
 }
 

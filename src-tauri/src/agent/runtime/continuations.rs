@@ -1,6 +1,6 @@
 use super::events::{event, runtime_event_item_id, runtime_event_timestamp};
 use super::result::{append_runtime_events_to_sink, cancelled_result};
-use super::state::NativeAgentRunState;
+use super::state::AgentTurnState;
 use super::tool_projection::{
     append_continuation_tool_error_observation, append_continuation_tool_observation,
     completed_tool_result_entry, normalize_tool_result_for_context,
@@ -9,9 +9,9 @@ use super::tool_projection::{
 use super::tool_runtime::{dispatch_owned_tool_call, OwnedToolCallResult};
 use super::usage::{enrich_usage_with_context_window, estimate_context_tokens_for_request};
 use super::{
-    string_field, NativeAgentEvent, NativeAgentProviderFailureKind, NativeAgentProviderStreamEvent,
-    NativeAgentRunContext, NativeAgentRuntimeServices, NativeAgentToolCall, NativeAgentToolResult,
-    NativeToolResultEnvelope,
+    string_field, AgentTurnContext, NativeAgentEvent, NativeAgentProviderFailureKind,
+    NativeAgentProviderStreamEvent, NativeAgentRuntimeServices, NativeAgentToolCall,
+    NativeAgentToolResult, NativeToolResultEnvelope,
 };
 use crate::agent::runtime_protocol::{
     AgentApprovalDecision, AgentApprovalScope, AgentContinuationInput, AgentRuntimeEventAppender,
@@ -29,7 +29,7 @@ pub(super) fn typed_continuation_from_metadata(metadata: &Value) -> Option<Agent
 
 pub(super) fn restore_activated_tools_for_continuation(
     services: &NativeAgentRuntimeServices,
-    context: &mut NativeAgentRunContext,
+    context: &mut AgentTurnContext,
 ) -> Result<(), String> {
     let Some(continuation) = typed_continuation_from_metadata(&context.metadata) else {
         return Ok(());
@@ -42,9 +42,9 @@ pub(super) fn restore_activated_tools_for_continuation(
     }
     let checkpoint = services
         .checkpoints
-        .restore_for_run(&context.session_id, &context.run_id)
+        .restore_for_turn(&context.session_id, &context.turn_id)
         .ok_or_else(|| {
-            "approval and form continuations require a matching run checkpoint".to_string()
+            "approval and form continuations require a matching turn checkpoint".to_string()
         })?;
     let checkpoint_kind = checkpoint.pointer("/payload/kind").and_then(Value::as_str);
     let is_approval_checkpoint = checkpoint_kind == Some("tool_approval");
@@ -125,7 +125,7 @@ fn user_continuation_message(content: String) -> Option<Value> {
 
 pub(super) async fn maybe_approval_resume_result(
     services: &NativeAgentRuntimeServices,
-    context: &mut NativeAgentRunContext,
+    context: &mut AgentTurnContext,
 ) -> Result<Option<ApprovalContinuationOutcome>, String> {
     let Some((approval, continuation)) = approval_resume_metadata(context) else {
         return Ok(None);
@@ -133,7 +133,7 @@ pub(super) async fn maybe_approval_resume_result(
     let approved = matches!(continuation.decision, AgentApprovalDecision::Approved);
     let checkpoint = services
         .checkpoints
-        .restore_for_run(&context.session_id, &context.run_id);
+        .restore_for_turn(&context.session_id, &context.turn_id);
     if checkpoint.is_none() {
         return Err("approval continuation checkpoint is missing".to_string());
     }
@@ -179,7 +179,7 @@ pub(super) async fn maybe_approval_resume_result(
     }
     services
         .checkpoints
-        .clear_for_run(&context.session_id, &context.run_id);
+        .clear_for_turn(&context.session_id, &context.turn_id);
     let message = continuation
         .guidance
         .clone()
@@ -191,7 +191,7 @@ pub(super) async fn maybe_approval_resume_result(
         event(
             "agent.error",
             serde_json::json!({
-                "runId": context.run_id,
+                "turnId": context.turn_id,
                 "sessionId": context.session_id,
                 "stopReason": "approval_denied",
                 "message": message,
@@ -204,7 +204,7 @@ pub(super) async fn maybe_approval_resume_result(
     Ok(Some(ApprovalContinuationOutcome::Finished(
         serde_json::json!({
             "runtime": "rust",
-            "runId": context.run_id,
+            "turnId": context.turn_id,
             "sessionId": context.session_id,
             "finalContent": "",
             "stopReason": "approval_denied",
@@ -219,7 +219,7 @@ pub(super) async fn maybe_approval_resume_result(
 
 async fn approved_tool_continuation_outcome(
     services: &NativeAgentRuntimeServices,
-    context: &mut NativeAgentRunContext,
+    context: &mut AgentTurnContext,
     continuation: &ApprovalContinuationData,
     checkpoint: Value,
 ) -> Result<ApprovalContinuationOutcome, String> {
@@ -248,7 +248,7 @@ async fn approved_tool_continuation_outcome(
     .await;
     services
         .checkpoints
-        .clear_for_run(&context.session_id, &context.run_id);
+        .clear_for_turn(&context.session_id, &context.turn_id);
     let result = match dispatch_result.map_err(|error| {
         format!(
             "approved native tool `{}` dispatch failed: {error}",
@@ -261,7 +261,7 @@ async fn approved_tool_continuation_outcome(
         OwnedToolCallResult::Cancelled => {
             return Ok(ApprovalContinuationOutcome::Finished(cancelled_result(
                 services,
-                &context.run_id,
+                &context.turn_id,
                 &context.session_id,
                 checkpoint,
             )));
@@ -316,13 +316,13 @@ async fn approved_tool_continuation_outcome(
 
 fn continuation_runtime_events(
     services: &NativeAgentRuntimeServices,
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     events: &[NativeAgentEvent],
 ) -> Result<Vec<AgentRuntimeEventEnvelope>, String> {
     let existing = services
         .trace_sink
         .as_ref()
-        .map(|sink| sink.load_runtime_events(&context.session_id, &context.run_id))
+        .map(|sink| sink.load_runtime_events(&context.session_id, &context.turn_id))
         .transpose()?
         .unwrap_or_default();
     let mut appender = if existing.is_empty() {
@@ -333,7 +333,7 @@ fn continuation_runtime_events(
     } else {
         AgentRuntimeEventAppender::from_existing_events_with_thread_id(
             &context.session_id,
-            &context.run_id,
+            &context.turn_id,
             context.thread_id.clone(),
             &existing,
         )
@@ -352,7 +352,7 @@ fn continuation_runtime_events(
 }
 
 fn approved_tool_cleanup_timeout_result(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     continuation: &ApprovalContinuationData,
     tool_call: &NativeAgentToolCall,
     checkpoint: Value,
@@ -370,7 +370,7 @@ fn approved_tool_cleanup_timeout_result(
         event(
             "agent.tool.cleanup_timeout",
             serde_json::json!({
-                "runId": context.run_id,
+                "turnId": context.turn_id,
                 "sessionId": context.session_id,
                 "stopReason": "tool_cleanup_timeout",
                 "error": error,
@@ -384,7 +384,7 @@ fn approved_tool_cleanup_timeout_result(
     ];
     serde_json::json!({
         "runtime": "rust",
-        "runId": context.run_id,
+        "turnId": context.turn_id,
         "sessionId": context.session_id,
         "finalContent": "",
         "stopReason": "tool_cleanup_timeout",
@@ -434,7 +434,7 @@ fn approved_pending_tool_call(checkpoint: &Value) -> Result<NativeAgentToolCall,
 
 async fn approval_denied_guidance_result(
     services: &NativeAgentRuntimeServices,
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     approval: &Value,
     continuation: &ApprovalContinuationData,
     guidance: String,
@@ -442,7 +442,7 @@ async fn approval_denied_guidance_result(
 ) -> Result<Value, String> {
     services
         .checkpoints
-        .clear_for_run(&context.session_id, &context.run_id);
+        .clear_for_turn(&context.session_id, &context.turn_id);
     let tool_call = approval_resume_tool_call(checkpoint.as_ref(), approval)?;
     let summary = format!("Approval denied by user. Guidance: {guidance}");
     let result = NativeAgentToolResult {
@@ -471,7 +471,7 @@ async fn approval_denied_guidance_result(
         event(
             "agent.tool.result",
             serde_json::json!({
-                "runId": context.run_id,
+                "turnId": context.turn_id,
                 "sessionId": context.session_id,
                 "toolCallId": tool_call.id,
                 "toolName": tool_call.name,
@@ -498,7 +498,7 @@ async fn approval_denied_guidance_result(
             _ = cancellation.cancelled() => {
                 return Ok(cancelled_result(
                     services,
-                    &context.run_id,
+                    &context.turn_id,
                     &context.session_id,
                     checkpoint.unwrap_or(Value::Null),
                 ));
@@ -523,7 +523,7 @@ async fn approval_denied_guidance_result(
                 events.push(event(
                     "agent.usage",
                     serde_json::json!({
-                        "runId": context.run_id,
+                        "turnId": context.turn_id,
                         "sessionId": context.session_id,
                         "usage": usage,
                     }),
@@ -533,14 +533,14 @@ async fn approval_denied_guidance_result(
             events.push(event(
                 "agent.done",
                 serde_json::json!({
-                    "runId": context.run_id,
+                    "turnId": context.turn_id,
                     "sessionId": context.session_id,
                     "stopReason": "final_response",
                 }),
             ));
             serde_json::json!({
                 "runtime": "rust",
-                "runId": context.run_id,
+                "turnId": context.turn_id,
                 "sessionId": context.session_id,
                 "finalContent": final_content,
                 "stopReason": "final_response",
@@ -561,7 +561,7 @@ async fn approval_denied_guidance_result(
         Err(error) if error.kind() == NativeAgentProviderFailureKind::Cancelled => {
             cancelled_result(
                 services,
-                &context.run_id,
+                &context.turn_id,
                 &context.session_id,
                 checkpoint.unwrap_or(Value::Null),
             )
@@ -572,7 +572,7 @@ async fn approval_denied_guidance_result(
             events.push(event(
                 "agent.error",
                 serde_json::json!({
-                    "runId": context.run_id,
+                    "turnId": context.turn_id,
                     "sessionId": context.session_id,
                     "stopReason": stop_reason,
                     "message": message,
@@ -581,7 +581,7 @@ async fn approval_denied_guidance_result(
             ));
             serde_json::json!({
                 "runtime": "rust",
-                "runId": context.run_id,
+                "turnId": context.turn_id,
                 "sessionId": context.session_id,
                 "finalContent": "",
                 "stopReason": stop_reason,
@@ -629,11 +629,11 @@ fn approval_resume_tool_call(
 }
 
 fn approval_decision_event(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     continuation: &ApprovalContinuationData,
 ) -> NativeAgentEvent {
     let mut payload = serde_json::json!({
-        "runId": context.run_id,
+        "turnId": context.turn_id,
         "sessionId": context.session_id,
         "approvalId": continuation.approval_id,
         "detailId": format!("approval:{}", continuation.approval_id),
@@ -679,11 +679,7 @@ pub(super) struct ApprovalResume {
 }
 
 impl ApprovalResume {
-    pub(super) fn apply(
-        self,
-        context: &NativeAgentRunContext,
-        state: &mut NativeAgentRunState,
-    ) -> i64 {
+    pub(super) fn apply(self, context: &AgentTurnContext, state: &mut AgentTurnState) -> i64 {
         state
             .completed_tool_results
             .extend(self.restored_completed_results);
@@ -694,7 +690,7 @@ impl ApprovalResume {
         state.emit_event(
             "agent.tool.result",
             serde_json::json!({
-                "runId": context.run_id,
+                "turnId": context.turn_id,
                 "sessionId": context.session_id,
                 "iteration": self.iteration,
                 "toolCallId": self.tool_call.id,
@@ -725,7 +721,7 @@ struct ApprovalContinuationData {
 }
 
 fn approval_resume_metadata(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
 ) -> Option<(Value, ApprovalContinuationData)> {
     if let Some(AgentContinuationInput::Approval {
         approval_id,
@@ -771,17 +767,17 @@ fn approval_resume_metadata(
     None
 }
 
-fn typed_continuation_metadata(context: &NativeAgentRunContext) -> Option<AgentContinuationInput> {
+fn typed_continuation_metadata(context: &AgentTurnContext) -> Option<AgentContinuationInput> {
     typed_continuation_from_metadata(&context.metadata)
 }
 
-fn final_message_event(context: &NativeAgentRunContext, content: &str) -> NativeAgentEvent {
+fn final_message_event(context: &AgentTurnContext, content: &str) -> NativeAgentEvent {
     event(
         "agent.message.completed",
         serde_json::json!({
-            "runId": context.run_id,
+            "turnId": context.turn_id,
             "sessionId": context.session_id,
-            "messageId": format!("{}:assistant:0", context.run_id),
+            "messageId": format!("{}:assistant:0", context.turn_id),
             "messagePhase": "final_answer",
             "content": content,
         }),

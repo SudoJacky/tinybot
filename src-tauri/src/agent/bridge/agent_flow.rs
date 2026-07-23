@@ -1,8 +1,8 @@
 use crate::agent::bridge::{
     hydrate_native_agent_history_for_runtime, native_agent_context_checkpoint_committer,
     native_agent_services_with_tool_executor, native_agent_trace_sink,
-    persist_native_agent_checkpoint_if_present, persist_native_agent_run_start,
-    persist_native_agent_run_terminal_if_present, reject_native_agent_terminal_run_reentry,
+    persist_native_agent_checkpoint_if_present, persist_native_agent_turn_start,
+    persist_native_agent_turn_terminal_if_present, reject_native_agent_terminal_turn_reentry,
 };
 use crate::agent::runtime::{
     ensure_agent_trace_context, run_native_agent_turn_with_workspace_and_instructions_async,
@@ -19,7 +19,7 @@ pub(crate) async fn run_agent_with_services(
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 ) -> Result<serde_json::Value, String> {
     let trace_context = ensure_agent_trace_context(&mut spec)?;
-    if let Some(mut rejection) = reject_native_agent_terminal_run_reentry(
+    if let Some(mut rejection) = reject_native_agent_terminal_turn_reentry(
         &spec,
         workspace_root.clone(),
         config_snapshot.clone(),
@@ -37,7 +37,7 @@ pub(crate) async fn run_agent_with_services(
     instructions.attach_diagnostics(&mut persistence_spec)?;
     persistence_spec["materializedSystemPrompt"] =
         serde_json::Value::String(instructions.rendered_prompt().to_string());
-    persist_native_agent_run_start(
+    persist_native_agent_turn_start(
         persistence_spec.clone(),
         workspace_root.clone(),
         config_snapshot.clone(),
@@ -76,11 +76,11 @@ pub(crate) async fn run_agent_with_services(
         (Ok(_), Err(flush_error)) => return Err(flush_error),
         (Err(run_error), Err(flush_error)) => {
             return Err(format!(
-            "native agent run failed: {run_error}; trace persistence flush failed: {flush_error}"
+            "native agent turn failed: {run_error}; trace persistence flush failed: {flush_error}"
         ))
         }
     };
-    persist_native_agent_run_terminal_if_present(
+    persist_native_agent_turn_terminal_if_present(
         persistence_spec.clone(),
         &mut result,
         workspace_root.clone(),

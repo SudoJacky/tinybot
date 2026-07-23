@@ -4,7 +4,7 @@ use super::*;
 fn runs_fixture_streaming_final_answer_with_frontend_events() {
     let result = run_native_agent_turn(json!({
         "runtime": "rust",
-        "runId": "run-1",
+        "turnId": "run-1",
         "sessionId": "websocket:chat-1",
         "stream": true,
         "messages": [{ "role": "user", "content": "hello" }],
@@ -66,7 +66,7 @@ fn runs_fixture_streaming_final_answer_with_frontend_events() {
 fn turn_started_preserves_client_event_id_for_canonical_reconciliation() {
     let result = run_native_agent_turn(json!({
         "runtime": "rust",
-        "runId": "run-client-event",
+        "turnId": "run-client-event",
         "sessionId": "websocket:chat-client-event",
         "input": {
             "role": "user",
@@ -93,10 +93,10 @@ fn turn_started_preserves_client_event_id_for_canonical_reconciliation() {
 
 #[test]
 fn agent_chat_request_trims_old_messages_to_context_window() {
-    let context = NativeAgentRunContext::from_spec(
+    let context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
-            "runId": "run-context-window",
+            "turnId": "run-context-window",
             "sessionId": "websocket:chat-context-window",
             "messages": [
                 { "role": "user", "content": "old message ".repeat(200) },
@@ -126,10 +126,10 @@ fn agent_chat_request_trims_old_messages_to_context_window() {
 
 #[test]
 fn context_window_trimming_does_not_orphan_tool_results() {
-    let context = NativeAgentRunContext::from_spec(
+    let context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
-            "runId": "run-context-tool-unit",
+            "turnId": "run-context-tool-unit",
             "sessionId": "session-context-tool-unit",
             "messages": [
                 { "role": "user", "content": "old message ".repeat(200) },
@@ -177,9 +177,9 @@ fn context_window_trimming_does_not_orphan_tool_results() {
 
 #[test]
 fn system_prompt_survives_context_window_trimming() {
-    let mut context = NativeAgentRunContext::from_spec(
+    let mut context = AgentTurnContext::from_spec(
         json!({
-            "runId": "run-system-prompt-context-window",
+            "turnId": "run-system-prompt-context-window",
             "sessionId": "session-system-prompt-context-window",
             "messages": [
                 { "role": "user", "content": "old message ".repeat(200) },
@@ -213,12 +213,12 @@ fn system_prompt_survives_context_window_trimming() {
 }
 
 #[test]
-fn agent_run_emits_context_trim_event_when_old_messages_are_discarded() {
+fn agent_turn_emits_context_trim_event_when_old_messages_are_discarded() {
     let result = run_native_agent_turn_with_config(
         &NativeAgentRuntimeServices::default(),
         json!({
             "runtime": "rust",
-            "runId": "run-context-trim-event",
+            "turnId": "run-context-trim-event",
             "sessionId": "websocket:chat-context-trim-event",
             "messages": [
                 { "role": "user", "content": "old message ".repeat(200) },
@@ -254,10 +254,10 @@ fn agent_run_emits_context_trim_event_when_old_messages_are_discarded() {
 
 #[test]
 fn agent_chat_request_requests_stream_usage() {
-    let context = NativeAgentRunContext::from_spec(
+    let context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
-            "runId": "run-stream-usage",
+            "turnId": "run-stream-usage",
             "sessionId": "websocket:chat-stream-usage",
             "stream": true,
             "messages": [{ "role": "user", "content": "hello" }]
@@ -280,10 +280,10 @@ fn agent_chat_request_requests_stream_usage() {
 
 #[test]
 fn agent_chat_request_compacts_old_messages_when_strategy_is_compact() {
-    let context = NativeAgentRunContext::from_spec(
+    let context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
-            "runId": "run-context-compact",
+            "turnId": "run-context-compact",
             "sessionId": "websocket:chat-context-compact",
             "messages": [
                 { "role": "user", "content": "old context ".repeat(200) },
@@ -322,10 +322,10 @@ fn agent_chat_request_compacts_old_messages_when_strategy_is_compact() {
 
 #[test]
 fn context_compaction_fails_when_one_atomic_unit_exceeds_summary_budget() {
-    let context = NativeAgentRunContext::from_spec(
+    let context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
-            "runId": "run-context-compact-oversized-unit",
+            "turnId": "run-context-compact-oversized-unit",
             "sessionId": "session-context-compact-oversized-unit",
             "messages": [
                 { "role": "user", "content": "indivisible context ".repeat(500) },
@@ -354,12 +354,12 @@ fn context_compaction_fails_when_one_atomic_unit_exceeds_summary_budget() {
 }
 
 #[test]
-fn agent_run_emits_compaction_failed_without_installing_a_checkpoint() {
+fn agent_turn_emits_compaction_failed_without_installing_a_checkpoint() {
     let result = run_native_agent_turn_with_config(
         &NativeAgentRuntimeServices::default(),
         json!({
             "runtime": "rust",
-            "runId": "run-context-compaction-failed",
+            "turnId": "run-context-compaction-failed",
             "sessionId": "session-context-compaction-failed",
             "messages": [
                 { "role": "user", "content": "indivisible context ".repeat(500) },
@@ -408,12 +408,12 @@ fn agent_run_emits_compaction_failed_without_installing_a_checkpoint() {
 }
 
 #[test]
-fn agent_run_emits_context_compaction_event_when_old_messages_are_summarized() {
+fn agent_turn_emits_context_compaction_event_when_old_messages_are_summarized() {
     let result = run_native_agent_turn_with_config(
         &NativeAgentRuntimeServices::default(),
         json!({
             "runtime": "rust",
-            "runId": "run-context-compact-event",
+            "turnId": "run-context-compact-event",
             "sessionId": "websocket:chat-context-compact-event",
             "messages": [
                 { "role": "user", "content": "old context ".repeat(200) },
@@ -499,9 +499,9 @@ fn agent_run_emits_context_compaction_event_when_old_messages_are_summarized() {
 
 #[test]
 fn context_checkpoint_uses_hydrated_parent_context_id() {
-    let context = NativeAgentRunContext::from_spec(
+    let context = AgentTurnContext::from_spec(
         json!({
-            "runId": "run-context-lineage",
+            "turnId": "run-context-lineage",
             "sessionId": "session-context-lineage",
             "metadata": {
                 "contextSourceCheckpointId": "previous-context",
@@ -517,7 +517,7 @@ fn context_checkpoint_uses_hydrated_parent_context_id() {
         }),
         json!({}),
     );
-    let state = super::state::NativeAgentRunState::new(&context, None).unwrap();
+    let state = super::state::AgentTurnState::new(&context, None).unwrap();
     let checkpoint = state.compacted_context_checkpoint(
         &[json!({ "role": "system", "content": "summary" })],
         &json!({ "contextId": "next-context" }),
@@ -535,7 +535,7 @@ fn in_memory_context_checkpoint_committer_bootstraps_and_enforces_lineage() {
     let committer = InMemoryNativeAgentContextCheckpointCommitter::default();
     let commit = |context_id: &str, source_context_id: &str| NativeAgentContextCheckpointCommit {
         session_id: "session-context-lineage".to_string(),
-        run_id: format!("run-{context_id}"),
+        turn_id: format!("run-{context_id}"),
         thread_id: None,
         checkpoint: json!({
             "contextId": context_id,
@@ -563,7 +563,7 @@ fn context_compaction_commit_failure_keeps_live_context_unmodified() {
         &services,
         json!({
             "runtime": "rust",
-            "runId": "run-context-commit-failed",
+            "turnId": "run-context-commit-failed",
             "sessionId": "session-context-commit-failed",
             "messages": [
                 { "role": "user", "content": "old context ".repeat(200) },
@@ -633,7 +633,7 @@ fn context_compaction_summarizes_oversized_history_in_bounded_layers() {
         &NativeAgentRuntimeServices::default(),
         json!({
             "runtime": "rust",
-            "runId": "run-context-layered-summary",
+            "turnId": "run-context-layered-summary",
             "sessionId": "session-context-layered-summary",
             "messages": messages
         }),
@@ -677,7 +677,7 @@ fn context_compaction_masks_large_tool_output_without_splitting_its_call() {
         &NativeAgentRuntimeServices::default(),
         json!({
             "runtime": "rust",
-            "runId": "run-context-tool-mask",
+            "turnId": "run-context-tool-mask",
             "sessionId": "session-context-tool-mask",
             "messages": [
                 { "role": "user", "content": "old message ".repeat(300) },
@@ -762,7 +762,7 @@ fn compacted_context_becomes_the_next_tool_iteration_baseline() {
     impl NativeAgentProvider for ToolThenFinishProvider {
         fn complete(
             &self,
-            context: &NativeAgentRunContext,
+            context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             self.contexts
                 .lock()
@@ -796,7 +796,7 @@ fn compacted_context_becomes_the_next_tool_iteration_baseline() {
     impl NativeAgentToolDispatcher for ReadDispatcher {
         fn dispatch(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
             tool_call: &NativeAgentToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             Ok(NativeAgentToolResult::generic_success(
@@ -820,7 +820,7 @@ fn compacted_context_becomes_the_next_tool_iteration_baseline() {
         &services,
         json!({
             "runtime": "rust",
-            "runId": "run-durable-context-compact",
+            "turnId": "run-durable-context-compact",
             "sessionId": "session-durable-context-compact",
             "messages": [
                 { "role": "user", "content": "old context ".repeat(300) },
@@ -874,7 +874,7 @@ fn agent_usage_event_includes_context_window_budget() {
         &NativeAgentRuntimeServices::default(),
         json!({
             "runtime": "rust",
-            "runId": "run-usage-window",
+            "turnId": "run-usage-window",
             "sessionId": "websocket:chat-usage-window",
             "messages": [{ "role": "user", "content": "hello" }]
         }),
@@ -915,7 +915,7 @@ fn user_file_and_image_parts_emit_typed_reference_items() {
         &NativeAgentRuntimeServices::default(),
         json!({
             "runtime": "rust",
-            "runId": "run-file-references",
+            "turnId": "run-file-references",
             "sessionId": "websocket:chat-file-references",
             "messages": [{
                 "role": "user",
@@ -952,10 +952,10 @@ fn user_file_and_image_parts_emit_typed_reference_items() {
 
 #[test]
 fn usage_context_window_prefers_provider_total_tokens() {
-    let context = NativeAgentRunContext::from_spec(
+    let context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
-            "runId": "run-total-usage",
+            "turnId": "run-total-usage",
             "sessionId": "websocket:chat-total-usage",
             "messages": [{ "role": "user", "content": "hello" }]
         }),
@@ -997,7 +997,7 @@ fn agent_usage_event_falls_back_to_estimated_context_when_provider_omits_usage()
     impl NativeAgentProvider for NoUsageProvider {
         fn complete(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             Ok(NativeAgentProviderResponse {
                 final_content: "no usage answer".to_string(),
@@ -1009,7 +1009,7 @@ fn agent_usage_event_falls_back_to_estimated_context_when_provider_omits_usage()
 
         fn complete_streaming(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
             observer: &mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
         ) -> Result<NativeAgentProviderResponse, String> {
             observer(NativeAgentProviderStreamEvent::ContentDelta(
@@ -1032,7 +1032,7 @@ fn agent_usage_event_falls_back_to_estimated_context_when_provider_omits_usage()
         &services,
         json!({
             "runtime": "rust",
-            "runId": "run-estimated-usage",
+            "turnId": "run-estimated-usage",
             "sessionId": "websocket:chat-estimated-usage",
             "messages": [{ "role": "user", "content": "hello world" }]
         }),
@@ -1073,7 +1073,7 @@ fn agent_usage_event_falls_back_to_estimated_context_when_provider_omits_usage()
 fn emits_user_visible_status_events_without_legacy_event_projection() {
     let result = run_native_agent_turn(json!({
         "runtime": "rust",
-        "runId": "run-status",
+        "turnId": "run-status",
         "sessionId": "websocket:chat-status",
         "stream": true,
         "messages": [{ "role": "user", "content": "hello" }],
@@ -1086,7 +1086,7 @@ fn emits_user_visible_status_events_without_legacy_event_projection() {
         event["eventName"] == "agent.status"
             && event["phase"] == "calling_model"
             && event["visibility"] == "user"
-            && event["payload"]["runId"] == "run-status"
+            && event["payload"]["turnId"] == "run-status"
             && event["payload"]["sessionId"] == "websocket:chat-status"
             && event["payload"]["phase"] == "calling_model"
             && event["payload"]["label"] == "Calling model"

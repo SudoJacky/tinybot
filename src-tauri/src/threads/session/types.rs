@@ -66,7 +66,7 @@ pub struct DeleteSessionResult {
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum AgentRunStatus {
+pub enum AgentTurnStatus {
     Running,
     Waiting,
     Completed,
@@ -77,18 +77,16 @@ pub enum AgentRunStatus {
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AgentRunRecord {
+pub struct AgentTurnRecord {
     pub session_id: String,
-    pub run_id: String,
+    pub turn_id: String,
     #[serde(default)]
     pub thread_id: Option<String>,
-    #[serde(default)]
-    pub turn_id: Option<String>,
     #[serde(default)]
     pub parent_thread_id: Option<String>,
     #[serde(default)]
     pub child_thread_ids: Vec<String>,
-    pub status: AgentRunStatus,
+    pub status: AgentTurnStatus,
     pub phase: String,
     pub started_at: String,
     pub updated_at: String,
@@ -124,14 +122,13 @@ pub struct AgentRunRecord {
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AgentRunSummary {
+pub struct AgentTurnSummary {
     pub session_id: String,
-    pub run_id: String,
+    pub turn_id: String,
     pub thread_id: Option<String>,
-    pub turn_id: Option<String>,
     pub parent_thread_id: Option<String>,
     pub child_thread_ids: Vec<String>,
-    pub status: AgentRunStatus,
+    pub status: AgentTurnStatus,
     pub phase: String,
     pub started_at: String,
     pub updated_at: String,
@@ -146,8 +143,8 @@ pub struct AgentRunSummary {
     pub artifact_count: usize,
 }
 
-impl AgentRunSummary {
-    pub fn from_record(record: &AgentRunRecord) -> Self {
+impl AgentTurnSummary {
+    pub fn from_record(record: &AgentTurnRecord) -> Self {
         let tools_used = record
             .completed_tool_results
             .iter()
@@ -161,9 +158,8 @@ impl AgentRunSummary {
             .collect::<Vec<_>>();
         Self {
             session_id: record.session_id.clone(),
-            run_id: record.run_id.clone(),
-            thread_id: record.thread_id.clone(),
             turn_id: record.turn_id.clone(),
+            thread_id: record.thread_id.clone(),
             parent_thread_id: record.parent_thread_id.clone(),
             child_thread_ids: record.child_thread_ids.clone(),
             status: record.status.clone(),
@@ -185,28 +181,28 @@ impl AgentRunSummary {
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AgentRunCheckpoint {
+pub struct AgentTurnCheckpoint {
     pub session_id: String,
-    pub run_id: String,
+    pub turn_id: String,
     pub checkpoint: Value,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AgentRunRuntimeState {
+pub struct AgentTurnRuntimeState {
     pub runtime_events: Vec<crate::agent::runtime_protocol::AgentRuntimeEventEnvelope>,
     pub timeline: crate::agent::runtime_protocol::AgentTimelineSnapshot,
 }
 
-impl AgentRunRuntimeState {
+impl AgentTurnRuntimeState {
     pub fn from_runtime_events(
         session_id: &str,
-        run_id: &str,
+        turn_id: &str,
         runtime_events: Vec<crate::agent::runtime_protocol::AgentRuntimeEventEnvelope>,
     ) -> Result<Self, WorkerProtocolError> {
         let timeline = crate::agent::runtime_protocol::project_timeline_snapshot(
             session_id,
-            run_id,
+            turn_id,
             &runtime_events,
         )
         .map_err(|reason| {
@@ -215,7 +211,7 @@ impl AgentRunRuntimeState {
                 "failed to project canonical agent timeline",
                 serde_json::json!({
                     "sessionId": session_id,
-                    "runId": run_id,
+                    "turnId": turn_id,
                     "reason": reason,
                 }),
                 false,
@@ -229,7 +225,7 @@ impl AgentRunRuntimeState {
     }
 }
 
-fn final_content_preview(record: &AgentRunRecord) -> Option<String> {
+fn final_content_preview(record: &AgentTurnRecord) -> Option<String> {
     record.trace_messages.iter().rev().find_map(|message| {
         let role = message.get("role").and_then(Value::as_str)?;
         if role != "assistant" {

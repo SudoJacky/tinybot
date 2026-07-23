@@ -81,7 +81,7 @@ export interface ChatToolActivityProjection {
   approvalStatus: string;
   scopeKey?: string;
   scopeLabel?: string;
-  childRunId?: string;
+  childTurnId?: string;
   delegatedTrace?: Record<string, unknown>;
   delegateId?: string;
   delegateTask?: string;
@@ -91,10 +91,9 @@ export interface ChatToolActivityProjection {
   id: string;
   kind: "call" | "result";
   name: string;
-  parentRunId?: string;
   parentTurnId?: string;
   responseText: string;
-  runChainItemKey?: string;
+  turnChainItemKey?: string;
   selected?: boolean;
   sessionKey?: string;
   status?: string;
@@ -124,7 +123,7 @@ export type DelegatedAgentState = {
   approvalPolicy?: string;
   approvalStatus?: string;
   artifacts?: ArtifactRef[];
-  childRunId?: string;
+  childTurnId?: string;
   childToolCallId?: string;
   finalOutput?: string;
   id: string;
@@ -162,10 +161,10 @@ export type DelegatedAgentTraceStep = {
 export type DelegatedAgentTraceState = {
   approvals?: unknown[];
   artifacts?: ArtifactRef[];
-  childRunId?: string;
+  childTurnId?: string;
   delegateId: string;
   finalMessage?: ChatMessage;
-  parentRunId?: string;
+  parentTurnId?: string;
   parentSessionKey?: string;
   status: ChatStepStatus;
   steps: DelegatedAgentTraceStep[];
@@ -329,10 +328,10 @@ export type ChatInspectorSelection =
   | { kind: "reference"; sessionKey: string; referenceId: string }
   | { kind: "error"; sessionKey: string; turnId: string; stepId: string };
 
-export type ChatRunState = {
+export type ChatTurnState = {
   appliedEventIds: Set<string>;
   artifactsBySession: Map<string, Map<string, ArtifactRef>>;
-  delegatedRunsBySession: Map<string, Map<string, DelegatedAgentState>>;
+  delegatedTurnsBySession: Map<string, Map<string, DelegatedAgentState>>;
   legacyMessagesBySession: Map<string, NativeChatMessage[]>;
   selectedInspector: ChatInspectorSelection | null;
   turnsBySession: Map<string, ChatTurn[]>;
@@ -375,7 +374,7 @@ export type CanonicalTurnItemData = Record<string, unknown> & (
   | { type: "tool_call"; toolCallId: string; name: string; status: string; args: unknown; result: unknown; detailId?: string | null; timing: unknown }
   | { type: "approval"; approvalId: string; toolCallId?: string | null; status: string; reason?: string | null; decision?: string | null; scope?: string | null; guidance?: string | null; detailId?: string | null }
   | { type: "form"; formId: string; status: string; title?: string | null; action?: string | null; fieldIds: string[]; values: unknown; errors?: Record<string, string> | null; detailId?: string | null }
-  | { type: "subagent_lifecycle"; agentId: string; action: string; status: string; message?: string | null; childRunId?: string | null; childThreadId?: string | null; parentAgentId?: string | null; parentRunId?: string | null; name?: string | null; task?: string | null; traceRef?: string | null }
+  | { type: "subagent_lifecycle"; agentId: string; action: string; status: string; message?: string | null; childTurnId?: string | null; childThreadId?: string | null; parentAgentId?: string | null; parentTurnId?: string | null; name?: string | null; task?: string | null; traceRef?: string | null }
   | { type: "subagent_message"; agentId: string; messageId: string; content: string; visibility: string }
   | { type: "plan_progress"; id: string; explanation?: string | null; steps: Array<{ step: string; status: "pending" | "in_progress" | "completed" }>; summary: string; completed: number; total: number; currentStep?: string | null }
   | { type: "context_compaction"; id: string; summary: string; droppedItemCount: number; estimatedTokensBefore?: number | null; estimatedTokensAfter?: number | null }
@@ -390,7 +389,6 @@ export type BackendAgentTurnItem = {
   itemId: string;
   sessionId: string;
   threadId?: string;
-  runId: string;
   turnId: string;
   parentItemId?: string;
   sequence: number;
@@ -407,12 +405,12 @@ export type BackendAgentTurnItem = {
 export type BackendAgentTimelineSnapshot = {
   schemaVersion: "tinybot.timeline.v2";
   sessionId: string;
-  runId: string;
+  turnId: string;
   snapshotRevision: number;
   items: BackendAgentTurnItem[];
 };
 
-export type BackendAgentRunRuntimeState = {
+export type BackendAgentTurnRuntimeState = {
   runtimeEvents?: unknown[];
   timeline: BackendAgentTimelineSnapshot;
 };
@@ -420,7 +418,7 @@ export type BackendAgentRunRuntimeState = {
 export type BackendAgentTimelinePatch = {
   schemaVersion: "tinybot.timeline_patch.v2";
   sessionId: string;
-  runId: string;
+  turnId: string;
   snapshotRevision: number;
   item: BackendAgentTurnItem;
 };
@@ -433,16 +431,16 @@ export type ChatInspectorPanel = {
   title: string;
 };
 
-export type ChatInspectorRegistry = Record<ChatInspectorSelection["kind"], (state: ChatRunState, selection: ChatInspectorSelection) => ChatInspectorPanel>;
+export type ChatInspectorRegistry = Record<ChatInspectorSelection["kind"], (state: ChatTurnState, selection: ChatInspectorSelection) => ChatInspectorPanel>;
 
 const SENSITIVE_KEYS = new Set(["api_key", "token", "secret", "password", "authorization", "cookie", "credential", "private_key"]);
 const UNSAFE_KEYS = new Set(["html", "script", "style", "component", "handler", "renderer", "template", "onClick", "onSubmit"]);
 
-export function createChatRunState(): ChatRunState {
+export function createChatTurnState(): ChatTurnState {
   return {
     appliedEventIds: new Set(),
     artifactsBySession: new Map(),
-    delegatedRunsBySession: new Map(),
+    delegatedTurnsBySession: new Map(),
     legacyMessagesBySession: new Map(),
     selectedInspector: null,
     turnsBySession: new Map(),
@@ -460,19 +458,19 @@ export function createChatInspectorRegistry(): ChatInspectorRegistry {
   };
 }
 
-export function selectChatInspector(state: ChatRunState, selection: ChatInspectorSelection | null): ChatRunState {
+export function selectChatInspector(state: ChatTurnState, selection: ChatInspectorSelection | null): ChatTurnState {
   state.selectedInspector = selection;
   return state;
 }
 
-export function resolveChatInspectorPanel(state: ChatRunState, selection = state.selectedInspector): ChatInspectorPanel | null {
+export function resolveChatInspectorPanel(state: ChatTurnState, selection = state.selectedInspector): ChatInspectorPanel | null {
   if (!selection) {
     return null;
   }
   return createChatInspectorRegistry()[selection.kind](state, selection);
 }
 
-export function getArtifactRef(state: ChatRunState, sessionKey: string, artifactId: string): ArtifactRef | null {
+export function getArtifactRef(state: ChatTurnState, sessionKey: string, artifactId: string): ArtifactRef | null {
   return state.artifactsBySession.get(sessionKey)?.get(artifactId) ?? null;
 }
 
@@ -533,7 +531,7 @@ export function legacyMessagesToTurns(sessionKey: string, messages: NativeChatMe
   return turns;
 }
 
-export function normalizeAgentRunRuntimeStatePayload(payload: unknown): BackendAgentRunRuntimeState {
+export function normalizeAgentTurnRuntimeStatePayload(payload: unknown): BackendAgentTurnRuntimeState {
   const value = recordValue(payload);
   const timeline = normalizeAgentTimelineSnapshotPayload(value.timeline);
   return {
@@ -548,33 +546,33 @@ export function normalizeAgentTimelineSnapshotPayload(payload: unknown): Backend
     throw new Error(`Unsupported canonical timeline schema: ${stringValue(timeline.schemaVersion) || "missing"}`);
   }
   const sessionId = requiredCanonicalString(timeline, "sessionId");
-  const runId = requiredCanonicalString(timeline, "runId");
+  const turnId = requiredCanonicalString(timeline, "turnId");
   const snapshotRevision = requiredCanonicalNumber(timeline, "snapshotRevision");
   if (!Array.isArray(timeline.items)) {
-    throw new Error(`Canonical timeline ${runId} is missing items`);
+    throw new Error(`Canonical timeline ${turnId} is missing items`);
   }
   const seenItemIds = new Set<string>();
   let previousSequence = -1;
   const items = timeline.items.map((raw, index) => {
     if (!isRecord(raw)) {
-      throw new Error(`Canonical timeline ${runId} item ${index} is not an object`);
+      throw new Error(`Canonical timeline ${turnId} item ${index} is not an object`);
     }
-    const item = normalizeCanonicalTurnItem(raw, sessionId, runId);
+    const item = normalizeCanonicalTurnItem(raw, sessionId, turnId);
     if (seenItemIds.has(item.itemId)) {
-      throw new Error(`Canonical timeline ${runId} contains duplicate item ${item.itemId}`);
+      throw new Error(`Canonical timeline ${turnId} contains duplicate item ${item.itemId}`);
     }
     if (item.sequence < previousSequence) {
-      throw new Error(`Canonical timeline ${runId} item ${item.itemId} has non-monotonic sequence ${item.sequence}`);
+      throw new Error(`Canonical timeline ${turnId} item ${item.itemId} has non-monotonic sequence ${item.sequence}`);
     }
     seenItemIds.add(item.itemId);
     previousSequence = item.sequence;
     return item;
   });
-  validateCanonicalFinalAnswerBoundary(items, runId);
+  validateCanonicalFinalAnswerBoundary(items, turnId);
   return {
     schemaVersion: "tinybot.timeline.v2",
     sessionId,
-    runId,
+    turnId,
     snapshotRevision,
     items,
   };
@@ -586,16 +584,16 @@ export function normalizeAgentTimelinePatchPayload(payload: unknown): BackendAge
     throw new Error(`Unsupported canonical timeline patch schema: ${stringValue(value.schemaVersion) || "missing"}`);
   }
   const sessionId = requiredCanonicalString(value, "sessionId");
-  const runId = requiredCanonicalString(value, "runId");
+  const turnId = requiredCanonicalString(value, "turnId");
   if (!isRecord(value.item)) {
-    throw new Error(`Canonical timeline patch ${sessionId}/${runId} is missing item`);
+    throw new Error(`Canonical timeline patch ${sessionId}/${turnId} is missing item`);
   }
   return {
     schemaVersion: "tinybot.timeline_patch.v2",
     sessionId,
-    runId,
+    turnId,
     snapshotRevision: requiredCanonicalNumber(value, "snapshotRevision"),
-    item: normalizeCanonicalTurnItem(value.item, sessionId, runId),
+    item: normalizeCanonicalTurnItem(value.item, sessionId, turnId),
   };
 }
 
@@ -608,16 +606,16 @@ const CANONICAL_ITEM_KINDS = new Set<CanonicalTurnItemKind>([
 function normalizeCanonicalTurnItem(
   raw: Record<string, unknown>,
   sessionId: string,
-  runId: string,
+  turnId: string,
 ): BackendAgentTurnItem {
   if (stringValue(raw.schemaVersion) !== "tinybot.turn_item.v2") {
     throw new Error(`Unsupported canonical item schema for ${stringValue(raw.itemId) || "unknown item"}`);
   }
   const itemId = requiredCanonicalString(raw, "itemId");
   const itemSessionId = requiredCanonicalString(raw, "sessionId");
-  const itemRunId = requiredCanonicalString(raw, "runId");
-  if (itemSessionId !== sessionId || itemRunId !== runId) {
-    throw new Error(`Canonical item ${itemId} identity does not match timeline ${sessionId}/${runId}`);
+  const itemTurnId = requiredCanonicalString(raw, "turnId");
+  if (itemSessionId !== sessionId || itemTurnId !== turnId) {
+    throw new Error(`Canonical item ${itemId} identity does not match timeline ${sessionId}/${turnId}`);
   }
   const kind = stringValue(raw.kind) as CanonicalTurnItemKind;
   if (!CANONICAL_ITEM_KINDS.has(kind)) {
@@ -639,8 +637,7 @@ function normalizeCanonicalTurnItem(
     itemId,
     sessionId: itemSessionId,
     ...(stringValue(raw.threadId) ? { threadId: stringValue(raw.threadId) } : {}),
-    runId: itemRunId,
-    turnId: requiredCanonicalString(raw, "turnId"),
+    turnId: itemTurnId,
     ...(stringValue(raw.parentItemId) ? { parentItemId: stringValue(raw.parentItemId) } : {}),
     sequence: requiredCanonicalNumber(raw, "sequence"),
     revision: requiredCanonicalNumber(raw, "revision"),
@@ -662,7 +659,7 @@ function assistantMessagePhase(value: unknown, itemId: string): AssistantMessage
   throw new Error(`Canonical assistant item ${itemId} has invalid phase ${phase || "missing"}`);
 }
 
-function validateCanonicalFinalAnswerBoundary(items: BackendAgentTurnItem[], runId: string): void {
+function validateCanonicalFinalAnswerBoundary(items: BackendAgentTurnItem[], turnId: string): void {
   const finalItem = items.find((item) => (
     item.kind === "assistant_message" && stringValue(item.data.phase) === "final_answer"
   ));
@@ -681,7 +678,7 @@ function validateCanonicalFinalAnswerBoundary(items: BackendAgentTurnItem[], run
       || item.kind === "context_compaction"
   ));
   if (invalid) {
-    throw new Error(`Canonical timeline ${runId} item ${invalid.itemId} appears after final answer ${finalItem.itemId}`);
+    throw new Error(`Canonical timeline ${turnId} item ${invalid.itemId} appears after final answer ${finalItem.itemId}`);
   }
 }
 
@@ -703,7 +700,7 @@ function requiredCanonicalNumber(value: Record<string, unknown>, key: string): n
 
 export function backendRuntimeStatesToTurns(
   sessionKey: string,
-  runtimeStates: BackendAgentRunRuntimeState[],
+  runtimeStates: BackendAgentTurnRuntimeState[],
 ): ChatTurn[] {
   const statesWithItems = runtimeStates
     .filter((state) => state.timeline.sessionId === sessionKey && state.timeline.items.length > 0)
@@ -712,16 +709,16 @@ export function backendRuntimeStatesToTurns(
 }
 
 export function applyBackendRuntimeStates(
-  state: ChatRunState,
+  state: ChatTurnState,
   sessionKey: string,
-  runtimeStates: BackendAgentRunRuntimeState[],
+  runtimeStates: BackendAgentTurnRuntimeState[],
 ): boolean {
   const turns = backendRuntimeStatesToTurns(sessionKey, runtimeStates);
   state.turnsBySession.set(sessionKey, turns);
   return runtimeStates.some((runtimeState) => runtimeState.timeline.items.length > 0);
 }
 
-export function reduceAgentEvent(state: ChatRunState, event: AgentEventEnvelope): ChatRunState {
+export function reduceAgentEvent(state: ChatTurnState, event: AgentEventEnvelope): ChatTurnState {
   if (state.appliedEventIds.has(event.event_id)) {
     return state;
   }
@@ -893,9 +890,9 @@ export function reduceAgentEvent(state: ChatRunState, event: AgentEventEnvelope)
     return state;
   }
 
-  if (isDelegatedRunEventType(event.event_type)) {
+  if (isDelegatedTurnEventType(event.event_type)) {
     const delegate = delegateFromPayload(event.payload);
-    storeDelegatedRun(state, event.session_key, delegate);
+    storeDelegatedTurn(state, event.session_key, delegate);
     for (const artifact of delegate.artifacts ?? []) {
       storeArtifact(state, event.session_key, artifact);
     }
@@ -942,12 +939,12 @@ export function reduceAgentEvent(state: ChatRunState, event: AgentEventEnvelope)
   return state;
 }
 
-function compareRuntimeStatesByStart(left: BackendAgentRunRuntimeState, right: BackendAgentRunRuntimeState): number {
+function compareRuntimeStatesByStart(left: BackendAgentTurnRuntimeState, right: BackendAgentTurnRuntimeState): number {
   return compareRuntimeTimestamps(runtimeStateStart(left), runtimeStateStart(right))
-    || left.timeline.runId.localeCompare(right.timeline.runId);
+    || left.timeline.turnId.localeCompare(right.timeline.turnId);
 }
 
-function runtimeStateStart(state: BackendAgentRunRuntimeState): string {
+function runtimeStateStart(state: BackendAgentTurnRuntimeState): string {
   return state.timeline.items
     .map((item) => item.createdAt)
     .filter(Boolean)
@@ -956,7 +953,7 @@ function runtimeStateStart(state: BackendAgentRunRuntimeState): string {
 
 function runtimeStateToTurn(
   sessionKey: string,
-  runtimeState: BackendAgentRunRuntimeState,
+  runtimeState: BackendAgentTurnRuntimeState,
 ): ChatTurn {
   const startedAt = runtimeStateStart(runtimeState) || new Date().toISOString();
   const updatedAt = runtimeState.timeline.items
@@ -966,15 +963,15 @@ function runtimeStateToTurn(
   const lastUpdatedAt = updatedAt[updatedAt.length - 1] || startedAt;
   const turn: ChatTurn = {
     canonicalItems: [...runtimeState.timeline.items],
-    id: runtimeState.timeline.runId,
+    id: runtimeState.timeline.turnId,
     sessionKey,
     userMessage: {
-      id: stableId("user", runtimeState.timeline.runId),
+      id: stableId("user", runtimeState.timeline.turnId),
       role: "user",
       text: "",
       timestamp: startedAt,
     },
-    userMessageId: stableId("user", runtimeState.timeline.runId),
+    userMessageId: stableId("user", runtimeState.timeline.turnId),
     status: "running",
     steps: [],
     startedAt,
@@ -1353,7 +1350,7 @@ function delegateFromRuntimeItem(item: BackendAgentTurnItem): DelegatedAgentStat
   const payload = item.data;
   const status = itemStatusToStepStatus(item.status);
   return {
-    childRunId: stringValue(payload.childRunId ?? payload.child_run_id),
+    childTurnId: stringValue(payload.childTurnId ?? payload.child_turn_id),
     finalOutput: stringValue(payload.finalOutput ?? payload.final_output),
     id: stringValue(payload.agentId) || item.itemId,
     latestActivity: safeArtifactText(stringValue(payload.summary ?? payload.latestActivity ?? payload.latest_activity ?? item.summary)),
@@ -1439,7 +1436,7 @@ function reconcileTerminalStepStatuses(turn: ChatTurn): void {
   }
 }
 
-function isDelegatedRunEventType(eventType: string): boolean {
+function isDelegatedTurnEventType(eventType: string): boolean {
   return eventType === "agent.delegate.started"
     || eventType === "agent.delegate.running"
     || eventType === "agent.delegate.message_queued"
@@ -1573,7 +1570,7 @@ function stepToToolActivities(step: ChatStep): ChatMessageProjection["toolActivi
       approvalId: step.delegate.approvalId,
       approvalStatus: step.delegate.approvalStatus ?? "",
       argsText: delegatedActivityArgsText(step.delegate),
-      childRunId: step.delegate.childRunId,
+      childTurnId: step.delegate.childTurnId,
       delegatedTrace: step.delegate.trace as Record<string, unknown> | undefined,
       delegateId: step.delegate.id,
       delegateTask: step.delegate.task,
@@ -1583,7 +1580,7 @@ function stepToToolActivities(step: ChatStep): ChatMessageProjection["toolActivi
       id: step.delegate.parentToolCallId || step.delegate.id,
       kind: step.status === "completed" || step.status === "failed" ? "result" : "call",
       name: step.delegate.toolName || step.delegate.type || "delegate",
-      parentRunId: step.delegate.trace?.parentRunId,
+      parentTurnId: step.delegate.trace?.parentTurnId,
       responseText: step.delegate.latestActivity ?? step.delegate.finalOutput ?? "",
       status: step.status,
       traceRef: step.delegate.traceRef,
@@ -1647,7 +1644,7 @@ function delegatedActivityArgsText(delegate: DelegatedAgentState): string {
     agent_kind: delegate.type,
     approval_id: delegate.approvalId,
     approval_status: delegate.approvalStatus,
-    child_run_id: delegate.childRunId,
+    child_turn_id: delegate.childTurnId,
     child_tool_call_id: delegate.childToolCallId,
     operation_preview: delegate.operationPreview,
     permission_profile: delegate.permissionProfile,
@@ -1663,7 +1660,7 @@ function delegatedActivityArgsText(delegate: DelegatedAgentState): string {
   }
 }
 
-function ensureTurn(state: ChatRunState, event: AgentEventEnvelope): ChatTurn {
+function ensureTurn(state: ChatTurnState, event: AgentEventEnvelope): ChatTurn {
   const turns = state.turnsBySession.get(event.session_key) ?? [];
   state.turnsBySession.set(event.session_key, turns);
   let turn = turns.find((item) => item.id === event.turn_id);
@@ -1775,7 +1772,7 @@ function delegateFromPayload(payload: Record<string, unknown>): DelegatedAgentSt
     approvalPolicy: stringValue(payload.approval_policy ?? payload.approvalPolicy),
     approvalStatus: stringValue(payload.approval_status ?? payload.approvalStatus),
     artifacts: artifactArray(payload.artifacts),
-    childRunId: stringValue(payload.child_run_id ?? payload.childRunId),
+    childTurnId: stringValue(payload.child_turn_id ?? payload.childTurnId),
     childToolCallId: stringValue(payload.child_tool_call_id ?? payload.childToolCallId),
     finalOutput: stringValue(payload.final_output),
     id: stringValue(payload.delegate_id ?? payload.delegateId) || "delegate",
@@ -1822,15 +1819,15 @@ function upsertArtifact(artifacts: ArtifactRef[], artifact: ArtifactRef): Artifa
   return artifacts.map((item, itemIndex) => itemIndex === index ? { ...item, ...artifact } : item);
 }
 
-function storeArtifact(state: ChatRunState, sessionKey: string, artifact: ArtifactRef): void {
+function storeArtifact(state: ChatTurnState, sessionKey: string, artifact: ArtifactRef): void {
   const bucket = state.artifactsBySession.get(sessionKey) ?? new Map<string, ArtifactRef>();
   state.artifactsBySession.set(sessionKey, bucket);
   bucket.set(artifact.id, { ...(bucket.get(artifact.id) ?? {}), ...artifact });
 }
 
-function storeDelegatedRun(state: ChatRunState, sessionKey: string, delegate: DelegatedAgentState): void {
-  const bucket = state.delegatedRunsBySession.get(sessionKey) ?? new Map<string, DelegatedAgentState>();
-  state.delegatedRunsBySession.set(sessionKey, bucket);
+function storeDelegatedTurn(state: ChatTurnState, sessionKey: string, delegate: DelegatedAgentState): void {
+  const bucket = state.delegatedTurnsBySession.get(sessionKey) ?? new Map<string, DelegatedAgentState>();
+  state.delegatedTurnsBySession.set(sessionKey, bucket);
   bucket.set(delegate.id, {
     ...(bucket.get(delegate.id) ?? {}),
     ...delegate,
@@ -1839,7 +1836,7 @@ function storeDelegatedRun(state: ChatRunState, sessionKey: string, delegate: De
   });
 }
 
-function resolveToolCallInspectorPanel(state: ChatRunState, selection: ChatInspectorSelection): ChatInspectorPanel {
+function resolveToolCallInspectorPanel(state: ChatTurnState, selection: ChatInspectorSelection): ChatInspectorPanel {
   if (selection.kind !== "tool_call") {
     return unavailablePanel(selection.kind);
   }
@@ -1861,12 +1858,12 @@ function resolveToolCallInspectorPanel(state: ChatRunState, selection: ChatInspe
   };
 }
 
-function resolveDelegateInspectorPanel(state: ChatRunState, selection: ChatInspectorSelection): ChatInspectorPanel {
+function resolveDelegateInspectorPanel(state: ChatTurnState, selection: ChatInspectorSelection): ChatInspectorPanel {
   if (selection.kind !== "delegate") {
     return unavailablePanel(selection.kind);
   }
   const step = findStep(state, selection.sessionKey, selection.turnId, selection.stepId);
-  const delegate = state.delegatedRunsBySession.get(selection.sessionKey)?.get(selection.delegateId) ?? step?.delegate;
+  const delegate = state.delegatedTurnsBySession.get(selection.sessionKey)?.get(selection.delegateId) ?? step?.delegate;
   if (!delegate) {
     return unavailablePanel("delegate");
   }
@@ -1904,10 +1901,10 @@ function delegatedTraceFromPayload(value: unknown): DelegatedAgentTraceState | u
   return {
     approvals: Array.isArray(payload.approvals) ? [...payload.approvals] : undefined,
     artifacts: artifactArray(payload.artifacts),
-    childRunId: stringValue(payload.child_run_id ?? payload.childRunId),
+    childTurnId: stringValue(payload.child_turn_id ?? payload.childTurnId),
     delegateId,
     finalMessage: chatMessageFromTrace(payload.final_message ?? payload.finalMessage),
-    parentRunId: stringValue(payload.parent_run_id ?? payload.parentRunId),
+    parentTurnId: stringValue(payload.parent_turn_id ?? payload.parentTurnId),
     parentSessionKey: stringValue(payload.parent_session_key ?? payload.parentSessionKey),
     status: statusValue(payload.status) || "running",
     steps: Array.isArray(payload.steps)
@@ -2041,7 +2038,7 @@ function delegatedTraceText(trace: DelegatedAgentTraceState): string {
   return lines.join("\n\n");
 }
 
-function resolveApprovalInspectorPanel(state: ChatRunState, selection: ChatInspectorSelection): ChatInspectorPanel {
+function resolveApprovalInspectorPanel(state: ChatTurnState, selection: ChatInspectorSelection): ChatInspectorPanel {
   if (selection.kind !== "approval") {
     return unavailablePanel(selection.kind);
   }
@@ -2059,7 +2056,7 @@ function resolveApprovalInspectorPanel(state: ChatRunState, selection: ChatInspe
   };
 }
 
-function resolveArtifactInspectorPanel(state: ChatRunState, selection: ChatInspectorSelection): ChatInspectorPanel {
+function resolveArtifactInspectorPanel(state: ChatTurnState, selection: ChatInspectorSelection): ChatInspectorPanel {
   if (selection.kind !== "artifact") {
     return unavailablePanel(selection.kind);
   }
@@ -2080,7 +2077,7 @@ function resolveReferenceInspectorPanel(): ChatInspectorPanel {
   return unavailablePanel("reference");
 }
 
-function resolveErrorInspectorPanel(state: ChatRunState, selection: ChatInspectorSelection): ChatInspectorPanel {
+function resolveErrorInspectorPanel(state: ChatTurnState, selection: ChatInspectorSelection): ChatInspectorPanel {
   if (selection.kind !== "error") {
     return unavailablePanel(selection.kind);
   }
@@ -2093,7 +2090,7 @@ function resolveErrorInspectorPanel(state: ChatRunState, selection: ChatInspecto
   };
 }
 
-function findStep(state: ChatRunState, sessionKey: string, turnId: string, stepId: string): ChatStep | null {
+function findStep(state: ChatTurnState, sessionKey: string, turnId: string, stepId: string): ChatStep | null {
   return state.turnsBySession.get(sessionKey)?.find((turn) => turn.id === turnId)?.steps.find((step) => step.id === stepId) ?? null;
 }
 

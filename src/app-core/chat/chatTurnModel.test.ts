@@ -1,21 +1,21 @@
 import { describe, expect, test } from "vitest";
 import {
-  createChatRunState,
+  createChatTurnState,
   getArtifactRef,
   backendRuntimeStatesToTurns,
   legacyMessagesToTurns,
-  normalizeAgentRunRuntimeStatePayload,
+  normalizeAgentTurnRuntimeStatePayload,
   reduceAgentEvent,
   redactedPreview,
   resolveChatInspectorPanel,
   safeArtifactPreview,
   selectChatInspector,
   turnsToConversationMessages,
-} from "./chatRunModel";
+} from "./chatTurnModel";
 import type { NativeChatMessage } from "./nativeChat";
 
 function canonicalRuntimeState(
-  runId: string,
+  turnId: string,
   items: Array<Record<string, unknown>>,
   sessionId = "WebSocket:chat-1",
 ): unknown {
@@ -24,14 +24,13 @@ function canonicalRuntimeState(
     timeline: {
       schemaVersion: "tinybot.timeline.v2",
       sessionId,
-      runId,
+      turnId,
       snapshotRevision: items.length,
       items: items.map((item, index) => ({
         schemaVersion: "tinybot.turn_item.v2",
-        itemId: `${runId}:item:${index + 1}`,
+        itemId: `${turnId}:item:${index + 1}`,
         sessionId,
-        runId,
-        turnId: runId,
+        turnId,
         sequence: index + 1,
         revision: 1,
         createdAt: `2026-07-03T01:00:0${index}Z`,
@@ -102,7 +101,7 @@ describe("chat run model", () => {
   });
 
   test("projects backend turn items into restored chat turns before legacy adapters are removed", () => {
-    const runtimeState = normalizeAgentRunRuntimeStatePayload(canonicalRuntimeState("run-1", [
+    const runtimeState = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("run-1", [
         {
           itemId: "user-1",
           kind: "user_message",
@@ -204,7 +203,7 @@ describe("chat run model", () => {
   });
 
   test("restores runtime-only blocked turns with their original user prompt", () => {
-    const runtimeState = normalizeAgentRunRuntimeStatePayload(canonicalRuntimeState("run-approval", [
+    const runtimeState = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("run-approval", [
         {
           itemId: "run-approval:user",
           sessionId: "WebSocket:chat-1",
@@ -248,7 +247,7 @@ describe("chat run model", () => {
   });
 
   test("restores runtime-only completed assistant messages without legacy final messages", () => {
-    const runtimeState = normalizeAgentRunRuntimeStatePayload(canonicalRuntimeState("run-completed", [
+    const runtimeState = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("run-completed", [
         {
           itemId: "run-completed:user",
           sessionId: "WebSocket:chat-1",
@@ -294,7 +293,7 @@ describe("chat run model", () => {
   });
 
   test("reconciles stale running steps when a canonical turn fails", () => {
-    const runtimeState = normalizeAgentRunRuntimeStatePayload(canonicalRuntimeState("run-failed", [
+    const runtimeState = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("run-failed", [
       {
         itemId: "run-failed:user",
         kind: "user_message",
@@ -353,7 +352,7 @@ describe("chat run model", () => {
   });
 
   test("reconciles stale running steps when a canonical turn is cancelled", () => {
-    const runtimeState = normalizeAgentRunRuntimeStatePayload(canonicalRuntimeState("run-cancelled", [
+    const runtimeState = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("run-cancelled", [
       {
         itemId: "run-cancelled:user",
         kind: "user_message",
@@ -401,7 +400,7 @@ describe("chat run model", () => {
   });
 
   test("orders restored runtime states by numeric millisecond timestamps", () => {
-    const early = normalizeAgentRunRuntimeStatePayload(canonicalRuntimeState("z-run-early", [{
+    const early = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("z-run-early", [{
         itemId: "z-run-early:user",
         sessionId: "WebSocket:chat-1",
         turnId: "z-run-early",
@@ -410,7 +409,7 @@ describe("chat run model", () => {
         createdAt: "1782961828408",
         data: { type: "user_message", messageId: "user-early", content: "first restored prompt" },
       }]));
-    const late = normalizeAgentRunRuntimeStatePayload(canonicalRuntimeState("a-run-late", [{
+    const late = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("a-run-late", [{
         itemId: "a-run-late:user",
         sessionId: "WebSocket:chat-1",
         turnId: "a-run-late",
@@ -427,7 +426,7 @@ describe("chat run model", () => {
   });
 
   test("replays structured events with deduplication, delegated workflows, and artifacts", () => {
-    const state = createChatRunState();
+    const state = createChatTurnState();
     const started = {
       schema_version: "tinybot.agent_event.v1",
       event_id: "event-turn-start",
@@ -546,7 +545,7 @@ describe("chat run model", () => {
   });
 
   test("coalesces streamed message chunks and hides them once the final answer is available", () => {
-    const state = createChatRunState();
+    const state = createChatTurnState();
     reduceAgentEvent(state, {
       schema_version: "tinybot.agent_event.v1",
       event_id: "event-turn-start",
@@ -652,7 +651,7 @@ describe("chat run model", () => {
   });
 
   test("applies standalone agent usage events to the active turn", () => {
-    const state = createChatRunState();
+    const state = createChatTurnState();
     reduceAgentEvent(state, {
       schema_version: "tinybot.agent_event.v1",
       event_id: "event-turn-start",
@@ -743,7 +742,7 @@ describe("chat run model", () => {
   });
 
   test("stores delegated trace updates on the child agent state", () => {
-    const state = createChatRunState();
+    const state = createChatTurnState();
     reduceAgentEvent(state, {
       schema_version: "tinybot.agent_event.v1",
       event_id: "event-turn-start",
@@ -794,8 +793,8 @@ describe("chat run model", () => {
         status: "running",
         trace: {
           delegateId: "delegate-1",
-          childRunId: "delegate-1",
-          parentRunId: "parent-run",
+          childTurnId: "delegate-1",
+          parentTurnId: "parent-run",
           parentSessionKey: "WebSocket:chat-1",
           status: "running",
           steps: [{
@@ -817,7 +816,7 @@ describe("chat run model", () => {
       },
     });
 
-    const delegate = state.delegatedRunsBySession.get("WebSocket:chat-1")?.get("delegate-1");
+    const delegate = state.delegatedTurnsBySession.get("WebSocket:chat-1")?.get("delegate-1");
     expect(delegate?.trace?.steps).toEqual([expect.objectContaining({
       id: "tool:call-1:completed",
       kind: "tool_call",
@@ -888,7 +887,7 @@ describe("chat run model", () => {
   });
 
   test("stores artifact refs lazily and resolves inspector registry panels", () => {
-    const state = createChatRunState();
+    const state = createChatTurnState();
     reduceAgentEvent(state, {
       schema_version: "tinybot.agent_event.v1",
       event_id: "event-tool",
@@ -957,8 +956,8 @@ describe("chat run model", () => {
     });
   });
 
-  test("replaces parent spawn tool rows with authoritative delegated run state", () => {
-    const state = createChatRunState();
+  test("replaces parent spawn tool rows with authoritative delegated turn state", () => {
+    const state = createChatTurnState();
     reduceAgentEvent(state, {
       schema_version: "tinybot.agent_event.v1",
       event_id: "turn-start",
@@ -1056,7 +1055,7 @@ describe("chat run model", () => {
   });
 
   test("replays interrupted delegated runs as cancelled steps", () => {
-    const state = createChatRunState();
+    const state = createChatTurnState();
     reduceAgentEvent(state, {
       schema_version: "tinybot.agent_event.v1",
       event_id: "delegate-interrupted",
@@ -1090,7 +1089,7 @@ describe("chat run model", () => {
   });
 
   test("replays approval, failure, interruption, form, browser, file diff, and delegate variants", () => {
-    const state = createChatRunState();
+    const state = createChatTurnState();
     const base = {
       schema_version: "tinybot.agent_event.v1" as const,
       chat_id: "chat-1",

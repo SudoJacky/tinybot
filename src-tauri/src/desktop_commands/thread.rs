@@ -95,9 +95,9 @@ pub(crate) fn worker_thread_request_with_options(
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let requested_run_id = body
-        .get("runId")
-        .or_else(|| body.get("run_id"))
+    let requested_turn_id = body
+        .get("turnId")
+        .or_else(|| body.get("turn_id"))
         .and_then(serde_json::Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -115,19 +115,19 @@ pub(crate) fn worker_thread_request_with_options(
         request_suffix,
     )?;
     if method == "thread.interrupt" {
-        let run_id = requested_run_id.or_else(|| {
+        let turn_id = requested_turn_id.or_else(|| {
             result
-                .pointer("/run/runId")
-                .or_else(|| result.pointer("/run/run_id"))
+                .pointer("/turn/turnId")
+                .or_else(|| result.pointer("/turn/turn_id"))
                 .and_then(serde_json::Value::as_str)
                 .map(str::to_string)
         });
-        if let Some(run_id) = run_id {
+        if let Some(turn_id) = turn_id {
             let services = {
                 let runtime = crate::desktop::state::lock_runtime(shared);
                 runtime.native_agent_runtime.clone()
             };
-            let cancellation = services.cancel(&run_id);
+            let cancellation = services.cancel(&turn_id);
             let result_object = result.as_object_mut().ok_or_else(|| {
                 "thread interrupt result must be a JSON object before task cancellation projection"
                     .to_string()

@@ -3,13 +3,13 @@ use super::store::{MemoryThreadStore, ThreadStore};
 use super::types::{
     ContinueThreadTurnRequest, ForkThreadRequest, InterruptThreadRequest, ReadThreadRequest,
     StartThreadTurnRequest, ThreadApplyOpRequest, ThreadItem, ThreadItemKind, ThreadOp,
-    ThreadRunSummary, ThreadStatusResult, ThreadTurnRuntimeResult,
+    ThreadStatusResult, ThreadTurnRuntimeResult, ThreadTurnSummary,
 };
 use crate::protocol::{WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource};
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-static RUNTIME_RUN_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+static TURN_ID_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static RUNTIME_ITEM_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug)]
@@ -18,7 +18,6 @@ pub struct ThreadRuntime<S: ThreadStore = MemoryThreadStore> {
 }
 
 struct ThreadCompletion {
-    run_id: Option<String>,
     turn_id: Option<String>,
     content: Option<String>,
     message: Value,
@@ -47,16 +46,14 @@ impl<S: ThreadStore> ThreadRuntime<S> {
         {
             return Ok(result);
         }
-        let run_id = request.run_id.unwrap_or_else(generate_runtime_run_id);
-        let turn_id = request.turn_id.unwrap_or_else(|| run_id.clone());
+        let turn_id = request.turn_id.unwrap_or_else(generate_turn_id);
         let live = self.live_thread(thread_id.clone());
         live.update_metadata(request.metadata)?;
         let append = live.append_many_with_client_event_id(
             vec![
-                user_message_item(&thread_id, &run_id, &turn_id, request.input),
-                agent_run_started_item(
+                user_message_item(&thread_id, &turn_id, request.input),
+                turn_started_item(
                     &thread_id,
-                    &run_id,
                     &turn_id,
                     request.model.as_deref(),
                     request.provider.as_deref(),
@@ -66,10 +63,10 @@ impl<S: ThreadStore> ThreadRuntime<S> {
             request.client_event_id.as_deref(),
         )?;
         let snapshot = live.snapshot(None, None)?;
-        let run = run_from_snapshot(&snapshot.runs, &run_id);
+        let turn = turn_from_snapshot(&snapshot.turns, &turn_id);
         Ok(ThreadTurnRuntimeResult {
             snapshot,
-            run,
+            turn,
             appended_items: append.items,
         })
     }
@@ -80,7 +77,6 @@ impl<S: ThreadStore> ThreadRuntime<S> {
     ) -> Result<ThreadTurnRuntimeResult, WorkerProtocolError> {
         match request.op {
             ThreadOp::UserInput {
-                run_id,
                 turn_id,
                 input,
                 model,
@@ -89,7 +85,6 @@ impl<S: ThreadStore> ThreadRuntime<S> {
             } => self.start_turn(StartThreadTurnRequest {
                 thread_id: request.thread_id,
                 client_event_id: request.client_event_id,
-                run_id,
                 turn_id,
                 input,
                 model,
@@ -97,314 +92,200 @@ impl<S: ThreadStore> ThreadRuntime<S> {
                 metadata,
                 trace_context: None,
             }),
-            ThreadOp::ContinueRun {
-                run_id,
-                turn_id,
-                input,
-            } => self.continue_turn(ContinueThreadTurnRequest {
+            ThreadOp::ContinueTurn { turn_id, input } => {
+                self.continue_turn(ContinueThreadTurnRequest {
+                    thread_id: request.thread_id,
+                    client_event_id: request.client_event_id,
+                    turn_id,
+                    input,
+                })
+            }
+            ThreadOp::Interrupt { turn_id, reason } => self.interrupt(InterruptThreadRequest {
                 thread_id: request.thread_id,
                 client_event_id: request.client_event_id,
-                run_id,
                 turn_id,
-                input,
-            }),
-            ThreadOp::Interrupt { run_id, reason } => self.interrupt(InterruptThreadRequest {
-                thread_id: request.thread_id,
-                client_event_id: request.client_event_id,
-                run_id,
                 reason,
             }),
             ThreadOp::ApprovalRequest {
-                run_id,
                 turn_id,
                 approval_id,
                 summary,
                 scope,
                 payload,
-            } => self.apply_thread_item_op(
-                request.thread_id,
-                run_id,
-                turn_id,
-                request.client_event_id,
-                {
-                    move |thread_id, run_id, turn_id| {
-                        approval_request_item(
-                            thread_id,
-                            run_id,
-                            turn_id,
-                            approval_id,
-                            summary,
-                            scope,
-                            payload,
-                        )
-                    }
-                },
-            ),
+            } => self.apply_thread_item_op(request.thread_id, turn_id, request.client_event_id, {
+                move |thread_id, turn_id| {
+                    approval_request_item(thread_id, turn_id, approval_id, summary, scope, payload)
+                }
+            }),
             ThreadOp::ApprovalDecision {
-                run_id,
                 turn_id,
                 approval_id,
                 approved,
                 scope,
                 guidance,
                 payload,
-            } => self.apply_thread_item_op(
-                request.thread_id,
-                run_id,
-                turn_id,
-                request.client_event_id,
-                {
-                    let store = self.store.clone();
-                    let parent_approval_id = approval_id.clone();
-                    move |thread_id, run_id, turn_id| {
-                        let parent_item_id = find_request_parent_item_id(
-                            &store,
-                            thread_id,
-                            run_id,
-                            turn_id,
-                            RequestParentKind::Approval(parent_approval_id.as_deref()),
-                        );
-                        approval_decision_item(
-                            thread_id,
-                            run_id,
-                            turn_id,
-                            approval_id,
-                            approved,
-                            scope,
-                            guidance,
-                            payload,
-                            parent_item_id,
-                        )
-                    }
-                },
-            ),
+            } => self.apply_thread_item_op(request.thread_id, turn_id, request.client_event_id, {
+                let store = self.store.clone();
+                let parent_approval_id = approval_id.clone();
+                move |thread_id, turn_id| {
+                    let parent_item_id = find_request_parent_item_id(
+                        &store,
+                        thread_id,
+                        turn_id,
+                        RequestParentKind::Approval(parent_approval_id.as_deref()),
+                    );
+                    approval_decision_item(
+                        thread_id,
+                        turn_id,
+                        approval_id,
+                        approved,
+                        scope,
+                        guidance,
+                        payload,
+                        parent_item_id,
+                    )
+                }
+            }),
             ThreadOp::ToolCallStarted {
-                run_id,
                 turn_id,
                 tool_call_id,
                 tool_name,
                 args,
-            } => self.apply_thread_item_op(
-                request.thread_id,
-                run_id,
-                turn_id,
-                request.client_event_id,
-                {
-                    move |thread_id, run_id, turn_id| {
-                        tool_call_started_item(
-                            thread_id,
-                            run_id,
-                            turn_id,
-                            tool_call_id,
-                            tool_name,
-                            args,
-                        )
-                    }
-                },
-            ),
+            } => self.apply_thread_item_op(request.thread_id, turn_id, request.client_event_id, {
+                move |thread_id, turn_id| {
+                    tool_call_started_item(thread_id, turn_id, tool_call_id, tool_name, args)
+                }
+            }),
             ThreadOp::ToolResult {
-                run_id,
                 turn_id,
                 tool_call_id,
                 tool_name,
                 output,
                 error,
-            } => self.apply_thread_item_op(
-                request.thread_id,
-                run_id,
-                turn_id,
-                request.client_event_id,
-                {
-                    let store = self.store.clone();
-                    let parent_tool_call_id = tool_call_id.clone();
-                    move |thread_id, run_id, turn_id| {
-                        let parent_item_id = find_request_parent_item_id(
-                            &store,
-                            thread_id,
-                            run_id,
-                            turn_id,
-                            RequestParentKind::Tool(parent_tool_call_id.as_deref()),
-                        );
-                        tool_result_item(
-                            thread_id,
-                            run_id,
-                            turn_id,
-                            tool_call_id,
-                            tool_name,
-                            output,
-                            error,
-                            parent_item_id,
-                        )
-                    }
-                },
-            ),
+            } => self.apply_thread_item_op(request.thread_id, turn_id, request.client_event_id, {
+                let store = self.store.clone();
+                let parent_tool_call_id = tool_call_id.clone();
+                move |thread_id, turn_id| {
+                    let parent_item_id = find_request_parent_item_id(
+                        &store,
+                        thread_id,
+                        turn_id,
+                        RequestParentKind::Tool(parent_tool_call_id.as_deref()),
+                    );
+                    tool_result_item(
+                        thread_id,
+                        turn_id,
+                        tool_call_id,
+                        tool_name,
+                        output,
+                        error,
+                        parent_item_id,
+                    )
+                }
+            }),
             ThreadOp::SubagentSpawned {
-                run_id,
                 turn_id,
                 subagent_id,
                 child_thread_id,
-                child_run_id,
+                child_turn_id,
                 name,
                 task,
                 payload,
-            } => self.apply_thread_item_op(
-                request.thread_id,
-                run_id,
-                turn_id,
-                request.client_event_id,
-                {
-                    move |thread_id, run_id, turn_id| {
-                        subagent_spawned_item(
-                            thread_id,
-                            run_id,
-                            turn_id,
-                            subagent_id,
-                            child_thread_id,
-                            child_run_id,
-                            name,
-                            task,
-                            payload,
-                        )
-                    }
-                },
-            ),
+            } => self.apply_thread_item_op(request.thread_id, turn_id, request.client_event_id, {
+                move |thread_id, turn_id| {
+                    subagent_spawned_item(
+                        thread_id,
+                        turn_id,
+                        subagent_id,
+                        child_thread_id,
+                        child_turn_id,
+                        name,
+                        task,
+                        payload,
+                    )
+                }
+            }),
             ThreadOp::SubagentMessage {
-                run_id,
                 turn_id,
                 subagent_id,
                 child_thread_id,
-                child_run_id,
+                child_turn_id,
                 content,
                 status,
                 payload,
-            } => self.apply_thread_item_op(
-                request.thread_id,
-                run_id,
-                turn_id,
-                request.client_event_id,
-                {
-                    move |thread_id, run_id, turn_id| {
-                        subagent_message_item(
-                            thread_id,
-                            run_id,
-                            turn_id,
-                            subagent_id,
-                            child_thread_id,
-                            child_run_id,
-                            content,
-                            status,
-                            payload,
-                        )
-                    }
-                },
-            ),
+            } => self.apply_thread_item_op(request.thread_id, turn_id, request.client_event_id, {
+                move |thread_id, turn_id| {
+                    subagent_message_item(
+                        thread_id,
+                        turn_id,
+                        subagent_id,
+                        child_thread_id,
+                        child_turn_id,
+                        content,
+                        status,
+                        payload,
+                    )
+                }
+            }),
             ThreadOp::SubagentCompleted {
-                run_id,
                 turn_id,
                 subagent_id,
                 child_thread_id,
-                child_run_id,
+                child_turn_id,
                 status,
                 result,
-            } => self.apply_thread_item_op(
-                request.thread_id,
-                run_id,
-                turn_id,
-                request.client_event_id,
-                {
-                    move |thread_id, run_id, turn_id| {
-                        subagent_completed_item(
-                            thread_id,
-                            run_id,
-                            turn_id,
-                            subagent_id,
-                            child_thread_id,
-                            child_run_id,
-                            status,
-                            result,
-                        )
-                    }
-                },
-            ),
+            } => self.apply_thread_item_op(request.thread_id, turn_id, request.client_event_id, {
+                move |thread_id, turn_id| {
+                    subagent_completed_item(
+                        thread_id,
+                        turn_id,
+                        subagent_id,
+                        child_thread_id,
+                        child_turn_id,
+                        status,
+                        result,
+                    )
+                }
+            }),
             ThreadOp::Checkpoint {
-                run_id,
                 turn_id,
                 checkpoint_id,
                 label,
                 restore_payload,
-            } => self.apply_thread_item_op(
-                request.thread_id,
-                run_id,
-                turn_id,
-                request.client_event_id,
-                {
-                    move |thread_id, run_id, turn_id| {
-                        checkpoint_item(
-                            thread_id,
-                            run_id,
-                            turn_id,
-                            checkpoint_id,
-                            label,
-                            restore_payload,
-                        )
-                    }
-                },
-            ),
+            } => self.apply_thread_item_op(request.thread_id, turn_id, request.client_event_id, {
+                move |thread_id, turn_id| {
+                    checkpoint_item(thread_id, turn_id, checkpoint_id, label, restore_payload)
+                }
+            }),
             ThreadOp::AssistantDelta {
-                run_id,
                 turn_id,
                 delta,
                 message,
-            } => self.apply_thread_item_op(
-                request.thread_id,
-                run_id,
-                turn_id,
-                request.client_event_id,
-                {
-                    move |thread_id, run_id, turn_id| {
-                        assistant_message_delta_item(thread_id, run_id, turn_id, delta, message)
-                    }
-                },
-            ),
+            } => self.apply_thread_item_op(request.thread_id, turn_id, request.client_event_id, {
+                move |thread_id, turn_id| {
+                    assistant_message_delta_item(thread_id, turn_id, delta, message)
+                }
+            }),
             ThreadOp::Reasoning {
-                run_id,
                 turn_id,
                 summary,
                 payload,
-            } => self.apply_thread_item_op(
-                request.thread_id,
-                run_id,
-                turn_id,
-                request.client_event_id,
-                {
-                    move |thread_id, run_id, turn_id| {
-                        reasoning_item(thread_id, run_id, turn_id, summary, payload)
-                    }
-                },
-            ),
+            } => self.apply_thread_item_op(request.thread_id, turn_id, request.client_event_id, {
+                move |thread_id, turn_id| reasoning_item(thread_id, turn_id, summary, payload)
+            }),
             ThreadOp::AgentStep {
-                run_id,
                 turn_id,
                 step_id,
                 name,
                 status,
                 summary,
                 payload,
-            } => self.apply_thread_item_op(
-                request.thread_id,
-                run_id,
-                turn_id,
-                request.client_event_id,
-                {
-                    move |thread_id, run_id, turn_id| {
-                        agent_step_item(
-                            thread_id, run_id, turn_id, step_id, name, status, summary, payload,
-                        )
-                    }
-                },
-            ),
+            } => self.apply_thread_item_op(request.thread_id, turn_id, request.client_event_id, {
+                move |thread_id, turn_id| {
+                    agent_step_item(thread_id, turn_id, step_id, name, status, summary, payload)
+                }
+            }),
             ThreadOp::RuntimeEvent {
-                run_id,
                 turn_id,
                 item_id,
                 event_id,
@@ -414,22 +295,15 @@ impl<S: ThreadStore> ThreadRuntime<S> {
                 source,
                 visibility,
                 payload,
-            } => self.apply_thread_item_op(
-                request.thread_id,
-                run_id,
-                turn_id,
-                request.client_event_id,
-                {
-                    move |thread_id, run_id, turn_id| {
-                        runtime_event_item(
-                            thread_id, run_id, turn_id, item_id, event_id, sequence, timestamp,
-                            event_name, source, visibility, payload,
-                        )
-                    }
-                },
-            ),
+            } => self.apply_thread_item_op(request.thread_id, turn_id, request.client_event_id, {
+                move |thread_id, turn_id| {
+                    runtime_event_item(
+                        thread_id, turn_id, item_id, event_id, sequence, timestamp, event_name,
+                        source, visibility, payload,
+                    )
+                }
+            }),
             ThreadOp::AssistantResponse {
-                run_id,
                 turn_id,
                 content,
                 message,
@@ -441,7 +315,6 @@ impl<S: ThreadStore> ThreadRuntime<S> {
                 request.thread_id,
                 request.client_event_id,
                 ThreadCompletion {
-                    run_id,
                     turn_id,
                     content,
                     message,
@@ -452,19 +325,15 @@ impl<S: ThreadStore> ThreadRuntime<S> {
                 },
             ),
             ThreadOp::Error {
-                run_id,
                 turn_id,
                 message,
                 code,
                 details,
             } => self.apply_thread_item_op(
                 request.thread_id,
-                run_id,
                 turn_id,
                 request.client_event_id,
-                |thread_id, run_id, turn_id| {
-                    error_item(thread_id, run_id, turn_id, message, code, details)
-                },
+                |thread_id, turn_id| error_item(thread_id, turn_id, message, code, details),
             ),
             ThreadOp::UpdateSettings { metadata, reason } => {
                 self.apply_settings_op(request.thread_id, request.client_event_id, metadata, reason)
@@ -516,10 +385,10 @@ impl<S: ThreadStore> ThreadRuntime<S> {
             checkpoint_id: None,
             limit: None,
         })?;
-        let run = snapshot.active_run.clone();
+        let turn = snapshot.active_turn.clone();
         Ok(ThreadTurnRuntimeResult {
             snapshot,
-            run,
+            turn,
             appended_items: Vec::new(),
         })
     }
@@ -527,27 +396,25 @@ impl<S: ThreadStore> ThreadRuntime<S> {
     fn apply_thread_item_op<F>(
         &self,
         thread_id: String,
-        run_id: Option<String>,
         turn_id: Option<String>,
         client_event_id: Option<String>,
         build_item: F,
     ) -> Result<ThreadTurnRuntimeResult, WorkerProtocolError>
     where
-        F: FnOnce(&str, &str, &str) -> ThreadItem,
+        F: FnOnce(&str, &str) -> ThreadItem,
     {
         let live = self.live_thread(thread_id.clone());
         let status = self.store.get_thread_status(&thread_id)?;
-        let run_id = active_run_id_for_thread_op(&status, &thread_id, run_id)?;
-        let turn_id = turn_id.unwrap_or_else(|| run_id.clone());
+        let turn_id = active_turn_id_for_thread_op(&status, &thread_id, turn_id)?;
         let append = live.append_with_client_event_id(
-            build_item(&thread_id, &run_id, &turn_id),
+            build_item(&thread_id, &turn_id),
             client_event_id.as_deref(),
         )?;
         let snapshot = live.snapshot(None, None)?;
-        let run = run_from_snapshot(&snapshot.runs, &run_id);
+        let turn = turn_from_snapshot(&snapshot.turns, &turn_id);
         Ok(ThreadTurnRuntimeResult {
             snapshot,
-            run,
+            turn,
             appended_items: append.items,
         })
     }
@@ -565,21 +432,18 @@ impl<S: ThreadStore> ThreadRuntime<S> {
         }
         let live = self.live_thread(thread_id.clone());
         let status = self.store.get_thread_status(&thread_id)?;
-        let run_id = active_run_id_for_thread_op(&status, &thread_id, completion.run_id)?;
-        let turn_id = completion.turn_id.unwrap_or_else(|| run_id.clone());
+        let turn_id = active_turn_id_for_thread_op(&status, &thread_id, completion.turn_id)?;
         let append = live.append_many_with_client_event_id(
             vec![
                 assistant_message_completed_item(
                     &thread_id,
-                    &run_id,
                     &turn_id,
                     completion.content,
                     completion.message,
                     completion.usage.clone(),
                 ),
-                agent_run_completed_item(
+                turn_completed_item(
                     &thread_id,
-                    &run_id,
                     &turn_id,
                     completion.stop_reason,
                     completion.usage,
@@ -590,10 +454,10 @@ impl<S: ThreadStore> ThreadRuntime<S> {
             client_event_id.as_deref(),
         )?;
         let snapshot = live.snapshot(None, None)?;
-        let run = run_from_snapshot(&snapshot.runs, &run_id);
+        let turn = turn_from_snapshot(&snapshot.turns, &turn_id);
         Ok(ThreadTurnRuntimeResult {
             snapshot,
-            run,
+            turn,
             appended_items: append.items,
         })
     }
@@ -618,13 +482,13 @@ impl<S: ThreadStore> ThreadRuntime<S> {
             checkpoint_id: None,
             limit: None,
         })?;
-        let run = appended_items
+        let turn = appended_items
             .iter()
-            .find_map(|item| item.run_id.as_deref())
-            .and_then(|run_id| run_from_snapshot(&snapshot.runs, run_id));
+            .find_map(|item| item.turn_id.as_deref())
+            .and_then(|turn_id| turn_from_snapshot(&snapshot.turns, turn_id));
         Ok(Some(ThreadTurnRuntimeResult {
             snapshot,
-            run,
+            turn,
             appended_items,
         }))
     }
@@ -644,18 +508,18 @@ impl<S: ThreadStore> ThreadRuntime<S> {
         let live = self.live_thread(thread_id.clone());
         live.update_metadata(metadata.clone())?;
         let status = self.store.get_thread_status(&thread_id)?;
-        let active_run_id = status.active_run.as_ref().map(|run| run.run_id.clone());
+        let active_turn_id = status.active_turn.as_ref().map(|turn| turn.turn_id.clone());
         let append = live.append_with_client_event_id(
-            settings_changed_item(&thread_id, active_run_id.as_deref(), metadata, reason),
+            settings_changed_item(&thread_id, active_turn_id.as_deref(), metadata, reason),
             client_event_id.as_deref(),
         )?;
         let snapshot = live.snapshot(None, None)?;
-        let run = active_run_id
+        let turn = active_turn_id
             .as_deref()
-            .and_then(|run_id| run_from_snapshot(&snapshot.runs, run_id));
+            .and_then(|turn_id| turn_from_snapshot(&snapshot.turns, turn_id));
         Ok(ThreadTurnRuntimeResult {
             snapshot,
-            run,
+            turn,
             appended_items: append.items,
         })
     }
@@ -672,17 +536,16 @@ impl<S: ThreadStore> ThreadRuntime<S> {
         }
         let live = self.live_thread(thread_id.clone());
         let status = self.store.get_thread_status(&thread_id)?;
-        let run_id = active_run_id_for_thread_op(&status, &thread_id, request.run_id)?;
-        let turn_id = request.turn_id.unwrap_or_else(|| run_id.clone());
+        let turn_id = active_turn_id_for_thread_op(&status, &thread_id, request.turn_id)?;
         let append = live.append_with_client_event_id(
-            continuation_item(&thread_id, &run_id, &turn_id, request.input),
+            continuation_item(&thread_id, &turn_id, request.input),
             request.client_event_id.as_deref(),
         )?;
         let snapshot = live.snapshot(None, None)?;
-        let run = run_from_snapshot(&snapshot.runs, &run_id);
+        let turn = turn_from_snapshot(&snapshot.turns, &turn_id);
         Ok(ThreadTurnRuntimeResult {
             snapshot,
-            run,
+            turn,
             appended_items: append.items,
         })
     }
@@ -699,26 +562,26 @@ impl<S: ThreadStore> ThreadRuntime<S> {
         }
         let live = self.live_thread(thread_id.clone());
         let status = self.store.get_thread_status(&thread_id)?;
-        let run_id = request
-            .run_id
-            .or_else(|| status.active_run.as_ref().map(|run| run.run_id.clone()));
-        let Some(run_id) = run_id else {
+        let turn_id = request
+            .turn_id
+            .or_else(|| status.active_turn.as_ref().map(|turn| turn.turn_id.clone()));
+        let Some(turn_id) = turn_id else {
             let snapshot = live.snapshot(None, None)?;
             return Ok(ThreadTurnRuntimeResult {
                 snapshot,
-                run: None,
+                turn: None,
                 appended_items: Vec::new(),
             });
         };
         let append = live.append_with_client_event_id(
-            cancelled_item(&thread_id, &run_id, request.reason),
+            cancelled_item(&thread_id, &turn_id, request.reason),
             request.client_event_id.as_deref(),
         )?;
         let snapshot = live.snapshot(None, None)?;
-        let run = run_from_snapshot(&snapshot.runs, &run_id);
+        let turn = turn_from_snapshot(&snapshot.turns, &turn_id);
         Ok(ThreadTurnRuntimeResult {
             snapshot,
-            run,
+            turn,
             appended_items: append.items,
         })
     }
@@ -732,7 +595,6 @@ enum RequestParentKind<'a> {
 fn find_request_parent_item_id<S: ThreadStore>(
     store: &S,
     thread_id: &str,
-    run_id: &str,
     turn_id: &str,
     kind: RequestParentKind<'_>,
 ) -> Option<String> {
@@ -751,9 +613,7 @@ fn find_request_parent_item_id<S: ThreadStore>(
         .iter()
         .rev()
         .find(|item| {
-            item.run_id.as_deref() == Some(run_id)
-                && item.turn_id.as_deref().unwrap_or(run_id) == turn_id
-                && request_parent_kind_matches(item, &kind)
+            item.turn_id.as_deref() == Some(turn_id) && request_parent_kind_matches(item, &kind)
         })
         .map(|item| item.item_id.clone())
 }
@@ -786,12 +646,11 @@ fn payload_string<'a>(payload: &'a Value, keys: &[&str]) -> Option<&'a str> {
     None
 }
 
-fn user_message_item(thread_id: &str, run_id: &str, turn_id: &str, input: Value) -> ThreadItem {
+fn user_message_item(thread_id: &str, turn_id: &str, input: Value) -> ThreadItem {
     let payload = normalize_user_input(input);
     ThreadItem {
-        item_id: format!("thread-runtime:{thread_id}:{run_id}:user"),
+        item_id: format!("thread-runtime:{thread_id}:{turn_id}:user"),
         thread_id: String::new(),
-        run_id: Some(run_id.to_string()),
         turn_id: Some(turn_id.to_string()),
         parent_item_id: None,
         sequence: 0,
@@ -800,24 +659,21 @@ fn user_message_item(thread_id: &str, run_id: &str, turn_id: &str, input: Value)
     }
 }
 
-fn agent_run_started_item(
+fn turn_started_item(
     thread_id: &str,
-    run_id: &str,
     turn_id: &str,
     model: Option<&str>,
     provider: Option<&str>,
     trace_context: Option<&crate::agent::runtime_protocol::AgentTraceContext>,
 ) -> ThreadItem {
     ThreadItem {
-        item_id: format!("thread-runtime:{thread_id}:{run_id}:started"),
+        item_id: format!("thread-runtime:{thread_id}:{turn_id}:started"),
         thread_id: String::new(),
-        run_id: Some(run_id.to_string()),
         turn_id: Some(turn_id.to_string()),
         parent_item_id: None,
         sequence: 0,
         created_at: String::new(),
-        kind: ThreadItemKind::AgentRunStarted(json!({
-            "runId": run_id,
+        kind: ThreadItemKind::TurnStarted(json!({
             "turnId": turn_id,
             "model": model,
             "provider": provider,
@@ -827,14 +683,13 @@ fn agent_run_started_item(
     }
 }
 
-fn continuation_item(thread_id: &str, run_id: &str, turn_id: &str, input: Value) -> ThreadItem {
+fn continuation_item(thread_id: &str, turn_id: &str, input: Value) -> ThreadItem {
     ThreadItem {
         item_id: format!(
-            "thread-runtime:{thread_id}:{run_id}:continue:{}",
+            "thread-runtime:{thread_id}:{turn_id}:continue:{}",
             next_runtime_item_id()
         ),
         thread_id: String::new(),
-        run_id: Some(run_id.to_string()),
         turn_id: Some(turn_id.to_string()),
         parent_item_id: None,
         sequence: 0,
@@ -846,17 +701,16 @@ fn continuation_item(thread_id: &str, run_id: &str, turn_id: &str, input: Value)
     }
 }
 
-fn cancelled_item(thread_id: &str, run_id: &str, reason: Option<String>) -> ThreadItem {
+fn cancelled_item(thread_id: &str, turn_id: &str, reason: Option<String>) -> ThreadItem {
     ThreadItem {
-        item_id: format!("thread-runtime:{thread_id}:{run_id}:cancelled"),
+        item_id: format!("thread-runtime:{thread_id}:{turn_id}:cancelled"),
         thread_id: String::new(),
-        run_id: Some(run_id.to_string()),
-        turn_id: Some(run_id.to_string()),
+        turn_id: Some(turn_id.to_string()),
         parent_item_id: None,
         sequence: 0,
         created_at: String::new(),
         kind: ThreadItemKind::Cancelled(json!({
-            "runId": run_id,
+            "turnId": turn_id,
             "reason": reason,
             "source": "thread.interrupt"
         })),
@@ -865,7 +719,6 @@ fn cancelled_item(thread_id: &str, run_id: &str, reason: Option<String>) -> Thre
 
 fn approval_request_item(
     thread_id: &str,
-    run_id: &str,
     turn_id: &str,
     approval_id: Option<String>,
     summary: Option<String>,
@@ -874,16 +727,14 @@ fn approval_request_item(
 ) -> ThreadItem {
     let approval_id = approval_id.unwrap_or_else(|| format!("approval-{}", next_runtime_item_id()));
     ThreadItem {
-        item_id: format!("thread-runtime:{thread_id}:{run_id}:approval-request:{approval_id}"),
+        item_id: format!("thread-runtime:{thread_id}:{turn_id}:approval-request:{approval_id}"),
         thread_id: String::new(),
-        run_id: Some(run_id.to_string()),
         turn_id: Some(turn_id.to_string()),
         parent_item_id: None,
         sequence: 0,
         created_at: String::new(),
         kind: ThreadItemKind::ApprovalRequested(json!({
             "approvalId": approval_id,
-            "runId": run_id,
             "turnId": turn_id,
             "summary": summary,
             "scope": scope,
@@ -895,7 +746,6 @@ fn approval_request_item(
 
 fn approval_decision_item(
     thread_id: &str,
-    run_id: &str,
     turn_id: &str,
     approval_id: Option<String>,
     approved: bool,
@@ -906,9 +756,8 @@ fn approval_decision_item(
 ) -> ThreadItem {
     let approval_id = approval_id.unwrap_or_else(|| format!("approval-{}", next_runtime_item_id()));
     ThreadItem {
-        item_id: format!("thread-runtime:{thread_id}:{run_id}:approval:{approval_id}"),
+        item_id: format!("thread-runtime:{thread_id}:{turn_id}:approval:{approval_id}"),
         thread_id: String::new(),
-        run_id: Some(run_id.to_string()),
         turn_id: Some(turn_id.to_string()),
         parent_item_id,
         sequence: 0,
@@ -926,7 +775,6 @@ fn approval_decision_item(
 
 fn tool_call_started_item(
     thread_id: &str,
-    run_id: &str,
     turn_id: &str,
     tool_call_id: Option<String>,
     tool_name: Option<String>,
@@ -935,9 +783,8 @@ fn tool_call_started_item(
     let tool_call_id =
         tool_call_id.unwrap_or_else(|| format!("tool-call-{}", next_runtime_item_id()));
     ThreadItem {
-        item_id: format!("thread-runtime:{thread_id}:{run_id}:tool-call:{tool_call_id}"),
+        item_id: format!("thread-runtime:{thread_id}:{turn_id}:tool-call:{tool_call_id}"),
         thread_id: String::new(),
-        run_id: Some(run_id.to_string()),
         turn_id: Some(turn_id.to_string()),
         parent_item_id: None,
         sequence: 0,
@@ -945,7 +792,6 @@ fn tool_call_started_item(
         kind: ThreadItemKind::ToolCallStarted(json!({
             "toolCallId": tool_call_id,
             "toolName": tool_name,
-            "runId": run_id,
             "turnId": turn_id,
             "args": args,
             "source": "thread.apply_op"
@@ -955,7 +801,6 @@ fn tool_call_started_item(
 
 fn tool_result_item(
     thread_id: &str,
-    run_id: &str,
     turn_id: &str,
     tool_call_id: Option<String>,
     tool_name: Option<String>,
@@ -966,9 +811,8 @@ fn tool_result_item(
     let tool_call_id =
         tool_call_id.unwrap_or_else(|| format!("tool-call-{}", next_runtime_item_id()));
     ThreadItem {
-        item_id: format!("thread-runtime:{thread_id}:{run_id}:tool-result:{tool_call_id}"),
+        item_id: format!("thread-runtime:{thread_id}:{turn_id}:tool-result:{tool_call_id}"),
         thread_id: String::new(),
-        run_id: Some(run_id.to_string()),
         turn_id: Some(turn_id.to_string()),
         parent_item_id,
         sequence: 0,
@@ -985,20 +829,18 @@ fn tool_result_item(
 
 fn subagent_spawned_item(
     thread_id: &str,
-    run_id: &str,
     turn_id: &str,
     subagent_id: Option<String>,
     child_thread_id: Option<String>,
-    child_run_id: Option<String>,
+    child_turn_id: Option<String>,
     name: Option<String>,
     task: Option<String>,
     payload: Value,
 ) -> ThreadItem {
     let subagent_id = subagent_id.unwrap_or_else(|| format!("subagent-{}", next_runtime_item_id()));
     ThreadItem {
-        item_id: format!("thread-runtime:{thread_id}:{run_id}:subagent:{subagent_id}:spawned"),
+        item_id: format!("thread-runtime:{thread_id}:{turn_id}:subagent:{subagent_id}:spawned"),
         thread_id: String::new(),
-        run_id: Some(run_id.to_string()),
         turn_id: Some(turn_id.to_string()),
         parent_item_id: None,
         sequence: 0,
@@ -1006,8 +848,7 @@ fn subagent_spawned_item(
         kind: ThreadItemKind::SubagentSpawned(json!({
             "subagentId": subagent_id,
             "childThreadId": child_thread_id,
-            "childRunId": child_run_id,
-            "runId": run_id,
+            "childTurnId": child_turn_id,
             "turnId": turn_id,
             "name": name,
             "task": task,
@@ -1019,11 +860,10 @@ fn subagent_spawned_item(
 
 fn subagent_message_item(
     thread_id: &str,
-    run_id: &str,
     turn_id: &str,
     subagent_id: Option<String>,
     child_thread_id: Option<String>,
-    child_run_id: Option<String>,
+    child_turn_id: Option<String>,
     content: Option<String>,
     status: Option<String>,
     payload: Value,
@@ -1031,11 +871,10 @@ fn subagent_message_item(
     let subagent_id = subagent_id.unwrap_or_else(|| format!("subagent-{}", next_runtime_item_id()));
     ThreadItem {
         item_id: format!(
-            "thread-runtime:{thread_id}:{run_id}:subagent:{subagent_id}:message:{}",
+            "thread-runtime:{thread_id}:{turn_id}:subagent:{subagent_id}:message:{}",
             next_runtime_item_id()
         ),
         thread_id: String::new(),
-        run_id: Some(run_id.to_string()),
         turn_id: Some(turn_id.to_string()),
         parent_item_id: None,
         sequence: 0,
@@ -1043,8 +882,7 @@ fn subagent_message_item(
         kind: ThreadItemKind::SubagentMessage(json!({
             "subagentId": subagent_id,
             "childThreadId": child_thread_id,
-            "childRunId": child_run_id,
-            "runId": run_id,
+            "childTurnId": child_turn_id,
             "turnId": turn_id,
             "content": content,
             "status": status,
@@ -1056,19 +894,17 @@ fn subagent_message_item(
 
 fn subagent_completed_item(
     thread_id: &str,
-    run_id: &str,
     turn_id: &str,
     subagent_id: Option<String>,
     child_thread_id: Option<String>,
-    child_run_id: Option<String>,
+    child_turn_id: Option<String>,
     status: Option<String>,
     result: Value,
 ) -> ThreadItem {
     let subagent_id = subagent_id.unwrap_or_else(|| format!("subagent-{}", next_runtime_item_id()));
     ThreadItem {
-        item_id: format!("thread-runtime:{thread_id}:{run_id}:subagent:{subagent_id}:completed"),
+        item_id: format!("thread-runtime:{thread_id}:{turn_id}:subagent:{subagent_id}:completed"),
         thread_id: String::new(),
-        run_id: Some(run_id.to_string()),
         turn_id: Some(turn_id.to_string()),
         parent_item_id: None,
         sequence: 0,
@@ -1076,8 +912,7 @@ fn subagent_completed_item(
         kind: ThreadItemKind::SubagentCompleted(json!({
             "subagentId": subagent_id,
             "childThreadId": child_thread_id,
-            "childRunId": child_run_id,
-            "runId": run_id,
+            "childTurnId": child_turn_id,
             "turnId": turn_id,
             "status": status,
             "result": result,
@@ -1088,7 +923,6 @@ fn subagent_completed_item(
 
 fn checkpoint_item(
     thread_id: &str,
-    run_id: &str,
     turn_id: &str,
     checkpoint_id: Option<String>,
     label: Option<String>,
@@ -1097,16 +931,14 @@ fn checkpoint_item(
     let checkpoint_id =
         checkpoint_id.unwrap_or_else(|| format!("checkpoint-{}", next_runtime_item_id()));
     ThreadItem {
-        item_id: format!("thread-runtime:{thread_id}:{run_id}:checkpoint:{checkpoint_id}"),
+        item_id: format!("thread-runtime:{thread_id}:{turn_id}:checkpoint:{checkpoint_id}"),
         thread_id: String::new(),
-        run_id: Some(run_id.to_string()),
         turn_id: Some(turn_id.to_string()),
         parent_item_id: None,
         sequence: 0,
         created_at: String::new(),
         kind: ThreadItemKind::CheckpointCreated(json!({
             "checkpointId": checkpoint_id,
-            "runId": run_id,
             "turnId": turn_id,
             "label": label,
             "restorePayload": restore_payload,
@@ -1117,7 +949,6 @@ fn checkpoint_item(
 
 fn assistant_message_delta_item(
     thread_id: &str,
-    run_id: &str,
     turn_id: &str,
     delta: Option<String>,
     message: Value,
@@ -1136,11 +967,10 @@ fn assistant_message_delta_item(
     };
     ThreadItem {
         item_id: format!(
-            "thread-runtime:{thread_id}:{run_id}:assistant-delta:{}",
+            "thread-runtime:{thread_id}:{turn_id}:assistant-delta:{}",
             next_runtime_item_id()
         ),
         thread_id: String::new(),
-        run_id: Some(run_id.to_string()),
         turn_id: Some(turn_id.to_string()),
         parent_item_id: None,
         sequence: 0,
@@ -1151,18 +981,16 @@ fn assistant_message_delta_item(
 
 fn reasoning_item(
     thread_id: &str,
-    run_id: &str,
     turn_id: &str,
     summary: Option<String>,
     payload: Value,
 ) -> ThreadItem {
     ThreadItem {
         item_id: format!(
-            "thread-runtime:{thread_id}:{run_id}:reasoning:{}",
+            "thread-runtime:{thread_id}:{turn_id}:reasoning:{}",
             next_runtime_item_id()
         ),
         thread_id: String::new(),
-        run_id: Some(run_id.to_string()),
         turn_id: Some(turn_id.to_string()),
         parent_item_id: None,
         sequence: 0,
@@ -1177,7 +1005,6 @@ fn reasoning_item(
 
 fn agent_step_item(
     thread_id: &str,
-    run_id: &str,
     turn_id: &str,
     step_id: Option<String>,
     name: Option<String>,
@@ -1187,17 +1014,15 @@ fn agent_step_item(
 ) -> ThreadItem {
     let step_id = step_id.unwrap_or_else(|| format!("step-{}", next_runtime_item_id()));
     ThreadItem {
-        item_id: format!("thread-runtime:{thread_id}:{run_id}:step:{step_id}"),
+        item_id: format!("thread-runtime:{thread_id}:{turn_id}:step:{step_id}"),
         thread_id: String::new(),
-        run_id: Some(run_id.to_string()),
         turn_id: Some(turn_id.to_string()),
         parent_item_id: None,
         sequence: 0,
         created_at: String::new(),
-        kind: ThreadItemKind::AgentRunStep(json!({
+        kind: ThreadItemKind::TurnStep(json!({
             "eventName": "agent.step",
             "stepId": step_id,
-            "runId": run_id,
             "turnId": turn_id,
             "name": name,
             "status": status,
@@ -1216,7 +1041,6 @@ fn agent_step_item(
 
 fn runtime_event_item(
     thread_id: &str,
-    run_id: &str,
     turn_id: &str,
     projected_item_id: Option<String>,
     event_id: Option<String>,
@@ -1231,10 +1055,10 @@ fn runtime_event_item(
         .as_deref()
         .map(str::trim)
         .filter(|event_id| !event_id.is_empty())
-        .map(|event_id| format!("thread-runtime:{thread_id}:{run_id}:event-id:{event_id}"))
+        .map(|event_id| format!("thread-runtime:{thread_id}:{turn_id}:event-id:{event_id}"))
         .unwrap_or_else(|| {
             format!(
-                "thread-runtime:{thread_id}:{run_id}:event:{}",
+                "thread-runtime:{thread_id}:{turn_id}:event:{}",
                 next_runtime_item_id()
             )
         });
@@ -1244,7 +1068,6 @@ fn runtime_event_item(
         "sequence": sequence,
         "timestamp": timestamp,
         "eventName": event_name,
-        "runId": run_id,
         "turnId": turn_id,
         "source": source,
         "visibility": visibility,
@@ -1259,7 +1082,6 @@ fn runtime_event_item(
     ThreadItem {
         item_id,
         thread_id: String::new(),
-        run_id: Some(run_id.to_string()),
         turn_id: Some(turn_id.to_string()),
         parent_item_id: None,
         sequence: 0,
@@ -1270,7 +1092,6 @@ fn runtime_event_item(
 
 fn assistant_message_completed_item(
     thread_id: &str,
-    run_id: &str,
     turn_id: &str,
     content: Option<String>,
     message: Value,
@@ -1292,11 +1113,10 @@ fn assistant_message_completed_item(
     };
     ThreadItem {
         item_id: format!(
-            "thread-runtime:{thread_id}:{run_id}:assistant:{}",
+            "thread-runtime:{thread_id}:{turn_id}:assistant:{}",
             next_runtime_item_id()
         ),
         thread_id: String::new(),
-        run_id: Some(run_id.to_string()),
         turn_id: Some(turn_id.to_string()),
         parent_item_id: None,
         sequence: 0,
@@ -1305,9 +1125,8 @@ fn assistant_message_completed_item(
     }
 }
 
-fn agent_run_completed_item(
+fn turn_completed_item(
     thread_id: &str,
-    run_id: &str,
     turn_id: &str,
     stop_reason: Option<String>,
     usage: Option<Value>,
@@ -1315,15 +1134,13 @@ fn agent_run_completed_item(
     instruction_diagnostics: Vec<Value>,
 ) -> ThreadItem {
     ThreadItem {
-        item_id: format!("thread-runtime:{thread_id}:{run_id}:completed"),
+        item_id: format!("thread-runtime:{thread_id}:{turn_id}:completed"),
         thread_id: String::new(),
-        run_id: Some(run_id.to_string()),
         turn_id: Some(turn_id.to_string()),
         parent_item_id: None,
         sequence: 0,
         created_at: String::new(),
-        kind: ThreadItemKind::AgentRunCompleted(json!({
-            "runId": run_id,
+        kind: ThreadItemKind::TurnCompleted(json!({
             "turnId": turn_id,
             "stopReason": stop_reason,
             "usage": usage,
@@ -1336,7 +1153,6 @@ fn agent_run_completed_item(
 
 fn error_item(
     thread_id: &str,
-    run_id: &str,
     turn_id: &str,
     message: Option<String>,
     code: Option<String>,
@@ -1344,17 +1160,15 @@ fn error_item(
 ) -> ThreadItem {
     ThreadItem {
         item_id: format!(
-            "thread-runtime:{thread_id}:{run_id}:error:{}",
+            "thread-runtime:{thread_id}:{turn_id}:error:{}",
             next_runtime_item_id()
         ),
         thread_id: String::new(),
-        run_id: Some(run_id.to_string()),
         turn_id: Some(turn_id.to_string()),
         parent_item_id: None,
         sequence: 0,
         created_at: String::new(),
         kind: ThreadItemKind::Error(json!({
-            "runId": run_id,
             "turnId": turn_id,
             "message": message.unwrap_or_else(|| "thread operation failed".to_string()),
             "code": code,
@@ -1366,7 +1180,7 @@ fn error_item(
 
 fn settings_changed_item(
     thread_id: &str,
-    run_id: Option<&str>,
+    turn_id: Option<&str>,
     metadata: super::types::ThreadMetadataPatch,
     reason: Option<String>,
 ) -> ThreadItem {
@@ -1376,8 +1190,7 @@ fn settings_changed_item(
             next_runtime_item_id()
         ),
         thread_id: String::new(),
-        run_id: run_id.map(str::to_string),
-        turn_id: run_id.map(str::to_string),
+        turn_id: turn_id.map(str::to_string),
         parent_item_id: None,
         sequence: 0,
         created_at: String::new(),
@@ -1397,59 +1210,59 @@ fn normalize_user_input(input: Value) -> Value {
     }
 }
 
-fn run_from_snapshot(runs: &[ThreadRunSummary], run_id: &str) -> Option<ThreadRunSummary> {
-    runs.iter().find(|run| run.run_id == run_id).cloned()
+fn turn_from_snapshot(turns: &[ThreadTurnSummary], turn_id: &str) -> Option<ThreadTurnSummary> {
+    turns.iter().find(|turn| turn.turn_id == turn_id).cloned()
 }
 
-fn active_run_id_for_thread_op(
+fn active_turn_id_for_thread_op(
     status: &ThreadStatusResult,
     thread_id: &str,
-    requested_run_id: Option<String>,
+    requested_turn_id: Option<String>,
 ) -> Result<String, WorkerProtocolError> {
-    if let Some(run_id) = requested_run_id {
+    if let Some(turn_id) = requested_turn_id {
         if status
-            .runs
+            .turns
             .iter()
-            .any(|run| run.run_id == run_id && run.active)
+            .any(|turn| turn.turn_id == turn_id && turn.active)
         {
-            return Ok(run_id);
+            return Ok(turn_id);
         }
-        return Err(thread_op_targets_inactive_run(thread_id, &run_id));
+        return Err(thread_op_targets_inactive_turn(thread_id, &turn_id));
     }
     status
-        .active_run
+        .active_turn
         .as_ref()
-        .map(|run| run.run_id.clone())
-        .ok_or_else(|| thread_op_requires_active_run(thread_id))
+        .map(|turn| turn.turn_id.clone())
+        .ok_or_else(|| thread_op_requires_active_turn(thread_id))
 }
 
-fn thread_op_requires_active_run(thread_id: &str) -> WorkerProtocolError {
+fn thread_op_requires_active_turn(thread_id: &str) -> WorkerProtocolError {
     WorkerProtocolError::new(
         WorkerProtocolErrorCode::InvalidProtocol,
-        "thread operation requires an active run or explicit runId",
+        "thread operation requires an active turn or explicit turnId",
         json!({ "threadId": thread_id }),
         false,
         WorkerProtocolErrorSource::RustCore,
     )
 }
 
-fn thread_op_targets_inactive_run(thread_id: &str, run_id: &str) -> WorkerProtocolError {
+fn thread_op_targets_inactive_turn(thread_id: &str, turn_id: &str) -> WorkerProtocolError {
     WorkerProtocolError::new(
         WorkerProtocolErrorCode::InvalidProtocol,
-        "thread operation targets a run that is not active",
+        "thread operation targets a turn that is not active",
         json!({
             "threadId": thread_id,
-            "runId": run_id,
+            "turnId": turn_id,
         }),
         false,
         WorkerProtocolErrorSource::RustCore,
     )
 }
 
-fn generate_runtime_run_id() -> String {
+fn generate_turn_id() -> String {
     format!(
-        "run-{}",
-        RUNTIME_RUN_SEQUENCE.fetch_add(1, Ordering::Relaxed) + 1
+        "turn-{}",
+        TURN_ID_SEQUENCE.fetch_add(1, Ordering::Relaxed) + 1
     )
 }
 
@@ -1466,10 +1279,9 @@ mod tests {
     fn persisted_runtime_event_item_uses_stable_event_identity() {
         let item = runtime_event_item(
             "thread-1",
-            "run-1",
-            "run-1",
+            "turn-1",
             Some("approval-1".to_string()),
-            Some("run-1:agent-approval-decision:210".to_string()),
+            Some("turn-1:agent-approval-decision:210".to_string()),
             Some(210),
             Some("2100".to_string()),
             "agent.approval.decision".to_string(),
@@ -1480,13 +1292,13 @@ mod tests {
 
         assert_eq!(
             item.item_id,
-            "thread-runtime:thread-1:run-1:event-id:run-1:agent-approval-decision:210"
+            "thread-runtime:thread-1:turn-1:event-id:turn-1:agent-approval-decision:210"
         );
         let payload = match item.kind {
             crate::threads::domain::types::ThreadItemKind::Event(payload) => payload,
             kind => panic!("expected runtime event item, got {kind:?}"),
         };
-        assert_eq!(payload["eventId"], "run-1:agent-approval-decision:210");
+        assert_eq!(payload["eventId"], "turn-1:agent-approval-decision:210");
         assert_eq!(payload["itemId"], "approval-1");
         assert_eq!(payload["sequence"], 210);
         assert_eq!(payload["timestamp"], "2100");

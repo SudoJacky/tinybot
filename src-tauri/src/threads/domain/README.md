@@ -66,7 +66,7 @@ canonical Rollout.
   return the existing result instead of appending duplicates.
 - Parent/child relationships are explicit and fork/archive policies must state
   whether children are included.
-- Runtime status, activity, checkpoints, approvals, and agent-run views are
+- Runtime status, activity, checkpoints, approvals, and agent-turn views are
   projections from canonical Rollout items.
 - Capability checks occur before reading or appending Thread state.
 - `MemoryThreadStore` must not gain a journal or database.

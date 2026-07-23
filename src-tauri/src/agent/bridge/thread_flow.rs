@@ -1,6 +1,6 @@
 use crate::agent::bridge::{
     native_agent_current_user_message, native_agent_model, native_agent_provider,
-    native_agent_run_id, native_agent_string_field,
+    native_agent_string_field, native_agent_turn_id,
 };
 use crate::agent::runtime::{
     ensure_agent_trace_context, AgentHookInvocation, AgentHookStage, NativeAgentRuntimeServices,
@@ -57,7 +57,7 @@ pub(crate) async fn submit_thread_turn_with_services(
     let thread_id = thread_thread_id(&thread)?;
     let thread_working_directory = thread_working_directory(&thread);
     let session_id = thread_id.clone();
-    let run_id = native_agent_run_id(&input.spec).unwrap_or_else(generate_thread_turn_run_id);
+    let turn_id = native_agent_turn_id(&input.spec).unwrap_or_else(generate_thread_turn_turn_id);
     let spec_has_working_directory = native_agent_string_field(&input.spec, "cwd")
         .or_else(|| native_agent_string_field(&input.spec, "workingDirectory"))
         .or_else(|| native_agent_string_field(&input.spec, "working_directory"))
@@ -100,8 +100,8 @@ pub(crate) async fn submit_thread_turn_with_services(
         serde_json::Value::String(session_id.clone()),
     );
     spec_object.insert(
-        "runId".to_string(),
-        serde_json::Value::String(run_id.clone()),
+        "turnId".to_string(),
+        serde_json::Value::String(turn_id.clone()),
     );
     if !spec_object.contains_key("messages") {
         spec_object.insert(
@@ -141,10 +141,10 @@ pub(crate) async fn submit_thread_turn_with_services(
         return Ok(serde_json::json!({
             "threadId": thread_id,
             "sessionId": session_id,
-            "runId": run_id,
+            "turnId": turn_id,
             "agentResult": {
                 "runtime": "rust",
-                "runId": run_id,
+                "turnId": turn_id,
                 "sessionId": session_id,
                 "threadId": thread_id,
                 "stopReason": "hook_denied",
@@ -162,7 +162,7 @@ pub(crate) async fn submit_thread_turn_with_services(
 
     start_native_agent_thread_turn(
         &thread_id,
-        &run_id,
+        &turn_id,
         &spec,
         &trace_context,
         workspace_root.clone(),
@@ -195,7 +195,7 @@ pub(crate) async fn submit_thread_turn_with_services(
     Ok(serde_json::json!({
         "threadId": thread_id,
         "sessionId": session_id,
-        "runId": run_id,
+        "turnId": turn_id,
         "agentResult": agent_result,
         "snapshot": snapshot,
     }))
@@ -451,7 +451,7 @@ fn validate_turn_messages(messages: &serde_json::Value) -> Result<(), String> {
     Ok(())
 }
 
-fn generate_thread_turn_run_id() -> String {
+fn generate_thread_turn_turn_id() -> String {
     format!("run-thread-turn-{}", now_unix_ms())
 }
 
@@ -472,7 +472,7 @@ fn thread_form_action_is_cancel(action: Option<&str>) -> bool {
 
 fn start_native_agent_thread_turn(
     thread_id: &str,
-    run_id: &str,
+    turn_id: &str,
     spec: &serde_json::Value,
     trace_context: &AgentTraceContext,
     workspace_root: PathBuf,
@@ -489,9 +489,8 @@ fn start_native_agent_thread_turn(
             "thread.start_turn",
             serde_json::json!({
                 "threadId": thread_id,
-                "clientEventId": format!("native-agent-thread-start:{run_id}"),
-                "runId": run_id,
-                "turnId": run_id,
+                "clientEventId": format!("native-agent-thread-start:{turn_id}"),
+                "turnId": turn_id,
                 "input": input,
                 "model": native_agent_model(spec, &config_snapshot),
                 "provider": native_agent_provider(spec, &config_snapshot),
@@ -517,7 +516,7 @@ mod approval_tests {
             .register(NativeAgentApprovalRequest {
                 approval_id: "approval-live-1".to_string(),
                 session_id: "thread-live-1".to_string(),
-                run_id: "run-live-1".to_string(),
+                turn_id: "run-live-1".to_string(),
                 scope_key: "exec:echo-hi".to_string(),
             })
             .expect("approval should register")

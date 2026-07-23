@@ -1,11 +1,11 @@
 use super::checkpoint::save_phase_checkpoint;
 use super::continuations::typed_continuation_from_metadata;
-use super::state::NativeAgentRunState;
+use super::state::AgentTurnState;
 use super::tool_projection::{
     append_continuation_tool_observation, completed_tool_result_entry, tool_observation_content,
 };
 use super::{
-    NativeAgentRunContext, NativeAgentRuntimeServices, NativeAgentToolCall, NativeAgentToolResult,
+    AgentTurnContext, NativeAgentRuntimeServices, NativeAgentToolCall, NativeAgentToolResult,
 };
 use crate::agent::runtime_protocol::{AgentContinuationInput, AgentFormAction, AgentRuntimePhase};
 use crate::tools::registry::REQUEST_USER_INPUT_METHOD;
@@ -34,17 +34,13 @@ pub(super) struct UserInputResume {
 }
 
 impl UserInputResume {
-    pub(super) fn apply(
-        self,
-        context: &NativeAgentRunContext,
-        state: &mut NativeAgentRunState,
-    ) -> i64 {
+    pub(super) fn apply(self, context: &AgentTurnContext, state: &mut AgentTurnState) -> i64 {
         state.tools_used.push(self.tool_call.name.clone());
         state.completed_tool_results.push(self.completed_result);
         state.emit_event(
             "agent.form.resolution",
             serde_json::json!({
-                "runId": context.run_id,
+                "turnId": context.turn_id,
                 "sessionId": context.session_id,
                 "iteration": self.iteration,
                 "formId": self.form_id,
@@ -57,7 +53,7 @@ impl UserInputResume {
         state.emit_event(
             "agent.tool.result",
             serde_json::json!({
-                "runId": context.run_id,
+                "turnId": context.turn_id,
                 "sessionId": context.session_id,
                 "iteration": self.iteration,
                 "toolCallId": self.tool_call.id,
@@ -81,8 +77,8 @@ impl UserInputResume {
 
 pub(super) fn awaiting_user_input_result(
     services: &NativeAgentRuntimeServices,
-    context: &NativeAgentRunContext,
-    state: &mut NativeAgentRunState,
+    context: &AgentTurnContext,
+    state: &mut AgentTurnState,
     iteration: i64,
     tool_call: NativeAgentToolCall,
 ) -> Result<Value, String> {
@@ -93,7 +89,7 @@ pub(super) fn awaiting_user_input_result(
     form["form_id"] = Value::String(form_id.clone());
     form["correlation"] = serde_json::json!({
         "form_id": form_id,
-        "run_id": context.run_id,
+        "turn_id": context.turn_id,
         "session_id": context.session_id,
         "tool_call_id": tool_call.id,
     });
@@ -123,7 +119,7 @@ pub(super) fn awaiting_user_input_result(
     state.emit_event(
         "agent.checkpoint",
         serde_json::json!({
-            "runId": context.run_id,
+            "turnId": context.turn_id,
             "sessionId": context.session_id,
             "phase": "awaiting_form",
             "checkpoint": checkpoint.clone(),
@@ -132,7 +128,7 @@ pub(super) fn awaiting_user_input_result(
     state.emit_event(
         "agent.awaiting_form",
         serde_json::json!({
-            "runId": context.run_id,
+            "turnId": context.turn_id,
             "sessionId": context.session_id,
             "iteration": iteration,
             "formId": form_id,
@@ -148,7 +144,7 @@ pub(super) fn awaiting_user_input_result(
     state.emit_event(
         "agent.done",
         serde_json::json!({
-            "runId": context.run_id,
+            "turnId": context.turn_id,
             "sessionId": context.session_id,
             "iteration": iteration,
             "stopReason": "awaiting_form",
@@ -158,7 +154,7 @@ pub(super) fn awaiting_user_input_result(
     let events = state.legacy_events();
     Ok(serde_json::json!({
         "runtime": "rust",
-        "runId": context.run_id,
+        "turnId": context.turn_id,
         "sessionId": context.session_id,
         "finalContent": "",
         "stopReason": "awaiting_form",
@@ -174,7 +170,7 @@ pub(super) fn awaiting_user_input_result(
 
 pub(super) fn prepare_user_input_continuation(
     services: &NativeAgentRuntimeServices,
-    context: &mut NativeAgentRunContext,
+    context: &mut AgentTurnContext,
 ) -> Result<Option<UserInputContinuationOutcome>, String> {
     let Some(AgentContinuationInput::Form {
         form_id,
@@ -186,7 +182,7 @@ pub(super) fn prepare_user_input_continuation(
     };
     let Some(checkpoint) = services
         .checkpoints
-        .restore_for_run(&context.session_id, &context.run_id)
+        .restore_for_turn(&context.session_id, &context.turn_id)
     else {
         return Ok(None);
     };
@@ -208,7 +204,7 @@ pub(super) fn prepare_user_input_continuation(
     if matches!(action, AgentFormAction::Cancel) {
         services
             .checkpoints
-            .clear_for_run(&context.session_id, &context.run_id);
+            .clear_for_turn(&context.session_id, &context.turn_id);
         return Ok(Some(UserInputContinuationOutcome::Finished(
             cancelled_user_input_result(services, context, checkpoint, form_id, iteration),
         )));
@@ -239,7 +235,7 @@ pub(super) fn prepare_user_input_continuation(
     context.spec["messages"] = Value::Array(messages);
     services
         .checkpoints
-        .clear_for_run(&context.session_id, &context.run_id);
+        .clear_for_turn(&context.session_id, &context.turn_id);
 
     Ok(Some(UserInputContinuationOutcome::Resume(
         UserInputResume {
@@ -256,13 +252,13 @@ pub(super) fn prepare_user_input_continuation(
 
 fn cancelled_user_input_result(
     services: &NativeAgentRuntimeServices,
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     checkpoint: Value,
     form_id: String,
     iteration: i64,
 ) -> Value {
     let message = "User input request was cancelled.";
-    let mut state = NativeAgentRunState::new_for_continuation(context, services.trace_sink.clone())
+    let mut state = AgentTurnState::new_for_continuation(context, services.trace_sink.clone())
         .expect("form cancellation must restore persisted runtime events");
     state.tools_used.push(REQUEST_USER_INPUT_METHOD.to_string());
     state.transition_phase(
@@ -273,7 +269,7 @@ fn cancelled_user_input_result(
     state.emit_event(
         "agent.form.resolution",
         serde_json::json!({
-            "runId": context.run_id,
+            "turnId": context.turn_id,
             "sessionId": context.session_id,
             "iteration": iteration,
             "formId": form_id,
@@ -286,7 +282,7 @@ fn cancelled_user_input_result(
     state.emit_event(
         "agent.error",
         serde_json::json!({
-            "runId": context.run_id,
+            "turnId": context.turn_id,
             "sessionId": context.session_id,
             "iteration": iteration,
             "stopReason": "form_cancelled",
@@ -298,7 +294,7 @@ fn cancelled_user_input_result(
     let events = state.legacy_events();
     serde_json::json!({
         "runtime": "rust",
-        "runId": context.run_id,
+        "turnId": context.turn_id,
         "sessionId": context.session_id,
         "finalContent": "",
         "stopReason": "form_cancelled",

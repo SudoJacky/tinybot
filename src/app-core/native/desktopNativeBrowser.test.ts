@@ -8,7 +8,7 @@ const snapshot = {
     contract: "browser_session_v1",
     interaction: { click: true, navigate: true, type: true },
     kind: "browser_session",
-    runId: "run-1",
+    operationId: "run-1",
     sessionId: "thread-1",
     state: "running",
     tabs: [{ activeHistoryIndex: 0, captures: [], history: [{ url: "about:blank" }], loading: false, tabId: "tab-1", title: "New tab", url: "about:blank" }],

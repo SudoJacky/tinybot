@@ -1,15 +1,15 @@
 use super::index::ThreadIndex;
 use super::{
-    active_child_run_id_for_status, agent_registry_entry, apply_metadata_patch, bounded_limit,
+    active_child_turn_id_for_status, agent_registry_entry, apply_metadata_patch, bounded_limit,
     checkpoint_from_item, descendant_thread_ids, generate_item_id, generate_thread_id,
     inherited_subagent_history_items, invalid_thread_request, latest_checkpoint_from_items,
     non_empty_string, now_timestamp, parse_sequence_cursor, pending_approvals_from_items,
     read_cursor_from_request, recompute_dynamic_metadata, remember_client_event_items,
-    run_summaries_from_items, running_tools_from_items, status_value,
-    subagent_agent_control_payload, subagent_child_status_item, subagent_initial_child_items,
-    subagent_input_item, subagent_lifecycle_item_label, subagent_parent_item,
-    thread_items_match_query, thread_matches_list_filters, thread_matches_query,
-    thread_status_for_subagent, turn_items_from_thread_items, unknown_thread_error,
+    running_tools_from_items, status_value, subagent_agent_control_payload,
+    subagent_child_status_item, subagent_initial_child_items, subagent_input_item,
+    subagent_lifecycle_item_label, subagent_parent_item, thread_items_match_query,
+    thread_matches_list_filters, thread_matches_query, thread_status_for_subagent,
+    turn_items_from_thread_items, turn_summaries_from_items, unknown_thread_error,
     validate_context_checkpoint_lineage, validate_thread_id, AppendThreadItemsResult,
     CreateThreadRequest, DeleteThreadRequest, DeleteThreadResult, ForkThreadRequest,
     ListThreadsRequest, ListThreadsResult, ReadThreadRequest, RestoreThreadCheckpointRequest,
@@ -23,7 +23,7 @@ use super::{
     DEFAULT_SEARCH_LIMIT, DEFAULT_THREAD_TITLE, MAX_LIST_LIMIT, MAX_READ_LIMIT, MAX_SEARCH_LIMIT,
 };
 use crate::protocol::{WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource};
-use crate::threads::domain::ThreadRunSummary;
+use crate::threads::domain::ThreadTurnSummary;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -149,8 +149,8 @@ impl MemoryThreadStore {
             .get(&request.thread_id)
             .cloned()
             .unwrap_or_default();
-        let runs = run_summaries_from_items(&thread, &all_items);
-        let active_run = runs.iter().find(|run| run.active).cloned();
+        let turns = turn_summaries_from_items(&thread, &all_items);
+        let active_turn = turns.iter().find(|turn| turn.active).cloned();
         let latest_checkpoint = latest_checkpoint_from_items(&thread.thread_id, &all_items);
         let child_activities = child_activities(&state, &request.thread_id);
         let mut items = all_items
@@ -167,16 +167,16 @@ impl MemoryThreadStore {
             .to_string();
         let mut events = vec![ThreadEvent::ThreadSnapshot {
             thread: thread.clone(),
-            active_run: active_run.clone(),
+            active_turn: active_turn.clone(),
             latest_checkpoint: latest_checkpoint.clone(),
-            runs: runs.clone(),
+            turns: turns.clone(),
             child_activities: child_activities.clone(),
         }];
         events.push(ThreadEvent::ThreadStatus {
             thread: thread.clone(),
-            active_run: active_run.clone(),
+            active_turn: active_turn.clone(),
             latest_checkpoint: latest_checkpoint.clone(),
-            runs: runs.clone(),
+            turns: turns.clone(),
         });
         events.extend(
             child_activities
@@ -191,9 +191,9 @@ impl MemoryThreadStore {
         Ok(ThreadEventsResult {
             thread_id: request.thread_id,
             thread,
-            active_run,
+            active_turn,
             latest_checkpoint,
-            runs,
+            turns,
             child_activities,
             cursor: cursor.to_string(),
             events,
@@ -380,7 +380,7 @@ impl MemoryThreadStore {
         Ok(ThreadActivityResult {
             thread_id: request.thread_id,
             thread,
-            active_run: status.active_run,
+            active_turn: status.active_turn,
             active_children: status.child_activities,
             pending_approvals,
             running_tools,
@@ -515,8 +515,8 @@ impl MemoryThreadStore {
             title: format!("Desktop Session {}", summary.session_key),
             status: ThreadStatus::Idle,
             session_key: Some(summary.session_key.clone()),
-            root_run_id: summary.parent_run_id.clone(),
-            active_run_id: summary.parent_run_id.clone(),
+            root_turn_id: summary.parent_turn_id.clone(),
+            active_turn_id: summary.parent_turn_id.clone(),
             parent_thread_id: None,
             source: "subagent_parent".to_string(),
             created_at: summary.created_at.clone(),
@@ -550,11 +550,11 @@ impl MemoryThreadStore {
                     == Some(summary.subagent_id.as_str())
         }) {
             thread.title = summary.name.clone();
-            thread.active_run_id = active_child_run_id_for_status(summary);
+            thread.active_turn_id = active_child_turn_id_for_status(summary);
             thread.status = thread_status_for_subagent(&summary.status);
             thread.updated_at = summary.updated_at.clone();
             thread.metadata.preview = non_empty_string(&summary.task);
-            thread.metadata.has_active_run = active_child_run_id_for_status(summary).is_some();
+            thread.metadata.has_active_turn = active_child_turn_id_for_status(summary).is_some();
             thread.metadata.last_activity_at = Some(summary.updated_at.clone());
             thread.metadata.extra["status"] = status_value(&summary.status);
             thread.metadata.extra["agentControl"] =
@@ -566,8 +566,8 @@ impl MemoryThreadStore {
             title: summary.name.clone(),
             status: thread_status_for_subagent(&summary.status),
             session_key: Some(summary.session_key.clone()),
-            root_run_id: Some(summary.child_run_id.clone()),
-            active_run_id: active_child_run_id_for_status(summary),
+            root_turn_id: Some(summary.child_turn_id.clone()),
+            active_turn_id: active_child_turn_id_for_status(summary),
             parent_thread_id: Some(parent_thread_id.to_string()),
             source: "subagent".to_string(),
             created_at: summary.created_at.clone(),
@@ -577,11 +577,11 @@ impl MemoryThreadStore {
                 preview: non_empty_string(&summary.task),
                 tags: vec!["subagent".to_string()],
                 last_activity_at: Some(summary.updated_at.clone()),
-                has_active_run: active_child_run_id_for_status(summary).is_some(),
+                has_active_turn: active_child_turn_id_for_status(summary).is_some(),
                 extra: serde_json::json!({
                     "subagentId": summary.subagent_id,
-                    "childRunId": summary.child_run_id,
-                    "parentRunId": summary.parent_run_id,
+                    "childTurnId": summary.child_turn_id,
+                    "parentTurnId": summary.parent_turn_id,
                     "traceRef": summary.trace_ref,
                     "status": summary.status,
                     "agentControl": subagent_agent_control_payload(summary, parent_thread_id),
@@ -805,8 +805,8 @@ impl ThreadStore for MemoryThreadStore {
             title,
             status: ThreadStatus::Empty,
             session_key: request.session_key,
-            root_run_id: request.root_run_id,
-            active_run_id: request.active_run_id,
+            root_turn_id: request.root_turn_id,
+            active_turn_id: request.active_turn_id,
             parent_thread_id: request.parent_thread_id,
             source: request.source.unwrap_or_else(|| "user".to_string()),
             created_at: timestamp.clone(),
@@ -821,7 +821,7 @@ impl ThreadStore for MemoryThreadStore {
                 last_user_message_at: request.metadata.last_user_message_at,
                 last_assistant_message_at: request.metadata.last_assistant_message_at,
                 last_activity_at: request.metadata.last_activity_at.or(Some(timestamp)),
-                has_active_run: request.metadata.has_active_run.unwrap_or(false),
+                has_active_turn: request.metadata.has_active_turn.unwrap_or(false),
                 extra: request
                     .metadata
                     .extra
@@ -881,16 +881,16 @@ impl ThreadStore for MemoryThreadStore {
                 .any(|item| item.sequence > last.sequence)
                 .then(|| last.sequence.to_string())
         });
-        let runs = run_summaries_from_items(&thread, &all_items);
-        let active_run = runs.iter().find(|run| run.active).cloned();
+        let turns = turn_summaries_from_items(&thread, &all_items);
+        let active_turn = turns.iter().find(|turn| turn.active).cloned();
         let latest_checkpoint = latest_checkpoint_from_items(&thread.thread_id, &all_items);
-        let turn_items = active_run
+        let turn_items = active_turn
             .as_ref()
-            .map(|run| {
+            .map(|turn| {
                 turn_items_from_thread_items(
                     &all_items,
                     thread.session_key.as_deref().unwrap_or_default(),
-                    &run.run_id,
+                    &turn.turn_id,
                 )
             })
             .unwrap_or_default();
@@ -905,8 +905,8 @@ impl ThreadStore for MemoryThreadStore {
         Ok(ThreadSnapshot {
             thread,
             items: matching,
-            runs,
-            active_run,
+            turns,
+            active_turn,
             latest_checkpoint,
             children,
             turn_items,
@@ -969,9 +969,9 @@ impl ThreadStore for MemoryThreadStore {
         })?;
         Ok(ThreadStatusResult {
             thread: snapshot.thread,
-            active_run: snapshot.active_run,
+            active_turn: snapshot.active_turn,
             latest_checkpoint: snapshot.latest_checkpoint,
-            runs: snapshot.runs,
+            turns: snapshot.turns,
             children: snapshot.children,
             turn_items: snapshot.turn_items,
             child_activities: snapshot.child_activities,
@@ -1230,7 +1230,7 @@ impl ThreadStore for MemoryThreadStore {
             .unwrap_or_else(|| format!("{} (fork)", source.title));
         forked.parent_thread_id = Some(source.thread_id.clone());
         forked.source = "fork".to_string();
-        forked.active_run_id = None;
+        forked.active_turn_id = None;
         forked.created_at = timestamp.clone();
         forked.updated_at = timestamp.clone();
         forked.archived_at = None;
@@ -1239,7 +1239,7 @@ impl ThreadStore for MemoryThreadStore {
         } else {
             ThreadStatus::Idle
         };
-        forked.metadata.has_active_run = false;
+        forked.metadata.has_active_turn = false;
         forked.metadata.last_activity_at = Some(timestamp);
         if !forked.metadata.extra.is_object() {
             forked.metadata.extra = Value::Object(Default::default());
@@ -1296,7 +1296,7 @@ impl ThreadStore for MemoryThreadStore {
                 child.thread_id = child_thread_id.clone();
                 child.session_key = Some(child_thread_id.clone());
                 child.parent_thread_id = Some(parent_thread_id);
-                child.active_run_id = None;
+                child.active_turn_id = None;
                 child.created_at = now_timestamp();
                 child.updated_at = child.created_at.clone();
                 child.archived_at = None;
@@ -1305,7 +1305,7 @@ impl ThreadStore for MemoryThreadStore {
                 } else {
                     ThreadStatus::Idle
                 };
-                child.metadata.has_active_run = false;
+                child.metadata.has_active_turn = false;
                 child.metadata.last_activity_at = Some(child.updated_at.clone());
                 if !child.metadata.extra.is_object() {
                     child.metadata.extra = Value::Object(Default::default());
@@ -1370,7 +1370,7 @@ fn child_activities(state: &MemoryThreadState, thread_id: &str) -> Vec<ThreadChi
         .filter(|thread| {
             thread.parent_thread_id.as_deref() == Some(thread_id)
                 && thread.status != ThreadStatus::Archived
-                && thread.active_run_id.is_some()
+                && thread.active_turn_id.is_some()
         })
         .map(|child| {
             let items = state
@@ -1378,38 +1378,41 @@ fn child_activities(state: &MemoryThreadState, thread_id: &str) -> Vec<ThreadChi
                 .get(&child.thread_id)
                 .map(Vec::as_slice)
                 .unwrap_or(&[]);
-            let runs = run_summaries_from_items(child, items);
-            let active_run = runs.iter().find(|run| run.active).cloned().or_else(|| {
-                child.active_run_id.as_ref().map(|run_id| ThreadRunSummary {
-                    run_id: run_id.clone(),
-                    status: child.status.clone(),
-                    started_at: Some(child.created_at.clone()),
-                    updated_at: Some(child.updated_at.clone()),
-                    completed_at: child.archived_at.clone(),
-                    model: child.metadata.model.clone(),
-                    provider: child
-                        .metadata
-                        .extra
-                        .get("provider")
-                        .and_then(Value::as_str)
-                        .map(str::to_string),
-                    item_count: u64::try_from(items.len()).unwrap_or(u64::MAX),
-                    active: true,
-                })
+            let turns = turn_summaries_from_items(child, items);
+            let active_turn = turns.iter().find(|turn| turn.active).cloned().or_else(|| {
+                child
+                    .active_turn_id
+                    .as_ref()
+                    .map(|turn_id| ThreadTurnSummary {
+                        turn_id: turn_id.clone(),
+                        status: child.status.clone(),
+                        started_at: Some(child.created_at.clone()),
+                        updated_at: Some(child.updated_at.clone()),
+                        completed_at: child.archived_at.clone(),
+                        model: child.metadata.model.clone(),
+                        provider: child
+                            .metadata
+                            .extra
+                            .get("provider")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                        item_count: u64::try_from(items.len()).unwrap_or(u64::MAX),
+                        active: true,
+                    })
             });
-            let turn_items = active_run
+            let turn_items = active_turn
                 .as_ref()
-                .map(|run| {
+                .map(|turn| {
                     turn_items_from_thread_items(
                         items,
                         child.session_key.as_deref().unwrap_or_default(),
-                        &run.run_id,
+                        &turn.turn_id,
                     )
                 })
                 .unwrap_or_default();
             ThreadChildActivity {
                 child: ThreadChildSummary::from(child),
-                active_run,
+                active_turn,
                 turn_items,
             }
         })

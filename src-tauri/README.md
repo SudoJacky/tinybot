@@ -11,7 +11,9 @@ For desktop setup and launch behavior, see [the desktop guide](../docs/desktop.m
 ## Entry points
 
 - `src/main.rs` starts the Tauri application through `tinybot_desktop_lib::run`.
-- `src/lib.rs` assembles shared runtime state and registers Tauri commands.
+- `src/lib.rs` delegates application startup to `desktop::run`.
+- `src/desktop/bootstrap.rs` assembles shared runtime state and registers Tauri
+  commands.
 - `src/desktop_commands/` adapts typed Tauri inputs to backend services.
 - `WorkerRpcRouter` handles versioned `WorkerRequest` values for internal and
   transport-backed callers.
@@ -21,6 +23,60 @@ For desktop setup and launch behavior, see [the desktop guide](../docs/desktop.m
 The default desktop path is in-process. Compatibility fields may mention HTTP
 or WebSocket endpoints, but they do not imply that the Tauri backend binds a
 local server.
+
+## Domain terminology
+
+Use these terms consistently in backend code and documentation:
+
+- **Thread** is the durable conversation container. It owns ordered Turns and
+  their Items, survives process restarts and connection changes, and may carry
+  an optional long-lived goal. A goal is metadata on a Thread, not the
+  definition of a Thread.
+- **Turn** starts with one user request and includes all agent work that follows
+  until the Turn completes, fails, or is interrupted. Provider iterations,
+  reasoning, tool calls and results, and approval or form pauses all belong to
+  the same Turn. Resuming a pause does not create a new Turn.
+- **Item** is one ordered input or output within a Turn, such as a user message,
+  agent message, reasoning entry, tool call, tool result, or approval request.
+  Not every Item is a model-visible message. Every durable Item has its own
+  stable, type-prefixed identity, such as `msg_*`, `rs_*`, `ctc_*`, or
+  `ctco_*`.
+- **Message** is conversational content projected into model history. Message
+  is narrower than Item and must not be used as a generic name for runtime
+  events, approvals, or persistence records.
+- **Agent loop** is the internal Turn execution algorithm that repeats Provider
+  and tool iterations until the Turn pauses or reaches a terminal state. It is
+  not a separate durable conversation identity.
+- **TurnExecution** is the process-local object currently advancing a Turn. It
+  is addressed by `turnId`; an internal generation prevents obsolete tasks from
+  publishing late results. It is not a separate durable conversation identity.
+- **Connection** and **process** are ephemeral execution infrastructure. A
+  Thread can be loaded and advanced across multiple connections and backend
+  process lifetimes.
+- **Session** is retained only where an existing compatibility contract exposes
+  a session-shaped projection of canonical Thread Rollouts. It is not a second
+  durable conversation model and must not be used as a synonym for Thread,
+  Connection, Process, Turn, or TurnExecution.
+- **Rollout** is the canonical append-only durable record from which Thread,
+  Turn, Item, runtime, and compatibility projections are reconstructed.
+
+The core ownership hierarchy is:
+
+```text
+Thread
+  +-- Turn
+        +-- Item
+```
+
+Execution infrastructure loads and advances this hierarchy but does not own it:
+
+```text
+Process / Connection
+        |
+        +-- load or resume Thread
+                  |
+                  +-- execute Turn through the Agent loop
+```
 
 ## Architecture
 
@@ -41,11 +97,11 @@ The main layers are:
    - [`rpc/`](src/rpc/README.md) dispatches validated requests to the owning
      service without absorbing domain behavior.
 3. **Agent execution**
-   - [`agent/runtime/`](src/agent/runtime/README.md) implements the injected
-     provider/tool loop without Tauri or persistence dependencies.
-   - [`agent/bridge/`](src/agent/bridge/README.md) coordinates a complete run
-     across history hydration, attachments, tools, trace sinks, checkpoints,
-     and persistence.
+   - [`agent/runtime/`](src/agent/runtime/README.md) implements the Agent Turn
+     loop independently of the Tauri command surface.
+   - [`agent/bridge/`](src/agent/bridge/README.md) adapts Thread history,
+     instructions, tools, trace sinks, checkpoints, and persistence to a
+     complete Turn execution.
    - `agent/provider.rs` and `agent/runtime_protocol.rs` keep provider and
      runtime-event boundary types beside the agent subsystem.
 4. **Conversation domain and persistence**
@@ -78,7 +134,7 @@ desktop_commands or WorkerRpcRouter
         v
 agent::bridge
         |
-        +--> agent::runtime --> provider + injected tools
+        +--> agent::runtime --> Agent Turn loop --> provider + injected tools
         |
         +--> threads::rollout::store canonical Rollout
                     |
@@ -87,9 +143,10 @@ agent::bridge
         +--> runtime task ownership + live trace events
 ```
 
-Keep transport concerns at the boundary. Agent-loop behavior belongs in
-`agent::runtime`; cross-service run orchestration belongs in `agent::bridge`;
-durable conversation writes belong in `threads::rollout::store`.
+Keep transport concerns at the boundary. Agent-loop and Turn lifecycle behavior
+belong in `agent::runtime`; adapting Thread-owned resources belongs in
+`agent::bridge`; durable conversation writes belong in
+`threads::rollout::store`.
 
 ## Persistence map
 
@@ -110,7 +167,8 @@ and must not be reintroduced as fallback or double-write targets.
 - Keep Tauri command functions thin; move reusable behavior below the desktop
   boundary.
 - Validate capabilities at the service that performs the protected operation.
-- Preserve request IDs, trace IDs, run IDs, and client event IDs across layers.
+- Preserve Thread, Turn, Item, request, trace, tool-call, and client-event IDs
+  across layers. Do not introduce a second Run identity for a Turn.
 - Append durable conversation state through the Rollout writer; never write
   conversation authority directly to the SQLite index or an in-memory
   projection.

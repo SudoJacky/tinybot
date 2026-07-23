@@ -152,7 +152,7 @@ fn approval_request_serializes_effects_and_binds_them_to_the_fingerprint() {
                 tool_id: "exec_command".to_string(),
                 arguments: json!({ "command": "echo Hi" }),
                 session_id: Some("session-1".to_string()),
-                run_id: Some("run-1".to_string()),
+                turn_id: Some("run-1".to_string()),
             },
         )
         .expect("unsandboxed request should normalize");
@@ -167,7 +167,7 @@ fn approval_request_serializes_effects_and_binds_them_to_the_fingerprint() {
                     "networkMode": "unrestricted"
                 }),
                 session_id: Some("session-1".to_string()),
-                run_id: Some("run-1".to_string()),
+                turn_id: Some("run-1".to_string()),
             },
         )
         .expect("read-only request should normalize");
@@ -211,7 +211,7 @@ fn evaluate_tool_fails_closed_for_an_invalid_effect_request() {
                     "sandboxMode": "imaginary"
                 }),
                 session_id: None,
-                run_id: None,
+                turn_id: None,
             },
         )
         .expect_err("invalid sandbox requests must not produce an approval");

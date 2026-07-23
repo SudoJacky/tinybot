@@ -1286,7 +1286,7 @@ describe("ChatPage", () => {
         approvalId: "approval-1",
         approvalStatus: "approval_required",
         argsText: "{\"path\":\"src/main.ts\"}",
-        childRunId: "child-run-1",
+        childTurnId: "child-run-1",
         delegateId: "delegate-1",
         delegateTask: "Review implementation",
         delegateTitle: "Code reviewer",
@@ -1294,7 +1294,6 @@ describe("ChatPage", () => {
         finalOutput: "Reviewed implementation.",
         id: "tool-1",
         name: "workspace.read_file",
-        parentRunId: "parent-run-1",
         parentTurnId: "parent-turn-1",
         responseText: "file contents",
         sessionKey: "websocket:chat-1",
@@ -1358,7 +1357,7 @@ describe("ChatPage", () => {
       approval: { approvalId: "approval-1", approved: true, scope: "session" },
       kind: "approval.resolve",
       source: { control: "tool-approval", surface: "chat" },
-      target: expect.objectContaining({ runId: "turn:a-approval", sessionId: "s1" }),
+      target: expect.objectContaining({ turnId: "turn:a-approval", sessionId: "s1" }),
     }));
   });
 
@@ -1371,7 +1370,7 @@ describe("ChatPage", () => {
       description: "Collect itinerary constraints before planning.",
       submit_label: "Save preferences",
       cancel_label: "Skip",
-      correlation: { chat_id: "chat-1", run_id: "run-1", session_id: "s1" },
+      correlation: { chat_id: "chat-1", turn_id: "run-1", session_id: "s1" },
       fields: [
         { name: "destination", type: "text", label: "Destination", required: true },
         { name: "nights", type: "number", label: "Nights", required: false, min: 1, max: 30 },
@@ -1425,7 +1424,7 @@ describe("ChatPage", () => {
       },
       kind: "form.submit",
       source: { control: "chat-form", surface: "chat" },
-      target: expect.objectContaining({ runId: "run-1", sessionId: "s1" }),
+      target: expect.objectContaining({ turnId: "run-1", sessionId: "s1" }),
     }));
     expect(within(card).getByRole("button", { name: "Save preferences" }).hasAttribute("disabled")).toBe(true);
   });
@@ -1438,7 +1437,7 @@ describe("ChatPage", () => {
       title: "Travel preferences",
       submit_label: "Save preferences",
       cancel_label: "Skip",
-      correlation: { chat_id: "chat-1", run_id: "run-1", session_id: "s1" },
+      correlation: { chat_id: "chat-1", turn_id: "run-1", session_id: "s1" },
       fields: [{ name: "destination", type: "text", label: "Destination", required: true }],
       values: { destination: "Shanghai" },
       status: "pending",
@@ -1474,7 +1473,7 @@ describe("ChatPage", () => {
       form: { formId: "travel-preferences-1" },
       kind: "form.cancel",
       source: { control: "chat-form", surface: "chat" },
-      target: expect.objectContaining({ runId: "run-1", sessionId: "s1" }),
+      target: expect.objectContaining({ turnId: "run-1", sessionId: "s1" }),
     }));
     expect(within(card).getByRole("button", { name: "Skip" }).hasAttribute("disabled")).toBe(true);
   });
@@ -1964,7 +1963,7 @@ describe("ChatPage", () => {
     const stores = createStores();
     const timeline = failedPlanTimeline();
     const capabilities = effectiveCapabilities("s1");
-    capabilities.evaluatedRunId = timeline.turns[0].id;
+    capabilities.evaluatedTurnId = timeline.turns[0].id;
     capabilities.capabilities.agent.retry = { available: true };
     stores.chatStore.load = vi.fn(async () => timeline);
     stores.chatStore.loadTinyOsCapabilities = vi.fn(async () => capabilities);
@@ -2623,10 +2622,9 @@ describe("ChatPage", () => {
     const command = createTinyOsAgentCancelCommand({
       commandId: "command-shortcut-1",
       issuedAt: "2026-07-04T12:00:00.000Z",
-      runId: "run-1",
       sessionId: "s1",
       source: { control: "keyboard-shortcut", surface: "chat" },
-      turnId: "run-1",
+      turnId: "turn-1",
     });
 
     act(() => subscribed?.({ command, type: "command.dispatched" }));
@@ -2979,7 +2977,7 @@ describe("ChatPage", () => {
     run.status = "running";
     vi.mocked(stores.chatStore.load).mockResolvedValue(runningTimeline);
     const capabilities = effectiveCapabilities("s1");
-    capabilities.evaluatedRunId = run.id;
+    capabilities.evaluatedTurnId = run.id;
     capabilities.capabilities.agent.pause = { available: true };
     vi.mocked(stores.chatStore.loadTinyOsCapabilities).mockResolvedValue(capabilities);
 

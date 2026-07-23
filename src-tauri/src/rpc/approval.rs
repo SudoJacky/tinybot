@@ -79,7 +79,7 @@ impl WorkerApprovalRpc {
             "stopReason": "awaiting_approval",
             "approvalId": record.id,
             "operation": record.operation,
-            "runId": record.run_id,
+            "turnId": record.turn_id,
             "category": record.category,
             "risk": record.risk,
             "reason": record.reason,
@@ -235,7 +235,7 @@ impl WorkerApprovalRpc {
 #[derive(Clone, Debug)]
 pub(super) struct SensitiveOperationApproval {
     method: &'static str,
-    run_id: String,
+    turn_id: String,
     session_id: Option<String>,
     operation: Value,
     category: &'static str,
@@ -254,11 +254,11 @@ impl SensitiveOperationApproval {
         ApprovalRecord {
             id: approval_id_for(
                 self.session_id.as_deref(),
-                &self.run_id,
+                &self.turn_id,
                 &self.fingerprint,
                 &self.operation,
             ),
-            run_id: self.run_id.clone(),
+            turn_id: self.turn_id.clone(),
             session_id: self.session_id.clone(),
             operation: self.operation.clone(),
             category: self.category.to_string(),
@@ -279,14 +279,14 @@ impl SensitiveOperationApproval {
 pub(super) fn workspace_write_approval(
     path: &str,
     session_id: Option<String>,
-    run_id: Option<String>,
+    turn_id: Option<String>,
 ) -> SensitiveOperationApproval {
     let normalized_path = normalize_approval_path(path);
     let effects = workspace_write_permission_effects(path);
     let fingerprint = permission_fingerprint("write_file", &normalized_path, &effects);
     SensitiveOperationApproval {
         method: "workspace.write_file",
-        run_id: run_id.unwrap_or_else(|| "workspace.write_file".to_string()),
+        turn_id: turn_id.unwrap_or_else(|| "workspace.write_file".to_string()),
         session_id,
         operation: serde_json::json!({
             "toolName": "write_file",
@@ -309,13 +309,13 @@ pub(super) fn workspace_apply_patch_approval(
     patch: &str,
     paths: &[String],
     session_id: Option<String>,
-    run_id: Option<String>,
+    turn_id: Option<String>,
 ) -> SensitiveOperationApproval {
     let effects = workspace_patch_permission_effects();
     let fingerprint = permission_fingerprint("apply_patch", patch, &effects);
     SensitiveOperationApproval {
         method: "workspace.apply_patch",
-        run_id: run_id.unwrap_or_else(|| "workspace.apply_patch".to_string()),
+        turn_id: turn_id.unwrap_or_else(|| "workspace.apply_patch".to_string()),
         session_id,
         operation: serde_json::json!({
             "toolName": "apply_patch",
@@ -338,7 +338,7 @@ pub(super) fn mcp_tool_approval(
     server: &str,
     tool: &str,
     session_id: Option<String>,
-    run_id: Option<String>,
+    turn_id: Option<String>,
 ) -> SensitiveOperationApproval {
     let server = server.trim();
     let tool = tool.trim();
@@ -346,7 +346,7 @@ pub(super) fn mcp_tool_approval(
     let fingerprint = permission_fingerprint("mcp", &format!("{server}.{tool}"), &effects);
     SensitiveOperationApproval {
         method: "mcp.call_tool",
-        run_id: run_id.unwrap_or_else(|| "mcp.call_tool".to_string()),
+        turn_id: turn_id.unwrap_or_else(|| "mcp.call_tool".to_string()),
         session_id,
         operation: serde_json::json!({
             "toolName": "mcp.call_tool",
@@ -368,14 +368,14 @@ pub(super) fn mcp_tool_approval(
 pub(super) fn workspace_delete_approval(
     path: &str,
     session_id: Option<String>,
-    run_id: Option<String>,
+    turn_id: Option<String>,
 ) -> SensitiveOperationApproval {
     let normalized_path = normalize_approval_path(path);
     let effects = workspace_write_permission_effects(path);
     let fingerprint = permission_fingerprint("delete_file", &normalized_path, &effects);
     SensitiveOperationApproval {
         method: "workspace.delete_file",
-        run_id: run_id.unwrap_or_else(|| "workspace.delete_file".to_string()),
+        turn_id: turn_id.unwrap_or_else(|| "workspace.delete_file".to_string()),
         session_id,
         operation: serde_json::json!({
             "toolName": "delete_file",
@@ -399,13 +399,13 @@ pub(super) fn shell_execute_approval(
     sandbox_mode: ShellSandboxMode,
     network_mode: PermissionNetworkMode,
     session_id: Option<String>,
-    run_id: Option<String>,
+    turn_id: Option<String>,
 ) -> SensitiveOperationApproval {
     let effects = shell_permission_effects(sandbox_mode, network_mode, false);
     let fingerprint = permission_fingerprint("exec", command, &effects);
     SensitiveOperationApproval {
         method: "shell.execute",
-        run_id: run_id.unwrap_or_else(|| "shell.execute".to_string()),
+        turn_id: turn_id.unwrap_or_else(|| "shell.execute".to_string()),
         session_id,
         operation: serde_json::json!({
             "toolName": "exec",
@@ -434,13 +434,13 @@ pub(super) fn shell_start_approval(
     network_mode: PermissionNetworkMode,
     tty: bool,
     session_id: Option<String>,
-    run_id: Option<String>,
+    turn_id: Option<String>,
 ) -> SensitiveOperationApproval {
     let effects = shell_permission_effects(sandbox_mode, network_mode, tty);
     let fingerprint = permission_fingerprint("start", command, &effects);
     SensitiveOperationApproval {
         method: "shell.start",
-        run_id: run_id.unwrap_or_else(|| "shell.start".to_string()),
+        turn_id: turn_id.unwrap_or_else(|| "shell.start".to_string()),
         session_id,
         operation: serde_json::json!({
             "toolName": "exec_command",
@@ -466,7 +466,7 @@ pub(super) fn shell_start_approval(
 
 #[derive(Deserialize)]
 struct ApprovalRequestParams {
-    run_id: String,
+    turn_id: String,
     #[serde(default)]
     session_id: Option<String>,
     operation: Value,
@@ -558,7 +558,7 @@ struct ApprovalGrant {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ApprovalRunGrant {
-    run_id: String,
+    turn_id: String,
     session_id: Option<String>,
     fingerprint: String,
 }
@@ -566,7 +566,7 @@ struct ApprovalRunGrant {
 impl ApprovalRunGrant {
     fn from_record(record: &ApprovalRecord) -> Self {
         Self {
-            run_id: record.run_id.clone(),
+            turn_id: record.turn_id.clone(),
             session_id: canonical_session_id_option(record.session_id.as_deref()),
             fingerprint: record.fingerprint.clone(),
         }
@@ -611,7 +611,7 @@ fn canonical_session_id(value: &str) -> String {
 #[derive(Clone, Debug)]
 struct ApprovalRecord {
     id: String,
-    run_id: String,
+    turn_id: String,
     session_id: Option<String>,
     operation: Value,
     category: String,
@@ -731,14 +731,14 @@ impl ApprovalRecord {
         let session_fingerprint = fingerprint.clone();
         let id = approval_id_for(
             params.session_id.as_deref(),
-            &params.run_id,
+            &params.turn_id,
             &fingerprint,
             &operation,
         );
 
         Ok(Self {
             id,
-            run_id: params.run_id,
+            turn_id: params.turn_id,
             session_id: params.session_id,
             operation,
             category,
@@ -756,7 +756,7 @@ impl ApprovalRecord {
     fn to_pending_json(&self) -> Value {
         let mut value = serde_json::json!({
             "id": self.id,
-            "runId": self.run_id,
+            "turnId": self.turn_id,
             "operation": self.operation,
             "category": self.category,
             "risk": self.risk,
@@ -785,7 +785,7 @@ fn approval_allowed_result(record: &ApprovalRecord, scope: &str) -> Value {
         "status": "approved",
         "scope": scope,
         "operation": record.operation,
-        "runId": record.run_id,
+        "turnId": record.turn_id,
         "category": record.category,
         "risk": record.risk,
         "reason": record.reason,
@@ -808,13 +808,13 @@ fn approval_allowed_result(record: &ApprovalRecord, scope: &str) -> Value {
 
 fn approval_id_for(
     session_id: Option<&str>,
-    run_id: &str,
+    turn_id: &str,
     fingerprint: &str,
     operation: &Value,
 ) -> String {
     let mut hasher = DefaultHasher::new();
     session_id.unwrap_or("").hash(&mut hasher);
-    run_id.hash(&mut hasher);
+    turn_id.hash(&mut hasher);
     fingerprint.hash(&mut hasher);
     operation.to_string().hash(&mut hasher);
     format!("approval-{:016x}", hasher.finish())
@@ -1083,7 +1083,7 @@ mod tests {
 
     fn approval_request(
         request_id: &'static str,
-        run_id: &str,
+        turn_id: &str,
         session_id: &str,
         mut operation: Value,
         _legacy_fingerprint: &str,
@@ -1111,7 +1111,7 @@ mod tests {
             "trace-1",
             "approval.request",
             json!({
-                "run_id": run_id,
+                "turn_id": turn_id,
                 "session_id": session_id,
                 "operation": operation,
                 "classification": {
@@ -1158,7 +1158,7 @@ mod tests {
         assert_eq!(result["operation"]["toolName"], operation["toolName"]);
         assert_eq!(result["operation"]["arguments"], operation["arguments"]);
         assert_eq!(result["operation"]["effects"], result["effects"]);
-        assert_eq!(result["runId"], "run-1");
+        assert_eq!(result["turnId"], "run-1");
         assert_eq!(result["sessionId"], "session-1");
         assert_eq!(result["category"], "filesystem_write");
         assert_eq!(result["risk"], "medium");
@@ -1386,7 +1386,7 @@ mod tests {
         assert_eq!(response["approvals"].as_array().map(Vec::len), Some(1));
         let pending = &response["approvals"][0];
         assert_eq!(pending["id"], approval_id);
-        assert_eq!(pending["runId"], "run-1");
+        assert_eq!(pending["turnId"], "run-1");
         assert_eq!(pending["sessionId"], "session-1");
         assert_eq!(pending["operation"]["toolName"], "write_file");
         assert_eq!(
@@ -1686,7 +1686,7 @@ mod tests {
                 "trace-1",
                 "approval.request",
                 json!({
-                    "run_id": "run-1",
+                    "turn_id": "run-1",
                     "session_id": "session-1",
                     "operation": {
                         "toolName": "write_file",
@@ -1724,7 +1724,7 @@ mod tests {
                 "trace-1",
                 "approval.request",
                 json!({
-                    "run_id": "run-1",
+                    "turn_id": "run-1",
                     "session_id": "session-1",
                     "operation": {
                         "toolName": "exec",

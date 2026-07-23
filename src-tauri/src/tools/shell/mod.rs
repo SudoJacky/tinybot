@@ -106,7 +106,7 @@ impl WorkerShellRpc {
         approval_decision: &str,
     ) -> Result<ShellProcessOutput, WorkerProtocolError> {
         self.require(WorkerCapability::ShellExecute)?;
-        let run_id = required_process_owner(params.run_id, "runId")?;
+        let owner_id = required_process_owner(params.owner_id, "ownerId")?;
         let tool_call_id = required_process_owner(params.tool_call_id, "toolCallId")?;
         let requested_working_dir = params.working_dir.as_deref().unwrap_or(".");
         let working_dir = self.resolve_working_dir(
@@ -134,7 +134,7 @@ impl WorkerShellRpc {
             yield_time_ms: params.yield_time_ms.unwrap_or(10_000),
             rows: params.rows.unwrap_or(24).max(1),
             cols: params.cols.unwrap_or(80).max(1),
-            run_id: Some(run_id),
+            owner_id: Some(owner_id),
             tool_call_id: Some(tool_call_id),
             cancellation: params.cancellation,
             sandbox_adapter: sandbox.adapter,
@@ -151,7 +151,7 @@ impl WorkerShellRpc {
         self.require(WorkerCapability::ShellExecute)?;
         self.processes.poll(
             &params.process_id,
-            params.run_id.as_deref(),
+            params.owner_id.as_deref(),
             params.cursor.unwrap_or(0),
             params.yield_time_ms.unwrap_or(1_000),
         )
@@ -164,7 +164,7 @@ impl WorkerShellRpc {
         self.require(WorkerCapability::ShellExecute)?;
         self.processes.write_stdin(
             &params.process_id,
-            params.run_id.as_deref(),
+            params.owner_id.as_deref(),
             params.input.as_bytes(),
             params.cursor.unwrap_or(0),
             params.yield_time_ms.unwrap_or(1_000),
@@ -175,7 +175,7 @@ impl WorkerShellRpc {
         self.require(WorkerCapability::ShellExecute)?;
         self.processes.resize(
             &params.process_id,
-            params.run_id.as_deref(),
+            params.owner_id.as_deref(),
             params.rows,
             params.cols,
         )
@@ -187,7 +187,7 @@ impl WorkerShellRpc {
     ) -> Result<ShellProcessOutput, WorkerProtocolError> {
         self.require(WorkerCapability::ShellExecute)?;
         self.processes
-            .interrupt(&params.process_id, params.run_id.as_deref())
+            .interrupt(&params.process_id, params.owner_id.as_deref())
     }
 
     pub fn terminate(
@@ -196,11 +196,11 @@ impl WorkerShellRpc {
     ) -> Result<ShellProcessOutput, WorkerProtocolError> {
         self.require(WorkerCapability::ShellExecute)?;
         self.processes
-            .terminate(&params.process_id, params.run_id.as_deref())
+            .terminate(&params.process_id, params.owner_id.as_deref())
     }
 
-    pub fn terminate_run(&self, run_id: &str) -> ShellProcessCleanupReport {
-        self.processes.terminate_run(run_id)
+    pub fn terminate_owner(&self, owner_id: &str) -> ShellProcessCleanupReport {
+        self.processes.terminate_owner(owner_id)
     }
 
     pub fn shutdown(&self) -> ShellProcessCleanupReport {
@@ -217,7 +217,7 @@ impl WorkerShellRpc {
         params: ShellProcessListParams,
     ) -> Result<Vec<ShellProcessOutput>, WorkerProtocolError> {
         self.require(WorkerCapability::ShellExecute)?;
-        Ok(self.processes.list(params.run_id.as_deref()))
+        Ok(self.processes.list(params.owner_id.as_deref()))
     }
 
     #[cfg(test)]
@@ -266,7 +266,7 @@ impl WorkerShellRpc {
             yield_time_ms: 20,
             rows: 24,
             cols: 80,
-            run_id: None,
+            owner_id: None,
             tool_call_id: None,
             cancellation: params.cancellation,
             sandbox_adapter: sandbox.adapter,
@@ -489,8 +489,8 @@ pub struct ShellStartParams {
     pub sandbox_mode: Option<ShellSandboxMode>,
     #[serde(default, alias = "networkMode")]
     pub network_mode: Option<PermissionNetworkMode>,
-    #[serde(default, alias = "runId")]
-    pub run_id: Option<String>,
+    #[serde(default, alias = "ownerId")]
+    pub owner_id: Option<String>,
     #[serde(default, alias = "toolCallId")]
     pub tool_call_id: Option<String>,
     #[serde(skip)]
@@ -510,7 +510,7 @@ impl fmt::Debug for ShellStartParams {
             .field("cols", &self.cols)
             .field("sandbox_mode", &self.sandbox_mode)
             .field("network_mode", &self.network_mode)
-            .field("run_id", &self.run_id)
+            .field("owner_id", &self.owner_id)
             .field("tool_call_id", &self.tool_call_id)
             .field("has_cancellation", &self.cancellation.is_some())
             .finish()
@@ -521,8 +521,8 @@ impl fmt::Debug for ShellStartParams {
 pub struct ShellProcessPollParams {
     #[serde(alias = "processId", alias = "sessionId")]
     pub process_id: String,
-    #[serde(default, alias = "runId")]
-    pub run_id: Option<String>,
+    #[serde(default, alias = "ownerId")]
+    pub owner_id: Option<String>,
     #[serde(default)]
     pub cursor: Option<u64>,
     #[serde(default, alias = "yieldTimeMs")]
@@ -533,8 +533,8 @@ pub struct ShellProcessPollParams {
 pub struct ShellProcessInputParams {
     #[serde(alias = "processId", alias = "sessionId")]
     pub process_id: String,
-    #[serde(default, alias = "runId")]
-    pub run_id: Option<String>,
+    #[serde(default, alias = "ownerId")]
+    pub owner_id: Option<String>,
     #[serde(default, alias = "chars")]
     pub input: String,
     #[serde(default)]
@@ -547,8 +547,8 @@ pub struct ShellProcessInputParams {
 pub struct ShellProcessResizeParams {
     #[serde(alias = "processId", alias = "sessionId")]
     pub process_id: String,
-    #[serde(default, alias = "runId")]
-    pub run_id: Option<String>,
+    #[serde(default, alias = "ownerId")]
+    pub owner_id: Option<String>,
     pub rows: u16,
     pub cols: u16,
 }
@@ -557,14 +557,14 @@ pub struct ShellProcessResizeParams {
 pub struct ShellProcessIdParams {
     #[serde(alias = "processId", alias = "sessionId")]
     pub process_id: String,
-    #[serde(default, alias = "runId")]
-    pub run_id: Option<String>,
+    #[serde(default, alias = "ownerId")]
+    pub owner_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct ShellProcessListParams {
-    #[serde(default, alias = "runId")]
-    pub run_id: Option<String>,
+    #[serde(default, alias = "ownerId")]
+    pub owner_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -580,7 +580,7 @@ pub struct ShellOutputChunk {
 pub struct ShellProcessOutput {
     pub process_id: String,
     pub system_process_id: Option<u32>,
-    pub run_id: Option<String>,
+    pub owner_id: Option<String>,
     pub tool_call_id: Option<String>,
     pub command: String,
     pub working_dir: String,
@@ -833,7 +833,7 @@ mod tests {
                     cols: None,
                     sandbox_mode: Some(ShellSandboxMode::Unsandboxed),
                     network_mode: Some(PermissionNetworkMode::Unrestricted),
-                    run_id: Some("run-external-read".to_string()),
+                    owner_id: Some("run-external-read".to_string()),
                     tool_call_id: Some("call-external-read".to_string()),
                     cancellation: None,
                 },

@@ -46,30 +46,30 @@ impl WorkerRpcRouter {
                 let params: SessionIdParams = parse_params(request)?;
                 let checkpoint = self
                     .thread_log
-                    .latest_agent_run_checkpoint(&params.session_id)?
+                    .latest_turn_checkpoint(&params.session_id)?
                     .map(|checkpoint| checkpoint.checkpoint);
                 serde_json::to_value(checkpoint).map_err(serialization_error)
             }
             "session.set_checkpoint" => {
                 let params: SessionCheckpointParams = parse_params(request)?;
-                let run_id = params
+                let turn_id = params
                     .checkpoint
-                    .get("runId")
-                    .or_else(|| params.checkpoint.get("run_id"))
+                    .get("turnId")
+                    .or_else(|| params.checkpoint.get("turn_id"))
                     .and_then(serde_json::Value::as_str)
                     .ok_or_else(|| {
                         WorkerProtocolError::new(
                             WorkerProtocolErrorCode::InvalidProtocol,
-                            "session checkpoint must include runId",
+                            "session checkpoint must include turnId",
                             serde_json::json!({ "session_id": params.session_id }),
                             false,
                             WorkerProtocolErrorSource::RustCore,
                         )
                     })?
                     .to_string();
-                let record = self.thread_log.set_agent_run_checkpoint(
+                let record = self.thread_log.set_turn_checkpoint(
                     &params.session_id,
-                    &run_id,
+                    &turn_id,
                     params.checkpoint,
                 )?;
                 let session = self
@@ -93,7 +93,7 @@ impl WorkerRpcRouter {
                 let params: SessionIdParams = parse_params(request)?;
                 let _ = self
                     .thread_log
-                    .clear_latest_agent_run_checkpoint(&params.session_id)?;
+                    .clear_latest_turn_checkpoint(&params.session_id)?;
                 let session = self
                     .thread_log
                     .get_session_metadata_for_write_response(&params.session_id)?
@@ -170,7 +170,7 @@ impl WorkerRpcRouter {
                     .filter(|checkpoint| !checkpoint.is_null());
                 let result = self.thread_log.persist_session_turn(
                     &params.session_id,
-                    &params.run_id,
+                    &params.turn_id,
                     params.messages,
                     context_checkpoint,
                 )?;
@@ -180,7 +180,7 @@ impl WorkerRpcRouter {
                 let params: SessionCommitContextCheckpointParams = parse_params(request)?;
                 let result = self.thread_log.commit_context_checkpoint(
                     &params.session_id,
-                    &params.run_id,
+                    &params.turn_id,
                     params.checkpoint,
                 )?;
                 serde_json::to_value(result).map_err(serialization_error)
@@ -198,122 +198,120 @@ impl WorkerRpcRouter {
         }
     }
 
-    pub(super) fn dispatch_agent_run_persistence(
+    pub(super) fn dispatch_turn_persistence(
         &mut self,
         request: &WorkerRequest,
     ) -> Result<Value, WorkerProtocolError> {
         self.refresh_thread_projection()?;
         match request.method.as_str() {
-            "agent_run.start" => {
-                let params: AgentRunStartParams = parse_params(request)?;
-                let record = self.thread_log.start_agent_run(
-                    params.record,
-                    params.context,
-                    params.messages,
-                )?;
+            "thread.turn.start" => {
+                let params: AgentTurnStartParams = parse_params(request)?;
+                let record =
+                    self.thread_log
+                        .start_turn(params.record, params.context, params.messages)?;
                 serde_json::to_value(record).map_err(serialization_error)
             }
-            "agent_run.list" => {
-                let params: AgentRunListParams = parse_params(request)?;
-                let mut records = self.thread_log.list_agent_runs(&params.session_id)?;
+            "thread.turn.list" => {
+                let params: AgentTurnListParams = parse_params(request)?;
+                let mut records = self.thread_log.list_turns(&params.session_id)?;
                 records.sort_by(|left, right| {
                     right
                         .updated_at
                         .cmp(&left.updated_at)
-                        .then_with(|| left.run_id.cmp(&right.run_id))
+                        .then_with(|| left.turn_id.cmp(&right.turn_id))
                 });
-                let runs = records
+                let turns = records
                     .iter()
-                    .map(AgentRunSummary::from_record)
+                    .map(AgentTurnSummary::from_record)
                     .collect::<Vec<_>>();
                 Ok(serde_json::json!({
                     "sessionId": params.session_id,
-                    "runs": runs,
+                    "turns": turns,
                 }))
             }
-            "agent_run.get" => {
-                let params: AgentRunIdParams = parse_params(request)?;
+            "thread.turn.get" => {
+                let params: AgentTurnIdParams = parse_params(request)?;
                 let record = self
                     .thread_log
-                    .get_agent_run(&params.session_id, &params.run_id)?
-                    .ok_or_else(|| agent_run_not_found_error(&params.session_id, &params.run_id))?;
+                    .get_turn(&params.session_id, &params.turn_id)?
+                    .ok_or_else(|| turn_not_found_error(&params.session_id, &params.turn_id))?;
                 serde_json::to_value(record).map_err(serialization_error)
             }
-            "agent_run.runtime_state" => {
-                let params: AgentRunIdParams = parse_params(request)?;
+            "thread.turn.runtime_state" => {
+                let params: AgentTurnIdParams = parse_params(request)?;
                 let runtime_state = self
                     .thread_log
-                    .get_agent_run_runtime_state(&params.session_id, &params.run_id)?
-                    .ok_or_else(|| agent_run_not_found_error(&params.session_id, &params.run_id))?;
+                    .get_turn_runtime_state(&params.session_id, &params.turn_id)?
+                    .ok_or_else(|| turn_not_found_error(&params.session_id, &params.turn_id))?;
                 serde_json::to_value(runtime_state).map_err(serialization_error)
             }
-            "agent_run.append_semantic_batch" => {
-                let params: AgentRunAppendSemanticBatchParams = parse_params(request)?;
-                let record = self.thread_log.append_agent_run_semantic_events(
+            "thread.turn.append_semantic_batch" => {
+                let params: AgentTurnAppendSemanticBatchParams = parse_params(request)?;
+                let record = self.thread_log.append_turn_semantic_events(
                     &params.session_id,
-                    &params.run_id,
+                    &params.turn_id,
                     params.events,
                 )?;
                 serde_json::to_value(record).map_err(serialization_error)
             }
-            "agent_run.set_checkpoint" => {
-                let params: AgentRunCheckpointParams = parse_params(request)?;
-                let record = self.thread_log.set_agent_run_checkpoint(
+            "thread.turn.set_checkpoint" => {
+                let params: AgentTurnCheckpointParams = parse_params(request)?;
+                let record = self.thread_log.set_turn_checkpoint(
                     &params.session_id,
-                    &params.run_id,
+                    &params.turn_id,
                     params.checkpoint,
                 )?;
                 serde_json::to_value(record).map_err(serialization_error)
             }
-            "agent_run.get_checkpoint" => {
-                let params: AgentRunIdParams = parse_params(request)?;
+            "thread.turn.get_checkpoint" => {
+                let params: AgentTurnIdParams = parse_params(request)?;
                 let checkpoint = self
                     .thread_log
-                    .get_agent_run_checkpoint(&params.session_id, &params.run_id)?;
+                    .get_turn_checkpoint(&params.session_id, &params.turn_id)?;
                 serde_json::to_value(checkpoint).map_err(serialization_error)
             }
-            "agent_run.clear_checkpoint" => {
-                let params: AgentRunIdParams = parse_params(request)?;
+            "thread.turn.clear_checkpoint" => {
+                let params: AgentTurnIdParams = parse_params(request)?;
                 serde_json::to_value(
                     self.thread_log
-                        .clear_agent_run_checkpoint(&params.session_id, &params.run_id)?,
+                        .clear_turn_checkpoint(&params.session_id, &params.turn_id)?,
                 )
                 .map_err(serialization_error)
             }
-            "agent_run.mark_completed" => {
-                let params: AgentRunMarkCompletedParams = parse_params(request)?;
-                let record = self.thread_log.mark_agent_run_completed(
+            "thread.turn.mark_completed" => {
+                let params: AgentTurnMarkCompletedParams = parse_params(request)?;
+                let record = self.thread_log.mark_turn_completed(
                     &params.session_id,
-                    &params.run_id,
+                    &params.turn_id,
                     &params.stop_reason,
                     params.final_content,
                     params.context_checkpoint,
                 )?;
                 serde_json::to_value(record).map_err(serialization_error)
             }
-            "agent_run.mark_failed" => {
-                let params: AgentRunMarkFailedParams = parse_params(request)?;
-                let record = self.thread_log.mark_agent_run_failed(
+            "thread.turn.mark_failed" => {
+                let params: AgentTurnMarkFailedParams = parse_params(request)?;
+                let record = self.thread_log.mark_turn_failed(
                     &params.session_id,
-                    &params.run_id,
+                    &params.turn_id,
                     &params.stop_reason,
                     params.error,
                     params.context_checkpoint,
                 )?;
                 serde_json::to_value(record).map_err(serialization_error)
             }
-            "agent_run.mark_cancelled" => {
-                let params: AgentRunIdParams = parse_params(request)?;
+            "thread.turn.mark_cancelled" => {
+                let params: AgentTurnIdParams = parse_params(request)?;
                 let record = self
                     .thread_log
-                    .mark_agent_run_cancelled(&params.session_id, &params.run_id)?;
+                    .mark_turn_cancelled(&params.session_id, &params.turn_id)?;
                 serde_json::to_value(record).map_err(serialization_error)
             }
-            "agent_run.mark_interrupted" => {
-                let params: AgentRunMarkInterruptedParams = parse_params(request)?;
-                let record = self.thread_log.mark_agent_run_interrupted_terminal(
+            "thread.turn.mark_interrupted" => {
+                let params: AgentTurnMarkInterruptedParams = parse_params(request)?;
+                let record = self.thread_log.mark_turn_interrupted_terminal(
                     &params.session_id,
-                    &params.run_id,
+                    &params.turn_id,
                     &params.reason,
                 )?;
                 serde_json::to_value(record).map_err(serialization_error)
@@ -330,13 +328,13 @@ struct RolloutAppendTurnContextParams {
     context: crate::threads::rollout::format::TurnContextItem,
 }
 
-fn agent_run_not_found_error(session_id: &str, run_id: &str) -> WorkerProtocolError {
+fn turn_not_found_error(session_id: &str, turn_id: &str) -> WorkerProtocolError {
     WorkerProtocolError::new(
         WorkerProtocolErrorCode::InvalidProtocol,
-        "agent run not found",
+        "turn not found",
         serde_json::json!({
             "session_id": session_id,
-            "run_id": run_id,
+            "turn_id": turn_id,
         }),
         false,
         WorkerProtocolErrorSource::RustCore,

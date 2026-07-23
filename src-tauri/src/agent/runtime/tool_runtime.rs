@@ -3,7 +3,7 @@ use super::approvals::{
 };
 use super::checkpoint::save_phase_checkpoint;
 use super::result::cancelled_run_result;
-use super::state::NativeAgentRunState;
+use super::state::AgentTurnState;
 use super::tool_dispatcher::{
     native_tool_call_supports_parallel, native_tool_cancellation_mode,
     native_tool_cleanup_timeout_ms, native_tool_is_permitted, native_tool_mutates_session,
@@ -15,7 +15,7 @@ use super::tool_projection::{
     tool_error_observation_message, tool_observation_content, tool_observation_message,
 };
 use super::{
-    AgentHookInvocation, AgentHookStage, NativeAgentRunContext, NativeAgentRuntimeServices,
+    AgentHookInvocation, AgentHookStage, AgentTurnContext, NativeAgentRuntimeServices,
     NativeAgentToolCall, NativeAgentToolDispatcher,
 };
 use crate::agent::runtime_protocol::AgentRuntimePhase;
@@ -370,8 +370,8 @@ impl Drop for ToolReadWriteGuard {
 
 pub(super) async fn execute_tool_calls_for_iteration(
     services: &NativeAgentRuntimeServices,
-    context: &mut NativeAgentRunContext,
-    state: &mut NativeAgentRunState,
+    context: &mut AgentTurnContext,
+    state: &mut AgentTurnState,
     iteration: i64,
     final_content: String,
     tool_calls: Vec<NativeAgentToolCall>,
@@ -390,7 +390,7 @@ pub(super) async fn execute_tool_calls_for_iteration(
         state.emit_event(
             "agent.tool_call.delta",
             serde_json::json!({
-                "runId": context.run_id,
+                "turnId": context.turn_id,
                 "sessionId": context.session_id,
                 "iteration": iteration,
                 "toolCallId": tool_call.id,
@@ -529,8 +529,8 @@ pub(super) async fn execute_tool_calls_for_iteration(
 }
 
 fn prepare_special_tool_call(
-    context: &NativeAgentRunContext,
-    state: &mut NativeAgentRunState,
+    context: &AgentTurnContext,
+    state: &mut AgentTurnState,
     mut tool_call: NativeAgentToolCall,
 ) -> Result<NativeAgentToolCall, String> {
     let normalized_input =
@@ -588,8 +588,8 @@ enum AwaitToolApprovalOutcome {
 
 async fn execute_approval_gated_tool_batch(
     services: &NativeAgentRuntimeServices,
-    context: &NativeAgentRunContext,
-    state: &mut NativeAgentRunState,
+    context: &AgentTurnContext,
+    state: &mut AgentTurnState,
     iteration: i64,
     tool_calls: Vec<NativeAgentToolCall>,
 ) -> NativeAgentToolExecutionOutcome {
@@ -667,8 +667,8 @@ async fn execute_approval_gated_tool_batch(
 
 async fn await_tool_approval(
     services: &NativeAgentRuntimeServices,
-    context: &NativeAgentRunContext,
-    state: &mut NativeAgentRunState,
+    context: &AgentTurnContext,
+    state: &mut AgentTurnState,
     iteration: i64,
     tool_call: &NativeAgentToolCall,
     approval: ToolApprovalMetadata,
@@ -704,7 +704,7 @@ async fn await_tool_approval(
             tool_call.name
         ));
     }
-    let approval_id = format!("approval:{}:{}", context.run_id, tool_call.id);
+    let approval_id = format!("approval:{}:{}", context.turn_id, tool_call.id);
     let (scope_key, scope_label) = match context
         .tool_router
         .approval_session_scope(&tool_call.name, &arguments)
@@ -716,7 +716,7 @@ async fn await_tool_approval(
     let receiver = match broker.register(NativeAgentApprovalRequest {
         approval_id: approval_id.clone(),
         session_id: context.session_id.clone(),
-        run_id: context.run_id.clone(),
+        turn_id: context.turn_id.clone(),
         scope_key: scope_key.clone(),
     }) {
         Ok(ApprovalRegistration::ApprovedForSession(resolution)) => {
@@ -749,7 +749,7 @@ async fn await_tool_approval(
     state.emit_event(
         "agent.awaiting_approval",
         serde_json::json!({
-            "runId": context.run_id,
+            "turnId": context.turn_id,
             "sessionId": context.session_id,
             "iteration": iteration,
             "approvalId": approval_id,
@@ -795,15 +795,15 @@ async fn await_tool_approval(
 }
 
 fn emit_approval_decision(
-    context: &NativeAgentRunContext,
-    state: &mut NativeAgentRunState,
+    context: &AgentTurnContext,
+    state: &mut AgentTurnState,
     iteration: i64,
     resolution: &NativeAgentApprovalResolution,
 ) {
     state.emit_event(
         "agent.approval.decision",
         serde_json::json!({
-            "runId": context.run_id,
+            "turnId": context.turn_id,
             "sessionId": context.session_id,
             "iteration": iteration,
             "approvalId": resolution.approval_id,
@@ -825,8 +825,8 @@ fn emit_approval_decision(
 
 fn execute_tool_search(
     services: &NativeAgentRuntimeServices,
-    context: &mut NativeAgentRunContext,
-    state: &mut NativeAgentRunState,
+    context: &mut AgentTurnContext,
+    state: &mut AgentTurnState,
     iteration: i64,
     tool_call: NativeAgentToolCall,
 ) -> NativeAgentToolExecutionOutcome {
@@ -885,8 +885,8 @@ fn execute_tool_search(
 
 fn execute_update_plan(
     services: &NativeAgentRuntimeServices,
-    context: &NativeAgentRunContext,
-    state: &mut NativeAgentRunState,
+    context: &AgentTurnContext,
+    state: &mut AgentTurnState,
     iteration: i64,
     tool_call: NativeAgentToolCall,
 ) -> NativeAgentToolExecutionOutcome {
@@ -914,7 +914,7 @@ fn execute_update_plan(
         .clone()
         .or_else(|| current_step.clone())
         .unwrap_or_else(|| "Plan completed".to_string());
-    let plan_id = format!("{}:plan", context.run_id);
+    let plan_id = format!("{}:plan", context.turn_id);
 
     state.tools_used.push(tool_call.name.clone());
     state.transition_phase(
@@ -925,7 +925,7 @@ fn execute_update_plan(
     state.emit_event(
         "agent.plan.progress",
         serde_json::json!({
-            "runId": context.run_id,
+            "turnId": context.turn_id,
             "sessionId": context.session_id,
             "iteration": iteration,
             "planId": plan_id,
@@ -976,8 +976,8 @@ fn execute_update_plan(
 
 fn recoverable_update_plan_error(
     services: &NativeAgentRuntimeServices,
-    context: &NativeAgentRunContext,
-    state: &mut NativeAgentRunState,
+    context: &AgentTurnContext,
+    state: &mut AgentTurnState,
     iteration: i64,
     tool_call: NativeAgentToolCall,
     error: String,
@@ -1034,8 +1034,8 @@ fn parse_update_plan_args(arguments_json: &str) -> Result<UpdatePlanArgs, String
 
 async fn execute_sequential_tool_batch(
     services: &NativeAgentRuntimeServices,
-    context: &NativeAgentRunContext,
-    state: &mut NativeAgentRunState,
+    context: &AgentTurnContext,
+    state: &mut AgentTurnState,
     iteration: i64,
     tool_calls: Vec<NativeAgentToolCall>,
 ) -> NativeAgentToolExecutionOutcome {
@@ -1102,7 +1102,7 @@ async fn execute_sequential_tool_batch(
 
 async fn dispatch_owned_sequential_tool(
     dispatcher: Arc<dyn NativeAgentToolDispatcher>,
-    context: NativeAgentRunContext,
+    context: AgentTurnContext,
     tool_call: NativeAgentToolCall,
 ) -> ToolDispatchOutcome {
     let child_cancellation = CancellationToken::new();
@@ -1149,7 +1149,7 @@ async fn dispatch_owned_sequential_tool(
 
 pub(super) async fn dispatch_owned_tool_call(
     dispatcher: Arc<dyn NativeAgentToolDispatcher>,
-    context: NativeAgentRunContext,
+    context: AgentTurnContext,
     tool_call: NativeAgentToolCall,
 ) -> Result<OwnedToolCallResult, String> {
     match dispatch_owned_sequential_tool(dispatcher, context, tool_call).await {
@@ -1172,7 +1172,7 @@ pub(super) async fn dispatch_owned_tool_call(
 
 async fn dispatch_tool_with_cancellation_policy(
     dispatcher: Arc<dyn NativeAgentToolDispatcher>,
-    context: NativeAgentRunContext,
+    context: AgentTurnContext,
     mut tool_call: NativeAgentToolCall,
 ) -> ToolDispatchOutcome {
     let normalized_input = match serde_json::from_str::<Value>(&tool_call.arguments_json) {
@@ -1319,7 +1319,7 @@ async fn dispatch_tool_with_cancellation_policy(
 #[allow(clippy::too_many_arguments)]
 async fn execute_owned_locked_tool(
     dispatcher: Arc<dyn NativeAgentToolDispatcher>,
-    context: NativeAgentRunContext,
+    context: AgentTurnContext,
     tool_call: NativeAgentToolCall,
     lock: Arc<ToolReadWriteLock>,
     index: usize,
@@ -1407,8 +1407,8 @@ async fn execute_owned_locked_tool(
 
 async fn execute_locked_tool_batch(
     services: &NativeAgentRuntimeServices,
-    context: &NativeAgentRunContext,
-    state: &mut NativeAgentRunState,
+    context: &AgentTurnContext,
+    state: &mut AgentTurnState,
     iteration: i64,
     tool_calls: Vec<NativeAgentToolCall>,
 ) -> NativeAgentToolExecutionOutcome {
@@ -1433,7 +1433,7 @@ async fn execute_locked_tool_batch(
         state.emit_event(
             "agent.tool.start",
             serde_json::json!({
-                "runId": context.run_id,
+                "turnId": context.turn_id,
                 "sessionId": context.session_id,
                 "iteration": iteration,
                 "toolCallId": tool_call.id,
@@ -1558,7 +1558,7 @@ async fn execute_locked_tool_batch(
                 state.emit_event(
                     "agent.tool.start",
                     serde_json::json!({
-                        "runId": context.run_id,
+                        "turnId": context.turn_id,
                         "sessionId": context.session_id,
                         "iteration": iteration,
                         "toolCallId": tool_call.id,
@@ -1832,7 +1832,7 @@ async fn execute_locked_tool_batch(
 }
 
 fn parallel_mode_for_tool_call(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     tool_call: &NativeAgentToolCall,
 ) -> &'static str {
     if native_tool_call_supports_parallel(context, tool_call) {
@@ -1842,7 +1842,7 @@ fn parallel_mode_for_tool_call(
     }
 }
 
-fn tool_runtime_policy_payload(context: &NativeAgentRunContext, tool_name: &str) -> Value {
+fn tool_runtime_policy_payload(context: &AgentTurnContext, tool_name: &str) -> Value {
     let cancellation_mode = native_tool_cancellation_mode(context, tool_name);
     serde_json::json!({
         "waitsForRuntimeCancellation": native_tool_waits_for_runtime_cancellation(context, tool_name),
@@ -1853,14 +1853,14 @@ fn tool_runtime_policy_payload(context: &NativeAgentRunContext, tool_name: &str)
     })
 }
 
-fn context_is_cancelled(context: &NativeAgentRunContext) -> bool {
+fn context_is_cancelled(context: &AgentTurnContext) -> bool {
     context
         .cancellation
         .as_ref()
         .is_some_and(|cancellation| cancellation.is_cancelled())
 }
 
-async fn wait_for_context_cancellation(context: &NativeAgentRunContext) {
+async fn wait_for_context_cancellation(context: &AgentTurnContext) {
     if let Some(cancellation) = context.cancellation.as_ref() {
         cancellation.cancelled().await;
     } else {
@@ -1869,8 +1869,8 @@ async fn wait_for_context_cancellation(context: &NativeAgentRunContext) {
 }
 
 fn emit_late_terminal_debug(
-    context: &NativeAgentRunContext,
-    state: &mut NativeAgentRunState,
+    context: &AgentTurnContext,
+    state: &mut AgentTurnState,
     iteration: i64,
     tool_call: &NativeAgentToolCall,
     terminal_outcome: ToolBatchTerminalOutcome,
@@ -1880,7 +1880,7 @@ fn emit_late_terminal_debug(
     state.emit_event(
         "agent.tool.debug",
         serde_json::json!({
-            "runId": context.run_id,
+            "turnId": context.turn_id,
             "sessionId": context.session_id,
             "iteration": iteration,
             "toolCallId": tool_call.id,
@@ -1922,8 +1922,8 @@ fn send_tool_dispatch_finished(
 
 fn start_tool_call(
     services: &NativeAgentRuntimeServices,
-    context: &NativeAgentRunContext,
-    state: &mut NativeAgentRunState,
+    context: &AgentTurnContext,
+    state: &mut AgentTurnState,
     iteration: i64,
     tool_call: &NativeAgentToolCall,
 ) {
@@ -1936,7 +1936,7 @@ fn start_tool_call(
     state.emit_event(
         "agent.tool.start",
         serde_json::json!({
-            "runId": context.run_id,
+            "turnId": context.turn_id,
             "sessionId": context.session_id,
             "iteration": iteration,
             "toolCallId": tool_call.id,
@@ -1963,8 +1963,8 @@ fn start_tool_call(
 }
 
 fn record_tool_success(
-    context: &NativeAgentRunContext,
-    state: &mut NativeAgentRunState,
+    context: &AgentTurnContext,
+    state: &mut AgentTurnState,
     iteration: i64,
     tool_call: NativeAgentToolCall,
     result: super::NativeAgentToolResult,
@@ -1980,7 +1980,7 @@ fn record_tool_success(
     state.emit_event(
         "agent.tool.result",
         serde_json::json!({
-            "runId": context.run_id,
+            "turnId": context.turn_id,
             "sessionId": context.session_id,
             "iteration": iteration,
             "toolCallId": tool_call.id,
@@ -2019,8 +2019,8 @@ fn record_tool_success(
 }
 
 fn record_tool_failure(
-    context: &NativeAgentRunContext,
-    state: &mut NativeAgentRunState,
+    context: &AgentTurnContext,
+    state: &mut AgentTurnState,
     iteration: i64,
     tool_call: &NativeAgentToolCall,
     error: &str,
@@ -2038,7 +2038,7 @@ fn record_tool_failure(
     state.emit_event(
         "agent.tool.result",
         serde_json::json!({
-            "runId": context.run_id,
+            "turnId": context.turn_id,
             "sessionId": context.session_id,
             "iteration": iteration,
             "toolCallId": tool_call.id,
@@ -2057,8 +2057,8 @@ fn record_tool_failure(
 
 fn policy_denied_result(
     services: &NativeAgentRuntimeServices,
-    context: &NativeAgentRunContext,
-    state: &mut NativeAgentRunState,
+    context: &AgentTurnContext,
+    state: &mut AgentTurnState,
     iteration: i64,
     tool_call: &NativeAgentToolCall,
 ) -> NativeAgentToolExecutionOutcome {
@@ -2072,7 +2072,7 @@ fn policy_denied_result(
     state.emit_event(
         "agent.error",
         serde_json::json!({
-            "runId": context.run_id,
+            "turnId": context.turn_id,
             "sessionId": context.session_id,
             "iteration": iteration,
             "stopReason": "policy_denied",
@@ -2084,12 +2084,12 @@ fn policy_denied_result(
     );
     services
         .checkpoints
-        .clear_for_run(&context.session_id, &context.run_id);
+        .clear_for_turn(&context.session_id, &context.turn_id);
     let runtime_events = state.runtime_events();
     let events = state.legacy_events();
     NativeAgentToolExecutionOutcome::Finished(serde_json::json!({
         "runtime": "rust",
-        "runId": context.run_id,
+        "turnId": context.turn_id,
         "sessionId": context.session_id,
         "finalContent": "",
         "stopReason": "policy_denied",
@@ -2104,8 +2104,8 @@ fn policy_denied_result(
 
 fn tool_error_result(
     services: &NativeAgentRuntimeServices,
-    context: &NativeAgentRunContext,
-    state: &mut NativeAgentRunState,
+    context: &AgentTurnContext,
+    state: &mut AgentTurnState,
     iteration: i64,
     tool_call: &NativeAgentToolCall,
     error: String,
@@ -2117,8 +2117,8 @@ fn tool_error_result(
 
 fn finish_tool_error_result(
     services: &NativeAgentRuntimeServices,
-    context: &NativeAgentRunContext,
-    state: &mut NativeAgentRunState,
+    context: &AgentTurnContext,
+    state: &mut AgentTurnState,
     iteration: i64,
     tool_call: &NativeAgentToolCall,
     error: String,
@@ -2127,7 +2127,7 @@ fn finish_tool_error_result(
     state.emit_event(
         "agent.error",
         serde_json::json!({
-            "runId": context.run_id,
+            "turnId": context.turn_id,
             "sessionId": context.session_id,
             "iteration": iteration,
             "stopReason": "tool_error",
@@ -2139,12 +2139,12 @@ fn finish_tool_error_result(
     );
     services
         .checkpoints
-        .clear_for_run(&context.session_id, &context.run_id);
+        .clear_for_turn(&context.session_id, &context.turn_id);
     let runtime_events = state.runtime_events();
     let events = state.legacy_events();
     NativeAgentToolExecutionOutcome::Finished(serde_json::json!({
         "runtime": "rust",
-        "runId": context.run_id,
+        "turnId": context.turn_id,
         "sessionId": context.session_id,
         "finalContent": "",
         "stopReason": "tool_error",
@@ -2159,8 +2159,8 @@ fn finish_tool_error_result(
 
 fn tool_cleanup_timeout_result(
     services: &NativeAgentRuntimeServices,
-    context: &NativeAgentRunContext,
-    state: &mut NativeAgentRunState,
+    context: &AgentTurnContext,
+    state: &mut AgentTurnState,
     iteration: i64,
     tool_call: &NativeAgentToolCall,
     cancellation_mode: ToolCancellationMode,
@@ -2182,7 +2182,7 @@ fn tool_cleanup_timeout_result(
     state.emit_event(
         "agent.tool.cleanup_timeout",
         serde_json::json!({
-            "runId": context.run_id,
+            "turnId": context.turn_id,
             "sessionId": context.session_id,
             "iteration": iteration,
             "stopReason": "tool_cleanup_timeout",
@@ -2196,12 +2196,12 @@ fn tool_cleanup_timeout_result(
     );
     services
         .checkpoints
-        .clear_for_run(&context.session_id, &context.run_id);
+        .clear_for_turn(&context.session_id, &context.turn_id);
     let runtime_events = state.runtime_events();
     let events = state.legacy_events();
     NativeAgentToolExecutionOutcome::Finished(serde_json::json!({
         "runtime": "rust",
-        "runId": context.run_id,
+        "turnId": context.turn_id,
         "sessionId": context.session_id,
         "finalContent": "",
         "stopReason": "tool_cleanup_timeout",
@@ -2216,8 +2216,8 @@ fn tool_cleanup_timeout_result(
 
 fn cancelled_result(
     services: &NativeAgentRuntimeServices,
-    context: &NativeAgentRunContext,
-    state: &mut NativeAgentRunState,
+    context: &AgentTurnContext,
+    state: &mut AgentTurnState,
     iteration: i64,
 ) -> NativeAgentToolExecutionOutcome {
     emit_pending_tool_hook_evaluations(context, state);
@@ -2232,10 +2232,7 @@ fn cancelled_result(
     ))
 }
 
-fn emit_pending_tool_hook_evaluations(
-    context: &NativeAgentRunContext,
-    state: &mut NativeAgentRunState,
-) {
+fn emit_pending_tool_hook_evaluations(context: &AgentTurnContext, state: &mut AgentTurnState) {
     for (invocation, evaluation) in context.drain_hook_evaluations() {
         state.emit_hook_evaluation(&invocation, &evaluation);
     }

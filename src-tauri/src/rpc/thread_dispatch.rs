@@ -202,15 +202,14 @@ impl WorkerRpcRouter {
             "thread.start_turn" => {
                 let mut params: StartThreadTurnRequest = parse_params(request)?;
                 if params.trace_context.is_none() {
-                    if let Some(run_id) = params.run_id.clone() {
+                    if let Some(turn_id) = params.turn_id.clone() {
                         params.trace_context =
                             Some(crate::agent::runtime_protocol::AgentTraceContext {
                                 request_id: request.id.clone(),
                                 trace_id: request.trace_id.clone(),
-                                run_id: run_id.clone(),
-                                turn_id: params.turn_id.clone().unwrap_or_else(|| run_id.clone()),
+                                turn_id: params.turn_id.clone().unwrap_or_else(|| turn_id.clone()),
                                 thread_id: Some(params.thread_id.clone()),
-                                parent_run_id: None,
+                                parent_turn_id: None,
                             });
                     }
                 }

@@ -549,7 +549,7 @@ pub struct BrowserSessionSnapshot {
     pub contract: &'static str,
     pub browser_session_id: BrowserSessionId,
     pub session_id: String,
-    pub run_id: String,
+    pub operation_id: String,
     pub state: &'static str,
     pub runtime_kind: String,
     pub runtime_version: String,

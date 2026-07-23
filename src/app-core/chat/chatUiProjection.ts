@@ -25,13 +25,13 @@ export const CHAT_RUNTIME_CAPABILITY_AUDIT = {
   },
   messages: {
     status: "available",
-    source: "session.get_history / agent.run_input",
-    notes: "Rust runtime persists main-thread messages and runs new user input through agent.run_input.",
+    source: "session.get_history / agent.turn_input",
+    notes: "Rust runtime persists main-thread messages and starts a new Turn through agent.turn_input.",
   },
   runInput: {
     status: "available",
     source: "worker_submit_thread_turn / worker_dispatch_tinyos_host_command",
-    notes: "Native websocket dispatch builds agent.run_input requests for Rust runtime.",
+    notes: "Native websocket dispatch builds agent.turn_input requests for Rust runtime.",
   },
   approvalResume: {
     status: "route",
@@ -182,7 +182,7 @@ export type LiveSubagent = {
   id: string;
   sessionKey: string;
   traceRef?: string;
-  childRunId?: string;
+  childTurnId?: string;
   name: string;
   task: string;
   status: SubagentStatus;
@@ -386,7 +386,7 @@ function liveSubagentsFromMessages(sessionKey: string, messages: NativeChatMessa
         id: activity.delegateId,
         sessionKey,
         ...(activity.traceRef ? { traceRef: activity.traceRef } : {}),
-        ...(activity.childRunId ? { childRunId: activity.childRunId } : {}),
+        ...(activity.childTurnId ? { childTurnId: activity.childTurnId } : {}),
         name: activity.delegateTitle || activity.delegateId,
         task: activity.delegateTask || "",
         status,

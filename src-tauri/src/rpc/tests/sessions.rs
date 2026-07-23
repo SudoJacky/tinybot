@@ -136,7 +136,6 @@ fn dispatches_session_get_metadata_and_history_for_thread_only_sessions() {
                 {
                     "itemId": "thread-backed-session:item:user",
                     "threadId": "",
-                    "runId": "run-thread-backed",
                     "turnId": "turn-thread-backed",
                     "sequence": 0,
                     "createdAt": "2026-07-05T04:00:01Z",
@@ -148,7 +147,6 @@ fn dispatches_session_get_metadata_and_history_for_thread_only_sessions() {
                 {
                     "itemId": "thread-backed-session:item:assistant",
                     "threadId": "",
-                    "runId": "run-thread-backed",
                     "turnId": "turn-thread-backed",
                     "sequence": 0,
                     "createdAt": "2026-07-05T04:00:02Z",
@@ -252,7 +250,6 @@ fn dispatches_session_get_agent_context_from_latest_thread_compaction() {
                 {
                     "itemId": "thread-agent-context:old-user",
                     "threadId": "",
-                    "runId": "run-agent-context",
                     "turnId": "turn-agent-context",
                     "sequence": 0,
                     "createdAt": "2026-07-05T04:00:01Z",
@@ -264,7 +261,6 @@ fn dispatches_session_get_agent_context_from_latest_thread_compaction() {
                 {
                     "itemId": "thread-agent-context:old-assistant",
                     "threadId": "",
-                    "runId": "run-agent-context",
                     "turnId": "turn-agent-context",
                     "sequence": 0,
                     "createdAt": "2026-07-05T04:00:02Z",
@@ -276,7 +272,6 @@ fn dispatches_session_get_agent_context_from_latest_thread_compaction() {
                 {
                     "itemId": "thread-agent-context:compaction",
                     "threadId": "",
-                    "runId": "run-agent-context",
                     "turnId": "turn-agent-context",
                     "sequence": 0,
                     "createdAt": "2026-07-05T04:00:03Z",
@@ -318,7 +313,6 @@ fn dispatches_session_get_agent_context_from_latest_thread_compaction() {
                 {
                     "itemId": "thread-agent-context:compacted-answer",
                     "threadId": "",
-                    "runId": "run-agent-context",
                     "turnId": "turn-agent-context",
                     "sequence": 0,
                     "createdAt": "2026-07-05T04:00:04Z",
@@ -330,7 +324,6 @@ fn dispatches_session_get_agent_context_from_latest_thread_compaction() {
                 {
                     "itemId": "thread-agent-context:new-user",
                     "threadId": "",
-                    "runId": "run-agent-context-next",
                     "turnId": "turn-agent-context-next",
                     "sequence": 0,
                     "createdAt": "2026-07-05T04:00:05Z",
@@ -434,7 +427,6 @@ fn dispatches_session_get_history_reads_thread_tail() {
             json!({
                 "itemId": format!("thread-tail-history:item:{index}"),
                 "threadId": "",
-                "runId": "run-thread-tail",
                 "turnId": "turn-thread-tail",
                 "sequence": 0,
                 "createdAt": format!("2026-07-05T05:{:02}:{:02}Z", index / 60, index % 60),
@@ -520,7 +512,6 @@ fn dispatches_session_get_history_projects_thread_message_metadata_and_usage() {
                 {
                     "itemId": "thread-rich-history:user",
                     "threadId": "",
-                    "runId": "run-rich-history",
                     "turnId": "turn-rich-history",
                     "sequence": 0,
                     "createdAt": "2026-07-05T06:00:01Z",
@@ -535,7 +526,6 @@ fn dispatches_session_get_history_projects_thread_message_metadata_and_usage() {
                 {
                     "itemId": "thread-rich-history:assistant",
                     "threadId": "",
-                    "runId": "run-rich-history",
                     "turnId": "turn-rich-history",
                     "sequence": 0,
                     "createdAt": "2026-07-05T06:00:02Z",
@@ -552,14 +542,13 @@ fn dispatches_session_get_history_projects_thread_message_metadata_and_usage() {
                 {
                     "itemId": "thread-rich-history:terminal",
                     "threadId": "",
-                    "runId": "run-rich-history",
                     "turnId": "turn-rich-history",
                     "sequence": 0,
                     "createdAt": "2026-07-05T06:00:03Z",
                     "kind": {
-                        "type": "agent_run_completed",
+                        "type": "turn_completed",
                         "payload": {
-                            "runId": "run-rich-history",
+                            "turnId": "turn-rich-history",
                             "tokenUsageInfo": {
                                 "totalTokenUsage": {
                                     "inputTokens": 0,
@@ -649,7 +638,7 @@ fn dispatches_thread_rollback_as_an_append_only_rollout_marker() {
         ]),
     )
     .unwrap();
-    for (run_id, user, assistant, checkpoint) in [
+    for (turn_id, user, assistant, checkpoint) in [
         ("rollback-run-1", "first user", "first assistant", None),
         (
             "rollback-run-2",
@@ -666,7 +655,7 @@ fn dispatches_thread_rollback_as_an_append_only_rollout_marker() {
     ] {
         let mut params = json!({
             "session_id": "thread-rollout-rollback",
-            "run_id": run_id,
+            "turn_id": turn_id,
             "messages": [
                 { "role": "user", "content": user },
                 { "role": "assistant", "content": assistant }
@@ -676,7 +665,7 @@ fn dispatches_thread_rollback_as_an_append_only_rollout_marker() {
             params["contextMetadata"] = json!({ "contextCheckpoint": checkpoint });
         }
         let persisted = router.dispatch(&WorkerRequest::new(
-            format!("req-{run_id}"),
+            format!("req-{turn_id}"),
             "trace-thread-rollout-rollback",
             "session.persist_turn",
             params,
@@ -995,7 +984,7 @@ fn dispatches_session_checkpoint_requests() {
             "session_id": "session-1",
             "checkpoint": {
                 "phase": "awaiting_tools",
-                "runId": "run-session-checkpoint",
+                "turnId": "run-session-checkpoint",
                 "checkpointId": "checkpoint-session-route"
             }
         }),
@@ -1014,7 +1003,7 @@ fn dispatches_session_checkpoint_requests() {
         set_response.result.as_ref().unwrap()["extra"]["runtime_checkpoint"],
         json!({
             "phase": "awaiting_tools",
-            "runId": "run-session-checkpoint",
+            "turnId": "run-session-checkpoint",
             "checkpointId": "checkpoint-session-route"
         })
     );
@@ -1043,7 +1032,7 @@ fn dispatches_session_get_checkpoint_request() {
         json!({
             "session_id": "session-1",
             "checkpoint": {
-                "runId": "run-1",
+                "turnId": "run-1",
                 "phase": "awaiting_tools",
                 "iteration": 1
             }
@@ -1070,7 +1059,7 @@ fn dispatches_session_get_checkpoint_request() {
     assert_eq!(
         response.result,
         Some(json!({
-            "runId": "run-1",
+            "turnId": "run-1",
             "phase": "awaiting_tools",
             "iteration": 1
         }))
@@ -1084,7 +1073,7 @@ fn session_get_checkpoint_does_not_fall_back_to_in_memory_legacy_checkpoint() {
     let mut session = session_fixture();
     session.extra = json!({
         "runtime_checkpoint": {
-            "runId": "run-legacy-checkpoint",
+            "turnId": "run-legacy-checkpoint",
             "phase": "awaiting_tools",
             "iteration": 2
         }
@@ -1201,10 +1190,10 @@ fn dispatches_session_clear_request() {
         .unwrap();
     router
         .thread_log
-        .set_agent_run_checkpoint(
+        .set_turn_checkpoint(
             "session-1",
             "run-clear",
-            json!({ "runId": "run-clear", "phase": "awaiting_tools" }),
+            json!({ "turnId": "run-clear", "phase": "awaiting_tools" }),
         )
         .unwrap();
     let request = WorkerRequest::new(
@@ -1315,7 +1304,7 @@ fn dispatches_session_persist_turn_request() {
         "session.persist_turn",
         json!({
             "session_id": "session-1",
-            "run_id": "run-1",
+            "turn_id": "run-1",
             "messages": [
                 { "role": "user", "content": "hello" },
                 { "role": "assistant", "content": "done" }
@@ -1400,7 +1389,7 @@ fn persisted_compaction_replaces_agent_context_but_preserves_transcript() {
         "session.persist_turn",
         json!({
             "session_id": "session-compact-persistence",
-            "run_id": "run-compact-old-turn",
+            "turn_id": "run-compact-old-turn",
             "messages": [
                 { "role": "user", "content": "old user", "messageId": "compact-old-user" },
                 { "role": "assistant", "content": "old answer", "messageId": "compact-old-answer" }
@@ -1416,7 +1405,7 @@ fn persisted_compaction_replaces_agent_context_but_preserves_transcript() {
         "session.persist_turn",
         json!({
             "session_id": "session-compact-persistence",
-            "run_id": "run-compact-current-turn",
+            "turn_id": "run-compact-current-turn",
             "messages": [
                 { "role": "user", "content": "current user", "messageId": "compact-current-user" },
                 { "role": "assistant", "content": "current answer", "messageId": "compact-current-answer" }
@@ -1492,7 +1481,7 @@ fn persists_session_turn_to_thread_log() {
         "session.persist_turn",
         json!({
             "session_id": "session-thread-log-1",
-            "run_id": "run-1",
+            "turn_id": "run-1",
             "messages": [
                 { "role": "user", "content": "hello", "messageId": "user-1" },
                 { "role": "assistant", "content": "hi", "messageId": "assistant-1" }
@@ -1537,7 +1526,7 @@ fn session_persist_turn_does_not_write_legacy_session_or_thread_stores() {
         "session.persist_turn",
         json!({
             "session_id": "session-thread-log-only",
-            "run_id": "run-thread-log-only",
+            "turn_id": "run-thread-log-only",
             "messages": [
                 { "role": "user", "content": "canonical only" },
                 { "role": "assistant", "content": "saved in thread log" }
@@ -1790,7 +1779,7 @@ fn rollout_native_session_mutations_survive_restart_without_legacy_stores() {
 }
 
 #[test]
-fn agent_run_semantic_persistence_rejects_transient_events() {
+fn agent_turn_semantic_persistence_rejects_transient_events() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new_persistent_sessions(
         fixture.root.clone(),
@@ -1805,7 +1794,7 @@ fn agent_run_semantic_persistence_rejects_transient_events() {
     .unwrap();
     let record = json!({
         "sessionId": "session-agent-log-only",
-        "runId": "run-agent-log-only",
+        "turnId": "run-agent-log-only",
         "status": "running",
         "phase": "active_turn",
         "startedAt": "2026-07-08T10:00:00Z",
@@ -1829,16 +1818,16 @@ fn agent_run_semantic_persistence_rejects_transient_events() {
     let upsert = router.dispatch(&WorkerRequest::new(
         "req-agent-log-only-upsert",
         "trace-agent-log-only",
-        "agent_run.start",
+        "thread.turn.start",
         json!({ "record": record }),
     ));
     let append_semantic = router.dispatch(&WorkerRequest::new(
         "req-agent-log-only-trace",
         "trace-agent-log-only",
-        "agent_run.append_semantic_batch",
+        "thread.turn.append_semantic_batch",
         json!({
             "session_id": "session-agent-log-only",
-            "run_id": "run-agent-log-only",
+            "turn_id": "run-agent-log-only",
             "events": [{
                 "eventId": "trace-delta-1",
                 "eventName": "agent.delta",
@@ -1853,10 +1842,10 @@ fn agent_run_semantic_persistence_rejects_transient_events() {
     let completed = router.dispatch(&WorkerRequest::new(
         "req-agent-log-only-complete",
         "trace-agent-log-only",
-        "agent_run.mark_completed",
+        "thread.turn.mark_completed",
         json!({
             "session_id": "session-agent-log-only",
-            "run_id": "run-agent-log-only",
+            "turn_id": "run-agent-log-only",
             "stop_reason": "final_response",
             "final_content": "hello"
         }),
@@ -1864,10 +1853,10 @@ fn agent_run_semantic_persistence_rejects_transient_events() {
     let get = router.dispatch(&WorkerRequest::new(
         "req-agent-log-only-get",
         "trace-agent-log-only",
-        "agent_run.get",
+        "thread.turn.get",
         json!({
             "session_id": "session-agent-log-only",
-            "run_id": "run-agent-log-only"
+            "turn_id": "run-agent-log-only"
         }),
     ));
 
@@ -1891,10 +1880,10 @@ fn agent_run_semantic_persistence_rejects_transient_events() {
         .lines()
         .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
         .find(|line| line["type"] == "event_msg" && line["payload"]["type"] == "turn_started")
-        .map(|line| line["payload"]["payload"]["agentRun"].clone())
-        .expect("agent run seed should be persisted");
+        .map(|line| line["payload"]["payload"]["turn"].clone())
+        .expect("turn seed should be persisted");
     assert_eq!(upsert_record["sessionId"], "session-agent-log-only");
-    assert_eq!(upsert_record["runId"], "run-agent-log-only");
+    assert_eq!(upsert_record["turnId"], "run-agent-log-only");
     for derived_field in [
         "status",
         "phase",
@@ -1919,7 +1908,7 @@ fn agent_run_semantic_persistence_rejects_transient_events() {
 }
 
 #[test]
-fn agent_run_reasoning_survives_canonical_rollout_reload() {
+fn agent_turn_reasoning_survives_canonical_rollout_reload() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new_persistent_sessions(
         fixture.root.clone(),
@@ -1934,7 +1923,7 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
     .unwrap();
     let record = json!({
         "sessionId": "session-reasoning-reload",
-        "runId": "run-reasoning-reload",
+        "turnId": "run-reasoning-reload",
         "status": "running",
         "phase": "active_turn",
         "startedAt": "2026-07-19T10:00:00Z",
@@ -1957,7 +1946,7 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
     let upsert = router.dispatch(&WorkerRequest::new(
         "req-reasoning-reload-upsert",
         "trace-reasoning-reload",
-        "agent_run.start",
+        "thread.turn.start",
         json!({ "record": record }),
     ));
     assert_eq!(upsert.error, None);
@@ -1978,10 +1967,10 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
     let append_semantic = router.dispatch(&WorkerRequest::new(
         "req-reasoning-reload-trace",
         "trace-reasoning-reload",
-        "agent_run.append_semantic_batch",
+        "thread.turn.append_semantic_batch",
         json!({
             "session_id": "session-reasoning-reload",
-            "run_id": "run-reasoning-reload",
+            "turn_id": "run-reasoning-reload",
             "events": [{
                 "eventId": "reasoning-reload-reasoning-completed",
                 "eventName": "agent.reasoning.completed",
@@ -2050,10 +2039,10 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
     let completed = router.dispatch(&WorkerRequest::new(
         "req-reasoning-reload-complete",
         "trace-reasoning-reload",
-        "agent_run.mark_completed",
+        "thread.turn.mark_completed",
         json!({
             "session_id": "session-reasoning-reload",
-            "run_id": "run-reasoning-reload",
+            "turn_id": "run-reasoning-reload",
             "stop_reason": "final_response",
             "final_content": "Done."
         }),
@@ -2082,10 +2071,10 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
     let runtime_state = restarted.dispatch(&WorkerRequest::new(
         "req-reasoning-reload-state",
         "trace-reasoning-reload",
-        "agent_run.runtime_state",
+        "thread.turn.runtime_state",
         json!({
             "session_id": "session-reasoning-reload",
-            "run_id": "run-reasoning-reload"
+            "turn_id": "run-reasoning-reload"
         }),
     ));
     assert_eq!(runtime_state.error, None);
@@ -2145,7 +2134,7 @@ fn agent_run_reasoning_survives_canonical_rollout_reload() {
 }
 
 #[test]
-fn agent_run_semantic_append_updates_projection_and_keeps_index_clean() {
+fn agent_turn_semantic_append_updates_projection_and_keeps_index_clean() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new_persistent_sessions(
         fixture.root.clone(),
@@ -2160,7 +2149,7 @@ fn agent_run_semantic_append_updates_projection_and_keeps_index_clean() {
     .unwrap();
     let record = json!({
         "sessionId": "session-trace-state-index",
-        "runId": "run-trace-state-index",
+        "turnId": "run-trace-state-index",
         "status": "running",
         "phase": "active_turn",
         "startedAt": "2026-07-08T10:00:00Z",
@@ -2184,7 +2173,7 @@ fn agent_run_semantic_append_updates_projection_and_keeps_index_clean() {
     let upsert = router.dispatch(&WorkerRequest::new(
         "req-trace-state-index-upsert",
         "trace-state-index",
-        "agent_run.start",
+        "thread.turn.start",
         json!({ "record": record }),
     ));
     assert_eq!(upsert.error, None);
@@ -2199,10 +2188,10 @@ fn agent_run_semantic_append_updates_projection_and_keeps_index_clean() {
     let append_semantic = router.dispatch(&WorkerRequest::new(
         "req-trace-state-index-append",
         "trace-state-index",
-        "agent_run.append_semantic_batch",
+        "thread.turn.append_semantic_batch",
         json!({
             "session_id": "session-trace-state-index",
-            "run_id": "run-trace-state-index",
+            "turn_id": "run-trace-state-index",
             "events": [{
                 "eventId": "semantic-state-index-message",
                 "eventName": "agent.message.completed",
@@ -2262,7 +2251,7 @@ fn persists_thread_log_token_count_and_replays_usage() {
         "session.persist_turn",
         json!({
             "session_id": "session-token-count",
-            "run_id": "run-token-count",
+            "turn_id": "run-token-count",
             "messages": [
                 { "role": "user", "content": "hello", "messageId": "user-token" },
                 { "role": "assistant", "content": "hi", "messageId": "assistant-token" }
@@ -2347,7 +2336,7 @@ fn thread_log_history_survives_router_restart() {
                 "session.persist_turn",
                 json!({
                     "session_id": "session-restart",
-                    "run_id": "run-restart",
+                    "turn_id": "run-restart",
                     "messages": [
                         { "role": "user", "content": "persist me", "messageId": "user-restart" },
                         { "role": "assistant", "content": "persisted", "messageId": "assistant-restart" }
@@ -2401,7 +2390,7 @@ fn thread_log_history_rebuilds_missing_index_on_first_read() {
             "session.persist_turn",
             json!({
                 "session_id": "session-rebuild-state",
-                "run_id": "run-rebuild-state",
+                "turn_id": "run-rebuild-state",
                 "messages": [
                     { "role": "user", "content": "persist me", "messageId": "user-rebuild" },
                     { "role": "assistant", "content": "rebuilt", "messageId": "assistant-rebuild" }
@@ -2461,7 +2450,7 @@ fn thread_log_title_is_derived_from_first_user_message_and_survives_state_rebuil
             "session.persist_turn",
             json!({
                 "session_id": "session-title-rebuild",
-                "run_id": "run-title-rebuild",
+                "turn_id": "run-title-rebuild",
                 "messages": [
                     {
                         "role": "user",
@@ -2582,7 +2571,7 @@ fn session_list_metadata_rebuild_ignores_legacy_thread_item_jsonl() {
                 "session.persist_turn",
                 json!({
                     "session_id": "session-ignore-legacy-items",
-                    "run_id": "run-ignore-legacy-items",
+                    "turn_id": "run-ignore-legacy-items",
                     "messages": [
                         { "role": "user", "content": "persist me", "messageId": "user-ignore-legacy-items" },
                         { "role": "assistant", "content": "rebuilt", "messageId": "assistant-ignore-legacy-items" }
@@ -2594,7 +2583,7 @@ fn session_list_metadata_rebuild_ignores_legacy_thread_item_jsonl() {
     }
     fixture.write(
             ".tinybot/threads/items/thread-legacy-items.jsonl",
-            r#"{"itemId":"legacy-session:1","threadId":"thread-legacy-items","runId":"legacy-history","turnId":"legacy-history","parentItemId":null,"sequence":1,"createdAt":"1783312765469","kind":{"type":"user_message","payload":{"content":"hello","role":"user"}}}
+            r#"{"itemId":"legacy-session:1","threadId":"thread-legacy-items","turnId":"legacy-history","turnId":"legacy-history","parentItemId":null,"sequence":1,"createdAt":"1783312765469","kind":{"type":"user_message","payload":{"content":"hello","role":"user"}}}
 "#,
         );
     let state_path = fixture
@@ -2648,7 +2637,7 @@ fn session_get_metadata_reads_thread_log_after_state_rebuild() {
             "session.persist_turn",
             json!({
                 "session_id": "session-metadata-rebuild",
-                "run_id": "run-metadata-rebuild",
+                "turn_id": "run-metadata-rebuild",
                 "messages": [
                     { "role": "user", "content": "metadata", "messageId": "user-metadata-rebuild" }
                 ],
@@ -2708,7 +2697,7 @@ fn thread_log_history_rebuilds_corrupt_derived_index_on_first_read() {
             "session.persist_turn",
             json!({
                 "session_id": "session-corrupt-state",
-                "run_id": "run-corrupt-state",
+                "turn_id": "run-corrupt-state",
                 "messages": [
                     { "role": "user", "content": "persist me", "messageId": "user-corrupt" },
                     { "role": "assistant", "content": "rebuilt", "messageId": "assistant-corrupt" }
@@ -2767,7 +2756,7 @@ fn thread_log_history_rejects_state_index_path_escape() {
         "session.persist_turn",
         json!({
             "session_id": "session-path-escape",
-            "run_id": "run-path-escape",
+            "turn_id": "run-path-escape",
             "messages": [
                 { "role": "user", "content": "hello", "messageId": "user-path-escape" }
             ],
@@ -2837,7 +2826,7 @@ fn session_list_metadata_does_not_merge_in_memory_legacy_sessions() {
         "session.persist_turn",
         json!({
             "session_id": "thread-log-session",
-            "run_id": "run-thread-log-session",
+            "turn_id": "run-thread-log-session",
             "messages": [
                 { "role": "user", "content": "hello", "messageId": "user-mixed" }
             ],
@@ -2889,7 +2878,7 @@ fn session_list_metadata_sorts_unix_ms_and_iso_timestamps_by_time() {
         "session.persist_turn",
         json!({
             "session_id": "thread-log-new-session",
-            "run_id": "run-thread-log-new-session",
+            "turn_id": "run-thread-log-new-session",
             "messages": [
                 { "role": "user", "content": "newer", "messageId": "user-sort-mixed" }
             ],
@@ -3011,7 +3000,7 @@ fn session_context_checkpoint_commit_is_durable_and_idempotent() {
             "session.commit_context_checkpoint",
             json!({
                 "session_id": "session-commit-context",
-                "run_id": "run-commit-context",
+                "turn_id": "run-commit-context",
                 "checkpoint": checkpoint
             }),
         )
@@ -3051,7 +3040,7 @@ fn session_context_checkpoint_commit_is_durable_and_idempotent() {
         "session.commit_context_checkpoint",
         json!({
             "session_id": "session-commit-context",
-            "run_id": "run-stale-context",
+            "turn_id": "run-stale-context",
             "checkpoint": {
                 "contextId": "run-stale-context:context:1",
                 "sourceContextId": null,
@@ -3070,7 +3059,7 @@ fn session_context_checkpoint_commit_is_durable_and_idempotent() {
         "session.commit_context_checkpoint",
         json!({
             "session_id": "session-commit-context",
-            "run_id": "run-skipped-context-window",
+            "turn_id": "run-skipped-context-window",
             "checkpoint": {
                 "contextId": "run-skipped-context-window:context:1",
                 "sourceContextId": "run-commit-context:context:1",
@@ -3095,7 +3084,7 @@ fn session_context_checkpoint_commit_is_durable_and_idempotent() {
         "session.commit_context_checkpoint",
         json!({
             "session_id": "session-commit-context",
-            "run_id": "run-next-context",
+            "turn_id": "run-next-context",
             "checkpoint": {
                 "contextId": "run-next-context:context:1",
                 "sourceContextId": "run-commit-context:context:1",
@@ -3130,7 +3119,7 @@ fn session_context_checkpoint_commit_is_durable_and_idempotent() {
         "session.persist_turn",
         json!({
             "session_id": "session-commit-context",
-            "run_id": "run-stale-context-finalization",
+            "turn_id": "run-stale-context-finalization",
             "messages": [],
             "clear_checkpoint": false,
             "context_metadata": {
@@ -3150,7 +3139,7 @@ fn session_context_checkpoint_commit_is_durable_and_idempotent() {
         "session.commit_context_checkpoint",
         json!({
             "session_id": "session-commit-context",
-            "run_id": "run-commit-context",
+            "turn_id": "run-commit-context",
             "checkpoint": {
                 "contextId": "run-commit-context:context:1",
                 "checkpointStage": "installed",
@@ -3182,7 +3171,7 @@ fn session_clear_resets_latest_checkpoint_lineage_without_reviving_history() {
             "session.commit_context_checkpoint",
             json!({
                 "session_id": "session-clear-checkpoint",
-                "run_id": context_id,
+                "turn_id": context_id,
                 "checkpoint": {
                     "contextId": context_id,
                     "sourceContextId": null,
@@ -3250,7 +3239,7 @@ fn session_checkpoint_ordinal_index_self_heals_from_canonical_rollout() {
         "session.commit_context_checkpoint",
         json!({
             "session_id": "session-checkpoint-position",
-            "run_id": "run-checkpoint-position",
+            "turn_id": "run-checkpoint-position",
             "checkpoint": {
                 "contextId": "context-position",
                 "sourceContextId": null,
@@ -3383,7 +3372,7 @@ fn session_agent_context_fast_path_does_not_scan_unrelated_journals() {
         ]),
     )
     .unwrap();
-    for (session_id, run_id, content) in [
+    for (session_id, turn_id, content) in [
         ("session-fast-target", "run-fast-target", "target message"),
         ("session-fast-other", "run-fast-other", "other message"),
     ] {
@@ -3391,7 +3380,7 @@ fn session_agent_context_fast_path_does_not_scan_unrelated_journals() {
             .thread_log
             .persist_session_turn(
                 session_id,
-                run_id,
+                turn_id,
                 vec![json!({ "role": "user", "content": content })],
                 None,
             )
@@ -3458,7 +3447,7 @@ fn session_context_checkpoint_commit_recovers_transient_index_failure() {
         "session.commit_context_checkpoint",
         json!({
             "session_id": "session-index-retry",
-            "run_id": "run-index-retry",
+            "turn_id": "run-index-retry",
             "checkpoint": {
                 "contextId": "run-index-retry:context:1",
                 "checkpointStage": "installed",
@@ -3518,7 +3507,7 @@ fn session_context_checkpoint_commit_reports_degraded_index_without_losing_journ
         "session.commit_context_checkpoint",
         json!({
             "session_id": "session-index-degraded",
-            "run_id": "run-index-degraded",
+            "turn_id": "run-index-degraded",
             "checkpoint": {
                 "contextId": "run-index-degraded:context:1",
                 "checkpointStage": "installed",
@@ -3588,7 +3577,7 @@ fn session_delete_removes_thread_log_only_session() {
         "session.persist_turn",
         json!({
             "session_id": "session-delete-thread-log",
-            "run_id": "run-delete-thread-log",
+            "turn_id": "run-delete-thread-log",
             "messages": [
                 { "role": "user", "content": "delete me", "messageId": "user-delete-thread-log" }
             ],
@@ -3635,7 +3624,7 @@ fn session_clear_clears_thread_log_history() {
         "session.persist_turn",
         json!({
             "session_id": "session-clear-thread-log",
-            "run_id": "run-clear-thread-log",
+            "turn_id": "run-clear-thread-log",
             "messages": [
                 { "role": "user", "content": "clear me", "messageId": "user-clear-thread-log" }
             ],
@@ -3686,7 +3675,7 @@ fn session_clear_rebuilds_thread_log_projection_without_stale_token_usage() {
             "session.persist_turn",
             json!({
                 "session_id": "session-clear-rebuild",
-                "run_id": "run-clear-rebuild",
+                "turn_id": "run-clear-rebuild",
                 "messages": [
                     { "role": "user", "content": "clear me", "messageId": "user-clear-rebuild" },
                     { "role": "assistant", "content": "ok", "messageId": "assistant-clear-rebuild" }
@@ -3785,7 +3774,7 @@ fn session_patch_metadata_updates_thread_log_list_projection() {
         "session.persist_turn",
         json!({
             "session_id": "session-patch-thread-log",
-            "run_id": "run-patch-thread-log",
+            "turn_id": "run-patch-thread-log",
             "messages": [
                 { "role": "user", "content": "rename me", "messageId": "user-patch-thread-log" }
             ],

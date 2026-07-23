@@ -74,8 +74,8 @@ export type NativeSessionsApi = {
   list: () => Promise<unknown>;
   messages: (key: string) => Promise<unknown>;
   effectiveCapabilities?: (key: string) => Promise<unknown>;
-  agentRuns?: (key: string) => Promise<unknown>;
-  agentRunRuntimeState?: (key: string, runId: string) => Promise<unknown>;
+  turns?: (key: string) => Promise<unknown>;
+  agentTurnRuntimeState?: (key: string, turnId: string) => Promise<unknown>;
   delete?: (key: string) => Promise<unknown>;
   patch?: (key: string, body: unknown) => Promise<unknown>;
   branch?: (body: unknown) => Promise<unknown>;
@@ -383,17 +383,17 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         "webui.sessions.effectiveCapabilities",
         !options.nativeSessions?.effectiveCapabilities,
       ),
-      agentRuns: (key: string) => nativeOrGateway(
-        () => options.nativeSessions?.agentRuns?.(key),
-        () => Promise.resolve({ sessionId: key, runs: [] }),
-        "webui.sessions.agentRuns",
-        !options.nativeSessions?.agentRuns,
+      turns: (key: string) => nativeOrGateway(
+        () => options.nativeSessions?.turns?.(key),
+        () => Promise.resolve({ sessionId: key, turns: [] }),
+        "webui.sessions.turns",
+        !options.nativeSessions?.turns,
       ),
-      agentRunRuntimeState: (key: string, runId: string) => nativeOrGateway(
-        () => options.nativeSessions?.agentRunRuntimeState?.(key, runId),
+      agentTurnRuntimeState: (key: string, turnId: string) => nativeOrGateway(
+        () => options.nativeSessions?.agentTurnRuntimeState?.(key, turnId),
         () => Promise.resolve(null),
-        "webui.sessions.agentRunRuntimeState",
-        !options.nativeSessions?.agentRunRuntimeState,
+        "webui.sessions.agentTurnRuntimeState",
+        !options.nativeSessions?.agentTurnRuntimeState,
       ),
       profile: (key: string) => nativeOrGateway(
         () => options.nativeWebui?.route({ method: "GET", path: `/api/sessions/${encodePathSegment(key)}/profile` }),

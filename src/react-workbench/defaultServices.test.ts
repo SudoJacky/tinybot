@@ -30,42 +30,40 @@ const thread = {
   metadata: { extra: {} },
 };
 
-function canonicalRuntimeState(runId: string, status = "running") {
+function canonicalRuntimeState(turnId: string, status = "running") {
   return {
     runtimeEvents: [],
     timeline: {
       schemaVersion: "tinybot.timeline.v2",
       sessionId: "thread-1",
-      runId,
+      turnId,
       snapshotRevision: 2,
       items: [
         {
           schemaVersion: "tinybot.turn_item.v2",
-          itemId: `${runId}:user`,
+          itemId: `${turnId}:user`,
           sessionId: "thread-1",
           threadId: "thread-1",
-          runId,
-          turnId: runId,
+          turnId,
           sequence: 1,
           revision: 1,
           kind: "user_message",
           status: "completed",
           createdAt: "2026-07-14T00:00:01.000Z",
-          data: { type: "user_message", messageId: `${runId}:user`, content: "hello" },
+          data: { type: "user_message", messageId: `${turnId}:user`, content: "hello" },
         },
         {
           schemaVersion: "tinybot.turn_item.v2",
-          itemId: `${runId}:assistant`,
+          itemId: `${turnId}:assistant`,
           sessionId: "thread-1",
           threadId: "thread-1",
-          runId,
-          turnId: runId,
+          turnId,
           sequence: 2,
           revision: 1,
           kind: "assistant_message",
           status,
           createdAt: "2026-07-14T00:00:02.000Z",
-          data: { type: "assistant_message", messageId: `${runId}:assistant`, modelCallId: "call-1", phase: "final_answer", content: "hi" },
+          data: { type: "assistant_message", messageId: `${turnId}:assistant`, modelCallId: "call-1", phase: "final_answer", content: "hi" },
         },
       ],
     },
@@ -80,8 +78,8 @@ describe("desktop native app services", () => {
     mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
       if (command === "worker_threads_list") return { threads: [thread], total: 1 };
       if (command === "worker_thread_create") return thread;
-      if (command === "worker_agent_runs_list") return { runs: [] };
-      if (command === "worker_agent_run_runtime_state") return null;
+      if (command === "worker_turns_list") return { turns: [] };
+      if (command === "worker_turn_runtime_state") return null;
       if (command === "worker_session_effective_capabilities") return {
         schemaVersion: "tinybot.effective_capabilities.v1",
         sessionId: "thread-1",
@@ -90,7 +88,7 @@ describe("desktop native app services", () => {
       if (command === "worker_submit_thread_turn") return {
         threadId: "thread-1",
         sessionId: "thread-1",
-        runId: "run-1",
+        turnId: "turn-1",
         agentResult: {},
         snapshot: {},
       };
@@ -128,8 +126,8 @@ describe("desktop native app services", () => {
           ? { threads: [thread], total: 2 }
           : { threads: [childThread], total: 2, nextOffset: 1 };
       }
-      if (command === "worker_agent_runs_list") return { runs: [] };
-      if (command === "worker_agent_run_runtime_state") return null;
+      if (command === "worker_turns_list") return { turns: [] };
+      if (command === "worker_turn_runtime_state") return null;
       return {};
     });
     const services = createDesktopAppServices();
@@ -187,22 +185,22 @@ describe("desktop native app services", () => {
   });
 
   test("preserves live reasoning after the completed Thread result arrives", async () => {
-    let completedRunId = "";
+    let completedTurnId = "";
     let resolveSubmit!: (value: unknown) => void;
     const pendingSubmit = new Promise((resolve) => {
       resolveSubmit = resolve;
     });
     mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
       if (command === "worker_threads_list") return { threads: [thread], total: 1 };
-      if (command === "worker_agent_runs_list") {
-        return { runs: completedRunId ? [{ runId: completedRunId }] : [] };
+      if (command === "worker_turns_list") {
+        return { turns: completedTurnId ? [{ turnId: completedTurnId }] : [] };
       }
-      if (command === "worker_agent_run_runtime_state") {
-        return canonicalRuntimeState(completedRunId, "completed");
+      if (command === "worker_turn_runtime_state") {
+        return canonicalRuntimeState(completedTurnId, "completed");
       }
       if (command === "worker_submit_thread_turn") {
-        const input = args?.input as { spec?: { runId?: string } } | undefined;
-        completedRunId = input?.spec?.runId ?? "";
+        const input = args?.input as { spec?: { turnId?: string } } | undefined;
+        completedTurnId = input?.spec?.turnId ?? "";
         return pendingSubmit;
       }
       return {};
@@ -220,18 +218,17 @@ describe("desktop native app services", () => {
     }));
     const listener = mocks.listeners.get("agent:timeline:patch");
     expect(listener).toBeTypeOf("function");
-    const baseItem = canonicalRuntimeState(completedRunId).timeline.items[0];
+    const baseItem = canonicalRuntimeState(completedTurnId).timeline.items[0];
     listener?.({
       payload: {
         schemaVersion: "tinybot.timeline_patch.v2",
         sessionId: "thread-1",
-        runId: completedRunId,
+        turnId: completedTurnId,
         snapshotRevision: 1,
         item: {
           ...baseItem,
-          itemId: `${completedRunId}:user`,
-          runId: completedRunId,
-          turnId: completedRunId,
+          itemId: `${completedTurnId}:user`,
+          turnId: completedTurnId,
         },
       },
     });
@@ -239,13 +236,12 @@ describe("desktop native app services", () => {
       payload: {
         schemaVersion: "tinybot.timeline_patch.v2",
         sessionId: "thread-1",
-        runId: completedRunId,
+        turnId: completedTurnId,
         snapshotRevision: 2,
         item: {
           ...baseItem,
-          itemId: `${completedRunId}:reasoning`,
-          runId: completedRunId,
-          turnId: completedRunId,
+          itemId: `${completedTurnId}:reasoning`,
+          turnId: completedTurnId,
           sequence: 2,
           kind: "reasoning",
           status: "completed",
@@ -261,10 +257,10 @@ describe("desktop native app services", () => {
       payload: {
         schemaVersion: "tinybot.timeline_patch.v2",
         sessionId: "thread-1",
-        runId: completedRunId,
+        turnId: completedTurnId,
         snapshotRevision: 3,
         item: {
-          ...canonicalRuntimeState(completedRunId, "completed").timeline.items[1],
+          ...canonicalRuntimeState(completedTurnId, "completed").timeline.items[1],
           sequence: 3,
         },
       },
@@ -275,7 +271,7 @@ describe("desktop native app services", () => {
     const liveTimelineEvents = events.filter((event) => event.type === "timeline.patch");
     expect(liveTimelineEvents[liveTimelineEvents.length - 1]?.timeline?.turns[0].executionItems).toEqual([
       expect.objectContaining({
-        id: `${completedRunId}:reasoning`,
+        id: `${completedTurnId}:reasoning`,
         kind: "reasoning",
         summary: "The user is",
       }),
@@ -284,7 +280,7 @@ describe("desktop native app services", () => {
     resolveSubmit({
       threadId: "thread-1",
       sessionId: "thread-1",
-      runId: completedRunId,
+      turnId: completedTurnId,
       agentResult: { finalContent: "hi", stopReason: "final_response" },
       snapshot: {},
     });
@@ -293,7 +289,7 @@ describe("desktop native app services", () => {
     const timelineEvents = events.filter((event) => event.type === "timeline.patch");
     expect(timelineEvents[timelineEvents.length - 1]?.timeline?.turns[0].executionItems).toEqual([
       expect.objectContaining({
-        id: `${completedRunId}:reasoning`,
+        id: `${completedTurnId}:reasoning`,
         kind: "reasoning",
         summary: "The user is",
       }),
@@ -301,29 +297,29 @@ describe("desktop native app services", () => {
   });
 
   test("converges from the completed Thread result when the live timeline patch is missed", async () => {
-    let completedRunId = "";
+    let completedTurnId = "";
     mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
       if (command === "worker_threads_list") return { threads: [thread], total: 1 };
-      if (command === "worker_agent_runs_list") {
-        return { runs: completedRunId ? [{ runId: completedRunId }] : [] };
+      if (command === "worker_turns_list") {
+        return { turns: completedTurnId ? [{ turnId: completedTurnId }] : [] };
       }
-      if (command === "worker_agent_run_runtime_state") {
-        return canonicalRuntimeState(completedRunId, "completed");
+      if (command === "worker_turn_runtime_state") {
+        return canonicalRuntimeState(completedTurnId, "completed");
       }
       if (command === "worker_submit_thread_turn") {
-        const input = args?.input as { spec?: { runId?: string } } | undefined;
-        completedRunId = input?.spec?.runId ?? "";
+        const input = args?.input as { spec?: { turnId?: string } } | undefined;
+        completedTurnId = input?.spec?.turnId ?? "";
         return {
           threadId: "thread-1",
           sessionId: "thread-1",
-          runId: completedRunId,
+          turnId: completedTurnId,
           agentResult: {
             finalContent: "hi",
             stopReason: "final_response",
           },
           snapshot: {
             items: [{
-              itemId: `${completedRunId}:assistant`,
+              itemId: `${completedTurnId}:assistant`,
               kind: {
                 type: "assistant_message_completed",
                 payload: { content: "hi", role: "assistant" },
@@ -352,7 +348,7 @@ describe("desktop native app services", () => {
       type: "timeline.patch",
       timeline: expect.objectContaining({
         turns: [expect.objectContaining({
-          id: completedRunId,
+          id: completedTurnId,
           status: "completed",
           finalAnswer: expect.objectContaining({ text: "hi" }),
         })],
@@ -364,8 +360,8 @@ describe("desktop native app services", () => {
   test("consumes typed Tauri timeline patches without a Gateway frame", async () => {
     mocks.invoke.mockImplementation(async (command: string) => {
       if (command === "worker_threads_list") return { threads: [thread], total: 1 };
-      if (command === "worker_agent_runs_list") return { runs: [{ runId: "run-live" }] };
-      if (command === "worker_agent_run_runtime_state") return canonicalRuntimeState("run-live");
+      if (command === "worker_turns_list") return { turns: [{ turnId: "turn-live" }] };
+      if (command === "worker_turn_runtime_state") return canonicalRuntimeState("turn-live");
       return {};
     });
     const services = createDesktopAppServices();
@@ -375,12 +371,12 @@ describe("desktop native app services", () => {
     const listener = mocks.listeners.get("agent:timeline:patch");
     expect(listener).toBeTypeOf("function");
 
-    const assistantItem = canonicalRuntimeState("run-live").timeline.items[1];
+    const assistantItem = canonicalRuntimeState("turn-live").timeline.items[1];
     listener?.({
       payload: {
         schemaVersion: "tinybot.timeline_patch.v2",
         sessionId: "thread-1",
-        runId: "run-live",
+        turnId: "turn-live",
         snapshotRevision: 3,
         item: {
           ...assistantItem,
@@ -397,7 +393,7 @@ describe("desktop native app services", () => {
       payload: {
         schemaVersion: "tinybot.timeline_patch.v2",
         sessionId: "thread-1",
-        runId: "run-live",
+        turnId: "turn-live",
         snapshotRevision: 4,
         item: {
           ...assistantItem,
@@ -435,8 +431,8 @@ describe("desktop native app services", () => {
   test("uses typed Thread commands for interrupt and approval", async () => {
     mocks.invoke.mockImplementation(async (command: string) => {
       if (command === "worker_threads_list") return { threads: [thread], total: 1 };
-      if (command === "worker_agent_runs_list") return { runs: [{ runId: "run-live" }] };
-      if (command === "worker_agent_run_runtime_state") return canonicalRuntimeState("run-live");
+      if (command === "worker_turns_list") return { turns: [{ turnId: "turn-live" }] };
+      if (command === "worker_turn_runtime_state") return canonicalRuntimeState("turn-live");
       return {};
     });
     const services = createDesktopAppServices();
@@ -451,17 +447,16 @@ describe("desktop native app services", () => {
       action: "approveSession",
       approvalId: "approval-1",
       commandId: "command-approval-1",
-      runId: "run-live",
       sessionId: "thread-1",
       source: { control: "test", surface: "chat" },
       threadId: "thread-1",
-      turnId: "run-live",
+      turnId: "turn-live",
     }));
 
     expect(mocks.invoke).toHaveBeenCalledWith("worker_thread_interrupt", {
       input: { body: expect.objectContaining({
         threadId: "thread-1",
-        runId: "run-live",
+        turnId: "turn-live",
         clientEventId: "command-stop-1",
       }) },
     });
@@ -480,9 +475,9 @@ describe("desktop native app services", () => {
     let approved = false;
     mocks.invoke.mockImplementation(async (command: string) => {
       if (command === "worker_threads_list") return { threads: [thread], total: 1 };
-      if (command === "worker_agent_runs_list") return { runs: [{ runId: "run-live" }] };
-      if (command === "worker_agent_run_runtime_state") {
-        return canonicalRuntimeState("run-live", approved ? "completed" : "running");
+      if (command === "worker_turns_list") return { turns: [{ turnId: "turn-live" }] };
+      if (command === "worker_turn_runtime_state") {
+        return canonicalRuntimeState("turn-live", approved ? "completed" : "running");
       }
       if (command === "worker_resolve_thread_approval") {
         approved = true;
@@ -501,11 +496,10 @@ describe("desktop native app services", () => {
       action: "approveOnce",
       approvalId: "approval-1",
       commandId: "command-approval-1",
-      runId: "run-live",
       sessionId: "thread-1",
       source: { control: "test", surface: "chat" },
       threadId: "thread-1",
-      turnId: "run-live",
+      turnId: "turn-live",
     }));
 
     await expect(services.chatStore.load("thread-1")).resolves.toMatchObject({
@@ -539,16 +533,16 @@ describe("desktop native app services", () => {
           : [thread];
         return { threads, total: threads.length };
       }
-      if (command === "worker_agent_runs_list") return { runs: [{ runId: "run-completed" }] };
-      if (command === "worker_agent_run_runtime_state") return canonicalRuntimeState("run-completed", "completed");
+      if (command === "worker_turns_list") return { turns: [{ turnId: "turn-completed" }] };
+      if (command === "worker_turn_runtime_state") return canonicalRuntimeState("turn-completed", "completed");
       if (command === "worker_thread_read") {
         return {
           items: [{
-            itemId: "run-completed:assistant",
+            itemId: "turn-completed:assistant",
             sequence: 42,
             kind: {
               type: "assistant_message_completed",
-              payload: { content: "hi", messageId: "run-completed:assistant" },
+              payload: { content: "hi", messageId: "turn-completed:assistant" },
             },
           }],
           nextCursor: null,
@@ -562,7 +556,7 @@ describe("desktop native app services", () => {
     });
     const services = createDesktopAppServices();
 
-    await expect(services.chatStore.branchFromMessage("thread-1", "run-completed:assistant")).resolves.toEqual(
+    await expect(services.chatStore.branchFromMessage("thread-1", "turn-completed:assistant")).resolves.toEqual(
       expect.objectContaining({ id: "thread-branch", title: "Native thread · 分叉" }),
     );
     await expect(services.sessionStore.list()).resolves.toEqual([
@@ -573,7 +567,7 @@ describe("desktop native app services", () => {
     expect(mocks.invoke).toHaveBeenCalledWith("worker_thread_fork", {
       input: {
         body: {
-          clientEventId: "fork:thread-1:run-completed:assistant",
+          clientEventId: "fork:thread-1:turn-completed:assistant",
           forkAfterSequence: 42,
           threadId: "thread-1",
           title: "Native thread · 分叉",
@@ -596,7 +590,7 @@ describe("desktop native app services", () => {
         deleted = true;
         return { deleted: true, deletedChildren: ["thread-branch"] };
       }
-      if (command === "worker_agent_runs_list") return { runs: [] };
+      if (command === "worker_turns_list") return { turns: [] };
       return {};
     });
     const services = createDesktopAppServices();

@@ -305,7 +305,7 @@ describe("TinyOS Workspace Explorer", () => {
         notifications: [],
         processes: [{
           applicationId: "files",
-          correlation: { runId: "run-1", sessionId: "session-1" },
+          correlation: { sessionId: "session-1", turnId: "turn-1" },
           id: "process-file-1",
           kind: "tool_operation",
           provenance: { kind: "canonical_event", sourceId: "item-1" },

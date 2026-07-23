@@ -1,4 +1,4 @@
-use super::records::{ThreadCheckpoint, ThreadRecord, ThreadRunSummary, ThreadStatus};
+use super::records::{ThreadCheckpoint, ThreadRecord, ThreadStatus, ThreadTurnSummary};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -12,7 +12,7 @@ pub struct ThreadChildSummary {
     #[serde(default)]
     pub subagent_id: Option<String>,
     #[serde(default)]
-    pub child_run_id: Option<String>,
+    pub child_turn_id: Option<String>,
     #[serde(default)]
     pub preview: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -25,7 +25,7 @@ pub struct ThreadChildSummary {
 pub struct ThreadChildActivity {
     pub child: ThreadChildSummary,
     #[serde(default)]
-    pub active_run: Option<ThreadRunSummary>,
+    pub active_turn: Option<ThreadTurnSummary>,
     #[serde(default)]
     pub turn_items: Vec<crate::agent::runtime_protocol::AgentTurnItem>,
 }
@@ -64,9 +64,9 @@ pub struct ThreadAgentRegistryEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_agent_id: Option<String>,
     #[serde(default)]
-    pub parent_run_id: Option<String>,
+    pub parent_turn_id: Option<String>,
     #[serde(default)]
-    pub run_id: Option<String>,
+    pub turn_id: Option<String>,
     pub title: String,
     pub role: String,
     pub nickname: String,
@@ -94,7 +94,7 @@ pub struct ThreadAgentRegistryEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_control: Option<Value>,
     #[serde(default)]
-    pub active_run: Option<ThreadRunSummary>,
+    pub active_turn: Option<ThreadTurnSummary>,
     #[serde(default)]
     pub latest_checkpoint: Option<ThreadCheckpoint>,
     #[serde(default)]
@@ -115,7 +115,7 @@ pub struct ThreadActivityResult {
     pub thread_id: String,
     pub thread: ThreadRecord,
     #[serde(default)]
-    pub active_run: Option<ThreadRunSummary>,
+    pub active_turn: Option<ThreadTurnSummary>,
     #[serde(default)]
     pub active_children: Vec<ThreadChildActivity>,
     #[serde(default)]
@@ -143,8 +143,6 @@ pub struct ThreadPendingApproval {
     pub thread_id: String,
     pub item_id: String,
     #[serde(default)]
-    pub run_id: Option<String>,
-    #[serde(default)]
     pub turn_id: Option<String>,
     pub approval_id: String,
     #[serde(default)]
@@ -160,8 +158,6 @@ pub struct ThreadPendingApproval {
 pub struct ThreadRunningTool {
     pub thread_id: String,
     pub item_id: String,
-    #[serde(default)]
-    pub run_id: Option<String>,
     #[serde(default)]
     pub turn_id: Option<String>,
     pub tool_call_id: String,

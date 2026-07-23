@@ -585,7 +585,7 @@ mod tests {
                 "2026-07-08T10:13:30Z".to_string(),
                 value_event(
                     EventKind::TurnStarted,
-                    serde_json::json!({ "runId": "run-1" }),
+                    serde_json::json!({ "turnId": "turn-1" }),
                 ),
             )
             .unwrap();
@@ -622,7 +622,7 @@ mod tests {
                 vec![
                     value_event(
                         EventKind::TurnStarted,
-                        serde_json::json!({ "runId": "run-1" }),
+                        serde_json::json!({ "turnId": "turn-1" }),
                     ),
                     ThreadLogItem::ResponseItem(
                         ResponseItem::from_value(serde_json::json!({
@@ -634,7 +634,7 @@ mod tests {
                     ),
                     value_event(
                         EventKind::TurnComplete,
-                        serde_json::json!({ "runId": "run-1" }),
+                        serde_json::json!({ "turnId": "turn-1" }),
                     ),
                 ],
             )
@@ -712,7 +712,7 @@ mod tests {
                 "2026-07-08T10:13:30Z".to_string(),
                 value_event(
                     EventKind::TurnStarted,
-                    serde_json::json!({ "runId": "run-1" }),
+                    serde_json::json!({ "turnId": "turn-1" }),
                 ),
             )
             .unwrap();
@@ -752,7 +752,7 @@ mod tests {
                 "2026-07-08T10:13:30Z".to_string(),
                 value_event(
                     EventKind::TurnStarted,
-                    serde_json::json!({ "runId": "run-1" }),
+                    serde_json::json!({ "turnId": "turn-1" }),
                 ),
             )
             .unwrap();
@@ -933,7 +933,7 @@ mod tests {
                 "2026-07-08T10:13:30Z".to_string(),
                 value_event(
                     EventKind::TurnStarted,
-                    serde_json::json!({ "runId": "run-1" }),
+                    serde_json::json!({ "turnId": "turn-1" }),
                 ),
             )
             .unwrap_err();
@@ -969,7 +969,7 @@ mod tests {
                 "2026-07-08T10:13:30Z".to_string(),
                 vec![value_event(
                     EventKind::UserMessage,
-                    serde_json::json!({ "runId": "run-delete-fence" }),
+                    serde_json::json!({ "turnId": "turn-delete-fence" }),
                 )],
             )
             .unwrap();
@@ -983,7 +983,7 @@ mod tests {
                 "2026-07-08T10:14:30Z".to_string(),
                 value_event(
                     EventKind::UserMessage,
-                    serde_json::json!({ "runId": "run-delete-fence" }),
+                    serde_json::json!({ "turnId": "turn-delete-fence" }),
                 ),
             )
             .unwrap_err();
@@ -1012,7 +1012,7 @@ mod tests {
                 "2026-07-08T10:13:30Z".to_string(),
                 value_event(
                     EventKind::UserMessage,
-                    serde_json::json!({ "runId": "run-archive-fence" }),
+                    serde_json::json!({ "turnId": "turn-archive-fence" }),
                 ),
             )
             .unwrap();
@@ -1030,7 +1030,7 @@ mod tests {
                 "2026-07-08T10:14:30Z".to_string(),
                 value_event(
                     EventKind::UserMessage,
-                    serde_json::json!({ "runId": "run-archive-fence" }),
+                    serde_json::json!({ "turnId": "turn-archive-fence" }),
                 ),
             )
             .unwrap();
@@ -1049,7 +1049,7 @@ mod tests {
                 "2026-07-08T10:15:30Z".to_string(),
                 value_event(
                     EventKind::UserMessage,
-                    serde_json::json!({ "runId": "run-archive-fence" }),
+                    serde_json::json!({ "turnId": "turn-archive-fence" }),
                 ),
             )
             .unwrap();

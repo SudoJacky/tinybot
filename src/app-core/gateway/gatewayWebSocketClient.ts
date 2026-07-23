@@ -19,22 +19,23 @@ export const createGatewaySocketMessage = {
     chat_id: chatId,
     command_id: command.commandId,
     command_kind: command.kind,
-    run_id: command.target.runId,
+    turn_id: command.target.turnId,
     session_id: command.target.sessionId,
     ...(command.target.threadId ? { thread_id: command.target.threadId } : {}),
-    ...(command.target.turnId ? { turn_id: command.target.turnId } : {}),
     source: command.source,
   }),
   command: (chatId: string, command: Exclude<TinyOsCommand, TinyOsAgentCancelCommand>) => {
+    const targetIdentity = "operationId" in command.target
+      ? { operation_id: command.target.operationId }
+      : { turn_id: command.target.turnId };
     const envelope = {
       type: "command" as const,
       chat_id: chatId,
       command_id: command.commandId,
       command_kind: command.kind,
-      run_id: command.target.runId,
+      ...targetIdentity,
       session_id: command.target.sessionId,
       ...(command.target.threadId ? { thread_id: command.target.threadId } : {}),
-      ...("turnId" in command.target && command.target.turnId ? { turn_id: command.target.turnId } : {}),
       source: command.source,
     };
     if (command.kind === "approval.resolve") return {
@@ -53,7 +54,7 @@ export const createGatewaySocketMessage = {
     if (command.kind === "agent.request_change") return {
       ...envelope,
       instruction: command.request.instruction,
-      ...(command.request.observedRunId ? { observed_run_id: command.request.observedRunId } : {}),
+      ...(command.request.observedTurnId ? { observed_turn_id: command.request.observedTurnId } : {}),
       references: command.request.references,
     };
     if (command.kind === "file.save") return {

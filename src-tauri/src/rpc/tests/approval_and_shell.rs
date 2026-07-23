@@ -326,7 +326,7 @@ fn read_only_shell_approval_cannot_authorize_unsandboxed_execution() {
         json!({
             "command": command,
             "sessionId": "session-1",
-            "runId": "run-shell-read-only"
+            "turnId": "run-shell-read-only"
         }),
     ));
     let error = unsandboxed
@@ -347,7 +347,7 @@ fn read_only_shell_approval_cannot_authorize_unsandboxed_execution() {
             "sandboxMode": "read_only",
             "networkMode": "unrestricted",
             "sessionId": "session-1",
-            "runId": "run-shell-read-only"
+            "turnId": "run-shell-read-only"
         }),
     ));
     assert!(read_only.error.is_none(), "{read_only:?}");
@@ -404,13 +404,13 @@ fn dispatches_owned_shell_process_lifecycle() {
             "yieldTimeMs": 0,
             "tty": false,
             "sessionId": "session-shell-process",
-            "runId": "run-shell-process",
+            "turnId": "turn-shell-process",
             "toolCallId": "tool-shell-process"
         }),
     ));
     let started = started.result.expect("shell.start should return a process");
     assert_eq!(started["running"], true, "{started:?}");
-    assert_eq!(started["runId"], "run-shell-process");
+    assert_eq!(started["ownerId"], "turn-shell-process");
     assert_eq!(started["toolCallId"], "tool-shell-process");
     assert_eq!(started["sandboxMode"], "unsandboxed_approved");
     assert_eq!(started["networkMode"], "unrestricted");
@@ -435,7 +435,7 @@ fn dispatches_owned_shell_process_lifecycle() {
         "req-shell-list",
         "trace-shell-process",
         "shell.list",
-        json!({ "runId": "run-shell-process" }),
+        json!({ "ownerId": "turn-shell-process" }),
     ));
     let listed = listed
         .result
@@ -449,7 +449,7 @@ fn dispatches_owned_shell_process_lifecycle() {
         "shell.terminate",
         json!({
             "processId": process_id,
-            "runId": "run-shell-process"
+            "ownerId": "turn-shell-process"
         }),
     ));
     let terminated = terminated
@@ -460,7 +460,7 @@ fn dispatches_owned_shell_process_lifecycle() {
 }
 
 #[test]
-fn tool_executor_injects_run_ownership_into_exec_command() {
+fn tool_executor_injects_turn_ownership_into_exec_command() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -499,11 +499,11 @@ fn tool_executor_injects_run_ownership_into_exec_command() {
                 "yieldTimeMs": 0,
                 "tty": false,
                 "sessionId": "spoofed-session",
-                "runId": "spoofed-run",
+                "ownerId": "spoofed-owner",
                 "toolCallId": "spoofed-tool-call"
             },
             "sessionId": "session-exec-command",
-            "runId": "run-exec-command",
+            "turnId": "turn-exec-command",
             "toolCallId": "tool-exec-command"
         }),
     ));
@@ -511,7 +511,7 @@ fn tool_executor_injects_run_ownership_into_exec_command() {
         .result
         .expect("exec_command should dispatch through tool executor");
     let process = &result["result"];
-    assert_eq!(process["runId"], "run-exec-command", "{result:?}");
+    assert_eq!(process["ownerId"], "turn-exec-command", "{result:?}");
     assert_eq!(process["toolCallId"], "tool-exec-command", "{result:?}");
     let process_id = process["processId"]
         .as_str()
@@ -524,7 +524,7 @@ fn tool_executor_injects_run_ownership_into_exec_command() {
         "shell.terminate",
         json!({
             "processId": process_id,
-            "runId": "run-exec-command"
+            "ownerId": "turn-exec-command"
         }),
     ));
     assert_eq!(terminated.result.as_ref().unwrap()["status"], "terminated");
@@ -550,7 +550,7 @@ fn shared_shell_runtime_survives_router_reconstruction() {
                 "workingDir": ".",
                 "yieldTimeMs": 0,
                 "sessionId": "session-shared-shell",
-                "runId": "run-shared-shell",
+                "turnId": "turn-shared-shell",
                 "toolCallId": "tool-shared-shell"
             }),
         )
@@ -571,7 +571,7 @@ fn shared_shell_runtime_survives_router_reconstruction() {
         "shell.poll",
         json!({
             "processId": process_id,
-            "runId": "run-shared-shell",
+            "ownerId": "turn-shared-shell",
             "cursor": 0,
             "yieldTimeMs": 0
         }),
@@ -584,7 +584,7 @@ fn shared_shell_runtime_survives_router_reconstruction() {
         "shell.terminate",
         json!({
             "processId": process_id,
-            "runId": "run-shared-shell"
+            "ownerId": "turn-shared-shell"
         }),
     ));
     assert_eq!(terminated.result.as_ref().unwrap()["status"], "terminated");
@@ -631,7 +631,7 @@ fn tool_executor_forwards_request_cancellation_to_shell_execute() {
                 "working_dir": ".",
                 "timeout": 30,
                 "sessionId": "session-1",
-                "runId": "run-shell-cancel"
+                "turnId": "run-shell-cancel"
             }
         }),
     )

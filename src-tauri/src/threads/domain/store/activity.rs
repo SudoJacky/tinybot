@@ -1,6 +1,6 @@
-use super::agent_run_projection::run_summaries_from_items;
 use super::checkpoint::latest_checkpoint_from_items;
 use super::index::ThreadIndex;
+use super::turn_projection::turn_summaries_from_items;
 use super::{bool_field, string_field, turn_items_from_thread_items, u64_field};
 use crate::threads::domain::types::{
     ThreadAgentRegistryEntry, ThreadItem, ThreadItemKind, ThreadPendingApproval, ThreadRecord,
@@ -13,12 +13,12 @@ pub(super) fn agent_registry_entry(
     index: &ThreadIndex,
     items: &[ThreadItem],
 ) -> ThreadAgentRegistryEntry {
-    let runs = run_summaries_from_items(thread, items);
-    let active_run = runs.iter().find(|run| run.active).cloned();
+    let turns = turn_summaries_from_items(thread, items);
+    let active_turn = turns.iter().find(|turn| turn.active).cloned();
     let session_id = thread.session_key.as_deref().unwrap_or_default();
-    let turn_items = active_run
+    let turn_items = active_turn
         .as_ref()
-        .map(|run| turn_items_from_thread_items(items, session_id, &run.run_id))
+        .map(|turn| turn_items_from_thread_items(items, session_id, &turn.turn_id))
         .unwrap_or_default();
     let latest_checkpoint = latest_checkpoint_from_items(&thread.thread_id, items);
     let agent_control = thread.metadata.extra.get("agentControl").cloned();
@@ -51,7 +51,7 @@ pub(super) fn agent_registry_entry(
         .unwrap_or_else(|| thread.title.clone());
     let active = lifecycle
         .and_then(|value| bool_field(value, "active"))
-        .unwrap_or_else(|| active_run.is_some());
+        .unwrap_or_else(|| active_turn.is_some());
     let terminal = lifecycle
         .and_then(|value| bool_field(value, "terminal"))
         .unwrap_or_else(|| matches!(thread.status, ThreadStatus::Failed));
@@ -69,14 +69,14 @@ pub(super) fn agent_registry_entry(
         parent_agent_id: agent_control
             .as_ref()
             .and_then(|control| string_field(control, "parentAgentId")),
-        parent_run_id: agent_control
+        parent_turn_id: agent_control
             .as_ref()
-            .and_then(|control| string_field(control, "parentRunId")),
-        run_id: agent_control
+            .and_then(|control| string_field(control, "parentTurnId")),
+        turn_id: agent_control
             .as_ref()
-            .and_then(|control| string_field(control, "childRunId"))
-            .or_else(|| active_run.as_ref().map(|run| run.run_id.clone()))
-            .or_else(|| thread.active_run_id.clone()),
+            .and_then(|control| string_field(control, "childTurnId"))
+            .or_else(|| active_turn.as_ref().map(|turn| turn.turn_id.clone()))
+            .or_else(|| thread.active_turn_id.clone()),
         title: thread.title.clone(),
         role,
         nickname,
@@ -131,7 +131,7 @@ pub(super) fn agent_registry_entry(
             .filter(|value| !value.is_null())
             .cloned(),
         agent_control,
-        active_run,
+        active_turn,
         latest_checkpoint,
         turn_items,
     }
@@ -151,7 +151,7 @@ pub(super) fn pending_approvals_from_items(
                 .or_else(|| string_field(payload, "approval_id"))?;
             let resolved = items.iter().any(|candidate| {
                 candidate.sequence > item.sequence
-                    && candidate.run_id == item.run_id
+                    && candidate.turn_id == item.turn_id
                     && matches!(
                         &candidate.kind,
                         ThreadItemKind::ApprovalResolved(candidate_payload)
@@ -167,7 +167,6 @@ pub(super) fn pending_approvals_from_items(
             Some(ThreadPendingApproval {
                 thread_id: thread_id.to_string(),
                 item_id: item.item_id.clone(),
-                run_id: item.run_id.clone(),
                 turn_id: item.turn_id.clone(),
                 approval_id,
                 summary: string_field(payload, "summary"),
@@ -193,7 +192,7 @@ pub(super) fn running_tools_from_items(
                 .or_else(|| string_field(payload, "tool_call_id"))?;
             let completed = items.iter().any(|candidate| {
                 candidate.sequence > item.sequence
-                    && candidate.run_id == item.run_id
+                    && candidate.turn_id == item.turn_id
                     && matches!(
                         &candidate.kind,
                         ThreadItemKind::ToolCallOutput(candidate_payload)
@@ -209,7 +208,6 @@ pub(super) fn running_tools_from_items(
             Some(ThreadRunningTool {
                 thread_id: thread_id.to_string(),
                 item_id: item.item_id.clone(),
-                run_id: item.run_id.clone(),
                 turn_id: item.turn_id.clone(),
                 tool_call_id,
                 tool_name: string_field(payload, "toolName")

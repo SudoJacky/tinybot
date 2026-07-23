@@ -1,4 +1,4 @@
-pub(crate) fn native_agent_run_status(stop_reason: Option<&str>) -> &'static str {
+pub(crate) fn native_agent_turn_status(stop_reason: Option<&str>) -> &'static str {
     match stop_reason {
         Some("final_response") => "completed",
         Some("cancelled") => "cancelled",
@@ -13,7 +13,7 @@ pub(crate) fn native_agent_run_status(stop_reason: Option<&str>) -> &'static str
     }
 }
 
-pub(crate) fn native_agent_run_phase_from_stop_reason(
+pub(crate) fn native_agent_turn_phase_from_stop_reason(
     stop_reason: Option<&str>,
 ) -> Option<&'static str> {
     match stop_reason {
@@ -28,7 +28,7 @@ pub(crate) fn native_agent_run_phase_from_stop_reason(
     }
 }
 
-pub(crate) fn native_agent_run_completed_at(status: &str, timestamp: &str) -> Option<String> {
+pub(crate) fn native_agent_turn_completed_at(status: &str, timestamp: &str) -> Option<String> {
     matches!(status, "completed" | "failed" | "cancelled" | "interrupted")
         .then(|| timestamp.to_string())
 }
@@ -42,8 +42,9 @@ pub(crate) fn native_agent_session_id(value: &serde_json::Value) -> Option<Strin
         .or_else(|| native_agent_string_field(value, "session_key"))
 }
 
-pub(crate) fn native_agent_run_id(value: &serde_json::Value) -> Option<String> {
-    native_agent_string_field(value, "runId").or_else(|| native_agent_string_field(value, "run_id"))
+pub(crate) fn native_agent_turn_id(value: &serde_json::Value) -> Option<String> {
+    native_agent_string_field(value, "turnId")
+        .or_else(|| native_agent_string_field(value, "turn_id"))
 }
 
 pub(crate) fn native_agent_model(

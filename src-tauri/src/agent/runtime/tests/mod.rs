@@ -133,7 +133,7 @@ impl NativeAgentTraceSink for RecordingTraceSink {
     fn load_runtime_events(
         &self,
         _session_id: &str,
-        _run_id: &str,
+        _turn_id: &str,
     ) -> Result<Vec<AgentRuntimeEventEnvelope>, String> {
         Ok(self
             .events
@@ -145,7 +145,7 @@ impl NativeAgentTraceSink for RecordingTraceSink {
     fn append_trace_event(
         &self,
         _session_id: &str,
-        _run_id: &str,
+        _turn_id: &str,
         event: &AgentRuntimeEventEnvelope,
     ) -> Result<(), String> {
         self.events
@@ -158,7 +158,7 @@ impl NativeAgentTraceSink for RecordingTraceSink {
     fn append_timeline_patch(
         &self,
         _session_id: &str,
-        _run_id: &str,
+        _turn_id: &str,
         patch: &crate::agent::runtime_protocol::AgentTimelinePatch,
     ) -> Result<(), String> {
         self.timeline_patches
@@ -169,7 +169,7 @@ impl NativeAgentTraceSink for RecordingTraceSink {
     }
 }
 
-fn wait_for_approval_id(trace_sink: &RecordingTraceSink, run_id: &str) -> String {
+fn wait_for_approval_id(trace_sink: &RecordingTraceSink, turn_id: &str) -> String {
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     loop {
         if let Some(approval_id) = trace_sink
@@ -178,7 +178,7 @@ fn wait_for_approval_id(trace_sink: &RecordingTraceSink, run_id: &str) -> String
             .expect("trace sink lock should not be poisoned")
             .iter()
             .find(|event| {
-                event.event_name == "agent.awaiting_approval" && event.payload["runId"] == run_id
+                event.event_name == "agent.awaiting_approval" && event.payload["turnId"] == turn_id
             })
             .and_then(|event| event.payload["approvalId"].as_str())
             .map(str::to_string)
@@ -187,7 +187,7 @@ fn wait_for_approval_id(trace_sink: &RecordingTraceSink, run_id: &str) -> String
         }
         assert!(
             std::time::Instant::now() < deadline,
-            "approval event for run `{run_id}` was not emitted"
+            "approval event for run `{turn_id}` was not emitted"
         );
         thread::sleep(Duration::from_millis(5));
     }

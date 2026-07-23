@@ -4,7 +4,7 @@ mod store;
 mod types;
 
 pub use self::runtime::ThreadRuntime;
-pub(crate) use self::store::{run_summaries_from_items, runtime_events_from_thread_items};
+pub(crate) use self::store::{runtime_events_from_thread_items, turn_summaries_from_items};
 pub use self::store::{
     MemoryThreadStore, ThreadPersistenceRepairMode, ThreadPersistenceRepairRequest, ThreadStore,
 };
@@ -17,8 +17,8 @@ pub use self::types::{
     ThreadActivityRequest, ThreadActivityResult, ThreadAgentRegistryEntry,
     ThreadAgentRegistryRequest, ThreadAgentRegistryResult, ThreadApplyOpRequest, ThreadCheckpoint,
     ThreadEventsRequest, ThreadEventsResult, ThreadIdParams, ThreadItem, ThreadItemKind,
-    ThreadMetadata, ThreadOp, ThreadPagination, ThreadRecord, ThreadRunSummary, ThreadSnapshot,
-    ThreadStatus, ThreadStatusResult, ThreadTurnRuntimeResult, UpdateThreadMetadataRequest,
+    ThreadMetadata, ThreadOp, ThreadPagination, ThreadRecord, ThreadSnapshot, ThreadStatus,
+    ThreadStatusResult, ThreadTurnRuntimeResult, ThreadTurnSummary, UpdateThreadMetadataRequest,
 };
 
 use crate::collaboration::subagents::{SubagentMailboxInput, SubagentThreadSummary};

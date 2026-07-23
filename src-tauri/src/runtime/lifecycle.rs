@@ -1,13 +1,13 @@
 use crate::collaboration::subagents::{SubagentThreadManager, SubagentThreadStatus};
 use crate::protocol::capability::default_desktop_capability_policy;
 use crate::protocol::WorkerProtocolError;
-use crate::runtime::agent_task::{AgentTaskRuntime, ShutdownReport};
 use crate::runtime::mcp::McpRuntime;
+use crate::runtime::turn_execution::{ShutdownReport, TurnExecutionRuntime};
 use crate::threads::domain::{
     InterruptThreadRequest, ListThreadsRequest, ThreadIdParams, WorkerThreadRpc,
 };
 use crate::threads::rollout::store::{
-    AgentRunRecoveryEntry, ThreadLogIndexConsistencyReport, ThreadLogIndexRepairReport,
+    AgentTurnRecoveryEntry, ThreadLogIndexConsistencyReport, ThreadLogIndexRepairReport,
     WorkerThreadLogRpc,
 };
 use crate::tools::shell::{ShellProcessCleanupReport, WorkerShellRuntime};
@@ -20,9 +20,9 @@ const THREAD_RECOVERY_PAGE_SIZE: usize = 500;
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct LifecycleRunRef {
+pub(crate) struct LifecycleTurnRef {
     pub(crate) session_id: String,
-    pub(crate) run_id: String,
+    pub(crate) turn_id: String,
     pub(crate) thread_id: Option<String>,
 }
 
@@ -31,7 +31,7 @@ pub(crate) struct LifecycleRunRef {
 pub(crate) struct LifecycleSubagentRef {
     pub(crate) session_key: String,
     pub(crate) subagent_id: String,
-    pub(crate) child_run_id: String,
+    pub(crate) child_turn_id: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -77,9 +77,9 @@ pub(crate) struct RuntimeStartupRecoveryReport {
     pub(crate) session_log_index_migration: Option<ThreadLogIndexRepairReport>,
     pub(crate) scanned_threads: usize,
     pub(crate) scanned_run_records: usize,
-    pub(crate) interrupted_runs: Vec<LifecycleRunRef>,
-    pub(crate) awaiting_interaction_runs: Vec<LifecycleRunRef>,
-    pub(crate) resumable_runs: Vec<LifecycleRunRef>,
+    pub(crate) interrupted_turns: Vec<LifecycleTurnRef>,
+    pub(crate) awaiting_interaction_turns: Vec<LifecycleTurnRef>,
+    pub(crate) resumable_turns: Vec<LifecycleTurnRef>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
@@ -130,7 +130,7 @@ impl RuntimeLifecycleStatus {
 
 #[derive(Clone)]
 pub(crate) struct RuntimeLifecycle {
-    agent_tasks: AgentTaskRuntime,
+    agent_tasks: TurnExecutionRuntime,
     shell: WorkerShellRuntime,
     mcp: McpRuntime,
     subagents: SubagentThreadManager,
@@ -138,7 +138,7 @@ pub(crate) struct RuntimeLifecycle {
 
 impl RuntimeLifecycle {
     pub(crate) fn new(
-        agent_tasks: AgentTaskRuntime,
+        agent_tasks: TurnExecutionRuntime,
         shell: WorkerShellRuntime,
         mcp: McpRuntime,
         subagents: SubagentThreadManager,
@@ -161,8 +161,8 @@ impl RuntimeLifecycle {
                 stage: "agent_tasks".to_string(),
                 code: "cleanup_timeout".to_string(),
                 message: format!(
-                    "agent task cleanup timed out for runs: {}",
-                    agent_tasks.cleanup_pending_runs.join(", ")
+                    "agent task cleanup timed out for turns: {}",
+                    agent_tasks.cleanup_pending_turns.join(", ")
                 ),
             });
         }
@@ -220,7 +220,7 @@ impl RuntimeLifecycle {
                         subagents.interrupted.push(LifecycleSubagentRef {
                             session_key: summary.session_key,
                             subagent_id: summary.subagent_id,
-                            child_run_id: summary.child_run_id,
+                            child_turn_id: summary.child_turn_id,
                         });
                     }
                 }
@@ -242,7 +242,7 @@ impl RuntimeLifecycle {
         let state_persistence = if agent_tasks.timed_out {
             LifecycleStageReport {
                 completed: false,
-                detail: "Owned run cleanup is still pending, so persistence completion cannot be confirmed."
+                detail: "Owned turn cleanup is still pending, so persistence completion cannot be confirmed."
                     .to_string(),
             }
         } else {
@@ -270,7 +270,7 @@ impl RuntimeLifecycle {
     ) -> Result<RuntimeStartupRecoveryReport, WorkerProtocolError> {
         let recovery_started = Instant::now();
         let metrics = crate::runtime::observability::global_agent_runtime_metrics();
-        metrics.increment("recovery.orphaned_runs.requested");
+        metrics.increment("recovery.orphaned_turns.requested");
         let policy = default_desktop_capability_policy();
         let thread = WorkerThreadRpc::new(workspace_root.to_path_buf(), policy.clone());
         let thread_log = WorkerThreadLogRpc::new(workspace_root.to_path_buf(), policy);
@@ -286,43 +286,43 @@ impl RuntimeLifecycle {
             let status = thread.get_thread_status(ThreadIdParams {
                 thread_id: thread_record.thread_id.clone(),
             })?;
-            let Some(active_run) = status.active_run else {
+            let Some(active_turn) = status.active_turn else {
                 continue;
             };
-            let run_ref = LifecycleRunRef {
+            let turn_ref = LifecycleTurnRef {
                 session_id: status
                     .thread
                     .session_key
                     .clone()
                     .unwrap_or_else(|| status.thread.thread_id.clone()),
-                run_id: active_run.run_id.clone(),
+                turn_id: active_turn.turn_id.clone(),
                 thread_id: Some(status.thread.thread_id.clone()),
             };
-            match active_run.status {
+            match active_turn.status {
                 crate::threads::domain::ThreadStatus::WaitingForApproval
                 | crate::threads::domain::ThreadStatus::WaitingForInput => {
                     if status.latest_checkpoint.as_ref().is_some_and(|checkpoint| {
                         checkpoint
-                            .run_id
+                            .turn_id
                             .as_deref()
-                            .is_none_or(|run_id| run_id == active_run.run_id)
+                            .is_none_or(|turn_id| turn_id == active_turn.turn_id)
                     }) {
-                        report.resumable_runs.push(run_ref);
+                        report.resumable_turns.push(turn_ref);
                     } else {
-                        report.awaiting_interaction_runs.push(run_ref);
+                        report.awaiting_interaction_turns.push(turn_ref);
                     }
                 }
-                _ if active_run.active => {
+                _ if active_turn.active => {
                     let interrupted = thread.interrupt(InterruptThreadRequest {
                         thread_id: status.thread.thread_id,
                         client_event_id: Some(format!(
                             "startup-recovery:{}:{}",
-                            run_ref.thread_id.as_deref().unwrap_or("thread"),
-                            run_ref.run_id
+                            turn_ref.thread_id.as_deref().unwrap_or("thread"),
+                            turn_ref.turn_id
                         )),
-                        run_id: Some(run_ref.run_id.clone()),
+                        turn_id: Some(turn_ref.turn_id.clone()),
                         reason: Some(
-                            "Runtime restarted before the run reached a terminal state."
+                            "Runtime restarted before the turn reached a terminal state."
                                 .to_string(),
                         ),
                     })?;
@@ -331,70 +331,70 @@ impl RuntimeLifecycle {
                         &interrupted.snapshot.thread.thread_id,
                         &interrupted.appended_items,
                     )?;
-                    report.interrupted_runs.push(run_ref);
+                    report.interrupted_turns.push(turn_ref);
                 }
                 _ => {}
             }
         }
 
-        let run_report = thread_log.reconcile_orphaned_agent_runs()?;
-        report.scanned_run_records = run_report.scanned_runs;
-        report.interrupted_runs.extend(
-            run_report
-                .interrupted_runs
+        let turn_report = thread_log.reconcile_orphaned_turns()?;
+        report.scanned_run_records = turn_report.scanned_runs;
+        report.interrupted_turns.extend(
+            turn_report
+                .interrupted_turns
                 .into_iter()
-                .map(LifecycleRunRef::from),
+                .map(LifecycleTurnRef::from),
         );
-        report.awaiting_interaction_runs.extend(
-            run_report
-                .awaiting_interaction_runs
+        report.awaiting_interaction_turns.extend(
+            turn_report
+                .awaiting_interaction_turns
                 .into_iter()
-                .map(LifecycleRunRef::from),
+                .map(LifecycleTurnRef::from),
         );
-        report.resumable_runs.extend(
-            run_report
-                .resumable_runs
+        report.resumable_turns.extend(
+            turn_report
+                .resumable_turns
                 .into_iter()
-                .map(LifecycleRunRef::from),
+                .map(LifecycleTurnRef::from),
         );
-        normalize_run_refs(&mut report.interrupted_runs);
-        normalize_run_refs(&mut report.awaiting_interaction_runs);
-        normalize_run_refs(&mut report.resumable_runs);
-        let interrupted_keys = run_keys(&report.interrupted_runs);
-        report.resumable_runs.retain(|run| {
-            !interrupted_keys.contains(&(run.session_id.clone(), run.run_id.clone()))
+        normalize_turn_refs(&mut report.interrupted_turns);
+        normalize_turn_refs(&mut report.awaiting_interaction_turns);
+        normalize_turn_refs(&mut report.resumable_turns);
+        let interrupted_keys = run_keys(&report.interrupted_turns);
+        report.resumable_turns.retain(|turn| {
+            !interrupted_keys.contains(&(turn.session_id.clone(), turn.turn_id.clone()))
         });
-        let resumable_keys = run_keys(&report.resumable_runs);
-        report.awaiting_interaction_runs.retain(|run| {
-            let key = (run.session_id.clone(), run.run_id.clone());
+        let resumable_keys = run_keys(&report.resumable_turns);
+        report.awaiting_interaction_turns.retain(|turn| {
+            let key = (turn.session_id.clone(), turn.turn_id.clone());
             !interrupted_keys.contains(&key) && !resumable_keys.contains(&key)
         });
         metrics.increment_by(
-            "recovery.orphaned_runs.interrupted",
-            report.interrupted_runs.len() as u64,
+            "recovery.orphaned_turns.interrupted",
+            report.interrupted_turns.len() as u64,
         );
         metrics.increment_by(
-            "recovery.orphaned_runs.resumable",
-            report.resumable_runs.len() as u64,
+            "recovery.orphaned_turns.resumable",
+            report.resumable_turns.len() as u64,
         );
         metrics.increment_by(
-            "recovery.orphaned_runs.awaiting_interaction",
-            report.awaiting_interaction_runs.len() as u64,
+            "recovery.orphaned_turns.awaiting_interaction",
+            report.awaiting_interaction_turns.len() as u64,
         );
         metrics.record_duration(
-            "recovery.orphaned_runs.durationMs",
+            "recovery.orphaned_turns.durationMs",
             recovery_started.elapsed(),
         );
-        metrics.increment("recovery.orphaned_runs.completed");
+        metrics.increment("recovery.orphaned_turns.completed");
         Ok(report)
     }
 }
 
-impl From<AgentRunRecoveryEntry> for LifecycleRunRef {
-    fn from(entry: AgentRunRecoveryEntry) -> Self {
+impl From<AgentTurnRecoveryEntry> for LifecycleTurnRef {
+    fn from(entry: AgentTurnRecoveryEntry) -> Self {
         Self {
             session_id: entry.session_id,
-            run_id: entry.run_id,
+            turn_id: entry.turn_id,
             thread_id: entry.thread_id,
         }
     }
@@ -423,29 +423,30 @@ fn list_all_threads(
     Ok(threads)
 }
 
-fn normalize_run_refs(runs: &mut Vec<LifecycleRunRef>) {
-    runs.sort_by(|left, right| {
+fn normalize_turn_refs(turns: &mut Vec<LifecycleTurnRef>) {
+    turns.sort_by(|left, right| {
         left.session_id
             .cmp(&right.session_id)
-            .then_with(|| left.run_id.cmp(&right.run_id))
+            .then_with(|| left.turn_id.cmp(&right.turn_id))
     });
-    let mut normalized = Vec::<LifecycleRunRef>::with_capacity(runs.len());
-    for run in runs.drain(..) {
+    let mut normalized = Vec::<LifecycleTurnRef>::with_capacity(turns.len());
+    for turn in turns.drain(..) {
         if let Some(existing) = normalized.last_mut().filter(|existing| {
-            existing.session_id == run.session_id && existing.run_id == run.run_id
+            existing.session_id == turn.session_id && existing.turn_id == turn.turn_id
         }) {
             if existing.thread_id.is_none() {
-                existing.thread_id = run.thread_id;
+                existing.thread_id = turn.thread_id;
             }
         } else {
-            normalized.push(run);
+            normalized.push(turn);
         }
     }
-    *runs = normalized;
+    *turns = normalized;
 }
 
-fn run_keys(runs: &[LifecycleRunRef]) -> std::collections::BTreeSet<(String, String)> {
-    runs.iter()
-        .map(|run| (run.session_id.clone(), run.run_id.clone()))
+fn run_keys(turns: &[LifecycleTurnRef]) -> std::collections::BTreeSet<(String, String)> {
+    turns
+        .iter()
+        .map(|turn| (turn.session_id.clone(), turn.turn_id.clone()))
         .collect()
 }

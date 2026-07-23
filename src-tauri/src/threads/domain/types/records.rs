@@ -11,9 +11,9 @@ pub struct ThreadRecord {
     #[serde(default)]
     pub session_key: Option<String>,
     #[serde(default)]
-    pub root_run_id: Option<String>,
+    pub root_turn_id: Option<String>,
     #[serde(default)]
-    pub active_run_id: Option<String>,
+    pub active_turn_id: Option<String>,
     #[serde(default)]
     pub parent_thread_id: Option<String>,
     #[serde(default)]
@@ -67,9 +67,9 @@ pub struct ThreadMetadata {
     #[serde(default)]
     pub item_count: u64,
     #[serde(default)]
-    pub run_count: u64,
+    pub turn_count: u64,
     #[serde(default)]
-    pub has_active_run: bool,
+    pub has_active_turn: bool,
     #[serde(default)]
     pub extra: Value,
 }
@@ -96,7 +96,7 @@ pub struct ThreadMetadataPatch {
     #[serde(default)]
     pub last_activity_at: Option<String>,
     #[serde(default)]
-    pub has_active_run: Option<bool>,
+    pub has_active_turn: Option<bool>,
     #[serde(default)]
     pub extra: Option<Value>,
 }
@@ -107,9 +107,9 @@ pub struct ThreadSnapshot {
     pub thread: ThreadRecord,
     pub items: Vec<ThreadItem>,
     #[serde(default)]
-    pub runs: Vec<ThreadRunSummary>,
+    pub turns: Vec<ThreadTurnSummary>,
     #[serde(default)]
-    pub active_run: Option<ThreadRunSummary>,
+    pub active_turn: Option<ThreadTurnSummary>,
     #[serde(default)]
     pub latest_checkpoint: Option<ThreadCheckpoint>,
     #[serde(default)]
@@ -125,8 +125,8 @@ pub struct ThreadSnapshot {
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ThreadRunSummary {
-    pub run_id: String,
+pub struct ThreadTurnSummary {
+    pub turn_id: String,
     pub status: ThreadStatus,
     #[serde(default)]
     pub started_at: Option<String>,
@@ -148,7 +148,7 @@ pub struct ThreadCheckpoint {
     pub checkpoint_id: String,
     pub thread_id: String,
     #[serde(default)]
-    pub run_id: Option<String>,
+    pub turn_id: Option<String>,
     pub sequence: u64,
     #[serde(default)]
     pub label: Option<String>,

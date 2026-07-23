@@ -23,27 +23,27 @@ pub(super) fn lifecycle_echo_command() -> String {
     "printf 'resumed\\n'".to_string()
 }
 
-pub(super) fn read_agent_run_record(
+pub(super) fn read_agent_turn_record(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     session_id: &str,
-    run_id: &str,
+    turn_id: &str,
 ) -> serde_json::Value {
     call_rust_state_service(
         workspace_root,
         config_snapshot,
         WorkerRequest::new(
-            "req-agent-run-get",
-            "trace-agent-run-get",
-            "agent_run.get",
+            "req-agent-turn-get",
+            "trace-agent-turn-get",
+            "thread.turn.get",
             serde_json::json!({
                 "session_id": session_id,
-                "run_id": run_id,
+                "turn_id": turn_id,
             }),
         ),
-        "agent run read",
+        "agent turn read",
     )
-    .expect("agent run record should persist")
+    .expect("agent turn record should persist")
 }
 
 pub(super) fn test_request_correlation(suffix: &str) -> WorkerRequestCorrelation {

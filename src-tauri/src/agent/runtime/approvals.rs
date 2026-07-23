@@ -7,7 +7,7 @@ use tokio::sync::oneshot;
 pub(crate) struct NativeAgentApprovalRequest {
     pub(crate) approval_id: String,
     pub(crate) session_id: String,
-    pub(crate) run_id: String,
+    pub(crate) turn_id: String,
     pub(crate) scope_key: String,
 }
 
@@ -141,11 +141,11 @@ impl NativeAgentApprovalBroker {
         }
     }
 
-    pub(crate) fn cancel_run(&self, run_id: &str) {
+    pub(crate) fn cancel_run(&self, turn_id: &str) {
         if let Ok(mut state) = self.state.lock() {
             state
                 .pending
-                .retain(|_, pending| pending.request.run_id != run_id);
+                .retain(|_, pending| pending.request.turn_id != turn_id);
         }
     }
 }
@@ -159,7 +159,7 @@ mod tests {
         NativeAgentApprovalRequest {
             approval_id: approval_id.to_string(),
             session_id: session_id.to_string(),
-            run_id: "run-1".to_string(),
+            turn_id: "run-1".to_string(),
             scope_key: scope_key.to_string(),
         }
     }

@@ -1,17 +1,17 @@
 # Native Agent Runtime
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
-loop. It turns a validated run specification, runtime services, and composed
+loop. It turns a validated turn specification, runtime services, and composed
 instructions into typed agent items, runtime events, checkpoints, usage, and a
 terminal result.
 
 The module is independent of the Tauri command surface. Desktop integration,
-history selection, attachment lifetime, and durable run orchestration belong
+history selection, attachment lifetime, and durable turn orchestration belong
 to [`agent::bridge`](../bridge/README.md).
 
 ## Responsibilities
 
-- Normalize run settings, input history, and context-window behavior.
+- Normalize turn settings, input history, and context-window behavior.
 - Compose bounded context contributions and instruction provenance.
 - Call the configured provider and adapt provider-specific responses.
 - Maintain the typed `AgentItem` history used inside the runtime.
@@ -27,7 +27,7 @@ decide which durable conversation store a caller uses.
 
 ## Execution flow
 
-1. The caller provides `NativeAgentRuntimeServices`, a run specification, the
+1. The caller provides `NativeAgentRuntimeServices`, a turn specification, the
    effective configuration, workspace context, and composed instructions.
 2. `provider_loop.rs` validates turn settings and prepares the typed history.
 3. `context.rs`, `context_contributors.rs`, and `instructions.rs` build the
@@ -81,12 +81,12 @@ conditionals to the provider loop.
 - `AgentItem` is the runtime domain history. Legacy message JSON is a boundary
   representation, not the internal source of truth.
 - Model-visible additions must be bounded and should retain provenance.
-- A run that is awaiting approval, form input, or resume is not terminal.
+- A turn that is awaiting approval, form input, or resume is not terminal.
 - Cancellation is cooperative and must be checked at provider and tool
   boundaries; late work must not overwrite a terminal outcome.
 - Tool execution goes through the dispatcher so capability, approval,
   ownership, trace, and cleanup behavior remain consistent.
-- Runtime events for one run retain the same trace context and stable identity
+- Runtime events for one turn retain the same trace context and stable identity
   fields across provider, tool, checkpoint, and terminal stages.
 - Errors should preserve the failing stage; do not convert provider, tool, or
   trace failures into an apparently successful assistant result.

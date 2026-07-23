@@ -1,4 +1,4 @@
-import type { BackendAgentTurnItem } from "./chatRunModel";
+import type { BackendAgentTurnItem } from "./chatTurnModel";
 import type { TinyOsNativeBrowserSession, TinyOsNativeSnapshot } from "./tinyOsNativeSnapshot";
 
 export type TinyOsProvenanceKind =
@@ -26,7 +26,6 @@ export type TinyOsProcessState =
   | "cancelled";
 
 export type TinyOsProcessKind =
-  | "agent_run"
   | "agent_turn"
   | "tool_operation"
   | "terminal_process"
@@ -36,14 +35,14 @@ export type TinyOsProcessKind =
 
 export type TinyOsProcessCorrelation = {
   browserSessionId?: string;
-  childRunId?: string;
+  childTurnId?: string;
   childThreadId?: string;
   commandId?: string;
   itemId?: string;
   nativeProcessId?: string;
+  operationId?: string;
   parentAgentId?: string;
-  parentRunId?: string;
-  runId: string;
+  parentTurnId?: string;
   sessionId: string;
   threadId?: string;
   toolCallId?: string;
@@ -65,7 +64,7 @@ export type TinyOsProcess = {
 export type TinyOsAgentProcessGroup = {
   agentId: string;
   assignedWork?: string;
-  childRunId?: string;
+  childTurnId?: string;
   id: string;
   parentAgentId?: string;
   parentProcessId?: string;
@@ -152,7 +151,6 @@ export type TinyOsDiscrepancy = {
 export type TinyOsSimulationCursor = {
   boundary?: {
     itemId: string;
-    runId: string;
     sequence: number;
     turnId: string;
   };
@@ -185,45 +183,42 @@ export type TinyOsResourceIdentityInput = {
   discriminator?: string;
   itemId: string;
   kind: TinyOsResourceKind;
-  runId: string;
   sessionId: string;
   turnId: string;
 };
 
 export type TinyOsProcessIdentityInput =
-  | { kind: "agent_run"; runId: string; sessionId: string }
-  | { kind: "agent_turn"; runId: string; sessionId: string; turnId: string }
+  | { kind: "agent_turn"; sessionId: string; turnId: string }
   | {
       itemId: string;
       kind: "tool_operation" | "subagent" | "user_input_wait";
-      runId: string;
       sessionId: string;
       turnId: string;
     }
-  | { kind: "terminal_process"; nativeProcessId: string; runId: string; sessionId: string }
-  | { browserSessionId: string; kind: "browser_session"; runId: string; sessionId: string };
+  | { kind: "terminal_process"; nativeProcessId: string; operationId: string; sessionId: string }
+  | { browserSessionId: string; kind: "browser_session"; operationId: string; sessionId: string };
 
 export type TinyOsKernelCursorInput =
   | { mode: "live" }
-  | { eventIndex?: number; itemId: string; mode: "history"; runId?: string; turnId?: string };
+  | { eventIndex?: number; itemId: string; mode: "history"; turnId?: string };
 
 export type TinyOsKernelProjectionOptions = {
   nativeSnapshots?: readonly TinyOsNativeSnapshot[];
 };
 
 export function createTinyOsProcessId(input: TinyOsProcessIdentityInput): string {
-  const parts = [input.sessionId, input.runId];
+  const parts = [input.sessionId];
   if (input.kind === "agent_turn") parts.push(input.turnId);
   if (input.kind === "tool_operation" || input.kind === "subagent" || input.kind === "user_input_wait") {
     parts.push(input.turnId, input.itemId);
   }
-  if (input.kind === "terminal_process") parts.push(input.nativeProcessId);
-  if (input.kind === "browser_session") parts.push(input.browserSessionId);
+  if (input.kind === "terminal_process") parts.push(input.operationId, input.nativeProcessId);
+  if (input.kind === "browser_session") parts.push(input.operationId, input.browserSessionId);
   return `tinyos:process:${input.kind}:${parts.map(stableIdentityPart).join(":")}`;
 }
 
 export function createTinyOsResourceId(input: TinyOsResourceIdentityInput): string {
-  const parts = [input.sessionId, input.runId, input.turnId, input.itemId];
+  const parts = [input.sessionId, input.turnId, input.itemId];
   if (input.discriminator) parts.push(input.discriminator);
   return `tinyos:resource:${input.kind}:${parts.map(stableIdentityPart).join(":")}`;
 }
@@ -305,21 +300,6 @@ export function projectTinyOsKernel(
   const grouped = groupCanonicalItems(latestItems);
   const processes: TinyOsProcess[] = [];
 
-  for (const runItems of grouped.runs.values()) {
-    const first = runItems[0];
-    const latest = runItems[runItems.length - 1];
-    const ownerAgentId = latestCanonicalOwnerAgentId(runItems);
-    processes.push({
-      correlation: canonicalCorrelation(first),
-      id: createTinyOsProcessId({ kind: "agent_run", runId: first.runId, sessionId: first.sessionId }),
-      kind: "agent_run",
-      ...(ownerAgentId ? { ownerAgentId } : {}),
-      provenance: canonicalProvenance(latest),
-      state: aggregateCanonicalState(runItems),
-      title: `Agent run ${shortIdentity(first.runId)}`,
-    });
-  }
-
   for (const turnItems of grouped.turns.values()) {
     const first = turnItems[0];
     const latest = turnItems[turnItems.length - 1];
@@ -328,13 +308,11 @@ export function projectTinyOsKernel(
       correlation: canonicalCorrelation(first),
       id: createTinyOsProcessId({
         kind: "agent_turn",
-        runId: first.runId,
         sessionId: first.sessionId,
         turnId: first.turnId,
       }),
       kind: "agent_turn",
       ...(ownerAgentId ? { ownerAgentId } : {}),
-      parentProcessId: createTinyOsProcessId({ kind: "agent_run", runId: first.runId, sessionId: first.sessionId }),
       provenance: canonicalProvenance(latest),
       state: aggregateCanonicalState(turnItems),
       title: `Agent turn ${shortIdentity(first.turnId)}`,
@@ -350,7 +328,6 @@ export function projectTinyOsKernel(
       || toolParentProcessId
       || createTinyOsProcessId({
         kind: "agent_turn",
-        runId: item.runId,
         sessionId: item.sessionId,
         turnId: item.turnId,
       });
@@ -420,13 +397,13 @@ function projectAgentProcessGroups(
       ? groupProcesses.find(({ id }) => id === itemProcessId(latestLifecycle))
       : undefined;
     const assignedWork = latestNonEmptyCanonicalField(lifecycleItems, ["task"]);
-    const childRunId = latestNonEmptyCanonicalField(lifecycleItems, ["childRunId", "child_run_id"]);
+    const childTurnId = latestNonEmptyCanonicalField(lifecycleItems, ["childTurnId", "child_turn_id"]);
     const parentAgentId = latestNonEmptyCanonicalField(lifecycleItems, ["parentAgentId", "parent_agent_id", "parentSubagentId", "parent_subagent_id"]);
     const title = latestNonEmptyCanonicalField(lifecycleItems, ["name"]);
     return {
       agentId,
       ...(assignedWork ? { assignedWork } : {}),
-      ...(childRunId ? { childRunId } : {}),
+      ...(childTurnId ? { childTurnId } : {}),
       id,
       ...(parentAgentId ? { parentAgentId } : {}),
       ...((lifecycleProcess?.parentProcessId ?? sourceProcess?.parentProcessId)
@@ -454,8 +431,8 @@ function latestNonEmptyCanonicalField(
 }
 
 function aggregateAgentGroupState(processes: readonly TinyOsProcess[]): TinyOsProcessState {
-  const owningRun = [...processes].reverse().find(({ kind }) => kind === "agent_run");
-  if (owningRun) return owningRun.state;
+  const owningTurn = [...processes].reverse().find(({ kind }) => kind === "agent_turn");
+  if (owningTurn) return owningTurn.state;
   const states = processes.map(({ state }) => state);
   for (const state of ["waiting_for_user", "paused", "blocked", "running", "queued", "failed", "cancelled", "completed"] as const) {
     if (states.includes(state)) return state;
@@ -501,7 +478,7 @@ function projectNativeSnapshots(
       const processId = createTinyOsProcessId({
         browserSessionId: data.browserSessionId,
         kind: "browser_session",
-        runId: data.runId,
+        operationId: data.operationId,
         sessionId: data.sessionId,
       });
       browserSessions.push({
@@ -514,7 +491,7 @@ function projectNativeSnapshots(
         applicationId: "browser",
         correlation: {
           browserSessionId: data.browserSessionId,
-          runId: data.runId,
+          operationId: data.operationId,
           sessionId: data.sessionId,
         },
         id: processId,
@@ -550,7 +527,7 @@ function projectNativeSnapshots(
     const id = createTinyOsProcessId({
       kind: "terminal_process",
       nativeProcessId: data.nativeProcessId,
-      runId: data.runId,
+      operationId: data.operationId,
       sessionId: data.sessionId,
     });
     const toolParentId = data.toolCallId ? processIdByToolCallId.get(data.toolCallId) : undefined;
@@ -558,24 +535,20 @@ function projectNativeSnapshots(
       applicationId: "terminal",
       correlation: {
         nativeProcessId: data.nativeProcessId,
-        runId: data.runId,
+        operationId: data.operationId,
         sessionId: data.sessionId,
         ...(data.toolCallId ? { toolCallId: data.toolCallId } : {}),
       },
       id,
       kind: "terminal_process",
-      parentProcessId: toolParentId || createTinyOsProcessId({
-        kind: "agent_run",
-        runId: data.runId,
-        sessionId: data.sessionId,
-      }),
+      ...(toolParentId ? { parentProcessId: toolParentId } : {}),
       provenance: snapshot.provenance,
       state: data.state,
       title: data.command || `Terminal process ${shortIdentity(data.nativeProcessId)}`,
     });
     resources.push({
       access: "execute",
-      id: nativeResourceId("terminal_execution", [data.sessionId, data.runId, data.nativeProcessId]),
+      id: nativeResourceId("terminal_execution", [data.sessionId, data.operationId, data.nativeProcessId]),
       kind: "terminal_execution",
       provenance: snapshot.provenance,
       relatedProcessIds: [id],
@@ -604,7 +577,7 @@ function nativeSnapshotEntityKey(snapshot: TinyOsNativeSnapshot): string {
   if (data.kind === "workspace_resource") return `${data.kind}:${data.workspaceKey}:${data.path}`;
   if (data.kind === "browser_capture") return `${data.kind}:${data.captureId}`;
   if (data.kind === "browser_session") return `${data.kind}:${data.browserSessionId}`;
-  return `${data.kind}:${data.sessionId}:${data.runId}:${data.nativeProcessId}`;
+  return `${data.kind}:${data.sessionId}:${data.operationId}:${data.nativeProcessId}`;
 }
 
 function nativeResourceId(kind: TinyOsResourceKind, parts: string[]): string {
@@ -737,7 +710,6 @@ function canonicalResource(
       ...(options.discriminator ? { discriminator: options.discriminator } : {}),
       itemId: item.itemId,
       kind,
-      runId: item.runId,
       sessionId: item.sessionId,
       turnId: item.turnId,
     }),
@@ -761,7 +733,6 @@ function relatedProcessIdsForResource(
   if (toolProcessId) return [toolProcessId];
   return [createTinyOsProcessId({
     kind: "agent_turn",
-    runId: item.runId,
     sessionId: item.sessionId,
     turnId: item.turnId,
   })];
@@ -793,14 +764,12 @@ function projectionEndIndex(items: readonly BackendAgentTurnItem[], cursor: Tiny
     }
     const boundary = items[cursor.eventIndex];
     if (boundary.itemId !== cursor.itemId
-      || (cursor.runId && boundary.runId !== cursor.runId)
       || (cursor.turnId && boundary.turnId !== cursor.turnId)) {
       throw new Error(`TinyOS history boundary identity does not match event index ${cursor.eventIndex}.`);
     }
     return cursor.eventIndex + 1;
   }
   const index = items.findIndex((item) => item.itemId === cursor.itemId
-    && (!cursor.runId || item.runId === cursor.runId)
     && (!cursor.turnId || item.turnId === cursor.turnId));
   if (index < 0) throw new Error(`TinyOS history boundary is unavailable: ${cursor.itemId}`);
   return index + 1;
@@ -821,7 +790,7 @@ function nativeSnapshotsAtCursor(
 function latestCanonicalItemRevisions(items: readonly BackendAgentTurnItem[]): BackendAgentTurnItem[] {
   const latestByIdentity = new Map<string, BackendAgentTurnItem>();
   for (const item of items) {
-    const key = `${item.sessionId}:${item.runId}:${item.itemId}`;
+    const key = `${item.sessionId}:${item.turnId}:${item.itemId}`;
     const current = latestByIdentity.get(key);
     if (!current) {
       latestByIdentity.set(key, item);
@@ -838,13 +807,11 @@ function latestCanonicalItemRevisions(items: readonly BackendAgentTurnItem[]): B
 }
 
 function groupCanonicalItems(items: readonly BackendAgentTurnItem[]) {
-  const runs = new Map<string, BackendAgentTurnItem[]>();
   const turns = new Map<string, BackendAgentTurnItem[]>();
   for (const item of items) {
-    appendGrouped(runs, `${item.sessionId}:${item.runId}`, item);
-    appendGrouped(turns, `${item.sessionId}:${item.runId}:${item.turnId}`, item);
+    appendGrouped(turns, `${item.sessionId}:${item.turnId}`, item);
   }
-  return { runs, turns };
+  return { turns };
 }
 
 function appendGrouped<T>(
@@ -877,7 +844,6 @@ function itemProcessId(item: BackendAgentTurnItem): string {
   return createTinyOsProcessId({
     itemId: item.itemId,
     kind: processKind(item),
-    runId: item.runId,
     sessionId: item.sessionId,
     turnId: item.turnId,
   });
@@ -886,17 +852,16 @@ function itemProcessId(item: BackendAgentTurnItem): string {
 function canonicalCorrelation(item: BackendAgentTurnItem): TinyOsProcessCorrelation {
   const toolCallId = canonicalToolCallId(item);
   const commandId = stringValue(item.data.commandId ?? item.data.command_id);
-  const childRunId = stringValue(item.data.childRunId ?? item.data.child_run_id);
+  const childTurnId = stringValue(item.data.childTurnId ?? item.data.child_turn_id);
   const childThreadId = stringValue(item.data.childThreadId ?? item.data.child_thread_id);
   const parentAgentId = stringValue(item.data.parentAgentId ?? item.data.parent_agent_id ?? item.data.parentSubagentId ?? item.data.parent_subagent_id);
-  const parentRunId = stringValue(item.data.parentRunId ?? item.data.parent_run_id);
+  const parentTurnId = stringValue(item.data.parentTurnId ?? item.data.parent_turn_id);
   return {
-    ...(childRunId ? { childRunId } : {}),
+    ...(childTurnId ? { childTurnId } : {}),
     ...(childThreadId ? { childThreadId } : {}),
     itemId: item.itemId,
     ...(parentAgentId ? { parentAgentId } : {}),
-    ...(parentRunId ? { parentRunId } : {}),
-    runId: item.runId,
+    ...(parentTurnId ? { parentTurnId } : {}),
     sessionId: item.sessionId,
     ...(item.threadId ? { threadId: item.threadId } : {}),
     ...(toolCallId ? { toolCallId } : {}),
@@ -1016,7 +981,6 @@ function simulationCursor(
     ...(boundary ? {
       boundary: {
         itemId: boundary.itemId,
-        runId: boundary.runId,
         sequence: boundary.sequence,
         turnId: boundary.turnId,
       },

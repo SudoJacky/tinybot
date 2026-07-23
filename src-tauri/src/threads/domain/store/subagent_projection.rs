@@ -42,8 +42,7 @@ pub(super) fn inherited_subagent_history_items(
                     summary.session_key, summary.subagent_id, source.item_id
                 ),
                 thread_id: String::new(),
-                run_id: Some(summary.child_run_id.clone()),
-                turn_id: summary.parent_run_id.clone(),
+                turn_id: Some(summary.child_turn_id.clone()),
                 parent_item_id: None,
                 sequence: 0,
                 created_at: source.created_at.clone(),
@@ -63,7 +62,6 @@ fn inherited_message_payload(
         "mode": mode,
         "sourceThreadId": source_thread_id,
         "sourceItemId": source.item_id,
-        "sourceRunId": source.run_id,
         "sourceTurnId": source.turn_id,
     });
     match payload {
@@ -90,8 +88,7 @@ pub(super) fn subagent_initial_child_items(
                 summary.session_key, summary.subagent_id
             ),
             thread_id: String::new(),
-            run_id: Some(summary.child_run_id.clone()),
-            turn_id: summary.parent_run_id.clone(),
+            turn_id: Some(summary.child_turn_id.clone()),
             parent_item_id: None,
             sequence: 0,
             created_at: summary.created_at.clone(),
@@ -108,12 +105,11 @@ pub(super) fn subagent_initial_child_items(
             summary.session_key, summary.subagent_id
         ),
         thread_id: String::new(),
-        run_id: Some(summary.child_run_id.clone()),
-        turn_id: summary.parent_run_id.clone(),
+        turn_id: Some(summary.child_turn_id.clone()),
         parent_item_id: None,
         sequence: 0,
         created_at: summary.created_at.clone(),
-        kind: ThreadItemKind::AgentRunStarted(subagent_summary_payload(summary, event)),
+        kind: ThreadItemKind::TurnStarted(subagent_summary_payload(summary, event)),
     });
     items
 }
@@ -126,11 +122,7 @@ pub(super) fn subagent_input_item(
     ThreadItem {
         item_id: input.input_id.clone(),
         thread_id: String::new(),
-        run_id: Some(summary.child_run_id.clone()),
-        turn_id: input
-            .turn_id
-            .clone()
-            .or_else(|| summary.parent_run_id.clone()),
+        turn_id: Some(summary.child_turn_id.clone()),
         parent_item_id: None,
         sequence: 0,
         created_at: input.created_at.clone(),
@@ -152,7 +144,7 @@ pub(super) fn subagent_child_status_item(
     let payload = subagent_summary_payload(summary, event);
     let kind = match summary.status {
         SubagentThreadStatus::Completed | SubagentThreadStatus::Closed => {
-            ThreadItemKind::AgentRunCompleted(payload)
+            ThreadItemKind::TurnCompleted(payload)
         }
         SubagentThreadStatus::Failed | SubagentThreadStatus::Interrupted => {
             ThreadItemKind::Error(payload)
@@ -169,8 +161,7 @@ pub(super) fn subagent_child_status_item(
             summary.session_key, summary.subagent_id
         ),
         thread_id: String::new(),
-        run_id: Some(summary.child_run_id.clone()),
-        turn_id: summary.parent_run_id.clone(),
+        turn_id: Some(summary.child_turn_id.clone()),
         parent_item_id: None,
         sequence: 0,
         created_at: summary.updated_at.clone(),
@@ -202,8 +193,7 @@ pub(super) fn subagent_parent_item(
             summary.session_key, summary.subagent_id
         ),
         thread_id: String::new(),
-        run_id: summary.parent_run_id.clone(),
-        turn_id: summary.parent_run_id.clone(),
+        turn_id: summary.parent_turn_id.clone(),
         parent_item_id: None,
         sequence: 0,
         created_at: summary.updated_at.clone(),
@@ -211,12 +201,12 @@ pub(super) fn subagent_parent_item(
     }
 }
 
-pub(super) fn active_child_run_id_for_status(summary: &SubagentThreadSummary) -> Option<String> {
+pub(super) fn active_child_turn_id_for_status(summary: &SubagentThreadSummary) -> Option<String> {
     match summary.status {
         SubagentThreadStatus::Running
         | SubagentThreadStatus::WaitingMainAgent
         | SubagentThreadStatus::WaitingUser
-        | SubagentThreadStatus::AwaitingApproval => Some(summary.child_run_id.clone()),
+        | SubagentThreadStatus::AwaitingApproval => Some(summary.child_turn_id.clone()),
         SubagentThreadStatus::Completed
         | SubagentThreadStatus::Failed
         | SubagentThreadStatus::Cancelled
@@ -264,9 +254,9 @@ pub(super) fn subagent_agent_control_payload(
         "agentPath": agent_path,
         "sessionKey": summary.session_key,
         "parentThreadId": parent_thread_id,
-        "parentRunId": summary.parent_run_id,
+        "parentTurnId": summary.parent_turn_id,
         "parentAgentId": summary.parent_subagent_id,
-        "childRunId": summary.child_run_id,
+        "childTurnId": summary.child_turn_id,
         "traceRef": summary.trace_ref,
         "task": summary.task,
         "historyMode": summary.history_mode,
@@ -279,7 +269,7 @@ pub(super) fn subagent_agent_control_payload(
         "metadata": summary.metadata,
         "lifecycle": {
             "status": status_value(&summary.status),
-            "active": active_child_run_id_for_status(summary).is_some(),
+            "active": active_child_turn_id_for_status(summary).is_some(),
             "terminal": subagent_status_is_terminal(&summary.status),
             "mailboxDepth": summary.mailbox_depth,
             "closedAt": summary.closed_at,
@@ -293,10 +283,10 @@ pub(super) fn subagent_agent_control_payload(
 fn subagent_summary_payload(summary: &SubagentThreadSummary, event: Option<Value>) -> Value {
     serde_json::json!({
         "sessionKey": summary.session_key,
-        "parentRunId": summary.parent_run_id,
+        "parentTurnId": summary.parent_turn_id,
         "parentSubagentId": summary.parent_subagent_id,
         "subagentId": summary.subagent_id,
-        "childRunId": summary.child_run_id,
+        "childTurnId": summary.child_turn_id,
         "delegationDepth": summary.delegation_depth,
         "historyMode": summary.history_mode,
         "traceRef": summary.trace_ref,

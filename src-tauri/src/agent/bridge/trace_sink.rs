@@ -3,7 +3,7 @@ use crate::agent::runtime_protocol::{AgentRuntimeEventEnvelope, AgentTimelinePat
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
 use crate::rpc::call_rust_state_service;
-use crate::threads::rollout::store::is_agent_run_semantic_event;
+use crate::threads::rollout::store::is_turn_semantic_event;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
@@ -16,12 +16,12 @@ fn tauri_safe_event_name(event_name: &str) -> String {
 }
 
 #[derive(Clone)]
-pub(crate) struct NativeAgentRunSemanticSink {
+pub(crate) struct AgentTurnSemanticSink {
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 }
 
-impl NativeAgentRunSemanticSink {
+impl AgentTurnSemanticSink {
     pub(crate) fn new(workspace_root: PathBuf, config_snapshot: serde_json::Value) -> Self {
         Self {
             workspace_root,
@@ -30,32 +30,32 @@ impl NativeAgentRunSemanticSink {
     }
 }
 
-impl NativeAgentTraceSink for NativeAgentRunSemanticSink {
+impl NativeAgentTraceSink for AgentTurnSemanticSink {
     fn load_runtime_events(
         &self,
         session_id: &str,
-        run_id: &str,
+        turn_id: &str,
     ) -> Result<Vec<AgentRuntimeEventEnvelope>, String> {
         let generated = next_worker_request_correlation();
         let value = call_rust_state_service(
             self.workspace_root.clone(),
             self.config_snapshot.clone(),
             WorkerRequest::new(
-                generated.id("agent-run-runtime-state"),
-                generated.trace_id("agent-run-runtime-state"),
-                "agent_run.runtime_state",
+                generated.id("agent-turn-runtime-state"),
+                generated.trace_id("agent-turn-runtime-state"),
+                "thread.turn.runtime_state",
                 serde_json::json!({
                     "session_id": session_id,
-                    "run_id": run_id,
+                    "turn_id": turn_id,
                 }),
             ),
-            "native agent run runtime state",
+            "native agent turn runtime state",
         )?;
         serde_json::from_value(
             value
                 .get("runtimeEvents")
                 .cloned()
-                .ok_or_else(|| "agent run runtime state is missing runtimeEvents".to_string())?,
+                .ok_or_else(|| "agent turn runtime state is missing runtimeEvents".to_string())?,
         )
         .map_err(|error| format!("invalid persisted runtime events: {error}"))
     }
@@ -63,16 +63,16 @@ impl NativeAgentTraceSink for NativeAgentRunSemanticSink {
     fn append_trace_event(
         &self,
         session_id: &str,
-        run_id: &str,
+        turn_id: &str,
         event: &AgentRuntimeEventEnvelope,
     ) -> Result<(), String> {
-        self.append_trace_events(session_id, run_id, std::slice::from_ref(event))
+        self.append_trace_events(session_id, turn_id, std::slice::from_ref(event))
     }
 
     fn append_trace_events(
         &self,
         session_id: &str,
-        run_id: &str,
+        turn_id: &str,
         events: &[AgentRuntimeEventEnvelope],
     ) -> Result<(), String> {
         let first_event = events.first().ok_or_else(|| {
@@ -88,12 +88,12 @@ impl NativeAgentTraceSink for NativeAgentRunSemanticSink {
                     trace.request_id, first_event.event_id
                 )
             })
-            .unwrap_or_else(|| generated.id("agent-run-append-semantic-batch"));
+            .unwrap_or_else(|| generated.id("agent-turn-append-semantic-batch"));
         let trace_id = first_event
             .trace_context
             .as_ref()
             .map(|trace| trace.trace_id.clone())
-            .unwrap_or_else(|| generated.trace_id("agent-run-append-semantic-batch"));
+            .unwrap_or_else(|| generated.trace_id("agent-turn-append-semantic-batch"));
         let events = serde_json::to_value(events).map_err(|error| {
             format!("native agent semantic batch serialization failed: {error}")
         })?;
@@ -106,10 +106,10 @@ impl NativeAgentTraceSink for NativeAgentRunSemanticSink {
             WorkerRequest::new(
                 request_id,
                 trace_id,
-                "agent_run.append_semantic_batch",
+                "thread.turn.append_semantic_batch",
                 serde_json::json!({
                     "session_id": session_id,
-                    "run_id": run_id,
+                    "turn_id": turn_id,
                     "events": events,
                 }),
             ),
@@ -136,7 +136,7 @@ const TRACE_PERSISTENCE_BATCH_WINDOW: Duration = Duration::from_millis(50);
 enum TracePersistenceCommand {
     Append {
         session_id: String,
-        run_id: String,
+        turn_id: String,
         event: AgentRuntimeEventEnvelope,
     },
     Flush(mpsc::SyncSender<Result<(), String>>),
@@ -177,7 +177,7 @@ impl NativeAgentTraceSink for NoopNativeAgentTraceSink {
     fn append_trace_event(
         &self,
         _session_id: &str,
-        _run_id: &str,
+        _turn_id: &str,
         _event: &AgentRuntimeEventEnvelope,
     ) -> Result<(), String> {
         Ok(())
@@ -213,14 +213,14 @@ impl BufferedNativeAgentTraceSink {
     fn enqueue_event(
         &self,
         session_id: &str,
-        run_id: &str,
+        turn_id: &str,
         event: &AgentRuntimeEventEnvelope,
     ) -> Result<(), String> {
         self.worker.queued_events.fetch_add(1, Ordering::Relaxed);
         update_persistence_queue_gauge(&self.worker.queued_events);
         let command = TracePersistenceCommand::Append {
             session_id: session_id.to_string(),
-            run_id: run_id.to_string(),
+            turn_id: turn_id.to_string(),
             event: event.clone(),
         };
         if self.worker.sender.send(command).is_err() {
@@ -236,25 +236,27 @@ impl NativeAgentTraceSink for BufferedNativeAgentTraceSink {
     fn load_runtime_events(
         &self,
         session_id: &str,
-        run_id: &str,
+        turn_id: &str,
     ) -> Result<Vec<AgentRuntimeEventEnvelope>, String> {
         self.flush()?;
-        self.durable_sink.load_runtime_events(session_id, run_id)
+        self.durable_sink.load_runtime_events(session_id, turn_id)
     }
 
     fn append_trace_event(
         &self,
         session_id: &str,
-        run_id: &str,
+        turn_id: &str,
         event: &AgentRuntimeEventEnvelope,
     ) -> Result<(), String> {
-        let live_result = self.live_sink.append_trace_event(session_id, run_id, event);
-        if !is_agent_run_semantic_event(&event.event_name) {
+        let live_result = self
+            .live_sink
+            .append_trace_event(session_id, turn_id, event);
+        if !is_turn_semantic_event(&event.event_name) {
             crate::runtime::observability::global_agent_runtime_metrics()
                 .increment("persistence.events.filtered");
             return live_result;
         }
-        let enqueue_result = self.enqueue_event(session_id, run_id, event);
+        let enqueue_result = self.enqueue_event(session_id, turn_id, event);
         live_result.and(enqueue_result)?;
         if agent_runtime_event_requires_durable_boundary(event) {
             self.flush()?;
@@ -265,11 +267,11 @@ impl NativeAgentTraceSink for BufferedNativeAgentTraceSink {
     fn append_timeline_patch(
         &self,
         session_id: &str,
-        run_id: &str,
+        turn_id: &str,
         patch: &AgentTimelinePatch,
     ) -> Result<(), String> {
         self.live_sink
-            .append_timeline_patch(session_id, run_id, patch)
+            .append_timeline_patch(session_id, turn_id, patch)
     }
 
     fn flush(&self) -> Result<(), String> {
@@ -290,7 +292,7 @@ fn run_trace_persistence_worker(
     queued_events: Arc<AtomicUsize>,
 ) {
     let mut pending_session_id = String::new();
-    let mut pending_run_id = String::new();
+    let mut pending_turn_id = String::new();
     let mut pending_events = Vec::new();
     let mut pending_started_at = None;
     let mut first_error = None;
@@ -310,7 +312,7 @@ fn run_trace_persistence_worker(
                 persist_pending_trace_events(
                     durable_sink.as_ref(),
                     &pending_session_id,
-                    &pending_run_id,
+                    &pending_turn_id,
                     &mut pending_events,
                     &mut pending_started_at,
                     &queued_events,
@@ -324,7 +326,7 @@ fn run_trace_persistence_worker(
                     persist_pending_trace_events(
                         durable_sink.as_ref(),
                         &pending_session_id,
-                        &pending_run_id,
+                        &pending_turn_id,
                         &mut pending_events,
                         &mut pending_started_at,
                         &queued_events,
@@ -338,16 +340,16 @@ fn run_trace_persistence_worker(
         match command {
             TracePersistenceCommand::Append {
                 session_id,
-                run_id,
+                turn_id,
                 event,
             } => {
                 if !pending_events.is_empty()
-                    && (pending_session_id != session_id || pending_run_id != run_id)
+                    && (pending_session_id != session_id || pending_turn_id != turn_id)
                 {
                     persist_pending_trace_events(
                         durable_sink.as_ref(),
                         &pending_session_id,
-                        &pending_run_id,
+                        &pending_turn_id,
                         &mut pending_events,
                         &mut pending_started_at,
                         &queued_events,
@@ -356,7 +358,7 @@ fn run_trace_persistence_worker(
                 }
                 if pending_events.is_empty() {
                     pending_session_id = session_id;
-                    pending_run_id = run_id;
+                    pending_turn_id = turn_id;
                     pending_started_at = Some(Instant::now());
                 }
                 pending_events.push(event);
@@ -364,7 +366,7 @@ fn run_trace_persistence_worker(
                     persist_pending_trace_events(
                         durable_sink.as_ref(),
                         &pending_session_id,
-                        &pending_run_id,
+                        &pending_turn_id,
                         &mut pending_events,
                         &mut pending_started_at,
                         &queued_events,
@@ -376,7 +378,7 @@ fn run_trace_persistence_worker(
                 persist_pending_trace_events(
                     durable_sink.as_ref(),
                     &pending_session_id,
-                    &pending_run_id,
+                    &pending_turn_id,
                     &mut pending_events,
                     &mut pending_started_at,
                     &queued_events,
@@ -388,7 +390,7 @@ fn run_trace_persistence_worker(
                 persist_pending_trace_events(
                     durable_sink.as_ref(),
                     &pending_session_id,
-                    &pending_run_id,
+                    &pending_turn_id,
                     &mut pending_events,
                     &mut pending_started_at,
                     &queued_events,
@@ -416,7 +418,7 @@ fn agent_runtime_event_requires_durable_boundary(event: &AgentRuntimeEventEnvelo
 fn persist_pending_trace_events(
     durable_sink: &dyn NativeAgentTraceSink,
     session_id: &str,
-    run_id: &str,
+    turn_id: &str,
     pending_events: &mut Vec<AgentRuntimeEventEnvelope>,
     pending_started_at: &mut Option<Instant>,
     queued_events: &AtomicUsize,
@@ -428,7 +430,7 @@ fn persist_pending_trace_events(
     let count = pending_events.len();
     let events = std::mem::take(pending_events);
     *pending_started_at = None;
-    if let Err(error) = durable_sink.append_trace_events(session_id, run_id, &events) {
+    if let Err(error) = durable_sink.append_trace_events(session_id, turn_id, &events) {
         first_error.get_or_insert(error);
     }
     queued_events.fetch_sub(count, Ordering::Relaxed);
@@ -451,7 +453,7 @@ impl<R: Runtime + 'static> NativeAgentTraceSink for DesktopAgentEventSink<R> {
     fn append_trace_event(
         &self,
         _session_id: &str,
-        _run_id: &str,
+        _turn_id: &str,
         event: &AgentRuntimeEventEnvelope,
     ) -> Result<(), String> {
         let event_name = tauri_safe_event_name(&event.event_name);
@@ -484,7 +486,7 @@ impl<R: Runtime + 'static> NativeAgentTraceSink for DesktopAgentEventSink<R> {
     fn append_timeline_patch(
         &self,
         _session_id: &str,
-        _run_id: &str,
+        _turn_id: &str,
         patch: &AgentTimelinePatch,
     ) -> Result<(), String> {
         let metrics = crate::runtime::observability::global_agent_runtime_metrics();
@@ -514,10 +516,8 @@ pub(crate) fn native_agent_trace_sink(
     config_snapshot: serde_json::Value,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 ) -> Arc<dyn NativeAgentTraceSink> {
-    let persisted_sink: Arc<dyn NativeAgentTraceSink> = Arc::new(NativeAgentRunSemanticSink::new(
-        workspace_root,
-        config_snapshot,
-    ));
+    let persisted_sink: Arc<dyn NativeAgentTraceSink> =
+        Arc::new(AgentTurnSemanticSink::new(workspace_root, config_snapshot));
     let live_trace_sink = live_trace_sink.unwrap_or_else(|| Arc::new(NoopNativeAgentTraceSink));
     Arc::new(BufferedNativeAgentTraceSink::new(
         persisted_sink,
@@ -529,8 +529,8 @@ pub(crate) fn native_agent_trace_sink(
 mod tests {
     use super::*;
     use crate::agent::runtime_protocol::{
-        AgentRunEmitter, AgentRuntimeEventAppendInput, AgentRuntimeEventSource,
-        AgentRuntimeEventVisibility, AgentRuntimePhase,
+        AgentRuntimeEventAppendInput, AgentRuntimeEventSource, AgentRuntimeEventVisibility,
+        AgentRuntimePhase, AgentTurnEmitter,
     };
 
     #[derive(Default)]
@@ -570,7 +570,7 @@ mod tests {
         fn append_trace_event(
             &self,
             _session_id: &str,
-            _run_id: &str,
+            _turn_id: &str,
             event: &AgentRuntimeEventEnvelope,
         ) -> Result<(), String> {
             self.append_trace_events("", "", std::slice::from_ref(event))
@@ -579,7 +579,7 @@ mod tests {
         fn append_trace_events(
             &self,
             _session_id: &str,
-            _run_id: &str,
+            _turn_id: &str,
             events: &[AgentRuntimeEventEnvelope],
         ) -> Result<(), String> {
             if !self.delay.is_zero() {
@@ -598,7 +598,7 @@ mod tests {
         let durable = Arc::new(RecordingTraceSink::with_delay(Duration::from_millis(200)));
         let live = Arc::new(RecordingTraceSink::default());
         let sink = BufferedNativeAgentTraceSink::new(durable.clone(), live.clone());
-        let mut emitter = AgentRunEmitter::new("session-1", "run-1");
+        let mut emitter = AgentTurnEmitter::new("session-1", "run-1");
         let event = emitter.assistant_delta("unix-ms:1", "hello");
 
         let started_at = Instant::now();
@@ -620,7 +620,7 @@ mod tests {
         let durable = Arc::new(RecordingTraceSink::default());
         let live = Arc::new(RecordingTraceSink::default());
         let sink = BufferedNativeAgentTraceSink::new(durable.clone(), live.clone());
-        let mut emitter = AgentRunEmitter::new("session-1", "run-1");
+        let mut emitter = AgentTurnEmitter::new("session-1", "run-1");
         let first = emitter.assistant_delta("unix-ms:1", "hel");
         let second = emitter.assistant_delta("unix-ms:2", "lo");
 
@@ -640,7 +640,7 @@ mod tests {
         let durable = Arc::new(RecordingTraceSink::default());
         let live = Arc::new(RecordingTraceSink::default());
         let sink = BufferedNativeAgentTraceSink::new(durable.clone(), live.clone());
-        let mut emitter = AgentRunEmitter::new("session-1", "run-1");
+        let mut emitter = AgentTurnEmitter::new("session-1", "run-1");
         let first = emitter.message_completed("unix-ms:1", Some("message-1".to_string()), "first");
         let second =
             emitter.message_completed("unix-ms:2", Some("message-2".to_string()), "second");
@@ -660,7 +660,7 @@ mod tests {
         let durable = Arc::new(RecordingTraceSink::default());
         let live = Arc::new(RecordingTraceSink::default());
         let sink = BufferedNativeAgentTraceSink::new(durable.clone(), live.clone());
-        let mut emitter = AgentRunEmitter::new("session-1", "run-1");
+        let mut emitter = AgentTurnEmitter::new("session-1", "run-1");
         let phase = emitter.emit(AgentRuntimeEventAppendInput {
             parent_turn_id: None,
             item_id: None,

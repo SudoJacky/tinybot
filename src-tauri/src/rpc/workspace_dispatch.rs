@@ -35,7 +35,7 @@ impl WorkerRpcRouter {
                         .require_sensitive_operation(workspace_write_approval(
                             &params.path,
                             params.session_id.clone(),
-                            params.run_id.clone(),
+                            params.turn_id.clone(),
                         ))?;
                 }
                 serde_json::to_value(self.workspace.write_file_with_expected(
@@ -54,7 +54,7 @@ impl WorkerRpcRouter {
                             &params.patch,
                             &targets,
                             params.session_id.clone(),
-                            params.run_id.clone(),
+                            params.turn_id.clone(),
                         ))?;
                 }
                 serde_json::to_value(self.workspace.apply_patch(&params.patch)?)
@@ -98,7 +98,7 @@ impl WorkerRpcRouter {
                         .require_sensitive_operation(workspace_delete_approval(
                             &params.path,
                             params.session_id.clone(),
-                            params.run_id.clone(),
+                            params.turn_id.clone(),
                         ))?;
                 }
                 serde_json::to_value(

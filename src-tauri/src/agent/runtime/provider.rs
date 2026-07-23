@@ -3,9 +3,9 @@ use super::context_window_messages;
 use super::provider_adapter::ChatCompletionsAdapter;
 use super::{
     context_window_messages_async, string_field, AgentItemHistory, AgentMessageContent,
-    AgentToolCallItem, NativeAgentProvider, NativeAgentProviderFailure,
+    AgentToolCallItem, AgentTurnContext, NativeAgentProvider, NativeAgentProviderFailure,
     NativeAgentProviderFailureKind, NativeAgentProviderResponse, NativeAgentProviderStreamEvent,
-    NativeAgentRunContext, NativeAgentToolCall,
+    NativeAgentToolCall,
 };
 use serde_json::Value;
 use std::sync::Arc;
@@ -14,10 +14,7 @@ pub(super) struct RustNativeAgentProvider;
 
 impl NativeAgentProvider for RustNativeAgentProvider {
     #[cfg(test)]
-    fn complete(
-        &self,
-        context: &NativeAgentRunContext,
-    ) -> Result<NativeAgentProviderResponse, String> {
+    fn complete(&self, context: &AgentTurnContext) -> Result<NativeAgentProviderResponse, String> {
         let mut observer = |_event: NativeAgentProviderStreamEvent| {};
         self.complete_streaming(context, &mut observer)
     }
@@ -25,7 +22,7 @@ impl NativeAgentProvider for RustNativeAgentProvider {
     #[cfg(test)]
     fn complete_streaming(
         &self,
-        context: &NativeAgentRunContext,
+        context: &AgentTurnContext,
         observer: &mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
     ) -> Result<NativeAgentProviderResponse, String> {
         let request = agent_chat_completion_request(context)?;
@@ -55,7 +52,7 @@ impl NativeAgentProvider for RustNativeAgentProvider {
 
     fn complete_streaming_async<'a>(
         self: Arc<Self>,
-        context: &'a NativeAgentRunContext,
+        context: &'a AgentTurnContext,
         observer: &'a mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
     ) -> std::pin::Pin<
         Box<
@@ -131,7 +128,7 @@ fn emit_completion_phase(
 }
 
 fn provider_response_from_completion(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     completion: Value,
 ) -> Result<NativeAgentProviderResponse, String> {
     let fixture_response = fixture_agent_response(&context.config_snapshot, &context.messages)?;
@@ -188,15 +185,13 @@ fn map_provider_failure_kind(
 }
 
 #[cfg(test)]
-pub(super) fn agent_chat_completion_request(
-    context: &NativeAgentRunContext,
-) -> Result<Value, String> {
+pub(super) fn agent_chat_completion_request(context: &AgentTurnContext) -> Result<Value, String> {
     let messages = agent_chat_messages(context)?;
     agent_chat_completion_request_with_messages(context, messages)
 }
 
 async fn agent_chat_completion_request_async(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
 ) -> Result<Value, NativeAgentProviderFailure> {
     let messages = agent_chat_messages_async(context).await?;
     agent_chat_completion_request_with_messages(context, messages)
@@ -204,7 +199,7 @@ async fn agent_chat_completion_request_async(
 }
 
 fn agent_chat_completion_request_with_messages(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     messages: Value,
 ) -> Result<Value, String> {
     let mut request = serde_json::json!({
@@ -231,20 +226,20 @@ fn agent_chat_completion_request_with_messages(
     Ok(request)
 }
 
-fn chat_completion_tool_specs(context: &NativeAgentRunContext) -> Result<Vec<Value>, String> {
+fn chat_completion_tool_specs(context: &AgentTurnContext) -> Result<Vec<Value>, String> {
     context.tool_router.provider_specs()
 }
 
-fn should_enable_parallel_tool_calls(context: &NativeAgentRunContext) -> bool {
+fn should_enable_parallel_tool_calls(context: &AgentTurnContext) -> bool {
     explicit_parallel_tool_calls_enabled(context)
         && context.tool_router.has_parallel_provider_tool()
 }
 
-fn explicit_parallel_tool_calls_enabled(context: &NativeAgentRunContext) -> bool {
+fn explicit_parallel_tool_calls_enabled(context: &AgentTurnContext) -> bool {
     context.settings.parallel_tool_calls.unwrap_or(false)
 }
 
-pub(super) fn agent_provider_config(context: &NativeAgentRunContext) -> Value {
+pub(super) fn agent_provider_config(context: &AgentTurnContext) -> Value {
     let mut config = context.config_snapshot.clone();
     set_agent_default(
         &mut config,
@@ -286,19 +281,19 @@ fn set_agent_default(config: &mut Value, key: &str, value: Value) {
 }
 
 #[cfg(test)]
-fn agent_chat_messages(context: &NativeAgentRunContext) -> Result<Value, String> {
+fn agent_chat_messages(context: &AgentTurnContext) -> Result<Value, String> {
     if !context.messages.is_empty() {
         return agent_chat_messages_from_window(context, context_window_messages(context)?);
     }
-    Err("agent run requires at least one chat message".to_string())
+    Err("agent turn requires at least one chat message".to_string())
 }
 
 async fn agent_chat_messages_async(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
 ) -> Result<Value, NativeAgentProviderFailure> {
     if context.messages.is_empty() {
         return Err(NativeAgentProviderFailure::provider(
-            "agent run requires at least one chat message",
+            "agent turn requires at least one chat message",
         ));
     }
     agent_chat_messages_from_window(context, context_window_messages_async(context).await?)
@@ -306,7 +301,7 @@ async fn agent_chat_messages_async(
 }
 
 fn agent_chat_messages_from_window(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     messages: Vec<Value>,
 ) -> Result<Value, String> {
     ChatCompletionsAdapter::encode_history(&messages, context.system_instruction_prompt())
@@ -319,7 +314,7 @@ pub(super) fn chat_completion_content(completion: &Value) -> Result<String, Stri
 #[cfg(test)]
 pub(super) fn chat_completion_tool_calls(
     completion: &Value,
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
 ) -> Result<Vec<NativeAgentToolCall>, String> {
     let decoded = ChatCompletionsAdapter::decode_response(completion, |provider_name| {
         context.tool_router.resolve_provider_name(provider_name)

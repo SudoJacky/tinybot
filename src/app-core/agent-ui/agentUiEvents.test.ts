@@ -25,7 +25,7 @@ const formRequestFrame = {
     event_type: AGENT_UI_EVENT_TYPES["ui.form.requested"],
     chat_id: "chat-1",
     message_id: "msg-form-1",
-    run_id: "run-1",
+    turn_id: "run-1",
     payload: {
       form_id: "travel-preferences-1",
       title: "Travel preferences",
@@ -34,7 +34,7 @@ const formRequestFrame = {
       cancel_label: "Skip",
       correlation: {
         chat_id: "chat-1",
-        run_id: "run-1",
+        turn_id: "run-1",
         message_id: "msg-form-1",
       },
       fields: [
@@ -98,7 +98,7 @@ describe("desktop agent-ui events", () => {
       correlation: {
         form_id: "travel-preferences-1",
         chat_id: "chat-1",
-        run_id: "run-1",
+        turn_id: "run-1",
         message_id: "msg-form-1",
       },
     });
@@ -106,7 +106,7 @@ describe("desktop agent-ui events", () => {
       correlation: {
         form_id: "travel-preferences-1",
         chat_id: "chat-1",
-        run_id: "run-1",
+        turn_id: "run-1",
         message_id: "msg-form-1",
       },
     });
@@ -120,7 +120,7 @@ describe("desktop agent-ui events", () => {
         payload: {
           form_id: "travel-preferences-1",
           values: { destination: "Shanghai", nights: 3 },
-          correlation: { chat_id: "chat-1", run_id: "run-1", message_id: "msg-form-1" },
+          correlation: { chat_id: "chat-1", turn_id: "run-1", message_id: "msg-form-1" },
         },
       },
     })) {

@@ -1,12 +1,12 @@
 use super::{
     is_default_session_title, now_thread_timestamp, preview_from_messages, read_thread_lines,
-    thread_id_for_session_id, title_from_messages, value_event, AgentRunRecoveryEntry,
-    AgentRunRecoveryReport, ThreadLogItem, WorkerThreadLogRpc,
+    thread_id_for_session_id, title_from_messages, value_event, AgentTurnRecoveryEntry,
+    AgentTurnRecoveryReport, ThreadLogItem, WorkerThreadLogRpc,
 };
 use crate::protocol::capability::WorkerCapability;
 use crate::protocol::{WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource};
 use crate::threads::session::{
-    AgentRunCheckpoint, AgentRunRecord, AgentRunRuntimeState, AgentRunStatus,
+    AgentTurnCheckpoint, AgentTurnRecord, AgentTurnRuntimeState, AgentTurnStatus,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -15,13 +15,11 @@ use std::path::PathBuf;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct PersistedAgentRunSeed {
+struct PersistedAgentTurnSeed {
     session_id: String,
-    run_id: String,
+    turn_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     thread_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    turn_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     parent_thread_id: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -39,13 +37,12 @@ struct PersistedAgentRunSeed {
     trace_context: Option<crate::agent::runtime_protocol::AgentTraceContext>,
 }
 
-impl PersistedAgentRunSeed {
-    fn from_record(record: &AgentRunRecord) -> Self {
+impl PersistedAgentTurnSeed {
+    fn from_record(record: &AgentTurnRecord) -> Self {
         Self {
             session_id: record.session_id.clone(),
-            run_id: record.run_id.clone(),
-            thread_id: record.thread_id.clone(),
             turn_id: record.turn_id.clone(),
+            thread_id: record.thread_id.clone(),
             parent_thread_id: record.parent_thread_id.clone(),
             child_thread_ids: record.child_thread_ids.clone(),
             started_at: record.started_at.clone(),
@@ -58,15 +55,14 @@ impl PersistedAgentRunSeed {
         }
     }
 
-    fn into_record(self) -> AgentRunRecord {
-        AgentRunRecord {
+    fn into_record(self) -> AgentTurnRecord {
+        AgentTurnRecord {
             session_id: self.session_id,
-            run_id: self.run_id,
-            thread_id: self.thread_id,
             turn_id: self.turn_id,
+            thread_id: self.thread_id,
             parent_thread_id: self.parent_thread_id,
             child_thread_ids: self.child_thread_ids,
-            status: AgentRunStatus::Running,
+            status: AgentTurnStatus::Running,
             phase: "planning".to_string(),
             started_at: self.started_at.clone(),
             updated_at: self.started_at,
@@ -91,9 +87,8 @@ impl PersistedAgentRunSeed {
         }
     }
 
-    fn apply_metadata_to(self, record: &mut AgentRunRecord) {
+    fn apply_metadata_to(self, record: &mut AgentTurnRecord) {
         record.thread_id = self.thread_id;
-        record.turn_id = self.turn_id;
         record.parent_thread_id = self.parent_thread_id;
         record.child_thread_ids = self.child_thread_ids;
         record.model = self.model;
@@ -106,40 +101,39 @@ impl PersistedAgentRunSeed {
 }
 
 impl WorkerThreadLogRpc {
-    pub fn start_agent_run(
+    pub fn start_turn(
         &self,
-        record: AgentRunRecord,
+        record: AgentTurnRecord,
         context: Option<crate::threads::rollout::format::TurnContextItem>,
         messages: Vec<crate::threads::rollout::format::ResponseItem>,
-    ) -> Result<AgentRunRecord, WorkerProtocolError> {
+    ) -> Result<AgentTurnRecord, WorkerProtocolError> {
         let timestamp = now_thread_timestamp();
-        self.start_agent_run_at(record, context, messages, timestamp)
+        self.start_turn_at(record, context, messages, timestamp)
     }
 
-    fn start_agent_run_at(
+    fn start_turn_at(
         &self,
-        record: AgentRunRecord,
+        record: AgentTurnRecord,
         context: Option<crate::threads::rollout::format::TurnContextItem>,
         messages: Vec<crate::threads::rollout::format::ResponseItem>,
         timestamp: String,
-    ) -> Result<AgentRunRecord, WorkerProtocolError> {
+    ) -> Result<AgentTurnRecord, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
-        validate_agent_run_key(&record.session_id, &record.run_id)?;
-        let existing = self.get_agent_run_record(&record.session_id, &record.run_id)?;
+        validate_turn_key(&record.session_id, &record.turn_id)?;
+        let existing = self.get_turn_record(&record.session_id, &record.turn_id)?;
         let mut persisted_record = record.clone();
         if let Some(existing) = existing {
             persisted_record.started_at = existing.started_at;
         }
-        let mut state = self.ensure_agent_run_thread(&record.session_id, &timestamp)?;
+        let mut state = self.ensure_turn_thread(&record.session_id, &timestamp)?;
         let path = PathBuf::from(state.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
         let mut items = vec![value_event(
             super::EventKind::TurnStarted,
             serde_json::json!({
                 "sessionId": &record.session_id,
-                "runId": &record.run_id,
-                "turnId": record.turn_id.as_deref().unwrap_or(&record.run_id),
-                "agentRun": PersistedAgentRunSeed::from_record(&persisted_record)
+                "turnId": &record.turn_id,
+                "turn": PersistedAgentTurnSeed::from_record(&persisted_record)
             }),
         )];
         if let Some(context) = context {
@@ -190,34 +184,34 @@ impl WorkerThreadLogRpc {
         Ok(persisted_record)
     }
 
-    pub fn append_agent_run_semantic_event(
+    pub fn append_turn_semantic_event(
         &self,
         session_id: &str,
-        run_id: &str,
+        turn_id: &str,
         event: Value,
-    ) -> Result<AgentRunRecord, WorkerProtocolError> {
-        self.append_agent_run_semantic_events(session_id, run_id, vec![event])
+    ) -> Result<AgentTurnRecord, WorkerProtocolError> {
+        self.append_turn_semantic_events(session_id, turn_id, vec![event])
     }
 
-    pub fn append_agent_run_semantic_events(
+    pub fn append_turn_semantic_events(
         &self,
         session_id: &str,
-        run_id: &str,
+        turn_id: &str,
         events: Vec<Value>,
-    ) -> Result<AgentRunRecord, WorkerProtocolError> {
+    ) -> Result<AgentTurnRecord, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
-        validate_agent_run_key(session_id, run_id)?;
+        validate_turn_key(session_id, turn_id)?;
         if events.is_empty() {
-            return Err(empty_agent_run_semantic_batch_error(session_id, run_id));
+            return Err(empty_turn_semantic_batch_error(session_id, turn_id));
         }
         for (index, event) in events.iter().enumerate() {
-            validate_agent_run_semantic_event(session_id, run_id, index, event)?;
+            validate_turn_semantic_event(session_id, turn_id, index, event)?;
         }
         let mut record = self
-            .get_agent_run_record(session_id, run_id)?
-            .ok_or_else(|| unknown_agent_run_error(session_id, run_id))?;
+            .get_turn_record(session_id, turn_id)?
+            .ok_or_else(|| unknown_turn_error(session_id, turn_id))?;
         let timestamp = now_thread_timestamp();
-        let mut state = self.ensure_agent_run_thread(session_id, &timestamp)?;
+        let mut state = self.ensure_turn_thread(session_id, &timestamp)?;
         let path = PathBuf::from(state.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
         let latest_total_tokens = events.iter().rev().find_map(|event| {
@@ -248,17 +242,16 @@ impl WorkerThreadLogRpc {
         for event in events.iter().cloned() {
             let response_item = response_item_from_runtime_event(&event)
                 .map(|mut item| {
-                    item["runId"] = Value::String(run_id.to_string());
                     item["turnId"] = Value::String(
                         event
                             .get("turnId")
                             .and_then(Value::as_str)
-                            .unwrap_or(run_id)
+                            .unwrap_or(turn_id)
                             .to_string(),
                     );
                     item
                 })
-                .map(|item| super::typed_response_item(item, "agent run semantic event"))
+                .map(|item| super::typed_response_item(item, "agent turn semantic event"))
                 .transpose()?;
             let token_info = (event.get("eventName").and_then(Value::as_str)
                 == Some("agent.token_count"))
@@ -271,10 +264,10 @@ impl WorkerThreadLogRpc {
             .flatten();
             if let Some(info) = token_info {
                 let usage = canonical_provider_call_usage(&info).ok_or_else(|| {
-                    invalid_agent_run_semantic_event_error(
+                    invalid_turn_semantic_event_error(
                         "agent.token_count is missing lastTokenUsage",
                         session_id,
-                        run_id,
+                        turn_id,
                         0,
                         Some("agent.token_count"),
                     )
@@ -282,8 +275,7 @@ impl WorkerThreadLogRpc {
                 items.push(value_event(
                     super::EventKind::TokenCount,
                     serde_json::json!({
-                        "runId": run_id,
-                        "turnId": event.get("turnId").cloned().unwrap_or_else(|| Value::String(run_id.to_string())),
+                        "turnId": event.get("turnId").cloned().unwrap_or_else(|| Value::String(turn_id.to_string())),
                         "providerCallId": event
                             .get("payload")
                             .and_then(|payload| payload.get("modelCallId").or_else(|| payload.get("providerCallId")))
@@ -297,7 +289,7 @@ impl WorkerThreadLogRpc {
                 items.push(ThreadLogItem::ResponseItem(response_item));
             }
             if let Some(thread_item) =
-                semantic_thread_item_from_runtime_event(session_id, run_id, &timestamp, &event)
+                semantic_thread_item_from_runtime_event(session_id, turn_id, &timestamp, &event)
             {
                 items.push(value_event(
                     super::EventKind::ThreadItem,
@@ -306,10 +298,10 @@ impl WorkerThreadLogRpc {
             }
         }
         if items.is_empty() {
-            return Err(invalid_agent_run_semantic_event_error(
-                "agent run semantic batch contains no canonical records",
+            return Err(invalid_turn_semantic_event_error(
+                "agent turn semantic batch contains no canonical records",
                 session_id,
-                run_id,
+                turn_id,
                 0,
                 None,
             ));
@@ -338,17 +330,15 @@ impl WorkerThreadLogRpc {
         Ok(record)
     }
 
-    pub fn list_agent_runs(
+    pub fn list_turns(
         &self,
         session_id: &str,
-    ) -> Result<Vec<AgentRunRecord>, WorkerProtocolError> {
+    ) -> Result<Vec<AgentTurnRecord>, WorkerProtocolError> {
         self.require(WorkerCapability::SessionMetadataRead)?;
-        self.agent_run_records_for_session(session_id)
+        self.turn_records_for_session(session_id)
     }
 
-    pub fn reconcile_orphaned_agent_runs(
-        &self,
-    ) -> Result<AgentRunRecoveryReport, WorkerProtocolError> {
+    pub fn reconcile_orphaned_turns(&self) -> Result<AgentTurnRecoveryReport, WorkerProtocolError> {
         self.require(WorkerCapability::SessionMetadataRead)?;
         self.require(WorkerCapability::SessionWrite)?;
         self.ensure_state_index()?;
@@ -360,66 +350,66 @@ impl WorkerThreadLogRpc {
             .collect::<Vec<_>>();
         session_ids.sort();
         session_ids.dedup();
-        let mut report = AgentRunRecoveryReport {
+        let mut report = AgentTurnRecoveryReport {
             scanned_sessions: session_ids.len(),
             ..Default::default()
         };
         for session_id in session_ids {
-            for run in self.agent_run_records_for_session(&session_id)? {
+            for turn in self.turn_records_for_session(&session_id)? {
                 report.scanned_runs = report.scanned_runs.saturating_add(1);
-                let entry = AgentRunRecoveryEntry {
-                    session_id: run.session_id.clone(),
-                    run_id: run.run_id.clone(),
-                    thread_id: run.thread_id.clone(),
+                let entry = AgentTurnRecoveryEntry {
+                    session_id: turn.session_id.clone(),
+                    turn_id: turn.turn_id.clone(),
+                    thread_id: turn.thread_id.clone(),
                 };
-                match run.status {
-                    AgentRunStatus::Running => {
-                        self.mark_agent_run_interrupted(
-                            &run.session_id,
-                            &run.run_id,
-                            "Runtime restarted before the run reached a terminal state.",
+                match turn.status {
+                    AgentTurnStatus::Running => {
+                        self.mark_turn_interrupted(
+                            &turn.session_id,
+                            &turn.turn_id,
+                            "Runtime restarted before the turn reached a terminal state.",
                         )?;
-                        report.interrupted_runs.push(entry);
+                        report.interrupted_turns.push(entry);
                     }
-                    AgentRunStatus::Waiting if run.checkpoint.is_some() => {
-                        report.resumable_runs.push(entry);
+                    AgentTurnStatus::Waiting if turn.checkpoint.is_some() => {
+                        report.resumable_turns.push(entry);
                     }
-                    AgentRunStatus::Waiting => {
-                        report.awaiting_interaction_runs.push(entry);
+                    AgentTurnStatus::Waiting => {
+                        report.awaiting_interaction_turns.push(entry);
                     }
-                    AgentRunStatus::Completed
-                    | AgentRunStatus::Failed
-                    | AgentRunStatus::Cancelled
-                    | AgentRunStatus::Interrupted => {}
+                    AgentTurnStatus::Completed
+                    | AgentTurnStatus::Failed
+                    | AgentTurnStatus::Cancelled
+                    | AgentTurnStatus::Interrupted => {}
                 }
             }
         }
-        report.interrupted_runs.sort();
-        report.interrupted_runs.dedup();
-        report.awaiting_interaction_runs.sort();
-        report.awaiting_interaction_runs.dedup();
-        report.resumable_runs.sort();
-        report.resumable_runs.dedup();
+        report.interrupted_turns.sort();
+        report.interrupted_turns.dedup();
+        report.awaiting_interaction_turns.sort();
+        report.awaiting_interaction_turns.dedup();
+        report.resumable_turns.sort();
+        report.resumable_turns.dedup();
         Ok(report)
     }
 
-    pub fn get_agent_run(
+    pub fn get_turn(
         &self,
         session_id: &str,
-        run_id: &str,
-    ) -> Result<Option<AgentRunRecord>, WorkerProtocolError> {
+        turn_id: &str,
+    ) -> Result<Option<AgentTurnRecord>, WorkerProtocolError> {
         self.require(WorkerCapability::SessionMetadataRead)?;
-        validate_agent_run_key(session_id, run_id)?;
-        self.get_agent_run_record(session_id, run_id)
+        validate_turn_key(session_id, turn_id)?;
+        self.get_turn_record(session_id, turn_id)
     }
 
-    pub fn get_agent_run_runtime_state(
+    pub fn get_turn_runtime_state(
         &self,
         session_id: &str,
-        run_id: &str,
-    ) -> Result<Option<AgentRunRuntimeState>, WorkerProtocolError> {
+        turn_id: &str,
+    ) -> Result<Option<AgentTurnRuntimeState>, WorkerProtocolError> {
         self.require(WorkerCapability::SessionMetadataRead)?;
-        validate_agent_run_key(session_id, run_id)?;
+        validate_turn_key(session_id, turn_id)?;
         self.ensure_state_index()?;
         let mut selected = None;
         for state_record in self.state.list_threads()?.into_iter().filter(|record| {
@@ -431,16 +421,16 @@ impl WorkerThreadLogRpc {
             let reconstructed =
                 super::reconstruction::reconstruct_canonical_rollout(&read_thread_lines(&path)?)?;
             let Some(record) = reconstructed
-                .agent_runs
+                .turns
                 .iter()
-                .find(|record| record.run_id == run_id)
+                .find(|record| record.turn_id == turn_id)
                 .cloned()
             else {
                 continue;
             };
             if selected
                 .as_ref()
-                .is_none_or(|(current, _): &(AgentRunRecord, Vec<_>)| {
+                .is_none_or(|(current, _): &(AgentTurnRecord, Vec<_>)| {
                     record.updated_at > current.updated_at
                 })
             {
@@ -453,10 +443,10 @@ impl WorkerThreadLogRpc {
         let runtime_events = crate::threads::domain::runtime_events_from_thread_items(
             &thread_items,
             session_id,
-            run_id,
+            turn_id,
         );
         let runtime_state =
-            AgentRunRuntimeState::from_runtime_events(session_id, run_id, runtime_events.clone())
+            AgentTurnRuntimeState::from_runtime_events(session_id, turn_id, runtime_events.clone())
                 .map_err(|error| {
                     let diagnostics = runtime_events
                         .iter()
@@ -470,9 +460,9 @@ impl WorkerThreadLogRpc {
                         })
                         .collect::<Vec<_>>();
                     eprintln!(
-                        "agent_run_runtime_state_projection_failed session_id={} run_id={} error={} details={} events={}",
+                        "turn_runtime_state_projection_failed session_id={} turn_id={} error={} details={} events={}",
                         session_id,
-                        run_id,
+                        turn_id,
                         error.message,
                         error.details,
                         Value::Array(diagnostics),
@@ -482,31 +472,29 @@ impl WorkerThreadLogRpc {
         Ok(Some(runtime_state))
     }
 
-    pub fn set_agent_run_checkpoint(
+    pub fn set_turn_checkpoint(
         &self,
         session_id: &str,
-        run_id: &str,
+        turn_id: &str,
         checkpoint: Value,
-    ) -> Result<AgentRunRecord, WorkerProtocolError> {
+    ) -> Result<AgentTurnRecord, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
-        validate_agent_run_key(session_id, run_id)?;
+        validate_turn_key(session_id, turn_id)?;
         let timestamp = now_thread_timestamp();
         let mut record = self
-            .get_agent_run_record(session_id, run_id)?
-            .unwrap_or_else(|| {
-                agent_run_from_checkpoint(session_id, run_id, &checkpoint, &timestamp)
-            });
-        let mut state = self.ensure_agent_run_thread(session_id, &timestamp)?;
+            .get_turn_record(session_id, turn_id)?
+            .unwrap_or_else(|| turn_from_checkpoint(session_id, turn_id, &checkpoint, &timestamp));
+        let mut state = self.ensure_turn_thread(session_id, &timestamp)?;
         let path = PathBuf::from(state.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
         self.recorder.append_item(
             &path,
             timestamp.clone(),
             value_event(
-                super::EventKind::AgentRunCheckpointSet,
+                super::EventKind::TurnCheckpointSet,
                 serde_json::json!({
                     "sessionId": session_id,
-                    "runId": run_id,
+                    "turnId": turn_id,
                     "checkpoint": checkpoint,
                 }),
             ),
@@ -518,70 +506,70 @@ impl WorkerThreadLogRpc {
         Ok(record)
     }
 
-    pub fn latest_agent_run_checkpoint(
+    pub fn latest_turn_checkpoint(
         &self,
         session_id: &str,
-    ) -> Result<Option<AgentRunCheckpoint>, WorkerProtocolError> {
-        let mut runs = self.list_agent_runs(session_id)?;
-        runs.retain(|run| run.checkpoint.is_some() && agent_run_status_is_resumable(&run.status));
-        Ok(runs.into_iter().next().and_then(|run| {
-            run.checkpoint.map(|checkpoint| AgentRunCheckpoint {
-                session_id: run.session_id,
-                run_id: run.run_id,
+    ) -> Result<Option<AgentTurnCheckpoint>, WorkerProtocolError> {
+        let mut turns = self.list_turns(session_id)?;
+        turns.retain(|turn| turn.checkpoint.is_some() && turn_status_is_resumable(&turn.status));
+        Ok(turns.into_iter().next().and_then(|turn| {
+            turn.checkpoint.map(|checkpoint| AgentTurnCheckpoint {
+                session_id: turn.session_id,
+                turn_id: turn.turn_id,
                 checkpoint,
             })
         }))
     }
 
-    pub fn clear_latest_agent_run_checkpoint(
+    pub fn clear_latest_turn_checkpoint(
         &self,
         session_id: &str,
-    ) -> Result<Option<AgentRunRecord>, WorkerProtocolError> {
+    ) -> Result<Option<AgentTurnRecord>, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
-        let mut runs = self.agent_run_records_for_session(session_id)?;
-        runs.retain(|run| run.checkpoint.is_some() && agent_run_status_is_resumable(&run.status));
-        let Some(run) = runs.into_iter().next() else {
+        let mut turns = self.turn_records_for_session(session_id)?;
+        turns.retain(|turn| turn.checkpoint.is_some() && turn_status_is_resumable(&turn.status));
+        let Some(turn) = turns.into_iter().next() else {
             return Ok(None);
         };
-        self.clear_agent_run_checkpoint(session_id, &run.run_id)
+        self.clear_turn_checkpoint(session_id, &turn.turn_id)
             .map(Some)
     }
 
-    pub fn get_agent_run_checkpoint(
+    pub fn get_turn_checkpoint(
         &self,
         session_id: &str,
-        run_id: &str,
-    ) -> Result<Option<AgentRunCheckpoint>, WorkerProtocolError> {
-        let Some(record) = self.get_agent_run(session_id, run_id)? else {
+        turn_id: &str,
+    ) -> Result<Option<AgentTurnCheckpoint>, WorkerProtocolError> {
+        let Some(record) = self.get_turn(session_id, turn_id)? else {
             return Ok(None);
         };
-        Ok(record.checkpoint.map(|checkpoint| AgentRunCheckpoint {
+        Ok(record.checkpoint.map(|checkpoint| AgentTurnCheckpoint {
             session_id: record.session_id,
-            run_id: record.run_id,
+            turn_id: record.turn_id,
             checkpoint,
         }))
     }
 
-    pub fn clear_agent_run_checkpoint(
+    pub fn clear_turn_checkpoint(
         &self,
         session_id: &str,
-        run_id: &str,
-    ) -> Result<AgentRunRecord, WorkerProtocolError> {
+        turn_id: &str,
+    ) -> Result<AgentTurnRecord, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
-        validate_agent_run_key(session_id, run_id)?;
+        validate_turn_key(session_id, turn_id)?;
         let mut record = self
-            .get_agent_run_record(session_id, run_id)?
-            .ok_or_else(|| unknown_agent_run_error(session_id, run_id))?;
+            .get_turn_record(session_id, turn_id)?
+            .ok_or_else(|| unknown_turn_error(session_id, turn_id))?;
         let timestamp = now_thread_timestamp();
-        let mut state = self.ensure_agent_run_thread(session_id, &timestamp)?;
+        let mut state = self.ensure_turn_thread(session_id, &timestamp)?;
         let path = PathBuf::from(state.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
         self.recorder.append_item(
             &path,
             timestamp.clone(),
             value_event(
-                super::EventKind::AgentRunCheckpointClear,
-                serde_json::json!({ "sessionId": session_id, "runId": run_id }),
+                super::EventKind::TurnCheckpointClear,
+                serde_json::json!({ "sessionId": session_id, "turnId": turn_id }),
             ),
         )?;
         let log_head = self.recorder.thread_log_head(&path)?;
@@ -592,18 +580,18 @@ impl WorkerThreadLogRpc {
         Ok(record)
     }
 
-    pub fn mark_agent_run_completed(
+    pub fn mark_turn_completed(
         &self,
         session_id: &str,
-        run_id: &str,
+        turn_id: &str,
         stop_reason: &str,
         final_content: Option<String>,
         context_checkpoint: Option<Value>,
-    ) -> Result<AgentRunRecord, WorkerProtocolError> {
-        self.mark_agent_run_terminal(
+    ) -> Result<AgentTurnRecord, WorkerProtocolError> {
+        self.mark_turn_terminal(
             session_id,
-            run_id,
-            AgentRunStatus::Completed,
+            turn_id,
+            AgentTurnStatus::Completed,
             "completed",
             Some(stop_reason.to_string()),
             final_content,
@@ -612,18 +600,18 @@ impl WorkerThreadLogRpc {
         )
     }
 
-    pub fn mark_agent_run_failed(
+    pub fn mark_turn_failed(
         &self,
         session_id: &str,
-        run_id: &str,
+        turn_id: &str,
         stop_reason: &str,
         error: Value,
         context_checkpoint: Option<Value>,
-    ) -> Result<AgentRunRecord, WorkerProtocolError> {
-        self.mark_agent_run_terminal(
+    ) -> Result<AgentTurnRecord, WorkerProtocolError> {
+        self.mark_turn_terminal(
             session_id,
-            run_id,
-            AgentRunStatus::Failed,
+            turn_id,
+            AgentTurnStatus::Failed,
             "failed",
             Some(stop_reason.to_string()),
             None,
@@ -632,15 +620,15 @@ impl WorkerThreadLogRpc {
         )
     }
 
-    pub fn mark_agent_run_cancelled(
+    pub fn mark_turn_cancelled(
         &self,
         session_id: &str,
-        run_id: &str,
-    ) -> Result<AgentRunRecord, WorkerProtocolError> {
-        self.mark_agent_run_terminal(
+        turn_id: &str,
+    ) -> Result<AgentTurnRecord, WorkerProtocolError> {
+        self.mark_turn_terminal(
             session_id,
-            run_id,
-            AgentRunStatus::Cancelled,
+            turn_id,
+            AgentTurnStatus::Cancelled,
             "cancelled",
             Some("cancelled".to_string()),
             None,
@@ -649,27 +637,27 @@ impl WorkerThreadLogRpc {
         )
     }
 
-    pub fn mark_agent_run_interrupted(
+    pub fn mark_turn_interrupted(
         &self,
         session_id: &str,
-        run_id: &str,
+        turn_id: &str,
         reason: &str,
-    ) -> Result<AgentRunRecord, WorkerProtocolError> {
+    ) -> Result<AgentTurnRecord, WorkerProtocolError> {
         let record = self
-            .get_agent_run_record(session_id, run_id)?
-            .ok_or_else(|| unknown_agent_run_error(session_id, run_id))?;
-        if record.status != AgentRunStatus::Running {
+            .get_turn_record(session_id, turn_id)?
+            .ok_or_else(|| unknown_turn_error(session_id, turn_id))?;
+        if record.status != AgentTurnStatus::Running {
             return Ok(record);
         }
-        self.append_agent_run_semantic_event(
+        self.append_turn_semantic_event(
             session_id,
-            run_id,
+            turn_id,
             serde_json::json!({
-                "eventId": format!("startup-recovery:{session_id}:{run_id}"),
+                "eventId": format!("startup-recovery:{session_id}:{turn_id}"),
                 "eventName": "agent.cancelled",
                 "timestamp": now_thread_timestamp(),
                 "payload": {
-                    "runId": run_id,
+                    "turnId": turn_id,
                     "sessionId": session_id,
                     "cancelled": true,
                     "stopReason": "runtime_restarted",
@@ -678,24 +666,24 @@ impl WorkerThreadLogRpc {
                 }
             }),
         )?;
-        self.mark_agent_run_interrupted_terminal(session_id, run_id, reason)
+        self.mark_turn_interrupted_terminal(session_id, turn_id, reason)
     }
 
-    pub fn mark_agent_run_interrupted_terminal(
+    pub fn mark_turn_interrupted_terminal(
         &self,
         session_id: &str,
-        run_id: &str,
+        turn_id: &str,
         reason: &str,
-    ) -> Result<AgentRunRecord, WorkerProtocolError> {
-        self.mark_agent_run_terminal(
+    ) -> Result<AgentTurnRecord, WorkerProtocolError> {
+        self.mark_turn_terminal(
             session_id,
-            run_id,
-            AgentRunStatus::Interrupted,
+            turn_id,
+            AgentTurnStatus::Interrupted,
             "interrupted",
             Some("runtime_restarted".to_string()),
             None,
             Some(serde_json::json!({
-                "code": "orphaned_run",
+                "code": "orphaned_turn",
                 "message": reason,
                 "source": "startup_recovery"
             })),
@@ -703,23 +691,23 @@ impl WorkerThreadLogRpc {
         )
     }
 
-    fn get_agent_run_record(
+    fn get_turn_record(
         &self,
         session_id: &str,
-        run_id: &str,
-    ) -> Result<Option<AgentRunRecord>, WorkerProtocolError> {
+        turn_id: &str,
+    ) -> Result<Option<AgentTurnRecord>, WorkerProtocolError> {
         Ok(self
-            .agent_run_records_for_session(session_id)?
+            .turn_records_for_session(session_id)?
             .into_iter()
-            .find(|record| record.run_id == run_id))
+            .find(|record| record.turn_id == turn_id))
     }
 
-    fn agent_run_records_for_session(
+    fn turn_records_for_session(
         &self,
         session_id: &str,
-    ) -> Result<Vec<AgentRunRecord>, WorkerProtocolError> {
+    ) -> Result<Vec<AgentTurnRecord>, WorkerProtocolError> {
         self.ensure_state_index()?;
-        let mut runs_by_id = HashMap::<String, AgentRunRecord>::new();
+        let mut turns_by_id = HashMap::<String, AgentTurnRecord>::new();
         for record in self.state.list_threads()?.into_iter().filter(|record| {
             !record.archived
                 && (record.id == session_id || record.session_id.as_deref() == Some(session_id))
@@ -728,31 +716,31 @@ impl WorkerThreadLogRpc {
             self.recorder.validate_thread_path(&path)?;
             let lines = read_thread_lines(&path)?;
             let reconstructed = super::reconstruction::reconstruct_canonical_rollout(&lines)?;
-            for run in reconstructed.agent_runs {
-                match runs_by_id.entry(run.run_id.clone()) {
+            for turn in reconstructed.turns {
+                match turns_by_id.entry(turn.turn_id.clone()) {
                     std::collections::hash_map::Entry::Vacant(entry) => {
-                        entry.insert(run);
+                        entry.insert(turn);
                     }
                     std::collections::hash_map::Entry::Occupied(mut entry)
-                        if run.updated_at > entry.get().updated_at =>
+                        if turn.updated_at > entry.get().updated_at =>
                     {
-                        entry.insert(run);
+                        entry.insert(turn);
                     }
                     std::collections::hash_map::Entry::Occupied(_) => {}
                 }
             }
         }
-        let mut runs = runs_by_id.into_values().collect::<Vec<_>>();
-        runs.sort_by(|left, right| {
+        let mut turns = turns_by_id.into_values().collect::<Vec<_>>();
+        turns.sort_by(|left, right| {
             right
                 .updated_at
                 .cmp(&left.updated_at)
-                .then_with(|| left.run_id.cmp(&right.run_id))
+                .then_with(|| left.turn_id.cmp(&right.turn_id))
         });
-        Ok(runs)
+        Ok(turns)
     }
 
-    fn ensure_agent_run_thread(
+    fn ensure_turn_thread(
         &self,
         session_id: &str,
         timestamp: &str,
@@ -799,27 +787,27 @@ impl WorkerThreadLogRpc {
         Ok(record)
     }
 
-    fn mark_agent_run_terminal(
+    fn mark_turn_terminal(
         &self,
         session_id: &str,
-        run_id: &str,
-        status: AgentRunStatus,
+        turn_id: &str,
+        status: AgentTurnStatus,
         phase: &str,
         stop_reason: Option<String>,
         final_content: Option<String>,
         error: Option<Value>,
         context_checkpoint: Option<Value>,
-    ) -> Result<AgentRunRecord, WorkerProtocolError> {
+    ) -> Result<AgentTurnRecord, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
-        validate_agent_run_key(session_id, run_id)?;
+        validate_turn_key(session_id, turn_id)?;
         let mut record = self
-            .get_agent_run_record(session_id, run_id)?
-            .ok_or_else(|| unknown_agent_run_error(session_id, run_id))?;
+            .get_turn_record(session_id, turn_id)?
+            .ok_or_else(|| unknown_turn_error(session_id, turn_id))?;
         let timestamp = now_thread_timestamp();
-        let mut state = self.ensure_agent_run_thread(session_id, &timestamp)?;
+        let mut state = self.ensure_turn_thread(session_id, &timestamp)?;
         let path = PathBuf::from(state.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
-        let lifecycle_kind = if status == AgentRunStatus::Completed {
+        let lifecycle_kind = if status == AgentTurnStatus::Completed {
             super::EventKind::TurnComplete
         } else {
             super::EventKind::TurnAborted
@@ -828,8 +816,7 @@ impl WorkerThreadLogRpc {
             lifecycle_kind,
             serde_json::json!({
                 "sessionId": session_id,
-                "runId": run_id,
-                "turnId": record.turn_id.as_deref().unwrap_or(run_id),
+                "turnId": record.turn_id,
                 "status": status,
                 "phase": phase,
                 "stopReason": stop_reason,
@@ -842,14 +829,14 @@ impl WorkerThreadLogRpc {
                 0,
                 ThreadLogItem::Compacted(super::typed_compacted_item(
                     context_checkpoint,
-                    "agent run terminal context finalization",
+                    "agent turn terminal context finalization",
                 )?),
             );
         }
         if record.checkpoint.is_some() {
             items.push(value_event(
-                super::EventKind::AgentRunCheckpointClear,
-                serde_json::json!({ "sessionId": session_id, "runId": run_id }),
+                super::EventKind::TurnCheckpointClear,
+                serde_json::json!({ "sessionId": session_id, "turnId": turn_id }),
             ));
         }
         self.recorder
@@ -1047,7 +1034,7 @@ fn canonical_provider_call_usage(info: &Value) -> Option<Value> {
 
 fn semantic_thread_item_from_runtime_event(
     session_id: &str,
-    run_id: &str,
+    turn_id: &str,
     timestamp: &str,
     event: &Value,
 ) -> Option<crate::threads::domain::ThreadItem> {
@@ -1075,14 +1062,9 @@ fn semantic_thread_item_from_runtime_event(
     };
     let event_id = event.get("eventId").and_then(Value::as_str)?;
     Some(crate::threads::domain::ThreadItem {
-        item_id: format!("semantic:{session_id}:{run_id}:{event_id}"),
+        item_id: format!("semantic:{session_id}:{turn_id}:{event_id}"),
         thread_id: session_id.to_string(),
-        run_id: Some(run_id.to_string()),
-        turn_id: event
-            .get("turnId")
-            .and_then(Value::as_str)
-            .map(str::to_string)
-            .or_else(|| Some(run_id.to_string())),
+        turn_id: Some(turn_id.to_string()),
         parent_item_id: None,
         sequence: 0,
         created_at: timestamp.to_string(),
@@ -1105,7 +1087,7 @@ fn canonical_message_content(content: Value, part_type: &str) -> Value {
     }
 }
 
-pub(crate) fn is_agent_run_semantic_event(event_name: &str) -> bool {
+pub(crate) fn is_turn_semantic_event(event_name: &str) -> bool {
     event_name != "agent.turn.started"
         && crate::agent::runtime_protocol::is_durable_agent_timeline_event(event_name)
         || matches!(
@@ -1127,9 +1109,9 @@ fn response_item_from_runtime_event_name(event_name: &str) -> bool {
     )
 }
 
-fn validate_agent_run_semantic_event(
+fn validate_turn_semantic_event(
     session_id: &str,
-    run_id: &str,
+    turn_id: &str,
     index: usize,
     event: &Value,
 ) -> Result<(), WorkerProtocolError> {
@@ -1138,10 +1120,10 @@ fn validate_agent_run_semantic_event(
         .and_then(Value::as_str)
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| {
-            invalid_agent_run_semantic_event_error(
-                "agent run semantic event is missing eventName",
+            invalid_turn_semantic_event_error(
+                "agent turn semantic event is missing eventName",
                 session_id,
-                run_id,
+                turn_id,
                 index,
                 None,
             )
@@ -1151,19 +1133,19 @@ fn validate_agent_run_semantic_event(
         .and_then(Value::as_str)
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| {
-            invalid_agent_run_semantic_event_error(
-                "agent run semantic event is missing eventId",
+            invalid_turn_semantic_event_error(
+                "agent turn semantic event is missing eventId",
                 session_id,
-                run_id,
+                turn_id,
                 index,
                 Some(event_name),
             )
         })?;
-    if !is_agent_run_semantic_event(event_name) {
-        return Err(invalid_agent_run_semantic_event_error(
+    if !is_turn_semantic_event(event_name) {
+        return Err(invalid_turn_semantic_event_error(
             "runtime event has no canonical semantic representation",
             session_id,
-            run_id,
+            turn_id,
             index,
             Some(event_name),
         ));
@@ -1179,10 +1161,10 @@ fn validate_agent_run_semantic_event(
             | "agent.command.acknowledged"
     );
     if requires_response_item && response_item_from_runtime_event(event).is_none() {
-        return Err(invalid_agent_run_semantic_event_error(
+        return Err(invalid_turn_semantic_event_error(
             "semantic runtime event cannot be materialized as a typed response item",
             session_id,
-            run_id,
+            turn_id,
             index,
             Some(event_name),
         ));
@@ -1190,19 +1172,19 @@ fn validate_agent_run_semantic_event(
     Ok(())
 }
 
-fn agent_run_status_is_resumable(status: &AgentRunStatus) -> bool {
-    matches!(status, AgentRunStatus::Running | AgentRunStatus::Waiting)
+fn turn_status_is_resumable(status: &AgentTurnStatus) -> bool {
+    matches!(status, AgentTurnStatus::Running | AgentTurnStatus::Waiting)
 }
 
-pub(super) fn agent_run_records_from_lines(
+pub(super) fn turn_records_from_lines(
     session_id: &str,
     thread_id: &str,
     lines: &[super::ThreadLogLine],
-) -> Result<Vec<AgentRunRecord>, WorkerProtocolError> {
-    let mut runs: HashMap<String, AgentRunRecord> = HashMap::new();
+) -> Result<Vec<AgentTurnRecord>, WorkerProtocolError> {
+    let mut turns: HashMap<String, AgentTurnRecord> = HashMap::new();
     for line in lines {
         if let super::ThreadLogItem::ResponseItem(item) = &line.item {
-            apply_response_item_to_agent_runs(&mut runs, item.as_value(), line)?;
+            apply_response_item_to_turns(&mut turns, item.as_value(), line)?;
             continue;
         }
         let super::ThreadLogItem::EventMsg(event) = &line.item else {
@@ -1210,14 +1192,14 @@ pub(super) fn agent_run_records_from_lines(
         };
         let payload = event.payload();
         match event.kind() {
-            super::EventKind::TurnStarted if payload.get("agentRun").is_some() => {
-                let record_value = payload.get("agentRun").cloned().ok_or_else(|| {
-                    agent_run_replay_error("turn_started is missing agentRun", line, payload)
+            super::EventKind::TurnStarted if payload.get("turn").is_some() => {
+                let record_value = payload.get("turn").cloned().ok_or_else(|| {
+                    turn_replay_error("turn_started is missing turn", line, payload)
                 })?;
-                let seed = serde_json::from_value::<PersistedAgentRunSeed>(record_value).map_err(
+                let seed = serde_json::from_value::<PersistedAgentTurnSeed>(record_value).map_err(
                     |error| {
-                        agent_run_replay_error(
-                            "turn_started contains an invalid agentRun",
+                        turn_replay_error(
+                            "turn_started contains an invalid turn",
                             line,
                             &serde_json::json!({
                                 "payload": payload,
@@ -1229,18 +1211,18 @@ pub(super) fn agent_run_records_from_lines(
                 let belongs_to_session = seed.session_id == session_id;
                 let belongs_to_thread = seed.session_id == thread_id;
                 if !belongs_to_session && !belongs_to_thread {
-                    return Err(agent_run_replay_error(
-                        "turn_started agentRun belongs to a different session",
+                    return Err(turn_replay_error(
+                        "turn_started turn belongs to a different session",
                         line,
                         &serde_json::json!({
                             "expectedSessionId": session_id,
                             "expectedThreadId": thread_id,
                             "actualSessionId": seed.session_id,
-                            "runId": seed.run_id,
+                            "turnId": seed.turn_id,
                         }),
                     ));
                 }
-                match runs.entry(seed.run_id.clone()) {
+                match turns.entry(seed.turn_id.clone()) {
                     std::collections::hash_map::Entry::Occupied(mut entry) => {
                         seed.apply_metadata_to(entry.get_mut());
                     }
@@ -1249,37 +1231,37 @@ pub(super) fn agent_run_records_from_lines(
                     }
                 }
             }
-            super::EventKind::AgentRunCheckpointSet => {
-                let run_id = payload_run_id(payload).ok_or_else(|| {
-                    agent_run_replay_error(
-                        "agent_run_checkpoint_set event is missing its run id",
+            super::EventKind::TurnCheckpointSet => {
+                let turn_id = payload_turn_id(payload).ok_or_else(|| {
+                    turn_replay_error(
+                        "turn_checkpoint_set event is missing its turn id",
                         line,
                         payload,
                     )
                 })?;
                 let checkpoint = payload.get("checkpoint").cloned().ok_or_else(|| {
-                    agent_run_replay_error(
-                        "agent_run_checkpoint_set event is missing its checkpoint",
+                    turn_replay_error(
+                        "turn_checkpoint_set event is missing its checkpoint",
                         line,
                         payload,
                     )
                 })?;
-                let record = runs.entry(run_id.clone()).or_insert_with(|| {
-                    agent_run_from_checkpoint(session_id, &run_id, &checkpoint, &line.timestamp)
+                let record = turns.entry(turn_id.clone()).or_insert_with(|| {
+                    turn_from_checkpoint(session_id, &turn_id, &checkpoint, &line.timestamp)
                 });
                 apply_checkpoint_to_record(record, checkpoint, &line.timestamp);
             }
-            super::EventKind::AgentRunCheckpointClear => {
-                let run_id = payload_run_id(payload).ok_or_else(|| {
-                    agent_run_replay_error(
-                        "agent_run_checkpoint_clear event is missing its run id",
+            super::EventKind::TurnCheckpointClear => {
+                let turn_id = payload_turn_id(payload).ok_or_else(|| {
+                    turn_replay_error(
+                        "turn_checkpoint_clear event is missing its turn id",
                         line,
                         payload,
                     )
                 })?;
-                let record = runs.get_mut(&run_id).ok_or_else(|| {
-                    agent_run_replay_error(
-                        "agent_run_checkpoint_clear event references an unknown run",
+                let record = turns.get_mut(&turn_id).ok_or_else(|| {
+                    turn_replay_error(
+                        "turn_checkpoint_clear event references an unknown turn",
                         line,
                         payload,
                     )
@@ -1288,19 +1270,19 @@ pub(super) fn agent_run_records_from_lines(
                 record.updated_at = line.timestamp.clone();
             }
             kind @ (super::EventKind::TurnComplete | super::EventKind::TurnAborted) => {
-                let Some(run_id) = payload_run_id(payload) else {
+                let Some(turn_id) = payload_turn_id(payload) else {
                     continue;
                 };
-                let Some(record) = runs.get_mut(&run_id) else {
+                let Some(record) = turns.get_mut(&turn_id) else {
                     continue;
                 };
                 let status = match payload.get("status").and_then(Value::as_str) {
-                    Some("completed") => AgentRunStatus::Completed,
-                    Some("failed") => AgentRunStatus::Failed,
-                    Some("cancelled") => AgentRunStatus::Cancelled,
-                    Some("interrupted") => AgentRunStatus::Interrupted,
-                    _ if kind == &super::EventKind::TurnComplete => AgentRunStatus::Completed,
-                    _ => AgentRunStatus::Interrupted,
+                    Some("completed") => AgentTurnStatus::Completed,
+                    Some("failed") => AgentTurnStatus::Failed,
+                    Some("cancelled") => AgentTurnStatus::Cancelled,
+                    Some("interrupted") => AgentTurnStatus::Interrupted,
+                    _ if kind == &super::EventKind::TurnComplete => AgentTurnStatus::Completed,
+                    _ => AgentTurnStatus::Interrupted,
                 };
                 let phase = payload
                     .get("phase")
@@ -1326,7 +1308,7 @@ pub(super) fn agent_run_records_from_lines(
                 );
             }
             super::EventKind::SessionCleared => {
-                for record in runs.values_mut() {
+                for record in turns.values_mut() {
                     record.checkpoint = None;
                     record.updated_at = line.timestamp.clone();
                 }
@@ -1342,22 +1324,22 @@ pub(super) fn agent_run_records_from_lines(
             | super::EventKind::ThreadItem => {}
         }
     }
-    Ok(runs.into_values().collect())
+    Ok(turns.into_values().collect())
 }
 
-fn apply_response_item_to_agent_runs(
-    runs: &mut HashMap<String, AgentRunRecord>,
+fn apply_response_item_to_turns(
+    turns: &mut HashMap<String, AgentTurnRecord>,
     item: &Value,
     _line: &super::ThreadLogLine,
 ) -> Result<(), WorkerProtocolError> {
-    let Some(run_id) = item
-        .get("runId")
-        .or_else(|| item.get("run_id"))
+    let Some(turn_id) = item
+        .get("turnId")
+        .or_else(|| item.get("turn_id"))
         .and_then(Value::as_str)
     else {
         return Ok(());
     };
-    let Some(record) = runs.get_mut(run_id) else {
+    let Some(record) = turns.get_mut(turn_id) else {
         return Ok(());
     };
     if item.get("type").and_then(Value::as_str) == Some("custom_tool_call_output") {
@@ -1445,7 +1427,7 @@ fn response_message_text(item: &Value) -> String {
     }
 }
 
-fn agent_run_replay_error(
+fn turn_replay_error(
     message: &str,
     line: &super::ThreadLogLine,
     detail: &Value,
@@ -1454,7 +1436,7 @@ fn agent_run_replay_error(
         WorkerProtocolErrorCode::InvalidProtocol,
         message,
         serde_json::json!({
-            "method": "rollout.reconstruct.agent_runs",
+            "method": "rollout.reconstruct.turns",
             "timestamp": line.timestamp,
             "ordinal": line.ordinal,
             "detail": detail,
@@ -1464,21 +1446,21 @@ fn agent_run_replay_error(
     )
 }
 
-fn payload_run_id(payload: &Value) -> Option<String> {
+fn payload_turn_id(payload: &Value) -> Option<String> {
     payload
-        .get("runId")
-        .or_else(|| payload.get("run_id"))
+        .get("turnId")
+        .or_else(|| payload.get("turn_id"))
         .and_then(Value::as_str)
         .map(str::to_string)
 }
 
-fn apply_checkpoint_to_record(record: &mut AgentRunRecord, checkpoint: Value, timestamp: &str) {
+fn apply_checkpoint_to_record(record: &mut AgentTurnRecord, checkpoint: Value, timestamp: &str) {
     record.phase = checkpoint
         .get("phase")
         .and_then(Value::as_str)
         .unwrap_or(record.phase.as_str())
         .to_string();
-    record.status = agent_run_status_from_checkpoint(&checkpoint);
+    record.status = turn_status_from_checkpoint(&checkpoint);
     record.updated_at = timestamp.to_string();
     record.current_iteration = checkpoint
         .get("iteration")
@@ -1505,8 +1487,8 @@ fn apply_checkpoint_to_record(record: &mut AgentRunRecord, checkpoint: Value, ti
 }
 
 fn apply_terminal_to_record(
-    record: &mut AgentRunRecord,
-    status: AgentRunStatus,
+    record: &mut AgentTurnRecord,
+    status: AgentTurnStatus,
     phase: &str,
     stop_reason: Option<String>,
     _final_content: Option<String>,
@@ -1522,7 +1504,7 @@ fn apply_terminal_to_record(
     record.error = error;
 }
 
-fn final_content_preview(record: &AgentRunRecord) -> Option<String> {
+fn final_content_preview(record: &AgentTurnRecord) -> Option<String> {
     record.trace_messages.iter().rev().find_map(|message| {
         let role = message.get("role").and_then(Value::as_str)?;
         if role != "assistant" {
@@ -1537,23 +1519,18 @@ fn final_content_preview(record: &AgentRunRecord) -> Option<String> {
     })
 }
 
-fn agent_run_from_checkpoint(
+fn turn_from_checkpoint(
     session_id: &str,
-    run_id: &str,
+    turn_id: &str,
     checkpoint: &Value,
     timestamp: &str,
-) -> AgentRunRecord {
-    AgentRunRecord {
+) -> AgentTurnRecord {
+    AgentTurnRecord {
         session_id: session_id.to_string(),
-        run_id: run_id.to_string(),
+        turn_id: turn_id.to_string(),
         thread_id: checkpoint
             .get("threadId")
             .or_else(|| checkpoint.get("thread_id"))
-            .and_then(Value::as_str)
-            .map(str::to_string),
-        turn_id: checkpoint
-            .get("turnId")
-            .or_else(|| checkpoint.get("turn_id"))
             .and_then(Value::as_str)
             .map(str::to_string),
         parent_thread_id: checkpoint
@@ -1573,7 +1550,7 @@ fn agent_run_from_checkpoint(
                     .collect()
             })
             .unwrap_or_default(),
-        status: AgentRunStatus::Waiting,
+        status: AgentTurnStatus::Waiting,
         phase: checkpoint
             .get("phase")
             .and_then(Value::as_str)
@@ -1637,7 +1614,7 @@ fn agent_run_from_checkpoint(
     }
 }
 
-fn agent_run_status_from_checkpoint(checkpoint: &Value) -> AgentRunStatus {
+fn turn_status_from_checkpoint(checkpoint: &Value) -> AgentTurnStatus {
     match checkpoint
         .get("stopReason")
         .or_else(|| checkpoint.get("stop_reason"))
@@ -1645,10 +1622,10 @@ fn agent_run_status_from_checkpoint(checkpoint: &Value) -> AgentRunStatus {
         .or_else(|| checkpoint.get("phase").and_then(Value::as_str))
     {
         Some("final_response") | Some("completed") | Some("done") | Some("terminal") => {
-            AgentRunStatus::Completed
+            AgentTurnStatus::Completed
         }
-        Some("cancelled") => AgentRunStatus::Cancelled,
-        Some("interrupted") | Some("runtime_restarted") => AgentRunStatus::Interrupted,
+        Some("cancelled") => AgentTurnStatus::Cancelled,
+        Some("interrupted") | Some("runtime_restarted") => AgentTurnStatus::Interrupted,
         Some("provider_error")
         | Some("tool_error")
         | Some("policy_denied")
@@ -1656,37 +1633,37 @@ fn agent_run_status_from_checkpoint(checkpoint: &Value) -> AgentRunStatus {
         | Some("invalid_request")
         | Some("approval_denied")
         | Some("form_cancelled")
-        | Some("failed") => AgentRunStatus::Failed,
-        _ => AgentRunStatus::Waiting,
+        | Some("failed") => AgentTurnStatus::Failed,
+        _ => AgentTurnStatus::Waiting,
     }
 }
 
-fn validate_agent_run_key(session_id: &str, run_id: &str) -> Result<(), WorkerProtocolError> {
+fn validate_turn_key(session_id: &str, turn_id: &str) -> Result<(), WorkerProtocolError> {
     validate_path_safe_id(session_id, "session_id")?;
-    validate_path_safe_id(run_id, "run_id")
+    validate_path_safe_id(turn_id, "turn_id")
 }
 
 fn validate_path_safe_id(value: &str, field: &str) -> Result<(), WorkerProtocolError> {
     if value.trim().is_empty() || value.contains('\0') || value.contains("..") {
-        return Err(invalid_agent_run_key(field, value));
+        return Err(invalid_turn_key(field, value));
     }
     Ok(())
 }
 
-fn invalid_agent_run_key(field: &str, value: &str) -> WorkerProtocolError {
+fn invalid_turn_key(field: &str, value: &str) -> WorkerProtocolError {
     WorkerProtocolError::new(
         WorkerProtocolErrorCode::InvalidProtocol,
-        "invalid agent run key",
+        "invalid agent turn key",
         serde_json::json!({ field: value }),
         false,
         WorkerProtocolErrorSource::RustCore,
     )
 }
 
-fn invalid_agent_run_semantic_event_error(
+fn invalid_turn_semantic_event_error(
     message: &str,
     session_id: &str,
-    run_id: &str,
+    turn_id: &str,
     index: usize,
     event_name: Option<&str>,
 ) -> WorkerProtocolError {
@@ -1695,7 +1672,7 @@ fn invalid_agent_run_semantic_event_error(
         message,
         serde_json::json!({
             "session_id": session_id,
-            "run_id": run_id,
+            "turn_id": turn_id,
             "event_index": index,
             "event_name": event_name,
         }),
@@ -1704,13 +1681,13 @@ fn invalid_agent_run_semantic_event_error(
     )
 }
 
-fn unknown_agent_run_error(session_id: &str, run_id: &str) -> WorkerProtocolError {
+fn unknown_turn_error(session_id: &str, turn_id: &str) -> WorkerProtocolError {
     WorkerProtocolError::new(
         WorkerProtocolErrorCode::InvalidProtocol,
-        "agent run not found",
+        "agent turn not found",
         serde_json::json!({
             "session_id": session_id,
-            "run_id": run_id,
+            "turn_id": turn_id,
         }),
         false,
         WorkerProtocolErrorSource::RustCore,
@@ -1765,13 +1742,13 @@ mod tests {
     }
 }
 
-fn empty_agent_run_semantic_batch_error(session_id: &str, run_id: &str) -> WorkerProtocolError {
+fn empty_turn_semantic_batch_error(session_id: &str, turn_id: &str) -> WorkerProtocolError {
     WorkerProtocolError::new(
         WorkerProtocolErrorCode::InvalidProtocol,
-        "agent run semantic batch must contain at least one event",
+        "agent turn semantic batch must contain at least one event",
         serde_json::json!({
             "session_id": session_id,
-            "run_id": run_id,
+            "turn_id": turn_id,
         }),
         false,
         WorkerProtocolErrorSource::RustCore,

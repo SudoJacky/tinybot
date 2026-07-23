@@ -1321,7 +1321,7 @@ mod tests {
             "trace-1",
             "memory.save",
             json!({
-                "content": "Use the TS worker for experimental agent runs.",
+                "content": "Use the TS worker for experimental agent turns.",
                 "note_type": "decision"
             }),
         ));
@@ -1345,7 +1345,7 @@ mod tests {
         assert!(soul_view.contains("Speak directly and avoid vague claims."));
         assert!(project_view.contains("## Project Memory Notes"));
         assert!(project_view.contains("### Decision"));
-        assert!(project_view.contains("Use the TS worker for experimental agent runs."));
+        assert!(project_view.contains("Use the TS worker for experimental agent turns."));
     }
 
     fn dream_git_fixture() -> WorkspaceFixture {

@@ -1,13 +1,13 @@
 use super::checkpoint::save_phase_checkpoint;
 use super::events::{event, legacy_result_events_from_runtime_events, runtime_event_timestamp};
 use super::item_event_projection::attach_agent_item;
-use super::{NativeAgentRunContext, NativeAgentRuntimeServices, NativeAgentTraceSink};
-use crate::agent::runtime_protocol::{AgentRunEmitter, AgentRuntimeEventEnvelope};
+use super::{AgentTurnContext, NativeAgentRuntimeServices, NativeAgentTraceSink};
+use crate::agent::runtime_protocol::{AgentRuntimeEventEnvelope, AgentTurnEmitter};
 use serde_json::Value;
 use std::sync::Arc;
 
 pub(super) fn error_result(
-    run_id: &str,
+    turn_id: &str,
     session_id: &str,
     stop_reason: &str,
     message: &str,
@@ -15,7 +15,7 @@ pub(super) fn error_result(
     let events = vec![event(
         "agent.error",
         serde_json::json!({
-            "runId": run_id,
+            "turnId": turn_id,
             "sessionId": session_id,
             "stopReason": stop_reason,
             "message": message,
@@ -24,7 +24,7 @@ pub(super) fn error_result(
     )];
     serde_json::json!({
         "runtime": "rust",
-        "runId": run_id,
+        "turnId": turn_id,
         "sessionId": session_id,
         "finalContent": "",
         "stopReason": stop_reason,
@@ -37,16 +37,16 @@ pub(super) fn error_result(
 
 pub(super) fn cancelled_result(
     services: &NativeAgentRuntimeServices,
-    run_id: &str,
+    turn_id: &str,
     session_id: &str,
     checkpoint: Value,
 ) -> Value {
     let events = vec![event(
         "agent.cancelled",
         serde_json::json!({
-            "runId": run_id,
+            "turnId": turn_id,
             "sessionId": session_id,
-            "commandId": services.cancellations.command_id(run_id),
+            "commandId": services.cancellations.command_id(turn_id),
             "cancelled": true,
             "stopReason": "cancelled",
             "error": "cancelled",
@@ -54,7 +54,7 @@ pub(super) fn cancelled_result(
     )];
     serde_json::json!({
         "runtime": "rust",
-        "runId": run_id,
+        "turnId": turn_id,
         "sessionId": session_id,
         "finalContent": "",
         "stopReason": "cancelled",
@@ -68,7 +68,7 @@ pub(super) fn cancelled_result(
 
 pub(super) fn cancelled_run_result(
     services: &NativeAgentRuntimeServices,
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     mut runtime_events: Vec<AgentRuntimeEventEnvelope>,
     tools_used: Vec<String>,
     completed_tool_results: Vec<Value>,
@@ -85,9 +85,9 @@ pub(super) fn cancelled_run_result(
             "stopReason": "cancelled",
         }),
     );
-    let mut emitter = AgentRunEmitter::from_existing_events_with_thread_id(
+    let mut emitter = AgentTurnEmitter::from_existing_events_with_thread_id(
         &context.session_id,
-        &context.run_id,
+        &context.turn_id,
         context.thread_id.clone(),
         &runtime_events,
     );
@@ -97,10 +97,10 @@ pub(super) fn cancelled_run_result(
         attach_agent_item(
             "agent.cancelled",
             serde_json::json!({
-                "runId": context.run_id,
+                "turnId": context.turn_id,
                 "sessionId": context.session_id,
                 "iteration": iteration,
-                "commandId": services.cancellations.command_id(&context.run_id),
+                "commandId": services.cancellations.command_id(&context.turn_id),
                 "cancelled": true,
                 "stopReason": "cancelled",
                 "error": "cancelled",
@@ -110,7 +110,7 @@ pub(super) fn cancelled_run_result(
     let events = legacy_result_events_from_runtime_events(&runtime_events);
     serde_json::json!({
         "runtime": "rust",
-        "runId": context.run_id,
+        "turnId": context.turn_id,
         "sessionId": context.session_id,
         "finalContent": "",
         "stopReason": "cancelled",
@@ -125,17 +125,17 @@ pub(super) fn cancelled_run_result(
 }
 
 pub(super) fn append_runtime_events_to_sink(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     trace_sink: Option<&Arc<dyn NativeAgentTraceSink>>,
     events: &[AgentRuntimeEventEnvelope],
 ) {
     if let Some(trace_sink) = trace_sink {
-        let existing = match trace_sink.load_runtime_events(&context.session_id, &context.run_id) {
+        let existing = match trace_sink.load_runtime_events(&context.session_id, &context.turn_id) {
             Ok(existing) => existing,
             Err(error) => {
                 eprintln!(
                     "canonical timeline history load failed for run {}: {}",
-                    context.run_id, error
+                    context.turn_id, error
                 );
                 Vec::new()
             }
@@ -143,20 +143,20 @@ pub(super) fn append_runtime_events_to_sink(
         let mut projector =
             match crate::agent::runtime_protocol::AgentTimelineProjector::from_events(
                 &context.session_id,
-                &context.run_id,
+                &context.turn_id,
                 &existing,
             ) {
                 Ok(projector) => projector,
                 Err(error) => {
                     eprintln!(
                         "canonical timeline history projection failed for run {}: {}",
-                        context.run_id, error
+                        context.turn_id, error
                     );
                     return;
                 }
             };
         for event in events {
-            let _ = trace_sink.append_trace_event(&context.session_id, &context.run_id, event);
+            let _ = trace_sink.append_trace_event(&context.session_id, &context.turn_id, event);
             match projector.apply_event(event) {
                 Ok(Some(patch)) => {
                     if let crate::agent::runtime_protocol::AgentTurnItemData::AssistantMessage {
@@ -183,8 +183,7 @@ pub(super) fn append_runtime_events_to_sink(
                                 "agent assistant phase classified: {}",
                                 serde_json::json!({
                                     "sessionId": context.session_id,
-                                    "runId": context.run_id,
-                                    "turnId": patch.item.turn_id,
+                                    "turnId": context.turn_id,
                                     "modelCallId": model_call_id,
                                     "itemId": patch.item.item_id,
                                     "phase": phase,
@@ -197,14 +196,14 @@ pub(super) fn append_runtime_events_to_sink(
                     }
                     let _ = trace_sink.append_timeline_patch(
                         &context.session_id,
-                        &context.run_id,
+                        &context.turn_id,
                         &patch,
                     );
                 }
                 Ok(None) => {}
                 Err(error) => eprintln!(
                     "canonical timeline patch projection failed for run {} event {}: {}",
-                    context.run_id, event.event_id, error
+                    context.turn_id, event.event_id, error
                 ),
             }
         }

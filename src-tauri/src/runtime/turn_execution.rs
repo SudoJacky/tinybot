@@ -17,15 +17,15 @@ use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct StartAgentRun {
-    pub(crate) run_id: String,
+pub(crate) struct StartAgentTurn {
+    pub(crate) turn_id: String,
     pub(crate) session_id: String,
 }
 
-impl StartAgentRun {
-    pub(crate) fn new(run_id: impl Into<String>, session_id: impl Into<String>) -> Self {
+impl StartAgentTurn {
+    pub(crate) fn new(turn_id: impl Into<String>, session_id: impl Into<String>) -> Self {
         Self {
-            run_id: run_id.into(),
+            turn_id: turn_id.into(),
             session_id: session_id.into(),
         }
     }
@@ -48,8 +48,8 @@ impl AgentCancelReason {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct AgentTaskStatus {
-    pub(crate) run_id: String,
+pub(crate) struct TurnExecutionStatus {
+    pub(crate) turn_id: String,
     pub(crate) session_id: String,
     pub(crate) generation: u64,
     pub(crate) phase: String,
@@ -65,7 +65,7 @@ pub(crate) struct AgentTaskStatus {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CancelOutcome {
-    pub(crate) run_id: String,
+    pub(crate) turn_id: String,
     pub(crate) state: String,
     pub(crate) reason: String,
     pub(crate) active_task_removed: bool,
@@ -75,7 +75,7 @@ pub(crate) struct CancelOutcome {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PauseOutcome {
-    pub(crate) run_id: String,
+    pub(crate) turn_id: String,
     pub(crate) state: String,
     pub(crate) command_id: String,
 }
@@ -83,17 +83,17 @@ pub(crate) struct PauseOutcome {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ShutdownReport {
-    pub(crate) cancelled_runs: Vec<String>,
-    pub(crate) cleanup_pending_runs: Vec<String>,
+    pub(crate) cancelled_turns: Vec<String>,
+    pub(crate) cleanup_pending_turns: Vec<String>,
     pub(crate) timed_out: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct AgentTaskError {
+pub(crate) struct TurnExecutionError {
     message: String,
 }
 
-impl AgentTaskError {
+impl TurnExecutionError {
     fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
@@ -101,50 +101,50 @@ impl AgentTaskError {
     }
 }
 
-impl fmt::Display for AgentTaskError {
+impl fmt::Display for TurnExecutionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(&self.message)
     }
 }
 
 #[derive(Clone)]
-pub(crate) struct AgentTaskRuntime {
-    inner: Arc<AgentTaskRuntimeInner>,
+pub(crate) struct TurnExecutionRuntime {
+    inner: Arc<TurnExecutionRuntimeInner>,
 }
 
-struct AgentTaskRuntimeInner {
-    state: Mutex<AgentTaskRuntimeState>,
+struct TurnExecutionRuntimeInner {
+    state: Mutex<TurnExecutionRuntimeState>,
     task_finished: Condvar,
 }
 
-struct AgentTaskRuntimeState {
+struct TurnExecutionRuntimeState {
     accepting: bool,
-    active: HashMap<String, OwnedRunTask>,
-    draining: HashMap<AgentTaskKey, OwnedRunTask>,
-    statuses: HashMap<String, AgentTaskStatus>,
+    active: HashMap<String, OwnedTurnExecution>,
+    draining: HashMap<TurnExecutionKey, OwnedTurnExecution>,
+    statuses: HashMap<String, TurnExecutionStatus>,
     terminal_results: HashMap<String, Result<Value, String>>,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct AgentTaskKey {
-    run_id: String,
+struct TurnExecutionKey {
+    turn_id: String,
     generation: u64,
 }
 
 #[derive(Clone)]
-struct OwnedRunTask {
-    request: StartAgentRun,
+struct OwnedTurnExecution {
+    request: StartAgentTurn,
     generation: u64,
     cancellation: CancellationToken,
-    pause: Arc<AgentPauseControl>,
-    completion: Arc<AgentTaskCompletion>,
+    pause: Arc<TurnPauseControl>,
+    completion: Arc<TurnExecutionCompletion>,
     execution: OwnedExecutionHandle,
     prior_waiting_phase: Option<String>,
     prior_checkpoint_ref: Option<String>,
 }
 
 #[derive(Default)]
-struct AgentPauseControl {
+struct TurnPauseControl {
     state: Mutex<AgentPauseState>,
     changed: Notify,
 }
@@ -213,14 +213,14 @@ impl OwnedExecutionHandle {
     }
 }
 
-struct AgentTaskCompletion {
+struct TurnExecutionCompletion {
     result: Mutex<Option<Result<Value, String>>>,
     #[cfg(test)]
     ready: Condvar,
     async_ready: Notify,
 }
 
-impl AgentTaskCompletion {
+impl TurnExecutionCompletion {
     fn new() -> Self {
         Self {
             result: Mutex::new(None),
@@ -279,17 +279,17 @@ impl AgentTaskCompletion {
     }
 }
 
-impl Default for AgentTaskRuntime {
+impl Default for TurnExecutionRuntime {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl AgentTaskRuntime {
+impl TurnExecutionRuntime {
     pub(crate) fn new() -> Self {
         Self {
-            inner: Arc::new(AgentTaskRuntimeInner {
-                state: Mutex::new(AgentTaskRuntimeState {
+            inner: Arc::new(TurnExecutionRuntimeInner {
+                state: Mutex::new(TurnExecutionRuntimeState {
                     accepting: true,
                     active: HashMap::new(),
                     draining: HashMap::new(),
@@ -304,9 +304,9 @@ impl AgentTaskRuntime {
     #[cfg(test)]
     pub(crate) fn start_blocking<F>(
         &self,
-        request: StartAgentRun,
+        request: StartAgentTurn,
         operation: F,
-    ) -> Result<AgentRunHandle, AgentTaskError>
+    ) -> Result<AgentTurnHandle, TurnExecutionError>
     where
         F: FnOnce() -> Result<Value, String> + Send + 'static,
     {
@@ -315,17 +315,17 @@ impl AgentTaskRuntime {
             .state
             .lock()
             .expect("agent task runtime state lock should not be poisoned");
-        let task = register_owned_task(&mut state, request, OwnedExecutionHandle::blocking())?;
+        let task = register_turn_execution(&mut state, request, OwnedExecutionHandle::blocking())?;
         let request = task.request.clone();
         let generation = task.generation;
 
         let inner = self.inner.clone();
         let thread_task = task.clone();
         let (start_sender, start_receiver) = mpsc::sync_channel(0);
-        let thread_name = agent_task_thread_name(&request.run_id);
+        let thread_name = turn_execution_thread_name(&request.turn_id);
         let join_handle = match thread::Builder::new().name(thread_name).spawn(move || {
             if start_receiver.recv().is_err() {
-                finish_owned_task(
+                finish_turn_execution(
                     &inner,
                     &thread_task,
                     Err("agent task start barrier closed before execution".to_string()),
@@ -336,30 +336,30 @@ impl AgentTaskRuntime {
                 Ok(result) => result,
                 Err(_) => Err("agent task panicked during execution".to_string()),
             };
-            finish_owned_task(&inner, &thread_task, result);
+            finish_turn_execution(&inner, &thread_task, result);
         }) {
             Ok(handle) => handle,
             Err(error) => {
-                state.active.remove(&request.run_id);
-                state.statuses.remove(&request.run_id);
-                return Err(AgentTaskError::new(format!(
-                    "failed to spawn agent run `{}`: {error}",
-                    request.run_id
+                state.active.remove(&request.turn_id);
+                state.statuses.remove(&request.turn_id);
+                return Err(TurnExecutionError::new(format!(
+                    "failed to spawn agent turn `{}`: {error}",
+                    request.turn_id
                 )));
             }
         };
         task.execution.store_blocking(join_handle);
         start_sender.send(()).map_err(|_| {
-            state.active.remove(&request.run_id);
-            state.statuses.remove(&request.run_id);
-            AgentTaskError::new(format!(
-                "failed to release agent run `{}` start barrier",
-                request.run_id
+            state.active.remove(&request.turn_id);
+            state.statuses.remove(&request.turn_id);
+            TurnExecutionError::new(format!(
+                "failed to release agent turn `{}` start barrier",
+                request.turn_id
             ))
         })?;
         drop(state);
 
-        Ok(AgentRunHandle {
+        Ok(AgentTurnHandle {
             runtime: self.clone(),
             request,
             generation,
@@ -370,9 +370,9 @@ impl AgentTaskRuntime {
     #[cfg(test)]
     pub(crate) fn start_async<Fut>(
         &self,
-        request: StartAgentRun,
+        request: StartAgentTurn,
         operation: Fut,
-    ) -> Result<AgentRunHandle, AgentTaskError>
+    ) -> Result<AgentTurnHandle, TurnExecutionError>
     where
         Fut: Future<Output = Result<Value, String>> + Send + 'static,
     {
@@ -381,10 +381,10 @@ impl AgentTaskRuntime {
 
     pub(crate) fn start_cooperative_async<Fut>(
         &self,
-        request: StartAgentRun,
+        request: StartAgentTurn,
         cancellation_grace: Duration,
         operation: Fut,
-    ) -> Result<AgentRunHandle, AgentTaskError>
+    ) -> Result<AgentTurnHandle, TurnExecutionError>
     where
         Fut: Future<Output = Result<Value, String>> + Send + 'static,
     {
@@ -399,10 +399,10 @@ impl AgentTaskRuntime {
 
     fn start_async_with_cancellation<Fut>(
         &self,
-        request: StartAgentRun,
+        request: StartAgentTurn,
         operation: Fut,
         cancellation_mode: AsyncTaskCancellation,
-    ) -> Result<AgentRunHandle, AgentTaskError>
+    ) -> Result<AgentTurnHandle, TurnExecutionError>
     where
         Fut: Future<Output = Result<Value, String>> + Send + 'static,
     {
@@ -411,7 +411,8 @@ impl AgentTaskRuntime {
             .state
             .lock()
             .expect("agent task runtime state lock should not be poisoned");
-        let task = register_owned_task(&mut state, request, OwnedExecutionHandle::asynchronous())?;
+        let task =
+            register_turn_execution(&mut state, request, OwnedExecutionHandle::asynchronous())?;
         let request = task.request.clone();
         let generation = task.generation;
         let cancellation = task.cancellation.clone();
@@ -463,15 +464,15 @@ impl AgentTaskRuntime {
                 }
             };
             if let Some(result) = result {
-                finish_owned_task(&inner, &async_task, result);
+                finish_turn_execution(&inner, &async_task, result);
             } else {
-                finish_cancelled_async_task(&inner, &async_task);
+                finish_cancelled_turn_execution(&inner, &async_task);
             }
         });
         task.execution.store_async(join_handle);
         drop(state);
 
-        Ok(AgentRunHandle {
+        Ok(AgentTurnHandle {
             runtime: self.clone(),
             request,
             generation,
@@ -481,13 +482,13 @@ impl AgentTaskRuntime {
 
     pub(crate) fn request_pause(
         &self,
-        run_id: &str,
+        turn_id: &str,
         command_id: &str,
-    ) -> Result<PauseOutcome, AgentTaskError> {
-        let run_id = run_id.trim();
+    ) -> Result<PauseOutcome, TurnExecutionError> {
+        let turn_id = turn_id.trim();
         let command_id = command_id.trim();
         if command_id.is_empty() {
-            return Err(AgentTaskError::new(
+            return Err(TurnExecutionError::new(
                 "agent pause command ID must not be empty",
             ));
         }
@@ -498,22 +499,22 @@ impl AgentTaskRuntime {
             .expect("agent task runtime state lock should not be poisoned");
         let pause = state
             .active
-            .get(run_id)
+            .get(turn_id)
             .map(|task| task.pause.clone())
             .ok_or_else(|| {
-                AgentTaskError::new(format!("active agent run `{run_id}` was not found"))
+                TurnExecutionError::new(format!("active agent turn `{turn_id}` was not found"))
             })?;
-        let status = state.statuses.get_mut(run_id).ok_or_else(|| {
-            AgentTaskError::new(format!("agent run `{run_id}` status disappeared"))
+        let status = state.statuses.get_mut(turn_id).ok_or_else(|| {
+            TurnExecutionError::new(format!("agent turn `{turn_id}` status disappeared"))
         })?;
         if !status.active {
-            return Err(AgentTaskError::new(format!(
-                "agent run `{run_id}` completed before pause could be requested"
+            return Err(TurnExecutionError::new(format!(
+                "agent turn `{turn_id}` completed before pause could be requested"
             )));
         }
         if status.cancellation_requested {
-            return Err(AgentTaskError::new(format!(
-                "agent run `{run_id}` is already cancelling"
+            return Err(TurnExecutionError::new(format!(
+                "agent turn `{turn_id}` is already cancelling"
             )));
         }
         let mut pause_state = pause
@@ -521,8 +522,8 @@ impl AgentTaskRuntime {
             .lock()
             .expect("agent pause state lock should not be poisoned");
         if pause_state.requested {
-            return Err(AgentTaskError::new(format!(
-                "agent run `{run_id}` already has a pending pause"
+            return Err(TurnExecutionError::new(format!(
+                "agent turn `{turn_id}` already has a pending pause"
             )));
         }
         pause_state.requested = true;
@@ -531,7 +532,7 @@ impl AgentTaskRuntime {
         status.phase = "pause_requested".to_string();
         status.pause_requested = true;
         Ok(PauseOutcome {
-            run_id: run_id.to_string(),
+            turn_id: turn_id.to_string(),
             state: "pause_requested".to_string(),
             command_id: command_id.to_string(),
         })
@@ -539,13 +540,13 @@ impl AgentTaskRuntime {
 
     pub(crate) fn request_resume(
         &self,
-        run_id: &str,
+        turn_id: &str,
         command_id: &str,
-    ) -> Result<PauseOutcome, AgentTaskError> {
-        let run_id = run_id.trim();
+    ) -> Result<PauseOutcome, TurnExecutionError> {
+        let turn_id = turn_id.trim();
         let command_id = command_id.trim();
         if command_id.is_empty() {
-            return Err(AgentTaskError::new(
+            return Err(TurnExecutionError::new(
                 "agent resume command ID must not be empty",
             ));
         }
@@ -557,10 +558,10 @@ impl AgentTaskRuntime {
                 .expect("agent task runtime state lock should not be poisoned");
             state
                 .active
-                .get(run_id)
+                .get(turn_id)
                 .map(|task| task.pause.clone())
                 .ok_or_else(|| {
-                    AgentTaskError::new(format!("paused agent run `{run_id}` was not found"))
+                    TurnExecutionError::new(format!("paused agent turn `{turn_id}` was not found"))
                 })?
         };
         {
@@ -569,8 +570,8 @@ impl AgentTaskRuntime {
                 .lock()
                 .expect("agent pause state lock should not be poisoned");
             if !pause_state.requested || !pause_state.paused {
-                return Err(AgentTaskError::new(format!(
-                    "agent run `{run_id}` has not reached a paused boundary"
+                return Err(TurnExecutionError::new(format!(
+                    "agent turn `{turn_id}` has not reached a paused boundary"
                 )));
             }
             pause_state.requested = false;
@@ -581,27 +582,27 @@ impl AgentTaskRuntime {
             .state
             .lock()
             .expect("agent task runtime state lock should not be poisoned");
-        let status = state.statuses.get_mut(run_id).ok_or_else(|| {
-            AgentTaskError::new(format!("agent run `{run_id}` status disappeared"))
+        let status = state.statuses.get_mut(turn_id).ok_or_else(|| {
+            TurnExecutionError::new(format!("agent turn `{turn_id}` status disappeared"))
         })?;
         status.phase = "resuming".to_string();
         status.pause_requested = false;
         pause.changed.notify_waiters();
         Ok(PauseOutcome {
-            run_id: run_id.to_string(),
+            turn_id: turn_id.to_string(),
             state: "resume_requested".to_string(),
             command_id: command_id.to_string(),
         })
     }
 
-    pub(crate) fn begin_pause(&self, run_id: &str) -> Option<String> {
+    pub(crate) fn begin_pause(&self, turn_id: &str) -> Option<String> {
         let pause = self
             .inner
             .state
             .lock()
             .expect("agent task runtime state lock should not be poisoned")
             .active
-            .get(run_id)
+            .get(turn_id)
             .map(|task| task.pause.clone())?;
         let command_id = {
             let mut pause_state = pause
@@ -620,7 +621,7 @@ impl AgentTaskRuntime {
             .lock()
             .expect("agent task runtime state lock should not be poisoned")
             .statuses
-            .get_mut(run_id)
+            .get_mut(turn_id)
         {
             status.phase = "paused".to_string();
             status.pause_requested = true;
@@ -628,17 +629,20 @@ impl AgentTaskRuntime {
         Some(command_id)
     }
 
-    pub(crate) async fn wait_for_resume(&self, run_id: &str) -> Result<String, AgentTaskError> {
+    pub(crate) async fn wait_for_resume(
+        &self,
+        turn_id: &str,
+    ) -> Result<String, TurnExecutionError> {
         let pause = self
             .inner
             .state
             .lock()
             .expect("agent task runtime state lock should not be poisoned")
             .active
-            .get(run_id)
+            .get(turn_id)
             .map(|task| task.pause.clone())
             .ok_or_else(|| {
-                AgentTaskError::new(format!("paused agent run `{run_id}` was not found"))
+                TurnExecutionError::new(format!("paused agent turn `{turn_id}` was not found"))
             })?;
         loop {
             let changed = pause.changed.notified();
@@ -661,7 +665,7 @@ impl AgentTaskRuntime {
                     .lock()
                     .expect("agent task runtime state lock should not be poisoned")
                     .statuses
-                    .get_mut(run_id)
+                    .get_mut(turn_id)
                 {
                     status.phase = "running".to_string();
                     status.pause_requested = false;
@@ -672,8 +676,8 @@ impl AgentTaskRuntime {
         }
     }
 
-    pub(crate) fn request_cancel(&self, run_id: &str, reason: AgentCancelReason) -> CancelOutcome {
-        let run_id = run_id.trim();
+    pub(crate) fn request_cancel(&self, turn_id: &str, reason: AgentCancelReason) -> CancelOutcome {
+        let turn_id = turn_id.trim();
         let reason_value = reason.as_str().to_string();
         let mut state = self
             .inner
@@ -682,17 +686,17 @@ impl AgentTaskRuntime {
             .expect("agent task runtime state lock should not be poisoned");
         if state
             .active
-            .get(run_id)
+            .get(turn_id)
             .is_some_and(|task| !task.execution.supports_cooperative_cancellation())
         {
             drop(state);
-            return self.cancel(run_id, reason);
+            return self.cancel(turn_id, reason);
         }
-        if let Some(task) = state.active.get(run_id) {
+        if let Some(task) = state.active.get(turn_id) {
             task.cancellation.cancel();
             let status = state
                 .statuses
-                .get_mut(run_id)
+                .get_mut(turn_id)
                 .expect("active agent task must have a status");
             status.phase = "cancelling".to_string();
             status.cancellation_requested = true;
@@ -700,7 +704,7 @@ impl AgentTaskRuntime {
             status.checkpoint_ref = None;
             self.inner.task_finished.notify_all();
             return CancelOutcome {
-                run_id: run_id.to_string(),
+                turn_id: turn_id.to_string(),
                 state: "cancel_requested".to_string(),
                 reason: reason_value,
                 active_task_removed: false,
@@ -708,26 +712,26 @@ impl AgentTaskRuntime {
             };
         }
         drop(state);
-        self.cancel(run_id, reason)
+        self.cancel(turn_id, reason)
     }
 
-    pub(crate) fn cancel(&self, run_id: &str, reason: AgentCancelReason) -> CancelOutcome {
-        let run_id = run_id.trim();
+    pub(crate) fn cancel(&self, turn_id: &str, reason: AgentCancelReason) -> CancelOutcome {
+        let turn_id = turn_id.trim();
         let reason_value = reason.as_str().to_string();
         let mut state = self
             .inner
             .state
             .lock()
             .expect("agent task runtime state lock should not be poisoned");
-        if let Some(task) = state.active.remove(run_id) {
+        if let Some(task) = state.active.remove(turn_id) {
             task.cancellation.cancel();
-            let key = AgentTaskKey {
-                run_id: run_id.to_string(),
+            let key = TurnExecutionKey {
+                turn_id: turn_id.to_string(),
                 generation: task.generation,
             };
             let status = state
                 .statuses
-                .get_mut(run_id)
+                .get_mut(turn_id)
                 .expect("active agent task must have a status");
             status.phase = "cancelled".to_string();
             status.active = false;
@@ -738,12 +742,12 @@ impl AgentTaskRuntime {
             let cancelled_result = cancelled_task_result(&task.request, &reason_value);
             state
                 .terminal_results
-                .insert(run_id.to_string(), Ok(cancelled_result.clone()));
+                .insert(turn_id.to_string(), Ok(cancelled_result.clone()));
             task.completion.complete(Ok(cancelled_result));
             state.draining.insert(key, task);
             self.inner.task_finished.notify_all();
             return CancelOutcome {
-                run_id: run_id.to_string(),
+                turn_id: turn_id.to_string(),
                 state: "cancel_requested".to_string(),
                 reason: reason_value,
                 active_task_removed: true,
@@ -751,9 +755,9 @@ impl AgentTaskRuntime {
             };
         }
 
-        let Some(status) = state.statuses.get_mut(run_id) else {
+        let Some(status) = state.statuses.get_mut(turn_id) else {
             return CancelOutcome {
-                run_id: run_id.to_string(),
+                turn_id: turn_id.to_string(),
                 state: "not_found".to_string(),
                 reason: reason_value,
                 active_task_removed: false,
@@ -762,11 +766,11 @@ impl AgentTaskRuntime {
         };
         if status.terminal_outcome.is_some() {
             return CancelOutcome {
-                run_id: run_id.to_string(),
+                turn_id: turn_id.to_string(),
                 state: "already_terminal".to_string(),
                 reason: status.cancellation_reason.clone().unwrap_or(reason_value),
                 active_task_removed: false,
-                cleanup_pending: state.draining.keys().any(|key| key.run_id == run_id),
+                cleanup_pending: state.draining.keys().any(|key| key.turn_id == turn_id),
             };
         }
 
@@ -776,13 +780,13 @@ impl AgentTaskRuntime {
         status.cancellation_reason = Some(reason_value.clone());
         status.checkpoint_ref = None;
         status.terminal_outcome = Some("cancelled".to_string());
-        let request = StartAgentRun::new(status.run_id.clone(), status.session_id.clone());
+        let request = StartAgentTurn::new(status.turn_id.clone(), status.session_id.clone());
         state.terminal_results.insert(
-            run_id.to_string(),
+            turn_id.to_string(),
             Ok(cancelled_task_result(&request, &reason_value)),
         );
         CancelOutcome {
-            run_id: run_id.to_string(),
+            turn_id: turn_id.to_string(),
             state: "cancelled_waiting".to_string(),
             reason: reason_value,
             active_task_removed: false,
@@ -790,27 +794,27 @@ impl AgentTaskRuntime {
         }
     }
 
-    pub(crate) fn status(&self, run_id: &str) -> Option<AgentTaskStatus> {
+    pub(crate) fn status(&self, turn_id: &str) -> Option<TurnExecutionStatus> {
         self.inner
             .state
             .lock()
             .expect("agent task runtime state lock should not be poisoned")
             .statuses
-            .get(run_id)
+            .get(turn_id)
             .cloned()
     }
 
-    pub(crate) fn terminal_result(&self, run_id: &str) -> Option<Result<Value, String>> {
+    pub(crate) fn terminal_result(&self, turn_id: &str) -> Option<Result<Value, String>> {
         self.inner
             .state
             .lock()
             .expect("agent task runtime state lock should not be poisoned")
             .terminal_results
-            .get(run_id)
+            .get(turn_id)
             .cloned()
     }
 
-    pub(crate) fn is_cancelled(&self, run_id: &str) -> bool {
+    pub(crate) fn is_cancelled(&self, turn_id: &str) -> bool {
         let state = self
             .inner
             .state
@@ -818,19 +822,19 @@ impl AgentTaskRuntime {
             .expect("agent task runtime state lock should not be poisoned");
         state
             .active
-            .get(run_id)
+            .get(turn_id)
             .is_some_and(|task| task.cancellation.is_cancelled())
             || state
                 .draining
                 .iter()
-                .any(|(key, task)| key.run_id == run_id && task.cancellation.is_cancelled())
+                .any(|(key, task)| key.turn_id == turn_id && task.cancellation.is_cancelled())
             || state
                 .statuses
-                .get(run_id)
+                .get(turn_id)
                 .is_some_and(|status| status.cancellation_requested)
     }
 
-    pub(crate) fn cancellation_token(&self, run_id: &str) -> Option<CancellationToken> {
+    pub(crate) fn cancellation_token(&self, turn_id: &str) -> Option<CancellationToken> {
         let state = self
             .inner
             .state
@@ -838,12 +842,12 @@ impl AgentTaskRuntime {
             .expect("agent task runtime state lock should not be poisoned");
         state
             .active
-            .get(run_id)
+            .get(turn_id)
             .or_else(|| {
                 state
                     .draining
                     .iter()
-                    .find(|(key, _)| key.run_id == run_id)
+                    .find(|(key, _)| key.turn_id == turn_id)
                     .map(|(_, task)| task)
             })
             .map(|task| task.cancellation.clone())
@@ -876,19 +880,19 @@ impl AgentTaskRuntime {
     }
 
     pub(crate) fn shutdown(&self, timeout: Duration) -> ShutdownReport {
-        let active_run_ids = {
+        let active_turn_ids = {
             let mut state = self
                 .inner
                 .state
                 .lock()
                 .expect("agent task runtime state lock should not be poisoned");
             state.accepting = false;
-            let mut run_ids = state.active.keys().cloned().collect::<Vec<_>>();
-            run_ids.sort();
-            run_ids
+            let mut turn_ids = state.active.keys().cloned().collect::<Vec<_>>();
+            turn_ids.sort();
+            turn_ids
         };
-        for run_id in &active_run_ids {
-            self.request_cancel(run_id, AgentCancelReason::Shutdown);
+        for turn_id in &active_turn_ids {
+            self.request_cancel(turn_id, AgentCancelReason::Shutdown);
         }
 
         let deadline = Instant::now() + timeout;
@@ -913,18 +917,18 @@ impl AgentTaskRuntime {
                 break;
             }
         }
-        let mut cleanup_pending_runs = state
+        let mut cleanup_pending_turns = state
             .active
             .keys()
             .cloned()
-            .chain(state.draining.keys().map(|key| key.run_id.clone()))
+            .chain(state.draining.keys().map(|key| key.turn_id.clone()))
             .collect::<Vec<_>>();
-        cleanup_pending_runs.sort();
-        cleanup_pending_runs.dedup();
+        cleanup_pending_turns.sort();
+        cleanup_pending_turns.dedup();
         ShutdownReport {
-            cancelled_runs: active_run_ids,
-            timed_out: !cleanup_pending_runs.is_empty(),
-            cleanup_pending_runs,
+            cancelled_turns: active_turn_ids,
+            timed_out: !cleanup_pending_turns.is_empty(),
+            cleanup_pending_turns,
         }
     }
 
@@ -945,25 +949,25 @@ impl AgentTaskRuntime {
     }
 }
 
-pub(crate) struct AgentRunHandle {
-    runtime: AgentTaskRuntime,
-    request: StartAgentRun,
+pub(crate) struct AgentTurnHandle {
+    runtime: TurnExecutionRuntime,
+    request: StartAgentTurn,
     generation: u64,
-    completion: Arc<AgentTaskCompletion>,
+    completion: Arc<TurnExecutionCompletion>,
 }
 
-impl fmt::Debug for AgentRunHandle {
+impl fmt::Debug for AgentTurnHandle {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
-            .debug_struct("AgentRunHandle")
-            .field("run_id", &self.request.run_id)
+            .debug_struct("AgentTurnHandle")
+            .field("turn_id", &self.request.turn_id)
             .field("session_id", &self.request.session_id)
             .field("generation", &self.generation)
             .finish_non_exhaustive()
     }
 }
 
-impl AgentRunHandle {
+impl AgentTurnHandle {
     #[cfg(test)]
     pub(crate) fn wait(self) -> Result<Value, String> {
         self.completion.wait()
@@ -973,71 +977,73 @@ impl AgentRunHandle {
         self.completion.wait_async().await
     }
 
-    pub(crate) fn run_id(&self) -> &str {
-        &self.request.run_id
+    pub(crate) fn turn_id(&self) -> &str {
+        &self.request.turn_id
     }
 
     pub(crate) fn session_id(&self) -> &str {
         &self.request.session_id
     }
 
-    pub(crate) fn status(&self) -> Option<AgentTaskStatus> {
-        self.runtime.status(&self.request.run_id)
+    pub(crate) fn status(&self) -> Option<TurnExecutionStatus> {
+        self.runtime.status(&self.request.turn_id)
     }
 }
 
-fn validate_start_request(request: StartAgentRun) -> Result<StartAgentRun, AgentTaskError> {
-    let run_id = request.run_id.trim();
+fn validate_start_request(request: StartAgentTurn) -> Result<StartAgentTurn, TurnExecutionError> {
+    let turn_id = request.turn_id.trim();
     let session_id = request.session_id.trim();
-    if run_id.is_empty() {
-        return Err(AgentTaskError::new("agent run ID must not be empty"));
+    if turn_id.is_empty() {
+        return Err(TurnExecutionError::new("agent turn ID must not be empty"));
     }
     if session_id.is_empty() {
-        return Err(AgentTaskError::new("agent session ID must not be empty"));
-    }
-    Ok(StartAgentRun::new(run_id, session_id))
-}
-
-fn register_owned_task(
-    state: &mut AgentTaskRuntimeState,
-    request: StartAgentRun,
-    execution: OwnedExecutionHandle,
-) -> Result<OwnedRunTask, AgentTaskError> {
-    let request = validate_start_request(request)?;
-    if !state.accepting {
-        return Err(AgentTaskError::new(
-            "agent task runtime is not accepting new runs",
+        return Err(TurnExecutionError::new(
+            "agent session ID must not be empty",
         ));
     }
-    if state.active.contains_key(&request.run_id) {
-        return Err(AgentTaskError::new(format!(
-            "agent run `{}` is already active",
-            request.run_id
+    Ok(StartAgentTurn::new(turn_id, session_id))
+}
+
+fn register_turn_execution(
+    state: &mut TurnExecutionRuntimeState,
+    request: StartAgentTurn,
+    execution: OwnedExecutionHandle,
+) -> Result<OwnedTurnExecution, TurnExecutionError> {
+    let request = validate_start_request(request)?;
+    if !state.accepting {
+        return Err(TurnExecutionError::new(
+            "agent task runtime is not accepting new turns",
+        ));
+    }
+    if state.active.contains_key(&request.turn_id) {
+        return Err(TurnExecutionError::new(format!(
+            "agent turn `{}` is already active",
+            request.turn_id
         )));
     }
     if state
         .statuses
-        .get(&request.run_id)
+        .get(&request.turn_id)
         .and_then(|status| status.terminal_outcome.as_ref())
         .is_some()
     {
-        return Err(AgentTaskError::new(format!(
-            "agent run `{}` is already terminal",
-            request.run_id
+        return Err(TurnExecutionError::new(format!(
+            "agent turn `{}` is already terminal",
+            request.turn_id
         )));
     }
 
     let generation = state
         .statuses
-        .get(&request.run_id)
+        .get(&request.turn_id)
         .map(|status| status.generation.saturating_add(1))
         .unwrap_or(1);
     let prior_late_results = state
         .statuses
-        .get(&request.run_id)
+        .get(&request.turn_id)
         .map(|status| status.late_results_ignored)
         .unwrap_or(0);
-    let prior_waiting_phase = state.statuses.get(&request.run_id).and_then(|status| {
+    let prior_waiting_phase = state.statuses.get(&request.turn_id).and_then(|status| {
         matches!(
             status.phase.as_str(),
             "awaiting_approval" | "awaiting_form" | "awaiting_tool" | "awaiting_subagent"
@@ -1046,22 +1052,22 @@ fn register_owned_task(
     });
     let prior_checkpoint_ref = state
         .statuses
-        .get(&request.run_id)
+        .get(&request.turn_id)
         .and_then(|status| status.checkpoint_ref.clone());
-    let task = OwnedRunTask {
+    let task = OwnedTurnExecution {
         request: request.clone(),
         generation,
         cancellation: CancellationToken::new(),
-        pause: Arc::new(AgentPauseControl::default()),
-        completion: Arc::new(AgentTaskCompletion::new()),
+        pause: Arc::new(TurnPauseControl::default()),
+        completion: Arc::new(TurnExecutionCompletion::new()),
         execution,
         prior_waiting_phase,
         prior_checkpoint_ref,
     };
     state.statuses.insert(
-        request.run_id.clone(),
-        AgentTaskStatus {
-            run_id: request.run_id.clone(),
+        request.turn_id.clone(),
+        TurnExecutionStatus {
+            turn_id: request.turn_id.clone(),
             session_id: request.session_id.clone(),
             generation,
             phase: "running".to_string(),
@@ -1074,13 +1080,13 @@ fn register_owned_task(
             late_results_ignored: prior_late_results,
         },
     );
-    state.active.insert(request.run_id.clone(), task.clone());
+    state.active.insert(request.turn_id.clone(), task.clone());
     Ok(task)
 }
 
 #[cfg(test)]
-fn agent_task_thread_name(run_id: &str) -> String {
-    let suffix = run_id
+fn turn_execution_thread_name(turn_id: &str) -> String {
+    let suffix = turn_id
         .chars()
         .take(32)
         .map(|character| {
@@ -1094,10 +1100,10 @@ fn agent_task_thread_name(run_id: &str) -> String {
     format!("tinybot-agent-{suffix}")
 }
 
-fn cancelled_task_result(request: &StartAgentRun, reason: &str) -> Value {
+fn cancelled_task_result(request: &StartAgentTurn, reason: &str) -> Value {
     serde_json::json!({
         "runtime": "rust",
-        "runId": request.run_id,
+        "turnId": request.turn_id,
         "sessionId": request.session_id,
         "finalContent": "",
         "stopReason": "cancelled",
@@ -1105,7 +1111,7 @@ fn cancelled_task_result(request: &StartAgentRun, reason: &str) -> Value {
         "checkpoint": {
             "schemaVersion": 1,
             "runtime": "rust",
-            "runId": request.run_id,
+            "turnId": request.turn_id,
             "sessionId": request.session_id,
             "phase": "cancelled",
             "resumeToken": null,
@@ -1119,7 +1125,7 @@ fn cancelled_task_result(request: &StartAgentRun, reason: &str) -> Value {
         "events": [{
             "eventName": "agent.cancelled",
             "payload": {
-                "runId": request.run_id,
+                "turnId": request.turn_id,
                 "sessionId": request.session_id,
                 "cancelled": true,
                 "stopReason": "cancelled",
@@ -1129,10 +1135,10 @@ fn cancelled_task_result(request: &StartAgentRun, reason: &str) -> Value {
     })
 }
 
-fn cancellation_cleanup_timeout_result(request: &StartAgentRun, grace: Duration) -> Value {
+fn cancellation_cleanup_timeout_result(request: &StartAgentTurn, grace: Duration) -> Value {
     serde_json::json!({
         "runtime": "rust",
-        "runId": request.run_id,
+        "turnId": request.turn_id,
         "sessionId": request.session_id,
         "finalContent": "",
         "stopReason": "cancellation_cleanup_timeout",
@@ -1145,7 +1151,7 @@ fn cancellation_cleanup_timeout_result(request: &StartAgentRun, grace: Duration)
         "events": [{
             "eventName": "agent.cleanup_timeout",
             "payload": {
-                "runId": request.run_id,
+                "turnId": request.turn_id,
                 "sessionId": request.session_id,
                 "stopReason": "cancellation_cleanup_timeout",
                 "timeoutMs": grace.as_millis(),
@@ -1163,13 +1169,13 @@ fn async_operation_result(
     }
 }
 
-fn finish_owned_task(
-    inner: &AgentTaskRuntimeInner,
-    task: &OwnedRunTask,
+fn finish_turn_execution(
+    inner: &TurnExecutionRuntimeInner,
+    task: &OwnedTurnExecution,
     result: Result<Value, String>,
 ) {
-    let key = AgentTaskKey {
-        run_id: task.request.run_id.clone(),
+    let key = TurnExecutionKey {
+        turn_id: task.request.turn_id.clone(),
         generation: task.generation,
     };
     let mut state = inner
@@ -1178,16 +1184,16 @@ fn finish_owned_task(
         .expect("agent task runtime state lock should not be poisoned");
     let is_active_generation = state
         .active
-        .get(&task.request.run_id)
+        .get(&task.request.turn_id)
         .is_some_and(|active| active.generation == task.generation);
     if is_active_generation {
-        state.active.remove(&task.request.run_id);
+        state.active.remove(&task.request.turn_id);
     }
     state.draining.remove(&key);
 
     let status = state
         .statuses
-        .get_mut(&task.request.run_id)
+        .get_mut(&task.request.turn_id)
         .expect("owned agent task must have a status");
     if status.generation != task.generation || status.terminal_outcome.is_some() {
         status.late_results_ignored = status.late_results_ignored.saturating_add(1);
@@ -1196,16 +1202,16 @@ fn finish_owned_task(
         if status.terminal_outcome.is_some() {
             state
                 .terminal_results
-                .insert(task.request.run_id.clone(), result.clone());
+                .insert(task.request.turn_id.clone(), result.clone());
         }
         task.completion.complete(result);
     }
     inner.task_finished.notify_all();
 }
 
-fn finish_cancelled_async_task(inner: &AgentTaskRuntimeInner, task: &OwnedRunTask) {
-    let key = AgentTaskKey {
-        run_id: task.request.run_id.clone(),
+fn finish_cancelled_turn_execution(inner: &TurnExecutionRuntimeInner, task: &OwnedTurnExecution) {
+    let key = TurnExecutionKey {
+        turn_id: task.request.turn_id.clone(),
         generation: task.generation,
     };
     let mut state = inner
@@ -1214,18 +1220,18 @@ fn finish_cancelled_async_task(inner: &AgentTaskRuntimeInner, task: &OwnedRunTas
         .expect("agent task runtime state lock should not be poisoned");
     if state
         .active
-        .get(&task.request.run_id)
+        .get(&task.request.turn_id)
         .is_some_and(|active| active.generation == task.generation)
     {
-        state.active.remove(&task.request.run_id);
+        state.active.remove(&task.request.turn_id);
     }
     state.draining.remove(&key);
     inner.task_finished.notify_all();
 }
 
 fn apply_completion_status(
-    task: &OwnedRunTask,
-    status: &mut AgentTaskStatus,
+    task: &OwnedTurnExecution,
+    status: &mut TurnExecutionStatus,
     result: &Result<Value, String>,
 ) {
     status.active = false;
@@ -1281,15 +1287,15 @@ mod tests {
     use std::thread;
     use std::time::{Duration, Instant};
 
-    fn request(run_id: &str) -> StartAgentRun {
-        StartAgentRun::new(run_id, format!("session:{run_id}"))
+    fn request(turn_id: &str) -> StartAgentTurn {
+        StartAgentTurn::new(turn_id, format!("session:{turn_id}"))
     }
 
-    fn final_result(run_id: &str) -> Value {
+    fn final_result(turn_id: &str) -> Value {
         serde_json::json!({
             "runtime": "rust",
-            "runId": run_id,
-            "sessionId": format!("session:{run_id}"),
+            "turnId": turn_id,
+            "sessionId": format!("session:{turn_id}"),
             "stopReason": "final_response",
             "finalContent": "done"
         })
@@ -1305,14 +1311,16 @@ mod tests {
 
     #[test]
     fn completed_run_releases_its_active_handle_and_records_one_terminal_outcome() {
-        let runtime = AgentTaskRuntime::new();
+        let runtime = TurnExecutionRuntime::new();
         let handle = runtime
-            .start_blocking(request("run-complete"), || Ok(final_result("run-complete")))
-            .expect("run should start");
+            .start_blocking(request("turn-complete"), || {
+                Ok(final_result("turn-complete"))
+            })
+            .expect("turn should start");
 
-        let result = handle.wait().expect("run should complete");
+        let result = handle.wait().expect("turn should complete");
         let status = runtime
-            .status("run-complete")
+            .status("turn-complete")
             .expect("status should remain");
 
         assert_eq!(result["stopReason"], "final_response");
@@ -1325,41 +1333,43 @@ mod tests {
 
     #[test]
     fn duplicate_active_run_is_rejected() {
-        let runtime = AgentTaskRuntime::new();
+        let runtime = TurnExecutionRuntime::new();
         let (release_sender, release_receiver) = mpsc::channel();
         let handle = runtime
-            .start_blocking(request("run-duplicate"), move || {
+            .start_blocking(request("turn-duplicate"), move || {
                 release_receiver.recv().expect("release should arrive");
-                Ok(final_result("run-duplicate"))
+                Ok(final_result("turn-duplicate"))
             })
-            .expect("first run should start");
+            .expect("first turn should start");
 
         let error = runtime
-            .start_blocking(request("run-duplicate"), || {
-                Ok(final_result("run-duplicate"))
+            .start_blocking(request("turn-duplicate"), || {
+                Ok(final_result("turn-duplicate"))
             })
-            .expect_err("duplicate active run should fail");
+            .expect_err("duplicate active turn should fail");
         assert!(error.to_string().contains("already active"));
 
         release_sender.send(()).expect("release should send");
-        handle.wait().expect("first run should finish");
+        handle.wait().expect("first turn should finish");
     }
 
     #[test]
     fn cancellation_removes_active_handle_and_ignores_late_completion() {
-        let runtime = AgentTaskRuntime::new();
+        let runtime = TurnExecutionRuntime::new();
         let (started_sender, started_receiver) = mpsc::channel();
         let (release_sender, release_receiver) = mpsc::channel();
         let handle = runtime
-            .start_blocking(request("run-cancel"), move || {
+            .start_blocking(request("turn-cancel"), move || {
                 started_sender.send(()).expect("start should send");
                 release_receiver.recv().expect("release should arrive");
-                Ok(final_result("run-cancel"))
+                Ok(final_result("turn-cancel"))
             })
-            .expect("run should start");
-        started_receiver.recv().expect("run should enter operation");
+            .expect("turn should start");
+        started_receiver
+            .recv()
+            .expect("turn should enter operation");
 
-        let outcome = runtime.cancel("run-cancel", AgentCancelReason::UserRequested);
+        let outcome = runtime.cancel("turn-cancel", AgentCancelReason::UserRequested);
         let result = handle.wait().expect("cancel should produce a result");
 
         assert_eq!(outcome.state, "cancel_requested");
@@ -1371,41 +1381,41 @@ mod tests {
 
         release_sender.send(()).expect("release should send");
         wait_until(Duration::from_secs(1), || runtime.draining_count() == 0);
-        let status = runtime.status("run-cancel").expect("status should remain");
+        let status = runtime.status("turn-cancel").expect("status should remain");
         assert_eq!(status.terminal_outcome.as_deref(), Some("cancelled"));
         assert_eq!(status.late_results_ignored, 1);
     }
 
     #[test]
     fn waiting_run_releases_task_and_can_resume_with_same_identity() {
-        let runtime = AgentTaskRuntime::new();
+        let runtime = TurnExecutionRuntime::new();
         let first = runtime
-            .start_blocking(request("run-wait"), || {
+            .start_blocking(request("turn-wait"), || {
                 Ok(serde_json::json!({
                     "runtime": "rust",
-                    "runId": "run-wait",
-                    "sessionId": "session:run-wait",
+                    "turnId": "turn-wait",
+                    "sessionId": "session:turn-wait",
                     "stopReason": "awaiting_form",
-                    "checkpoint": { "resumeToken": "form:run-wait" }
+                    "checkpoint": { "resumeToken": "form:turn-wait" }
                 }))
             })
-            .expect("waiting run should start");
+            .expect("waiting turn should start");
         first.wait().expect("waiting result should complete task");
 
         let waiting = runtime
-            .status("run-wait")
+            .status("turn-wait")
             .expect("waiting status should remain");
         assert!(!waiting.active);
         assert_eq!(waiting.phase, "awaiting_form");
         assert_eq!(waiting.terminal_outcome, None);
-        assert_eq!(waiting.checkpoint_ref.as_deref(), Some("form:run-wait"));
+        assert_eq!(waiting.checkpoint_ref.as_deref(), Some("form:turn-wait"));
 
         let second = runtime
-            .start_blocking(request("run-wait"), || Ok(final_result("run-wait")))
-            .expect("waiting run should resume");
-        second.wait().expect("resumed run should finish");
+            .start_blocking(request("turn-wait"), || Ok(final_result("turn-wait")))
+            .expect("waiting turn should resume");
+        second.wait().expect("resumed turn should finish");
         let completed = runtime
-            .status("run-wait")
+            .status("turn-wait")
             .expect("completed status should remain");
         assert_eq!(completed.generation, 2);
         assert_eq!(completed.terminal_outcome.as_deref(), Some("completed"));
@@ -1414,15 +1424,15 @@ mod tests {
     #[test]
     fn cooperative_pause_and_resume_continue_the_same_active_run() {
         tauri::async_runtime::block_on(async {
-            let runtime = AgentTaskRuntime::new();
+            let runtime = TurnExecutionRuntime::new();
             let operation_runtime = runtime.clone();
             let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
             let (paused_sender, paused_receiver) = tokio::sync::oneshot::channel();
             let handle = runtime
-                .start_async(request("run-pause"), async move {
+                .start_async(request("turn-pause"), async move {
                     started_sender.send(()).expect("async start should send");
                     loop {
-                        if let Some(command_id) = operation_runtime.begin_pause("run-pause") {
+                        if let Some(command_id) = operation_runtime.begin_pause("turn-pause") {
                             paused_sender
                                 .send(command_id)
                                 .expect("pause boundary should send");
@@ -1431,52 +1441,52 @@ mod tests {
                         tokio::task::yield_now().await;
                     }
                     let resume_command_id = operation_runtime
-                        .wait_for_resume("run-pause")
+                        .wait_for_resume("turn-pause")
                         .await
-                        .expect("paused run should resume");
+                        .expect("paused turn should resume");
                     Ok(serde_json::json!({
                         "runtime": "rust",
-                        "runId": "run-pause",
-                        "sessionId": "session:run-pause",
+                        "turnId": "turn-pause",
+                        "sessionId": "session:turn-pause",
                         "stopReason": "final_response",
                         "finalContent": resume_command_id,
                     }))
                 })
-                .expect("pausable run should start");
+                .expect("pausable turn should start");
             started_receiver
                 .await
-                .expect("async run should enter operation");
+                .expect("async turn should enter operation");
 
             let pause = runtime
-                .request_pause("run-pause", "command-pause")
+                .request_pause("turn-pause", "command-pause")
                 .expect("pause request should be accepted");
             assert_eq!(pause.state, "pause_requested");
             assert_eq!(
                 paused_receiver
                     .await
-                    .expect("run should reach pause boundary"),
+                    .expect("turn should reach pause boundary"),
                 "command-pause"
             );
             assert_eq!(
                 runtime
-                    .status("run-pause")
+                    .status("turn-pause")
                     .expect("status should exist")
                     .phase,
                 "paused"
             );
 
             let resume = runtime
-                .request_resume("run-pause", "command-resume")
+                .request_resume("turn-pause", "command-resume")
                 .expect("resume request should be accepted");
             assert_eq!(resume.state, "resume_requested");
-            let result = handle.wait_async().await.expect("run should finish");
+            let result = handle.wait_async().await.expect("turn should finish");
 
-            assert_eq!(result["runId"], "run-pause");
+            assert_eq!(result["turnId"], "turn-pause");
             assert_eq!(result["finalContent"], "command-resume");
             assert_eq!(runtime.active_count(), 0);
             assert_eq!(
                 runtime
-                    .status("run-pause")
+                    .status("turn-pause")
                     .expect("completed status should remain")
                     .terminal_outcome
                     .as_deref(),
@@ -1487,22 +1497,24 @@ mod tests {
 
     #[test]
     fn shutdown_is_bounded_reports_cleanup_and_can_resume_accepting() {
-        let runtime = AgentTaskRuntime::new();
+        let runtime = TurnExecutionRuntime::new();
         let (release_sender, release_receiver) = mpsc::channel();
         let handle = runtime
-            .start_blocking(request("run-shutdown"), move || {
+            .start_blocking(request("turn-shutdown"), move || {
                 release_receiver.recv().expect("release should arrive");
-                Ok(final_result("run-shutdown"))
+                Ok(final_result("turn-shutdown"))
             })
-            .expect("run should start");
+            .expect("turn should start");
 
         let report = runtime.shutdown(Duration::from_millis(25));
-        assert_eq!(report.cancelled_runs, vec!["run-shutdown"]);
-        assert_eq!(report.cleanup_pending_runs, vec!["run-shutdown"]);
+        assert_eq!(report.cancelled_turns, vec!["turn-shutdown"]);
+        assert_eq!(report.cleanup_pending_turns, vec!["turn-shutdown"]);
         assert!(report.timed_out);
         assert_eq!(runtime.active_count(), 0);
         assert!(runtime
-            .start_blocking(request("run-rejected"), || Ok(final_result("run-rejected")))
+            .start_blocking(request("turn-rejected"), || Ok(final_result(
+                "turn-rejected"
+            )))
             .is_err());
         assert_eq!(handle.wait().unwrap()["stopReason"], "cancelled");
 
@@ -1510,18 +1522,18 @@ mod tests {
         wait_until(Duration::from_secs(1), || runtime.draining_count() == 0);
         runtime.resume_accepting();
         runtime
-            .start_blocking(request("run-restarted"), || {
-                Ok(final_result("run-restarted"))
+            .start_blocking(request("turn-restarted"), || {
+                Ok(final_result("turn-restarted"))
             })
             .expect("runtime should accept after resume")
             .wait()
-            .expect("restarted run should finish");
+            .expect("restarted turn should finish");
     }
 
     #[test]
     fn shutdown_does_not_publish_terminal_result_before_cooperative_cleanup() {
         tauri::async_runtime::block_on(async {
-            let runtime = AgentTaskRuntime::new();
+            let runtime = TurnExecutionRuntime::new();
             let cleanup_completed = Arc::new(std::sync::atomic::AtomicBool::new(false));
             let operation_cleanup_completed = cleanup_completed.clone();
             let token_slot = Arc::new(Mutex::new(None::<CancellationToken>));
@@ -1529,7 +1541,7 @@ mod tests {
             let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
             let handle = runtime
                 .start_cooperative_async(
-                    request("run-shutdown-cleanup-order"),
+                    request("turn-shutdown-cleanup-order"),
                     Duration::from_secs(1),
                     async move {
                         let cancellation = loop {
@@ -1548,16 +1560,16 @@ mod tests {
                         operation_cleanup_completed
                             .store(true, std::sync::atomic::Ordering::SeqCst);
                         Ok(cancelled_task_result(
-                            &request("run-shutdown-cleanup-order"),
+                            &request("turn-shutdown-cleanup-order"),
                             AgentCancelReason::Shutdown.as_str(),
                         ))
                     },
                 )
-                .expect("cooperative run should start");
+                .expect("cooperative turn should start");
             *token_slot
                 .lock()
                 .expect("test token slot should not be poisoned") =
-                runtime.cancellation_token("run-shutdown-cleanup-order");
+                runtime.cancellation_token("turn-shutdown-cleanup-order");
             started_receiver
                 .await
                 .expect("cooperative operation should start");
@@ -1565,7 +1577,7 @@ mod tests {
             let shutdown_runtime = runtime.clone();
             let shutdown = thread::spawn(move || shutdown_runtime.shutdown(Duration::from_secs(1)));
             while !runtime
-                .status("run-shutdown-cleanup-order")
+                .status("turn-shutdown-cleanup-order")
                 .is_some_and(|status| status.cancellation_requested)
             {
                 tokio::task::yield_now().await;
@@ -1585,7 +1597,7 @@ mod tests {
                 "shutdown published a terminal result before owned cleanup completed"
             );
             assert!(!report.timed_out);
-            assert!(report.cleanup_pending_runs.is_empty());
+            assert!(report.cleanup_pending_turns.is_empty());
         });
     }
 
@@ -1600,22 +1612,22 @@ mod tests {
                 }
             }
 
-            let runtime = AgentTaskRuntime::new();
+            let runtime = TurnExecutionRuntime::new();
             let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
             let operation_dropped = dropped.clone();
             let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
             let handle = runtime
-                .start_async(request("run-async-cancel"), async move {
+                .start_async(request("turn-async-cancel"), async move {
                     let _drop_signal = DropSignal(operation_dropped);
                     started_sender.send(()).expect("async start should send");
                     std::future::pending::<Result<Value, String>>().await
                 })
-                .expect("async run should start");
+                .expect("async turn should start");
             started_receiver
                 .await
-                .expect("async run should enter future");
+                .expect("async turn should enter future");
 
-            let outcome = runtime.cancel("run-async-cancel", AgentCancelReason::UserRequested);
+            let outcome = runtime.cancel("turn-async-cancel", AgentCancelReason::UserRequested);
             let result = handle
                 .wait_async()
                 .await
@@ -1630,7 +1642,7 @@ mod tests {
                 tokio::time::sleep(Duration::from_millis(5)).await;
             }
             let status = runtime
-                .status("run-async-cancel")
+                .status("turn-async-cancel")
                 .expect("async cancelled status should remain");
             assert!(dropped.load(std::sync::atomic::Ordering::SeqCst));
             assert_eq!(runtime.draining_count(), 0);
@@ -1651,13 +1663,13 @@ mod tests {
                 }
             }
 
-            let runtime = AgentTaskRuntime::new();
+            let runtime = TurnExecutionRuntime::new();
             let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
             let operation_dropped = dropped.clone();
             let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
             let handle = runtime
                 .start_cooperative_async(
-                    request("run-cooperative-cleanup-timeout"),
+                    request("turn-cooperative-cleanup-timeout"),
                     Duration::from_millis(20),
                     async move {
                         let _drop_signal = DropSignal(operation_dropped);
@@ -1665,13 +1677,13 @@ mod tests {
                         std::future::pending::<Result<Value, String>>().await
                     },
                 )
-                .expect("cooperative async run should start");
+                .expect("cooperative async turn should start");
             started_receiver
                 .await
-                .expect("cooperative async run should enter future");
+                .expect("cooperative async turn should enter future");
 
             let outcome = runtime.request_cancel(
-                "run-cooperative-cleanup-timeout",
+                "turn-cooperative-cleanup-timeout",
                 AgentCancelReason::UserRequested,
             );
             let result = handle

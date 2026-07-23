@@ -14,7 +14,7 @@ impl WorkerRpcRouter {
                             &params.server,
                             &params.tool,
                             params.session_id,
-                            params.run_id,
+                            params.turn_id,
                         ))?;
                 }
                 self.mcp.call_tool_from_request(request)

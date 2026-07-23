@@ -34,7 +34,7 @@ use crate::threads::domain::{
     ThreadOp, ThreadPersistenceRepairRequest, UpdateThreadMetadataRequest, WorkerThreadRpc,
 };
 use crate::threads::rollout::store::{ThreadLogIndexRepairRequest, WorkerThreadLogRpc};
-use crate::threads::session::{AgentRunRecord, AgentRunSummary, SessionMetadata};
+use crate::threads::session::{AgentTurnRecord, AgentTurnSummary, SessionMetadata};
 use crate::tools::executor::{
     tool_not_found_error, tool_unavailable_error, ToolExecutorExecuteRequest,
     ToolExecutorExecuteResult,
@@ -271,10 +271,8 @@ impl WorkerRpcRouter {
             method if method.starts_with("session.") || method.starts_with("rollout.") => {
                 self.dispatch_session_persistence(request)
             }
+            method if method.starts_with("thread.turn.") => self.dispatch_turn_persistence(request),
             method if method.starts_with("thread.") => self.dispatch_thread_method(request),
-            method if method.starts_with("agent_run.") => {
-                self.dispatch_agent_run_persistence(request)
-            }
             method
                 if method == "diagnostics.append"
                     || method.starts_with("channel.connector.")
@@ -325,7 +323,7 @@ impl WorkerRpcRouter {
                 tool_id: params.tool_id.clone(),
                 arguments: params.arguments,
                 session_id: params.session_id.clone(),
-                run_id: params.run_id.clone(),
+                turn_id: params.turn_id.clone(),
             },
         )?;
 
@@ -366,17 +364,17 @@ impl WorkerRpcRouter {
                 WorkerProtocolErrorSource::RustCore,
             )
         })?;
-        let run_id = params
-            .run_id
+        let turn_id = params
+            .turn_id
             .clone()
-            .or_else(|| approval_request.run_id.clone())
+            .or_else(|| approval_request.turn_id.clone())
             .unwrap_or_else(|| tool.method.to_string());
         let approval = self.approval.request_from_request(&WorkerRequest::new(
             format!("{}:approval-request", request.id),
             request.trace_id.clone(),
             "approval.request",
             serde_json::json!({
-                "run_id": run_id,
+                "turn_id": turn_id,
                 "session_id": params.session_id,
                 "operation": approval_request.operation,
                 "classification": {
@@ -412,7 +410,6 @@ impl WorkerRpcRouter {
                     thread_id,
                     client_event_id,
                     ThreadOp::ApprovalRequest {
-                        run_id: params.run_id,
                         turn_id: params.turn_id,
                         approval_id,
                         summary,
@@ -461,7 +458,6 @@ impl WorkerRpcRouter {
                 thread_id,
                 client_event_id,
                 ThreadOp::ApprovalDecision {
-                    run_id: params.run_id,
                     turn_id: params.turn_id,
                     approval_id: Some(params.approval_id),
                     approved: params.approved,
@@ -501,7 +497,7 @@ impl WorkerRpcRouter {
                 tool_id: params.tool_id.clone(),
                 arguments: params.arguments.clone(),
                 session_id: params.session_id.clone(),
-                run_id: params.run_id.clone(),
+                turn_id: params.turn_id.clone(),
             },
         )?;
         if permission.requires_approval
@@ -534,7 +530,6 @@ impl WorkerRpcRouter {
                 thread_id,
                 format!("{}:tool-start", request.id),
                 ThreadOp::ToolCallStarted {
-                    run_id: params.run_id.clone(),
                     turn_id: params.turn_id.clone(),
                     tool_call_id: Some(tool_call_id.clone()),
                     tool_name: Some(tool.method.to_string()),
@@ -584,7 +579,6 @@ impl WorkerRpcRouter {
                         thread_id,
                         format!("{}:tool-result", request.id),
                         ThreadOp::ToolResult {
-                            run_id: params.run_id.clone(),
                             turn_id: params.turn_id.clone(),
                             tool_call_id: Some(tool_call_id.clone()),
                             tool_name: Some(tool.method.to_string()),
@@ -610,7 +604,6 @@ impl WorkerRpcRouter {
                             thread_id,
                             format!("{}:tool-error", request.id),
                             ThreadOp::ToolResult {
-                                run_id: params.run_id.clone(),
                                 turn_id: params.turn_id.clone(),
                                 tool_call_id: Some(tool_call_id.clone()),
                                 tool_name: Some(tool.method.to_string()),
@@ -660,14 +653,14 @@ fn tool_executor_arguments_with_context(params: &ToolExecutorExecuteRequest) -> 
                 Value::String(session_id.to_string()),
             );
         }
-        if !object.contains_key("parentRunId") {
-            if let Some(run_id) = params
-                .run_id
+        if !object.contains_key("parentTurnId") {
+            if let Some(turn_id) = params
+                .turn_id
                 .as_deref()
                 .filter(|value| !value.trim().is_empty())
             {
-                object.remove("run_id");
-                object.insert("runId".to_string(), Value::String(run_id.to_string()));
+                object.remove("turn_id");
+                object.insert("turnId".to_string(), Value::String(turn_id.to_string()));
             }
         }
         if let Some(tool_call_id) = params
@@ -750,8 +743,8 @@ struct DeleteFileParams {
     recursive: Option<bool>,
     #[serde(default, alias = "sessionId")]
     session_id: Option<String>,
-    #[serde(default, alias = "runId")]
-    run_id: Option<String>,
+    #[serde(default, alias = "turnId")]
+    turn_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -767,8 +760,8 @@ struct WriteFileParams {
     expected_updated_at: Option<String>,
     #[serde(default, alias = "sessionId")]
     session_id: Option<String>,
-    #[serde(default, alias = "runId")]
-    run_id: Option<String>,
+    #[serde(default, alias = "turnId")]
+    turn_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -776,8 +769,8 @@ struct ApplyPatchParams {
     patch: String,
     #[serde(default, alias = "sessionId")]
     session_id: Option<String>,
-    #[serde(default, alias = "runId")]
-    run_id: Option<String>,
+    #[serde(default, alias = "turnId")]
+    turn_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -786,8 +779,8 @@ struct McpCallApprovalParams {
     tool: String,
     #[serde(default, alias = "sessionId")]
     session_id: Option<String>,
-    #[serde(default, alias = "runId")]
-    run_id: Option<String>,
+    #[serde(default, alias = "turnId")]
+    turn_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -821,8 +814,8 @@ struct ShellExecuteRequestParams {
     network_mode: Option<PermissionNetworkMode>,
     #[serde(default, alias = "sessionId")]
     session_id: Option<String>,
-    #[serde(default, alias = "runId")]
-    run_id: Option<String>,
+    #[serde(default, alias = "turnId")]
+    turn_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -846,8 +839,8 @@ struct ShellStartRequestParams {
     network_mode: Option<PermissionNetworkMode>,
     #[serde(default, alias = "sessionId")]
     session_id: Option<String>,
-    #[serde(default, alias = "runId")]
-    run_id: Option<String>,
+    #[serde(default, alias = "turnId")]
+    turn_id: Option<String>,
     #[serde(default, alias = "toolCallId")]
     tool_call_id: Option<String>,
 }
@@ -871,7 +864,7 @@ impl ShellStartRequestParams {
             cols: self.cols,
             sandbox_mode: self.sandbox_mode,
             network_mode: self.network_mode,
-            run_id: self.run_id,
+            owner_id: self.turn_id,
             tool_call_id: self.tool_call_id,
             cancellation,
         }
@@ -879,9 +872,9 @@ impl ShellStartRequestParams {
 }
 
 #[derive(Deserialize)]
-struct ShellRunParams {
-    #[serde(alias = "runId")]
-    run_id: String,
+struct ShellOwnerParams {
+    #[serde(alias = "ownerId")]
+    owner_id: String,
 }
 
 impl ShellExecuteRequestParams {
@@ -976,7 +969,7 @@ struct SessionTrimParams {
 #[derive(Deserialize)]
 struct SessionPersistTurnParams {
     session_id: String,
-    run_id: String,
+    turn_id: String,
     messages: Vec<Value>,
     #[serde(default)]
     clear_checkpoint: bool,
@@ -990,8 +983,8 @@ struct SessionPersistTurnParams {
 struct SessionCommitContextCheckpointParams {
     #[serde(alias = "sessionId")]
     session_id: String,
-    #[serde(alias = "runId")]
-    run_id: String,
+    #[serde(alias = "turnId")]
+    turn_id: String,
     checkpoint: Value,
 }
 
@@ -1004,8 +997,8 @@ impl SessionPersistTurnParams {
 }
 
 #[derive(Deserialize)]
-struct AgentRunStartParams {
-    record: AgentRunRecord,
+struct AgentTurnStartParams {
+    record: AgentTurnRecord,
     #[serde(default)]
     context: Option<crate::threads::rollout::format::TurnContextItem>,
     #[serde(default)]
@@ -1013,43 +1006,43 @@ struct AgentRunStartParams {
 }
 
 #[derive(Deserialize)]
-struct AgentRunListParams {
+struct AgentTurnListParams {
     #[serde(alias = "sessionId")]
     session_id: String,
 }
 
 #[derive(Deserialize)]
-struct AgentRunIdParams {
+struct AgentTurnIdParams {
     #[serde(alias = "sessionId")]
     session_id: String,
-    #[serde(alias = "runId")]
-    run_id: String,
+    #[serde(alias = "turnId")]
+    turn_id: String,
 }
 
 #[derive(Deserialize)]
-struct AgentRunAppendSemanticBatchParams {
+struct AgentTurnAppendSemanticBatchParams {
     #[serde(alias = "sessionId")]
     session_id: String,
-    #[serde(alias = "runId")]
-    run_id: String,
+    #[serde(alias = "turnId")]
+    turn_id: String,
     events: Vec<Value>,
 }
 
 #[derive(Deserialize)]
-struct AgentRunCheckpointParams {
+struct AgentTurnCheckpointParams {
     #[serde(alias = "sessionId")]
     session_id: String,
-    #[serde(alias = "runId")]
-    run_id: String,
+    #[serde(alias = "turnId")]
+    turn_id: String,
     checkpoint: Value,
 }
 
 #[derive(Deserialize)]
-struct AgentRunMarkCompletedParams {
+struct AgentTurnMarkCompletedParams {
     #[serde(alias = "sessionId")]
     session_id: String,
-    #[serde(alias = "runId")]
-    run_id: String,
+    #[serde(alias = "turnId")]
+    turn_id: String,
     #[serde(alias = "stopReason")]
     stop_reason: String,
     #[serde(default, alias = "finalContent")]
@@ -1059,11 +1052,11 @@ struct AgentRunMarkCompletedParams {
 }
 
 #[derive(Deserialize)]
-struct AgentRunMarkFailedParams {
+struct AgentTurnMarkFailedParams {
     #[serde(alias = "sessionId")]
     session_id: String,
-    #[serde(alias = "runId")]
-    run_id: String,
+    #[serde(alias = "turnId")]
+    turn_id: String,
     #[serde(alias = "stopReason")]
     stop_reason: String,
     error: Value,
@@ -1072,11 +1065,11 @@ struct AgentRunMarkFailedParams {
 }
 
 #[derive(Deserialize)]
-struct AgentRunMarkInterruptedParams {
+struct AgentTurnMarkInterruptedParams {
     #[serde(alias = "sessionId")]
     session_id: String,
-    #[serde(alias = "runId")]
-    run_id: String,
+    #[serde(alias = "turnId")]
+    turn_id: String,
     reason: String,
 }
 

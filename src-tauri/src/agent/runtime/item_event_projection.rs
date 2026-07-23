@@ -105,14 +105,14 @@ fn agent_item_for_runtime_event(event_name: &str, payload: &Value) -> Option<Age
             }))
         }
         "agent.context.compacted" | "agent.context.trimmed" => {
-            let run_id = required_string(payload, &["runId", "run_id"], event_name);
+            let turn_id = required_string(payload, &["turnId", "turn_id"], event_name);
             let iteration = payload
                 .get("iteration")
                 .and_then(Value::as_i64)
                 .unwrap_or(0);
             let strategy = optional_string(payload, &["strategy"]).unwrap_or_default();
             Some(AgentItem::ContextCompaction(AgentContextCompactionItem {
-                id: format!("{run_id}:context:{iteration}"),
+                id: format!("{turn_id}:context:{iteration}"),
                 summary: strategy,
                 dropped_item_count: payload
                     .get("droppedMessageCount")
@@ -133,13 +133,13 @@ fn agent_item_for_runtime_event(event_name: &str, payload: &Value) -> Option<Age
         | "agent.cancelled"
         | "agent.tool.cleanup_timeout"
         | "agent.context.compaction_failed" => {
-            let run_id = required_string(payload, &["runId", "run_id"], event_name);
+            let turn_id = required_string(payload, &["turnId", "turn_id"], event_name);
             let code = optional_string(payload, &["stopReason", "code"])
                 .unwrap_or_else(|| event_name.trim_start_matches("agent.").to_string());
             let message =
                 optional_string(payload, &["message", "error"]).unwrap_or_else(|| code.clone());
             Some(AgentItem::Error(AgentErrorItem {
-                id: Some(format!("{run_id}:error:{code}")),
+                id: Some(format!("{turn_id}:error:{code}")),
                 code,
                 message,
                 command_id: optional_string(payload, &["commandId", "command_id"]),
@@ -151,7 +151,7 @@ fn agent_item_for_runtime_event(event_name: &str, payload: &Value) -> Option<Age
             }))
         }
         "agent.usage" => {
-            let run_id = required_string(payload, &["runId", "run_id"], event_name);
+            let turn_id = required_string(payload, &["turnId", "turn_id"], event_name);
             let mut usage = AgentUsageItem::from_provider_payload(
                 payload
                     .get("usage")
@@ -160,7 +160,7 @@ fn agent_item_for_runtime_event(event_name: &str, payload: &Value) -> Option<Age
             )
             .expect("runtime usage payload must be an object");
             usage.id = Some(format!(
-                "{run_id}:usage:{}",
+                "{turn_id}:usage:{}",
                 payload
                     .get("iteration")
                     .and_then(Value::as_i64)

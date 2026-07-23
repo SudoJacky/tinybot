@@ -12,12 +12,11 @@ pub const AGENT_TIMELINE_PATCH_SCHEMA_VERSION: &str = "tinybot.timeline_patch.v2
 pub struct AgentTraceContext {
     pub request_id: String,
     pub trace_id: String,
-    pub run_id: String,
     pub turn_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub parent_run_id: Option<String>,
+    pub parent_turn_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -311,10 +310,10 @@ pub enum AgentTurnItemData {
         action: String,
         status: String,
         message: Option<String>,
-        child_run_id: Option<String>,
+        child_turn_id: Option<String>,
         child_thread_id: Option<String>,
         parent_agent_id: Option<String>,
-        parent_run_id: Option<String>,
+        parent_turn_id: Option<String>,
         name: Option<String>,
         task: Option<String>,
         trace_ref: Option<String>,
@@ -376,7 +375,6 @@ pub struct AgentTurnItem {
     pub session_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<String>,
-    pub run_id: String,
     pub turn_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_item_id: Option<String>,
@@ -401,7 +399,7 @@ pub struct AgentTurnItem {
 pub struct AgentTimelineSnapshot {
     pub schema_version: String,
     pub session_id: String,
-    pub run_id: String,
+    pub turn_id: String,
     pub snapshot_revision: u64,
     pub items: Vec<AgentTurnItem>,
 }
@@ -411,7 +409,7 @@ pub struct AgentTimelineSnapshot {
 pub struct AgentTimelinePatch {
     pub schema_version: String,
     pub session_id: String,
-    pub run_id: String,
+    pub turn_id: String,
     pub snapshot_revision: u64,
     pub item: AgentTurnItem,
 }
@@ -419,7 +417,7 @@ pub struct AgentTimelinePatch {
 #[derive(Clone, Debug)]
 pub struct AgentTimelineProjector {
     session_id: String,
-    run_id: String,
+    turn_id: String,
     order: Vec<String>,
     items: HashMap<String, AgentTurnItem>,
     snapshot_revision: u64,
@@ -600,12 +598,12 @@ impl AgentRuntimeEventAppender {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct AgentRunEmitter {
+pub struct AgentTurnEmitter {
     appender: AgentRuntimeEventAppender,
     events: Vec<AgentRuntimeEventEnvelope>,
 }
 
-impl AgentRunEmitter {
+impl AgentTurnEmitter {
     #[cfg(test)]
     pub fn new(session_id: impl Into<String>, turn_id: impl Into<String>) -> Self {
         Self::new_with_thread_id(session_id, turn_id, None)
@@ -1059,12 +1057,11 @@ fn apply_trace_event_to_items(
                 item_id: item_id.clone(),
                 session_id: event.session_id.clone(),
                 thread_id: event.thread_id.clone(),
-                run_id: event
+                turn_id: event
                     .trace_context
                     .as_ref()
-                    .map(|trace| trace.run_id.clone())
+                    .map(|trace| trace.turn_id.clone())
                     .unwrap_or_else(|| event.turn_id.clone()),
-                turn_id: event.turn_id.clone(),
                 parent_item_id: parent_item_id(&event.payload),
                 sequence: event.sequence,
                 revision: 1,
@@ -1083,10 +1080,10 @@ fn apply_trace_event_to_items(
 }
 
 impl AgentTimelineProjector {
-    pub fn new(session_id: impl Into<String>, run_id: impl Into<String>) -> Self {
+    pub fn new(session_id: impl Into<String>, turn_id: impl Into<String>) -> Self {
         Self {
             session_id: session_id.into(),
-            run_id: run_id.into(),
+            turn_id: turn_id.into(),
             order: Vec::new(),
             items: HashMap::new(),
             snapshot_revision: 0,
@@ -1096,10 +1093,10 @@ impl AgentTimelineProjector {
 
     pub fn from_events(
         session_id: impl Into<String>,
-        run_id: impl Into<String>,
+        turn_id: impl Into<String>,
         events: &[AgentRuntimeEventEnvelope],
     ) -> Result<Self, String> {
-        let mut projector = Self::new(session_id, run_id);
+        let mut projector = Self::new(session_id, turn_id);
         for event in events {
             projector.apply_event(event)?;
         }
@@ -1112,7 +1109,7 @@ impl AgentTimelineProjector {
     ) -> Result<Option<AgentTimelinePatch>, String> {
         validate_timeline_event_identity(
             &self.session_id,
-            &self.run_id,
+            &self.turn_id,
             std::slice::from_ref(event),
         )?;
         let Some(item_id) = apply_trace_event_to_items(&mut self.order, &mut self.items, event)
@@ -1131,7 +1128,7 @@ impl AgentTimelineProjector {
         Ok(Some(AgentTimelinePatch {
             schema_version: AGENT_TIMELINE_PATCH_SCHEMA_VERSION.to_string(),
             session_id: self.session_id.clone(),
-            run_id: self.run_id.clone(),
+            turn_id: self.turn_id.clone(),
             snapshot_revision: self.snapshot_revision,
             item,
         }))
@@ -1153,7 +1150,7 @@ impl AgentTimelineProjector {
         Ok(AgentTimelineSnapshot {
             schema_version: AGENT_TIMELINE_SCHEMA_VERSION.to_string(),
             session_id: self.session_id.clone(),
-            run_id: self.run_id.clone(),
+            turn_id: self.turn_id.clone(),
             snapshot_revision: self.snapshot_revision,
             items,
         })
@@ -1190,10 +1187,10 @@ impl AgentTimelineProjector {
 
 pub fn project_timeline_snapshot(
     session_id: &str,
-    run_id: &str,
+    turn_id: &str,
     events: &[AgentRuntimeEventEnvelope],
 ) -> Result<AgentTimelineSnapshot, String> {
-    validate_timeline_event_identity(session_id, run_id, events)?;
+    validate_timeline_event_identity(session_id, turn_id, events)?;
     let mut items = project_turn_items_from_trace_events(events);
     items.sort_by(|left, right| {
         left.sequence
@@ -1204,7 +1201,7 @@ pub fn project_timeline_snapshot(
     Ok(AgentTimelineSnapshot {
         schema_version: AGENT_TIMELINE_SCHEMA_VERSION.to_string(),
         session_id: session_id.to_string(),
-        run_id: run_id.to_string(),
+        turn_id: turn_id.to_string(),
         snapshot_revision: events
             .iter()
             .filter(|event| {
@@ -1238,10 +1235,10 @@ pub fn is_durable_agent_timeline_event(event_name: &str) -> bool {
 #[cfg(test)]
 pub fn project_timeline_patch(
     session_id: &str,
-    run_id: &str,
+    turn_id: &str,
     events: &[AgentRuntimeEventEnvelope],
 ) -> Result<Option<AgentTimelinePatch>, String> {
-    let snapshot = project_timeline_snapshot(session_id, run_id, events)?;
+    let snapshot = project_timeline_snapshot(session_id, turn_id, events)?;
     let Some(event) = events.last() else {
         return Ok(None);
     };
@@ -1261,7 +1258,7 @@ pub fn project_timeline_patch(
     Ok(Some(AgentTimelinePatch {
         schema_version: AGENT_TIMELINE_PATCH_SCHEMA_VERSION.to_string(),
         session_id: session_id.to_string(),
-        run_id: run_id.to_string(),
+        turn_id: turn_id.to_string(),
         snapshot_revision: snapshot.snapshot_revision,
         item,
     }))
@@ -1269,7 +1266,7 @@ pub fn project_timeline_patch(
 
 fn validate_timeline_event_identity(
     session_id: &str,
-    run_id: &str,
+    turn_id: &str,
     events: &[AgentRuntimeEventEnvelope],
 ) -> Result<(), String> {
     for event in events {
@@ -1279,14 +1276,14 @@ fn validate_timeline_event_identity(
                 event.event_id, event.session_id
             ));
         }
-        let event_run_id = event
+        let event_turn_id = event
             .trace_context
             .as_ref()
-            .map(|trace| trace.run_id.as_str())
+            .map(|trace| trace.turn_id.as_str())
             .unwrap_or(event.turn_id.as_str());
-        if event_run_id != run_id {
+        if event_turn_id != turn_id {
             return Err(format!(
-                "timeline event `{}` belongs to run `{event_run_id}`, expected `{run_id}`",
+                "timeline event `{}` belongs to turn `{event_turn_id}`, expected `{turn_id}`",
                 event.event_id
             ));
         }
@@ -1626,8 +1623,8 @@ fn projected_item_data(
                     .unwrap_or_else(|| "running".to_string()),
                 message: item_string(source, &["message"])
                     .or_else(|| item_string(payload, &["message"])),
-                child_run_id: item_string(source, &["childRunId", "child_run_id"])
-                    .or_else(|| item_string(payload, &["childRunId", "child_run_id"])),
+                child_turn_id: item_string(source, &["childTurnId", "child_turn_id"])
+                    .or_else(|| item_string(payload, &["childTurnId", "child_turn_id"])),
                 child_thread_id: item_string(source, &["childThreadId", "child_thread_id"])
                     .or_else(|| item_string(payload, &["childThreadId", "child_thread_id"])),
                 parent_agent_id: item_string(
@@ -1650,8 +1647,8 @@ fn projected_item_data(
                         ],
                     )
                 }),
-                parent_run_id: item_string(source, &["parentRunId", "parent_run_id"])
-                    .or_else(|| item_string(payload, &["parentRunId", "parent_run_id"])),
+                parent_turn_id: item_string(source, &["parentTurnId", "parent_turn_id"])
+                    .or_else(|| item_string(payload, &["parentTurnId", "parent_turn_id"])),
                 name: item_string(source, &["name"]).or_else(|| item_string(payload, &["name"])),
                 task: item_string(source, &["task"]).or_else(|| item_string(payload, &["task"])),
                 trace_ref: item_string(source, &["traceRef", "trace_ref"])
@@ -2444,7 +2441,6 @@ mod tests {
             item_id: "item-1".to_string(),
             session_id: "session-1".to_string(),
             thread_id: None,
-            run_id: "run-1".to_string(),
             turn_id: "turn-1".to_string(),
             parent_item_id: None,
             sequence: 7,
@@ -2473,7 +2469,6 @@ mod tests {
                 "schemaVersion": "tinybot.turn_item.v2",
                 "itemId": "item-1",
                 "sessionId": "session-1",
-                "runId": "run-1",
                 "turnId": "turn-1",
                 "sequence": 7,
                 "revision": 1,
@@ -2560,10 +2555,10 @@ mod tests {
             1,
             json!({
                 "delegateId": "agent-child",
-                "childRunId": "run-child",
+                "childTurnId": "run-child",
                 "childThreadId": "thread-child",
                 "parentAgentId": "agent-main",
-                "parentRunId": "run-parent",
+                "parentTurnId": "run-parent",
                 "name": "Reviewer",
                 "task": "Review the implementation",
                 "status": "running",
@@ -2573,10 +2568,10 @@ mod tests {
 
         let data = serde_json::to_value(&items[0].data).unwrap();
         assert_eq!(data["agentId"], "agent-child");
-        assert_eq!(data["childRunId"], "run-child");
+        assert_eq!(data["childTurnId"], "run-child");
         assert_eq!(data["childThreadId"], "thread-child");
         assert_eq!(data["parentAgentId"], "agent-main");
-        assert_eq!(data["parentRunId"], "run-parent");
+        assert_eq!(data["parentTurnId"], "run-parent");
         assert_eq!(data["name"], "Reviewer");
         assert_eq!(data["task"], "Review the implementation");
         assert_eq!(data["traceRef"], "trace-child");
@@ -2647,7 +2642,7 @@ mod tests {
 
     #[test]
     fn run_emitter_buffers_events_and_takes_them_in_sequence_order() {
-        let mut emitter = AgentRunEmitter::new("session-1", "turn-1");
+        let mut emitter = AgentTurnEmitter::new("session-1", "turn-1");
 
         let first = emitter.phase_changed(
             "2026-07-03T00:00:00Z",
@@ -2682,7 +2677,7 @@ mod tests {
 
     #[test]
     fn run_emitter_status_event_is_user_visible_without_turn_item() {
-        let mut emitter = AgentRunEmitter::new("session-1", "run-1");
+        let mut emitter = AgentTurnEmitter::new("session-1", "run-1");
 
         let event = emitter.status(
             "2026-07-03T00:00:01Z",
@@ -2706,7 +2701,7 @@ mod tests {
 
     #[test]
     fn run_emitter_helpers_emit_canonical_payloads() {
-        let mut emitter = AgentRunEmitter::new("session-1", "turn-1");
+        let mut emitter = AgentTurnEmitter::new("session-1", "turn-1");
 
         emitter.user_turn_started(
             "2026-07-03T00:00:00Z",
@@ -2753,7 +2748,7 @@ mod tests {
 
     #[test]
     fn runtime_events_project_to_legacy_native_event_shape() {
-        let mut emitter = AgentRunEmitter::new("session-1", "turn-1");
+        let mut emitter = AgentTurnEmitter::new("session-1", "turn-1");
         emitter.message_completed(
             "2026-07-03T00:00:01Z",
             Some("assistant-1".to_string()),
@@ -3294,7 +3289,7 @@ mod tests {
 
         assert_eq!(items.len(), 5);
         assert_eq!(items[0]["schemaVersion"], "tinybot.turn_item.v2");
-        assert_eq!(items[0]["runId"], "run-typed");
+        assert_eq!(items[0]["turnId"], "run-typed");
         assert_eq!(items[0]["sequence"], 1);
         assert_eq!(items[0]["revision"], 2);
         assert_eq!(items[0]["kind"], "plan_progress");
@@ -3418,7 +3413,7 @@ mod tests {
 
     #[test]
     fn canonical_user_item_preserves_client_event_id() {
-        let mut emitter = AgentRunEmitter::new("session-1", "run-client-event");
+        let mut emitter = AgentTurnEmitter::new("session-1", "run-client-event");
         let event = emitter.user_turn_started(
             "2026-07-11T00:00:00Z",
             Some("user-1".to_string()),

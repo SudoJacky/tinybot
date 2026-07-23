@@ -2,7 +2,7 @@ use super::events::event;
 use super::tool_dispatcher::is_subagent_tool;
 use super::{
     string_field, AgentAssistantMessage, AgentItem, AgentMessageContent, AgentToolCallItem,
-    AgentToolResultItem, NativeAgentEvent, NativeAgentRunContext, NativeAgentToolCall,
+    AgentToolResultItem, AgentTurnContext, NativeAgentEvent, NativeAgentToolCall,
     NativeAgentToolResult,
 };
 use serde_json::Value;
@@ -136,7 +136,7 @@ pub(super) fn tool_observation_content(result: &NativeAgentToolResult) -> String
 }
 
 pub(super) fn subagent_link_event_from_tool_result(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     tool_call: &NativeAgentToolCall,
     result: &NativeAgentToolResult,
 ) -> Option<NativeAgentEvent> {
@@ -152,22 +152,22 @@ pub(super) fn subagent_link_event_from_tool_result(
         raw.get("event")
             .and_then(|event| string_field(event, "delegateId"))
     })?;
-    let child_run_id = string_field(subagent, "childRunId")
+    let child_turn_id = string_field(subagent, "childTurnId")
         .or_else(|| {
             raw.get("event")
-                .and_then(|event| string_field(event, "childRunId"))
+                .and_then(|event| string_field(event, "childTurnId"))
         })
         .unwrap_or_else(|| subagent_id.clone());
     Some(event(
         "agent.delegate.linked",
         serde_json::json!({
-            "runId": context.run_id,
+            "turnId": context.turn_id,
             "sessionId": context.session_id,
-            "parentTurnId": context.run_id,
-            "parentRunId": context.run_id,
+            "parentTurnId": context.turn_id,
+            "parentTurnId": context.turn_id,
             "delegateId": subagent_id,
             "subagentId": subagent_id,
-            "childRunId": child_run_id,
+            "childTurnId": child_turn_id,
             "traceRef": subagent.get("traceRef").cloned().unwrap_or(Value::Null),
             "name": subagent.get("name").cloned().unwrap_or(Value::Null),
             "task": subagent.get("task").cloned().unwrap_or(Value::Null),
@@ -179,7 +179,7 @@ pub(super) fn subagent_link_event_from_tool_result(
 }
 
 pub(super) fn subagent_activity_events_from_tool_result(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     tool_call: &NativeAgentToolCall,
     result: &NativeAgentToolResult,
 ) -> Vec<NativeAgentEvent> {
@@ -205,10 +205,10 @@ pub(super) fn subagent_activity_events_from_tool_result(
             events.push(event(
                 "agent.delegate.wait",
                 serde_json::json!({
-                    "runId": context.run_id,
+                    "turnId": context.turn_id,
                     "sessionId": context.session_id,
-                    "parentTurnId": context.run_id,
-                    "parentRunId": context.run_id,
+                    "parentTurnId": context.turn_id,
+                    "parentTurnId": context.turn_id,
                     "timedOut": raw.get("timedOut").cloned().unwrap_or(Value::Null),
                     "statuses": raw.get("statuses").cloned().unwrap_or_else(|| serde_json::json!([])),
                     "sourceToolCallId": tool_call.id,
@@ -265,7 +265,7 @@ pub(super) fn subagent_activity_events_from_tool_result(
 }
 
 fn subagent_background_activity_event(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     background_event: &Value,
 ) -> Option<NativeAgentEvent> {
     let event_name = string_field(background_event, "eventType")?;
@@ -274,7 +274,7 @@ fn subagent_background_activity_event(
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
-    payload.insert("runId".to_string(), Value::String(context.run_id.clone()));
+    payload.insert("turnId".to_string(), Value::String(context.turn_id.clone()));
     payload.insert(
         "sessionId".to_string(),
         Value::String(context.session_id.clone()),
@@ -284,14 +284,14 @@ fn subagent_background_activity_event(
             "parentTurnId".to_string(),
             Value::String(parent_turn_id.clone()),
         );
-        payload.insert("parentRunId".to_string(), Value::String(parent_turn_id));
+        payload.insert("parentTurnId".to_string(), Value::String(parent_turn_id));
     }
     if let Some(delegate_id) = string_field(background_event, "delegateId") {
         payload.insert("delegateId".to_string(), Value::String(delegate_id.clone()));
         payload.insert("subagentId".to_string(), Value::String(delegate_id));
     }
-    if let Some(child_run_id) = string_field(background_event, "childRunId") {
-        payload.insert("childRunId".to_string(), Value::String(child_run_id));
+    if let Some(child_turn_id) = string_field(background_event, "childTurnId") {
+        payload.insert("childTurnId".to_string(), Value::String(child_turn_id));
     }
     if let Some(trace_ref) = string_field(background_event, "traceRef") {
         payload.insert("traceRef".to_string(), Value::String(trace_ref));
@@ -306,7 +306,7 @@ fn subagent_background_activity_event(
 }
 
 fn subagent_status_activity_event(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     event_name: &str,
     activity: &str,
     subagent: &Value,
@@ -315,13 +315,13 @@ fn subagent_status_activity_event(
     event(
         event_name,
         serde_json::json!({
-            "runId": context.run_id,
+            "turnId": context.turn_id,
             "sessionId": context.session_id,
-            "parentTurnId": subagent.get("parentRunId").cloned().unwrap_or_else(|| Value::String(context.run_id.clone())),
-            "parentRunId": subagent.get("parentRunId").cloned().unwrap_or_else(|| Value::String(context.run_id.clone())),
+            "parentTurnId": subagent.get("parentTurnId").cloned().unwrap_or_else(|| Value::String(context.turn_id.clone())),
+            "parentTurnId": subagent.get("parentTurnId").cloned().unwrap_or_else(|| Value::String(context.turn_id.clone())),
             "delegateId": subagent.get("subagentId").cloned().unwrap_or(Value::Null),
             "subagentId": subagent.get("subagentId").cloned().unwrap_or(Value::Null),
-            "childRunId": subagent.get("childRunId").cloned().unwrap_or(Value::Null),
+            "childTurnId": subagent.get("childTurnId").cloned().unwrap_or(Value::Null),
             "traceRef": subagent.get("traceRef").cloned().unwrap_or(Value::Null),
             "name": subagent.get("name").cloned().unwrap_or(Value::Null),
             "task": subagent.get("task").cloned().unwrap_or(Value::Null),
@@ -337,7 +337,7 @@ fn subagent_status_activity_event(
 
 pub(super) fn normalize_tool_result_for_context(
     mut result: NativeAgentToolResult,
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
 ) -> NativeAgentToolResult {
     let secrets = config_redaction_values(&context.config_snapshot);
     let max_model_chars = configured_max_tool_result_chars(context);
@@ -414,7 +414,7 @@ pub(super) fn normalize_tool_result_for_context(
     result
 }
 
-fn configured_max_tool_result_chars(context: &NativeAgentRunContext) -> Option<usize> {
+fn configured_max_tool_result_chars(context: &AgentTurnContext) -> Option<usize> {
     context
         .spec
         .get("maxToolResultChars")

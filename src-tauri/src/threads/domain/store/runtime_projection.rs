@@ -54,9 +54,9 @@ fn semantic_event_from_thread_item(item: &ThreadItem) -> Option<(&'static str, V
         ThreadItemKind::Error(value) => Some(("agent.error", value.clone())),
         ThreadItemKind::Cancelled(value) => Some(("agent.cancelled", value.clone())),
         ThreadItemKind::AssistantMessageDelta(_)
-        | ThreadItemKind::AgentRunStarted(_)
-        | ThreadItemKind::AgentRunStep(_)
-        | ThreadItemKind::AgentRunCompleted(_)
+        | ThreadItemKind::TurnStarted(_)
+        | ThreadItemKind::TurnStep(_)
+        | ThreadItemKind::TurnCompleted(_)
         | ThreadItemKind::CheckpointCreated(_)
         | ThreadItemKind::ContextTrimmed(_)
         | ThreadItemKind::ContextCompaction(_)
@@ -92,7 +92,7 @@ fn reasoning_response_text(value: &Value) -> String {
 fn runtime_event_from_thread_item(
     item: &ThreadItem,
     session_id: &str,
-    run_id: &str,
+    turn_id: &str,
 ) -> Option<AgentRuntimeEventEnvelope> {
     let (event_name, payload) = semantic_event_from_thread_item(item)?;
     let item_id = semantic_item_id(item);
@@ -103,8 +103,8 @@ fn runtime_event_from_thread_item(
             turn_id: item
                 .turn_id
                 .clone()
-                .or_else(|| item.run_id.clone())
-                .unwrap_or_else(|| run_id.to_string()),
+                .or_else(|| item.turn_id.clone())
+                .unwrap_or_else(|| turn_id.to_string()),
             parent_turn_id: None,
             item_id: Some(item_id),
             event_name: event_name.to_string(),
@@ -172,21 +172,21 @@ fn response_item_text(value: &Value) -> String {
 pub(crate) fn runtime_events_from_thread_items(
     items: &[ThreadItem],
     session_id: &str,
-    run_id: &str,
+    turn_id: &str,
 ) -> Vec<AgentRuntimeEventEnvelope> {
     items
         .iter()
-        .filter(|item| item.run_id.as_deref() == Some(run_id))
-        .filter_map(|item| runtime_event_from_thread_item(item, session_id, run_id))
+        .filter(|item| item.turn_id.as_deref() == Some(turn_id))
+        .filter_map(|item| runtime_event_from_thread_item(item, session_id, turn_id))
         .collect()
 }
 
 pub(super) fn turn_items_from_thread_items(
     items: &[ThreadItem],
     session_id: &str,
-    run_id: &str,
+    turn_id: &str,
 ) -> Vec<AgentTurnItem> {
-    let runtime_events = runtime_events_from_thread_items(items, session_id, run_id);
+    let runtime_events = runtime_events_from_thread_items(items, session_id, turn_id);
     project_turn_items_from_trace_events(&runtime_events)
 }
 
@@ -206,7 +206,6 @@ mod tests {
         ThreadItem {
             item_id: item_id.to_string(),
             thread_id: "thread-1".to_string(),
-            run_id: Some("run-1".to_string()),
             turn_id: Some("run-1".to_string()),
             parent_item_id: None,
             sequence,
@@ -255,7 +254,6 @@ mod tests {
         let items = vec![ThreadItem {
             item_id: "rollout-item-99".to_string(),
             thread_id: "canonical-thread".to_string(),
-            run_id: Some("canonical-run".to_string()),
             turn_id: Some("canonical-run".to_string()),
             parent_item_id: None,
             sequence: 99,
@@ -283,7 +281,6 @@ mod tests {
         let item = |item_id: &str, sequence: u64, kind: ThreadItemKind| ThreadItem {
             item_id: item_id.to_string(),
             thread_id: "thread-1".to_string(),
-            run_id: Some("run-1".to_string()),
             turn_id: Some("turn-1".to_string()),
             parent_item_id: None,
             sequence,
@@ -339,7 +336,6 @@ mod tests {
         let persisted_item = |item_id: &str, sequence: u64, kind: ThreadItemKind| ThreadItem {
             item_id: item_id.to_string(),
             thread_id: "thread-1".to_string(),
-            run_id: Some("run-1".to_string()),
             turn_id: Some("run-1".to_string()),
             parent_item_id: None,
             sequence,

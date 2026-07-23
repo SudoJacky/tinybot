@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { BackendAgentTurnItem } from "./chatRunModel";
+import type { BackendAgentTurnItem } from "./chatTurnModel";
 import {
   benchmarkTinyOsReplay,
   createTinyOsTimeMachineIndex,
@@ -26,7 +26,6 @@ function item(index: number, overrides: Partial<BackendAgentTurnItem> = {}): Bac
     itemId: `item-${index}`,
     kind: "tool_call",
     revision: 1,
-    runId: "run-1",
     sequence: index,
     sessionId: "session-1",
     status: "completed",

@@ -1,5 +1,5 @@
 use super::support::*;
-use crate::agent::bridge::native_agent_run_record;
+use crate::agent::bridge::native_agent_turn_record;
 use crate::agent::runtime::NativeAgentRuntimeServices;
 use crate::config::application::default_tinybot_workspace_root;
 use crate::config::application::native_config_snapshot_from_path;
@@ -30,7 +30,7 @@ fn close_shutdown_cancels_and_drains_owned_agent_task() {
     let operation_runtime = task_runtime.clone();
     let handle = task_runtime
         .start_blocking(
-            crate::runtime::agent_task::StartAgentRun::new(
+            crate::runtime::turn_execution::StartAgentTurn::new(
                 "run-shutdown-owned",
                 "session-shutdown-owned",
             ),
@@ -137,7 +137,7 @@ lines.on("close", () => {
 }
 
 #[test]
-fn startup_reconciles_orphaned_run_and_preserves_waiting_checkpoint() {
+fn startup_reconciles_orphaned_turn_and_preserves_waiting_checkpoint() {
     let fixture = WorkspaceFixture::new();
     let policy = default_desktop_capability_policy();
     let thread_log = crate::threads::rollout::store::WorkerThreadLogRpc::new(
@@ -158,53 +158,53 @@ fn startup_reconciles_orphaned_run_and_preserves_waiting_checkpoint() {
     let started = thread
         .start_turn(crate::threads::domain::StartThreadTurnRequest {
             thread_id: "thread-recovery".to_string(),
-            run_id: Some("run-orphaned".to_string()),
+            turn_id: Some("turn-orphaned".to_string()),
             input: serde_json::json!({ "content": "unfinished" }),
             ..Default::default()
         })
-        .expect("orphaned thread run should start");
+        .expect("orphaned thread turn should start");
     thread_log
         .append_thread_items("thread-recovery", &started.appended_items)
-        .expect("orphaned thread run should persist to Rollout");
+        .expect("orphaned thread turn should persist to Rollout");
 
-    let mut running_record: crate::threads::session::AgentRunRecord =
-        serde_json::from_value(native_agent_run_record(
+    let mut running_record: crate::threads::session::AgentTurnRecord =
+        serde_json::from_value(native_agent_turn_record(
             &serde_json::json!({
-                "runId": "run-orphaned",
+                "turnId": "turn-orphaned",
                 "sessionId": "session-recovery",
                 "threadId": "thread-recovery"
             }),
             &serde_json::json!({
-                "runId": "run-orphaned",
+                "turnId": "turn-orphaned",
                 "sessionId": "session-recovery"
             }),
             &serde_json::json!({}),
             "session-recovery",
-            "run-orphaned",
+            "turn-orphaned",
         ))
         .expect("running recovery record should deserialize");
     running_record.thread_id = Some("thread-recovery".to_string());
     thread_log
-        .start_agent_run(running_record, None, Vec::new())
+        .start_turn(running_record, None, Vec::new())
         .expect("running recovery record should persist");
-    let waiting_record: crate::threads::session::AgentRunRecord =
-        serde_json::from_value(native_agent_run_record(
+    let waiting_record: crate::threads::session::AgentTurnRecord =
+        serde_json::from_value(native_agent_turn_record(
             &serde_json::json!({
-                "runId": "run-waiting",
+                "turnId": "turn-waiting",
                 "sessionId": "session-recovery"
             }),
             &serde_json::json!({
-                "runId": "run-waiting",
+                "turnId": "turn-waiting",
                 "sessionId": "session-recovery",
                 "stopReason": "awaiting_approval",
                 "checkpoint": {
                     "phase": "awaiting_approval",
-                    "runId": "run-waiting"
+                    "turnId": "turn-waiting"
                 }
             }),
             &serde_json::json!({}),
             "session-recovery",
-            "run-waiting",
+            "turn-waiting",
         ))
         .expect("waiting recovery record should deserialize");
     let waiting_checkpoint = waiting_record
@@ -212,10 +212,10 @@ fn startup_reconciles_orphaned_run_and_preserves_waiting_checkpoint() {
         .clone()
         .expect("waiting recovery record should contain a checkpoint");
     thread_log
-        .start_agent_run(waiting_record, None, Vec::new())
+        .start_turn(waiting_record, None, Vec::new())
         .expect("waiting recovery record should persist");
     thread_log
-        .set_agent_run_checkpoint("session-recovery", "run-waiting", waiting_checkpoint)
+        .set_turn_checkpoint("session-recovery", "turn-waiting", waiting_checkpoint)
         .expect("waiting recovery checkpoint should persist");
 
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
@@ -228,12 +228,12 @@ fn startup_reconciles_orphaned_run_and_preserves_waiting_checkpoint() {
     .expect("startup reconciliation should succeed");
 
     let recovered = thread_log
-        .get_agent_run("session-recovery", "run-orphaned")
-        .expect("orphaned run should remain queryable")
-        .expect("orphaned run should exist");
+        .get_turn("session-recovery", "turn-orphaned")
+        .expect("orphaned turn should remain queryable")
+        .expect("orphaned turn should exist");
     assert_eq!(
         recovered.status,
-        crate::threads::session::AgentRunStatus::Interrupted
+        crate::threads::session::AgentTurnStatus::Interrupted
     );
     assert_eq!(recovered.phase, "interrupted");
     assert_eq!(recovered.stop_reason.as_deref(), Some("runtime_restarted"));
@@ -242,25 +242,25 @@ fn startup_reconciles_orphaned_run_and_preserves_waiting_checkpoint() {
             .error
             .as_ref()
             .and_then(|error| error["code"].as_str()),
-        Some("orphaned_run")
+        Some("orphaned_turn")
     );
     let waiting = thread_log
-        .get_agent_run("session-recovery", "run-waiting")
-        .expect("waiting run should remain queryable")
-        .expect("waiting run should exist");
+        .get_turn("session-recovery", "turn-waiting")
+        .expect("waiting turn should remain queryable")
+        .expect("waiting turn should exist");
     assert_eq!(
         waiting.status,
-        crate::threads::session::AgentRunStatus::Waiting
+        crate::threads::session::AgentTurnStatus::Waiting
     );
     assert!(waiting.checkpoint.is_some());
     let (threads, items) = thread_log
         .thread_projection()
         .expect("reconciled Rollout should project thread state");
     assert!(items.values().flatten().any(|item| {
-        item.run_id.as_deref() == Some("run-orphaned")
+        item.turn_id.as_deref() == Some("turn-orphaned")
             && matches!(
                 &item.kind,
-                crate::threads::domain::ThreadItemKind::AgentRunCompleted(_)
+                crate::threads::domain::ThreadItemKind::TurnCompleted(_)
             )
     }));
     thread
@@ -271,12 +271,12 @@ fn startup_reconciles_orphaned_run_and_preserves_waiting_checkpoint() {
             thread_id: "thread-recovery".to_string(),
         })
         .expect("reconciled thread should remain queryable");
-    let active_run = thread_status
-        .active_run
-        .expect("waiting recovery run should remain active");
-    assert_eq!(active_run.run_id, "run-waiting");
+    let active_turn = thread_status
+        .active_turn
+        .expect("waiting recovery turn should remain active");
+    assert_eq!(active_turn.turn_id, "turn-waiting");
     assert_eq!(
-        active_run.status,
+        active_turn.status,
         crate::threads::domain::ThreadStatus::WaitingForApproval
     );
 
@@ -286,38 +286,38 @@ fn startup_reconciles_orphaned_run_and_preserves_waiting_checkpoint() {
         .last_startup_recovery
         .expect("startup recovery report should be exposed");
     assert!(recovery
-        .interrupted_runs
+        .interrupted_turns
         .iter()
-        .any(|run| run.run_id == "run-orphaned"));
+        .any(|turn| turn.turn_id == "turn-orphaned"));
     assert_eq!(
         recovery
-            .interrupted_runs
+            .interrupted_turns
             .iter()
-            .filter(|run| run.run_id == "run-orphaned")
+            .filter(|turn| turn.turn_id == "turn-orphaned")
             .count(),
         1
     );
     assert!(recovery
-        .resumable_runs
+        .resumable_turns
         .iter()
-        .any(|run| run.run_id == "run-waiting"));
+        .any(|turn| turn.turn_id == "turn-waiting"));
     assert!(status.lifecycle.diagnostics.is_empty());
     let recovery_metrics_after =
         crate::runtime::observability::global_agent_runtime_metrics().snapshot();
     assert!(
-        recovery_metrics_after["counters"]["recovery.orphaned_runs.interrupted"]
+        recovery_metrics_after["counters"]["recovery.orphaned_turns.interrupted"]
             .as_u64()
             .unwrap_or_default()
-            >= recovery_metrics_before["counters"]["recovery.orphaned_runs.interrupted"]
+            >= recovery_metrics_before["counters"]["recovery.orphaned_turns.interrupted"]
                 .as_u64()
                 .unwrap_or_default()
                 .saturating_add(1)
     );
     assert!(
-        recovery_metrics_after["durations"]["recovery.orphaned_runs.durationMs"]["count"]
+        recovery_metrics_after["durations"]["recovery.orphaned_turns.durationMs"]["count"]
             .as_u64()
             .unwrap_or_default()
-            >= recovery_metrics_before["durations"]["recovery.orphaned_runs.durationMs"]["count"]
+            >= recovery_metrics_before["durations"]["recovery.orphaned_turns.durationMs"]["count"]
                 .as_u64()
                 .unwrap_or_default()
                 .saturating_add(1)
@@ -333,11 +333,11 @@ fn startup_reconciles_orphaned_run_and_preserves_waiting_checkpoint() {
         .lifecycle
         .last_startup_recovery
         .expect("repeated startup should expose its report");
-    assert!(repeated.interrupted_runs.is_empty());
+    assert!(repeated.interrupted_turns.is_empty());
     assert!(repeated
-        .resumable_runs
+        .resumable_turns
         .iter()
-        .any(|run| run.run_id == "run-waiting"));
+        .any(|turn| turn.turn_id == "turn-waiting"));
 }
 
 #[test]
@@ -401,19 +401,19 @@ fn close_shutdown_stops_shell_and_interrupts_subagents_with_report() {
             cols: None,
             sandbox_mode: None,
             network_mode: None,
-            run_id: Some("run-shell-shutdown".to_string()),
+            owner_id: Some("turn-shell-shutdown".to_string()),
             tool_call_id: Some("tool-shell-shutdown".to_string()),
             cancellation: None,
         })
         .expect("shutdown shell fixture should start");
     let spawned = subagents.spawn(crate::collaboration::subagents::SubagentSpawnParams {
         session_key: "session-shutdown".to_string(),
-        parent_run_id: Some("run-parent".to_string()),
+        parent_turn_id: Some("turn-parent".to_string()),
         parent_subagent_id: None,
         delegation_depth: None,
         history_mode: None,
         subagent_id: Some("delegate-shutdown".to_string()),
-        child_run_id: Some("run-child".to_string()),
+        child_turn_id: Some("turn-child".to_string()),
         trace_ref: None,
         name: Some("shutdown-child".to_string()),
         task: Some("wait for shutdown".to_string()),
@@ -468,7 +468,7 @@ fn close_shutdown_stops_shell_and_interrupts_subagents_with_report() {
             cols: None,
             sandbox_mode: None,
             network_mode: None,
-            run_id: Some("run-shell-resumed".to_string()),
+            owner_id: Some("turn-shell-resumed".to_string()),
             tool_call_id: Some("tool-shell-resumed".to_string()),
             cancellation: None,
         })
@@ -483,7 +483,7 @@ fn close_shutdown_exposes_cleanup_timeout_diagnostics() {
     let (release_sender, release_receiver) = std::sync::mpsc::channel();
     let handle = task_runtime
         .start_blocking(
-            crate::runtime::agent_task::StartAgentRun::new(
+            crate::runtime::turn_execution::StartAgentTurn::new(
                 "run-cleanup-timeout",
                 "session-cleanup-timeout",
             ),

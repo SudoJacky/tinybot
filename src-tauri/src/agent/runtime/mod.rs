@@ -6,8 +6,8 @@ use crate::collaboration::subagents::SubagentThreadManager;
 use crate::collaboration::subagents::{
     SubagentInputSender, SubagentSendInputParams, SubagentTargetParams,
 };
-use crate::runtime::agent_task::{AgentCancelReason, AgentTaskRuntime};
 use crate::runtime::mcp::McpRuntime;
+use crate::runtime::turn_execution::{AgentCancelReason, TurnExecutionRuntime};
 use crate::tools::shell::WorkerShellRuntime;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -89,22 +89,22 @@ pub enum NativeAgentRuntimeMode {
 
 #[derive(Clone)]
 pub struct NativeAgentCancellationContext {
-    run_id: String,
+    turn_id: String,
     cancellations: Arc<dyn NativeAgentCancellation>,
-    task_runtime: AgentTaskRuntime,
+    task_runtime: TurnExecutionRuntime,
     root_token: Option<CancellationToken>,
     child_token: Option<CancellationToken>,
 }
 
 impl NativeAgentCancellationContext {
     fn new(
-        run_id: String,
+        turn_id: String,
         cancellations: Arc<dyn NativeAgentCancellation>,
-        task_runtime: AgentTaskRuntime,
+        task_runtime: TurnExecutionRuntime,
     ) -> Self {
-        let root_token = task_runtime.cancellation_token(&run_id);
+        let root_token = task_runtime.cancellation_token(&turn_id);
         Self {
-            run_id,
+            turn_id,
             cancellations,
             task_runtime,
             root_token,
@@ -120,8 +120,8 @@ impl NativeAgentCancellationContext {
                 .root_token
                 .as_ref()
                 .is_some_and(CancellationToken::is_cancelled)
-            || self.task_runtime.is_cancelled(&self.run_id)
-            || self.cancellations.is_cancelled(&self.run_id)
+            || self.task_runtime.is_cancelled(&self.turn_id)
+            || self.cancellations.is_cancelled(&self.turn_id)
     }
 
     fn with_child_token(&self, child_token: CancellationToken) -> Self {
@@ -137,12 +137,12 @@ impl NativeAgentCancellationContext {
     }
 
     fn begin_pause(&self) -> Option<String> {
-        self.task_runtime.begin_pause(&self.run_id)
+        self.task_runtime.begin_pause(&self.turn_id)
     }
 
     async fn wait_for_resume(&self) -> Result<String, String> {
         self.task_runtime
-            .wait_for_resume(&self.run_id)
+            .wait_for_resume(&self.turn_id)
             .await
             .map_err(|error| error.to_string())
     }
@@ -152,7 +152,7 @@ impl fmt::Debug for NativeAgentCancellationContext {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("NativeAgentCancellationContext")
-            .field("run_id", &self.run_id)
+            .field("turn_id", &self.turn_id)
             .finish_non_exhaustive()
     }
 }
@@ -180,8 +180,8 @@ impl From<LegacyNativeAgentEventProjection> for NativeAgentEvent {
 }
 
 #[derive(Clone, Debug)]
-pub struct NativeAgentRunContext {
-    pub run_id: String,
+pub struct AgentTurnContext {
+    pub turn_id: String,
     pub session_id: String,
     pub thread_id: Option<String>,
     pub spec: Value,
@@ -303,15 +303,12 @@ pub struct NativeToolResultEnvelope {
 
 pub trait NativeAgentProvider: Send + Sync + 'static {
     #[cfg(test)]
-    fn complete(
-        &self,
-        context: &NativeAgentRunContext,
-    ) -> Result<NativeAgentProviderResponse, String>;
+    fn complete(&self, context: &AgentTurnContext) -> Result<NativeAgentProviderResponse, String>;
 
     #[cfg(test)]
     fn complete_streaming(
         &self,
-        context: &NativeAgentRunContext,
+        context: &AgentTurnContext,
         _observer: &mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
     ) -> Result<NativeAgentProviderResponse, String> {
         self.complete(context)
@@ -319,7 +316,7 @@ pub trait NativeAgentProvider: Send + Sync + 'static {
 
     fn complete_streaming_async<'a>(
         self: Arc<Self>,
-        context: &'a NativeAgentRunContext,
+        context: &'a AgentTurnContext,
         observer: &'a mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
     ) -> Pin<
         Box<
@@ -364,13 +361,13 @@ pub trait NativeAgentProvider: Send + Sync + 'static {
 pub trait NativeAgentToolDispatcher: Send + Sync + 'static {
     fn dispatch(
         &self,
-        context: &NativeAgentRunContext,
+        context: &AgentTurnContext,
         tool_call: &NativeAgentToolCall,
     ) -> Result<NativeAgentToolResult, String>;
 
     fn dispatch_async(
         self: Arc<Self>,
-        context: NativeAgentRunContext,
+        context: AgentTurnContext,
         tool_call: NativeAgentToolCall,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send>,
@@ -395,16 +392,16 @@ pub trait NativeAgentToolDispatcher: Send + Sync + 'static {
 
 pub trait NativeAgentCheckpointStore: Send + Sync {
     fn save(&self, session_id: &str, checkpoint: Value);
-    fn save_for_run(&self, session_id: &str, run_id: &str, checkpoint: Value);
+    fn save_for_turn(&self, session_id: &str, turn_id: &str, checkpoint: Value);
     fn restore(&self, session_id: &str) -> Option<Value>;
-    fn restore_for_run(&self, session_id: &str, run_id: &str) -> Option<Value>;
-    fn clear_for_run(&self, session_id: &str, run_id: &str);
+    fn restore_for_turn(&self, session_id: &str, turn_id: &str) -> Option<Value>;
+    fn clear_for_turn(&self, session_id: &str, turn_id: &str);
 }
 
 #[derive(Clone, Debug)]
 pub struct NativeAgentContextCheckpointCommit {
     pub session_id: String,
-    pub run_id: String,
+    pub turn_id: String,
     pub thread_id: Option<String>,
     pub checkpoint: Value,
 }
@@ -461,22 +458,22 @@ impl NativeAgentContextCheckpointCommitter for InMemoryNativeAgentContextCheckpo
 }
 
 pub trait NativeAgentCancellation: Send + Sync {
-    fn cancel(&self, run_id: &str);
-    fn cancel_with_command_id(&self, run_id: &str, command_id: &str) {
+    fn cancel(&self, turn_id: &str);
+    fn cancel_with_command_id(&self, turn_id: &str, command_id: &str) {
         let _ = command_id;
-        self.cancel(run_id);
+        self.cancel(turn_id);
     }
-    fn command_id(&self, _run_id: &str) -> Option<String> {
+    fn command_id(&self, _turn_id: &str) -> Option<String> {
         None
     }
-    fn is_cancelled(&self, run_id: &str) -> bool;
+    fn is_cancelled(&self, turn_id: &str) -> bool;
 }
 
 pub trait NativeAgentTraceSink: Send + Sync {
     fn load_runtime_events(
         &self,
         _session_id: &str,
-        _run_id: &str,
+        _turn_id: &str,
     ) -> Result<Vec<AgentRuntimeEventEnvelope>, String> {
         Ok(Vec::new())
     }
@@ -484,18 +481,18 @@ pub trait NativeAgentTraceSink: Send + Sync {
     fn append_trace_event(
         &self,
         session_id: &str,
-        run_id: &str,
+        turn_id: &str,
         event: &AgentRuntimeEventEnvelope,
     ) -> Result<(), String>;
 
     fn append_trace_events(
         &self,
         session_id: &str,
-        run_id: &str,
+        turn_id: &str,
         events: &[AgentRuntimeEventEnvelope],
     ) -> Result<(), String> {
         for event in events {
-            self.append_trace_event(session_id, run_id, event)?;
+            self.append_trace_event(session_id, turn_id, event)?;
         }
         Ok(())
     }
@@ -503,7 +500,7 @@ pub trait NativeAgentTraceSink: Send + Sync {
     fn append_timeline_patch(
         &self,
         _session_id: &str,
-        _run_id: &str,
+        _turn_id: &str,
         _patch: &crate::agent::runtime_protocol::AgentTimelinePatch,
     ) -> Result<(), String> {
         Ok(())
@@ -526,7 +523,7 @@ pub struct NativeAgentRuntimeServices {
     mcp_runtime: McpRuntime,
     shell_runtime: WorkerShellRuntime,
     browser_runtime: Option<crate::native_browser::SharedBrowserRuntime>,
-    task_runtime: AgentTaskRuntime,
+    task_runtime: TurnExecutionRuntime,
     hooks: hooks::AgentHookPipeline,
     context_contributors: context_contributors::AgentContextContributorRegistry,
     metrics: AgentRuntimeMetrics,
@@ -557,7 +554,7 @@ impl NativeAgentRuntimeServices {
             mcp_runtime: McpRuntime::new(),
             shell_runtime: WorkerShellRuntime::default(),
             browser_runtime: None,
-            task_runtime: AgentTaskRuntime::new(),
+            task_runtime: TurnExecutionRuntime::new(),
             hooks: hooks::AgentHookPipeline::default(),
             context_contributors: context_contributors::AgentContextContributorRegistry::default(),
             metrics: crate::runtime::observability::global_agent_runtime_metrics().clone(),
@@ -675,7 +672,7 @@ impl NativeAgentRuntimeServices {
         self.browser_runtime.clone()
     }
 
-    pub(crate) fn task_runtime(&self) -> AgentTaskRuntime {
+    pub(crate) fn task_runtime(&self) -> TurnExecutionRuntime {
         self.task_runtime.clone()
     }
 
@@ -701,24 +698,24 @@ impl NativeAgentRuntimeServices {
         self.subagents.clone()
     }
 
-    pub fn cancel(&self, run_id: &str) -> Value {
-        self.cancel_with_command_id(run_id, None)
+    pub fn cancel(&self, turn_id: &str) -> Value {
+        self.cancel_with_command_id(turn_id, None)
     }
 
-    pub fn cancel_with_command_id(&self, run_id: &str, command_id: Option<&str>) -> Value {
+    pub fn cancel_with_command_id(&self, turn_id: &str, command_id: Option<&str>) -> Value {
         if let Some(command_id) = command_id.filter(|value| !value.trim().is_empty()) {
             self.cancellations
-                .cancel_with_command_id(run_id, command_id);
+                .cancel_with_command_id(turn_id, command_id);
         } else {
-            self.cancellations.cancel(run_id);
+            self.cancellations.cancel(turn_id);
         }
         let task = self
             .task_runtime
-            .request_cancel(run_id, AgentCancelReason::UserRequested);
-        self.approvals.cancel_run(run_id);
+            .request_cancel(turn_id, AgentCancelReason::UserRequested);
+        self.approvals.cancel_run(turn_id);
         serde_json::json!({
             "runtime": "rust",
-            "runId": run_id,
+            "turnId": turn_id,
             "cancelled": true,
             "finalContent": "",
             "stopReason": "cancelled",
@@ -728,7 +725,7 @@ impl NativeAgentRuntimeServices {
             "toolsUsed": [],
             "task": task,
             "events": [event_value("agent.cancelled", serde_json::json!({
-                "runId": run_id,
+                "turnId": turn_id,
                 "cancelled": true,
                 "commandId": command_id,
                 "stopReason": "cancelled",
@@ -746,12 +743,12 @@ impl NativeAgentRuntimeServices {
     }
 
     #[cfg(test)]
-    pub fn restore_run_checkpoint(&self, session_id: &str, run_id: &str) -> Value {
+    pub fn restore_run_checkpoint(&self, session_id: &str, turn_id: &str) -> Value {
         serde_json::json!({
             "runtime": "rust",
             "sessionId": session_id,
-            "runId": run_id,
-            "checkpoint": self.checkpoints.restore_for_run(session_id, run_id),
+            "turnId": turn_id,
+            "checkpoint": self.checkpoints.restore_for_turn(session_id, turn_id),
         })
     }
 
@@ -760,14 +757,14 @@ impl NativeAgentRuntimeServices {
     }
 
     #[cfg(test)]
-    pub fn save_run_checkpoint(&self, session_id: &str, run_id: &str, checkpoint: Value) {
+    pub fn save_run_checkpoint(&self, session_id: &str, turn_id: &str, checkpoint: Value) {
         self.checkpoints
-            .save_for_run(session_id, run_id, checkpoint);
+            .save_for_turn(session_id, turn_id, checkpoint);
     }
 
     #[cfg(test)]
-    pub fn clear_run_checkpoint(&self, session_id: &str, run_id: &str) {
-        self.checkpoints.clear_for_run(session_id, run_id);
+    pub fn clear_run_checkpoint(&self, session_id: &str, turn_id: &str) {
+        self.checkpoints.clear_for_turn(session_id, turn_id);
     }
 
     pub(crate) fn approval_broker(&self) -> approvals::NativeAgentApprovalBroker {

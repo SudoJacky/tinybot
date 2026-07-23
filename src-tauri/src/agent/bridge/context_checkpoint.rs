@@ -35,7 +35,7 @@ impl NativeAgentContextCheckpointCommitter for NativeAgentContextCheckpointCommi
                 "session.commit_context_checkpoint",
                 serde_json::json!({
                     "session_id": rollout_id,
-                    "run_id": input.run_id,
+                    "turn_id": input.turn_id,
                     "checkpoint": input.checkpoint,
                 }),
             ),

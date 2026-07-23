@@ -45,7 +45,7 @@ impl WorkerRpcRouter {
                             sandbox_mode,
                             network_mode,
                             params.session_id.clone(),
-                            params.run_id.clone(),
+                            params.turn_id.clone(),
                         ))?;
                 }
                 serde_json::to_value(self.shell.execute_with_approval_decision(
@@ -77,7 +77,7 @@ impl WorkerRpcRouter {
                             network_mode,
                             tty,
                             params.session_id.clone(),
-                            params.run_id.clone(),
+                            params.turn_id.clone(),
                         ))?;
                 }
                 serde_json::to_value(self.shell.start_with_approval_decision(
@@ -111,9 +111,9 @@ impl WorkerRpcRouter {
                 let params: ShellProcessIdParams = parse_params(request)?;
                 serde_json::to_value(self.shell.terminate(params)?).map_err(serialization_error)
             }
-            "shell.terminate_run" => {
-                let params: ShellRunParams = parse_params(request)?;
-                serde_json::to_value(self.shell.terminate_run(&params.run_id))
+            "shell.terminate_owner" => {
+                let params: ShellOwnerParams = parse_params(request)?;
+                serde_json::to_value(self.shell.terminate_owner(&params.owner_id))
                     .map_err(serialization_error)
             }
             "shell.list" => {

@@ -41,8 +41,8 @@ pub enum EventKind {
     SessionCleared,
     SessionTrimmed,
     ThreadItem,
-    AgentRunCheckpointSet,
-    AgentRunCheckpointClear,
+    TurnCheckpointSet,
+    TurnCheckpointClear,
 }
 
 impl EventKind {
@@ -60,8 +60,8 @@ impl EventKind {
             Self::SessionCleared => "session_cleared",
             Self::SessionTrimmed => "session_trimmed",
             Self::ThreadItem => "thread_item",
-            Self::AgentRunCheckpointSet => "agent_run_checkpoint_set",
-            Self::AgentRunCheckpointClear => "agent_run_checkpoint_clear",
+            Self::TurnCheckpointSet => "turn_checkpoint_set",
+            Self::TurnCheckpointClear => "turn_checkpoint_clear",
         }
     }
 
@@ -79,8 +79,8 @@ impl EventKind {
             "session_cleared" => Self::SessionCleared,
             "session_trimmed" => Self::SessionTrimmed,
             "thread_item" => Self::ThreadItem,
-            "agent_run_checkpoint_set" => Self::AgentRunCheckpointSet,
-            "agent_run_checkpoint_clear" => Self::AgentRunCheckpointClear,
+            "turn_checkpoint_set" => Self::TurnCheckpointSet,
+            "turn_checkpoint_clear" => Self::TurnCheckpointClear,
             other => return Err(format!("unsupported event_msg type `{other}`")),
         })
     }
@@ -98,8 +98,8 @@ impl EventKind {
             | Self::SessionCleared
             | Self::SessionTrimmed
             | Self::ThreadItem
-            | Self::AgentRunCheckpointSet
-            | Self::AgentRunCheckpointClear => false,
+            | Self::TurnCheckpointSet
+            | Self::TurnCheckpointClear => false,
         }
     }
 
@@ -115,14 +115,14 @@ impl EventKind {
             | Self::SessionCleared
             | Self::SessionTrimmed
             | Self::ThreadItem
-            | Self::AgentRunCheckpointSet
-            | Self::AgentRunCheckpointClear => false,
+            | Self::TurnCheckpointSet
+            | Self::TurnCheckpointClear => false,
         }
     }
 
-    pub fn is_agent_run_lifecycle(&self) -> bool {
+    pub fn is_turn_lifecycle(&self) -> bool {
         match self {
-            Self::AgentRunCheckpointSet | Self::AgentRunCheckpointClear => true,
+            Self::TurnCheckpointSet | Self::TurnCheckpointClear => true,
             Self::TurnStarted
             | Self::TaskStarted
             | Self::TurnComplete
@@ -328,7 +328,6 @@ fn validate_response_item(kind: &ResponseItemKind, raw: &Value) -> Result<(), St
         ResponseItemKind::CustomToolCallOutput => {
             required_response_string(raw, &["id"], "custom tool output item id")?;
             required_response_string(raw, &["call_id"], "custom tool call output id")?;
-            required_response_string(raw, &["runId"], "custom tool output run id")?;
             required_response_string(raw, &["turnId"], "custom tool output turn id")?;
             if raw.get("output").is_none() {
                 return Err("custom tool output response item is missing `output`".to_string());
@@ -844,7 +843,7 @@ mod tests {
     fn typed_rollout_records_preserve_wire_values_and_discriminants() {
         let known_raw = json!({
             "type": "turn_started",
-            "payload": {"runId": "run-1", "turnId": "turn-1"}
+            "payload": {"turnId": "turn-1", "turnId": "turn-1"}
         });
         let known = EventMsg::from_value(known_raw.clone()).unwrap();
         assert_eq!(known.kind(), &EventKind::TurnStarted);
@@ -914,7 +913,6 @@ mod tests {
             "type": "custom_tool_call_output",
             "id": "tool-output:call-1",
             "call_id": "call-1",
-            "runId": "run-1",
             "turnId": "turn-1",
             "output": "contents",
         });

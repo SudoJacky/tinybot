@@ -48,7 +48,7 @@ impl WorkerFormRpc {
             "formId": form_id,
             "form": form,
             "continuationMode": continuation_mode,
-            "runId": params.run_id,
+            "turnId": params.turn_id,
         });
         if let Some(session_id) = params.session_id {
             result["sessionId"] = Value::String(session_id);
@@ -72,7 +72,7 @@ impl WorkerFormRpc {
 
 #[derive(Deserialize)]
 struct FormRequestParams {
-    run_id: String,
+    turn_id: String,
     #[serde(default)]
     session_id: Option<String>,
     form: Value,
@@ -110,7 +110,7 @@ mod tests {
             "trace-1",
             "form.request",
             json!({
-                "run_id": "run-1",
+                "turn_id": "run-1",
                 "session_id": "session-1",
                 "form": form,
                 "continuation_mode": "resume"
@@ -130,7 +130,7 @@ mod tests {
                 "formId": "travel_plan",
                 "form": form,
                 "continuationMode": "resume",
-                "runId": "run-1",
+                "turnId": "run-1",
                 "sessionId": "session-1"
             })
         );
@@ -144,7 +144,7 @@ mod tests {
             "trace-1",
             "form.request",
             json!({
-                "run_id": "run-1",
+                "turn_id": "run-1",
                 "form": { "fields": [] }
             }),
         );
@@ -165,7 +165,7 @@ mod tests {
             "trace-1",
             "form.request",
             json!({
-                "run_id": "run-1",
+                "turn_id": "run-1",
                 "form": { "form_id": "travel_plan" }
             }),
         );

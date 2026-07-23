@@ -21,10 +21,10 @@ fn selects_rust_runtime_from_spec_or_config() {
 
 #[test]
 fn normalizes_desktop_run_spec_inputs_for_rust_turns() {
-    let context = NativeAgentRunContext::from_spec(
+    let context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
-            "runId": "run-normalized",
+            "turnId": "run-normalized",
             "activeSessionId": "websocket:active-chat",
             "provider": "fixture",
             "model": "fixture-model",
@@ -62,7 +62,7 @@ fn normalizes_desktop_run_spec_inputs_for_rust_turns() {
 
 #[test]
 fn resolves_profile_based_provider_for_reasoning_turns() {
-    let context = NativeAgentRunContext::from_spec(
+    let context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
             "messages": [{ "role": "user", "content": "hello" }]
@@ -98,7 +98,7 @@ fn resolves_profile_based_provider_for_reasoning_turns() {
 
 #[test]
 fn profile_capabilities_override_built_in_provider_defaults() {
-    let context = NativeAgentRunContext::from_spec(
+    let context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
             "messages": [{ "role": "user", "content": "hello" }]
@@ -131,7 +131,7 @@ fn profile_capabilities_override_built_in_provider_defaults() {
 
 #[test]
 fn agent_defaults_apply_temperature_and_max_tokens_to_provider_requests() {
-    let context = NativeAgentRunContext::from_spec(
+    let context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
             "messages": [{ "role": "user", "content": "hello" }]
@@ -163,8 +163,8 @@ fn agent_defaults_apply_temperature_and_max_tokens_to_provider_requests() {
 }
 
 #[test]
-fn defaults_native_agent_runs_to_the_desktop_iteration_limit() {
-    let context = NativeAgentRunContext::from_spec(json!({}), json!({}));
+fn defaults_native_agent_turns_to_the_desktop_iteration_limit() {
+    let context = AgentTurnContext::from_spec(json!({}), json!({}));
 
     assert_eq!(context.max_iterations, DEFAULT_NATIVE_AGENT_MAX_ITERATIONS);
     assert_eq!(context.max_iterations, 200);
@@ -180,7 +180,7 @@ fn composed_workspace_instructions_reach_provider_and_reload_user_edits() {
     impl NativeAgentProvider for CapturingProvider {
         fn complete(
             &self,
-            context: &NativeAgentRunContext,
+            context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             let request = agent_chat_completion_request(context)?;
             self.requests
@@ -238,7 +238,7 @@ fn composed_workspace_instructions_reach_provider_and_reload_user_edits() {
     let default_result = run_native_agent_turn_with_workspace(
         &services,
         json!({
-            "runId": "run-system-prompt-default",
+            "turnId": "run-system-prompt-default",
             "sessionId": "session-system-prompt-default",
             "cwd": working_directory,
             "messages": [{ "role": "user", "content": "hello" }]
@@ -261,7 +261,7 @@ fn composed_workspace_instructions_reach_provider_and_reload_user_edits() {
     let custom_result = run_native_agent_turn_with_workspace(
         &services,
         json!({
-            "runId": "run-system-prompt-custom",
+            "turnId": "run-system-prompt-custom",
             "sessionId": "session-system-prompt-custom",
             "cwd": working_directory,
             "messages": [{ "role": "user", "content": "hello again" }]
@@ -347,7 +347,7 @@ fn memory_contributor_hydrates_prompt_with_safe_provenance() {
     impl NativeAgentProvider for CapturingProvider {
         fn complete(
             &self,
-            context: &NativeAgentRunContext,
+            context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             self.prompts
                 .lock()
@@ -398,7 +398,7 @@ fn memory_contributor_hydrates_prompt_with_safe_provenance() {
     let result = run_native_agent_turn_with_workspace(
         &services,
         json!({
-            "runId": "run-context-contributors",
+            "turnId": "run-context-contributors",
             "sessionId": "session-context-contributors",
             "messages": [{
                 "role": "user",
@@ -479,7 +479,7 @@ fn malformed_context_config_fails_before_provider_execution() {
     impl NativeAgentProvider for ProviderMustNotRun {
         fn complete(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             panic!("provider must not run after malformed context configuration");
         }
@@ -495,7 +495,7 @@ fn malformed_context_config_fails_before_provider_execution() {
     let error = run_native_agent_turn_with_workspace(
         &services,
         json!({
-            "runId": "run-invalid-context-config",
+            "turnId": "run-invalid-context-config",
             "sessionId": "session-invalid-context-config",
             "messages": [{ "role": "user", "content": "hello" }]
         }),
@@ -510,10 +510,10 @@ fn malformed_context_config_fails_before_provider_execution() {
 
 #[test]
 fn chat_completion_request_exposes_only_foundational_model_tools() {
-    let mut context = NativeAgentRunContext::from_spec(
+    let mut context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
-            "runId": "run-tools",
+            "turnId": "run-tools",
             "sessionId": "websocket:chat-tools",
             "model": "fixture-model",
             "messages": [{ "role": "user", "content": "read the workspace" }]
@@ -579,10 +579,10 @@ fn chat_completion_request_exposes_only_foundational_model_tools() {
 #[cfg(all(windows, feature = "native-browser-runtime"))]
 #[test]
 fn feature_build_defers_browser_tools_until_searched() {
-    let context = NativeAgentRunContext::from_spec(
+    let context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
-            "runId": "run-browser-tools",
+            "turnId": "run-browser-tools",
             "sessionId": "websocket:chat-browser-tools",
             "model": "fixture-model",
             "messages": [{ "role": "user", "content": "inspect the shared browser" }]
@@ -614,7 +614,7 @@ fn tool_search_activates_dispatches_and_expires_a_deferred_tool() {
     impl NativeAgentProvider for SearchThenFinishProvider {
         fn complete(
             &self,
-            context: &NativeAgentRunContext,
+            context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             let request = agent_chat_completion_request(context)?;
             let tool_names = request["tools"]
@@ -673,7 +673,7 @@ fn tool_search_activates_dispatches_and_expires_a_deferred_tool() {
     impl NativeAgentToolDispatcher for RecordingDeferredDispatcher {
         fn dispatch(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
             tool_call: &NativeAgentToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             if tool_call.name == "tool_search" {
@@ -746,7 +746,7 @@ fn tool_search_activates_dispatches_and_expires_a_deferred_tool() {
     let result = run_native_agent_turn_with_config(
         &services,
         json!({
-            "runId": "run-tool-search-activation",
+            "turnId": "run-tool-search-activation",
             "sessionId": "session-tool-search-activation",
             "maxIterations": 3,
             "messages": [{ "role": "user", "content": "find a deferred echo tool" }]
@@ -780,7 +780,7 @@ fn tool_search_activates_dispatches_and_expires_a_deferred_tool() {
     let second_run = run_native_agent_turn_with_config(
         &services,
         json!({
-            "runId": "run-tool-search-expired",
+            "turnId": "run-tool-search-expired",
             "sessionId": "session-tool-search-expired",
             "maxIterations": 1,
             "messages": [{ "role": "user", "content": "start a fresh run" }]

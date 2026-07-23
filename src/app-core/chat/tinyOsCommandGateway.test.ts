@@ -1,11 +1,11 @@
 import { describe, expect, test } from "vitest";
-import type { ChatTurn } from "./chatRunModel";
+import type { ChatTurn } from "./chatTurnModel";
 import {
   canonicalTinyOsCommandAcknowledgement,
   canonicalTinyOsCommandCompletion,
   createTinyOsAgentCancelCommand,
   createTinyOsAgentRequestChangeCommand,
-  createTinyOsAgentRunControlCommand,
+  createTinyOsAgentTurnControlCommand,
   createTinyOsApprovalResolveCommand,
   createTinyOsFormCancelCommand,
   createTinyOsFormSubmitCommand,
@@ -25,7 +25,7 @@ import {
 const command = createTinyOsAgentCancelCommand({
   commandId: "command-1",
   issuedAt: "2026-07-13T00:00:00Z",
-  runId: "run-1",
+  turnId: "run-1",
   sessionId: "websocket:chat-1",
   source: { control: "stop-response", surface: "chat" },
 });
@@ -37,7 +37,7 @@ describe("TinyOS command lifecycle", () => {
       approvalId: "approval-1",
       commandId: "command-approval-1",
       issuedAt: "2026-07-13T00:00:00Z",
-      runId: "run-1",
+      turnId: "run-1",
       sessionId: "websocket:chat-1",
       source: { control: "inspector-approval", surface: "tinyos" },
     })).toMatchObject({
@@ -52,7 +52,7 @@ describe("TinyOS command lifecycle", () => {
       commandId: "command-form-1",
       formId: "travel-preferences-1",
       issuedAt: "2026-07-13T00:00:00Z",
-      runId: "run-1",
+      turnId: "run-1",
       sessionId: "websocket:chat-1",
       source: { control: "system-form", surface: "tinyos" },
       values: { destination: "Singapore", nights: 4 },
@@ -66,26 +66,26 @@ describe("TinyOS command lifecycle", () => {
     });
   });
 
-  test("creates pause and resume commands for the same run identity", () => {
-    const pause = createTinyOsAgentRunControlCommand({
+  test("creates pause and resume commands for the same turn identity", () => {
+    const pause = createTinyOsAgentTurnControlCommand({
       commandId: "command-pause-1",
       issuedAt: "2026-07-13T00:00:00Z",
       kind: "agent.pause",
-      runId: "run-1",
+      turnId: "run-1",
       sessionId: "websocket:chat-1",
       source: { control: "chat-pause", surface: "chat" },
     });
-    const resume = createTinyOsAgentRunControlCommand({
+    const resume = createTinyOsAgentTurnControlCommand({
       commandId: "command-resume-1",
       issuedAt: "2026-07-13T00:00:01Z",
       kind: "agent.resume",
-      runId: "run-1",
+      turnId: "run-1",
       sessionId: "websocket:chat-1",
       source: { control: "system-bar-resume", surface: "tinyos" },
     });
 
-    expect(pause).toMatchObject({ kind: "agent.pause", target: { runId: "run-1" } });
-    expect(resume).toMatchObject({ kind: "agent.resume", target: { runId: "run-1" } });
+    expect(pause).toMatchObject({ kind: "agent.pause", target: { turnId: "run-1" } });
+    expect(resume).toMatchObject({ kind: "agent.resume", target: { turnId: "run-1" } });
   });
 
   test("creates a correlated form cancellation command", () => {
@@ -93,7 +93,7 @@ describe("TinyOS command lifecycle", () => {
       commandId: "command-form-cancel-1",
       formId: "travel-preferences-1",
       issuedAt: "2026-07-13T00:00:00Z",
-      runId: "run-1",
+      turnId: "run-1",
       sessionId: "websocket:chat-1",
       source: { control: "chat-form", surface: "chat" },
     })).toMatchObject({
@@ -108,7 +108,7 @@ describe("TinyOS command lifecycle", () => {
       commandId: "command-retry-1",
       issuedAt: "2026-07-13T00:00:00Z",
       itemId: "run-failed:error",
-      retryRunId: "run-retry-1",
+      retryTurnId: "run-retry-1",
       sessionId: "websocket:chat-1",
       source: { control: "operation-shelf", surface: "tinyos" },
       turnId: "run-failed",
@@ -116,7 +116,7 @@ describe("TinyOS command lifecycle", () => {
       commandId: "command-retry-1",
       kind: "operation.retry",
       operation: { itemId: "run-failed:error", turnId: "run-failed" },
-      target: { runId: "run-retry-1", sessionId: "websocket:chat-1" },
+      target: { turnId: "run-retry-1", sessionId: "websocket:chat-1" },
     });
   });
 
@@ -125,7 +125,7 @@ describe("TinyOS command lifecycle", () => {
       commandId: "command-request-1",
       instruction: "  Explain this selection.  ",
       issuedAt: "2026-07-13T00:00:00Z",
-      observedRunId: "run-completed-1",
+      observedTurnId: "run-completed-1",
       references: [{
         detail: "TinyOS file selection",
         kind: "reference",
@@ -136,7 +136,7 @@ describe("TinyOS command lifecycle", () => {
         title: "src/main.ts · L2–3",
         type: "tinyos.file",
       }],
-      requestRunId: "run-request-1",
+      requestTurnId: "run-request-1",
       sessionId: "websocket:chat-1",
       source: { control: "files-explain-selection", surface: "tinyos" },
     })).toMatchObject({
@@ -144,10 +144,10 @@ describe("TinyOS command lifecycle", () => {
       kind: "agent.request_change",
       request: {
         instruction: "Explain this selection.",
-        observedRunId: "run-completed-1",
+        observedTurnId: "run-completed-1",
         references: [{ sourcePath: "src/main.ts", sourceLine: 2, sourceEndLine: 3 }],
       },
-      target: { runId: "run-request-1", sessionId: "websocket:chat-1" },
+      target: { turnId: "run-request-1", sessionId: "websocket:chat-1" },
     });
   });
 
@@ -185,7 +185,7 @@ describe("TinyOS command lifecycle", () => {
     });
     const cancel = createTinyOsTerminalCancelCommand({
       commandId: "command-terminal-cancel-1",
-      runId: execute.target.runId,
+      operationId: execute.target.operationId,
       sessionId: "websocket:chat-1",
       source,
     });
@@ -208,7 +208,7 @@ describe("TinyOS command lifecycle", () => {
       kind: "terminal.execute",
       terminal: { command: "npm test", confirmed: true, cwd: "apps/desktop" },
     });
-    expect(cancel).toMatchObject({ kind: "terminal.cancel", target: { runId: execute.target.runId } });
+    expect(cancel).toMatchObject({ kind: "terminal.cancel", target: { operationId: execute.target.operationId } });
     expect(browser).toMatchObject({
       kind: "browser.interact",
       browser: {
@@ -268,7 +268,7 @@ describe("TinyOS command lifecycle", () => {
       approvalId: "approval-1",
       commandId: "command-approval-1",
       issuedAt: "2026-07-13T00:00:00Z",
-      runId: "run-1",
+      turnId: "run-1",
       sessionId: "websocket:chat-1",
       source: { control: "inspector-approval", surface: "tinyos" },
     });
@@ -339,24 +339,22 @@ describe("TinyOS command lifecycle", () => {
         itemId: "run-1:command-ack:command-1",
         kind: "system_notice",
         revision: 1,
-        runId: "run-1",
         schemaVersion: "tinybot.turn_item.v2",
         sequence: 5,
         sessionId: "websocket:chat-1",
         status: "completed",
-        turnId: "run-1",
+        turnId: "turn-1",
       }, {
         createdAt: "2026-07-13T00:00:01Z",
         data: { cancelled: true, code: "cancelled", commandId: "command-1", message: "cancelled", type: "error" },
         itemId: "run-1:error:cancelled",
         kind: "error",
         revision: 7,
-        runId: "run-1",
         schemaVersion: "tinybot.turn_item.v2",
         sequence: 6,
         sessionId: "websocket:chat-1",
         status: "cancelled",
-        turnId: "run-1",
+        turnId: "turn-1",
       }],
     } as unknown as ChatTurn;
     expect(canonicalTinyOsCommandAcknowledgement([turn], "command-1")).toEqual({
@@ -385,12 +383,11 @@ describe("TinyOS command lifecycle", () => {
         itemId: "run-1:approval:approval-1",
         kind: "approval",
         revision: 2,
-        runId: "run-1",
         schemaVersion: "tinybot.turn_item.v2",
         sequence: 6,
         sessionId: "websocket:chat-1",
         status: "completed",
-        turnId: "run-1",
+        turnId: "turn-1",
       }],
     } as unknown as ChatTurn;
     expect(canonicalTinyOsCommandAcknowledgement([turn], "command-approval-1")).toEqual({
@@ -420,12 +417,11 @@ describe("TinyOS command lifecycle", () => {
         itemId: "run-1:form:travel-preferences-1",
         kind: "form",
         revision: 2,
-        runId: "run-1",
         schemaVersion: "tinybot.turn_item.v2",
         sequence: 6,
         sessionId: "websocket:chat-1",
         status: "completed",
-        turnId: "run-1",
+        turnId: "turn-1",
       }],
     } as unknown as ChatTurn;
     expect(canonicalTinyOsCommandCompletion([turn], "command-form-1")).toEqual({
@@ -436,17 +432,17 @@ describe("TinyOS command lifecycle", () => {
   });
 
   test("recognizes correlated safe-boundary pause and resume events", () => {
-    const pause = createTinyOsAgentRunControlCommand({
+    const pause = createTinyOsAgentTurnControlCommand({
       commandId: "command-pause-1",
       kind: "agent.pause",
-      runId: "run-1",
+      turnId: "run-1",
       sessionId: "websocket:chat-1",
       source: { control: "chat-pause", surface: "chat" },
     });
-    const resume = createTinyOsAgentRunControlCommand({
+    const resume = createTinyOsAgentTurnControlCommand({
       commandId: "command-resume-1",
       kind: "agent.resume",
-      runId: "run-1",
+      turnId: "run-1",
       sessionId: "websocket:chat-1",
       source: { control: "chat-resume", surface: "chat" },
     });
@@ -475,7 +471,7 @@ describe("TinyOS command lifecycle", () => {
     const retry = createTinyOsOperationRetryCommand({
       commandId: "command-retry-1",
       itemId: "run-failed:error",
-      retryRunId: "run-retry-1",
+      retryTurnId: "run-retry-1",
       sessionId: "websocket:chat-1",
       source: { control: "error-recovery", surface: "chat" },
       turnId: "run-failed",
@@ -512,7 +508,7 @@ describe("TinyOS command lifecycle", () => {
         title: "README.md · L1",
         type: "tinyos.file",
       }],
-      requestRunId: "run-request-1",
+      requestTurnId: "run-request-1",
       sessionId: "websocket:chat-1",
       source: { control: "files-explain-selection", surface: "tinyos" },
     });

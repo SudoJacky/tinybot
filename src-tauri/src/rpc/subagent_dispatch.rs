@@ -210,14 +210,14 @@ fn durable_subagent_summary(entry: &ThreadAgentRegistryEntry) -> Option<Subagent
         .and_then(|value| serde_json::from_value::<SubagentThreadStatus>(value).ok())?;
     Some(SubagentThreadSummary {
         session_key,
-        parent_run_id: entry.parent_run_id.clone(),
+        parent_turn_id: entry.parent_turn_id.clone(),
         parent_subagent_id: entry
             .parent_agent_id
             .clone()
             .or_else(|| string_value(control, "parentAgentId")),
         subagent_id: entry.agent_id.clone(),
-        child_run_id: entry
-            .run_id
+        child_turn_id: entry
+            .turn_id
             .clone()
             .unwrap_or_else(|| entry.agent_id.clone()),
         delegation_depth: usize::try_from(entry.depth).unwrap_or(usize::MAX),

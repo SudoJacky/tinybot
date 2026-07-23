@@ -2,15 +2,14 @@ import { describe, expect, test } from "vitest";
 import { createAgentTimelineModel } from "./agentTimelineModel";
 
 const sessionId = "WebSocket:timeline-test";
-const runId = "run-1";
+const turnId = "run-1";
 
 function item(overrides: Record<string, unknown> = {}) {
   return {
     schemaVersion: "tinybot.turn_item.v2",
     itemId: "assistant-1",
     sessionId,
-    runId,
-    turnId: runId,
+    turnId,
     sequence: 4,
     revision: 1,
     kind: "assistant_message",
@@ -30,7 +29,7 @@ function runtimeState(
     timeline: {
       schemaVersion: "tinybot.timeline.v2",
       sessionId,
-      runId,
+      turnId,
       snapshotRevision,
       items,
     },
@@ -41,7 +40,7 @@ function patch(snapshotRevision: number, itemOverrides: Record<string, unknown> 
   return {
     schemaVersion: "tinybot.timeline_patch.v2",
     sessionId,
-    runId,
+    turnId,
     snapshotRevision,
     item: item(itemOverrides),
   };
@@ -59,9 +58,9 @@ describe("canonical agent timeline model", () => {
       data: { type: "assistant_message", messageId: "assistant-1", modelCallId: "call-1", phase: "final_answer", content: "hello" },
     }));
 
-    expect(snapshot.runRevisions).toEqual({ [runId]: 2 });
+    expect(snapshot.turnRevisions).toEqual({ [turnId]: 2 });
     expect(snapshot.turns[0]).toMatchObject({
-      id: runId,
+      id: turnId,
       status: "completed",
       finalAnswer: { id: "assistant-1", text: "hello" },
     });
@@ -76,7 +75,7 @@ describe("canonical agent timeline model", () => {
       data: { type: "assistant_message", messageId: "assistant-1", modelCallId: "call-1", phase: "unknown", content: "hello" },
     }));
 
-    expect(snapshot.runRevisions).toEqual({ [runId]: 1 });
+    expect(snapshot.turnRevisions).toEqual({ [turnId]: 1 });
     expect(snapshot.turns[0]?.canonicalItems?.[0]).toMatchObject({ revision: 3 });
   });
 
@@ -401,7 +400,7 @@ describe("canonical agent timeline model", () => {
 
     const snapshot = model.applyPatch(sessionId, patch(3, { revision: 1 }));
 
-    expect(snapshot.runRevisions).toEqual({ [runId]: 3 });
+    expect(snapshot.turnRevisions).toEqual({ [turnId]: 3 });
     expect(snapshot.diagnostics).toMatchObject([{
       code: "lower_item_revision",
       itemId: "assistant-1",
@@ -428,8 +427,7 @@ describe("canonical agent timeline model", () => {
       schemaVersion: "tinybot.turn_item.v2",
       itemId,
       sessionId,
-      runId,
-      turnId: runId,
+      turnId,
       sequence,
       revision,
       kind,
@@ -547,7 +545,7 @@ describe("canonical agent timeline model", () => {
       live = liveModel.applyPatch(sessionId, {
         schemaVersion: "tinybot.timeline_patch.v2",
         sessionId,
-        runId,
+        turnId,
         snapshotRevision: index + 1,
         item: mutation,
       });
@@ -562,9 +560,9 @@ describe("canonical agent timeline model", () => {
     )]);
 
     expect(live).toEqual(reloaded);
-    expect(live.runRevisions).toEqual({ [runId]: 12 });
+    expect(live.turnRevisions).toEqual({ [turnId]: 12 });
     expect(live.turns[0]).toMatchObject({
-      id: runId,
+      id: turnId,
       status: "completed",
       userMessage: { clientEventId: "client-message-1", id: "user-1" },
       finalAnswer: { id: "assistant-1", text: "Acceptance complete" },

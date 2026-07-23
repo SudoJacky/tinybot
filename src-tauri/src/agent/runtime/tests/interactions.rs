@@ -9,7 +9,7 @@ fn strict_patch_search_approval_and_real_dispatch_work_end_to_end() {
     impl NativeAgentProvider for PatchProvider {
         fn complete(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             match self.calls.fetch_add(1, Ordering::SeqCst) {
                 0 => Ok(NativeAgentProviderResponse {
@@ -59,7 +59,7 @@ fn strict_patch_search_approval_and_real_dispatch_work_end_to_end() {
         run_native_agent_turn_with_workspace(
             &run_services,
             json!({
-                "runId": "run-real-patch",
+                "turnId": "run-real-patch",
                 "sessionId": "session-real-patch",
                 "maxIterations": 4,
                 "messages": [{ "role": "user", "content": "create the note" }]
@@ -106,7 +106,7 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
     impl NativeAgentProvider for RequestInputThenReadProvider {
         fn complete(
             &self,
-            context: &NativeAgentRunContext,
+            context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             match self.calls.fetch_add(1, Ordering::SeqCst) {
                 0 => Ok(NativeAgentProviderResponse {
@@ -177,7 +177,7 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
     let waiting = run_native_agent_turn_with_config(
         &services,
         json!({
-            "runId": "run-user-input",
+            "turnId": "run-user-input",
             "sessionId": "session-user-input",
             "maxIterations": 4,
             "messages": [{ "role": "user", "content": "inspect the right file" }]
@@ -203,7 +203,7 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
     let resumed = run_native_agent_turn_with_config(
         &services,
         json!({
-            "runId": "run-user-input",
+            "turnId": "run-user-input",
             "sessionId": "session-user-input",
             "maxIterations": 4,
             "metadata": {
@@ -277,7 +277,7 @@ fn request_user_input_rejects_invalid_forms_without_waiting() {
     impl NativeAgentProvider for InvalidInputProvider {
         fn complete(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             Ok(NativeAgentProviderResponse {
                 final_content: String::new(),
@@ -302,7 +302,7 @@ fn request_user_input_rejects_invalid_forms_without_waiting() {
     let result = run_native_agent_turn_with_config(
         &services,
         json!({
-            "runId": "run-invalid-user-input",
+            "turnId": "run-invalid-user-input",
             "sessionId": "session-invalid-user-input",
             "messages": [{ "role": "user", "content": "ask me" }]
         }),
@@ -330,7 +330,7 @@ fn discovered_mcp_tool_searches_activates_approves_and_calls_real_server() {
     impl NativeAgentProvider for McpDiscoveryProvider {
         fn complete(
             &self,
-            context: &NativeAgentRunContext,
+            context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             match self.calls.fetch_add(1, Ordering::SeqCst) {
                 0 => Ok(NativeAgentProviderResponse {
@@ -455,7 +455,7 @@ lines.on("line", (line) => {
         run_native_agent_turn_with_workspace(
             &run_services,
             json!({
-                "runId": "run-real-mcp-router",
+                "turnId": "run-real-mcp-router",
                 "sessionId": "session-real-mcp-router",
                 "maxIterations": 3,
                 "messages": [{ "role": "user", "content": "echo through docs" }]
@@ -523,7 +523,7 @@ fn max_iterations_clears_deferred_tool_activation_checkpoint() {
     impl NativeAgentProvider for SearchOnlyProvider {
         fn complete(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             Ok(NativeAgentProviderResponse {
                 final_content: String::new(),
@@ -548,7 +548,7 @@ fn max_iterations_clears_deferred_tool_activation_checkpoint() {
     let result = run_native_agent_turn_with_config(
         &services,
         json!({
-            "runId": "run-search-max-iterations",
+            "turnId": "run-search-max-iterations",
             "sessionId": "session-search-max-iterations",
             "maxIterations": 1,
             "messages": [{ "role": "user", "content": "find shell" }]
@@ -573,7 +573,7 @@ fn provider_error_clears_deferred_tool_activation_checkpoint() {
     impl NativeAgentProvider for SearchThenErrorProvider {
         fn complete(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
                 return Ok(NativeAgentProviderResponse {
@@ -603,7 +603,7 @@ fn provider_error_clears_deferred_tool_activation_checkpoint() {
     let result = run_native_agent_turn_with_config(
         &services,
         json!({
-            "runId": "run-search-provider-error",
+            "turnId": "run-search-provider-error",
             "sessionId": "session-search-provider-error",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "find shell" }]
@@ -621,9 +621,9 @@ fn provider_error_clears_deferred_tool_activation_checkpoint() {
 
 #[test]
 fn tool_search_excludes_deferred_tools_denied_by_capability_policy() {
-    let mut context = NativeAgentRunContext::from_spec(
+    let mut context = AgentTurnContext::from_spec(
         json!({
-            "runId": "run-tool-search-capabilities",
+            "turnId": "run-tool-search-capabilities",
             "sessionId": "session-tool-search-capabilities",
             "messages": [{ "role": "user", "content": "find file tools" }]
         }),
@@ -646,9 +646,9 @@ fn tool_search_excludes_deferred_tools_denied_by_capability_policy() {
 
 #[test]
 fn tool_search_does_not_reexpose_hidden_legacy_file_or_shell_tools() {
-    let mut context = NativeAgentRunContext::from_spec(
+    let mut context = AgentTurnContext::from_spec(
         json!({
-            "runId": "run-tool-search-words",
+            "turnId": "run-tool-search-words",
             "sessionId": "session-tool-search-words",
             "messages": [{ "role": "user", "content": "find editing tools" }]
         }),
@@ -672,9 +672,9 @@ fn tool_search_does_not_reexpose_hidden_legacy_file_or_shell_tools() {
 
 #[test]
 fn deferred_tool_activation_round_trips_through_checkpoint_validation() {
-    let mut context = NativeAgentRunContext::from_spec(
+    let mut context = AgentTurnContext::from_spec(
         json!({
-            "runId": "run-tool-search-checkpoint",
+            "turnId": "run-tool-search-checkpoint",
             "sessionId": "session-tool-search-checkpoint",
             "messages": [{ "role": "user", "content": "find memory search" }]
         }),
@@ -698,9 +698,9 @@ fn deferred_tool_activation_round_trips_through_checkpoint_validation() {
     );
     assert_eq!(cancelled_checkpoint["activatedToolIds"], json!([]));
 
-    let mut restored = NativeAgentRunContext::from_spec(
+    let mut restored = AgentTurnContext::from_spec(
         json!({
-            "runId": "run-tool-search-checkpoint",
+            "turnId": "run-tool-search-checkpoint",
             "sessionId": "session-tool-search-checkpoint",
             "messages": [{ "role": "user", "content": "continue" }]
         }),
@@ -721,7 +721,7 @@ fn deferred_tool_activation_round_trips_through_checkpoint_validation() {
     assert!(names.contains(&"memory_search"));
 
     let stale_checkpoint = json!({ "activatedToolIds": ["missing.tool"] });
-    let error = NativeAgentRunContext::from_spec(
+    let error = AgentTurnContext::from_spec(
         json!({
             "messages": [{ "role": "user", "content": "continue" }]
         }),
@@ -735,9 +735,9 @@ fn deferred_tool_activation_round_trips_through_checkpoint_validation() {
 
 #[test]
 fn duplicate_deferred_tool_activation_fails_without_partial_state() {
-    let mut context = NativeAgentRunContext::from_spec(
+    let mut context = AgentTurnContext::from_spec(
         json!({
-            "runId": "run-duplicate-activation",
+            "turnId": "run-duplicate-activation",
             "sessionId": "session-duplicate-activation",
             "messages": [{ "role": "user", "content": "find memory search" }]
         }),
@@ -765,7 +765,7 @@ fn provider_tool_name_collisions_fail_before_request_dispatch() {
             .expect("update_plan should be registered");
         duplicate.tool_id = method.to_string();
         duplicate.method = method.to_string();
-        let mut context = NativeAgentRunContext::from_spec(
+        let mut context = AgentTurnContext::from_spec(
             json!({
                 "messages": [{ "role": "user", "content": "test collision" }]
             }),
@@ -791,7 +791,7 @@ fn direct_calls_to_unactivated_deferred_tools_are_rejected() {
     impl NativeAgentProvider for DeferredToolProvider {
         fn complete(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             Ok(NativeAgentProviderResponse {
                 final_content: String::new(),
@@ -812,7 +812,7 @@ fn direct_calls_to_unactivated_deferred_tools_are_rejected() {
     impl NativeAgentToolDispatcher for PanickingDeferredDispatcher {
         fn dispatch(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
             _tool_call: &NativeAgentToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             panic!("unactivated deferred tool must not reach dispatcher");
@@ -827,7 +827,7 @@ fn direct_calls_to_unactivated_deferred_tools_are_rejected() {
             Arc::new(InMemoryNativeAgentCancellation::default()),
         ),
         json!({
-            "runId": "run-unactivated-deferred",
+            "turnId": "run-unactivated-deferred",
             "sessionId": "session-unactivated-deferred",
             "maxIterations": 1,
             "messages": [{ "role": "user", "content": "guess a shell tool" }]
@@ -849,7 +849,7 @@ fn approval_gates_the_original_batch_and_injects_all_results_before_the_next_mod
     impl NativeAgentProvider for BatchProvider {
         fn complete(
             &self,
-            context: &NativeAgentRunContext,
+            context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             match self.calls.fetch_add(1, Ordering::SeqCst) {
                 0 => Ok(NativeAgentProviderResponse {
@@ -897,7 +897,7 @@ fn approval_gates_the_original_batch_and_injects_all_results_before_the_next_mod
     impl NativeAgentToolDispatcher for RecordingBatchDispatcher {
         fn dispatch(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
             tool_call: &NativeAgentToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             self.dispatched
@@ -930,7 +930,7 @@ fn approval_gates_the_original_batch_and_injects_all_results_before_the_next_mod
         run_native_agent_turn_with_config(
             &run_services,
             json!({
-                "runId": "run-approval-batch",
+                "turnId": "run-approval-batch",
                 "sessionId": "session-approval-batch",
                 "maxIterations": 2,
                 "messages": [{ "role": "user", "content": "write then read" }]
@@ -992,7 +992,7 @@ fn denied_approval_becomes_a_tool_result_and_does_not_abort_the_turn() {
     impl NativeAgentProvider for DeniedProvider {
         fn complete(
             &self,
-            context: &NativeAgentRunContext,
+            context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
                 return Ok(NativeAgentProviderResponse {
@@ -1028,7 +1028,7 @@ fn denied_approval_becomes_a_tool_result_and_does_not_abort_the_turn() {
     impl NativeAgentToolDispatcher for PanickingDispatcher {
         fn dispatch(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
             _tool_call: &NativeAgentToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             panic!("denied tool must not dispatch")
@@ -1050,7 +1050,7 @@ fn denied_approval_becomes_a_tool_result_and_does_not_abort_the_turn() {
         run_native_agent_turn_with_config(
             &run_services,
             json!({
-                "runId": "run-denied-approval",
+                "turnId": "run-denied-approval",
                 "sessionId": "session-denied-approval",
                 "maxIterations": 2,
                 "messages": [{ "role": "user", "content": "try a write" }]
@@ -1080,10 +1080,10 @@ fn denied_approval_becomes_a_tool_result_and_does_not_abort_the_turn() {
 
 #[test]
 fn chat_completion_request_enables_parallel_tool_calls_only_when_explicitly_requested() {
-    let mut context = NativeAgentRunContext::from_spec(
+    let mut context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
-            "runId": "run-parallel-request",
+            "turnId": "run-parallel-request",
             "sessionId": "websocket:chat-parallel-request",
             "model": "fixture-model",
             "parallelToolCalls": true,
@@ -1108,10 +1108,10 @@ fn chat_completion_request_enables_parallel_tool_calls_only_when_explicitly_requ
         .expect("explicit parallel tool request should build");
     assert_eq!(enabled_request["parallel_tool_calls"], true);
 
-    let mut disabled_context = NativeAgentRunContext::from_spec(
+    let mut disabled_context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
-            "runId": "run-parallel-request-disabled",
+            "turnId": "run-parallel-request-disabled",
             "sessionId": "websocket:chat-parallel-request",
             "model": "fixture-model",
             "parallelToolCalls": false,
@@ -1127,10 +1127,10 @@ fn chat_completion_request_enables_parallel_tool_calls_only_when_explicitly_requ
 
 #[test]
 fn chat_completion_request_exposes_core_controls_when_no_capability_tools_are_available() {
-    let mut context = NativeAgentRunContext::from_spec(
+    let mut context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
-            "runId": "run-no-tools",
+            "turnId": "run-no-tools",
             "sessionId": "websocket:chat-no-tools",
             "model": "fixture-model",
             "messages": [{ "role": "user", "content": "hello" }]
@@ -1154,10 +1154,10 @@ fn chat_completion_request_exposes_core_controls_when_no_capability_tools_are_av
 
 #[test]
 fn chat_completion_request_encodes_tool_continuation_names_for_provider() {
-    let mut context = NativeAgentRunContext::from_spec(
+    let mut context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
-            "runId": "run-tool-continuation",
+            "turnId": "run-tool-continuation",
             "sessionId": "websocket:chat-tool-continuation",
             "model": "fixture-model",
             "messages": [
@@ -1209,10 +1209,10 @@ fn chat_completion_request_encodes_tool_continuation_names_for_provider() {
 
 #[test]
 fn provider_tool_call_names_restore_internal_registry_methods() {
-    let mut context = NativeAgentRunContext::from_spec(
+    let mut context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
-            "runId": "run-provider-tool-name",
+            "turnId": "run-provider-tool-name",
             "sessionId": "websocket:chat-provider-tool-name",
             "model": "fixture-model",
             "messages": [{ "role": "user", "content": "search memory" }]
@@ -1254,7 +1254,7 @@ fn provider_tool_call_names_restore_internal_registry_methods() {
 
 #[test]
 fn typed_agent_history_rejects_unknown_roles_before_provider_dispatch() {
-    let context = NativeAgentRunContext::from_spec(
+    let context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
             "provider": "fixture",
@@ -1273,7 +1273,7 @@ fn typed_agent_history_rejects_unknown_roles_before_provider_dispatch() {
 
 #[test]
 fn typed_provider_response_rejects_malformed_tool_calls_instead_of_dropping_them() {
-    let context = NativeAgentRunContext::from_spec(
+    let context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
             "messages": [{ "role": "user", "content": "run a tool" }]
@@ -1302,7 +1302,7 @@ fn typed_provider_response_rejects_malformed_tool_calls_instead_of_dropping_them
 
 #[test]
 fn typed_turn_settings_report_unsupported_provider_features() {
-    let unsupported = NativeAgentRunContext::from_spec(
+    let unsupported = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
             "model": "fixture-model",
@@ -1328,7 +1328,7 @@ fn typed_turn_settings_report_unsupported_provider_features() {
 
 #[test]
 fn typed_turn_settings_encode_declared_provider_features() {
-    let context = NativeAgentRunContext::from_spec(
+    let context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
             "model": "fixture-model",
@@ -1391,7 +1391,7 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
     impl NativeAgentProvider for ToolRegistryProvider {
         fn complete(
             &self,
-            context: &NativeAgentRunContext,
+            context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             self.specs
                 .lock()
@@ -1425,7 +1425,7 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
         &services,
         json!({
             "runtime": "rust",
-            "runId": "run-selected-tools",
+            "turnId": "run-selected-tools",
             "sessionId": "session-selected-tools",
             "selectedTools": ["memory.search"],
             "messages": [{ "role": "user", "content": "search memory" }]
@@ -1436,7 +1436,7 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
         &services,
         json!({
             "runtime": "rust",
-            "runId": "run-selected-apply-patch",
+            "turnId": "run-selected-apply-patch",
             "sessionId": "session-selected-apply-patch",
             "selectedTools": ["apply_patch"],
             "messages": [{ "role": "user", "content": "prepare one patch tool" }]
@@ -1447,7 +1447,7 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
         &services,
         json!({
             "runtime": "rust",
-            "runId": "run-never-approval",
+            "turnId": "run-never-approval",
             "sessionId": "session-never-approval",
             "approvalPolicy": "never",
             "messages": [{ "role": "user", "content": "use safe tools only" }]
@@ -1491,7 +1491,7 @@ fn invalid_turn_policy_stops_before_provider_dispatch() {
     impl NativeAgentProvider for CountingProvider {
         fn complete(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Ok(NativeAgentProviderResponse {
@@ -1516,7 +1516,7 @@ fn invalid_turn_policy_stops_before_provider_dispatch() {
         &services,
         json!({
             "runtime": "rust",
-            "runId": "run-invalid-profile",
+            "turnId": "run-invalid-profile",
             "sessionId": "session-invalid-profile",
             "permissionProfile": "remote-worker",
             "messages": [{ "role": "user", "content": "hello" }]
@@ -1527,7 +1527,7 @@ fn invalid_turn_policy_stops_before_provider_dispatch() {
         &services,
         json!({
             "runtime": "rust",
-            "runId": "run-never-approval-tool",
+            "turnId": "run-never-approval-tool",
             "sessionId": "session-never-approval-tool",
             "approvalPolicy": "never",
             "selectedTools": ["apply_patch"],
@@ -1539,7 +1539,7 @@ fn invalid_turn_policy_stops_before_provider_dispatch() {
         &services,
         json!({
             "runtime": "rust",
-            "runId": "run-unknown-selected-tool",
+            "turnId": "run-unknown-selected-tool",
             "sessionId": "session-unknown-selected-tool",
             "selectedTools": ["missing.tool"],
             "messages": [{ "role": "user", "content": "use missing tool" }]
@@ -1559,7 +1559,7 @@ fn invalid_request_stops_before_provider_call() {
         &NativeAgentRuntimeServices::default(),
         json!({
             "runtime": "rust",
-            "runId": "run-invalid",
+            "turnId": "run-invalid",
             "sessionId": "websocket:chat-invalid"
         }),
         json!({

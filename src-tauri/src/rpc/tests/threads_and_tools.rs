@@ -42,7 +42,6 @@ fn dispatches_thread_store_round_trip_requests() {
             "items": [{
                 "itemId": "",
                 "threadId": "",
-                "runId": "run-1",
                 "turnId": "turn-1",
                 "sequence": 0,
                 "createdAt": "",
@@ -182,7 +181,6 @@ fn thread_api_survives_restart_from_rollout_without_legacy_stores() {
                 "items": [{
                     "itemId": "thread-rollout-restart:item:user",
                     "threadId": "",
-                    "runId": "run-rollout-restart",
                     "turnId": "turn-rollout-restart",
                     "sequence": 0,
                     "createdAt": "2026-07-18T00:00:00Z",
@@ -266,7 +264,7 @@ fn dispatches_thread_lifecycle_requests() {
     ));
     assert_eq!(resume.error, None);
     assert_eq!(resume.result.as_ref().unwrap()["thread"]["status"], "empty");
-    assert_eq!(resume.result.as_ref().unwrap()["activeRun"], json!(null));
+    assert_eq!(resume.result.as_ref().unwrap()["activeTurn"], json!(null));
     assert!(!archived_path.exists());
     assert!(first_thread_log_file(&fixture.root).exists());
 
@@ -351,7 +349,6 @@ fn dispatches_thread_resume_from_checkpoint_id() {
                 {
                     "itemId": "thread-resume-checkpoint-before",
                     "threadId": "",
-                    "runId": "run-resume-checkpoint",
                     "turnId": "turn-resume-checkpoint",
                     "sequence": 0,
                     "createdAt": "2026-07-05T00:00:01Z",
@@ -363,7 +360,6 @@ fn dispatches_thread_resume_from_checkpoint_id() {
                 {
                     "itemId": "thread-resume-checkpoint-marker",
                     "threadId": "",
-                    "runId": "run-resume-checkpoint",
                     "turnId": "turn-resume-checkpoint",
                     "sequence": 0,
                     "createdAt": "2026-07-05T00:00:02Z",
@@ -371,7 +367,7 @@ fn dispatches_thread_resume_from_checkpoint_id() {
                         "type": "checkpoint_created",
                         "payload": {
                             "checkpointId": "checkpoint-resume",
-                            "runId": "run-resume-checkpoint",
+                            "turnId": "turn-resume-checkpoint",
                             "restorePayload": { "phase": "awaiting_tool" }
                         }
                     }
@@ -379,7 +375,6 @@ fn dispatches_thread_resume_from_checkpoint_id() {
                 {
                     "itemId": "thread-resume-checkpoint-after",
                     "threadId": "",
-                    "runId": "run-resume-checkpoint",
                     "turnId": "turn-resume-checkpoint",
                     "sequence": 0,
                     "createdAt": "2026-07-05T00:00:03Z",
@@ -443,7 +438,7 @@ fn dispatches_thread_archive_children_policy() {
         json!({
             "threadId": "thread-archive-tree-parent",
             "title": "Parent",
-            "source": "agent_run"
+            "source": "agent_turn"
         }),
     ));
     assert_eq!(parent.error, None);
@@ -551,7 +546,7 @@ fn dispatches_thread_fork_include_children_policy() {
         json!({
             "threadId": "thread-fork-tree-parent",
             "title": "Fork parent",
-            "source": "agent_run"
+            "source": "agent_turn"
         }),
     ));
     assert_eq!(parent.error, None);
@@ -576,7 +571,6 @@ fn dispatches_thread_fork_include_children_policy() {
             "items": [{
                 "itemId": "thread-fork-tree-child-item",
                 "threadId": "",
-                "runId": "run-fork-child",
                 "turnId": "turn-fork-child",
                 "sequence": 0,
                 "createdAt": "2026-07-05T00:00:01Z",
@@ -728,17 +722,17 @@ fn thread_fork_inherits_effective_history_from_canonical_rollout() {
         }),
     ));
     assert_eq!(create.error, None);
-    for (run_id, content) in [
-        ("run-rollout-fork-1", "keep"),
-        ("run-rollout-fork-2", "drop"),
+    for (turn_id, content) in [
+        ("turn-rollout-fork-1", "keep"),
+        ("turn-rollout-fork-2", "drop"),
     ] {
         let persist = router.dispatch(&WorkerRequest::new(
-            format!("req-rollout-fork-{run_id}"),
+            format!("req-rollout-fork-{turn_id}"),
             "trace-rollout-fork",
             "session.persist_turn",
             json!({
                 "session_id": "thread-rollout-fork-source",
-                "run_id": run_id,
+                "turn_id": turn_id,
                 "messages": [
                     { "role": "user", "content": format!("{content} user") },
                     { "role": "assistant", "content": format!("{content} assistant") }
@@ -813,14 +807,14 @@ fn thread_fork_inherits_effective_history_from_canonical_rollout() {
         .collect::<Vec<_>>();
     assert_eq!(contents, vec!["keep user", "keep assistant"]);
 
-    let runs = router.dispatch(&WorkerRequest::new(
-        "req-rollout-fork-runs",
+    let turns = router.dispatch(&WorkerRequest::new(
+        "req-rollout-fork-turns",
         "trace-rollout-fork",
-        "agent_run.list",
+        "thread.turn.list",
         json!({ "sessionId": fork_thread_id }),
     ));
-    assert_eq!(runs.error, None);
-    assert!(runs.result.as_ref().unwrap()["runs"]
+    assert_eq!(turns.error, None);
+    assert!(turns.result.as_ref().unwrap()["turns"]
         .as_array()
         .unwrap()
         .is_empty());
@@ -899,7 +893,7 @@ fn dispatches_thread_runtime_turn_requests() {
         "thread.start_turn",
         json!({
             "threadId": thread_id,
-            "runId": "run-runtime-1",
+            "turnId": "turn-runtime-1",
             "input": { "text": "Summarize this document" },
             "model": "deepseek-v4-flash",
             "provider": "tinybot"
@@ -907,9 +901,9 @@ fn dispatches_thread_runtime_turn_requests() {
     ));
     assert_eq!(start.error, None);
     let start_result = start.result.as_ref().unwrap();
-    assert_eq!(start_result["run"]["runId"], "run-runtime-1");
-    assert_eq!(start_result["run"]["status"], "running");
-    assert_eq!(start_result["run"]["active"], true);
+    assert_eq!(start_result["turn"]["turnId"], "turn-runtime-1");
+    assert_eq!(start_result["turn"]["status"], "running");
+    assert_eq!(start_result["turn"]["active"], true);
     assert_eq!(
         start_result["appendedItems"]
             .as_array()
@@ -930,8 +924,8 @@ fn dispatches_thread_runtime_turn_requests() {
     ));
     assert_eq!(continue_turn.error, None);
     assert_eq!(
-        continue_turn.result.as_ref().unwrap()["run"]["runId"],
-        "run-runtime-1"
+        continue_turn.result.as_ref().unwrap()["turn"]["turnId"],
+        "turn-runtime-1"
     );
     assert_eq!(
         continue_turn.result.as_ref().unwrap()["appendedItems"][0]["kind"]["type"],
@@ -946,8 +940,8 @@ fn dispatches_thread_runtime_turn_requests() {
     ));
     assert_eq!(status_running.error, None);
     assert_eq!(
-        status_running.result.as_ref().unwrap()["activeRun"]["runId"],
-        "run-runtime-1"
+        status_running.result.as_ref().unwrap()["activeTurn"]["turnId"],
+        "turn-runtime-1"
     );
 
     let interrupt = router.dispatch(&WorkerRequest::new(
@@ -964,7 +958,7 @@ fn dispatches_thread_runtime_turn_requests() {
         interrupt.result.as_ref().unwrap()["appendedItems"][0]["kind"]["type"],
         "cancelled"
     );
-    assert_eq!(interrupt.result.as_ref().unwrap()["run"]["active"], false);
+    assert_eq!(interrupt.result.as_ref().unwrap()["turn"]["active"], false);
     assert_eq!(
         interrupt.result.as_ref().unwrap()["snapshot"]["thread"]["status"],
         "idle"
@@ -984,7 +978,7 @@ fn dispatches_thread_runtime_turn_requests() {
             .len(),
         4
     );
-    assert_eq!(read.result.as_ref().unwrap()["activeRun"], json!(null));
+    assert_eq!(read.result.as_ref().unwrap()["activeTurn"], json!(null));
 }
 
 #[test]
@@ -1015,7 +1009,7 @@ fn dispatches_thread_runtime_turn_requests_idempotently() {
         json!({
             "threadId": "thread-runtime-idempotent",
             "clientEventId": "direct-start-client-1",
-            "runId": "run-direct-original",
+            "turnId": "turn-direct-original",
             "input": { "text": "Original prompt" },
             "model": "deepseek-v4-flash",
             "provider": "tinybot"
@@ -1027,8 +1021,8 @@ fn dispatches_thread_runtime_turn_requests_idempotently() {
         .unwrap()
         .clone();
     assert_eq!(
-        start.result.as_ref().unwrap()["run"]["runId"],
-        "run-direct-original"
+        start.result.as_ref().unwrap()["turn"]["turnId"],
+        "turn-direct-original"
     );
 
     let start_retry = router.dispatch(&WorkerRequest::new(
@@ -1038,7 +1032,7 @@ fn dispatches_thread_runtime_turn_requests_idempotently() {
         json!({
             "threadId": "thread-runtime-idempotent",
             "clientEventId": "direct-start-client-1",
-            "runId": "run-direct-retry",
+            "turnId": "turn-direct-retry",
             "input": { "text": "Retry must not append" },
             "model": "retry-model",
             "provider": "retry-provider"
@@ -1046,8 +1040,8 @@ fn dispatches_thread_runtime_turn_requests_idempotently() {
     ));
     assert_eq!(start_retry.error, None);
     assert_eq!(
-        start_retry.result.as_ref().unwrap()["run"]["runId"],
-        "run-direct-original"
+        start_retry.result.as_ref().unwrap()["turn"]["turnId"],
+        "turn-direct-original"
     );
     assert_eq!(
         start_retry.result.as_ref().unwrap()["appendedItems"]
@@ -1103,8 +1097,8 @@ fn dispatches_thread_runtime_turn_requests_idempotently() {
     ));
     assert_eq!(continue_retry.error, None);
     assert_eq!(
-        continue_retry.result.as_ref().unwrap()["run"]["runId"],
-        "run-direct-original"
+        continue_retry.result.as_ref().unwrap()["turn"]["turnId"],
+        "turn-direct-original"
     );
     assert_eq!(
         continue_retry.result.as_ref().unwrap()["appendedItems"]
@@ -1123,7 +1117,7 @@ fn dispatches_thread_runtime_turn_requests_idempotently() {
     let items = read.result.as_ref().unwrap()["items"].as_array().unwrap();
     assert_eq!(items.len(), 4);
     assert_eq!(items[0]["kind"]["payload"]["text"], "Original prompt");
-    assert_eq!(items[1]["kind"]["type"], "agent_run_started");
+    assert_eq!(items[1]["kind"]["type"], "turn_started");
     assert_eq!(items[2]["kind"]["type"], "event");
     assert_eq!(items[3]["kind"]["type"], "cancelled");
 }
@@ -1159,7 +1153,7 @@ fn dispatches_thread_events_after_cursor() {
         "thread.start_turn",
         json!({
             "threadId": thread_id,
-            "runId": "run-events-1",
+            "turnId": "turn-events-1",
             "input": "Summarize a document"
         }),
     ));
@@ -1182,15 +1176,15 @@ fn dispatches_thread_events_after_cursor() {
         "running"
     );
     assert_eq!(
-        first_page.result.as_ref().unwrap()["activeRun"]["runId"],
-        "run-events-1"
+        first_page.result.as_ref().unwrap()["activeTurn"]["turnId"],
+        "turn-events-1"
     );
     assert_eq!(
-        first_page.result.as_ref().unwrap()["runs"][0]["runId"],
-        "run-events-1"
+        first_page.result.as_ref().unwrap()["turns"][0]["turnId"],
+        "turn-events-1"
     );
     assert_eq!(
-        first_page.result.as_ref().unwrap()["runs"][0]["active"],
+        first_page.result.as_ref().unwrap()["turns"][0]["active"],
         true
     );
     assert_eq!(
@@ -1210,8 +1204,8 @@ fn dispatches_thread_events_after_cursor() {
         thread_id
     );
     assert_eq!(
-        first_page.result.as_ref().unwrap()["events"][0]["activeRun"]["runId"],
-        "run-events-1"
+        first_page.result.as_ref().unwrap()["events"][0]["activeTurn"]["turnId"],
+        "turn-events-1"
     );
     assert_eq!(
         first_page.result.as_ref().unwrap()["events"][1]["type"],
@@ -1222,8 +1216,8 @@ fn dispatches_thread_events_after_cursor() {
         "running"
     );
     assert_eq!(
-        first_page.result.as_ref().unwrap()["events"][1]["activeRun"]["runId"],
-        "run-events-1"
+        first_page.result.as_ref().unwrap()["events"][1]["activeTurn"]["turnId"],
+        "turn-events-1"
     );
     assert_eq!(
         first_page.result.as_ref().unwrap()["events"][2]["type"],
@@ -1256,15 +1250,15 @@ fn dispatches_thread_events_after_cursor() {
     );
     assert_eq!(
         second_page.result.as_ref().unwrap()["items"][0]["kind"]["type"],
-        "agent_run_started"
+        "turn_started"
     );
     assert_eq!(
         second_page.result.as_ref().unwrap()["events"][0]["type"],
         "thread_snapshot"
     );
     assert_eq!(
-        second_page.result.as_ref().unwrap()["events"][0]["activeRun"]["runId"],
-        "run-events-1"
+        second_page.result.as_ref().unwrap()["events"][0]["activeTurn"]["turnId"],
+        "turn-events-1"
     );
     assert_eq!(
         second_page.result.as_ref().unwrap()["events"][1]["type"],
@@ -1306,8 +1300,8 @@ fn dispatches_thread_events_after_cursor() {
         "thread_snapshot"
     );
     assert_eq!(
-        empty_page.result.as_ref().unwrap()["events"][0]["activeRun"]["runId"],
-        "run-events-1"
+        empty_page.result.as_ref().unwrap()["events"][0]["activeTurn"]["turnId"],
+        "turn-events-1"
     );
     assert_eq!(
         empty_page.result.as_ref().unwrap()["events"][1]["type"],
@@ -1533,7 +1527,7 @@ fn dispatches_permission_profile_evaluate_tool_for_sensitive_request() {
             "toolId": "shell.execute",
             "arguments": { "command": "cargo test --lib" },
             "sessionId": "session-1",
-            "runId": "run-1"
+            "turnId": "turn-1"
         }),
     ));
 
@@ -1566,7 +1560,7 @@ fn dispatches_permission_profile_evaluate_tool_for_sensitive_request() {
         "unrestricted"
     );
     assert_eq!(result["approvalRequest"]["sessionId"], "session-1");
-    assert_eq!(result["approvalRequest"]["runId"], "run-1");
+    assert_eq!(result["approvalRequest"]["turnId"], "turn-1");
 }
 
 #[test]
@@ -1630,7 +1624,6 @@ fn dispatches_permission_profile_request_tool_approval_records_thread_item() {
         "thread.start_turn",
         json!({
             "threadId": "thread-permission-approval",
-            "runId": "run-permission-approval",
             "turnId": "turn-permission-approval",
             "input": { "content": "run shell" }
         }),
@@ -1644,7 +1637,6 @@ fn dispatches_permission_profile_request_tool_approval_records_thread_item() {
         json!({
             "toolId": "shell.execute",
             "threadId": "thread-permission-approval",
-            "runId": "run-permission-approval",
             "turnId": "turn-permission-approval",
             "sessionId": "session-permission-approval",
             "arguments": { "command": "echo needs approval" }
@@ -1682,7 +1674,7 @@ fn dispatches_permission_profile_request_tool_approval_records_thread_item() {
         .collect::<Vec<_>>();
     assert_eq!(
         item_kinds,
-        vec!["user_message", "agent_run_started", "approval_requested"]
+        vec!["user_message", "turn_started", "approval_requested"]
     );
 }
 
@@ -1718,7 +1710,6 @@ fn dispatches_permission_profile_resolve_tool_approval_records_thread_item() {
         "thread.start_turn",
         json!({
             "threadId": "thread-permission-resolve",
-            "runId": "run-permission-resolve",
             "turnId": "turn-permission-resolve",
             "input": { "content": "run shell" }
         }),
@@ -1731,7 +1722,6 @@ fn dispatches_permission_profile_resolve_tool_approval_records_thread_item() {
         json!({
             "toolId": "shell.execute",
             "threadId": "thread-permission-resolve",
-            "runId": "run-permission-resolve",
             "turnId": "turn-permission-resolve",
             "sessionId": "session-permission-resolve",
             "arguments": { "command": "echo resolve approval" }
@@ -1749,7 +1739,6 @@ fn dispatches_permission_profile_resolve_tool_approval_records_thread_item() {
         "permission_profile.resolve_tool_approval",
         json!({
             "threadId": "thread-permission-resolve",
-            "runId": "run-permission-resolve",
             "turnId": "turn-permission-resolve",
             "sessionId": "session-permission-resolve",
             "approvalId": approval_id,
@@ -1798,7 +1787,7 @@ fn permission_profile_resolved_tool_approval_allows_matching_sensitive_tool() {
         "permission_profile.request_tool_approval",
         json!({
             "toolId": "shell.execute",
-            "runId": "run-permission-grant",
+            "turnId": "turn-permission-grant",
             "sessionId": "session-permission-grant",
             "arguments": { "command": "echo approval grant works" }
         }),
@@ -1830,7 +1819,7 @@ fn permission_profile_resolved_tool_approval_allows_matching_sensitive_tool() {
             "working_dir": ".",
             "timeout": 5,
             "session_id": "session-permission-grant",
-            "run_id": "run-permission-grant"
+            "turn_id": "turn-permission-grant"
         }),
     ));
 
@@ -1863,7 +1852,7 @@ fn tool_executor_forwards_top_level_context_to_sensitive_tool() {
         "permission_profile.request_tool_approval",
         json!({
             "toolId": "shell.execute",
-            "runId": "run-executor-grant",
+            "turnId": "turn-executor-grant",
             "sessionId": "session-executor-grant",
             "arguments": { "command": "echo executor grant works" }
         }),
@@ -1893,7 +1882,7 @@ fn tool_executor_forwards_top_level_context_to_sensitive_tool() {
         json!({
             "toolId": "shell.execute",
             "sessionId": "session-executor-grant",
-            "runId": "run-executor-grant",
+            "turnId": "turn-executor-grant",
             "arguments": {
                 "command": "echo executor grant works",
                 "working_dir": ".",
@@ -1940,7 +1929,6 @@ fn dispatches_thread_restore_checkpoint_from_thread_history() {
         "thread.start_turn",
         json!({
             "threadId": "thread-restore-checkpoint",
-            "runId": "run-restore-checkpoint",
             "turnId": "turn-restore-checkpoint",
             "input": { "content": "prepare checkpoint" }
         }),
@@ -1954,7 +1942,6 @@ fn dispatches_thread_restore_checkpoint_from_thread_history() {
             "threadId": "thread-restore-checkpoint",
             "op": {
                 "type": "checkpoint",
-                "runId": "run-restore-checkpoint",
                 "turnId": "turn-restore-checkpoint",
                 "checkpointId": "checkpoint-restore-1",
                 "label": "Before tool execution",
@@ -1974,7 +1961,6 @@ fn dispatches_thread_restore_checkpoint_from_thread_history() {
             "threadId": "thread-restore-checkpoint",
             "op": {
                 "type": "runtime_event",
-                "runId": "run-restore-checkpoint",
                 "turnId": "turn-restore-checkpoint",
                 "eventName": "agent.after_checkpoint",
                 "source": "test",
@@ -2041,7 +2027,6 @@ fn dispatches_thread_restore_checkpoint_defaults_to_latest_checkpoint() {
         "thread.start_turn",
         json!({
             "threadId": "thread-restore-latest",
-            "runId": "run-restore-latest",
             "turnId": "turn-restore-latest",
             "input": { "content": "make checkpoints" }
         }),
@@ -2059,7 +2044,6 @@ fn dispatches_thread_restore_checkpoint_defaults_to_latest_checkpoint() {
                 "threadId": "thread-restore-latest",
                 "op": {
                     "type": "checkpoint",
-                    "runId": "run-restore-latest",
                     "turnId": "turn-restore-latest",
                     "checkpointId": checkpoint_id,
                     "restorePayload": { "phase": phase }
@@ -2110,7 +2094,7 @@ fn dispatches_thread_agent_registry_for_parent_and_child_threads() {
             "threadId": "thread-agent-parent",
             "title": "Main thread",
             "sessionKey": "session-agent-registry",
-            "source": "agent_run"
+            "source": "agent_turn"
         }),
     ));
     assert_eq!(parent.error, None);
@@ -2120,7 +2104,6 @@ fn dispatches_thread_agent_registry_for_parent_and_child_threads() {
         "thread.start_turn",
         json!({
             "threadId": "thread-agent-parent",
-            "runId": "run-agent-parent",
             "turnId": "turn-agent-parent",
             "input": { "content": "coordinate child work" }
         }),
@@ -2142,8 +2125,8 @@ fn dispatches_thread_agent_registry_for_parent_and_child_threads() {
                         "agentId": "child-agent-1",
                         "agentPath": ["main", "child-agent-1"],
                         "parentThreadId": "thread-agent-parent",
-                        "parentRunId": "run-agent-parent",
-                        "childRunId": "run-agent-child",
+                        "parentTurnId": "turn-agent-parent",
+                        "childTurnId": "turn-agent-child",
                         "role": "research",
                         "nickname": "Researcher",
                         "depth": 1,
@@ -2167,7 +2150,6 @@ fn dispatches_thread_agent_registry_for_parent_and_child_threads() {
         "thread.start_turn",
         json!({
             "threadId": "thread-agent-child",
-            "runId": "run-agent-child",
             "turnId": "turn-agent-child",
             "input": { "content": "research task" }
         }),
@@ -2181,7 +2163,6 @@ fn dispatches_thread_agent_registry_for_parent_and_child_threads() {
             "threadId": "thread-agent-child",
             "op": {
                 "type": "checkpoint",
-                "runId": "run-agent-child",
                 "turnId": "turn-agent-child",
                 "checkpointId": "checkpoint-child-agent",
                 "restorePayload": { "phase": "child_waiting" }
@@ -2197,7 +2178,6 @@ fn dispatches_thread_agent_registry_for_parent_and_child_threads() {
             "threadId": "thread-agent-child",
             "op": {
                 "type": "approval_request",
-                "runId": "run-agent-child",
                 "turnId": "turn-agent-child",
                 "approvalId": "approval-child-1",
                 "summary": "Allow child tool?"
@@ -2271,7 +2251,6 @@ fn dispatches_thread_activity_for_activity_rail_summary() {
         "thread.start_turn",
         json!({
             "threadId": "thread-activity-parent",
-            "runId": "run-activity-parent",
             "turnId": "turn-activity-parent",
             "input": { "content": "show activity" }
         }),
@@ -2282,7 +2261,6 @@ fn dispatches_thread_activity_for_activity_rail_summary() {
             "req-thread-activity-checkpoint",
             json!({
                 "type": "checkpoint",
-                "runId": "run-activity-parent",
                 "turnId": "turn-activity-parent",
                 "checkpointId": "checkpoint-activity-parent",
                 "label": "Before tool",
@@ -2293,7 +2271,6 @@ fn dispatches_thread_activity_for_activity_rail_summary() {
             "req-thread-activity-tool-start",
             json!({
                 "type": "tool_call_started",
-                "runId": "run-activity-parent",
                 "turnId": "turn-activity-parent",
                 "toolCallId": "tool-activity-1",
                 "toolName": "workspace.read_file",
@@ -2304,7 +2281,6 @@ fn dispatches_thread_activity_for_activity_rail_summary() {
             "req-thread-activity-approval",
             json!({
                 "type": "approval_request",
-                "runId": "run-activity-parent",
                 "turnId": "turn-activity-parent",
                 "approvalId": "approval-activity-1",
                 "summary": "Allow workspace read?"
@@ -2338,7 +2314,7 @@ fn dispatches_thread_activity_for_activity_rail_summary() {
                         "agentId": "child-activity-agent",
                         "agentPath": ["main", "child-activity-agent"],
                         "parentThreadId": "thread-activity-parent",
-                        "childRunId": "run-activity-child",
+                        "childTurnId": "turn-activity-child",
                         "role": "research",
                         "nickname": "Activity child",
                         "depth": 1,
@@ -2359,7 +2335,6 @@ fn dispatches_thread_activity_for_activity_rail_summary() {
         "thread.start_turn",
         json!({
             "threadId": "thread-activity-child",
-            "runId": "run-activity-child",
             "turnId": "turn-activity-child",
             "input": { "content": "child work" }
         }),
@@ -2428,7 +2403,6 @@ fn dispatches_thread_activity_excludes_completed_tool_calls() {
                 "thread.start_turn",
                 json!({
                     "threadId": "thread-activity-completed-tool",
-                    "runId": "run-activity-completed-tool",
                     "turnId": "turn-activity-completed-tool",
                     "input": { "content": "run completed tool" }
                 }),
@@ -2441,7 +2415,6 @@ fn dispatches_thread_activity_excludes_completed_tool_calls() {
             "req-thread-activity-completed-tool-call",
             json!({
                 "type": "tool_call_started",
-                "runId": "run-activity-completed-tool",
                 "turnId": "turn-activity-completed-tool",
                 "toolCallId": "tool-completed-1",
                 "toolName": "workspace.read_file",
@@ -2452,7 +2425,6 @@ fn dispatches_thread_activity_excludes_completed_tool_calls() {
             "req-thread-activity-completed-tool-result",
             json!({
                 "type": "tool_result",
-                "runId": "run-activity-completed-tool",
                 "turnId": "turn-activity-completed-tool",
                 "toolCallId": "tool-completed-1",
                 "toolName": "workspace.read_file",
@@ -2558,7 +2530,6 @@ fn dispatches_tool_executor_records_thread_tool_lifecycle() {
         "thread.start_turn",
         json!({
             "threadId": "thread-tool-executor",
-            "runId": "run-tool-executor",
             "turnId": "turn-tool-executor",
             "input": { "content": "read notes" }
         }),
@@ -2572,7 +2543,6 @@ fn dispatches_tool_executor_records_thread_tool_lifecycle() {
         json!({
             "toolId": "memory.search",
             "threadId": "thread-tool-executor",
-            "runId": "run-tool-executor",
             "turnId": "turn-tool-executor",
             "toolCallId": "call-tool-executor-read",
             "arguments": { "query": "hello" }
@@ -2582,7 +2552,7 @@ fn dispatches_tool_executor_records_thread_tool_lifecycle() {
     assert_eq!(response.error, None);
     let result = response.result.as_ref().unwrap();
     assert_eq!(result["threadId"], "thread-tool-executor");
-    assert_eq!(result["runId"], "run-tool-executor");
+    assert_eq!(result["turnId"], "turn-tool-executor");
     assert_eq!(result["toolCallId"], "call-tool-executor-read");
     assert_eq!(result["appendedItems"].as_array().unwrap().len(), 2);
     assert_eq!(
@@ -2615,7 +2585,7 @@ fn dispatches_tool_executor_records_thread_tool_lifecycle() {
         item_kinds,
         vec![
             "user_message",
-            "agent_run_started",
+            "turn_started",
             "tool_call_started",
             "tool_call_output"
         ]
@@ -2646,7 +2616,7 @@ fn dispatches_tool_executor_rejects_unavailable_registered_tool() {
             "arguments": {
                 "command": "echo blocked",
                 "sessionId": "session-1",
-                "runId": "run-1"
+                "turnId": "turn-1"
             }
         }),
     ));
@@ -2687,7 +2657,7 @@ fn dispatches_tool_executor_preserves_sensitive_tool_approval_boundary() {
             "arguments": {
                 "command": "echo needs approval",
                 "sessionId": "session-1",
-                "runId": "run-1"
+                "turnId": "turn-1"
             }
         }),
     ));
@@ -2791,7 +2761,6 @@ fn dispatches_thread_read_before_sequence_page() {
             json!({
                 "itemId": format!("thread-read-before-item-{index}"),
                 "threadId": "",
-                "runId": "run-read-before",
                 "turnId": "turn-read-before",
                 "sequence": 0,
                 "createdAt": format!("2026-07-05T00:00:0{index}Z"),
@@ -2840,7 +2809,6 @@ fn dispatches_thread_read_before_sequence_page() {
                 {
                     "itemId": "thread-read-before-checkpoint",
                     "threadId": "",
-                    "runId": "run-read-before",
                     "turnId": "turn-read-before",
                     "sequence": 0,
                     "createdAt": "2026-07-05T00:00:06Z",
@@ -2848,7 +2816,7 @@ fn dispatches_thread_read_before_sequence_page() {
                         "type": "checkpoint_created",
                         "payload": {
                             "checkpointId": "checkpoint-read-before",
-                            "runId": "run-read-before",
+                            "turnId": "turn-read-before",
                             "restorePayload": { "phase": "awaiting_tool" }
                         }
                     }
@@ -2856,7 +2824,6 @@ fn dispatches_thread_read_before_sequence_page() {
                 {
                     "itemId": "thread-read-before-after-checkpoint",
                     "threadId": "",
-                    "runId": "run-read-before",
                     "turnId": "turn-read-before",
                     "sequence": 0,
                     "createdAt": "2026-07-05T00:00:07Z",
@@ -3005,7 +2972,7 @@ fn dispatches_thread_apply_op_for_turn_lifecycle() {
             "clientEventId": "user-input-client-1",
             "op": {
                 "type": "user_input",
-                "runId": "run-op-1",
+                "turnId": "turn-op-1",
                 "input": { "text": "Summarize this document" },
                 "model": "deepseek-v4-flash"
             }
@@ -3013,8 +2980,8 @@ fn dispatches_thread_apply_op_for_turn_lifecycle() {
     ));
     assert_eq!(user_input.error, None);
     assert_eq!(
-        user_input.result.as_ref().unwrap()["run"]["runId"],
-        "run-op-1"
+        user_input.result.as_ref().unwrap()["turn"]["turnId"],
+        "turn-op-1"
     );
     assert_eq!(
         user_input.result.as_ref().unwrap()["appendedItems"][0]["kind"]["type"],
@@ -3038,7 +3005,7 @@ fn dispatches_thread_apply_op_for_turn_lifecycle() {
             "clientEventId": "user-input-client-1",
             "op": {
                 "type": "user_input",
-                "runId": "run-op-1",
+                "turnId": "turn-op-1",
                 "input": { "text": "This retry must not append" },
                 "model": "deepseek-v4-flash"
             }
@@ -3058,7 +3025,7 @@ fn dispatches_thread_apply_op_for_turn_lifecycle() {
         "Summarize this document"
     );
 
-    let continue_run = router.dispatch(&WorkerRequest::new(
+    let continue_turn = router.dispatch(&WorkerRequest::new(
         "req-thread-op-continue",
         "trace-thread-op",
         "thread.apply_op",
@@ -3066,26 +3033,26 @@ fn dispatches_thread_apply_op_for_turn_lifecycle() {
             "threadId": thread_id,
             "clientEventId": "continue-client-1",
             "op": {
-                "type": "continue_run",
+                "type": "continue_turn",
                 "input": { "approval": "continue" }
             }
         }),
     ));
-    assert_eq!(continue_run.error, None);
+    assert_eq!(continue_turn.error, None);
     assert_eq!(
-        continue_run.result.as_ref().unwrap()["run"]["runId"],
-        "run-op-1"
+        continue_turn.result.as_ref().unwrap()["turn"]["turnId"],
+        "turn-op-1"
     );
     assert_eq!(
-        continue_run.result.as_ref().unwrap()["appendedItems"][0]["kind"]["type"],
+        continue_turn.result.as_ref().unwrap()["appendedItems"][0]["kind"]["type"],
         "event"
     );
-    let continue_item_id = continue_run.result.as_ref().unwrap()["appendedItems"][0]["itemId"]
+    let continue_item_id = continue_turn.result.as_ref().unwrap()["appendedItems"][0]["itemId"]
         .as_str()
         .unwrap()
         .to_string();
 
-    let continue_run_retry = router.dispatch(&WorkerRequest::new(
+    let continue_turn_retry = router.dispatch(&WorkerRequest::new(
         "req-thread-op-continue-retry",
         "trace-thread-op",
         "thread.apply_op",
@@ -3093,18 +3060,18 @@ fn dispatches_thread_apply_op_for_turn_lifecycle() {
             "threadId": thread_id,
             "clientEventId": "continue-client-1",
             "op": {
-                "type": "continue_run",
+                "type": "continue_turn",
                 "input": { "approval": "retry should not append" }
             }
         }),
     ));
-    assert_eq!(continue_run_retry.error, None);
+    assert_eq!(continue_turn_retry.error, None);
     assert_eq!(
-        continue_run_retry.result.as_ref().unwrap()["appendedItems"][0]["itemId"],
+        continue_turn_retry.result.as_ref().unwrap()["appendedItems"][0]["itemId"],
         continue_item_id
     );
     assert_eq!(
-        continue_run_retry.result.as_ref().unwrap()["appendedItems"][0]["kind"]["payload"]
+        continue_turn_retry.result.as_ref().unwrap()["appendedItems"][0]["kind"]["payload"]
             ["payload"]["approval"],
         "continue"
     );
@@ -3213,8 +3180,8 @@ fn dispatches_thread_apply_op_for_turn_lifecycle() {
     ));
     assert_eq!(approval.error, None);
     assert_eq!(
-        approval.result.as_ref().unwrap()["run"]["runId"],
-        "run-op-1"
+        approval.result.as_ref().unwrap()["turn"]["turnId"],
+        "turn-op-1"
     );
     assert_eq!(
         approval.result.as_ref().unwrap()["appendedItems"][0]["kind"]["type"],
@@ -3249,8 +3216,8 @@ fn dispatches_thread_apply_op_for_turn_lifecycle() {
     ));
     assert_eq!(tool_result.error, None);
     assert_eq!(
-        tool_result.result.as_ref().unwrap()["run"]["runId"],
-        "run-op-1"
+        tool_result.result.as_ref().unwrap()["turn"]["turnId"],
+        "turn-op-1"
     );
     assert_eq!(
         tool_result.result.as_ref().unwrap()["appendedItems"][0]["kind"]["type"],
@@ -3283,11 +3250,11 @@ fn dispatches_thread_apply_op_for_turn_lifecycle() {
     ));
     assert_eq!(assistant_delta.error, None);
     assert_eq!(
-        assistant_delta.result.as_ref().unwrap()["run"]["runId"],
-        "run-op-1"
+        assistant_delta.result.as_ref().unwrap()["turn"]["turnId"],
+        "turn-op-1"
     );
     assert_eq!(
-        assistant_delta.result.as_ref().unwrap()["run"]["active"],
+        assistant_delta.result.as_ref().unwrap()["turn"]["active"],
         true
     );
     assert_eq!(
@@ -3316,8 +3283,8 @@ fn dispatches_thread_apply_op_for_turn_lifecycle() {
     ));
     assert_eq!(reasoning.error, None);
     assert_eq!(
-        reasoning.result.as_ref().unwrap()["run"]["runId"],
-        "run-op-1"
+        reasoning.result.as_ref().unwrap()["turn"]["turnId"],
+        "turn-op-1"
     );
     assert_eq!(
         reasoning.result.as_ref().unwrap()["appendedItems"][0]["kind"]["type"],
@@ -3344,11 +3311,11 @@ fn dispatches_thread_apply_op_for_turn_lifecycle() {
     ));
     assert_eq!(assistant_response.error, None);
     assert_eq!(
-        assistant_response.result.as_ref().unwrap()["run"]["runId"],
-        "run-op-1"
+        assistant_response.result.as_ref().unwrap()["turn"]["turnId"],
+        "turn-op-1"
     );
     assert_eq!(
-        assistant_response.result.as_ref().unwrap()["run"]["active"],
+        assistant_response.result.as_ref().unwrap()["turn"]["active"],
         false
     );
     assert_eq!(
@@ -3357,14 +3324,14 @@ fn dispatches_thread_apply_op_for_turn_lifecycle() {
     );
     assert_eq!(
         assistant_response.result.as_ref().unwrap()["appendedItems"][1]["kind"]["type"],
-        "agent_run_completed"
+        "turn_completed"
     );
     assert_eq!(
         assistant_response.result.as_ref().unwrap()["snapshot"]["thread"]["status"],
         "idle"
     );
     assert_eq!(
-        assistant_response.result.as_ref().unwrap()["snapshot"]["activeRun"],
+        assistant_response.result.as_ref().unwrap()["snapshot"]["activeTurn"],
         json!(null)
     );
     let assistant_message_item_id = assistant_response.result.as_ref().unwrap()["appendedItems"][0]
@@ -3420,7 +3387,7 @@ fn dispatches_thread_apply_op_for_turn_lifecycle() {
             "threadId": thread_id,
             "op": {
                 "type": "tool_result",
-                "runId": "run-op-1",
+                "turnId": "turn-op-1",
                 "toolCallId": "tool-call-op-1",
                 "toolName": "workspace.read_file",
                 "output": { "text": "late output" }
@@ -3433,7 +3400,7 @@ fn dispatches_thread_apply_op_for_turn_lifecycle() {
     );
     assert_eq!(
         late_tool_result.error.as_ref().unwrap().message,
-        "thread operation targets a run that is not active"
+        "thread operation targets a turn that is not active"
     );
 
     let continue_without_active_run = router.dispatch(&WorkerRequest::new(
@@ -3443,7 +3410,7 @@ fn dispatches_thread_apply_op_for_turn_lifecycle() {
         json!({
             "threadId": thread_id,
             "op": {
-                "type": "continue_run",
+                "type": "continue_turn",
                 "input": { "approval": "late continue" }
             }
         }),
@@ -3454,7 +3421,7 @@ fn dispatches_thread_apply_op_for_turn_lifecycle() {
     );
     assert_eq!(
         continue_without_active_run.error.as_ref().unwrap().message,
-        "thread operation requires an active run or explicit runId"
+        "thread operation requires an active turn or explicit turnId"
     );
 
     let second_user_input = router.dispatch(&WorkerRequest::new(
@@ -3465,15 +3432,15 @@ fn dispatches_thread_apply_op_for_turn_lifecycle() {
             "threadId": thread_id,
             "op": {
                 "type": "user_input",
-                "runId": "run-op-2",
+                "turnId": "turn-op-2",
                 "input": { "text": "Start another task" }
             }
         }),
     ));
     assert_eq!(second_user_input.error, None);
     assert_eq!(
-        second_user_input.result.as_ref().unwrap()["run"]["runId"],
-        "run-op-2"
+        second_user_input.result.as_ref().unwrap()["turn"]["turnId"],
+        "turn-op-2"
     );
 
     let interrupt = router.dispatch(&WorkerRequest::new(
@@ -3560,7 +3527,7 @@ fn dispatches_thread_apply_op_records_terminal_error() {
             "threadId": thread_id,
             "op": {
                 "type": "user_input",
-                "runId": "run-error-op-1",
+                "turnId": "turn-error-op-1",
                 "input": "Start risky task"
             }
         }),
@@ -3583,10 +3550,10 @@ fn dispatches_thread_apply_op_records_terminal_error() {
     ));
     assert_eq!(failed.error, None);
     assert_eq!(
-        failed.result.as_ref().unwrap()["run"]["runId"],
-        "run-error-op-1"
+        failed.result.as_ref().unwrap()["turn"]["turnId"],
+        "turn-error-op-1"
     );
-    assert_eq!(failed.result.as_ref().unwrap()["run"]["status"], "failed");
+    assert_eq!(failed.result.as_ref().unwrap()["turn"]["status"], "failed");
     assert_eq!(
         failed.result.as_ref().unwrap()["appendedItems"][0]["kind"]["type"],
         "error"
@@ -3600,20 +3567,20 @@ fn dispatches_thread_apply_op_records_terminal_error() {
         "failed"
     );
     assert_eq!(
-        failed.result.as_ref().unwrap()["snapshot"]["activeRun"],
+        failed.result.as_ref().unwrap()["snapshot"]["activeTurn"],
         json!(null)
     );
 
     let run_get = router.dispatch(&WorkerRequest::new(
-        "req-thread-error-op-run-get",
+        "req-thread-error-op-turn-get",
         "trace-thread-error-op",
-        "agent_run.get",
-        json!({ "session_id": "session-error-op", "run_id": "run-error-op-1" }),
+        "thread.turn.get",
+        json!({ "session_id": "session-error-op", "turn_id": "turn-error-op-1" }),
     ));
     assert!(run_get.result.is_none());
     assert_eq!(
         run_get.error.as_ref().map(|error| error.message.as_str()),
-        Some("agent run not found")
+        Some("turn not found")
     );
 }
 
@@ -3650,7 +3617,7 @@ fn dispatches_thread_apply_op_for_subagent_events() {
             "threadId": thread_id,
             "op": {
                 "type": "user_input",
-                "runId": "run-subagent-op-1",
+                "turnId": "turn-subagent-op-1",
                 "input": { "text": "Delegate this task" }
             }
         }),
@@ -3667,7 +3634,7 @@ fn dispatches_thread_apply_op_for_subagent_events() {
                 "type": "subagent_spawned",
                 "subagentId": "delegate-op-1",
                 "childThreadId": "thread-child-op-1",
-                "childRunId": "run-child-op-1",
+                "childTurnId": "turn-child-op-1",
                 "name": "Researcher",
                 "task": "Find source material",
                 "payload": {
@@ -3696,7 +3663,7 @@ fn dispatches_thread_apply_op_for_subagent_events() {
                 "type": "subagent_message",
                 "subagentId": "delegate-op-1",
                 "childThreadId": "thread-child-op-1",
-                "childRunId": "run-child-op-1",
+                "childTurnId": "turn-child-op-1",
                 "content": "I found two relevant sources.",
                 "status": "running",
                 "payload": {
@@ -3725,7 +3692,7 @@ fn dispatches_thread_apply_op_for_subagent_events() {
                 "type": "subagent_completed",
                 "subagentId": "delegate-op-1",
                 "childThreadId": "thread-child-op-1",
-                "childRunId": "run-child-op-1",
+                "childTurnId": "turn-child-op-1",
                 "status": "completed",
                 "result": {
                     "summary": "Two sources found"
@@ -3761,7 +3728,7 @@ fn dispatches_thread_apply_op_for_subagent_events() {
         item_kinds,
         vec![
             "user_message",
-            "agent_run_started",
+            "turn_started",
             "subagent_spawned",
             "subagent_message",
             "subagent_completed",
@@ -3802,7 +3769,7 @@ fn dispatches_thread_apply_op_for_agent_step_events() {
             "threadId": "thread-agent-step-op",
             "op": {
                 "type": "user_input",
-                "runId": "run-agent-step-op",
+                "turnId": "turn-agent-step-op",
                 "input": { "text": "Run a multi-step task" }
             }
         }),
@@ -3830,7 +3797,7 @@ fn dispatches_thread_apply_op_for_agent_step_events() {
     assert_eq!(step.error, None);
     assert_eq!(
         step.result.as_ref().unwrap()["appendedItems"][0]["kind"]["type"],
-        "agent_run_step"
+        "turn_step"
     );
     assert_eq!(
         step.result.as_ref().unwrap()["appendedItems"][0]["kind"]["payload"]["stepId"],
@@ -3856,7 +3823,7 @@ fn dispatches_thread_apply_op_for_agent_step_events() {
         .collect::<Vec<_>>();
     assert_eq!(
         item_kinds,
-        vec!["user_message", "agent_run_started", "agent_run_step"]
+        vec!["user_message", "turn_started", "turn_step"]
     );
 }
 
@@ -3893,7 +3860,7 @@ fn dispatches_thread_apply_op_for_runtime_events() {
             "threadId": "thread-runtime-event-op",
             "op": {
                 "type": "user_input",
-                "runId": "run-runtime-event-op",
+                "turnId": "turn-runtime-event-op",
                 "input": { "text": "Search the web" }
             }
         }),
@@ -3982,10 +3949,7 @@ fn dispatches_thread_apply_op_for_runtime_events() {
         .iter()
         .map(|item| item["kind"]["type"].as_str().unwrap().to_string())
         .collect::<Vec<_>>();
-    assert_eq!(
-        item_kinds,
-        vec!["user_message", "agent_run_started", "event"]
-    );
+    assert_eq!(item_kinds, vec!["user_message", "turn_started", "event"]);
 }
 
 #[test]
@@ -4049,7 +4013,7 @@ fn dispatches_thread_apply_op_updates_settings_and_records_item() {
         settings.result.as_ref().unwrap()["appendedItems"][0]["kind"]["payload"]["reason"],
         "user changed model"
     );
-    assert_eq!(settings.result.as_ref().unwrap()["run"], json!(null));
+    assert_eq!(settings.result.as_ref().unwrap()["turn"], json!(null));
     let settings_item_id = settings.result.as_ref().unwrap()["appendedItems"][0]["itemId"]
         .as_str()
         .unwrap()
@@ -4284,7 +4248,7 @@ fn dispatches_thread_apply_op_for_lifecycle_actions() {
 }
 
 #[test]
-fn dispatches_agent_run_store_round_trip_requests() {
+fn dispatches_agent_turn_store_round_trip_requests() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -4298,7 +4262,7 @@ fn dispatches_agent_run_store_round_trip_requests() {
     );
     let record = json!({
         "sessionId": "session-1",
-        "runId": "run-1",
+        "turnId": "turn-1",
         "status": "running",
         "phase": "active_turn",
         "startedAt": "unix-ms:1",
@@ -4321,17 +4285,17 @@ fn dispatches_agent_run_store_round_trip_requests() {
 
     let upsert = router.dispatch(&WorkerRequest::new(
         "req-upsert",
-        "trace-agent-run",
-        "agent_run.start",
+        "trace-agent-turn",
+        "thread.turn.start",
         json!({ "record": record }),
     ));
     let invalid_semantic = router.dispatch(&WorkerRequest::new(
         "req-invalid-trace",
-        "trace-agent-run",
-        "agent_run.append_semantic_batch",
+        "trace-agent-turn",
+        "thread.turn.append_semantic_batch",
         json!({
             "session_id": "session-1",
-            "run_id": "run-1",
+            "turn_id": "turn-1",
             "events": [{
                 "eventName": "agent.reasoning_delta",
                 "payload": {
@@ -4344,11 +4308,11 @@ fn dispatches_agent_run_store_round_trip_requests() {
     ));
     let invalid_response_semantic = router.dispatch(&WorkerRequest::new(
         "req-invalid-response-trace",
-        "trace-agent-run",
-        "agent_run.append_semantic_batch",
+        "trace-agent-turn",
+        "thread.turn.append_semantic_batch",
         json!({
             "session_id": "session-1",
-            "run_id": "run-1",
+            "turn_id": "turn-1",
             "events": [{
                 "eventId": "invalid-reasoning",
                 "eventName": "agent.reasoning.completed",
@@ -4361,15 +4325,15 @@ fn dispatches_agent_run_store_round_trip_requests() {
     ));
     let append_semantic = router.dispatch(&WorkerRequest::new(
         "req-trace",
-        "trace-agent-run",
-        "agent_run.append_semantic_batch",
+        "trace-agent-turn",
+        "thread.turn.append_semantic_batch",
         json!({
             "session_id": "session-1",
-            "run_id": "run-1",
+            "turn_id": "turn-1",
             "events": [{
                 "eventId": "semantic-message",
                 "eventName": "agent.message.completed",
-                "turnId": "run-1",
+                "turnId": "turn-1",
                 "payload": {
                     "content": "done",
                     "messageId": "assistant-1",
@@ -4380,60 +4344,60 @@ fn dispatches_agent_run_store_round_trip_requests() {
     ));
     let set_checkpoint = router.dispatch(&WorkerRequest::new(
         "req-set-checkpoint",
-        "trace-agent-run",
-        "agent_run.set_checkpoint",
+        "trace-agent-turn",
+        "thread.turn.set_checkpoint",
         json!({
             "session_id": "session-1",
-            "run_id": "run-1",
-            "checkpoint": { "sessionId": "session-1", "runId": "run-1", "phase": "awaiting_tool" }
+            "turn_id": "turn-1",
+            "checkpoint": { "sessionId": "session-1", "turnId": "turn-1", "phase": "awaiting_tool" }
         }),
     ));
     let get_checkpoint = router.dispatch(&WorkerRequest::new(
         "req-get-checkpoint",
-        "trace-agent-run",
-        "agent_run.get_checkpoint",
-        json!({ "session_id": "session-1", "run_id": "run-1" }),
+        "trace-agent-turn",
+        "thread.turn.get_checkpoint",
+        json!({ "session_id": "session-1", "turn_id": "turn-1" }),
     ));
     let list = router.dispatch(&WorkerRequest::new(
         "req-list",
-        "trace-agent-run",
-        "agent_run.list",
+        "trace-agent-turn",
+        "thread.turn.list",
         json!({ "sessionId": "session-1" }),
     ));
     let get = router.dispatch(&WorkerRequest::new(
         "req-get",
-        "trace-agent-run",
-        "agent_run.get",
-        json!({ "session_id": "session-1", "run_id": "run-1" }),
+        "trace-agent-turn",
+        "thread.turn.get",
+        json!({ "session_id": "session-1", "turn_id": "turn-1" }),
     ));
     let runtime_state = router.dispatch(&WorkerRequest::new(
         "req-runtime-state",
-        "trace-agent-run",
-        "agent_run.runtime_state",
-        json!({ "session_id": "session-1", "run_id": "run-1" }),
+        "trace-agent-turn",
+        "thread.turn.runtime_state",
+        json!({ "session_id": "session-1", "turn_id": "turn-1" }),
     ));
     let completed = router.dispatch(&WorkerRequest::new(
         "req-complete",
-        "trace-agent-run",
-        "agent_run.mark_completed",
+        "trace-agent-turn",
+        "thread.turn.mark_completed",
         json!({
             "session_id": "session-1",
-            "run_id": "run-1",
+            "turn_id": "turn-1",
             "stop_reason": "final_response",
             "final_content": "done"
         }),
     ));
     let get_completed = router.dispatch(&WorkerRequest::new(
         "req-get-completed",
-        "trace-agent-run",
-        "agent_run.get",
-        json!({ "session_id": "session-1", "run_id": "run-1" }),
+        "trace-agent-turn",
+        "thread.turn.get",
+        json!({ "session_id": "session-1", "turn_id": "turn-1" }),
     ));
     let clear_checkpoint = router.dispatch(&WorkerRequest::new(
         "req-clear-checkpoint",
-        "trace-agent-run",
-        "agent_run.clear_checkpoint",
-        json!({ "session_id": "session-1", "run_id": "run-1" }),
+        "trace-agent-turn",
+        "thread.turn.clear_checkpoint",
+        json!({ "session_id": "session-1", "turn_id": "turn-1" }),
     ));
 
     assert!(upsert.error.is_none());
@@ -4443,7 +4407,7 @@ fn dispatches_agent_run_store_round_trip_requests() {
             .error
             .as_ref()
             .map(|error| error.message.as_str()),
-        Some("agent run semantic event is missing eventId")
+        Some("agent turn semantic event is missing eventId")
     );
     assert!(invalid_response_semantic.result.is_none());
     assert_eq!(
@@ -4469,12 +4433,15 @@ fn dispatches_agent_run_store_round_trip_requests() {
         json!(null)
     );
     assert_eq!(list.result.as_ref().unwrap()["sessionId"], "session-1");
-    assert_eq!(list.result.as_ref().unwrap()["runs"][0]["runId"], "run-1");
     assert_eq!(
-        list.result.as_ref().unwrap()["runs"][0]["threadId"],
+        list.result.as_ref().unwrap()["turns"][0]["turnId"],
+        "turn-1"
+    );
+    assert_eq!(
+        list.result.as_ref().unwrap()["turns"][0]["threadId"],
         json!(null)
     );
-    assert!(list.result.as_ref().unwrap()["runs"][0]
+    assert!(list.result.as_ref().unwrap()["turns"][0]
         .get("traceEvents")
         .is_none());
     assert_eq!(get.result.as_ref().unwrap()["threadId"], json!(null));
@@ -4493,7 +4460,7 @@ fn dispatches_agent_run_store_round_trip_requests() {
     );
     assert_eq!(
         runtime_state.result.as_ref().unwrap()["runtimeEvents"][0]["turnId"],
-        "run-1"
+        "turn-1"
     );
     let timeline_items = runtime_state.result.as_ref().unwrap()["timeline"]["items"]
         .as_array()
@@ -4520,8 +4487,8 @@ fn dispatches_agent_run_store_round_trip_requests() {
     assert_removed_persistence_paths_absent(&fixture.root);
 
     let metadata = router.dispatch(&WorkerRequest::new(
-        "req-session-metadata-after-agent-run",
-        "trace-agent-run",
+        "req-session-metadata-after-agent-turn",
+        "trace-agent-turn",
         "session.get_metadata",
         json!({ "session_id": "session-1" }),
     ));
@@ -4534,7 +4501,7 @@ fn dispatches_agent_run_store_round_trip_requests() {
 }
 
 #[test]
-fn agent_run_requests_ignore_thread_only_items() {
+fn agent_turn_requests_ignore_thread_only_items() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -4548,31 +4515,30 @@ fn agent_run_requests_ignore_thread_only_items() {
     );
 
     let create = router.dispatch(&WorkerRequest::new(
-        "req-thread-backed-run-create",
-        "trace-thread-backed-run",
+        "req-thread-backed-turn-create",
+        "trace-thread-backed-turn",
         "thread.create",
         json!({
             "threadId": "thread-session-1",
-            "title": "Thread-backed run",
+            "title": "Thread-backed turn",
             "sessionKey": "session-1",
-            "rootRunId": "run-thread-only",
-            "activeRunId": "run-thread-only",
-            "source": "agent_run"
+            "rootTurnId": "turn-thread-only",
+            "activeTurnId": "turn-thread-only",
+            "source": "agent_turn"
         }),
     ));
     assert_eq!(create.error, None);
 
     let append = router.dispatch(&WorkerRequest::new(
-        "req-thread-backed-run-append",
-        "trace-thread-backed-run",
+        "req-thread-backed-turn-append",
+        "trace-thread-backed-turn",
         "thread.append_items",
         json!({
             "threadId": "thread-session-1",
             "items": [{
-                "itemId": "agent-run:session-1:run-thread-only:trace:approval-1",
+                "itemId": "agent-turn:session-1:turn-thread-only:trace:approval-1",
                 "threadId": "",
-                "runId": "run-thread-only",
-                "turnId": "run-thread-only",
+                "turnId": "turn-thread-only",
                 "sequence": 0,
                 "createdAt": "2026-07-05T00:00:00Z",
                 "kind": {
@@ -4581,8 +4547,7 @@ fn agent_run_requests_ignore_thread_only_items() {
                         "eventId": "approval-1",
                         "eventName": "agent.awaiting_approval",
                         "sessionId": "session-1",
-                        "runId": "run-thread-only",
-                        "turnId": "run-thread-only",
+                        "turnId": "turn-thread-only",
                         "sequence": 1,
                         "timestamp": "2026-07-05T00:00:00Z",
                         "payload": {
@@ -4597,35 +4562,35 @@ fn agent_run_requests_ignore_thread_only_items() {
     assert_eq!(append.error, None);
 
     let run_list = router.dispatch(&WorkerRequest::new(
-        "req-thread-backed-run-list",
-        "trace-thread-backed-run",
-        "agent_run.list",
+        "req-thread-backed-turn-list",
+        "trace-thread-backed-turn",
+        "thread.turn.list",
         json!({ "sessionId": "session-1" }),
     ));
     assert_eq!(run_list.error, None);
     assert_eq!(run_list.result.as_ref().unwrap()["sessionId"], "session-1");
-    assert!(run_list.result.as_ref().unwrap()["runs"]
+    assert!(run_list.result.as_ref().unwrap()["turns"]
         .as_array()
         .unwrap()
         .is_empty());
 
     let run_get = router.dispatch(&WorkerRequest::new(
-        "req-thread-backed-run-get",
-        "trace-thread-backed-run",
-        "agent_run.get",
-        json!({ "session_id": "session-1", "run_id": "run-thread-only" }),
+        "req-thread-backed-turn-get",
+        "trace-thread-backed-turn",
+        "thread.turn.get",
+        json!({ "session_id": "session-1", "turn_id": "turn-thread-only" }),
     ));
     assert!(run_get.result.is_none());
     assert_eq!(
         run_get.error.as_ref().map(|error| error.message.as_str()),
-        Some("agent run not found")
+        Some("turn not found")
     );
 
     let runtime_state = router.dispatch(&WorkerRequest::new(
-        "req-thread-backed-run-state",
-        "trace-thread-backed-run",
-        "agent_run.runtime_state",
-        json!({ "session_id": "session-1", "run_id": "run-thread-only" }),
+        "req-thread-backed-turn-state",
+        "trace-thread-backed-turn",
+        "thread.turn.runtime_state",
+        json!({ "session_id": "session-1", "turn_id": "turn-thread-only" }),
     ));
     assert!(runtime_state.result.is_none());
     assert_eq!(
@@ -4633,19 +4598,19 @@ fn agent_run_requests_ignore_thread_only_items() {
             .error
             .as_ref()
             .map(|error| error.message.as_str()),
-        Some("agent run not found")
+        Some("turn not found")
     );
 
     let status = router.dispatch(&WorkerRequest::new(
-        "req-thread-backed-run-status",
-        "trace-thread-backed-run",
+        "req-thread-backed-turn-status",
+        "trace-thread-backed-turn",
         "thread.status",
         json!({ "threadId": "thread-session-1" }),
     ));
     assert_eq!(status.error, None);
     assert_eq!(
-        status.result.as_ref().unwrap()["activeRun"]["runId"],
-        "run-thread-only"
+        status.result.as_ref().unwrap()["activeTurn"]["turnId"],
+        "turn-thread-only"
     );
     assert_eq!(
         status.result.as_ref().unwrap()["turnItems"][0]["kind"],
@@ -4653,15 +4618,15 @@ fn agent_run_requests_ignore_thread_only_items() {
     );
 
     let read = router.dispatch(&WorkerRequest::new(
-        "req-thread-backed-run-read",
-        "trace-thread-backed-run",
+        "req-thread-backed-turn-read",
+        "trace-thread-backed-turn",
         "thread.read",
         json!({ "threadId": "thread-session-1" }),
     ));
     assert_eq!(read.error, None);
     assert_eq!(
-        read.result.as_ref().unwrap()["activeRun"]["runId"],
-        "run-thread-only"
+        read.result.as_ref().unwrap()["activeTurn"]["turnId"],
+        "turn-thread-only"
     );
     assert_eq!(
         read.result.as_ref().unwrap()["turnItems"][0]["kind"],
@@ -4670,7 +4635,7 @@ fn agent_run_requests_ignore_thread_only_items() {
 }
 
 #[test]
-fn agent_run_list_reads_canonical_rollout_runs() {
+fn agent_turn_list_reads_canonical_rollout_runs() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -4684,7 +4649,7 @@ fn agent_run_list_reads_canonical_rollout_runs() {
     );
     let thread_log_record = json!({
         "sessionId": "session-1",
-        "runId": "run-thread-log",
+        "turnId": "turn-thread-log",
         "status": "running",
         "phase": "active_turn",
         "startedAt": "2026-07-05T00:00:00Z",
@@ -4706,26 +4671,26 @@ fn agent_run_list_reads_canonical_rollout_runs() {
     });
 
     let upsert = router.dispatch(&WorkerRequest::new(
-        "req-mixed-agent-run-upsert",
-        "trace-mixed-agent-runs",
-        "agent_run.start",
+        "req-mixed-agent-turn-upsert",
+        "trace-mixed-agent-turns",
+        "thread.turn.start",
         json!({ "record": thread_log_record }),
     ));
     assert_eq!(upsert.error, None);
 
     let run_list = router.dispatch(&WorkerRequest::new(
-        "req-mixed-agent-run-list",
-        "trace-mixed-agent-runs",
-        "agent_run.list",
+        "req-mixed-agent-turn-list",
+        "trace-mixed-agent-turns",
+        "thread.turn.list",
         json!({ "sessionId": "session-1" }),
     ));
 
     assert_eq!(run_list.error, None);
-    let runs = run_list.result.as_ref().unwrap()["runs"]
+    let runs = run_list.result.as_ref().unwrap()["turns"]
         .as_array()
-        .expect("agent_run.list should return runs");
+        .expect("thread.turn.list should return runs");
     assert_eq!(runs.len(), 1);
-    assert!(runs.iter().any(|run| run["runId"] == "run-thread-log"));
+    assert!(runs.iter().any(|run| run["turnId"] == "turn-thread-log"));
 }
 
 #[test]
@@ -4750,7 +4715,7 @@ fn dispatches_thread_status_includes_active_child_activity() {
             "threadId": "thread-parent-activity",
             "title": "Parent thread",
             "sessionKey": "session-activity",
-            "source": "agent_run"
+            "source": "agent_turn"
         }),
     ));
     assert_eq!(parent.error, None);
@@ -4762,8 +4727,8 @@ fn dispatches_thread_status_includes_active_child_activity() {
             "threadId": "thread-child-activity",
             "title": "Child worker",
             "sessionKey": "session-activity",
-            "rootRunId": "run-child-active",
-            "activeRunId": "run-child-active",
+            "rootTurnId": "turn-child-active",
+            "activeTurnId": "turn-child-active",
             "parentThreadId": "thread-parent-activity",
             "source": "subagent"
         }),
@@ -4777,10 +4742,9 @@ fn dispatches_thread_status_includes_active_child_activity() {
         json!({
             "threadId": "thread-child-activity",
             "items": [{
-                "itemId": "agent-run:session-activity:run-child-active:trace:approval-child",
+                "itemId": "agent-turn:session-activity:turn-child-active:trace:approval-child",
                 "threadId": "",
-                "runId": "run-child-active",
-                "turnId": "run-child-active",
+                "turnId": "turn-child-active",
                 "sequence": 0,
                 "createdAt": "2026-07-05T00:01:00Z",
                 "kind": {
@@ -4789,8 +4753,7 @@ fn dispatches_thread_status_includes_active_child_activity() {
                         "eventId": "approval-child",
                         "eventName": "agent.awaiting_approval",
                         "sessionId": "session-activity",
-                        "runId": "run-child-active",
-                        "turnId": "run-child-active",
+                        "turnId": "turn-child-active",
                         "sequence": 1,
                         "timestamp": "2026-07-05T00:01:00Z",
                         "payload": {
@@ -4816,8 +4779,8 @@ fn dispatches_thread_status_includes_active_child_activity() {
         "thread-child-activity"
     );
     assert_eq!(
-        status.result.as_ref().unwrap()["childActivities"][0]["activeRun"]["runId"],
-        "run-child-active"
+        status.result.as_ref().unwrap()["childActivities"][0]["activeTurn"]["turnId"],
+        "turn-child-active"
     );
     assert_eq!(
         status.result.as_ref().unwrap()["childActivities"][0]["turnItems"][0]["kind"],
@@ -4836,8 +4799,8 @@ fn dispatches_thread_status_includes_active_child_activity() {
         "thread-child-activity"
     );
     assert_eq!(
-        read.result.as_ref().unwrap()["childActivities"][0]["activeRun"]["runId"],
-        "run-child-active"
+        read.result.as_ref().unwrap()["childActivities"][0]["activeTurn"]["turnId"],
+        "turn-child-active"
     );
     assert_eq!(
         read.result.as_ref().unwrap()["childActivities"][0]["turnItems"][0]["kind"],
@@ -4856,8 +4819,8 @@ fn dispatches_thread_status_includes_active_child_activity() {
         "thread-child-activity"
     );
     assert_eq!(
-        events.result.as_ref().unwrap()["childActivities"][0]["activeRun"]["runId"],
-        "run-child-active"
+        events.result.as_ref().unwrap()["childActivities"][0]["activeTurn"]["turnId"],
+        "turn-child-active"
     );
     assert_eq!(
         events.result.as_ref().unwrap()["childActivities"][0]["turnItems"][0]["kind"],
@@ -4878,7 +4841,7 @@ fn dispatches_thread_status_includes_active_child_activity() {
 }
 
 #[test]
-fn agent_run_rpc_enforces_capabilities_and_unknown_run_errors() {
+fn agent_turn_rpc_enforces_capabilities_and_unknown_run_errors() {
     let fixture = WorkspaceFixture::new();
     let mut denied_router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -4889,8 +4852,8 @@ fn agent_run_rpc_enforces_capabilities_and_unknown_run_errors() {
     );
     let denied = denied_router.dispatch(&WorkerRequest::new(
         "req-denied",
-        "trace-agent-run",
-        "agent_run.list",
+        "trace-agent-turn",
+        "thread.turn.list",
         json!({ "session_id": "session-1" }),
     ));
     assert_eq!(
@@ -4907,23 +4870,23 @@ fn agent_run_rpc_enforces_capabilities_and_unknown_run_errors() {
     );
     let missing = read_router.dispatch(&WorkerRequest::new(
         "req-missing",
-        "trace-agent-run",
-        "agent_run.get",
-        json!({ "session_id": "session-1", "run_id": "missing-run" }),
+        "trace-agent-turn",
+        "thread.turn.get",
+        json!({ "session_id": "session-1", "turn_id": "missing-run" }),
     ));
     assert_eq!(
         missing.error.as_ref().unwrap().code,
         crate::protocol::WorkerProtocolErrorCode::InvalidProtocol
     );
     assert_eq!(
-        missing.error.as_ref().unwrap().details["run_id"],
+        missing.error.as_ref().unwrap().details["turn_id"],
         "missing-run"
     );
 
     let malformed = read_router.dispatch(&WorkerRequest::new(
         "req-malformed",
-        "trace-agent-run",
-        "agent_run.get",
+        "trace-agent-turn",
+        "thread.turn.get",
         json!({ "session_id": "session-1" }),
     ));
     assert_eq!(
@@ -4932,7 +4895,7 @@ fn agent_run_rpc_enforces_capabilities_and_unknown_run_errors() {
     );
     assert_eq!(
         malformed.error.as_ref().unwrap().details["method"],
-        "agent_run.get"
+        "thread.turn.get"
     );
 }
 
@@ -4952,7 +4915,7 @@ fn dispatches_session_writes_for_new_experimental_session() {
         "session.set_checkpoint",
         json!({
             "session_id": "desktop-session-1",
-            "checkpoint": { "runId": "run-1", "phase": "awaiting_tools" }
+            "checkpoint": { "turnId": "turn-1", "phase": "awaiting_tools" }
         }),
     );
     let append_messages = WorkerRequest::new(
@@ -4976,7 +4939,7 @@ fn dispatches_session_writes_for_new_experimental_session() {
     );
     assert_eq!(
         checkpoint_response.result.as_ref().unwrap()["extra"]["runtime_checkpoint"],
-        json!({ "runId": "run-1", "phase": "awaiting_tools" })
+        json!({ "turnId": "turn-1", "phase": "awaiting_tools" })
     );
     assert_eq!(
         append_response.result.as_ref().unwrap()["extra"]["messages"],

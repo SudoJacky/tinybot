@@ -1,5 +1,5 @@
 use super::{
-    NativeAgentRunContext, NativeAgentToolCall, NativeAgentToolDispatcher, NativeAgentToolResult,
+    AgentTurnContext, NativeAgentToolCall, NativeAgentToolDispatcher, NativeAgentToolResult,
 };
 use crate::collaboration::subagents::{
     SubagentHistoryMode, SubagentInputSender, SubagentSendInputParams, SubagentSpawnParams,
@@ -13,7 +13,7 @@ pub struct FakeNativeAgentToolDispatcher;
 impl NativeAgentToolDispatcher for FakeNativeAgentToolDispatcher {
     fn dispatch(
         &self,
-        _context: &NativeAgentRunContext,
+        _context: &AgentTurnContext,
         tool_call: &NativeAgentToolCall,
     ) -> Result<NativeAgentToolResult, String> {
         if !native_tool_is_permitted(_context, &tool_call.name) {
@@ -52,7 +52,7 @@ impl SubagentNativeAgentToolDispatcher {
 impl NativeAgentToolDispatcher for SubagentNativeAgentToolDispatcher {
     fn dispatch(
         &self,
-        context: &NativeAgentRunContext,
+        context: &AgentTurnContext,
         tool_call: &NativeAgentToolCall,
     ) -> Result<NativeAgentToolResult, String> {
         if !is_subagent_tool(&tool_call.name) {
@@ -76,7 +76,7 @@ impl NativeAgentToolDispatcher for SubagentNativeAgentToolDispatcher {
                     session_key: tool_arg_string(&args, "sessionKey")
                         .or_else(|| tool_arg_string(&args, "session_key"))
                         .unwrap_or_else(|| context.session_id.clone()),
-                    parent_run_id: Some(context.run_id.clone()),
+                    parent_turn_id: Some(context.turn_id.clone()),
                     parent_subagent_id: tool_arg_string(&context.metadata, "subagentId")
                         .or_else(|| tool_arg_string(&context.metadata, "subagent_id")),
                     delegation_depth: Some(
@@ -103,8 +103,8 @@ impl NativeAgentToolDispatcher for SubagentNativeAgentToolDispatcher {
                         .or_else(|| tool_arg_string(&args, "subagent_id"))
                         .or_else(|| tool_arg_string(&args, "agentId"))
                         .or_else(|| tool_arg_string(&args, "agent_id")),
-                    child_run_id: tool_arg_string(&args, "childRunId")
-                        .or_else(|| tool_arg_string(&args, "child_run_id")),
+                    child_turn_id: tool_arg_string(&args, "childTurnId")
+                        .or_else(|| tool_arg_string(&args, "child_turn_id")),
                     trace_ref: tool_arg_string(&args, "traceRef")
                         .or_else(|| tool_arg_string(&args, "trace_ref")),
                     name: tool_arg_string(&args, "name")
@@ -131,9 +131,9 @@ impl NativeAgentToolDispatcher for SubagentNativeAgentToolDispatcher {
                         .or_else(|| tool_arg_string(&args, "message"))
                         .unwrap_or_default(),
                     sender: SubagentInputSender::MainAgent,
-                    turn_id: Some(context.run_id.clone()),
-                    child_run_id: tool_arg_string(&args, "childRunId")
-                        .or_else(|| tool_arg_string(&args, "child_run_id")),
+                    turn_id: Some(context.turn_id.clone()),
+                    child_turn_id: tool_arg_string(&args, "childTurnId")
+                        .or_else(|| tool_arg_string(&args, "child_turn_id")),
                     trace_ref: tool_arg_string(&args, "traceRef")
                         .or_else(|| tool_arg_string(&args, "trace_ref")),
                     created_at: None,
@@ -229,7 +229,7 @@ impl NativeAgentToolDispatcher for SubagentNativeAgentToolDispatcher {
 
     fn dispatch_async(
         self: std::sync::Arc<Self>,
-        context: NativeAgentRunContext,
+        context: AgentTurnContext,
         tool_call: NativeAgentToolCall,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send>,
@@ -238,16 +238,16 @@ impl NativeAgentToolDispatcher for SubagentNativeAgentToolDispatcher {
     }
 }
 
-pub(super) fn native_tool_is_permitted(context: &NativeAgentRunContext, name: &str) -> bool {
+pub(super) fn native_tool_is_permitted(context: &AgentTurnContext, name: &str) -> bool {
     registry_tool_available(context, name) || legacy_native_tool_alias_is_permitted(context, name)
 }
 
-pub(super) fn native_tool_supports_parallel(context: &NativeAgentRunContext, name: &str) -> bool {
+pub(super) fn native_tool_supports_parallel(context: &AgentTurnContext, name: &str) -> bool {
     registry_tool_supports_parallel(context, name)
 }
 
 pub(super) fn native_tool_call_supports_parallel(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     tool_call: &NativeAgentToolCall,
 ) -> bool {
     if matches!(tool_call.name.as_str(), "shell.execute" | "exec_command") {
@@ -257,28 +257,28 @@ pub(super) fn native_tool_call_supports_parallel(
 }
 
 pub(super) fn native_tool_waits_for_runtime_cancellation(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     name: &str,
 ) -> bool {
     registry_tool_waits_for_runtime_cancellation(context, name)
         || legacy_native_tool_alias_waits_for_runtime_cancellation(context, name)
 }
 
-pub(super) fn native_tool_mutates_workspace(context: &NativeAgentRunContext, name: &str) -> bool {
+pub(super) fn native_tool_mutates_workspace(context: &AgentTurnContext, name: &str) -> bool {
     registry_tool_mutates_workspace(context, name)
 }
 
-pub(super) fn native_tool_mutates_session(context: &NativeAgentRunContext, name: &str) -> bool {
+pub(super) fn native_tool_mutates_session(context: &AgentTurnContext, name: &str) -> bool {
     registry_tool_mutates_session(context, name)
         || legacy_native_tool_alias_mutates_session(context, name)
 }
 
-fn registry_tool_available(context: &NativeAgentRunContext, name: &str) -> bool {
+fn registry_tool_available(context: &AgentTurnContext, name: &str) -> bool {
     context.tool_router.is_permitted(name)
 }
 
 pub(super) fn native_tool_cancellation_mode(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     name: &str,
 ) -> ToolCancellationMode {
     if context.tool_router.is_permitted(name) {
@@ -289,7 +289,7 @@ pub(super) fn native_tool_cancellation_mode(
         .unwrap_or(ToolCancellationMode::Cooperative)
 }
 
-pub(super) fn native_tool_cleanup_timeout_ms(context: &NativeAgentRunContext, name: &str) -> u64 {
+pub(super) fn native_tool_cleanup_timeout_ms(context: &AgentTurnContext, name: &str) -> u64 {
     if context.tool_router.is_permitted(name) {
         return context.tool_router.cleanup_timeout_ms(name);
     }
@@ -298,26 +298,23 @@ pub(super) fn native_tool_cleanup_timeout_ms(context: &NativeAgentRunContext, na
         .unwrap_or(100)
 }
 
-fn registry_tool_supports_parallel(context: &NativeAgentRunContext, name: &str) -> bool {
+fn registry_tool_supports_parallel(context: &AgentTurnContext, name: &str) -> bool {
     context.tool_router.supports_parallel(name)
 }
 
-fn registry_tool_waits_for_runtime_cancellation(
-    context: &NativeAgentRunContext,
-    name: &str,
-) -> bool {
+fn registry_tool_waits_for_runtime_cancellation(context: &AgentTurnContext, name: &str) -> bool {
     context.tool_router.waits_for_runtime_cancellation(name)
 }
 
-fn registry_tool_mutates_workspace(context: &NativeAgentRunContext, name: &str) -> bool {
+fn registry_tool_mutates_workspace(context: &AgentTurnContext, name: &str) -> bool {
     context.tool_router.mutates_workspace(name)
 }
 
-fn registry_tool_mutates_session(context: &NativeAgentRunContext, name: &str) -> bool {
+fn registry_tool_mutates_session(context: &AgentTurnContext, name: &str) -> bool {
     context.tool_router.mutates_session(name)
 }
 
-fn legacy_native_tool_alias_is_permitted(context: &NativeAgentRunContext, name: &str) -> bool {
+fn legacy_native_tool_alias_is_permitted(context: &AgentTurnContext, name: &str) -> bool {
     match name {
         "spawn_agent" => registry_tool_available(context, "subagent.spawn"),
         "send_input" => registry_tool_available(context, "subagent.send_input"),
@@ -333,7 +330,7 @@ fn legacy_native_tool_alias_is_permitted(context: &NativeAgentRunContext, name: 
 }
 
 fn legacy_native_tool_alias_waits_for_runtime_cancellation(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     name: &str,
 ) -> bool {
     match name {
@@ -352,7 +349,7 @@ fn legacy_native_tool_alias_waits_for_runtime_cancellation(
     }
 }
 
-fn legacy_native_tool_alias_mutates_session(context: &NativeAgentRunContext, name: &str) -> bool {
+fn legacy_native_tool_alias_mutates_session(context: &AgentTurnContext, name: &str) -> bool {
     match name {
         "spawn_agent" => registry_tool_mutates_session(context, "subagent.spawn"),
         "send_input" => registry_tool_mutates_session(context, "subagent.send_input"),
@@ -380,7 +377,7 @@ fn legacy_native_tool_alias_policy_method(name: &str) -> Option<&'static str> {
 }
 
 fn shell_call_supports_parallel(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     tool_call: &NativeAgentToolCall,
 ) -> bool {
     if shell_parallel_policy(context) != Some("readOnlyCommandAllowlist") {
@@ -395,7 +392,7 @@ fn shell_call_supports_parallel(
     shell_command_is_read_only_allowlisted(command)
 }
 
-fn shell_parallel_policy(context: &NativeAgentRunContext) -> Option<&str> {
+fn shell_parallel_policy(context: &AgentTurnContext) -> Option<&str> {
     context
         .spec
         .get("nativeAgent")
@@ -455,9 +452,9 @@ mod tests {
 
     #[test]
     fn removed_workspace_list_files_alias_is_not_permitted() {
-        let context = NativeAgentRunContext::from_spec(
+        let context = AgentTurnContext::from_spec(
             serde_json::json!({
-                "runId": "run-no-list-alias",
+                "turnId": "run-no-list-alias",
                 "sessionId": "session-no-list-alias",
                 "messages": [{ "role": "user", "content": "list files" }]
             }),

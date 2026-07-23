@@ -45,7 +45,7 @@ pub(crate) struct WorkerSubmitThreadTurnInput {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorkerCancelAgentInput {
-    pub(crate) run_id: String,
+    pub(crate) turn_id: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -139,7 +139,7 @@ pub(crate) struct WorkerBackgroundSubagentInputInput {
     #[serde(default)]
     pub(crate) trace_ref: Option<String>,
     #[serde(default)]
-    pub(crate) child_run_id: Option<String>,
+    pub(crate) child_turn_id: Option<String>,
     #[serde(default)]
     pub(crate) created_at: Option<String>,
     #[serde(default)]
@@ -228,7 +228,7 @@ pub(crate) fn worker_cancel_agent(
 ) -> Result<serde_json::Value, String> {
     worker_cancel_agent_with_options(
         state.inner(),
-        input.run_id,
+        input.turn_id,
         native_config_snapshot(),
         Duration::from_secs(10),
     )
@@ -841,7 +841,7 @@ pub(crate) fn build_worker_background_subagent_enqueue_input_request(
             "content": input.content,
             "turnId": input.turn_id,
             "traceRef": input.trace_ref,
-            "childRunId": input.child_run_id,
+            "childTurnId": input.child_turn_id,
             "createdAt": input.created_at,
             "metadata": input.metadata,
         }),
@@ -895,7 +895,7 @@ fn dispatch_worker_subagent_request(
 
 pub(crate) fn worker_cancel_agent_with_options(
     shared: &SharedGateway,
-    run_id: String,
+    turn_id: String,
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
@@ -904,7 +904,7 @@ pub(crate) fn worker_cancel_agent_with_options(
         let runtime = lock_runtime(shared);
         runtime.native_agent_runtime.clone()
     };
-    Ok(cancel_agent_with_services(services, &run_id))
+    Ok(cancel_agent_with_services(services, &turn_id))
 }
 
 pub(crate) fn worker_restore_agent_checkpoint_with_options(

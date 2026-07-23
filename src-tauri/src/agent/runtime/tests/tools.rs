@@ -8,7 +8,7 @@ fn runs_fixture_tool_event_sequence() {
         &services,
         json!({
             "runtime": "rust",
-            "runId": "run-tool",
+            "turnId": "run-tool",
             "sessionId": "websocket:chat-1",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "read" }]
@@ -81,7 +81,7 @@ fn feeds_tool_observation_back_into_second_provider_call() {
     impl NativeAgentProvider for TwoStepProvider {
         fn complete(
             &self,
-            context: &NativeAgentRunContext,
+            context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             let request = agent_chat_completion_request(context)
                 .expect("provider context should build request messages");
@@ -133,7 +133,7 @@ fn feeds_tool_observation_back_into_second_provider_call() {
         &services,
         json!({
             "runtime": "rust",
-            "runId": "run-tool-loop",
+            "turnId": "run-tool-loop",
             "sessionId": "websocket:chat-tool-loop",
             "maxIterations": 4,
             "messages": [{ "role": "user", "content": "read README then answer" }]
@@ -169,7 +169,7 @@ fn selected_deferred_tool_calls_are_permitted_by_runtime_dispatch() {
     impl NativeAgentProvider for MemorySearchProvider {
         fn complete(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             let mut calls = self
                 .calls
@@ -211,7 +211,7 @@ fn selected_deferred_tool_calls_are_permitted_by_runtime_dispatch() {
         &services,
         json!({
             "runtime": "rust",
-            "runId": "run-memory-search-tool",
+            "turnId": "run-memory-search-tool",
             "sessionId": "websocket:chat-memory-search-tool",
             "maxIterations": 2,
             "selectedTools": ["memory.search"],
@@ -234,7 +234,7 @@ fn tool_runtime_dispatches_through_async_dispatch_seam() {
     impl NativeAgentProvider for OneToolThenFinalProvider {
         fn complete(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             let mut calls = self.calls.lock().expect("provider calls lock");
             *calls += 1;
@@ -267,7 +267,7 @@ fn tool_runtime_dispatches_through_async_dispatch_seam() {
     impl NativeAgentToolDispatcher for AsyncOnlyDispatcher {
         fn dispatch(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
             _tool_call: &NativeAgentToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             panic!("tool runtime should use dispatch_async, not sync dispatch");
@@ -275,7 +275,7 @@ fn tool_runtime_dispatches_through_async_dispatch_seam() {
 
         fn dispatch_async(
             self: Arc<Self>,
-            _context: NativeAgentRunContext,
+            _context: AgentTurnContext,
             tool_call: NativeAgentToolCall,
         ) -> std::pin::Pin<
             Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send>,
@@ -305,7 +305,7 @@ fn tool_runtime_dispatches_through_async_dispatch_seam() {
         .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"])),
         json!({
             "runtime": "rust",
-            "runId": "run-async-dispatch-seam",
+            "turnId": "run-async-dispatch-seam",
             "sessionId": "websocket:chat-async-dispatch-seam",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "run async dispatcher" }]
@@ -432,7 +432,7 @@ fn read_only_tool_batch_runs_concurrently_and_preserves_model_ordered_observatio
     impl NativeAgentProvider for TwoReadOnlyToolsThenFinalProvider {
         fn complete(
             &self,
-            context: &NativeAgentRunContext,
+            context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             let call_count = {
                 let mut seen_messages = self
@@ -480,7 +480,7 @@ fn read_only_tool_batch_runs_concurrently_and_preserves_model_ordered_observatio
     impl NativeAgentToolDispatcher for OverlapRecordingDispatcher {
         fn dispatch(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
             tool_call: &NativeAgentToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             let running = self.running.fetch_add(1, Ordering::SeqCst) + 1;
@@ -519,7 +519,7 @@ fn read_only_tool_batch_runs_concurrently_and_preserves_model_ordered_observatio
         ])),
         json!({
             "runtime": "rust",
-            "runId": "run-read-only-parallel-tools",
+            "turnId": "run-read-only-parallel-tools",
             "sessionId": "websocket:chat-read-only-parallel-tools",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "run read-only tools" }]
@@ -558,7 +558,7 @@ fn mcp_call_scheduling_uses_registry_runtime_policy() {
     impl NativeAgentProvider for TwoMcpToolsThenFinalProvider {
         fn complete(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             let mut calls = self.calls.lock().expect("provider calls lock");
             *calls += 1;
@@ -604,7 +604,7 @@ fn mcp_call_scheduling_uses_registry_runtime_policy() {
     impl NativeAgentToolDispatcher for McpOverlapDispatcher {
         fn dispatch(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
             tool_call: &NativeAgentToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             let running = self.running.fetch_add(1, Ordering::SeqCst) + 1;
@@ -635,7 +635,7 @@ fn mcp_call_scheduling_uses_registry_runtime_policy() {
         .with_test_activated_tools(&["mcp.call_tool"]),
         json!({
             "runtime": "rust",
-            "runId": "run-read-only-mcp-tools",
+            "turnId": "run-read-only-mcp-tools",
             "sessionId": "websocket:chat-read-only-mcp-tools",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "run read-only mcp tools" }]
@@ -687,7 +687,7 @@ fn shell_read_only_allowlist_uses_read_lock_only_when_explicitly_enabled() {
     impl NativeAgentProvider for TwoShellReadsThenFinalProvider {
         fn complete(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             let mut calls = self.calls.lock().expect("provider calls lock");
             *calls += 1;
@@ -729,7 +729,7 @@ fn shell_read_only_allowlist_uses_read_lock_only_when_explicitly_enabled() {
     impl NativeAgentToolDispatcher for ShellOverlapDispatcher {
         fn dispatch(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
             tool_call: &NativeAgentToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             let running = self.running.fetch_add(1, Ordering::SeqCst) + 1;
@@ -759,7 +759,7 @@ fn shell_read_only_allowlist_uses_read_lock_only_when_explicitly_enabled() {
         .with_test_tool_registry_entries(test_registry_with_model_tools(&["exec_command"])),
         json!({
             "runtime": "rust",
-            "runId": "run-shell-read-allowlist",
+            "turnId": "run-shell-read-allowlist",
             "sessionId": "websocket:chat-shell-read-allowlist",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "run read-only shell tools" }]
@@ -795,7 +795,7 @@ fn parallel_tool_failures_use_model_order_for_the_single_terminal_error() {
     impl NativeAgentProvider for TwoFailingToolsProvider {
         fn complete(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             Ok(NativeAgentProviderResponse {
                 final_content: String::new(),
@@ -824,7 +824,7 @@ fn parallel_tool_failures_use_model_order_for_the_single_terminal_error() {
     impl NativeAgentToolDispatcher for FailingParallelDispatcher {
         fn dispatch(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
             tool_call: &NativeAgentToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             if tool_call.id == "call-first-fails" {
@@ -847,7 +847,7 @@ fn parallel_tool_failures_use_model_order_for_the_single_terminal_error() {
         ])),
         json!({
             "runtime": "rust",
-            "runId": "run-two-parallel-failures",
+            "turnId": "run-two-parallel-failures",
             "sessionId": "websocket:chat-two-parallel-failures",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "run failing parallel tools" }]
@@ -907,7 +907,7 @@ fn mixed_parallel_and_non_parallel_tool_batch_uses_read_write_lock_scheduling() 
     impl NativeAgentProvider for MixedToolsThenFinalProvider {
         fn complete(
             &self,
-            context: &NativeAgentRunContext,
+            context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             let call_count = {
                 let mut seen_messages = self
@@ -969,7 +969,7 @@ fn mixed_parallel_and_non_parallel_tool_batch_uses_read_write_lock_scheduling() 
     impl NativeAgentToolDispatcher for ReadWriteLockRecordingDispatcher {
         fn dispatch(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
             tool_call: &NativeAgentToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             let is_write = tool_call.name == "exec_command";
@@ -1014,24 +1014,24 @@ fn mixed_parallel_and_non_parallel_tool_batch_uses_read_write_lock_scheduling() 
             self.inner.save(session_id, checkpoint);
         }
 
-        fn save_for_run(&self, session_id: &str, run_id: &str, checkpoint: Value) {
+        fn save_for_turn(&self, session_id: &str, turn_id: &str, checkpoint: Value) {
             self.saved
                 .lock()
                 .expect("saved checkpoints lock should not be poisoned")
                 .push(checkpoint.clone());
-            self.inner.save_for_run(session_id, run_id, checkpoint);
+            self.inner.save_for_turn(session_id, turn_id, checkpoint);
         }
 
         fn restore(&self, session_id: &str) -> Option<Value> {
             self.inner.restore(session_id)
         }
 
-        fn restore_for_run(&self, session_id: &str, run_id: &str) -> Option<Value> {
-            self.inner.restore_for_run(session_id, run_id)
+        fn restore_for_turn(&self, session_id: &str, turn_id: &str) -> Option<Value> {
+            self.inner.restore_for_turn(session_id, turn_id)
         }
 
-        fn clear_for_run(&self, session_id: &str, run_id: &str) {
-            self.inner.clear_for_run(session_id, run_id);
+        fn clear_for_turn(&self, session_id: &str, turn_id: &str) {
+            self.inner.clear_for_turn(session_id, turn_id);
         }
     }
 
@@ -1060,7 +1060,7 @@ fn mixed_parallel_and_non_parallel_tool_batch_uses_read_write_lock_scheduling() 
         ])),
         json!({
             "runtime": "rust",
-            "runId": "run-mixed-tool-batch",
+            "turnId": "run-mixed-tool-batch",
             "sessionId": "websocket:chat-mixed-tool-batch",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "run mixed tools" }]
@@ -1165,7 +1165,7 @@ fn cancellation_before_queued_write_lock_dispatch_skips_waiting_tool() {
     impl NativeAgentProvider for ReadThenWriteProvider {
         fn complete(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             let mut calls = self.calls.lock().expect("provider calls lock");
             *calls += 1;
@@ -1207,11 +1207,11 @@ fn cancellation_before_queued_write_lock_dispatch_skips_waiting_tool() {
     impl NativeAgentToolDispatcher for CancellingReadDispatcher {
         fn dispatch(
             &self,
-            context: &NativeAgentRunContext,
+            context: &AgentTurnContext,
             tool_call: &NativeAgentToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             if tool_call.name == "workspace.read_file" {
-                self.cancellations.cancel(&context.run_id);
+                self.cancellations.cancel(&context.turn_id);
                 thread::sleep(Duration::from_millis(80));
                 return Ok(NativeAgentToolResult::generic_success(
                     tool_call,
@@ -1246,7 +1246,7 @@ fn cancellation_before_queued_write_lock_dispatch_skips_waiting_tool() {
         ])),
         json!({
             "runtime": "rust",
-            "runId": "run-cancel-queued-write",
+            "turnId": "run-cancel-queued-write",
             "sessionId": "websocket:chat-cancel-queued-write",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "read then cancel write" }]
@@ -1273,7 +1273,7 @@ fn terminal_failure_before_queued_write_dispatch_skips_waiting_tool() {
     impl NativeAgentProvider for FailingWriteThenWriteProvider {
         fn complete(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             Ok(NativeAgentProviderResponse {
                 final_content: String::new(),
@@ -1304,7 +1304,7 @@ fn terminal_failure_before_queued_write_dispatch_skips_waiting_tool() {
     impl NativeAgentToolDispatcher for FailingWriteDispatcher {
         fn dispatch(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
             tool_call: &NativeAgentToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             if tool_call.id == "call-first-write-fails" {
@@ -1331,7 +1331,7 @@ fn terminal_failure_before_queued_write_dispatch_skips_waiting_tool() {
         .with_test_tool_registry_entries(test_registry_with_model_tools(&["exec_command"])),
         json!({
             "runtime": "rust",
-            "runId": "run-failed-queued-write",
+            "turnId": "run-failed-queued-write",
             "sessionId": "websocket:chat-failed-queued-write",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "fail then skip write" }]
@@ -1364,7 +1364,7 @@ fn cancellation_during_non_cleanup_parallel_tool_returns_without_waiting_for_lat
     impl NativeAgentProvider for SlowReadProvider {
         fn complete(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             Ok(NativeAgentProviderResponse {
                 final_content: String::new(),
@@ -1397,10 +1397,10 @@ fn cancellation_during_non_cleanup_parallel_tool_returns_without_waiting_for_lat
     impl NativeAgentToolDispatcher for SlowCancellingReadDispatcher {
         fn dispatch(
             &self,
-            context: &NativeAgentRunContext,
+            context: &AgentTurnContext,
             tool_call: &NativeAgentToolCall,
         ) -> Result<NativeAgentToolResult, String> {
-            self.cancellations.cancel(&context.run_id);
+            self.cancellations.cancel(&context.turn_id);
             let _ = self.cancelled_tx.send(());
             let _ = self
                 .release_rx
@@ -1441,7 +1441,7 @@ fn cancellation_during_non_cleanup_parallel_tool_returns_without_waiting_for_lat
             .with_trace_sink(trace_sink),
             json!({
                 "runtime": "rust",
-                "runId": "run-cancel-slow-read",
+                "turnId": "run-cancel-slow-read",
                 "sessionId": "websocket:chat-cancel-slow-read",
                 "maxIterations": 2,
                 "messages": [{ "role": "user", "content": "cancel slow read" }]
@@ -1500,7 +1500,7 @@ fn provider_error_after_tool_result_preserves_accumulated_tool_state() {
     impl NativeAgentProvider for ToolThenErrorProvider {
         fn complete(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             let mut calls = self.calls.lock().expect("provider calls lock");
             *calls += 1;
@@ -1535,7 +1535,7 @@ fn provider_error_after_tool_result_preserves_accumulated_tool_state() {
         &services,
         json!({
             "runtime": "rust",
-            "runId": "run-provider-error-after-tool",
+            "turnId": "run-provider-error-after-tool",
             "sessionId": "websocket:chat-provider-error-after-tool",
             "maxIterations": 3,
             "messages": [{ "role": "user", "content": "read then fail" }]
@@ -1572,7 +1572,7 @@ fn emits_tool_result_envelope_with_legacy_content_projection() {
         &services,
         json!({
             "runtime": "rust",
-            "runId": "run-tool-envelope",
+            "turnId": "run-tool-envelope",
             "sessionId": "websocket:chat-tool-envelope",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "read" }]
@@ -1653,7 +1653,7 @@ fn subagent_tools_share_manager_state_without_copying_child_transcript_to_parent
             &services,
             json!({
                 "runtime": "rust",
-                "runId": "run-subagent-tools",
+                "turnId": "run-subagent-tools",
                 "sessionId": "websocket:chat-subagent-tools",
                 "maxIterations": 7,
                 "messages": [{ "role": "user", "content": "delegate then close" }]
@@ -1668,7 +1668,7 @@ fn subagent_tools_share_manager_state_without_copying_child_transcript_to_parent
                                 "toolCalls": [{
                                     "id": "call-spawn",
                                     "name": "subagent.spawn",
-                                    "argumentsJson": "{\"subagentId\":\"delegate-1\",\"childRunId\":\"child-1\",\"traceRef\":\"trace-delegate-1\",\"name\":\"Goodall\",\"task\":\"Inspect a bounded topic\"}"
+                                    "argumentsJson": "{\"subagentId\":\"delegate-1\",\"childTurnId\":\"child-1\",\"traceRef\":\"trace-delegate-1\",\"name\":\"Goodall\",\"task\":\"Inspect a bounded topic\"}"
                                 }]
                             },
                             {
@@ -1769,7 +1769,7 @@ fn subagent_tools_share_manager_state_without_copying_child_transcript_to_parent
     assert_eq!(link_event["payload"]["parentTurnId"], "run-subagent-tools");
     assert_eq!(link_event["payload"]["delegateId"], "delegate-1");
     assert_eq!(link_event["payload"]["subagentId"], "delegate-1");
-    assert_eq!(link_event["payload"]["childRunId"], "child-1");
+    assert_eq!(link_event["payload"]["childTurnId"], "child-1");
     assert_eq!(link_event["payload"]["traceRef"], "trace-delegate-1");
     assert_eq!(link_event["payload"]["sourceToolCallId"], "call-spawn");
     assert_eq!(link_event["payload"]["agentItem"]["type"], "subagent");
@@ -1790,7 +1790,7 @@ fn private_user_subagent_input_is_not_added_to_main_model_context() {
     impl NativeAgentProvider for SpawnThenFinalProvider {
         fn complete(
             &self,
-            context: &NativeAgentRunContext,
+            context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             let call_count = {
                 let mut seen_messages = self
@@ -1833,7 +1833,7 @@ fn private_user_subagent_input_is_not_added_to_main_model_context() {
     impl NativeAgentToolDispatcher for DirectUserInputAfterSpawnDispatcher {
         fn dispatch(
             &self,
-            context: &NativeAgentRunContext,
+            context: &AgentTurnContext,
             tool_call: &NativeAgentToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             let result = self.fallback.dispatch(context, tool_call)?;
@@ -1844,7 +1844,7 @@ fn private_user_subagent_input_is_not_added_to_main_model_context() {
                     content: "private child-only instruction".to_string(),
                     sender: SubagentInputSender::User,
                     turn_id: None,
-                    child_run_id: None,
+                    child_turn_id: None,
                     trace_ref: None,
                     created_at: None,
                     metadata: json!({ "source": "direct_user_subagent_chat" }),
@@ -1873,13 +1873,13 @@ fn private_user_subagent_input_is_not_added_to_main_model_context() {
         &services,
         json!({
             "runtime": "rust",
-            "runId": "run-private-subagent-input",
+            "turnId": "run-private-subagent-input",
             "sessionId": "websocket:chat-private-subagent-input",
             "maxIterations": 3,
             "messages": [{ "role": "user", "content": "start private subagent" }]
         }),
     )
-    .expect("subagent run should complete without leaking private child input");
+    .expect("subagent turn should complete without leaking private child input");
 
     let seen_messages = provider
         .seen_messages
@@ -1912,7 +1912,7 @@ fn tool_result_projection_redacts_and_truncates_model_content() {
         ),
         json!({
             "runtime": "rust",
-            "runId": "run-tool-budget",
+            "turnId": "run-tool-budget",
             "sessionId": "websocket:chat-tool-budget",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "read bounded result" }]
@@ -1987,7 +1987,7 @@ fn dispatches_multiple_tool_calls_from_one_provider_response_in_order() {
         &services,
         json!({
             "runtime": "rust",
-            "runId": "run-multiple-tools",
+            "turnId": "run-multiple-tools",
             "sessionId": "websocket:chat-multiple-tools",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "inspect workspace" }]
@@ -2046,7 +2046,7 @@ fn later_tool_error_preserves_earlier_completed_tool_result() {
     impl NativeAgentProvider for TwoToolProvider {
         fn complete(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             Ok(NativeAgentProviderResponse {
                 final_content: "".to_string(),
@@ -2075,7 +2075,7 @@ fn later_tool_error_preserves_earlier_completed_tool_result() {
     impl NativeAgentToolDispatcher for FailingSecondToolDispatcher {
         fn dispatch(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
             tool_call: &NativeAgentToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             if tool_call.id == "call-second-fails" {
@@ -2101,7 +2101,7 @@ fn later_tool_error_preserves_earlier_completed_tool_result() {
         ])),
         json!({
             "runtime": "rust",
-            "runId": "run-later-tool-error",
+            "turnId": "run-later-tool-error",
             "sessionId": "websocket:chat-later-tool-error",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "run two tools" }]
@@ -2141,7 +2141,7 @@ fn rejects_unpermitted_native_tool_with_structured_error_result() {
         &services,
         json!({
             "runtime": "rust",
-            "runId": "run-tool-denied",
+            "turnId": "run-tool-denied",
             "sessionId": "websocket:chat-tool-denied",
             "messages": [{ "role": "user", "content": "run shell" }]
         }),
@@ -2191,7 +2191,7 @@ fn rejects_unpermitted_native_tool_with_structured_error_result() {
 fn reports_provider_and_iteration_errors_as_frontend_events() {
     let provider_error = run_native_agent_turn(json!({
         "runtime": "rust",
-        "runId": "run-error",
+        "turnId": "run-error",
         "sessionId": "websocket:chat-1",
         "messages": [{ "role": "user", "content": "hello" }],
         "config": {
@@ -2202,7 +2202,7 @@ fn reports_provider_and_iteration_errors_as_frontend_events() {
     .expect("provider error should return compatibility result");
     let iteration_error = run_native_agent_turn(json!({
         "runtime": "rust",
-        "runId": "run-iteration",
+        "turnId": "run-iteration",
         "sessionId": "websocket:chat-1",
         "maxIterations": 0
     }))
@@ -2222,7 +2222,7 @@ fn stops_with_max_iterations_after_bounded_tool_iterations() {
         ),
         json!({
             "runtime": "rust",
-            "runId": "run-max-iterations",
+            "turnId": "run-max-iterations",
             "sessionId": "websocket:chat-max-iterations",
             "maxIterations": 1,
             "messages": [{ "role": "user", "content": "read forever" }]
@@ -2268,7 +2268,7 @@ fn denied_tool_stops_with_policy_denied_without_tool_dispatch() {
         &NativeAgentRuntimeServices::default(),
         json!({
             "runtime": "rust",
-            "runId": "run-policy-denied",
+            "turnId": "run-policy-denied",
             "sessionId": "websocket:chat-policy-denied",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "run shell" }]
@@ -2315,9 +2315,9 @@ fn cancellation_before_tool_dispatch_stops_without_dispatching_tool() {
     impl NativeAgentProvider for CancellingProvider {
         fn complete(
             &self,
-            context: &NativeAgentRunContext,
+            context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
-            self.cancellations.cancel(&context.run_id);
+            self.cancellations.cancel(&context.turn_id);
             Ok(NativeAgentProviderResponse {
                 final_content: "needs cancelled tool".to_string(),
                 reasoning_delta: None,
@@ -2337,7 +2337,7 @@ fn cancellation_before_tool_dispatch_stops_without_dispatching_tool() {
     impl NativeAgentToolDispatcher for PanickingToolDispatcher {
         fn dispatch(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
             _tool_call: &NativeAgentToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             panic!("tool dispatch should be skipped after cancellation");
@@ -2359,7 +2359,7 @@ fn cancellation_before_tool_dispatch_stops_without_dispatching_tool() {
         &services,
         json!({
             "runtime": "rust",
-            "runId": "run-cancel-before-tool",
+            "turnId": "run-cancel-before-tool",
             "sessionId": "websocket:chat-cancel-before-tool",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "read then cancel" }]
@@ -2388,7 +2388,7 @@ fn cancellation_before_tool_dispatch_stops_without_dispatching_tool() {
         .expect("cancelled event should be present");
     assert_eq!(cancelled_event["eventName"], "agent.cancelled");
     assert_eq!(
-        cancelled_event["payload"]["runId"],
+        cancelled_event["payload"]["turnId"],
         "run-cancel-before-tool"
     );
     assert_eq!(
@@ -2421,7 +2421,7 @@ fn cancellation_context_is_available_to_provider_and_tool_dispatch() {
     impl NativeAgentProvider for ContextAwareProvider {
         fn complete(
             &self,
-            context: &NativeAgentRunContext,
+            context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             *self
                 .saw_context
@@ -2452,10 +2452,10 @@ fn cancellation_context_is_available_to_provider_and_tool_dispatch() {
     impl NativeAgentToolDispatcher for ContextAwareToolDispatcher {
         fn dispatch(
             &self,
-            context: &NativeAgentRunContext,
+            context: &AgentTurnContext,
             tool_call: &NativeAgentToolCall,
         ) -> Result<NativeAgentToolResult, String> {
-            self.cancellations.cancel(&context.run_id);
+            self.cancellations.cancel(&context.turn_id);
             *self
                 .saw_cancelled_context
                 .lock()
@@ -2490,7 +2490,7 @@ fn cancellation_context_is_available_to_provider_and_tool_dispatch() {
         &services,
         json!({
             "runtime": "rust",
-            "runId": "run-cancellation-context",
+            "turnId": "run-cancellation-context",
             "sessionId": "websocket:chat-cancellation-context",
             "messages": [{ "role": "user", "content": "use cancellable tool" }]
         }),
@@ -2515,7 +2515,7 @@ fn cancellation_after_tool_result_preserves_completed_tool_state() {
     impl NativeAgentProvider for SingleToolProvider {
         fn complete(
             &self,
-            _context: &NativeAgentRunContext,
+            _context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             let mut calls = self
                 .calls
@@ -2547,10 +2547,10 @@ fn cancellation_after_tool_result_preserves_completed_tool_state() {
     impl NativeAgentToolDispatcher for CancellingToolDispatcher {
         fn dispatch(
             &self,
-            context: &NativeAgentRunContext,
+            context: &AgentTurnContext,
             tool_call: &NativeAgentToolCall,
         ) -> Result<NativeAgentToolResult, String> {
-            self.cancellations.cancel(&context.run_id);
+            self.cancellations.cancel(&context.turn_id);
             Ok(NativeAgentToolResult::generic_success(
                 tool_call,
                 tool_call.result.clone(),
@@ -2576,7 +2576,7 @@ fn cancellation_after_tool_result_preserves_completed_tool_state() {
         &services,
         json!({
             "runtime": "rust",
-            "runId": "run-cancel-after-result",
+            "turnId": "run-cancel-after-result",
             "sessionId": "websocket:chat-cancel-after-result",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "read then cancel" }]

@@ -19,7 +19,7 @@ A log begins with `ThreadMeta` and can contain event messages, strongly typed
 response items, turn context, world state, compaction records, and inter-agent
 communication.
 Canonical reconstruction produces Thread items, session history, model
-context, agent runs, checkpoints, and token usage.
+context, agent turns, checkpoints, and token usage.
 
 ## Responsibilities
 
@@ -30,7 +30,7 @@ context, agent runs, checkpoints, and token usage.
 - Maintain the `ThreadStateDb` index used for listing and lookup.
 - Detect missing, unreadable, or divergent indexes.
 - Rebuild the index explicitly from canonical logs.
-- Reconcile persisted agent runs during runtime startup.
+- Reconcile persisted agent turns during runtime startup.
 
 ## Internal layout
 
@@ -41,7 +41,7 @@ context, agent runs, checkpoints, and token usage.
 - `reconstruction.rs`: canonical Thread/session/runtime projection.
 - `state_db.rs`: SQLite index schema and queries.
 - `../../session/projection.rs`: session compatibility projection.
-- `agent_run.rs`: agent-run persistence and recovery over log/index state.
+- `turn.rs`: agent-turn persistence and recovery over log/index state.
 - `mod.rs`: capability-checked service and index consistency/repair behavior.
 
 ## Invariants
@@ -64,7 +64,7 @@ context, agent runs, checkpoints, and token usage.
   presentation events. Blocking status boundaries remain persisted for
   recovery. One completed reasoning ResponseItem is persisted per model call.
 - Ordinary canonical runtime events are durably appended in batches of up to
-  64 events or 50 milliseconds. Blocking status and run/continuation exit
+  64 events or 50 milliseconds. Blocking status and turn/continuation exit
   remain explicit synchronous durability barriers.
 - A trace batch is appended as one recorder transaction and response-backed
   projection replays the Rollout at most once for the whole batch.

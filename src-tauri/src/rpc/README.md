@@ -31,7 +31,7 @@ behavior.
    classified namespace.
 
 Method families currently include workspace/skills, configuration/provider,
-session persistence, Thread persistence, agent runs, interactions, memory,
+session persistence, Thread persistence, agent turns, interactions, memory,
 background work, subagents, tools/MCP/permissions, and runtime operations.
 
 ## Internal layout
@@ -40,7 +40,7 @@ background work, subagents, tools/MCP/permissions, and runtime operations.
 - `method.rs`, `errors.rs`: namespace classification and unknown-method errors.
 - `workspace_dispatch.rs`, `config_dispatch.rs`: workspace, skills,
   configuration, and provider-secret requests.
-- `persistence_facade.rs`, `thread_dispatch.rs`: session, agent-run, and typed
+- `persistence_facade.rs`, `thread_dispatch.rs`: session, agent-turn, and typed
   Thread methods, including compatibility projections.
 - `interaction_dispatch.rs`, `approval.rs`, `form.rs`, `channel.rs`: shell,
   approval, form, diagnostics, and channel interactions.

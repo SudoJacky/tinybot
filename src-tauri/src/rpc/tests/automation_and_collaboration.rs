@@ -642,7 +642,7 @@ fn dispatches_background_run_registry_round_trip_requests() {
                 "sessionKey": "desktop:chat-1",
                 "turnId": "turn-1",
                 "delegateId": "subagent-1",
-                "childRunId": "subagent-1",
+                "childTurnId": "subagent-1",
                 "traceRef": "trace-1",
                 "sequence": 1,
                 "createdAt": "2026-06-28T00:00:00.000Z",
@@ -705,7 +705,7 @@ fn dispatches_background_run_registry_round_trip_requests() {
                 "sessionKey": "desktop:chat-1",
                 "turnId": "turn-1",
                 "delegateId": "subagent-1",
-                "childRunId": "subagent-1",
+                "childTurnId": "subagent-1",
                 "childStepId": "artifact-1",
                 "traceRef": "trace-1",
                 "sequence": 2,
@@ -761,7 +761,7 @@ fn background_subagent_enqueue_input_writes_user_message_trace_event() {
             "subagentId": "subagent-1",
             "content": "Use the safer option.",
             "traceRef": "trace-subagent-1",
-            "childRunId": "run-subagent-1",
+            "childTurnId": "run-subagent-1",
             "createdAt": "2026-06-28T00:00:02.000Z"
         }),
     ));
@@ -810,9 +810,9 @@ fn dispatches_subagent_control_requests() {
         "subagent.spawn",
         json!({
             "sessionKey": "desktop:chat-1",
-            "parentRunId": "parent-run-1",
+            "parentTurnId": "parent-run-1",
             "subagentId": "delegate-1",
-            "childRunId": "child-1",
+            "childTurnId": "child-1",
             "traceRef": "trace-delegate-1",
             "name": "Goodall",
             "task": "Inspect a narrow question",
@@ -1023,11 +1023,11 @@ fn dispatches_subagent_control_requests() {
     ));
     assert_eq!(child_read.error, None);
     assert_eq!(
-        child_read.result.as_ref().unwrap()["runs"][0]["runId"],
+        child_read.result.as_ref().unwrap()["turns"][0]["turnId"],
         "child-1"
     );
     assert_eq!(
-        child_read.result.as_ref().unwrap()["runs"][0]["active"],
+        child_read.result.as_ref().unwrap()["turns"][0]["active"],
         false
     );
     assert_eq!(
@@ -1044,9 +1044,9 @@ fn dispatches_subagent_control_requests() {
         child_kinds,
         vec![
             "user_message",
-            "agent_run_started",
+            "turn_started",
             "user_message",
-            "agent_run_completed",
+            "turn_completed",
         ]
     );
 
@@ -1115,7 +1115,6 @@ fn subagent_history_modes_copy_only_public_parent_messages() {
                 {
                     "itemId": "history:user:old",
                     "threadId": "",
-                    "runId": "parent-run",
                     "turnId": "turn-old",
                     "sequence": 0,
                     "createdAt": "1000",
@@ -1124,7 +1123,6 @@ fn subagent_history_modes_copy_only_public_parent_messages() {
                 {
                     "itemId": "history:assistant:old",
                     "threadId": "",
-                    "runId": "parent-run",
                     "turnId": "turn-old",
                     "sequence": 0,
                     "createdAt": "1001",
@@ -1133,7 +1131,6 @@ fn subagent_history_modes_copy_only_public_parent_messages() {
                 {
                     "itemId": "history:reasoning:private",
                     "threadId": "",
-                    "runId": "parent-run",
                     "turnId": "turn-current",
                     "sequence": 0,
                     "createdAt": "1002",
@@ -1142,7 +1139,6 @@ fn subagent_history_modes_copy_only_public_parent_messages() {
                 {
                     "itemId": "history:tool:private",
                     "threadId": "",
-                    "runId": "parent-run",
                     "turnId": "turn-current",
                     "sequence": 0,
                     "createdAt": "1003",
@@ -1151,7 +1147,6 @@ fn subagent_history_modes_copy_only_public_parent_messages() {
                 {
                     "itemId": "history:user:current",
                     "threadId": "",
-                    "runId": "parent-run",
                     "turnId": "turn-current",
                     "sequence": 0,
                     "createdAt": "1004",
@@ -1160,7 +1155,6 @@ fn subagent_history_modes_copy_only_public_parent_messages() {
                 {
                     "itemId": "history:assistant:current",
                     "threadId": "",
-                    "runId": "parent-run",
                     "turnId": "turn-current",
                     "sequence": 0,
                     "createdAt": "1005",
@@ -1181,9 +1175,9 @@ fn subagent_history_modes_copy_only_public_parent_messages() {
             "subagent.spawn",
             json!({
                 "sessionKey": "desktop:history",
-                "parentRunId": "parent-run",
+                "parentTurnId": "parent-run",
                 "subagentId": subagent_id,
-                "childRunId": format!("run-{subagent_id}"),
+                "childTurnId": format!("run-{subagent_id}"),
                 "task": "Inspect inherited context",
                 "historyMode": history_mode
             }),
@@ -1266,18 +1260,18 @@ fn nested_subagents_persist_their_direct_parent_thread_edge() {
     for params in [
         json!({
             "sessionKey": "desktop:nested",
-            "parentRunId": "root-run",
+            "parentTurnId": "root-run",
             "subagentId": "delegate-parent",
-            "childRunId": "delegate-parent-run",
+            "childTurnId": "delegate-parent-run",
             "delegationDepth": 1,
             "task": "Delegate a bounded child task"
         }),
         json!({
             "sessionKey": "desktop:nested",
-            "parentRunId": "delegate-parent-run",
+            "parentTurnId": "delegate-parent-run",
             "parentSubagentId": "delegate-parent",
             "subagentId": "delegate-child",
-            "childRunId": "delegate-child-run",
+            "childTurnId": "delegate-child-run",
             "delegationDepth": 2,
             "task": "Inspect the nested detail"
         }),
@@ -1322,12 +1316,12 @@ fn background_subagent_enqueue_input_live_delivers_when_manager_has_child() {
     let manager = SubagentThreadManager::default();
     manager.spawn(SubagentSpawnParams {
         session_key: "desktop:chat-1".to_string(),
-        parent_run_id: Some("parent-run".to_string()),
+        parent_turn_id: Some("parent-turn".to_string()),
         parent_subagent_id: None,
         delegation_depth: None,
         history_mode: None,
         subagent_id: Some("delegate-1".to_string()),
-        child_run_id: Some("child-1".to_string()),
+        child_turn_id: Some("child-1".to_string()),
         trace_ref: Some("trace-delegate-1".to_string()),
         name: Some("Goodall".to_string()),
         task: Some("Inspect a narrow question".to_string()),
@@ -1356,7 +1350,7 @@ fn background_subagent_enqueue_input_live_delivers_when_manager_has_child() {
             "subagentId": "delegate-1",
             "content": "User intervention",
             "traceRef": "trace-delegate-1",
-            "childRunId": "child-1",
+            "childTurnId": "child-1",
             "createdAt": "2026-06-28T00:00:02.000Z"
         }),
     ));
@@ -1397,7 +1391,7 @@ fn subagent_list_restores_interrupted_children_from_background_trace() {
                 "sessionKey": "desktop:chat-1",
                 "turnId": "parent-run",
                 "delegateId": "delegate-1",
-                "childRunId": "child-1",
+                "childTurnId": "child-1",
                 "traceRef": "trace-delegate-1",
                 "sequence": 1,
                 "createdAt": "2026-06-28T00:00:00.000Z",
@@ -1444,9 +1438,9 @@ fn subagent_restart_restores_canonical_edges_and_resumes_only_selected_children(
             "subagent.spawn",
             json!({
                 "sessionKey": "desktop:restart",
-                "parentRunId": "parent-run",
+                "parentTurnId": "parent-run",
                 "subagentId": subagent_id,
-                "childRunId": format!("child-{subagent_id}"),
+                "childTurnId": format!("child-{subagent_id}"),
                 "task": format!("Task for {subagent_id}"),
                 "historyMode": "isolated"
             }),

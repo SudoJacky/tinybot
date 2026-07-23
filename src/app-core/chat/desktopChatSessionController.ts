@@ -3,7 +3,7 @@ import {
   canonicalSessionKey,
   createNativeChatState,
   activateSession,
-  hydrateDelegatedRunsFromTraceEvents,
+  hydrateDelegatedTurnsFromTraceEvents,
   normalizeSessionsPayload,
   setSessions,
   type NativeBackgroundTraceEvent,
@@ -20,8 +20,8 @@ import type { NativeThreadTurnInput, NativeThreadTurnResult } from "../native/de
 
 export interface DesktopChatSessionControllerApi {
   listSessions(): Promise<unknown>;
-  listAgentRuns?: (sessionKey: string) => Promise<unknown>;
-  getAgentRunRuntimeState?: (sessionKey: string, runId: string) => Promise<unknown>;
+  listTurns?: (sessionKey: string) => Promise<unknown>;
+  getAgentTurnRuntimeState?: (sessionKey: string, turnId: string) => Promise<unknown>;
   listTraceEvents?: (filter: { sessionKey: string }) => Promise<unknown>;
   getDelegateTrace?: (filter: { sessionKey: string; delegateId?: string; traceRef?: string }) => Promise<unknown>;
   getArtifact?: (filter: { sessionKey: string; delegateId?: string; traceRef?: string; artifactId: string }) => Promise<unknown>;
@@ -34,7 +34,7 @@ export interface DesktopChatSessionControllerOptions {
   api: DesktopChatSessionControllerApi;
   now?: () => string;
   createClientEventId?: () => string;
-  createRunId?: () => string;
+  createTurnId?: () => string;
 }
 
 export type ChatSubmitResult =
@@ -43,7 +43,7 @@ export type ChatSubmitResult =
     status: "sent";
     sessionId: string;
     threadId: string;
-    runId: string;
+    turnId: string;
     content: string;
     clientEventId: string;
     completion: Promise<ChatTimelineSnapshot>;
@@ -78,7 +78,7 @@ export function createDesktopChatSessionController({
   api,
   now = () => new Date().toISOString(),
   createClientEventId = defaultClientEventId,
-  createRunId = defaultRunId,
+  createTurnId = defaultTurnId,
 }: DesktopChatSessionControllerOptions): DesktopChatSessionController {
   const state = createNativeChatState();
   const timelineModel = createAgentTimelineModel();
@@ -140,7 +140,7 @@ export function createDesktopChatSessionController({
     try {
       const payload = await api.listTraceEvents({ sessionKey });
       const events = normalizeTraceEventsPayload(payload);
-      hydrateDelegatedRunsFromTraceEvents(state, sessionKey, events);
+      hydrateDelegatedTurnsFromTraceEvents(state, sessionKey, events);
       logDesktopNativeDebug("session.trace.load.complete", {
         ...summarizeSessionState(),
         eventCount: events.length,
@@ -213,35 +213,35 @@ export function createDesktopChatSessionController({
     if (loadedTimelineSessions.has(sessionKey)) {
       return timelineModel.snapshot(sessionKey);
     }
-    if (!api.listAgentRuns || !api.getAgentRunRuntimeState) {
+    if (!api.listTurns || !api.getAgentTurnRuntimeState) {
       throw new Error("Canonical agent timeline API is unavailable");
     }
-    logDesktopNativeDebug("session.agentRunRuntime.load.start", {
+    logDesktopNativeDebug("session.agentTurnRuntime.load.start", {
       ...summarizeSessionState(),
       sessionKey,
     });
     loadingTimelineSessions.add(sessionKey);
     try {
-      const runsPayload = await api.listAgentRuns(sessionKey);
-      const runIds = normalizeAgentRunIdsPayload(runsPayload);
-      const payloads = await Promise.all(runIds.map((runId) => api.getAgentRunRuntimeState?.(sessionKey, runId)));
+      const turnsPayload = await api.listTurns(sessionKey);
+      const turnIds = normalizeTurnIdsPayload(turnsPayload);
+      const payloads = await Promise.all(turnIds.map((turnId) => api.getAgentTurnRuntimeState?.(sessionKey, turnId)));
       let snapshot = timelineModel.load(sessionKey, payloads.filter((payload) => payload !== null && payload !== undefined));
       for (const patch of bufferedTimelinePatches.get(sessionKey) ?? []) {
         snapshot = timelineModel.applyPatch(sessionKey, patch);
       }
       bufferedTimelinePatches.delete(sessionKey);
       loadedTimelineSessions.add(sessionKey);
-      state.chatRuns.turnsBySession.set(sessionKey, snapshot.turns);
+      state.chatTurns.turnsBySession.set(sessionKey, snapshot.turns);
       syncRespondingState(sessionKey, snapshot);
-      logDesktopNativeDebug("session.agentRunRuntime.load.complete", {
+      logDesktopNativeDebug("session.agentTurnRuntime.load.complete", {
         ...summarizeSessionState(),
-        runCount: runIds.length,
-        runtimeStateCount: payloads.length,
+        turnCount: turnIds.length,
+        turnStateCount: payloads.length,
         sessionKey,
       });
       return snapshot;
     } catch (error) {
-      logDesktopNativeDebug("session.agentRunRuntime.load.failed", {
+      logDesktopNativeDebug("session.agentTurnRuntime.load.failed", {
         ...summarizeSessionState(),
         error: error instanceof Error ? error.message : String(error),
         sessionKey,
@@ -261,17 +261,17 @@ export function createDesktopChatSessionController({
     }
     try {
       const snapshot = timelineModel.applyPatch(sessionKey, payload);
-      state.chatRuns.turnsBySession.set(sessionKey, snapshot.turns);
+      state.chatTurns.turnsBySession.set(sessionKey, snapshot.turns);
       syncRespondingState(sessionKey, snapshot);
       return snapshot;
     } catch (error) {
       if (!(error instanceof TimelineRevisionGapError)) {
         throw error;
       }
-      logDesktopNativeDebug("session.agentRunRuntime.patch.gap", {
+      logDesktopNativeDebug("session.agentTurnRuntime.patch.gap", {
         expectedRevision: error.expectedRevision,
         receivedRevision: error.receivedRevision,
-        runId: error.runId,
+        turnId: error.turnId,
         sessionKey,
       });
       const buffered = bufferedTimelinePatches.get(sessionKey) ?? [];
@@ -331,7 +331,7 @@ export function createDesktopChatSessionController({
     }
     const clientEventId = options.clientEventId || createClientEventId();
     const { model, references } = options;
-    const runId = createRunId();
+    const turnId = createTurnId();
     const activeSession = state.sessions.find((session) => session.key === state.activeSessionKey);
     const threadId = activeSession?.threadId || state.activeSessionKey;
     appendUserMessage(state, content, now(), references);
@@ -344,7 +344,7 @@ export function createDesktopChatSessionController({
         ...(references?.length ? { references } : {}),
       },
       spec: {
-        runId,
+        turnId,
         sessionId: state.activeSessionKey,
         stream: true,
         ...(model ? { model } : {}),
@@ -357,13 +357,13 @@ export function createDesktopChatSessionController({
     const sessionId = state.activeSessionKey;
     const completion = api.submitThreadTurn(request)
       .then(async (result) => {
-        if (result.sessionId !== sessionId || result.runId !== runId) {
+        if (result.sessionId !== sessionId || result.turnId !== turnId) {
           throw new Error(
-            `Completed Thread turn identity mismatch: ${result.sessionId}/${result.runId}, expected ${sessionId}/${runId}`,
+            `Completed Thread turn identity mismatch: ${result.sessionId}/${result.turnId}, expected ${sessionId}/${turnId}`,
           );
         }
         const liveTimeline = timelineModel.snapshot(sessionId);
-        const liveTurn = liveTimeline.turns.find((turn) => turn.id === runId);
+        const liveTurn = liveTimeline.turns.find((turn) => turn.id === turnId);
         const hasLiveTerminalTurn = liveTurn
           ? ["completed", "failed", "interrupted"].includes(liveTurn.status)
           : false;
@@ -374,7 +374,7 @@ export function createDesktopChatSessionController({
         logDesktopNativeDebug("session.message.completed", {
           ...summarizeSessionState(),
           convergenceSource: hasLiveTerminalTurn ? "live_timeline" : "runtime_reload",
-          runId,
+          turnId,
           sessionId,
           threadId,
           turnCount: timeline.turns.length,
@@ -386,7 +386,7 @@ export function createDesktopChatSessionController({
         logDesktopNativeDebug("session.message.failed", {
           ...summarizeSessionState(),
           error: state.error,
-          runId,
+          turnId,
           threadId,
         });
         throw error;
@@ -395,14 +395,14 @@ export function createDesktopChatSessionController({
       ...summarizeSessionState(),
       content: summarizeDebugText(content),
       model: model || "",
-      runId,
+      turnId,
       threadId,
     });
     return {
       status: "sent",
       sessionId,
       threadId,
-      runId,
+      turnId,
       content,
       clientEventId,
       completion,
@@ -482,8 +482,8 @@ function defaultClientEventId(): string {
   return `client-message-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function defaultRunId(): string {
-  return `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+function defaultTurnId(): string {
+  return `turn-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function normalizeTraceEventsPayload(payload: unknown): NativeBackgroundTraceEvent[] {
@@ -496,13 +496,13 @@ function normalizeTraceEventsPayload(payload: unknown): NativeBackgroundTraceEve
   return [];
 }
 
-function normalizeAgentRunIdsPayload(payload: unknown): string[] {
-  if (!isRecord(payload) || !Array.isArray(payload.runs)) {
+function normalizeTurnIdsPayload(payload: unknown): string[] {
+  if (!isRecord(payload) || !Array.isArray(payload.turns)) {
     return [];
   }
-  return payload.runs
+  return payload.turns
     .filter(isRecord)
-    .map((run) => stringValue(run.runId ?? run.run_id))
+    .map((turn) => stringValue(turn.turnId ?? turn.turn_id))
     .filter(Boolean);
 }
 

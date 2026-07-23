@@ -153,7 +153,7 @@ impl WorkerBackgroundRpc {
                 trace: BackgroundDelegateTrace {
                     session_key: String::new(),
                     delegate_id: None,
-                    child_run_id: None,
+                    child_turn_id: None,
                     trace_ref: None,
                     status: None,
                     final_output: None,
@@ -204,7 +204,7 @@ impl WorkerBackgroundRpc {
             trace: BackgroundDelegateTrace {
                 session_key: first.session_key.clone(),
                 delegate_id: events.iter().find_map(|event| event.delegate_id.clone()),
-                child_run_id: events.iter().find_map(|event| event.child_run_id.clone()),
+                child_turn_id: events.iter().find_map(|event| event.child_turn_id.clone()),
                 trace_ref: events.iter().find_map(|event| event.trace_ref.clone()),
                 status,
                 final_output,
@@ -281,9 +281,9 @@ impl WorkerBackgroundRpc {
                 .unwrap_or_else(|| "subagent-direct-input".to_string()),
             parent_step_id: None,
             delegate_id: Some(subagent_id.to_string()),
-            child_run_id: params
-                .child_run_id
-                .filter(|child_run_id| !child_run_id.trim().is_empty()),
+            child_turn_id: params
+                .child_turn_id
+                .filter(|child_turn_id| !child_turn_id.trim().is_empty()),
             child_step_id: None,
             trace_ref: params
                 .trace_ref
@@ -501,7 +501,7 @@ pub struct BackgroundSubagentEnqueueInputParams {
     pub content: String,
     pub turn_id: Option<String>,
     pub trace_ref: Option<String>,
-    pub child_run_id: Option<String>,
+    pub child_turn_id: Option<String>,
     pub created_at: Option<String>,
     #[serde(default)]
     pub delivery: Option<String>,
@@ -518,7 +518,7 @@ pub struct BackgroundTraceEvent {
     pub turn_id: String,
     pub parent_step_id: Option<String>,
     pub delegate_id: Option<String>,
-    pub child_run_id: Option<String>,
+    pub child_turn_id: Option<String>,
     pub child_step_id: Option<String>,
     pub trace_ref: Option<String>,
     pub sequence: i64,
@@ -542,7 +542,7 @@ pub struct BackgroundTraceEventListResult {
 pub struct BackgroundDelegateTrace {
     pub session_key: String,
     pub delegate_id: Option<String>,
-    pub child_run_id: Option<String>,
+    pub child_turn_id: Option<String>,
     pub trace_ref: Option<String>,
     pub status: Option<String>,
     pub final_output: Option<String>,
@@ -801,7 +801,7 @@ mod tests {
                 turn_id: "turn-1".to_string(),
                 parent_step_id: None,
                 delegate_id: Some("delegate-1".to_string()),
-                child_run_id: Some("delegate-1".to_string()),
+                child_turn_id: Some("delegate-1".to_string()),
                 child_step_id: None,
                 trace_ref: Some("trace-delegate-1".to_string()),
                 sequence: 1,
@@ -818,7 +818,7 @@ mod tests {
                 turn_id: "turn-2".to_string(),
                 parent_step_id: None,
                 delegate_id: Some("delegate-2".to_string()),
-                child_run_id: Some("delegate-2".to_string()),
+                child_turn_id: Some("delegate-2".to_string()),
                 child_step_id: None,
                 trace_ref: Some("trace-delegate-2".to_string()),
                 sequence: 2,
@@ -870,7 +870,7 @@ mod tests {
                 turn_id: "turn-1".to_string(),
                 parent_step_id: None,
                 delegate_id: Some("delegate-1".to_string()),
-                child_run_id: Some("child-1".to_string()),
+                child_turn_id: Some("child-1".to_string()),
                 child_step_id: None,
                 trace_ref: Some("trace-delegate-1".to_string()),
                 sequence: 1,
@@ -887,7 +887,7 @@ mod tests {
                 turn_id: "turn-1".to_string(),
                 parent_step_id: None,
                 delegate_id: Some("delegate-1".to_string()),
-                child_run_id: Some("child-1".to_string()),
+                child_turn_id: Some("child-1".to_string()),
                 child_step_id: Some("approval-1".to_string()),
                 trace_ref: Some("trace-delegate-1".to_string()),
                 sequence: 2,
@@ -908,7 +908,7 @@ mod tests {
                 turn_id: "turn-1".to_string(),
                 parent_step_id: None,
                 delegate_id: Some("delegate-1".to_string()),
-                child_run_id: Some("child-1".to_string()),
+                child_turn_id: Some("child-1".to_string()),
                 child_step_id: None,
                 trace_ref: Some("trace-delegate-1".to_string()),
                 sequence: 3,
@@ -932,7 +932,7 @@ mod tests {
 
         assert_eq!(result.trace.session_key, "WebSocket:chat-1");
         assert_eq!(result.trace.delegate_id.as_deref(), Some("delegate-1"));
-        assert_eq!(result.trace.child_run_id.as_deref(), Some("child-1"));
+        assert_eq!(result.trace.child_turn_id.as_deref(), Some("child-1"));
         assert_eq!(result.trace.trace_ref.as_deref(), Some("trace-delegate-1"));
         assert_eq!(result.trace.status.as_deref(), Some("completed"));
         assert_eq!(result.trace.final_output.as_deref(), Some("Done"));
@@ -961,7 +961,7 @@ mod tests {
                 turn_id: "turn-1".to_string(),
                 parent_step_id: None,
                 delegate_id: Some("delegate-1".to_string()),
-                child_run_id: Some("child-1".to_string()),
+                child_turn_id: Some("child-1".to_string()),
                 child_step_id: Some("artifact-1".to_string()),
                 trace_ref: Some("trace-delegate-1".to_string()),
                 sequence: 1,

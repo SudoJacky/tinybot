@@ -6,7 +6,7 @@ use super::continuations::{
 use super::events::runtime_event_timestamp;
 use super::hooks::AgentHookEvaluation;
 use super::result::{cancelled_result, cancelled_run_result, error_result};
-use super::state::NativeAgentRunState;
+use super::state::AgentTurnState;
 use super::tool_runtime::{execute_tool_calls_for_iteration, NativeAgentToolExecutionOutcome};
 use super::usage::{
     context_window_action_payload, context_window_projection_async,
@@ -16,16 +16,16 @@ use super::user_input::{
     prepare_user_input_continuation, UserInputContinuationOutcome, UserInputResume,
 };
 use super::{
-    AgentContextRequest, AgentHookInvocation, AgentHookStage, ComposedInstructions,
-    InstructionComposer, NativeAgentContextCheckpointCommit, NativeAgentProviderFailure,
-    NativeAgentProviderFailureKind, NativeAgentProviderStreamEvent, NativeAgentRunContext,
+    AgentContextRequest, AgentHookInvocation, AgentHookStage, AgentTurnContext,
+    ComposedInstructions, InstructionComposer, NativeAgentContextCheckpointCommit,
+    NativeAgentProviderFailure, NativeAgentProviderFailureKind, NativeAgentProviderStreamEvent,
     NativeAgentRuntimeServices,
 };
 use crate::agent::runtime_protocol::{
-    AgentRunEmitter, AgentRuntimeEventAppendInput, AgentRuntimeEventEnvelope,
-    AgentRuntimeEventSource, AgentRuntimeEventVisibility, AgentRuntimePhase,
+    AgentRuntimeEventAppendInput, AgentRuntimeEventEnvelope, AgentRuntimeEventSource,
+    AgentRuntimeEventVisibility, AgentRuntimePhase, AgentTurnEmitter,
 };
-use crate::runtime::agent_task::StartAgentRun;
+use crate::runtime::turn_execution::StartAgentTurn;
 use crate::tools::registry::{McpToolContributor, WorkerToolRegistryRpc};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -114,7 +114,7 @@ async fn run_owned_native_agent_turn_async(
     workspace_root: Option<PathBuf>,
     instructions: Option<ComposedInstructions>,
 ) -> Result<Value, String> {
-    let mut identity = NativeAgentRunContext::from_spec(spec.clone(), config_snapshot.clone());
+    let mut identity = AgentTurnContext::from_spec(spec.clone(), config_snapshot.clone());
     identity.attach_observability(services);
     let continuation_metadata = identity
         .metadata
@@ -124,26 +124,26 @@ async fn run_owned_native_agent_turn_async(
     let restored_continuation_checkpoint = continuation_metadata.as_ref().and_then(|_| {
         services
             .checkpoints
-            .restore_for_run(&identity.session_id, &identity.run_id)
+            .restore_for_turn(&identity.session_id, &identity.turn_id)
     });
     if services
         .task_runtime
-        .status(&identity.run_id)
+        .status(&identity.turn_id)
         .and_then(|status| status.terminal_outcome)
         .as_deref()
         == Some("cancelled")
     {
         return services
             .task_runtime
-            .terminal_result(&identity.run_id)
+            .terminal_result(&identity.turn_id)
             .ok_or_else(|| {
                 format!(
-                    "cancelled agent run `{}` is missing its owned terminal result",
-                    identity.run_id
+                    "cancelled agent turn `{}` is missing its owned terminal result",
+                    identity.turn_id
                 )
             })?;
     }
-    let request = StartAgentRun::new(identity.run_id.clone(), identity.session_id.clone());
+    let request = StartAgentTurn::new(identity.turn_id.clone(), identity.session_id.clone());
     let owned_services = services.clone();
     let result_instructions = instructions.clone();
     let handle = services
@@ -159,7 +159,7 @@ async fn run_owned_native_agent_turn_async(
             .await
         })
         .map_err(|error| format!("failed to start owned agent task: {error}"))?;
-    if handle.run_id() != identity.run_id || handle.session_id() != identity.session_id {
+    if handle.turn_id() != identity.turn_id || handle.session_id() != identity.session_id {
         return Err("owned agent task identity does not match the normalized run".to_string());
     }
     if handle.status().is_none() {
@@ -236,7 +236,7 @@ async fn run_native_agent_turn_with_instructions_async(
     instructions: Option<ComposedInstructions>,
     workspace_root: Option<&Path>,
 ) -> Result<Value, String> {
-    let mut context = NativeAgentRunContext::from_spec(spec, config_snapshot.clone());
+    let mut context = AgentTurnContext::from_spec(spec, config_snapshot.clone());
     context.attach_observability(services);
     if let Some(instructions) = instructions.as_ref() {
         context.settings.working_directory = Some(instructions.working_directory.clone());
@@ -249,7 +249,7 @@ async fn run_native_agent_turn_with_instructions_async(
     );
     if context.max_iterations <= 0 {
         return Ok(error_result(
-            &context.run_id,
+            &context.turn_id,
             &context.session_id,
             "max_iterations",
             "Rust agent runtime reached max iterations before provider call.",
@@ -264,7 +264,7 @@ async fn run_native_agent_turn_with_instructions_async(
         );
         return Ok(cancelled_result(
             services,
-            &context.run_id,
+            &context.turn_id,
             &context.session_id,
             checkpoint,
         ));
@@ -293,7 +293,7 @@ async fn run_native_agent_turn_with_instructions_async(
                 );
                 return Ok(cancelled_result(
                     services,
-                    &context.run_id,
+                    &context.turn_id,
                     &context.session_id,
                     checkpoint,
                 ));
@@ -340,7 +340,7 @@ async fn run_native_agent_turn_with_instructions_async(
     context = next_context;
     if context.messages.is_empty() {
         return Ok(error_result(
-            &context.run_id,
+            &context.turn_id,
             &context.session_id,
             "invalid_request",
             "Rust agent runtime requires at least one user input or chat message.",
@@ -355,9 +355,9 @@ async fn run_native_agent_turn_with_instructions_async(
     }
 
     let mut state = if continuation_resume.is_some() {
-        NativeAgentRunState::new_for_continuation(&context, services.trace_sink.clone())?
+        AgentTurnState::new_for_continuation(&context, services.trace_sink.clone())?
     } else {
-        NativeAgentRunState::new(&context, services.trace_sink.clone())?
+        AgentTurnState::new(&context, services.trace_sink.clone())?
     };
     state.transition_phase(
         AgentRuntimePhase::HydratingHistory,
@@ -368,7 +368,7 @@ async fn run_native_agent_turn_with_instructions_async(
         state.emit_event(
             "agent.context.hydrated",
             serde_json::json!({
-                "runId": context.run_id,
+                "turnId": context.turn_id,
                 "sessionId": context.session_id,
                 "contributors": context.context_contribution_diagnostics(),
             }),
@@ -376,8 +376,8 @@ async fn run_native_agent_turn_with_instructions_async(
     }
     state.transition_phase(AgentRuntimePhase::Planning, 0, "agent.turn.started");
     let start_iteration = match continuation_resume {
-        Some(PreparedRunResume::Approval(resume)) => resume.apply(&context, &mut state),
-        Some(PreparedRunResume::UserInput(resume)) => resume.apply(&context, &mut state),
+        Some(PreparedTurnResume::Approval(resume)) => resume.apply(&context, &mut state),
+        Some(PreparedTurnResume::UserInput(resume)) => resume.apply(&context, &mut state),
         None => {
             state.emit_turn_started(&context);
             state.emit_tinyos_command_acknowledgement(&context)?;
@@ -478,7 +478,7 @@ async fn run_native_agent_turn_with_instructions_async(
                 }
                 let commit = NativeAgentContextCheckpointCommit {
                     session_id: context.session_id.clone(),
-                    run_id: context.run_id.clone(),
+                    turn_id: context.turn_id.clone(),
                     thread_id: context.thread_id.clone(),
                     checkpoint: checkpoint.clone(),
                 };
@@ -518,9 +518,9 @@ async fn run_native_agent_turn_with_instructions_async(
         }
         let provider_context = context_with_projected_messages(&context, projection.messages);
         let estimated_context_tokens = estimate_context_tokens_for_request(&provider_context);
-        let provider_attempt_id = format!("{}:provider:{}", context.run_id, iteration + 1);
-        let assistant_message_id = format!("{}:assistant:{iteration}", context.run_id);
-        let reasoning_item_id = format!("{}:reasoning:{iteration}", context.run_id);
+        let provider_attempt_id = format!("{}:provider:{}", context.turn_id, iteration + 1);
+        let assistant_message_id = format!("{}:assistant:{iteration}", context.turn_id);
+        let reasoning_item_id = format!("{}:reasoning:{iteration}", context.turn_id);
         let before_provider_invocation = AgentHookInvocation::provider(
             AgentHookStage::BeforeProviderRequest,
             context.trace_context.clone(),
@@ -539,7 +539,7 @@ async fn run_native_agent_turn_with_instructions_async(
         state.emit_event(
             "agent.provider.requested",
             serde_json::json!({
-                "runId": context.run_id,
+                "turnId": context.turn_id,
                 "sessionId": context.session_id,
                 "iteration": iteration,
                 "providerAttemptId": provider_attempt_id,
@@ -564,7 +564,7 @@ async fn run_native_agent_turn_with_instructions_async(
                         state.emit_event(
                             "agent.message.phase",
                             serde_json::json!({
-                                "runId": context.run_id,
+                                "turnId": context.turn_id,
                                 "sessionId": context.session_id,
                                 "iteration": iteration,
                                 "modelCallId": provider_attempt_id,
@@ -586,7 +586,7 @@ async fn run_native_agent_turn_with_instructions_async(
                         state.emit_event(
                             "agent.delta",
                             serde_json::json!({
-                                "runId": context.run_id,
+                                "turnId": context.turn_id,
                                 "sessionId": context.session_id,
                                 "iteration": iteration,
                                 "modelCallId": provider_attempt_id,
@@ -610,7 +610,7 @@ async fn run_native_agent_turn_with_instructions_async(
                         state.emit_event(
                             "agent.reasoning_delta",
                             serde_json::json!({
-                                "runId": context.run_id,
+                                "turnId": context.turn_id,
                                 "sessionId": context.session_id,
                                 "iteration": iteration,
                                 "modelCallId": provider_attempt_id,
@@ -660,7 +660,7 @@ async fn run_native_agent_turn_with_instructions_async(
         state.emit_event(
             "agent.provider.completed",
             serde_json::json!({
-                "runId": context.run_id,
+                "turnId": context.turn_id,
                 "sessionId": context.session_id,
                 "iteration": iteration,
                 "providerAttemptId": provider_attempt_id,
@@ -755,7 +755,7 @@ async fn run_native_agent_turn_with_instructions_async(
             state.emit_event(
                 "agent.reasoning_delta",
                 serde_json::json!({
-                    "runId": context.run_id,
+                    "turnId": context.turn_id,
                     "sessionId": context.session_id,
                     "iteration": iteration,
                     "modelCallId": provider_attempt_id,
@@ -768,7 +768,7 @@ async fn run_native_agent_turn_with_instructions_async(
             state.emit_event(
                 "agent.reasoning.completed",
                 serde_json::json!({
-                    "runId": context.run_id,
+                    "turnId": context.turn_id,
                     "sessionId": context.session_id,
                     "iteration": iteration,
                     "modelCallId": provider_attempt_id,
@@ -785,7 +785,7 @@ async fn run_native_agent_turn_with_instructions_async(
             state.emit_event(
                 "agent.delta",
                 serde_json::json!({
-                    "runId": context.run_id,
+                    "turnId": context.turn_id,
                     "sessionId": context.session_id,
                     "iteration": iteration,
                     "modelCallId": provider_attempt_id,
@@ -801,7 +801,7 @@ async fn run_native_agent_turn_with_instructions_async(
                 state.emit_event(
                     "agent.message.classified",
                     serde_json::json!({
-                        "runId": context.run_id,
+                        "turnId": context.turn_id,
                         "sessionId": context.session_id,
                         "iteration": iteration,
                         "modelCallId": provider_attempt_id,
@@ -837,7 +837,7 @@ async fn run_native_agent_turn_with_instructions_async(
                 state.emit_event(
                     "agent.guidance",
                     serde_json::json!({
-                        "runId": context.run_id,
+                        "turnId": context.turn_id,
                         "sessionId": context.session_id,
                         "iteration": iteration,
                         "content": message.get("content").cloned().unwrap_or(Value::Null),
@@ -874,11 +874,11 @@ async fn run_native_agent_turn_with_instructions_async(
         );
         services
             .checkpoints
-            .clear_for_run(&context.session_id, &context.run_id);
+            .clear_for_turn(&context.session_id, &context.turn_id);
         state.emit_event(
             "agent.message.completed",
             serde_json::json!({
-                "runId": context.run_id,
+                "turnId": context.turn_id,
                 "sessionId": context.session_id,
                 "iteration": iteration,
                 "modelCallId": provider_attempt_id,
@@ -896,7 +896,7 @@ async fn run_native_agent_turn_with_instructions_async(
         state.emit_event(
             "agent.done",
             serde_json::json!({
-                "runId": context.run_id,
+                "turnId": context.turn_id,
                 "sessionId": context.session_id,
                 "iteration": iteration,
                 "stopReason": "final_response",
@@ -912,7 +912,7 @@ async fn run_native_agent_turn_with_instructions_async(
         let context_checkpoint = state.finalized_context_checkpoint(Some(final_message.clone()));
         let mut result = serde_json::json!({
             "runtime": "rust",
-            "runId": context.run_id,
+            "turnId": context.turn_id,
             "sessionId": context.session_id,
             "finalContent": final_message["content"],
             "stopReason": "final_response",
@@ -933,7 +933,7 @@ async fn run_native_agent_turn_with_instructions_async(
     state.emit_event(
         "agent.error",
         serde_json::json!({
-            "runId": context.run_id,
+            "turnId": context.turn_id,
             "sessionId": context.session_id,
             "stopReason": "max_iterations",
             "error": error,
@@ -941,13 +941,13 @@ async fn run_native_agent_turn_with_instructions_async(
     );
     services
         .checkpoints
-        .clear_for_run(&context.session_id, &context.run_id);
+        .clear_for_turn(&context.session_id, &context.turn_id);
     let runtime_events = state.runtime_events();
     let events = state.legacy_events();
     let context_checkpoint = state.finalized_context_checkpoint(None);
     let mut result = serde_json::json!({
         "runtime": "rust",
-        "runId": context.run_id,
+        "turnId": context.turn_id,
         "sessionId": context.session_id,
         "finalContent": "",
         "stopReason": "max_iterations",
@@ -966,8 +966,8 @@ async fn run_native_agent_turn_with_instructions_async(
 
 async fn honor_pause_request(
     services: &NativeAgentRuntimeServices,
-    context: &NativeAgentRunContext,
-    state: &mut NativeAgentRunState,
+    context: &AgentTurnContext,
+    state: &mut AgentTurnState,
     iteration: i64,
 ) -> Result<(), String> {
     let Some(cancellation) = context.cancellation.as_ref() else {
@@ -987,11 +987,11 @@ async fn honor_pause_request(
     state.emit_event(
         "agent.paused",
         serde_json::json!({
-            "runId": context.run_id,
+            "turnId": context.turn_id,
             "sessionId": context.session_id,
             "commandId": pause_command_id,
             "status": "completed",
-            "message": "Agent run paused at a safe boundary",
+            "message": "Agent turn paused at a safe boundary",
         }),
     );
     let resume_command_id = tokio::select! {
@@ -1008,17 +1008,17 @@ async fn honor_pause_request(
     state.emit_event(
         "agent.resumed",
         serde_json::json!({
-            "runId": context.run_id,
+            "turnId": context.turn_id,
             "sessionId": context.session_id,
             "commandId": resume_command_id,
             "status": "completed",
-            "message": "Agent run resumed",
+            "message": "Agent turn resumed",
         }),
     );
     Ok(())
 }
 
-fn run_context_is_cancelled(context: &NativeAgentRunContext) -> bool {
+fn run_context_is_cancelled(context: &AgentTurnContext) -> bool {
     context
         .cancellation
         .as_ref()
@@ -1027,8 +1027,8 @@ fn run_context_is_cancelled(context: &NativeAgentRunContext) -> bool {
 
 fn provider_failure_result(
     services: &NativeAgentRuntimeServices,
-    context: &NativeAgentRunContext,
-    state: &mut NativeAgentRunState,
+    context: &AgentTurnContext,
+    state: &mut AgentTurnState,
     iteration: i64,
     error: NativeAgentProviderFailure,
 ) -> Value {
@@ -1044,8 +1044,8 @@ fn provider_failure_result(
 
 fn agent_failure_result(
     services: &NativeAgentRuntimeServices,
-    context: &NativeAgentRunContext,
-    state: &mut NativeAgentRunState,
+    context: &AgentTurnContext,
+    state: &mut AgentTurnState,
     iteration: i64,
     stop_reason: &str,
     message: String,
@@ -1054,7 +1054,7 @@ fn agent_failure_result(
     state.emit_event(
         "agent.error",
         serde_json::json!({
-            "runId": context.run_id,
+            "turnId": context.turn_id,
             "sessionId": context.session_id,
             "iteration": iteration,
             "stopReason": stop_reason,
@@ -1064,12 +1064,12 @@ fn agent_failure_result(
     );
     services
         .checkpoints
-        .clear_for_run(&context.session_id, &context.run_id);
+        .clear_for_turn(&context.session_id, &context.turn_id);
     let runtime_events = state.runtime_events();
     let events = state.legacy_events();
     let mut result = serde_json::json!({
         "runtime": "rust",
-        "runId": context.run_id,
+        "turnId": context.turn_id,
         "sessionId": context.session_id,
         "finalContent": "",
         "stopReason": stop_reason,
@@ -1085,8 +1085,8 @@ fn agent_failure_result(
 }
 
 fn emit_context_compaction_failure(
-    context: &NativeAgentRunContext,
-    state: &mut NativeAgentRunState,
+    context: &AgentTurnContext,
+    state: &mut AgentTurnState,
     iteration: i64,
     failure_stop_reason: &str,
     message: &str,
@@ -1095,10 +1095,10 @@ fn emit_context_compaction_failure(
     state.emit_event(
         "agent.context.compaction_failed",
         serde_json::json!({
-            "runId": context.run_id,
+            "turnId": context.turn_id,
             "sessionId": context.session_id,
             "iteration": iteration,
-            "contextId": format!("{}:context:{}", context.run_id, iteration + 1),
+            "contextId": format!("{}:context:{}", context.turn_id, iteration + 1),
             "trigger": "auto",
             "reason": "context_limit",
             "phase": if iteration == 0 { "pre_turn" } else { "mid_turn" },
@@ -1118,8 +1118,8 @@ fn emit_context_compaction_failure(
 
 fn hook_denied_result(
     services: &NativeAgentRuntimeServices,
-    context: &NativeAgentRunContext,
-    state: &mut NativeAgentRunState,
+    context: &AgentTurnContext,
+    state: &mut AgentTurnState,
     iteration: i64,
     reason: String,
 ) -> Value {
@@ -1127,7 +1127,7 @@ fn hook_denied_result(
     state.emit_event(
         "agent.error",
         serde_json::json!({
-            "runId": context.run_id,
+            "turnId": context.turn_id,
             "sessionId": context.session_id,
             "iteration": iteration,
             "stopReason": "hook_denied",
@@ -1137,12 +1137,12 @@ fn hook_denied_result(
     );
     services
         .checkpoints
-        .clear_for_run(&context.session_id, &context.run_id);
+        .clear_for_turn(&context.session_id, &context.turn_id);
     let runtime_events = state.runtime_events();
     let events = state.legacy_events();
     let mut result = serde_json::json!({
         "runtime": "rust",
-        "runId": context.run_id,
+        "turnId": context.turn_id,
         "sessionId": context.session_id,
         "finalContent": "",
         "stopReason": "hook_denied",
@@ -1159,7 +1159,7 @@ fn hook_denied_result(
 
 fn append_hook_evaluation_to_result(
     result: &mut Value,
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     invocation: &AgentHookInvocation,
     evaluation: &AgentHookEvaluation,
 ) -> Result<(), String> {
@@ -1174,9 +1174,9 @@ fn append_hook_evaluation_to_result(
     let existing: Vec<AgentRuntimeEventEnvelope> = serde_json::from_value(existing)
         .map_err(|error| format!("failed to read runtime events for lifecycle hook: {error}"))?;
     let mut emitter = if existing.is_empty() {
-        AgentRunEmitter::new_with_trace_context(&context.session_id, context.trace_context.clone())
+        AgentTurnEmitter::new_with_trace_context(&context.session_id, context.trace_context.clone())
     } else {
-        AgentRunEmitter::from_existing_events_with_thread_id(
+        AgentTurnEmitter::from_existing_events_with_thread_id(
             &context.session_id,
             &context.trace_context.turn_id,
             context.trace_context.thread_id.clone(),
@@ -1189,7 +1189,7 @@ fn append_hook_evaluation_to_result(
         _ => AgentRuntimePhase::Planning,
     };
     let event = emitter.emit(AgentRuntimeEventAppendInput {
-        parent_turn_id: context.trace_context.parent_run_id.clone(),
+        parent_turn_id: context.trace_context.parent_turn_id.clone(),
         item_id: None,
         event_name: "agent.hook.decision".to_string(),
         phase,
@@ -1240,26 +1240,26 @@ fn attach_context_contributions_to_result(result: &mut Value) -> Result<(), Stri
 enum PreparedContinuation {
     Finished(Value),
     Continue {
-        context: NativeAgentRunContext,
-        resume: Option<PreparedRunResume>,
+        context: AgentTurnContext,
+        resume: Option<PreparedTurnResume>,
     },
 }
 
-enum PreparedRunResume {
+enum PreparedTurnResume {
     Approval(ApprovalResume),
     UserInput(UserInputResume),
 }
 
 async fn prepare_continuation(
     services: NativeAgentRuntimeServices,
-    mut context: NativeAgentRunContext,
+    mut context: AgentTurnContext,
 ) -> Result<PreparedContinuation, String> {
     restore_activated_tools_for_continuation(&services, &mut context)?;
     if let Some(outcome) = maybe_approval_resume_result(&services, &mut context).await? {
         return Ok(match outcome {
             ApprovalContinuationOutcome::Resume(resume) => PreparedContinuation::Continue {
                 context,
-                resume: Some(PreparedRunResume::Approval(resume)),
+                resume: Some(PreparedTurnResume::Approval(resume)),
             },
             ApprovalContinuationOutcome::Finished(result) => PreparedContinuation::Finished(result),
         });
@@ -1269,7 +1269,7 @@ async fn prepare_continuation(
             return Ok(PreparedContinuation::Finished(result));
         }
         Some(UserInputContinuationOutcome::Resume(resume)) => {
-            Some(PreparedRunResume::UserInput(resume))
+            Some(PreparedTurnResume::UserInput(resume))
         }
         None => None,
     };

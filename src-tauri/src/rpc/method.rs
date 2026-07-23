@@ -1,6 +1,5 @@
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WorkerRpcNamespace {
-    AgentRun,
     Approval,
     Background,
     Channel,
@@ -27,7 +26,6 @@ pub enum WorkerRpcNamespace {
 impl WorkerRpcNamespace {
     pub fn as_str(self) -> &'static str {
         match self {
-            WorkerRpcNamespace::AgentRun => "agent_run",
             WorkerRpcNamespace::Approval => "approval",
             WorkerRpcNamespace::Background => "background",
             WorkerRpcNamespace::Channel => "channel",
@@ -55,7 +53,6 @@ impl WorkerRpcNamespace {
 
 pub fn classify_method(method: &str) -> WorkerRpcNamespace {
     match method.split_once('.').map(|(namespace, _method)| namespace) {
-        Some("agent_run") => WorkerRpcNamespace::AgentRun,
         Some("approval") => WorkerRpcNamespace::Approval,
         Some("background") => WorkerRpcNamespace::Background,
         Some("channel") => WorkerRpcNamespace::Channel,
@@ -100,8 +97,8 @@ mod tests {
             WorkerRpcNamespace::Provider
         );
         assert_eq!(
-            classify_method("agent_run.list"),
-            WorkerRpcNamespace::AgentRun
+            classify_method("thread.turn.list"),
+            WorkerRpcNamespace::Thread
         );
         assert_eq!(classify_method("thread.list"), WorkerRpcNamespace::Thread);
         assert_eq!(classify_method("shell.start"), WorkerRpcNamespace::Shell);

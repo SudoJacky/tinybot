@@ -91,8 +91,8 @@ mod tests {
                 for _ in 0..32 {
                     let correlation = generator.next();
                     keys.lock().expect("keys mutex should lock").push((
-                        correlation.id("agent-run"),
-                        correlation.trace_id("agent-run"),
+                        correlation.id("agent-turn"),
+                        correlation.trace_id("agent-turn"),
                     ));
                 }
             }));

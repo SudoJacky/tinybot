@@ -30,7 +30,7 @@ mod threads_and_tools;
 
 fn approve_once(
     router: &mut WorkerRpcRouter,
-    run_id: &str,
+    turn_id: &str,
     session_id: &str,
     operation: Value,
     category: &str,
@@ -59,7 +59,7 @@ fn approve_once(
                 tool_id: tool_id.to_string(),
                 arguments: operation["arguments"].clone(),
                 session_id: Some(session_id.to_string()),
-                run_id: Some(run_id.to_string()),
+                turn_id: Some(turn_id.to_string()),
             },
         )
         .expect("approval helper effects should normalize");
@@ -71,7 +71,7 @@ fn approve_once(
         "trace-approval",
         "approval.request",
         json!({
-            "run_id": run_id,
+            "turn_id": turn_id,
             "session_id": session_id,
             "operation": approval.operation,
             "classification": {

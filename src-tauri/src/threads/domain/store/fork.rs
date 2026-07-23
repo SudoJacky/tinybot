@@ -9,8 +9,8 @@ pub(super) fn context_compaction_survives_fork(
         return true;
     }
     let same_compaction_segment =
-        |candidate: &ThreadItem| match (item.run_id.as_deref(), item.turn_id.as_deref()) {
-            (Some(run_id), _) => candidate.run_id.as_deref() == Some(run_id),
+        |candidate: &ThreadItem| match (item.turn_id.as_deref(), item.turn_id.as_deref()) {
+            (Some(turn_id), _) => candidate.turn_id.as_deref() == Some(turn_id),
             (None, Some(turn_id)) => candidate.turn_id.as_deref() == Some(turn_id),
             (None, None) => true,
         };

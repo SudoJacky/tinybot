@@ -2,7 +2,7 @@ use super::activity::{ThreadChildActivity, ThreadChildSummary};
 use super::events::ThreadEvent;
 use super::items::ThreadItem;
 use super::records::{
-    ThreadCheckpoint, ThreadMetadataPatch, ThreadRecord, ThreadRunSummary, ThreadSnapshot,
+    ThreadCheckpoint, ThreadMetadataPatch, ThreadRecord, ThreadSnapshot, ThreadTurnSummary,
 };
 use crate::agent::runtime_protocol::AgentTraceContext;
 use serde::{Deserialize, Serialize};
@@ -17,9 +17,9 @@ pub struct CreateThreadRequest {
     #[serde(default)]
     pub session_key: Option<String>,
     #[serde(default)]
-    pub root_run_id: Option<String>,
+    pub root_turn_id: Option<String>,
     #[serde(default)]
-    pub active_run_id: Option<String>,
+    pub active_turn_id: Option<String>,
     #[serde(default)]
     pub parent_thread_id: Option<String>,
     #[serde(default)]
@@ -181,11 +181,11 @@ pub struct ThreadEventsResult {
     pub thread_id: String,
     pub thread: ThreadRecord,
     #[serde(default)]
-    pub active_run: Option<ThreadRunSummary>,
+    pub active_turn: Option<ThreadTurnSummary>,
     #[serde(default)]
     pub latest_checkpoint: Option<ThreadCheckpoint>,
     #[serde(default)]
-    pub runs: Vec<ThreadRunSummary>,
+    pub turns: Vec<ThreadTurnSummary>,
     #[serde(default)]
     pub child_activities: Vec<ThreadChildActivity>,
     pub cursor: String,
@@ -214,8 +214,6 @@ pub struct ThreadApplyOpRequest {
 pub enum ThreadOp {
     UserInput {
         #[serde(default)]
-        run_id: Option<String>,
-        #[serde(default)]
         turn_id: Option<String>,
         #[serde(default)]
         input: Value,
@@ -226,9 +224,7 @@ pub enum ThreadOp {
         #[serde(default)]
         metadata: ThreadMetadataPatch,
     },
-    ContinueRun {
-        #[serde(default)]
-        run_id: Option<String>,
+    ContinueTurn {
         #[serde(default)]
         turn_id: Option<String>,
         #[serde(default)]
@@ -236,13 +232,11 @@ pub enum ThreadOp {
     },
     Interrupt {
         #[serde(default)]
-        run_id: Option<String>,
+        turn_id: Option<String>,
         #[serde(default)]
         reason: Option<String>,
     },
     ApprovalRequest {
-        #[serde(default)]
-        run_id: Option<String>,
         #[serde(default)]
         turn_id: Option<String>,
         #[serde(default)]
@@ -255,8 +249,6 @@ pub enum ThreadOp {
         payload: Value,
     },
     ApprovalDecision {
-        #[serde(default)]
-        run_id: Option<String>,
         #[serde(default)]
         turn_id: Option<String>,
         #[serde(default)]
@@ -272,8 +264,6 @@ pub enum ThreadOp {
     },
     ToolCallStarted {
         #[serde(default)]
-        run_id: Option<String>,
-        #[serde(default)]
         turn_id: Option<String>,
         #[serde(default)]
         tool_call_id: Option<String>,
@@ -283,8 +273,6 @@ pub enum ThreadOp {
         args: Value,
     },
     ToolResult {
-        #[serde(default)]
-        run_id: Option<String>,
         #[serde(default)]
         turn_id: Option<String>,
         #[serde(default)]
@@ -298,15 +286,13 @@ pub enum ThreadOp {
     },
     SubagentSpawned {
         #[serde(default)]
-        run_id: Option<String>,
-        #[serde(default)]
         turn_id: Option<String>,
         #[serde(default)]
         subagent_id: Option<String>,
         #[serde(default)]
         child_thread_id: Option<String>,
         #[serde(default)]
-        child_run_id: Option<String>,
+        child_turn_id: Option<String>,
         #[serde(default)]
         name: Option<String>,
         #[serde(default)]
@@ -316,15 +302,13 @@ pub enum ThreadOp {
     },
     SubagentMessage {
         #[serde(default)]
-        run_id: Option<String>,
-        #[serde(default)]
         turn_id: Option<String>,
         #[serde(default)]
         subagent_id: Option<String>,
         #[serde(default)]
         child_thread_id: Option<String>,
         #[serde(default)]
-        child_run_id: Option<String>,
+        child_turn_id: Option<String>,
         #[serde(default)]
         content: Option<String>,
         #[serde(default)]
@@ -334,23 +318,19 @@ pub enum ThreadOp {
     },
     SubagentCompleted {
         #[serde(default)]
-        run_id: Option<String>,
-        #[serde(default)]
         turn_id: Option<String>,
         #[serde(default)]
         subagent_id: Option<String>,
         #[serde(default)]
         child_thread_id: Option<String>,
         #[serde(default)]
-        child_run_id: Option<String>,
+        child_turn_id: Option<String>,
         #[serde(default)]
         status: Option<String>,
         #[serde(default)]
         result: Value,
     },
     Checkpoint {
-        #[serde(default)]
-        run_id: Option<String>,
         #[serde(default)]
         turn_id: Option<String>,
         #[serde(default)]
@@ -362,8 +342,6 @@ pub enum ThreadOp {
     },
     AssistantDelta {
         #[serde(default)]
-        run_id: Option<String>,
-        #[serde(default)]
         turn_id: Option<String>,
         #[serde(default)]
         delta: Option<String>,
@@ -372,8 +350,6 @@ pub enum ThreadOp {
     },
     Reasoning {
         #[serde(default)]
-        run_id: Option<String>,
-        #[serde(default)]
         turn_id: Option<String>,
         #[serde(default)]
         summary: Option<String>,
@@ -381,8 +357,6 @@ pub enum ThreadOp {
         payload: Value,
     },
     AgentStep {
-        #[serde(default)]
-        run_id: Option<String>,
         #[serde(default)]
         turn_id: Option<String>,
         #[serde(default)]
@@ -397,8 +371,6 @@ pub enum ThreadOp {
         payload: Value,
     },
     RuntimeEvent {
-        #[serde(default)]
-        run_id: Option<String>,
         #[serde(default)]
         turn_id: Option<String>,
         #[serde(default)]
@@ -419,8 +391,6 @@ pub enum ThreadOp {
     },
     AssistantResponse {
         #[serde(default)]
-        run_id: Option<String>,
-        #[serde(default)]
         turn_id: Option<String>,
         #[serde(default)]
         content: Option<String>,
@@ -436,8 +406,6 @@ pub enum ThreadOp {
         instruction_diagnostics: Vec<Value>,
     },
     Error {
-        #[serde(default)]
-        run_id: Option<String>,
         #[serde(default)]
         turn_id: Option<String>,
         #[serde(default)]
@@ -480,8 +448,6 @@ pub struct StartThreadTurnRequest {
     #[serde(default)]
     pub client_event_id: Option<String>,
     #[serde(default)]
-    pub run_id: Option<String>,
-    #[serde(default)]
     pub turn_id: Option<String>,
     #[serde(default)]
     pub input: Value,
@@ -502,8 +468,6 @@ pub struct ContinueThreadTurnRequest {
     #[serde(default)]
     pub client_event_id: Option<String>,
     #[serde(default)]
-    pub run_id: Option<String>,
-    #[serde(default)]
     pub turn_id: Option<String>,
     #[serde(default)]
     pub input: Value,
@@ -516,7 +480,7 @@ pub struct InterruptThreadRequest {
     #[serde(default)]
     pub client_event_id: Option<String>,
     #[serde(default)]
-    pub run_id: Option<String>,
+    pub turn_id: Option<String>,
     #[serde(default)]
     pub reason: Option<String>,
 }
@@ -526,7 +490,7 @@ pub struct InterruptThreadRequest {
 pub struct ThreadTurnRuntimeResult {
     pub snapshot: ThreadSnapshot,
     #[serde(default)]
-    pub run: Option<ThreadRunSummary>,
+    pub turn: Option<ThreadTurnSummary>,
     pub appended_items: Vec<ThreadItem>,
 }
 
@@ -572,11 +536,11 @@ pub struct DeleteThreadResult {
 pub struct ThreadStatusResult {
     pub thread: ThreadRecord,
     #[serde(default)]
-    pub active_run: Option<ThreadRunSummary>,
+    pub active_turn: Option<ThreadTurnSummary>,
     #[serde(default)]
     pub latest_checkpoint: Option<ThreadCheckpoint>,
     #[serde(default)]
-    pub runs: Vec<ThreadRunSummary>,
+    pub turns: Vec<ThreadTurnSummary>,
     #[serde(default)]
     pub children: Vec<ThreadChildSummary>,
     #[serde(default)]

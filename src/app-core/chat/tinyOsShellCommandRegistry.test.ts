@@ -38,7 +38,7 @@ describe("TinyOS shell command registry", () => {
       keywords: ["cancel", "stop"],
       label: "Cancel Agent run",
       scope: "runtime",
-      target: { kind: "run", runId: "run-1" },
+      target: { kind: "turn", turnId: "turn-1" },
     });
 
     await expect(executeTinyOsShellCommand(command)).resolves.toEqual({
@@ -129,7 +129,7 @@ describe("TinyOS shell command registry", () => {
       keywords: [],
       label: "Pause Agent run",
       scope: "runtime",
-      target: { kind: "run", runId: "run-1" },
+      target: { kind: "turn", turnId: "turn-1" },
     });
 
     await expect(executeTinyOsShellCommand(command)).rejects.toThrow("gateway dispatch failed");

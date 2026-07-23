@@ -36,7 +36,7 @@ pub(crate) struct GatewayRuntimeStatus {
     pub(crate) response_class: Option<String>,
     pub(crate) recovery_hint: Option<String>,
     pub(crate) worker_runtime: WorkerRuntimeStatus,
-    pub(crate) agent_tasks: AgentTaskRuntimeStatus,
+    pub(crate) agent_tasks: TurnExecutionRuntimeStatus,
     pub(crate) lifecycle: RuntimeLifecycleStatus,
 }
 
@@ -121,10 +121,10 @@ pub(crate) fn start_gateway_with_workspace_root(
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct AgentTaskRuntimeStatus {
+pub(crate) struct TurnExecutionRuntimeStatus {
     pub(crate) accepting: bool,
-    pub(crate) active_runs: usize,
-    pub(crate) draining_runs: usize,
+    pub(crate) active_turns: usize,
+    pub(crate) draining_turns: usize,
 }
 
 #[tauri::command]
@@ -239,10 +239,10 @@ pub(crate) fn current_status(shared: &SharedGateway) -> GatewayRuntimeStatus {
         response_class: Some("tauri-native".to_string()),
         recovery_hint: None,
         worker_runtime: gateway_worker_runtime_status(runtime.last_error.as_deref(), accepting),
-        agent_tasks: AgentTaskRuntimeStatus {
+        agent_tasks: TurnExecutionRuntimeStatus {
             accepting,
-            active_runs: agent_task_runtime.active_count(),
-            draining_runs: agent_task_runtime.draining_count(),
+            active_turns: agent_task_runtime.active_count(),
+            draining_turns: agent_task_runtime.draining_count(),
         },
         lifecycle: runtime.lifecycle_status.clone(),
     }

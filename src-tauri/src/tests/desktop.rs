@@ -165,10 +165,10 @@ fn gateway_runtime_status_serializes_worker_runtime_status() {
         recovery_hint: None,
         worker_runtime:
             crate::transport::stdio_worker::status::WorkerRuntimeStatus::rust_backend_active(vec![]),
-        agent_tasks: crate::desktop_commands::gateway::AgentTaskRuntimeStatus {
+        agent_tasks: crate::desktop_commands::gateway::TurnExecutionRuntimeStatus {
             accepting: true,
-            active_runs: 0,
-            draining_runs: 0,
+            active_turns: 0,
+            draining_turns: 0,
         },
         lifecycle: crate::runtime::lifecycle::RuntimeLifecycleStatus::default(),
     };
@@ -177,7 +177,7 @@ fn gateway_runtime_status_serializes_worker_runtime_status() {
 
     assert_eq!(value["worker_runtime"]["state"], "running");
     assert_eq!(value["agent_tasks"]["accepting"], true);
-    assert_eq!(value["agent_tasks"]["activeRuns"], 0);
+    assert_eq!(value["agent_tasks"]["activeTurns"], 0);
     assert_eq!(value["lifecycle"]["startupReconciled"], false);
     assert!(value["worker_runtime"]["transport_mode"].is_null());
 }

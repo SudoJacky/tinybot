@@ -1,6 +1,6 @@
 use super::{
-    agent_provider_config, bool_field, chat_completion_content, NativeAgentProviderFailure,
-    NativeAgentRunContext,
+    agent_provider_config, bool_field, chat_completion_content, AgentTurnContext,
+    NativeAgentProviderFailure,
 };
 use serde_json::Value;
 use std::sync::Arc;
@@ -52,9 +52,7 @@ struct CompactionSummary {
 }
 
 #[cfg(test)]
-pub(super) fn context_window_messages(
-    context: &NativeAgentRunContext,
-) -> Result<Vec<Value>, String> {
+pub(super) fn context_window_messages(context: &AgentTurnContext) -> Result<Vec<Value>, String> {
     if bool_field(&context.spec, "_contextWindowProjected") {
         return Ok(context.messages.clone());
     }
@@ -62,7 +60,7 @@ pub(super) fn context_window_messages(
 }
 
 pub(super) async fn context_window_messages_async(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
 ) -> Result<Vec<Value>, NativeAgentProviderFailure> {
     if bool_field(&context.spec, "_contextWindowProjected") {
         return Ok(context.messages.clone());
@@ -74,14 +72,14 @@ pub(super) async fn context_window_messages_async(
 
 #[cfg(test)]
 pub(super) fn context_window_projection(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
 ) -> Result<ContextWindowProjection, String> {
     tauri::async_runtime::block_on(context_window_projection_async(context))
         .map_err(|error| error.to_string())
 }
 
 pub(super) async fn context_window_projection_async(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
 ) -> Result<ContextWindowProjection, NativeAgentProviderFailure> {
     let context_window_tokens = effective_context_window_tokens(context);
     let system_prompt_tokens = estimate_system_prompt_tokens(context);
@@ -151,16 +149,16 @@ pub(super) async fn context_window_projection_async(
 }
 
 pub(super) fn context_window_action_payload(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     iteration: i64,
     action: &ContextWindowAction,
 ) -> Value {
     let compacted = action.event_name == "agent.context.compacted";
     serde_json::json!({
-        "runId": context.run_id,
+        "turnId": context.turn_id,
         "sessionId": context.session_id,
         "iteration": iteration,
-        "contextId": compacted.then(|| format!("{}:context:{}", context.run_id, iteration + 1)),
+        "contextId": compacted.then(|| format!("{}:context:{}", context.turn_id, iteration + 1)),
         "trigger": compacted.then_some("auto"),
         "reason": compacted.then_some("context_limit"),
         "phase": compacted.then_some(if iteration == 0 { "pre_turn" } else { "mid_turn" }),
@@ -180,9 +178,9 @@ pub(super) fn context_window_action_payload(
 }
 
 pub(super) fn context_with_projected_messages(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     messages: Vec<Value>,
-) -> NativeAgentRunContext {
+) -> AgentTurnContext {
     let mut projected = context.clone();
     projected.messages = messages.clone();
     projected.spec["messages"] = Value::Array(messages);
@@ -190,7 +188,7 @@ pub(super) fn context_with_projected_messages(
     projected
 }
 
-pub(super) fn estimate_context_tokens_for_request(context: &NativeAgentRunContext) -> i64 {
+pub(super) fn estimate_context_tokens_for_request(context: &AgentTurnContext) -> i64 {
     context
         .messages
         .iter()
@@ -200,7 +198,7 @@ pub(super) fn estimate_context_tokens_for_request(context: &NativeAgentRunContex
 }
 
 pub(super) fn enrich_usage_with_context_window(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     usage: Value,
     estimated_context_tokens: i64,
     cumulative_usage_tokens_before: i64,
@@ -272,7 +270,7 @@ pub(super) fn latest_cumulative_usage_tokens(usages: &[Value]) -> Option<i64> {
         })
 }
 
-fn effective_context_window_tokens(context: &NativeAgentRunContext) -> i64 {
+fn effective_context_window_tokens(context: &AgentTurnContext) -> i64 {
     positive_i64_field(&context.spec, "contextWindowTokens")
         .or_else(|| positive_i64_field(&context.spec, "context_window_tokens"))
         .or_else(|| {
@@ -288,7 +286,7 @@ fn effective_context_window_tokens(context: &NativeAgentRunContext) -> i64 {
         .unwrap_or(DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS)
 }
 
-fn context_window_strategy(context: &NativeAgentRunContext) -> String {
+fn context_window_strategy(context: &AgentTurnContext) -> String {
     context
         .settings
         .context_window_strategy
@@ -296,7 +294,7 @@ fn context_window_strategy(context: &NativeAgentRunContext) -> String {
         .to_string()
 }
 
-fn compact_trigger_percent(context: &NativeAgentRunContext) -> i64 {
+fn compact_trigger_percent(context: &AgentTurnContext) -> i64 {
     positive_i64_field(&context.spec, "compactTriggerPercent")
         .or_else(|| positive_i64_field(&context.spec, "compact_trigger_percent"))
         .or_else(|| {
@@ -313,7 +311,7 @@ fn compact_trigger_percent(context: &NativeAgentRunContext) -> i64 {
         .clamp(1, 100)
 }
 
-fn compact_summary_max_tokens(context: &NativeAgentRunContext) -> i64 {
+fn compact_summary_max_tokens(context: &AgentTurnContext) -> i64 {
     positive_i64_field(&context.spec, "compactSummaryMaxTokens")
         .or_else(|| positive_i64_field(&context.spec, "compact_summary_max_tokens"))
         .or_else(|| {
@@ -330,7 +328,7 @@ fn compact_summary_max_tokens(context: &NativeAgentRunContext) -> i64 {
 }
 
 fn compact_threshold_reached(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     full_estimate: i64,
     context_window_tokens: i64,
 ) -> bool {
@@ -471,7 +469,7 @@ fn mask_tool_output(content: &str, max_chars: usize) -> String {
 }
 
 async fn compact_messages_to_context_window_async(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     context_window_tokens: i64,
 ) -> Result<Option<CompactedContextMessages>, NativeAgentProviderFailure> {
     let (bounded_messages, masked_tool_output_count) = mask_oversized_tool_outputs(
@@ -506,7 +504,7 @@ async fn compact_messages_to_context_window_async(
 }
 
 async fn compact_old_messages_async(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     messages: &[Value],
 ) -> Result<CompactionSummary, NativeAgentProviderFailure> {
     let mut summaries = summarize_compaction_layer(context, messages, false).await?;
@@ -546,7 +544,7 @@ async fn compact_old_messages_async(
 }
 
 async fn summarize_compaction_layer(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     messages: &[Value],
     merge: bool,
 ) -> Result<Vec<String>, NativeAgentProviderFailure> {
@@ -559,7 +557,7 @@ async fn summarize_compaction_layer(
 }
 
 fn compaction_summary_chunks(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     messages: &[Value],
     merge: bool,
 ) -> Result<Vec<Vec<Value>>, NativeAgentProviderFailure> {
@@ -593,7 +591,7 @@ fn compaction_summary_chunks(
 }
 
 fn oversized_compaction_unit_error(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     unit: &[Value],
     unit_index: usize,
     merge: bool,
@@ -606,7 +604,7 @@ fn oversized_compaction_unit_error(
 }
 
 fn compaction_summary_request_fits(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     messages: &[Value],
     merge: bool,
 ) -> bool {
@@ -615,14 +613,14 @@ fn compaction_summary_request_fits(
         <= compaction_summary_request_limit(context)
 }
 
-fn compaction_summary_request_limit(context: &NativeAgentRunContext) -> i64 {
+fn compaction_summary_request_limit(context: &AgentTurnContext) -> i64 {
     effective_context_window_tokens(context)
         .saturating_mul(COMPACTION_REQUEST_LIMIT_PERCENT)
         .saturating_div(100)
         .max(1)
 }
 
-fn effective_compact_summary_max_tokens(context: &NativeAgentRunContext) -> i64 {
+fn effective_compact_summary_max_tokens(context: &AgentTurnContext) -> i64 {
     compact_summary_max_tokens(context).min(
         effective_context_window_tokens(context)
             .saturating_div(4)
@@ -654,7 +652,7 @@ fn compaction_summary_prompt_messages(messages: &[Value], merge: bool) -> Vec<Va
 }
 
 async fn compact_messages_once_async(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     messages: &[Value],
     merge: bool,
 ) -> Result<String, NativeAgentProviderFailure> {
@@ -708,7 +706,7 @@ fn estimate_messages_tokens(messages: &[Value]) -> i64 {
         .fold(0i64, i64::saturating_add)
 }
 
-fn estimate_system_prompt_tokens(context: &NativeAgentRunContext) -> i64 {
+fn estimate_system_prompt_tokens(context: &AgentTurnContext) -> i64 {
     context
         .system_instruction_prompt()
         .map(|content| {

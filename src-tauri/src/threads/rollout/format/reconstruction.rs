@@ -395,8 +395,8 @@ fn apply_event(
         | EventKind::TurnAborted
         | EventKind::ThreadRolledBack
         | EventKind::ThreadItem
-        | EventKind::AgentRunCheckpointSet
-        | EventKind::AgentRunCheckpointClear => Ok(()),
+        | EventKind::TurnCheckpointSet
+        | EventKind::TurnCheckpointClear => Ok(()),
     }
 }
 

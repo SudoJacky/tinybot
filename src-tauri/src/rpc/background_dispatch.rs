@@ -86,7 +86,7 @@ impl WorkerRpcRouter {
                         content: params.content.clone(),
                         sender: SubagentInputSender::User,
                         turn_id: params.turn_id.clone(),
-                        child_run_id: params.child_run_id.clone(),
+                        child_turn_id: params.child_turn_id.clone(),
                         trace_ref: params.trace_ref.clone(),
                         created_at: params.created_at.clone(),
                         metadata: params.metadata.clone(),

@@ -31,8 +31,8 @@ pub struct PermissionEvaluateToolRequest {
     pub arguments: Value,
     #[serde(default, alias = "sessionId")]
     pub session_id: Option<String>,
-    #[serde(default, alias = "runId")]
-    pub run_id: Option<String>,
+    #[serde(default, alias = "turnId")]
+    pub turn_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -44,8 +44,6 @@ pub struct PermissionRequestToolApprovalRequest {
     pub arguments: Value,
     #[serde(default, alias = "threadId")]
     pub thread_id: Option<String>,
-    #[serde(default, alias = "runId")]
-    pub run_id: Option<String>,
     #[serde(default, alias = "turnId")]
     pub turn_id: Option<String>,
     #[serde(default, alias = "sessionId")]
@@ -66,8 +64,6 @@ pub struct PermissionResolveToolApprovalRequest {
     pub session_id: String,
     #[serde(default, alias = "threadId")]
     pub thread_id: Option<String>,
-    #[serde(default, alias = "runId")]
-    pub run_id: Option<String>,
     #[serde(default, alias = "turnId")]
     pub turn_id: Option<String>,
     #[serde(default)]
@@ -160,7 +156,7 @@ pub struct PermissionApprovalRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub run_id: Option<String>,
+    pub turn_id: Option<String>,
     pub fingerprint: String,
     pub session_fingerprint: String,
     pub effects: PermissionEffects,
@@ -200,7 +196,7 @@ impl WorkerPermissionProfileRpc {
                 tool,
                 request.arguments,
                 request.session_id,
-                request.run_id,
+                request.turn_id,
                 effects.clone(),
             )
         });
@@ -289,7 +285,7 @@ fn approval_request_for_tool(
     tool: &ToolRegistryEntry,
     arguments: Value,
     session_id: Option<String>,
-    run_id: Option<String>,
+    turn_id: Option<String>,
     effects: PermissionEffects,
 ) -> PermissionApprovalRequest {
     let category = approval_category(tool);
@@ -305,7 +301,7 @@ fn approval_request_for_tool(
         scope: tool.approval.scope,
         lifetime: tool.approval.lifetime,
         session_id,
-        run_id,
+        turn_id,
         fingerprint: approval_fingerprint(tool, &arguments, &effects),
         session_fingerprint: approval_session_fingerprint(tool, &arguments, &effects),
         effects: effects.clone(),

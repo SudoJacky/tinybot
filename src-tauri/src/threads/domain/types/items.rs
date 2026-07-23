@@ -6,8 +6,6 @@ pub struct ThreadItem {
     pub item_id: String,
     pub thread_id: String,
     #[serde(default)]
-    pub run_id: Option<String>,
-    #[serde(default)]
     pub turn_id: Option<String>,
     #[serde(default)]
     pub parent_item_id: Option<String>,
@@ -28,9 +26,9 @@ pub enum ThreadItemKind {
     ToolCallOutput(Value),
     ApprovalRequested(Value),
     ApprovalResolved(Value),
-    AgentRunStarted(Value),
-    AgentRunStep(Value),
-    AgentRunCompleted(Value),
+    TurnStarted(Value),
+    TurnStep(Value),
+    TurnCompleted(Value),
     CheckpointCreated(Value),
     ContextTrimmed(Value),
     ContextCompaction(Value),

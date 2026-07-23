@@ -17,8 +17,6 @@ use crate::desktop_commands::agent::WorkerBackgroundTraceGetArtifactInput;
 use crate::desktop_commands::agent::WorkerBackgroundTraceGetDelegateTraceInput;
 use crate::desktop_commands::agent::WorkerBackgroundTraceListInput;
 use crate::desktop_commands::agent::WorkerTaskPlanListInput;
-use crate::desktop_commands::session::worker_agent_run_runtime_state_with_options;
-use crate::desktop_commands::session::worker_agent_runs_list_with_options;
 use crate::desktop_commands::session::worker_session_branch_with_options;
 use crate::desktop_commands::session::worker_session_clear_with_options;
 use crate::desktop_commands::session::worker_session_delete_with_options;
@@ -26,6 +24,8 @@ use crate::desktop_commands::session::worker_session_messages_with_options;
 use crate::desktop_commands::session::worker_session_patch_with_options;
 use crate::desktop_commands::session::worker_session_task_progress_with_options;
 use crate::desktop_commands::session::worker_sessions_list_with_options;
+use crate::desktop_commands::session::worker_turn_runtime_state_with_options;
+use crate::desktop_commands::session::worker_turns_list_with_options;
 use crate::desktop_commands::skills::build_worker_skills_create_request;
 use crate::desktop_commands::skills::build_worker_skills_delete_request;
 use crate::desktop_commands::skills::build_worker_skills_detail_request;
@@ -281,11 +281,11 @@ fn worker_session_read_commands_use_rollout_state() {
 }
 
 #[test]
-fn worker_agent_run_runtime_commands_use_thread_log_agent_run_store() {
+fn worker_agent_turn_runtime_commands_use_thread_log_turn_store() {
     let fixture = WorkspaceFixture::new();
     let record = serde_json::json!({
         "sessionId": "websocket:chat-1",
-        "runId": "run-1",
+        "turnId": "run-1",
         "status": "completed",
         "phase": "completed",
         "startedAt": "2026-07-03T01:00:00Z",
@@ -309,24 +309,24 @@ fn worker_agent_run_runtime_commands_use_thread_log_agent_run_store() {
         fixture.root.clone(),
         serde_json::json!({}),
         WorkerRequest::new(
-            "req-seed-agent-run-thread-log",
-            "trace-seed-agent-run-thread-log",
-            "agent_run.start",
+            "req-seed-agent-turn-thread-log",
+            "trace-seed-agent-turn-thread-log",
+            "thread.turn.start",
             serde_json::json!({ "record": record }),
         ),
-        "agent run thread log seed",
+        "agent turn thread log seed",
     )
-    .expect("agent run should seed thread log store");
+    .expect("agent turn should seed thread log store");
     call_rust_state_service(
         fixture.root.clone(),
         serde_json::json!({}),
         WorkerRequest::new(
-            "req-seed-agent-run-semantic",
-            "trace-seed-agent-run-thread-log",
-            "agent_run.append_semantic_batch",
+            "req-seed-agent-turn-semantic",
+            "trace-seed-agent-turn-thread-log",
+            "thread.turn.append_semantic_batch",
             serde_json::json!({
                 "session_id": "websocket:chat-1",
-                "run_id": "run-1",
+                "turn_id": "run-1",
                 "events": [{
                     "schemaVersion": "tinybot.agent_event.v1",
                     "eventId": "run-1:agent-done:0000000000000001",
@@ -347,20 +347,20 @@ fn worker_agent_run_runtime_commands_use_thread_log_agent_run_store() {
                 }]
             }),
         ),
-        "agent run semantic seed",
+        "agent turn semantic seed",
     )
-    .expect("agent run semantic records should seed thread log store");
+    .expect("agent turn semantic records should seed thread log store");
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
 
-    let runs = worker_agent_runs_list_with_options(
+    let turns = worker_turns_list_with_options(
         &shared,
         "websocket:chat-1".to_string(),
         fixture.root.clone(),
         serde_json::json!({}),
         Duration::from_millis(10),
     )
-    .expect("agent run list should be served by thread log store");
-    let runtime_state = worker_agent_run_runtime_state_with_options(
+    .expect("agent turn list should be served by thread log store");
+    let runtime_state = worker_turn_runtime_state_with_options(
         &shared,
         "websocket:chat-1".to_string(),
         "run-1".to_string(),
@@ -368,11 +368,11 @@ fn worker_agent_run_runtime_commands_use_thread_log_agent_run_store() {
         serde_json::json!({}),
         Duration::from_millis(10),
     )
-    .expect("agent run runtime state should be served by thread log store");
+    .expect("agent turn runtime state should be served by thread log store");
 
-    assert_eq!(runs["runs"][0]["runId"], "run-1");
+    assert_eq!(turns["turns"][0]["turnId"], "run-1");
     assert_eq!(runtime_state["timeline"]["sessionId"], "websocket:chat-1");
-    assert_eq!(runtime_state["timeline"]["runId"], "run-1");
+    assert_eq!(runtime_state["timeline"]["turnId"], "run-1");
     assert_eq!(
         runtime_state["timeline"]["items"][0]["kind"],
         "assistant_message"
@@ -883,7 +883,7 @@ fn worker_webui_route_serves_rust_owned_state_routes_on_rust_backend() {
     );
     assert_eq!(
         effective_capabilities["body"]["capabilities"]["agent"]["cancel"]["reasonCode"],
-        "no_active_run"
+        "no_active_turn"
     );
     assert_eq!(branch["headers"]["x-tinybot-route-owner"], "rust");
     assert_eq!(branch["body"]["title"], "Route session · 分叉");
@@ -1037,7 +1037,7 @@ fn worker_background_trace_list_reads_rust_registry_on_rust_backend() {
                 "sessionKey": "WebSocket:chat-1",
                 "turnId": "turn-1",
                 "delegateId": "delegate-1",
-                "childRunId": "delegate-1",
+                "childTurnId": "delegate-1",
                 "traceRef": "trace-ref-1",
                 "sequence": 1,
                 "createdAt": "2026-06-29T02:25:30.000Z",
@@ -1196,7 +1196,7 @@ fn worker_background_subagent_enqueue_input_request_wraps_subagent_payload() {
             content: "Use the safer option.".to_string(),
             turn_id: Some("turn-1".to_string()),
             trace_ref: Some("trace-1".to_string()),
-            child_run_id: Some("run-1".to_string()),
+            child_turn_id: Some("turn-1".to_string()),
             created_at: Some("2026-06-29T02:25:31.000Z".to_string()),
             metadata: serde_json::json!({ "surface": "rebuilt-chat" }),
         },
@@ -1216,7 +1216,7 @@ fn worker_background_subagent_enqueue_input_request_wraps_subagent_payload() {
             "content": "Use the safer option.",
             "turnId": "turn-1",
             "traceRef": "trace-1",
-            "childRunId": "run-1",
+            "childTurnId": "turn-1",
             "createdAt": "2026-06-29T02:25:31.000Z",
             "metadata": { "surface": "rebuilt-chat" }
         })
@@ -1236,7 +1236,7 @@ fn worker_background_subagent_enqueue_input_writes_rust_registry() {
             content: "Use the safer option.".to_string(),
             turn_id: Some("turn-1".to_string()),
             trace_ref: Some("trace-1".to_string()),
-            child_run_id: Some("run-1".to_string()),
+            child_turn_id: Some("turn-1".to_string()),
             created_at: Some("2026-06-29T02:25:31.000Z".to_string()),
             metadata: serde_json::json!({ "surface": "rebuilt-chat" }),
         },

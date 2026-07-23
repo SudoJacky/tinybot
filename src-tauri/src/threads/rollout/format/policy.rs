@@ -41,8 +41,8 @@ pub fn should_persist_rollout_item(item: &RolloutItem) -> Result<bool, WorkerPro
             | EventKind::SessionCleared
             | EventKind::SessionTrimmed
             | EventKind::ThreadItem
-            | EventKind::AgentRunCheckpointSet
-            | EventKind::AgentRunCheckpointClear => Ok(true),
+            | EventKind::TurnCheckpointSet
+            | EventKind::TurnCheckpointClear => Ok(true),
         },
     }
 }

@@ -1,6 +1,6 @@
 use crate::agent::runtime::{
-    NativeAgentRunContext, NativeAgentRuntimeServices, NativeAgentToolCall,
-    NativeAgentToolDispatcher, NativeAgentToolResult,
+    AgentTurnContext, NativeAgentRuntimeServices, NativeAgentToolCall, NativeAgentToolDispatcher,
+    NativeAgentToolResult,
 };
 use crate::collaboration::subagents::SubagentThreadManager;
 use crate::protocol::{WorkerRequest, WorkerRequestCancellation};
@@ -25,7 +25,7 @@ struct NativeAgentToolExecutorDispatcher {
 impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
     fn dispatch(
         &self,
-        context: &NativeAgentRunContext,
+        context: &AgentTurnContext,
         tool_call: &NativeAgentToolCall,
     ) -> Result<NativeAgentToolResult, String> {
         if matches!(
@@ -84,7 +84,7 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
                     "toolId": tool_call.name,
                     "arguments": arguments,
                     "sessionId": context.session_id,
-                    "runId": context.run_id,
+                    "turnId": context.turn_id,
                     "toolCallId": tool_call.id,
                 }),
                 "native tool executor",
@@ -134,7 +134,7 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
 
     fn dispatch_async(
         self: Arc<Self>,
-        context: NativeAgentRunContext,
+        context: AgentTurnContext,
         tool_call: NativeAgentToolCall,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send>,
@@ -265,7 +265,7 @@ mod tests {
 impl NativeAgentToolExecutorDispatcher {
     async fn dispatch_browser_if_needed(
         &self,
-        context: &NativeAgentRunContext,
+        context: &AgentTurnContext,
         tool_call: &NativeAgentToolCall,
     ) -> Option<Result<NativeAgentToolResult, String>> {
         if !matches!(
@@ -326,7 +326,7 @@ impl NativeAgentToolExecutorDispatcher {
 
     async fn dispatch_mcp_if_needed(
         &self,
-        context: &NativeAgentRunContext,
+        context: &AgentTurnContext,
         tool_call: &NativeAgentToolCall,
     ) -> Option<Result<NativeAgentToolResult, String>> {
         let arguments = match serde_json::from_str::<serde_json::Value>(&tool_call.arguments_json) {
@@ -618,7 +618,7 @@ fn strip_browser_capture_data(value: &mut serde_json::Value) {
 }
 
 fn normalize_subagent_arguments(
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     tool_name: &str,
     arguments: &mut serde_json::Value,
 ) -> Result<(), String> {
@@ -642,10 +642,10 @@ fn normalize_subagent_arguments(
     if tool_name != "subagent.spawn" {
         return Ok(());
     }
-    object.remove("parent_run_id");
+    object.remove("parent_turn_id");
     object.insert(
-        "parentRunId".to_string(),
-        serde_json::Value::String(context.run_id.clone()),
+        "parentTurnId".to_string(),
+        serde_json::Value::String(context.turn_id.clone()),
     );
     object.remove("trace_ref");
     object.insert(

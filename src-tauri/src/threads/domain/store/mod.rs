@@ -1,5 +1,4 @@
 mod activity;
-mod agent_run_projection;
 mod checkpoint;
 mod fork;
 mod index;
@@ -8,6 +7,7 @@ mod metadata;
 mod query;
 mod runtime_projection;
 mod subagent_projection;
+mod turn_projection;
 
 use super::types::{
     AppendThreadItemsResult, CreateThreadRequest, DeleteThreadRequest, DeleteThreadResult,
@@ -31,7 +31,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use self::activity::{
     agent_registry_entry, pending_approvals_from_items, running_tools_from_items,
 };
-pub(crate) use self::agent_run_projection::run_summaries_from_items;
 use self::checkpoint::{checkpoint_from_item, latest_checkpoint_from_items};
 pub use self::memory::MemoryThreadStore;
 use self::metadata::{apply_metadata_patch, recompute_dynamic_metadata};
@@ -43,11 +42,12 @@ use self::query::{
 pub(crate) use self::runtime_projection::runtime_events_from_thread_items;
 use self::runtime_projection::turn_items_from_thread_items;
 use self::subagent_projection::{
-    active_child_run_id_for_status, inherited_subagent_history_items, status_value,
+    active_child_turn_id_for_status, inherited_subagent_history_items, status_value,
     subagent_agent_control_payload, subagent_child_status_item, subagent_initial_child_items,
     subagent_input_item, subagent_lifecycle_item_label, subagent_parent_item,
     thread_status_for_subagent,
 };
+pub(crate) use self::turn_projection::turn_summaries_from_items;
 
 const DEFAULT_READ_LIMIT: usize = 200;
 const DEFAULT_LIST_LIMIT: usize = 100;
@@ -151,13 +151,13 @@ impl From<&ThreadRecord> for ThreadChildSummary {
                 .get("subagentId")
                 .and_then(Value::as_str)
                 .map(str::to_string),
-            child_run_id: record
+            child_turn_id: record
                 .metadata
                 .extra
-                .get("childRunId")
+                .get("childTurnId")
                 .and_then(Value::as_str)
                 .map(str::to_string)
-                .or_else(|| record.root_run_id.clone()),
+                .or_else(|| record.root_turn_id.clone()),
             preview: record.metadata.preview.clone(),
             agent_control: record.metadata.extra.get("agentControl").cloned(),
             updated_at: record.updated_at.clone(),

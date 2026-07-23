@@ -106,8 +106,8 @@ pub enum SubagentHistoryMode {
 #[serde(rename_all = "camelCase")]
 pub struct SubagentSpawnParams {
     pub session_key: String,
-    #[serde(default, alias = "runId")]
-    pub parent_run_id: Option<String>,
+    #[serde(default, alias = "turnId")]
+    pub parent_turn_id: Option<String>,
     #[serde(default, alias = "parentAgentId")]
     pub parent_subagent_id: Option<String>,
     #[serde(default, alias = "depth")]
@@ -117,7 +117,7 @@ pub struct SubagentSpawnParams {
     #[serde(default)]
     pub subagent_id: Option<String>,
     #[serde(default)]
-    pub child_run_id: Option<String>,
+    pub child_turn_id: Option<String>,
     #[serde(default)]
     pub trace_ref: Option<String>,
     #[serde(default)]
@@ -143,7 +143,7 @@ pub struct SubagentSendInputParams {
     #[serde(default)]
     pub turn_id: Option<String>,
     #[serde(default)]
-    pub child_run_id: Option<String>,
+    pub child_turn_id: Option<String>,
     #[serde(default)]
     pub trace_ref: Option<String>,
     #[serde(default)]
@@ -191,10 +191,10 @@ pub struct SubagentTransitionParams {
 #[serde(rename_all = "camelCase")]
 pub struct SubagentThreadSummary {
     pub session_key: String,
-    pub parent_run_id: Option<String>,
+    pub parent_turn_id: Option<String>,
     pub parent_subagent_id: Option<String>,
     pub subagent_id: String,
-    pub child_run_id: String,
+    pub child_turn_id: String,
     pub delegation_depth: usize,
     pub history_mode: SubagentHistoryMode,
     pub trace_ref: Option<String>,
@@ -225,10 +225,10 @@ pub struct SubagentMailboxInput {
 #[derive(Clone, Debug)]
 struct SubagentThreadRecord {
     session_key: String,
-    parent_run_id: Option<String>,
+    parent_turn_id: Option<String>,
     parent_subagent_id: Option<String>,
     subagent_id: String,
-    child_run_id: String,
+    child_turn_id: String,
     delegation_depth: usize,
     history_mode: SubagentHistoryMode,
     trace_ref: Option<String>,
@@ -379,8 +379,8 @@ impl SubagentThreadManager {
         }
         let subagent_id = non_empty(params.subagent_id.as_deref())
             .unwrap_or_else(|| format!("subagent-{}", now_unix_ms()));
-        let child_run_id =
-            non_empty(params.child_run_id.as_deref()).unwrap_or_else(|| subagent_id.clone());
+        let child_turn_id =
+            non_empty(params.child_turn_id.as_deref()).unwrap_or_else(|| subagent_id.clone());
         let created_at = non_empty(params.created_at.as_deref()).unwrap_or_else(now_timestamp);
         let status = params
             .status
@@ -458,9 +458,9 @@ impl SubagentThreadManager {
                 &mut state,
                 "agent.delegate.spawn_rejected",
                 session_key,
-                params.parent_run_id.as_deref().unwrap_or("subagent-spawn"),
+                params.parent_turn_id.as_deref().unwrap_or("subagent-spawn"),
                 &subagent_id,
-                Some(&child_run_id),
+                Some(&child_turn_id),
                 params.trace_ref.as_deref(),
                 serde_json::json!({
                     "reason": "depth_exceeded",
@@ -488,9 +488,9 @@ impl SubagentThreadManager {
                 &mut state,
                 "agent.delegate.spawn_rejected",
                 session_key,
-                params.parent_run_id.as_deref().unwrap_or("subagent-spawn"),
+                params.parent_turn_id.as_deref().unwrap_or("subagent-spawn"),
                 &subagent_id,
-                Some(&child_run_id),
+                Some(&child_turn_id),
                 params.trace_ref.as_deref(),
                 serde_json::json!({
                     "reason": "capacity_exhausted",
@@ -552,13 +552,13 @@ impl SubagentThreadManager {
             .or_insert(Value::Array(agent_path));
         let record = SubagentThreadRecord {
             session_key: session_key.to_string(),
-            parent_run_id: params
-                .parent_run_id
+            parent_turn_id: params
+                .parent_turn_id
                 .clone()
                 .and_then(|value| non_empty(Some(&value))),
             parent_subagent_id: parent_subagent_id.clone(),
             subagent_id: subagent_id.clone(),
-            child_run_id: child_run_id.clone(),
+            child_turn_id: child_turn_id.clone(),
             delegation_depth,
             history_mode: history_mode.clone(),
             trace_ref: params
@@ -583,13 +583,13 @@ impl SubagentThreadManager {
             &mut state,
             "agent.delegate.started",
             session_key,
-            record.parent_run_id.as_deref().unwrap_or("subagent-spawn"),
+            record.parent_turn_id.as_deref().unwrap_or("subagent-spawn"),
             &subagent_id,
-            Some(&child_run_id),
+            Some(&child_turn_id),
             record.trace_ref.as_deref(),
             serde_json::json!({
                 "delegateId": subagent_id,
-                "childRunId": child_run_id,
+                "childTurnId": child_turn_id,
                 "name": record.name,
                 "task": record.task,
                 "status": record.status.as_str(),
@@ -693,8 +693,8 @@ impl SubagentThreadManager {
                 current_status: Some(record.status.clone()),
             });
         }
-        if let Some(child_run_id) = non_empty(params.child_run_id.as_deref()) {
-            record.child_run_id = child_run_id;
+        if let Some(child_turn_id) = non_empty(params.child_turn_id.as_deref()) {
+            record.child_turn_id = child_turn_id;
         }
         if let Some(trace_ref) = non_empty(params.trace_ref.as_deref()) {
             record.trace_ref = Some(trace_ref);
@@ -726,10 +726,10 @@ impl SubagentThreadManager {
             input
                 .turn_id
                 .as_deref()
-                .or(summary.parent_run_id.as_deref())
+                .or(summary.parent_turn_id.as_deref())
                 .unwrap_or("subagent-direct-input"),
             subagent_id,
-            Some(&summary.child_run_id),
+            Some(&summary.child_turn_id),
             summary.trace_ref.as_deref(),
             serde_json::json!({
                 "content": content,
@@ -929,11 +929,11 @@ impl SubagentThreadManager {
             event_type,
             session_key,
             summary
-                .parent_run_id
+                .parent_turn_id
                 .as_deref()
                 .unwrap_or("subagent-lifecycle"),
             subagent_id,
-            Some(&summary.child_run_id),
+            Some(&summary.child_turn_id),
             summary.trace_ref.as_deref(),
             serde_json::json!({
                 "status": summary.status.as_str(),
@@ -1041,11 +1041,11 @@ impl SubagentThreadManager {
             "agent.delegate.resumed",
             session_key,
             summary
-                .parent_run_id
+                .parent_turn_id
                 .as_deref()
                 .unwrap_or("subagent-resume"),
             subagent_id,
-            Some(&summary.child_run_id),
+            Some(&summary.child_turn_id),
             summary.trace_ref.as_deref(),
             serde_json::json!({
                 "status": summary.status.as_str(),
@@ -1184,20 +1184,20 @@ impl SubagentThreadManager {
             if state.records.contains_key(&key) {
                 continue;
             }
-            let child_run_id = event
-                .child_run_id
+            let child_turn_id = event
+                .child_turn_id
                 .clone()
                 .unwrap_or_else(|| delegate_id.clone());
             let record = SubagentThreadRecord {
                 session_key: session_key.to_string(),
-                parent_run_id: Some(event.turn_id.clone()),
+                parent_turn_id: Some(event.turn_id.clone()),
                 parent_subagent_id: event
                     .payload
                     .get("parentSubagentId")
                     .and_then(Value::as_str)
                     .map(str::to_string),
                 subagent_id: delegate_id.clone(),
-                child_run_id,
+                child_turn_id,
                 delegation_depth: event
                     .payload
                     .get("delegationDepth")
@@ -1286,10 +1286,10 @@ impl SubagentThreadManager {
             }
             let record = SubagentThreadRecord {
                 session_key: summary.session_key.clone(),
-                parent_run_id: summary.parent_run_id.clone(),
+                parent_turn_id: summary.parent_turn_id.clone(),
                 parent_subagent_id: summary.parent_subagent_id.clone(),
                 subagent_id: summary.subagent_id.clone(),
-                child_run_id: summary.child_run_id.clone(),
+                child_turn_id: summary.child_turn_id.clone(),
                 delegation_depth: summary.delegation_depth,
                 history_mode: summary.history_mode.clone(),
                 trace_ref: summary.trace_ref.clone(),
@@ -1327,10 +1327,10 @@ impl SubagentThreadRecord {
     fn summary(&self) -> SubagentThreadSummary {
         SubagentThreadSummary {
             session_key: self.session_key.clone(),
-            parent_run_id: self.parent_run_id.clone(),
+            parent_turn_id: self.parent_turn_id.clone(),
             parent_subagent_id: self.parent_subagent_id.clone(),
             subagent_id: self.subagent_id.clone(),
-            child_run_id: self.child_run_id.clone(),
+            child_turn_id: self.child_turn_id.clone(),
             delegation_depth: self.delegation_depth,
             history_mode: self.history_mode.clone(),
             trace_ref: self.trace_ref.clone(),
@@ -1400,7 +1400,7 @@ fn next_event(
     session_key: &str,
     turn_id: &str,
     subagent_id: &str,
-    child_run_id: Option<&str>,
+    child_turn_id: Option<&str>,
     trace_ref: Option<&str>,
     payload: Value,
 ) -> BackgroundTraceEvent {
@@ -1418,7 +1418,7 @@ fn next_event(
         turn_id: turn_id.to_string(),
         parent_step_id: None,
         delegate_id: Some(subagent_id.to_string()),
-        child_run_id: child_run_id.map(str::to_string),
+        child_turn_id: child_turn_id.map(str::to_string),
         child_step_id: None,
         trace_ref: trace_ref.map(str::to_string),
         sequence,
@@ -1525,12 +1525,12 @@ mod tests {
     fn spawn_params(session_key: &str, subagent_id: &str) -> SubagentSpawnParams {
         SubagentSpawnParams {
             session_key: session_key.to_string(),
-            parent_run_id: Some("parent-run".to_string()),
+            parent_turn_id: Some("parent-run".to_string()),
             parent_subagent_id: None,
             delegation_depth: None,
             history_mode: None,
             subagent_id: Some(subagent_id.to_string()),
-            child_run_id: Some(format!("child-{subagent_id}")),
+            child_turn_id: Some(format!("child-{subagent_id}")),
             trace_ref: Some(format!("trace-{subagent_id}")),
             name: Some("Researcher".to_string()),
             task: Some("Investigate a bounded topic".to_string()),
@@ -1604,7 +1604,7 @@ mod tests {
             content: "Please continue".to_string(),
             sender: SubagentInputSender::User,
             turn_id: Some("turn-1".to_string()),
-            child_run_id: None,
+            child_turn_id: None,
             trace_ref: None,
             created_at: Some("1001".to_string()),
             metadata: serde_json::json!({ "surface": "test" }),
@@ -1638,7 +1638,7 @@ mod tests {
             content: "Are you there?".to_string(),
             sender: SubagentInputSender::User,
             turn_id: None,
-            child_run_id: None,
+            child_turn_id: None,
             trace_ref: None,
             created_at: None,
             metadata: Value::Null,
@@ -1659,7 +1659,7 @@ mod tests {
             content: "Queue this".to_string(),
             sender: SubagentInputSender::User,
             turn_id: None,
-            child_run_id: None,
+            child_turn_id: None,
             trace_ref: None,
             created_at: None,
             metadata: Value::Null,
@@ -1733,7 +1733,7 @@ mod tests {
                     turn_id: "parent-run".to_string(),
                     parent_step_id: None,
                     delegate_id: Some("worker-1".to_string()),
-                    child_run_id: Some("child-1".to_string()),
+                    child_turn_id: Some("child-1".to_string()),
                     child_step_id: None,
                     trace_ref: Some("trace-1".to_string()),
                     sequence: 1,
@@ -1750,7 +1750,7 @@ mod tests {
                     turn_id: "parent-run".to_string(),
                     parent_step_id: None,
                     delegate_id: Some("worker-2".to_string()),
-                    child_run_id: Some("child-2".to_string()),
+                    child_turn_id: Some("child-2".to_string()),
                     child_step_id: None,
                     trace_ref: Some("trace-2".to_string()),
                     sequence: 2,

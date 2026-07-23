@@ -44,8 +44,8 @@ export const NATIVE_BACKEND_COMMAND_NAMES = [
   "worker_sessions_list",
   "worker_session_messages",
   "worker_session_effective_capabilities",
-  "worker_agent_runs_list",
-  "worker_agent_run_runtime_state",
+  "worker_turns_list",
+  "worker_turn_runtime_state",
   "worker_session_delete",
   "worker_session_patch",
   "worker_session_branch",
@@ -158,7 +158,7 @@ export type NativeBackendRuntimeStatus = {
 
 export type NativeBackendEventEnvelope<TPayload = unknown> = {
   sessionId: string;
-  runId?: string | null;
+  turnId?: string | null;
   traceId: string;
   eventName: NativeBackendEventName;
   timestamp: string;

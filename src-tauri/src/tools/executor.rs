@@ -14,8 +14,6 @@ pub struct ToolExecutorExecuteRequest {
     pub arguments: Value,
     #[serde(default, alias = "threadId")]
     pub thread_id: Option<String>,
-    #[serde(default, alias = "runId")]
-    pub run_id: Option<String>,
     #[serde(default, alias = "sessionId")]
     pub session_id: Option<String>,
     #[serde(default, alias = "turnId")]
@@ -35,8 +33,6 @@ pub struct ToolExecutorExecuteResult {
     pub approval: ToolApprovalMetadata,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub run_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -64,7 +60,6 @@ impl ToolExecutorExecuteResult {
             dynamic: tool.dynamic,
             approval: tool.approval.clone(),
             thread_id: request.thread_id.clone(),
-            run_id: request.run_id.clone(),
             turn_id: request.turn_id.clone(),
             tool_call_id,
             appended_items,

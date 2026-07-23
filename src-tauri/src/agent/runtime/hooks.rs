@@ -176,7 +176,6 @@ impl AgentHookEvaluation {
         serde_json::json!({
             "requestId": invocation.trace_context.request_id,
             "traceId": invocation.trace_context.trace_id,
-            "runId": invocation.trace_context.run_id,
             "turnId": invocation.trace_context.turn_id,
             "threadId": invocation.trace_context.thread_id,
             "stage": invocation.stage,
@@ -366,10 +365,9 @@ mod tests {
         AgentTraceContext {
             request_id: "request-1".to_string(),
             trace_id: "trace-1".to_string(),
-            run_id: "run-1".to_string(),
             turn_id: "turn-1".to_string(),
             thread_id: Some("thread-1".to_string()),
-            parent_run_id: None,
+            parent_turn_id: None,
         }
     }
 

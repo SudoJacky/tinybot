@@ -1,11 +1,7 @@
-use super::{string_field, NativeAgentRunContext, NativeAgentRuntimeServices};
+use super::{string_field, AgentTurnContext, NativeAgentRuntimeServices};
 use serde_json::Value;
 
-pub(super) fn checkpoint_value(
-    context: &NativeAgentRunContext,
-    phase: &str,
-    payload: Value,
-) -> Value {
+pub(super) fn checkpoint_value(context: &AgentTurnContext, phase: &str, payload: Value) -> Value {
     let activated_tool_ids = if matches!(
         phase,
         "cancelled"
@@ -23,7 +19,7 @@ pub(super) fn checkpoint_value(
     serde_json::json!({
         "schemaVersion": 1,
         "runtime": "rust",
-        "runId": context.run_id,
+        "turnId": context.turn_id,
         "sessionId": context.session_id,
         "threadId": string_field(&context.metadata, "threadId")
             .or_else(|| string_field(&context.metadata, "thread_id")),
@@ -64,13 +60,13 @@ fn checkpoint_pending_tool_calls(payload: &Value) -> Value {
 
 pub(super) fn save_phase_checkpoint(
     services: &NativeAgentRuntimeServices,
-    context: &NativeAgentRunContext,
+    context: &AgentTurnContext,
     phase: &str,
     payload: Value,
 ) -> Value {
     let checkpoint = checkpoint_value(context, phase, payload);
     services
         .checkpoints
-        .save_for_run(&context.session_id, &context.run_id, checkpoint.clone());
+        .save_for_turn(&context.session_id, &context.turn_id, checkpoint.clone());
     checkpoint
 }

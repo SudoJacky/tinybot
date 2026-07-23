@@ -2,7 +2,7 @@
 
 `threads::session` defines Tinybot's session-shaped projection used by
 direct-session flows and compatibility callers. Conversation history,
-metadata, task progress, checkpoints, and agent-run records are reconstructed
+metadata, task progress, checkpoints, and agent-turn records are reconstructed
 from canonical Rollouts.
 
 The module root is `mod.rs`; this directory splits the aggregate by concern.
@@ -21,7 +21,7 @@ capability checks, timestamps, and reconstruction stay aligned. The removed
 - Project, patch, clear, branch, archive, and delete session-shaped Rollout
   state.
 - Append, trim, clear, and reconstruct session message history.
-- Query agent-run summaries, traces, runtime state, and checkpoints from
+- Query agent-turn summaries, traces, runtime state, and checkpoints from
   Rollout.
 - Project user profiles and task progress from Rollout records.
 - Enforce session ID validation and session read/write capabilities.

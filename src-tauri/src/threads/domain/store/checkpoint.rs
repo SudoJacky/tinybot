@@ -12,10 +12,10 @@ pub(super) fn latest_checkpoint_from_items(
             !items.iter().any(|item| {
                 item.sequence > checkpoint.sequence
                     && checkpoint
-                        .run_id
+                        .turn_id
                         .as_ref()
-                        .is_some_and(|run_id| item.run_id.as_ref() == Some(run_id))
-                    && is_terminal_run_item(item)
+                        .is_some_and(|turn_id| item.turn_id.as_ref() == Some(turn_id))
+                    && is_terminal_turn_item(item)
             })
         })
         .max_by_key(|checkpoint| checkpoint.sequence)
@@ -29,11 +29,11 @@ pub(super) fn checkpoint_from_item(thread_id: &str, item: &ThreadItem) -> Option
         .or_else(|| string_field(payload, "checkpoint_id"))
         .or_else(|| non_empty_string(&item.item_id))
         .unwrap_or_else(|| format!("checkpoint:{}", item.sequence));
-    let run_id = item
-        .run_id
+    let turn_id = item
+        .turn_id
         .clone()
-        .or_else(|| string_field(payload, "runId"))
-        .or_else(|| string_field(payload, "run_id"));
+        .or_else(|| string_field(payload, "turnId"))
+        .or_else(|| string_field(payload, "turn_id"));
     let restore_payload = payload
         .get("restorePayload")
         .or_else(|| payload.get("restore_payload"))
@@ -43,7 +43,7 @@ pub(super) fn checkpoint_from_item(thread_id: &str, item: &ThreadItem) -> Option
     Some(ThreadCheckpoint {
         checkpoint_id,
         thread_id: thread_id.to_string(),
-        run_id,
+        turn_id,
         sequence: item.sequence,
         label: string_field(payload, "label"),
         created_at: item.created_at.clone(),
@@ -51,11 +51,9 @@ pub(super) fn checkpoint_from_item(thread_id: &str, item: &ThreadItem) -> Option
     })
 }
 
-fn is_terminal_run_item(item: &ThreadItem) -> bool {
+fn is_terminal_turn_item(item: &ThreadItem) -> bool {
     matches!(
         item.kind,
-        ThreadItemKind::AgentRunCompleted(_)
-            | ThreadItemKind::Error(_)
-            | ThreadItemKind::Cancelled(_)
+        ThreadItemKind::TurnCompleted(_) | ThreadItemKind::Error(_) | ThreadItemKind::Cancelled(_)
     )
 }

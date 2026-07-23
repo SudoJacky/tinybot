@@ -36,7 +36,7 @@ pub(super) struct ValidatedShellStart {
     pub(super) yield_time_ms: u64,
     pub(super) rows: u16,
     pub(super) cols: u16,
-    pub(super) run_id: Option<String>,
+    pub(super) owner_id: Option<String>,
     pub(super) tool_call_id: Option<String>,
     pub(super) cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
     pub(super) sandbox_adapter: ShellSandboxAdapter,
@@ -163,11 +163,11 @@ impl ShellProcessManager {
     pub(super) fn poll(
         &self,
         process_id: &str,
-        run_id: Option<&str>,
+        owner_id: Option<&str>,
         cursor: u64,
         yield_time_ms: u64,
     ) -> Result<ShellProcessOutput, WorkerProtocolError> {
-        let record = self.lookup(process_id, run_id)?;
+        let record = self.lookup(process_id, owner_id)?;
         Ok(record.wait_for_output(
             cursor,
             Duration::from_millis(clamp_yield_time(yield_time_ms)),
@@ -177,12 +177,12 @@ impl ShellProcessManager {
     pub(super) fn write_stdin(
         &self,
         process_id: &str,
-        run_id: Option<&str>,
+        owner_id: Option<&str>,
         input: &[u8],
         cursor: u64,
         yield_time_ms: u64,
     ) -> Result<ShellProcessOutput, WorkerProtocolError> {
-        let record = self.lookup(process_id, run_id)?;
+        let record = self.lookup(process_id, owner_id)?;
         if !input.is_empty() {
             record.write_stdin(input)?;
         }
@@ -195,20 +195,20 @@ impl ShellProcessManager {
     pub(super) fn resize(
         &self,
         process_id: &str,
-        run_id: Option<&str>,
+        owner_id: Option<&str>,
         rows: u16,
         cols: u16,
     ) -> Result<(), WorkerProtocolError> {
-        let record = self.lookup(process_id, run_id)?;
+        let record = self.lookup(process_id, owner_id)?;
         record.resize(rows, cols)
     }
 
     pub(super) fn interrupt(
         &self,
         process_id: &str,
-        run_id: Option<&str>,
+        owner_id: Option<&str>,
     ) -> Result<ShellProcessOutput, WorkerProtocolError> {
-        let record = self.lookup(process_id, run_id)?;
+        let record = self.lookup(process_id, owner_id)?;
         record.interrupt()?;
         Ok(record.snapshot(0))
     }
@@ -216,9 +216,9 @@ impl ShellProcessManager {
     pub(super) fn terminate(
         &self,
         process_id: &str,
-        run_id: Option<&str>,
+        owner_id: Option<&str>,
     ) -> Result<ShellProcessOutput, WorkerProtocolError> {
-        let record = self.lookup(process_id, run_id)?;
+        let record = self.lookup(process_id, owner_id)?;
         terminate_record(&record, ProcessTerminationReason::Terminated)?;
         Ok(record.snapshot(0))
     }
@@ -226,21 +226,21 @@ impl ShellProcessManager {
     pub(super) fn timeout(
         &self,
         process_id: &str,
-        run_id: Option<&str>,
+        owner_id: Option<&str>,
     ) -> Result<ShellProcessOutput, WorkerProtocolError> {
-        let record = self.lookup(process_id, run_id)?;
+        let record = self.lookup(process_id, owner_id)?;
         terminate_record(&record, ProcessTerminationReason::TimedOut)?;
         Ok(record.snapshot(0))
     }
 
-    pub(super) fn terminate_run(&self, run_id: &str) -> ShellProcessCleanupReport {
+    pub(super) fn terminate_owner(&self, owner_id: &str) -> ShellProcessCleanupReport {
         let records = self
             .inner
             .processes
             .lock()
             .expect("shell process store lock should not be poisoned")
             .values()
-            .filter(|record| record.run_id.as_deref() == Some(run_id) && record.is_running())
+            .filter(|record| record.owner_id.as_deref() == Some(owner_id) && record.is_running())
             .cloned()
             .collect::<Vec<_>>();
         cleanup_records(records, ProcessTerminationReason::Terminated)
@@ -341,14 +341,16 @@ impl ShellProcessManager {
             .count()
     }
 
-    pub(super) fn list(&self, run_id: Option<&str>) -> Vec<ShellProcessOutput> {
+    pub(super) fn list(&self, owner_id: Option<&str>) -> Vec<ShellProcessOutput> {
         let records = self
             .inner
             .processes
             .lock()
             .expect("shell process store lock should not be poisoned")
             .values()
-            .filter(|record| run_id.is_none_or(|run_id| record.run_id.as_deref() == Some(run_id)))
+            .filter(|record| {
+                owner_id.is_none_or(|owner_id| record.owner_id.as_deref() == Some(owner_id))
+            })
             .cloned()
             .collect::<Vec<_>>();
         let mut outputs = records
@@ -381,7 +383,7 @@ impl ShellProcessManager {
     fn lookup(
         &self,
         process_id: &str,
-        run_id: Option<&str>,
+        owner_id: Option<&str>,
     ) -> Result<Arc<ShellProcessRecord>, WorkerProtocolError> {
         let record = self
             .inner
@@ -391,13 +393,13 @@ impl ShellProcessManager {
             .get(process_id)
             .cloned()
             .ok_or_else(|| unknown_process_error(process_id))?;
-        if record.run_id.as_deref() != run_id {
+        if record.owner_id.as_deref() != owner_id {
             return Err(shell_error(
                 "shell process owner does not match requested run",
                 serde_json::json!({
                     "processId": process_id,
-                    "requestedRunId": run_id,
-                    "ownerRunId": record.run_id,
+                    "requestedOwnerId": owner_id,
+                    "ownerOwnerId": record.owner_id,
                 }),
             ));
         }
@@ -1002,7 +1004,7 @@ fn kill_process_tree(process_id: u32) -> std::io::Result<()> {
 struct ShellProcessRecord {
     process_id: String,
     system_process_id: Option<u32>,
-    run_id: Option<String>,
+    owner_id: Option<String>,
     tool_call_id: Option<String>,
     command: String,
     working_dir: String,
@@ -1033,7 +1035,7 @@ impl ShellProcessRecord {
         Arc::new(Self {
             process_id,
             system_process_id,
-            run_id: request.run_id.clone(),
+            owner_id: request.owner_id.clone(),
             tool_call_id: request.tool_call_id.clone(),
             command: request.command.clone(),
             working_dir: request.working_dir_display.clone(),
@@ -1460,7 +1462,7 @@ impl ShellProcessRecord {
         ShellProcessOutput {
             process_id: self.process_id.clone(),
             system_process_id: self.system_process_id,
-            run_id: self.run_id.clone(),
+            owner_id: self.owner_id.clone(),
             tool_call_id: self.tool_call_id.clone(),
             command: self.command.clone(),
             working_dir: self.working_dir.clone(),

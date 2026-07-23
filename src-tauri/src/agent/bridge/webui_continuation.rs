@@ -1,7 +1,7 @@
 use crate::agent::bridge::{
     native_agent_context_checkpoint_committer, native_agent_services_with_tool_executor,
     native_agent_trace_sink, persist_native_agent_checkpoint_if_present,
-    persist_native_agent_run_terminal_if_present,
+    persist_native_agent_turn_terminal_if_present,
 };
 use crate::agent::runtime::{
     run_native_agent_turn_with_workspace_async, NativeAgentRuntimeServices,
@@ -46,9 +46,9 @@ pub(crate) fn pending_approvals_from_checkpoint(
         .or_else(|| operation.get("tool_name"))
         .and_then(serde_json::Value::as_str)
         .unwrap_or("approval");
-    let run_id = checkpoint
-        .get("runId")
-        .or_else(|| checkpoint.get("run_id"))
+    let turn_id = checkpoint
+        .get("turnId")
+        .or_else(|| checkpoint.get("turn_id"))
         .and_then(serde_json::Value::as_str)
         .unwrap_or_default();
     let session_id = checkpoint
@@ -58,7 +58,7 @@ pub(crate) fn pending_approvals_from_checkpoint(
         .unwrap_or_default();
     vec![serde_json::json!({
         "id": approval_id,
-        "runId": run_id,
+        "turnId": turn_id,
         "sessionId": session_id,
         "operation": operation,
         "category": operation.get("category").and_then(serde_json::Value::as_str).unwrap_or("tool"),
@@ -74,7 +74,7 @@ pub(crate) fn pending_approvals_from_checkpoint(
 #[cfg(test)]
 mod tests {
     use super::{
-        finish_native_agent_run, native_approval_continuation_spec,
+        finish_native_agent_turn, native_approval_continuation_spec,
         pending_approvals_from_checkpoint,
     };
 
@@ -82,7 +82,7 @@ mod tests {
     fn pending_approvals_preserve_runtime_tool_approval_id() {
         let checkpoint = serde_json::json!({
             "phase": "awaiting_approval",
-            "runId": "run-deferred-write",
+            "turnId": "run-deferred-write",
             "sessionId": "session-deferred-write",
             "payload": {
                 "kind": "tool_approval",
@@ -109,12 +109,11 @@ mod tests {
     fn approval_continuation_preserves_checkpoint_trace_context() {
         let checkpoint = serde_json::json!({
             "phase": "awaiting_approval",
-            "runId": "run-traced-approval",
+            "turnId": "turn-traced-approval",
             "sessionId": "session-traced-approval",
             "traceContext": {
                 "requestId": "request-traced-approval",
                 "traceId": "trace-traced-approval",
-                "runId": "run-traced-approval",
                 "turnId": "turn-traced-approval",
                 "threadId": "thread-traced-approval"
             },
@@ -134,7 +133,7 @@ mod tests {
 
     #[test]
     fn continuation_run_reports_both_runtime_and_flush_failures() {
-        let error = finish_native_agent_run::<()>(
+        let error = finish_native_agent_turn::<()>(
             Err("runtime failed".to_string()),
             Err("flush failed".to_string()),
             "native agent continuation",
@@ -149,7 +148,7 @@ mod tests {
     }
 }
 
-fn finish_native_agent_run<T>(
+fn finish_native_agent_turn<T>(
     run_result: Result<T, String>,
     flush_result: Result<(), String>,
     label: &str,
@@ -170,9 +169,9 @@ pub(crate) fn native_approval_continuation_spec(
     approval_id: &str,
     approved: bool,
 ) -> serde_json::Value {
-    let run_id = checkpoint
-        .get("runId")
-        .or_else(|| checkpoint.get("run_id"))
+    let turn_id = checkpoint
+        .get("turnId")
+        .or_else(|| checkpoint.get("turn_id"))
         .and_then(serde_json::Value::as_str)
         .unwrap_or("native-approval-resolution");
     let session_id = checkpoint
@@ -229,7 +228,7 @@ pub(crate) fn native_approval_continuation_spec(
     }
     serde_json::json!({
         "runtime": "rust",
-        "runId": run_id,
+        "turnId": turn_id,
         "sessionId": session_id,
         "traceContext": checkpoint.get("traceContext").cloned().unwrap_or(serde_json::Value::Null),
         "messages": checkpoint
@@ -373,12 +372,12 @@ pub(crate) async fn resolve_approval_continuation_with_services(
         &workspace_root,
     )
     .await;
-    let mut continuation = finish_native_agent_run(
+    let mut continuation = finish_native_agent_turn(
         run_result,
         services.flush_trace_sink(),
         "native approval continuation",
     )?;
-    persist_native_agent_run_terminal_if_present(
+    persist_native_agent_turn_terminal_if_present(
         continuation_spec.clone(),
         &mut continuation,
         workspace_root.clone(),
@@ -575,9 +574,9 @@ pub(crate) fn native_agent_ui_form_continuation_spec(
     values: &serde_json::Value,
     cancelled: bool,
 ) -> serde_json::Value {
-    let run_id = checkpoint
-        .get("runId")
-        .or_else(|| checkpoint.get("run_id"))
+    let turn_id = checkpoint
+        .get("turnId")
+        .or_else(|| checkpoint.get("turn_id"))
         .and_then(serde_json::Value::as_str)
         .unwrap_or("native-form-resolution");
     let session_id = checkpoint
@@ -612,7 +611,7 @@ pub(crate) fn native_agent_ui_form_continuation_spec(
     }
     serde_json::json!({
         "runtime": "rust",
-        "runId": run_id,
+        "turnId": turn_id,
         "sessionId": session_id,
         "messages": checkpoint
             .get("messages")
@@ -690,12 +689,12 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
         &workspace_root,
     )
     .await;
-    let mut continuation = finish_native_agent_run(
+    let mut continuation = finish_native_agent_turn(
         run_result,
         services.flush_trace_sink(),
         "native Agent UI form continuation",
     )?;
-    persist_native_agent_run_terminal_if_present(
+    persist_native_agent_turn_terminal_if_present(
         continuation_spec.clone(),
         &mut continuation,
         workspace_root.clone(),

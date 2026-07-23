@@ -117,8 +117,8 @@ fn native_agent_session_history_messages(
         workspace_root,
         config_snapshot,
         WorkerRequest::new(
-            request_id.id("session-history-for-agent-run"),
-            request_id.trace_id("session-history-for-agent-run"),
+            request_id.id("session-history-for-agent-turn"),
+            request_id.trace_id("session-history-for-agent-turn"),
             "session.get_agent_context",
             serde_json::json!({ "session_id": session_id, "limit": 500 }),
         ),

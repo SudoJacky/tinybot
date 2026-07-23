@@ -1,4 +1,4 @@
-use super::NativeAgentRunContext;
+use super::AgentTurnContext;
 use crate::memory::WorkerMemoryRpc;
 use crate::protocol::capability::default_desktop_capability_policy;
 use serde_json::{json, Map, Value};
@@ -27,10 +27,7 @@ impl AgentContextRequest {
         &self.config_snapshot
     }
 
-    pub(super) fn from_run_context(
-        workspace_root: PathBuf,
-        context: &NativeAgentRunContext,
-    ) -> Self {
+    pub(super) fn from_run_context(workspace_root: PathBuf, context: &AgentTurnContext) -> Self {
         Self {
             workspace_root,
             current_message: current_user_text(&context.messages),
