@@ -9,6 +9,7 @@ use crate::agent::runtime::{
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
 use crate::rpc::call_rust_state_service;
+use crate::threads::workspace_store::WorkspaceThreadStore;
 use std::path::PathBuf;
 
 pub(crate) fn pending_approvals_from_checkpoint(
@@ -212,6 +213,7 @@ pub(crate) async fn resolve_approval_body_with_services(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = base_services.thread_store()?;
     let session_key = body
         .get("session_key")
         .or_else(|| body.get("sessionId"))
@@ -223,7 +225,7 @@ pub(crate) async fn resolve_approval_body_with_services(
         Some(checkpoint) => Some(checkpoint),
         None => native_session_checkpoint(
             session_key,
-            workspace_root.clone(),
+            &thread_store,
             config_snapshot.clone(),
             "native approval resolution checkpoint lookup",
         )?,
@@ -271,6 +273,7 @@ pub(crate) async fn resolve_approval_continuation_with_services(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = base_services.thread_store()?;
     let scope = body
         .get("scope")
         .and_then(serde_json::Value::as_str)
@@ -282,13 +285,13 @@ pub(crate) async fn resolve_approval_continuation_with_services(
         base_services,
         workspace_root.clone(),
         config_snapshot.clone(),
-    )
+    )?
     .with_context_checkpoint_committer(native_agent_context_checkpoint_committer(
-        workspace_root.clone(),
+        thread_store.clone(),
         config_snapshot.clone(),
     ))
     .with_trace_sink(native_agent_trace_sink(
-        workspace_root.clone(),
+        thread_store.clone(),
         config_snapshot.clone(),
         None,
     ));
@@ -307,18 +310,18 @@ pub(crate) async fn resolve_approval_continuation_with_services(
     persist_native_agent_turn_terminal_if_present(
         continuation_spec.clone(),
         &mut continuation,
-        workspace_root.clone(),
+        &thread_store,
         config_snapshot.clone(),
     )?;
     persist_native_agent_checkpoint_if_present(
         &continuation,
-        workspace_root.clone(),
+        &thread_store,
         config_snapshot.clone(),
     )?;
     if body.get("threadCheckpoint").is_none() {
         clear_native_session_checkpoint(
             session_key,
-            workspace_root,
+            &thread_store,
             config_snapshot,
             "native approval resolution checkpoint clear",
         )?;
@@ -383,6 +386,7 @@ pub(crate) async fn resolve_agent_ui_form_body_with_services(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> Result<(u16, serde_json::Value), String> {
+    let thread_store = base_services.thread_store()?;
     let session_key = agent_ui_form_session_key(body).unwrap_or_default();
     let values = body
         .get("values")
@@ -394,7 +398,7 @@ pub(crate) async fn resolve_agent_ui_form_body_with_services(
         Some(checkpoint) => Some(checkpoint),
         None => native_session_checkpoint(
             &session_key,
-            workspace_root.clone(),
+            &thread_store,
             config_snapshot.clone(),
             "native Agent UI form checkpoint lookup",
         )?,
@@ -592,6 +596,7 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = base_services.thread_store()?;
     let continuation_spec =
         native_agent_ui_form_continuation_spec(&checkpoint, body, &form_id, &values, cancelled);
     base_services.save_checkpoint(session_key, checkpoint);
@@ -599,13 +604,13 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
         base_services,
         workspace_root.clone(),
         config_snapshot.clone(),
-    )
+    )?
     .with_context_checkpoint_committer(native_agent_context_checkpoint_committer(
-        workspace_root.clone(),
+        thread_store.clone(),
         config_snapshot.clone(),
     ))
     .with_trace_sink(native_agent_trace_sink(
-        workspace_root.clone(),
+        thread_store.clone(),
         config_snapshot.clone(),
         None,
     ));
@@ -624,18 +629,18 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
     persist_native_agent_turn_terminal_if_present(
         continuation_spec.clone(),
         &mut continuation,
-        workspace_root.clone(),
+        &thread_store,
         config_snapshot.clone(),
     )?;
     persist_native_agent_checkpoint_if_present(
         &continuation,
-        workspace_root.clone(),
+        &thread_store,
         config_snapshot.clone(),
     )?;
     if body.get("threadCheckpoint").is_none() {
         clear_native_session_checkpoint(
             session_key,
-            workspace_root,
+            &thread_store,
             config_snapshot,
             "native Agent UI form checkpoint clear",
         )?;
@@ -660,13 +665,13 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
 
 pub(crate) fn clear_native_session_checkpoint(
     session_key: &str,
-    workspace_root: PathBuf,
+    thread_store: &WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
     label: &str,
 ) -> Result<(), String> {
     let request_id = next_worker_request_correlation();
     call_rust_state_service(
-        workspace_root,
+        thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("session-clear-checkpoint"),
@@ -681,13 +686,13 @@ pub(crate) fn clear_native_session_checkpoint(
 
 pub(crate) fn native_session_checkpoint(
     session_key: &str,
-    workspace_root: PathBuf,
+    thread_store: &WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
     label: &str,
 ) -> Result<Option<serde_json::Value>, String> {
     let request_id = next_worker_request_correlation();
     let checkpoint = call_rust_state_service(
-        workspace_root,
+        thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("session-get-checkpoint"),

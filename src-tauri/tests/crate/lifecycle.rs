@@ -658,7 +658,11 @@ fn native_request_router_keeps_builtin_skills_root_separate_from_workspace_root(
         "repo/builtin-skills/builtin-fixture/SKILL.md",
         "---\nname: builtin-fixture\ndescription: Builtin fixture\n---\n",
     );
-    let mut router = native_request_router(workspace_root, serde_json::json!({}))
+    let thread_store = crate::threads::workspace_store::WorkspaceThreadStore::new(
+        workspace_root,
+        crate::protocol::capability::default_desktop_capability_policy(),
+    );
+    let mut router = native_request_router(thread_store, serde_json::json!({}))
         .with_builtin_skills_root(builtin_root);
     let request = WorkerRequest::new("req-1", "trace-1", "skills.list", serde_json::json!({}));
 
@@ -684,7 +688,7 @@ fn native_request_router_keeps_builtin_skills_root_separate_from_workspace_root(
 fn native_request_router_ignores_removed_session_store() {
     let fixture = WorkspaceFixture::new();
     fixture.write("sessions/store.json", "{not valid json");
-    let mut router = native_request_router(fixture.root.clone(), serde_json::json!({}));
+    let mut router = native_request_router(fixture.thread_store.clone(), serde_json::json!({}));
 
     let response = router.dispatch(&WorkerRequest::new(
         "req-sessions",
@@ -813,7 +817,7 @@ lines.on("line", (line) => {
 "#,
     );
     let mut router = native_request_router(
-        fixture.root.clone(),
+        fixture.thread_store.clone(),
         serde_json::json!({
             "tools": {
                 "mcp_servers": {

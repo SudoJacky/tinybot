@@ -24,6 +24,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 mod checkpoint_lock;
@@ -58,6 +59,7 @@ pub struct WorkerThreadLogRpc {
     archive_root: PathBuf,
     policy: CapabilityPolicy,
     reconstruction_cache: Arc<Mutex<HashMap<PathBuf, CachedRolloutReconstruction>>>,
+    state_index_ready: Arc<AtomicBool>,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -168,15 +170,29 @@ pub struct ThreadLogIndexRepairReport {
 
 impl WorkerThreadLogRpc {
     pub fn new(workspace_root: PathBuf, policy: CapabilityPolicy) -> Self {
-        compression::spawn_rollout_compression_worker(workspace_root.clone());
+        let recorder = ThreadRecorder::new(workspace_root.clone());
+        compression::spawn_rollout_compression_worker(workspace_root.clone(), recorder.clone());
         Self {
-            recorder: ThreadRecorder::new(workspace_root.clone()),
+            recorder,
             thread_root: workspace_root.join(".tinybot").join("threads"),
             archive_root: workspace_root.join(".tinybot").join("archived_threads"),
             state: ThreadStateDb::new(workspace_root),
             policy,
             reconstruction_cache: Arc::new(Mutex::new(HashMap::new())),
+            state_index_ready: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    pub(crate) fn flush_all(&self) -> Result<(), WorkerProtocolError> {
+        self.recorder.flush_all()
+    }
+
+    pub(crate) fn shutdown_all(&self) -> Result<(), WorkerProtocolError> {
+        self.recorder.shutdown_all()
+    }
+
+    pub(crate) fn invalidate_state_index(&self) {
+        self.state_index_ready.store(false, Ordering::Release);
     }
 
     pub fn thread_projection(
@@ -194,6 +210,27 @@ impl WorkerThreadLogRpc {
             threads.push(thread);
         }
         Ok((threads, items))
+    }
+
+    pub(crate) fn thread_projection_for(
+        &self,
+        thread_id: &str,
+    ) -> Result<(ThreadRecord, Vec<ThreadItem>), WorkerProtocolError> {
+        self.ensure_state_index()?;
+        let record = self
+            .state
+            .find_by_session_or_thread_id(thread_id)?
+            .ok_or_else(|| {
+                thread_log_consistency_error(
+                    "canonical Rollout is missing its derived thread projection",
+                    serde_json::json!({ "threadId": thread_id }),
+                )
+            })?;
+        let path = PathBuf::from(&record.thread_path);
+        self.recorder.validate_thread_path(&path)?;
+        let reconstructed = self.reconstruct_cached(&path)?;
+        let thread = self.thread_record_from_rollout(&record, &path, &reconstructed)?;
+        Ok((thread, reconstructed.thread_items))
     }
 
     fn thread_record_from_rollout(
@@ -1140,6 +1177,15 @@ impl WorkerThreadLogRpc {
     }
 
     fn ensure_state_index(&self) -> Result<(), WorkerProtocolError> {
+        if self.state_index_ready.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        self.ensure_state_index_uncached()?;
+        self.state_index_ready.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    fn ensure_state_index_uncached(&self) -> Result<(), WorkerProtocolError> {
         if self.state_index_fast_path()? {
             return Ok(());
         }

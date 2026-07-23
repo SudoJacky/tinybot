@@ -4,13 +4,13 @@ use crate::agent::runtime::{
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
 use crate::rpc::call_rust_state_service;
+use crate::threads::workspace_store::WorkspaceThreadStore;
 use serde_json::Value;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 #[derive(Clone)]
 struct NativeAgentContextCheckpointCommitAdapter {
-    workspace_root: PathBuf,
+    thread_store: WorkspaceThreadStore,
     config_snapshot: Value,
 }
 
@@ -27,7 +27,7 @@ impl NativeAgentContextCheckpointCommitter for NativeAgentContextCheckpointCommi
             .as_deref()
             .unwrap_or(input.session_id.as_str());
         let result = call_rust_state_service(
-            self.workspace_root.clone(),
+            &self.thread_store,
             self.config_snapshot.clone(),
             WorkerRequest::new(
                 generated.id("session-context-checkpoint-commit"),
@@ -72,11 +72,11 @@ impl NativeAgentContextCheckpointCommitter for NativeAgentContextCheckpointCommi
 }
 
 pub(crate) fn native_agent_context_checkpoint_committer(
-    workspace_root: PathBuf,
+    thread_store: WorkspaceThreadStore,
     config_snapshot: Value,
 ) -> Arc<dyn NativeAgentContextCheckpointCommitter> {
     Arc::new(NativeAgentContextCheckpointCommitAdapter {
-        workspace_root,
+        thread_store,
         config_snapshot,
     })
 }

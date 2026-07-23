@@ -31,10 +31,10 @@ use crate::threads::domain::{
     ReadThreadRequest, RestoreThreadCheckpointRequest, ResumeThreadRequest, SearchThreadsRequest,
     StartThreadTurnRequest, ThreadActivityRequest, ThreadAgentRegistryEntry,
     ThreadAgentRegistryRequest, ThreadApplyOpRequest, ThreadEventsRequest, ThreadIdParams,
-    ThreadOp, ThreadPersistenceRepairRequest, UpdateThreadMetadataRequest, WorkerThreadRpc,
+    ThreadOp, ThreadPersistenceRepairRequest, UpdateThreadMetadataRequest,
 };
-use crate::threads::rollout::store::WorkerThreadLogRpc;
 use crate::threads::turn::{AgentTurnRecord, AgentTurnSummary};
+use crate::threads::workspace_store::WorkspaceThreadStore;
 use crate::tools::executor::{
     tool_not_found_error, tool_unavailable_error, ToolExecutorExecuteRequest,
     ToolExecutorExecuteResult,
@@ -107,8 +107,7 @@ pub struct WorkerRpcRouter {
     mcp: WorkerMcpRpc,
     channel_connector: WorkerChannelConnectorRpc,
     runtime: WorkerRuntimeRpc,
-    thread: WorkerThreadRpc,
-    thread_log: WorkerThreadLogRpc,
+    threads: WorkspaceThreadStore,
     tool_registry: WorkerToolRegistryRpc,
     permission_profile: WorkerPermissionProfileRpc,
     subagents: Option<SubagentThreadManager>,
@@ -121,6 +120,23 @@ impl WorkerRpcRouter {
         workspace_root: PathBuf,
         config_snapshot: Value,
         _sessions: Vec<crate::threads::domain::ThreadRecord>,
+        diagnostic_capacity: usize,
+        policy: CapabilityPolicy,
+    ) -> Self {
+        let threads = WorkspaceThreadStore::new(workspace_root.clone(), policy.clone());
+        Self::from_workspace_thread_store(
+            threads,
+            workspace_root,
+            config_snapshot,
+            diagnostic_capacity,
+            policy,
+        )
+    }
+
+    fn from_workspace_thread_store(
+        threads: WorkspaceThreadStore,
+        workspace_root: PathBuf,
+        config_snapshot: Value,
         diagnostic_capacity: usize,
         policy: CapabilityPolicy,
     ) -> Self {
@@ -148,8 +164,7 @@ impl WorkerRpcRouter {
                 McpRuntime::new(),
             ),
             runtime: WorkerRuntimeRpc::new(),
-            thread: WorkerThreadRpc::new(workspace_root.clone(), policy.clone()),
-            thread_log: WorkerThreadLogRpc::new(workspace_root, policy.clone()),
+            threads,
             permission_profile: WorkerPermissionProfileRpc::new(policy),
             subagents: None,
             config_store: None,
@@ -163,37 +178,33 @@ impl WorkerRpcRouter {
         diagnostic_capacity: usize,
         policy: CapabilityPolicy,
     ) -> Result<Self, crate::protocol::WorkerProtocolError> {
-        let thread_log = WorkerThreadLogRpc::new(workspace_root.clone(), policy.clone());
-        Ok(Self {
-            workspace: WorkerWorkspaceRpc::new(workspace_root.clone(), policy.clone()),
-            config: WorkerConfigRpc::new(config_snapshot.clone(), policy.clone()),
-            secret: WorkerSecretRpc::new(config_snapshot.clone(), policy.clone()),
-            diagnostics: WorkerDiagnosticsRpc::new(diagnostic_capacity, policy.clone()),
-            shell: WorkerShellRpc::new(workspace_root.clone(), policy.clone()),
-            approval: WorkerApprovalRpc::new(policy.clone()),
-            form: WorkerFormRpc::new(policy.clone()),
-            memory: WorkerMemoryRpc::new(workspace_root.clone(), policy.clone()),
-            task: WorkerTaskRpc::new(workspace_root.clone(), policy.clone()),
-            cron: WorkerCronRpc::new(workspace_root.clone(), policy.clone()),
-            background: WorkerBackgroundRpc::new(workspace_root.clone(), policy.clone()),
-            channel_connector: WorkerChannelConnectorRpc::new(policy.clone()),
-            tool_registry: WorkerToolRegistryRpc::new_with_config(
-                policy.clone(),
-                config_snapshot.clone(),
-            ),
-            mcp: WorkerMcpRpc::new(
-                workspace_root.clone(),
-                config_snapshot,
-                policy.clone(),
-                McpRuntime::new(),
-            ),
-            runtime: WorkerRuntimeRpc::new(),
-            thread: WorkerThreadRpc::new(workspace_root.clone(), policy.clone()),
-            thread_log,
-            permission_profile: WorkerPermissionProfileRpc::new(policy),
-            subagents: None,
-            config_store: None,
-        })
+        let threads = WorkspaceThreadStore::new(workspace_root.clone(), policy.clone());
+        {
+            let _operation = threads.begin_operation()?;
+        }
+        Ok(Self::from_workspace_thread_store(
+            threads,
+            workspace_root,
+            config_snapshot,
+            diagnostic_capacity,
+            policy,
+        ))
+    }
+
+    pub(crate) fn with_workspace_thread_store(
+        threads: WorkspaceThreadStore,
+        config_snapshot: Value,
+        diagnostic_capacity: usize,
+        policy: CapabilityPolicy,
+    ) -> Self {
+        let workspace_root = threads.workspace_root().to_path_buf();
+        Self::from_workspace_thread_store(
+            threads,
+            workspace_root,
+            config_snapshot,
+            diagnostic_capacity,
+            policy,
+        )
     }
 
     #[cfg(test)]
@@ -621,12 +632,18 @@ impl WorkerRpcRouter {
         client_event_id: String,
         op: ThreadOp,
     ) -> Result<Vec<Value>, crate::protocol::WorkerProtocolError> {
-        let result = self.thread.apply_op(ThreadApplyOpRequest {
+        let mut operation = self.threads.begin_operation()?;
+        let result = operation.thread().apply_op(ThreadApplyOpRequest {
             thread_id: thread_id.to_string(),
             client_event_id: Some(client_event_id),
             op,
         })?;
-        self.persist_thread_runtime_result(&result)?;
+        if let Err(error) =
+            self::thread_dispatch::persist_thread_runtime_result(&operation, &result)
+        {
+            operation.reload_projection()?;
+            return Err(error);
+        }
         result
             .appended_items
             .into_iter()
@@ -1085,12 +1102,12 @@ fn unavailable_subagent_manager() -> crate::protocol::WorkerProtocolError {
 }
 
 pub(crate) fn call_rust_state_service(
-    workspace_root: PathBuf,
+    threads: &WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
     request: WorkerRequest,
     label: &str,
 ) -> Result<serde_json::Value, String> {
-    let mut router = native_request_router(workspace_root, config_snapshot);
+    let mut router = native_request_router(threads.clone(), config_snapshot);
     let response = router.dispatch(&request);
     if let Some(error) = response.error {
         return Err(format!("{label} failed: {}", error.message));
@@ -1101,7 +1118,7 @@ pub(crate) fn call_rust_state_service(
 }
 
 pub(crate) fn call_rust_state_service_with_mcp_runtime(
-    workspace_root: PathBuf,
+    threads: &WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
     mcp_runtime: McpRuntime,
     shell_runtime: WorkerShellRuntime,
@@ -1109,7 +1126,7 @@ pub(crate) fn call_rust_state_service_with_mcp_runtime(
     request: WorkerRequest,
     label: &str,
 ) -> Result<serde_json::Value, String> {
-    let mut router = native_request_router(workspace_root, config_snapshot)
+    let mut router = native_request_router(threads.clone(), config_snapshot)
         .with_mcp_runtime(mcp_runtime)
         .with_shell_runtime(shell_runtime)
         .with_subagent_manager(subagent_manager);
@@ -1123,17 +1140,15 @@ pub(crate) fn call_rust_state_service_with_mcp_runtime(
 }
 
 pub(crate) fn native_request_router(
-    workspace_root: PathBuf,
+    threads: WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
 ) -> WorkerRpcRouter {
-    WorkerRpcRouter::new_persistent_sessions(
-        workspace_root,
+    WorkerRpcRouter::with_workspace_thread_store(
+        threads,
         config_snapshot,
-        vec![],
         200,
         crate::protocol::capability::default_desktop_capability_policy(),
     )
-    .expect("persistent session store should initialize")
     .with_builtin_skills_root(crate::config::application::repo_root())
 }
 

@@ -12,13 +12,13 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard};
 
 use super::compression::{
     compress_rollout, compressed_rollout_path, is_rollout_compressed,
     materialize_rollout_for_append, remove_rollout,
 };
-use super::rollout_writer::{retire_writer_for_path, writer_for_path, RolloutWriter};
+use super::rollout_writer::RolloutWriter;
 
 const THREAD_LOG_HEAD_TAIL_BYTES: u64 = 8 * 1024;
 
@@ -32,7 +32,30 @@ pub(super) struct ThreadLogHead {
 pub struct ThreadRecorder {
     root: PathBuf,
     archive_root: PathBuf,
-    writers: Arc<Mutex<HashMap<PathBuf, Arc<RolloutWriter>>>>,
+    writer_pool: Arc<WriterPool>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WriterPoolLifecycle {
+    Running,
+    Closing,
+    Closed,
+}
+
+struct WriterPool {
+    lifecycle: RwLock<WriterPoolLifecycle>,
+    writers: Mutex<HashMap<PathBuf, Arc<RolloutWriter>>>,
+    path_locks: Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>,
+}
+
+impl WriterPool {
+    fn new() -> Self {
+        Self {
+            lifecycle: RwLock::new(WriterPoolLifecycle::Running),
+            writers: Mutex::new(HashMap::new()),
+            path_locks: Mutex::new(HashMap::new()),
+        }
+    }
 }
 
 impl std::fmt::Debug for ThreadRecorder {
@@ -50,13 +73,13 @@ impl ThreadRecorder {
         Self {
             root: workspace_root.join(".tinybot").join("threads"),
             archive_root: workspace_root.join(".tinybot").join("archived_threads"),
-            writers: Arc::new(Mutex::new(HashMap::new())),
+            writer_pool: Arc::new(WriterPool::new()),
         }
     }
 
     pub fn create_thread(&self, meta: ThreadMeta) -> Result<PathBuf, WorkerProtocolError> {
         let path = self.thread_path(&meta.thread_id, &meta.created_at)?;
-        self.add_lines(
+        self.append_lines_persisted(
             &path,
             vec![ThreadLogLine {
                 timestamp: meta.created_at.clone(),
@@ -64,7 +87,6 @@ impl ThreadRecorder {
                 item: ThreadLogItem::SessionMeta(meta),
             }],
         )?;
-        self.persist(&path)?;
         Ok(path)
     }
 
@@ -74,16 +96,14 @@ impl ThreadRecorder {
         timestamp: String,
         item: ThreadLogItem,
     ) -> Result<(), WorkerProtocolError> {
-        self.validate_thread_path(path)?;
-        self.add_lines(
+        self.append_lines_persisted(
             path,
             vec![ThreadLogLine {
                 timestamp,
                 ordinal: None,
                 item,
             }],
-        )?;
-        self.persist(path)
+        )
     }
 
     pub fn append_items(
@@ -92,7 +112,6 @@ impl ThreadRecorder {
         timestamp: String,
         items: Vec<ThreadLogItem>,
     ) -> Result<(), WorkerProtocolError> {
-        self.validate_thread_path(path)?;
         let lines = items
             .into_iter()
             .map(|item| ThreadLogLine {
@@ -101,8 +120,7 @@ impl ThreadRecorder {
                 item,
             })
             .collect();
-        self.add_lines(path, lines)?;
-        self.persist(path)
+        self.append_lines_persisted(path, lines)
     }
 
     pub fn append_lines(
@@ -110,9 +128,7 @@ impl ThreadRecorder {
         path: &Path,
         lines: Vec<ThreadLogLine>,
     ) -> Result<(), WorkerProtocolError> {
-        self.validate_thread_path(path)?;
-        self.add_lines(path, lines)?;
-        self.persist(path)
+        self.append_lines_persisted(path, lines)
     }
 
     #[cfg(test)]
@@ -134,51 +150,86 @@ impl ThreadRecorder {
         self.add_lines(path, lines)
     }
 
+    #[cfg(test)]
     pub fn persist(&self, path: &Path) -> Result<(), WorkerProtocolError> {
-        self.writer(path)?.persist()
+        self.with_existing_writer(path, |writer| writer.persist())
     }
 
     pub fn flush(&self, path: &Path) -> Result<(), WorkerProtocolError> {
-        self.writer(path)?.flush()
+        self.with_existing_writer(path, |writer| writer.flush())
+    }
+
+    pub fn flush_all(&self) -> Result<(), WorkerProtocolError> {
+        let lifecycle = self
+            .writer_pool
+            .lifecycle
+            .write()
+            .map_err(|_| writer_pool_lock_error("flush lifecycle"))?;
+        ensure_writer_pool_running(*lifecycle)?;
+        let writers = self.writer_snapshot()?;
+        let failures = writers
+            .into_iter()
+            .filter_map(|(path, writer)| writer.flush().err().map(|error| (path, error)))
+            .collect::<Vec<_>>();
+        writer_batch_result("flush_all", failures)
+    }
+
+    pub fn shutdown_all(&self) -> Result<(), WorkerProtocolError> {
+        let mut lifecycle = self
+            .writer_pool
+            .lifecycle
+            .write()
+            .map_err(|_| writer_pool_lock_error("shutdown lifecycle"))?;
+        if *lifecycle == WriterPoolLifecycle::Closed {
+            return Ok(());
+        }
+        *lifecycle = WriterPoolLifecycle::Closing;
+        let writers = self.writer_snapshot()?;
+        let mut failures = Vec::new();
+        for (path, writer) in writers {
+            match writer.shutdown() {
+                Ok(()) => self.remove_writer_if_current(&path, &writer)?,
+                Err(error) => failures.push((path, error)),
+            }
+        }
+        if failures.is_empty() {
+            *lifecycle = WriterPoolLifecycle::Closed;
+        }
+        writer_batch_result("shutdown_all", failures)
+    }
+
+    pub(super) fn with_inactive_writer_path<T>(
+        &self,
+        path: &Path,
+        operation: impl FnOnce() -> Result<T, WorkerProtocolError>,
+    ) -> Result<Option<T>, WorkerProtocolError> {
+        let _operation_guard = self.running_operation()?;
+        self.validate_thread_path(path)?;
+        let path_lock = self.path_lock(path)?;
+        let _path_guard = path_lock
+            .lock()
+            .map_err(|_| writer_pool_lock_error("inactive writer path lifecycle"))?;
+        if self
+            .writer_pool
+            .writers
+            .lock()
+            .map_err(|_| writer_pool_lock_error("writer registry"))?
+            .contains_key(path)
+        {
+            return Ok(None);
+        }
+        operation().map(Some)
     }
 
     #[cfg(test)]
     pub fn shutdown(&self, path: &Path) -> Result<(), WorkerProtocolError> {
         self.validate_thread_path(path)?;
-        let writer = {
-            let writers = self.writers.lock().map_err(|_| {
-                thread_log_validation_error("thread log writer registry lock is poisoned")
-            })?;
-            writers.get(path).cloned()
-        };
-        let Some(writer) = writer else {
-            return Ok(());
-        };
-        if Arc::strong_count(&writer) > 2 {
-            return Err(thread_log_validation_error(
-                "cannot shutdown rollout writer while another recorder owns it",
-            ));
-        }
-        writer.shutdown()?;
-        self.writers
-            .lock()
-            .map_err(|_| {
-                thread_log_validation_error("thread log writer registry lock is poisoned")
-            })?
-            .remove(path);
-        Ok(())
+        self.retire_path(path, || Ok(()))
     }
 
     pub fn delete_rollout(&self, path: &Path) -> Result<(), WorkerProtocolError> {
         self.validate_thread_path(path)?;
-        retire_writer_for_path(path, || remove_rollout(path))?;
-        self.writers
-            .lock()
-            .map_err(|_| {
-                thread_log_validation_error("thread log writer registry lock is poisoned")
-            })?
-            .remove(path);
-        Ok(())
+        self.retire_path(path, || remove_rollout(path))
     }
 
     pub fn archive_rollout(&self, path: &Path) -> Result<PathBuf, WorkerProtocolError> {
@@ -249,33 +300,185 @@ impl ThreadRecorder {
         })
     }
 
+    #[cfg(test)]
     fn add_lines(&self, path: &Path, lines: Vec<ThreadLogLine>) -> Result<(), WorkerProtocolError> {
-        let lines = lines
-            .into_iter()
-            .filter_map(|line| match should_persist_rollout_item(&line.item) {
-                Ok(true) => Some(Ok(line)),
-                Ok(false) => None,
-                Err(error) => Some(Err(error)),
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let lines = persistable_lines(lines)?;
         if lines.is_empty() {
             return Ok(());
         }
-        self.writer(path)?.add_items(lines)
+        self.with_writer(path, move |writer| writer.add_items(lines))
     }
 
-    fn writer(&self, path: &Path) -> Result<std::sync::Arc<RolloutWriter>, WorkerProtocolError> {
+    fn append_lines_persisted(
+        &self,
+        path: &Path,
+        lines: Vec<ThreadLogLine>,
+    ) -> Result<(), WorkerProtocolError> {
+        let _operation_guard = self.running_operation()?;
         self.validate_thread_path(path)?;
+        let lines = persistable_lines(lines)?;
+        if lines.is_empty() {
+            return Ok(());
+        }
+        let path_lock = self.path_lock(path)?;
+        let _path_guard = path_lock
+            .lock()
+            .map_err(|_| writer_pool_lock_error("writer path lifecycle"))?;
+        let writer = self.writer_locked(path)?;
+        writer.add_items(lines)?;
+        writer.persist()
+    }
+
+    #[cfg(test)]
+    fn with_writer<T>(
+        &self,
+        path: &Path,
+        operation: impl FnOnce(&RolloutWriter) -> Result<T, WorkerProtocolError>,
+    ) -> Result<T, WorkerProtocolError> {
+        let _operation_guard = self.running_operation()?;
+        self.validate_thread_path(path)?;
+        let path_lock = self.path_lock(path)?;
+        let _path_guard = path_lock
+            .lock()
+            .map_err(|_| writer_pool_lock_error("writer path lifecycle"))?;
+        let writer = self.writer_locked(path)?;
+        operation(&writer)
+    }
+
+    fn with_existing_writer(
+        &self,
+        path: &Path,
+        operation: impl FnOnce(&RolloutWriter) -> Result<(), WorkerProtocolError>,
+    ) -> Result<(), WorkerProtocolError> {
+        let _operation_guard = self.running_operation()?;
+        self.validate_thread_path(path)?;
+        let path_lock = self.path_lock(path)?;
+        let _path_guard = path_lock
+            .lock()
+            .map_err(|_| writer_pool_lock_error("writer path lifecycle"))?;
+        let writer = self
+            .writer_pool
+            .writers
+            .lock()
+            .map_err(|_| writer_pool_lock_error("writer registry"))?
+            .get(path)
+            .cloned();
+        match writer {
+            Some(writer) => operation(&writer),
+            None => Ok(()),
+        }
+    }
+
+    fn writer_locked(&self, path: &Path) -> Result<Arc<RolloutWriter>, WorkerProtocolError> {
         materialize_rollout_for_append(path)?;
-        let mut writers = self.writers.lock().map_err(|_| {
-            thread_log_validation_error("thread log writer registry lock is poisoned")
-        })?;
+        let mut writers = self
+            .writer_pool
+            .writers
+            .lock()
+            .map_err(|_| writer_pool_lock_error("writer registry"))?;
         if let Some(writer) = writers.get(path) {
             return Ok(writer.clone());
         }
-        let writer = writer_for_path(path)?;
+        let writer = Arc::new(RolloutWriter::spawn(path.to_path_buf())?);
         writers.insert(path.to_path_buf(), writer.clone());
         Ok(writer)
+    }
+
+    fn running_operation(
+        &self,
+    ) -> Result<RwLockReadGuard<'_, WriterPoolLifecycle>, WorkerProtocolError> {
+        let lifecycle = self
+            .writer_pool
+            .lifecycle
+            .read()
+            .map_err(|_| writer_pool_lock_error("operation lifecycle"))?;
+        ensure_writer_pool_running(*lifecycle)?;
+        Ok(lifecycle)
+    }
+
+    fn path_lock(&self, path: &Path) -> Result<Arc<Mutex<()>>, WorkerProtocolError> {
+        let mut path_locks = self
+            .writer_pool
+            .path_locks
+            .lock()
+            .map_err(|_| writer_pool_lock_error("path lock registry"))?;
+        Ok(path_locks
+            .entry(path.to_path_buf())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone())
+    }
+
+    fn writer_snapshot(&self) -> Result<Vec<(PathBuf, Arc<RolloutWriter>)>, WorkerProtocolError> {
+        let mut writers = self
+            .writer_pool
+            .writers
+            .lock()
+            .map_err(|_| writer_pool_lock_error("writer registry"))?
+            .iter()
+            .map(|(path, writer)| (path.clone(), writer.clone()))
+            .collect::<Vec<_>>();
+        writers.sort_by(|left, right| left.0.cmp(&right.0));
+        Ok(writers)
+    }
+
+    fn remove_writer_if_current(
+        &self,
+        path: &Path,
+        expected: &Arc<RolloutWriter>,
+    ) -> Result<(), WorkerProtocolError> {
+        let mut writers = self
+            .writer_pool
+            .writers
+            .lock()
+            .map_err(|_| writer_pool_lock_error("writer registry"))?;
+        if writers
+            .get(path)
+            .is_some_and(|current| Arc::ptr_eq(current, expected))
+        {
+            writers.remove(path);
+        }
+        Ok(())
+    }
+
+    fn retire_path<T>(
+        &self,
+        path: &Path,
+        operation: impl FnOnce() -> Result<T, WorkerProtocolError>,
+    ) -> Result<T, WorkerProtocolError> {
+        let _operation_guard = self.running_operation()?;
+        let path_lock = self.path_lock(path)?;
+        let _path_guard = path_lock
+            .lock()
+            .map_err(|_| writer_pool_lock_error("writer path lifecycle"))?;
+        let writer = self
+            .writer_pool
+            .writers
+            .lock()
+            .map_err(|_| writer_pool_lock_error("writer registry"))?
+            .get(path)
+            .cloned();
+        if let Some(writer) = writer {
+            writer.shutdown()?;
+            self.remove_writer_if_current(path, &writer)?;
+        }
+        operation()
+    }
+
+    #[cfg(test)]
+    fn writer(&self, path: &Path) -> Result<Arc<RolloutWriter>, WorkerProtocolError> {
+        let _operation_guard = self.running_operation()?;
+        self.validate_thread_path(path)?;
+        let path_lock = self.path_lock(path)?;
+        let _path_guard = path_lock
+            .lock()
+            .map_err(|_| writer_pool_lock_error("writer path lifecycle"))?;
+        self.writer_pool
+            .writers
+            .lock()
+            .map_err(|_| writer_pool_lock_error("writer registry"))?
+            .get(path)
+            .cloned()
+            .ok_or_else(|| thread_log_validation_error("thread log writer is not active"))
     }
 
     fn relocate_rollout(
@@ -294,21 +497,49 @@ impl ThreadRecorder {
             thread_log_validation_error("thread log relocation target has no parent directory")
         })?;
         fs::create_dir_all(parent).map_err(thread_log_io_error)?;
-        retire_writer_for_path(path, || {
-            materialize_rollout_for_append(path)?;
-            if target.exists() {
-                return Err(thread_log_validation_error(
-                    "thread log relocation target already exists",
-                ));
-            }
-            fs::rename(path, &target).map_err(thread_log_io_error)
-        })?;
-        self.writers
+        let _operation_guard = self.running_operation()?;
+        let source_lock = self.path_lock(path)?;
+        let target_lock = self.path_lock(&target)?;
+        let (first_lock, second_lock) = if path <= target.as_path() {
+            (&source_lock, &target_lock)
+        } else {
+            (&target_lock, &source_lock)
+        };
+        let _first_guard = first_lock
             .lock()
-            .map_err(|_| {
-                thread_log_validation_error("thread log writer registry lock is poisoned")
-            })?
-            .remove(path);
+            .map_err(|_| writer_pool_lock_error("relocation path lifecycle"))?;
+        let _second_guard = second_lock
+            .lock()
+            .map_err(|_| writer_pool_lock_error("relocation path lifecycle"))?;
+        if self
+            .writer_pool
+            .writers
+            .lock()
+            .map_err(|_| writer_pool_lock_error("writer registry"))?
+            .contains_key(&target)
+        {
+            return Err(thread_log_validation_error(
+                "thread log relocation target has an active writer",
+            ));
+        }
+        let source_writer = self
+            .writer_pool
+            .writers
+            .lock()
+            .map_err(|_| writer_pool_lock_error("writer registry"))?
+            .get(path)
+            .cloned();
+        if let Some(writer) = source_writer {
+            writer.shutdown()?;
+            self.remove_writer_if_current(path, &writer)?;
+        }
+        materialize_rollout_for_append(path)?;
+        if target.exists() {
+            return Err(thread_log_validation_error(
+                "thread log relocation target already exists",
+            ));
+        }
+        fs::rename(path, &target).map_err(thread_log_io_error)?;
         Ok(target)
     }
 
@@ -340,6 +571,78 @@ impl ThreadRecorder {
         }
         Ok(path)
     }
+}
+
+fn persistable_lines(lines: Vec<ThreadLogLine>) -> Result<Vec<ThreadLogLine>, WorkerProtocolError> {
+    lines
+        .into_iter()
+        .filter_map(|line| match should_persist_rollout_item(&line.item) {
+            Ok(true) => Some(Ok(line)),
+            Ok(false) => None,
+            Err(error) => Some(Err(error)),
+        })
+        .collect()
+}
+
+fn ensure_writer_pool_running(lifecycle: WriterPoolLifecycle) -> Result<(), WorkerProtocolError> {
+    match lifecycle {
+        WriterPoolLifecycle::Running => Ok(()),
+        WriterPoolLifecycle::Closing => Err(thread_log_validation_error(
+            "thread log writer pool is shutting down",
+        )),
+        WriterPoolLifecycle::Closed => Err(thread_log_validation_error(
+            "thread log writer pool has shut down",
+        )),
+    }
+}
+
+fn writer_pool_lock_error(operation: &str) -> WorkerProtocolError {
+    WorkerProtocolError::new(
+        WorkerProtocolErrorCode::WorkerError,
+        "thread log writer pool lock is poisoned",
+        serde_json::json!({
+            "method": "thread_log.writer_pool",
+            "operation": operation,
+        }),
+        false,
+        WorkerProtocolErrorSource::RustCore,
+    )
+}
+
+fn writer_batch_result(
+    operation: &str,
+    mut failures: Vec<(PathBuf, WorkerProtocolError)>,
+) -> Result<(), WorkerProtocolError> {
+    if failures.is_empty() {
+        return Ok(());
+    }
+    failures.sort_by(|left, right| left.0.cmp(&right.0));
+    let retryable = failures.iter().all(|(_, error)| error.retryable);
+    let details = failures
+        .iter()
+        .map(|(path, error)| {
+            serde_json::json!({
+                "path": path.display().to_string(),
+                "code": format!("{:?}", error.code),
+                "message": error.message,
+                "retryable": error.retryable,
+            })
+        })
+        .collect::<Vec<_>>();
+    Err(WorkerProtocolError::new(
+        WorkerProtocolErrorCode::WorkerError,
+        format!(
+            "thread log writer {operation} failed for {} path(s)",
+            failures.len()
+        ),
+        serde_json::json!({
+            "method": "thread_log.writer_pool",
+            "operation": operation,
+            "failures": details,
+        }),
+        retryable,
+        WorkerProtocolErrorSource::RustCore,
+    ))
 }
 
 pub(super) fn canonicalize_thread_timestamp(

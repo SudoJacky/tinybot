@@ -6,6 +6,7 @@ use crate::collaboration::subagents::SubagentThreadManager;
 use crate::protocol::{WorkerRequest, WorkerRequestCancellation};
 use crate::rpc::call_rust_state_service_with_mcp_runtime;
 use crate::runtime::mcp::{configured_mcp_servers, mcp_tool_is_enabled, McpRuntime};
+use crate::threads::workspace_store::WorkspaceThreadStore;
 use crate::tools::registry::ToolExecutionTarget;
 use crate::tools::shell::WorkerShellRuntime;
 use std::path::PathBuf;
@@ -14,6 +15,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 struct NativeAgentToolExecutorDispatcher {
     workspace_root: PathBuf,
+    thread_store: WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
     fallback: Arc<dyn NativeAgentToolDispatcher>,
     mcp_runtime: McpRuntime,
@@ -91,7 +93,7 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
             ),
         };
         let executor_result = call_rust_state_service_with_mcp_runtime(
-            self.workspace_root.clone(),
+            &self.thread_store,
             self.config_snapshot.clone(),
             self.mcp_runtime.clone(),
             self.shell_runtime.clone(),
@@ -357,21 +359,25 @@ pub(crate) fn native_agent_services_with_tool_executor(
     services: NativeAgentRuntimeServices,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
-) -> NativeAgentRuntimeServices {
+) -> Result<NativeAgentRuntimeServices, String> {
     let fallback = services.tool_dispatcher();
+    let thread_store = services.thread_store()?;
     let mcp_runtime = services.mcp_runtime();
     let shell_runtime = services.shell_runtime();
     let subagent_manager = services.subagent_manager();
     let browser_runtime = services.browser_runtime();
-    services.with_tool_dispatcher(Arc::new(NativeAgentToolExecutorDispatcher {
-        workspace_root,
-        config_snapshot,
-        fallback,
-        mcp_runtime,
-        shell_runtime,
-        subagent_manager,
-        browser_runtime,
-    }))
+    Ok(
+        services.with_tool_dispatcher(Arc::new(NativeAgentToolExecutorDispatcher {
+            workspace_root,
+            thread_store,
+            config_snapshot,
+            fallback,
+            mcp_runtime,
+            shell_runtime,
+            subagent_manager,
+            browser_runtime,
+        })),
+    )
 }
 
 pub(crate) async fn dispatch_agent_browser_observe(

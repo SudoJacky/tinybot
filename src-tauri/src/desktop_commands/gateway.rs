@@ -67,17 +67,29 @@ pub(crate) fn start_gateway_with_workspace_root(
     shared: &SharedGateway,
     workspace_root: PathBuf,
 ) -> Result<GatewayRuntimeStatus, String> {
-    let (agent_task_runtime, shell_runtime, startup_reconciled) = {
-        let runtime = lock_runtime(shared);
+    let (agent_task_runtime, shell_runtime, thread_store, startup_reconciled) = {
+        let mut runtime = lock_runtime(shared);
+        if runtime.thread_store.workspace_root() != workspace_root {
+            let thread_store = crate::threads::workspace_store::WorkspaceThreadStore::new(
+                workspace_root.clone(),
+                crate::protocol::capability::default_desktop_capability_policy(),
+            );
+            runtime.thread_store = thread_store.clone();
+            runtime.native_agent_runtime = runtime
+                .native_agent_runtime
+                .clone()
+                .with_thread_store(thread_store);
+        }
         (
             runtime.native_agent_runtime.task_runtime(),
             runtime.native_agent_runtime.shell_runtime(),
+            runtime.thread_store.clone(),
             runtime.lifecycle_status.startup_reconciled,
         )
     };
     if !startup_reconciled {
         agent_task_runtime.pause_accepting();
-        match RuntimeLifecycle::reconcile_startup(&workspace_root) {
+        match RuntimeLifecycle::reconcile_startup(&thread_store) {
             Ok(report) => {
                 let report_line = serde_json::to_string(&report)
                     .expect("startup recovery report should serialize");
@@ -296,9 +308,10 @@ async fn stop_owned_gateway_async_with_timeout(
             runtime.native_agent_runtime.shell_runtime(),
             runtime.mcp_runtime.clone(),
             runtime.subagent_manager.clone(),
+            runtime.thread_store.clone(),
         )
     };
-    let report = lifecycle.shutdown(timeout).await;
+    let report = lifecycle.shutdown(timeout, !explicit).await;
     let report_line =
         serde_json::to_string(&report).expect("runtime shutdown report should serialize");
     let failures = report

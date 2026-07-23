@@ -16,6 +16,7 @@ use crate::desktop_commands::webui::{
 use crate::protocol::request_id::{next_worker_request_correlation, WorkerRequestCorrelation};
 use crate::protocol::WorkerRequest;
 use crate::rpc::native_request_router;
+use crate::threads::workspace_store::WorkspaceThreadStore;
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tauri::{AppHandle, Runtime, State};
@@ -599,7 +600,7 @@ pub(crate) async fn worker_run_agent_with_live_trace_sink_async(
     let _ = timeout;
     let base_services = {
         let runtime = lock_runtime(shared);
-        runtime.native_agent_runtime.clone()
+        runtime.native_agent_services()
     };
     run_agent_with_services(
         base_services,
@@ -669,7 +670,7 @@ pub(crate) async fn worker_submit_thread_turn_with_live_trace_sink_async(
     let _ = timeout;
     let base_services = {
         let runtime = lock_runtime(shared);
-        runtime.native_agent_runtime.clone()
+        runtime.native_agent_services()
     };
     submit_thread_turn_with_services(
         base_services,
@@ -686,16 +687,17 @@ pub(crate) async fn worker_submit_thread_turn_with_live_trace_sink_async(
 }
 
 pub(crate) fn worker_background_trace_list_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     input: WorkerBackgroundTraceListInput,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
     let request =
         build_worker_background_trace_list_request(next_worker_request_correlation(), input);
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     dispatch_worker_background_trace_request(
-        workspace_root,
+        thread_store,
         config_snapshot,
         request,
         "worker background trace list",
@@ -715,9 +717,9 @@ pub(crate) fn build_worker_background_trace_list_request(
 }
 
 pub(crate) fn worker_background_trace_get_delegate_trace_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     input: WorkerBackgroundTraceGetDelegateTraceInput,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
@@ -725,8 +727,9 @@ pub(crate) fn worker_background_trace_get_delegate_trace_with_options(
         next_worker_request_correlation(),
         input,
     );
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     dispatch_worker_background_trace_request(
-        workspace_root,
+        thread_store,
         config_snapshot,
         request,
         "worker background delegate trace get",
@@ -746,9 +749,9 @@ pub(crate) fn build_worker_background_trace_get_delegate_trace_request(
 }
 
 pub(crate) fn worker_background_trace_get_artifact_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     input: WorkerBackgroundTraceGetArtifactInput,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
@@ -756,8 +759,9 @@ pub(crate) fn worker_background_trace_get_artifact_with_options(
         next_worker_request_correlation(),
         input,
     );
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     dispatch_worker_background_trace_request(
-        workspace_root,
+        thread_store,
         config_snapshot,
         request,
         "worker background trace artifact get",
@@ -777,9 +781,9 @@ pub(crate) fn build_worker_background_trace_get_artifact_request(
 }
 
 pub(crate) fn worker_background_trace_append_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     input: WorkerBackgroundTraceAppendInput,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
@@ -790,8 +794,9 @@ pub(crate) fn worker_background_trace_append_with_options(
         "background.trace.append",
         serde_json::json!({ "event": input.event }),
     );
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     dispatch_worker_background_trace_request(
-        workspace_root,
+        thread_store,
         config_snapshot,
         request,
         "worker background trace append",
@@ -801,7 +806,7 @@ pub(crate) fn worker_background_trace_append_with_options(
 pub(crate) fn worker_background_subagent_enqueue_input_with_options(
     shared: &SharedGateway,
     input: WorkerBackgroundSubagentInputInput,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
@@ -809,12 +814,15 @@ pub(crate) fn worker_background_subagent_enqueue_input_with_options(
         next_worker_request_correlation(),
         input,
     );
-    let manager = {
+    let (manager, thread_store) = {
         let runtime = lock_runtime(shared);
-        runtime.subagent_manager.clone()
+        (
+            runtime.subagent_manager.clone(),
+            runtime.thread_store.clone(),
+        )
     };
     let mut router =
-        native_request_router(workspace_root, config_snapshot).with_subagent_manager(manager);
+        native_request_router(thread_store, config_snapshot).with_subagent_manager(manager);
     let response = router.dispatch(&request);
     if let Some(error) = response.error {
         return Err(format!(
@@ -849,12 +857,12 @@ pub(crate) fn build_worker_background_subagent_enqueue_input_request(
 }
 
 fn dispatch_worker_background_trace_request(
-    workspace_root: PathBuf,
+    thread_store: WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
     request: WorkerRequest,
     context: &str,
 ) -> Result<serde_json::Value, String> {
-    let mut router = native_request_router(workspace_root, config_snapshot);
+    let mut router = native_request_router(thread_store, config_snapshot);
     let response = router.dispatch(&request);
     if let Some(error) = response.error {
         return Err(format!("{context} returned error: {}", error.message));
@@ -869,16 +877,18 @@ fn dispatch_worker_subagent_request(
     input: impl Serialize,
     context: &str,
 ) -> Result<serde_json::Value, String> {
-    let manager = {
+    let (manager, thread_store) = {
         let runtime = lock_runtime(shared);
-        runtime.subagent_manager.clone()
+        (
+            runtime.subagent_manager.clone(),
+            runtime.thread_store.clone(),
+        )
     };
     let params = serde_json::to_value(input)
         .map_err(|error| format!("{context} request serialization failed: {error}"))?;
     let request_id = next_worker_request_correlation();
-    let mut router =
-        native_request_router(native_backend_workspace_root(), native_config_snapshot())
-            .with_subagent_manager(manager);
+    let mut router = native_request_router(thread_store, native_config_snapshot())
+        .with_subagent_manager(manager);
     let response = router.dispatch(&WorkerRequest::new(
         request_id.id(method),
         request_id.trace_id(method),
@@ -902,7 +912,7 @@ pub(crate) fn worker_cancel_agent_with_options(
     let _ = (config_snapshot, timeout);
     let services = {
         let runtime = lock_runtime(shared);
-        runtime.native_agent_runtime.clone()
+        runtime.native_agent_services()
     };
     Ok(cancel_agent_with_services(services, &turn_id))
 }
@@ -910,16 +920,16 @@ pub(crate) fn worker_cancel_agent_with_options(
 pub(crate) fn worker_restore_agent_checkpoint_with_options(
     shared: &SharedGateway,
     session_id: String,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
     let _ = timeout;
     let services = {
         let runtime = lock_runtime(shared);
-        runtime.native_agent_runtime.clone()
+        runtime.native_agent_services()
     };
-    restore_agent_checkpoint_with_services(services, session_id, workspace_root, config_snapshot)
+    restore_agent_checkpoint_with_services(services, session_id, config_snapshot)
 }
 
 pub(crate) async fn worker_submit_agent_form_with_options_async(
@@ -987,7 +997,7 @@ pub(crate) async fn worker_resolve_thread_approval_with_live_trace_sink_async(
     let _ = timeout;
     let mut base_services = {
         let runtime = lock_runtime(shared);
-        runtime.native_agent_runtime.clone()
+        runtime.native_agent_services()
     };
     if let Some(live_trace_sink) = live_trace_sink {
         base_services = base_services.with_trace_sink(live_trace_sink);
@@ -1019,7 +1029,7 @@ pub(crate) async fn worker_submit_thread_form_with_live_trace_sink_async(
     let _ = timeout;
     let mut base_services = {
         let runtime = lock_runtime(shared);
-        runtime.native_agent_runtime.clone()
+        runtime.native_agent_services()
     };
     if let Some(live_trace_sink) = live_trace_sink {
         base_services = base_services.with_trace_sink(live_trace_sink);
@@ -1043,15 +1053,16 @@ fn thread_form_action_is_cancel(action: Option<&str>) -> bool {
 }
 
 pub(crate) fn worker_task_plan_list_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     input: WorkerTaskPlanListInput,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
     let request_id = next_worker_request_correlation();
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     dispatch_rust_task_request(
-        workspace_root,
+        thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("task-plan-list"),
@@ -1064,15 +1075,16 @@ pub(crate) fn worker_task_plan_list_with_options(
 }
 
 pub(crate) fn worker_task_plan_get_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     plan_id: String,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
     let request_id = next_worker_request_correlation();
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     dispatch_rust_task_request(
-        workspace_root,
+        thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("task-plan-get"),
@@ -1085,15 +1097,16 @@ pub(crate) fn worker_task_plan_get_with_options(
 }
 
 pub(crate) fn worker_task_plan_save_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     plan: serde_json::Value,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
     let request_id = next_worker_request_correlation();
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     dispatch_rust_task_request(
-        workspace_root,
+        thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("task-plan-save"),
@@ -1106,15 +1119,16 @@ pub(crate) fn worker_task_plan_save_with_options(
 }
 
 pub(crate) fn worker_task_plan_delete_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     plan_id: String,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
     let request_id = next_worker_request_correlation();
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     dispatch_rust_task_request(
-        workspace_root,
+        thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("task-plan-delete"),
@@ -1127,12 +1141,12 @@ pub(crate) fn worker_task_plan_delete_with_options(
 }
 
 fn dispatch_rust_task_request(
-    workspace_root: PathBuf,
+    thread_store: WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
     request: WorkerRequest,
     context: &str,
 ) -> Result<serde_json::Value, String> {
-    let mut router = native_request_router(workspace_root, config_snapshot);
+    let mut router = native_request_router(thread_store, config_snapshot);
     let response = router.dispatch(&request);
     if let Some(error) = response.error {
         return Err(format!("{context} returned error: {}", error.message));

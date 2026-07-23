@@ -44,13 +44,18 @@ fn strict_patch_search_approval_and_real_dispatch_work_end_to_end() {
         Arc::new(FakeNativeAgentToolDispatcher),
         Arc::new(InMemoryNativeAgentCheckpointStore::default()),
         Arc::new(InMemoryNativeAgentCancellation::default()),
-    );
+    )
+    .with_thread_store(crate::threads::workspace_store::WorkspaceThreadStore::new(
+        workspace.root.clone(),
+        crate::protocol::capability::default_desktop_capability_policy(),
+    ));
     let trace_sink = Arc::new(RecordingTraceSink::default());
     let services = crate::agent::bridge::native_agent_services_with_tool_executor(
         services,
         workspace.root.clone(),
         json!({}),
     )
+    .expect("workspace thread store should configure the tool executor")
     .with_trace_sink(trace_sink.clone());
 
     let run_services = services.clone();
@@ -442,10 +447,15 @@ lines.on("line", (line) => {
             Arc::new(InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(InMemoryNativeAgentCancellation::default()),
         )
-        .with_metrics(metrics.clone()),
+        .with_metrics(metrics.clone())
+        .with_thread_store(crate::threads::workspace_store::WorkspaceThreadStore::new(
+            workspace.root.clone(),
+            crate::protocol::capability::default_desktop_capability_policy(),
+        )),
         workspace.root.clone(),
         config.clone(),
     )
+    .expect("workspace thread store should configure the tool executor")
     .with_trace_sink(trace_sink.clone());
 
     let run_services = services.clone();

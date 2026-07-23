@@ -1,5 +1,5 @@
 use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
-use crate::desktop::SharedGateway;
+use crate::desktop::{lock_runtime, SharedGateway};
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
 use crate::rpc::{call_rust_state_service, native_request_router};
@@ -108,14 +108,15 @@ pub(crate) fn worker_workspace_file_chunk(
 }
 
 pub(crate) fn worker_workspace_files_with_options(
-    _shared: &SharedGateway,
-    workspace_root: PathBuf,
+    shared: &SharedGateway,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     let request_id = next_worker_request_correlation();
     let items = call_rust_state_service(
-        workspace_root,
+        &thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("workspace-files"),
@@ -129,15 +130,16 @@ pub(crate) fn worker_workspace_files_with_options(
 }
 
 pub(crate) fn worker_workspace_file_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     path: String,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     let request_id = next_worker_request_correlation();
     call_rust_state_service(
-        workspace_root,
+        &thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("workspace-file"),
@@ -150,13 +152,14 @@ pub(crate) fn worker_workspace_file_with_options(
 }
 
 pub(crate) fn worker_workspace_put_file_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     path: String,
     body: serde_json::Value,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     let contents = body
         .get("content")
         .or_else(|| body.get("contents"))
@@ -168,7 +171,7 @@ pub(crate) fn worker_workspace_put_file_with_options(
         .and_then(|value| value.as_str());
     let request_id = next_worker_request_correlation();
     call_rust_state_service(
-        workspace_root,
+        &thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("workspace-put-file"),
@@ -186,7 +189,7 @@ pub(crate) fn worker_workspace_put_file_with_options(
 }
 
 pub(crate) fn worker_workspace_directory_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     path: String,
     cursor: Option<String>,
     name_query: Option<String>,
@@ -194,6 +197,7 @@ pub(crate) fn worker_workspace_directory_with_options(
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     let request_id = next_worker_request_correlation();
     let workspace_key = workspace_root
         .canonicalize()
@@ -201,7 +205,7 @@ pub(crate) fn worker_workspace_directory_with_options(
         .to_string_lossy()
         .to_string();
     let mut response =
-        native_request_router(workspace_root, config_snapshot).dispatch(&WorkerRequest::new(
+        native_request_router(thread_store, config_snapshot).dispatch(&WorkerRequest::new(
             request_id.id("workspace-directory"),
             request_id.trace_id("workspace-directory"),
             "workspace.list_dir_page",
@@ -226,16 +230,17 @@ pub(crate) fn worker_workspace_directory_with_options(
 }
 
 pub(crate) fn worker_workspace_file_chunk_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     path: String,
     cursor: Option<String>,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     let request_id = next_worker_request_correlation();
     let response =
-        native_request_router(workspace_root, config_snapshot).dispatch(&WorkerRequest::new(
+        native_request_router(thread_store, config_snapshot).dispatch(&WorkerRequest::new(
             request_id.id("workspace-file-chunk"),
             request_id.trace_id("workspace-file-chunk"),
             "workspace.read_file_chunk",

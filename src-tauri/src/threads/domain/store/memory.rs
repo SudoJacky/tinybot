@@ -47,52 +47,33 @@ impl MemoryThreadStore {
         threads: Vec<ThreadRecord>,
         items: BTreeMap<String, Vec<ThreadItem>>,
     ) -> Result<(), WorkerProtocolError> {
-        let client_events = threads
-            .iter()
-            .flat_map(|thread| {
-                thread
-                    .metadata
-                    .extra
-                    .get(CLIENT_EVENT_IDS_KEY)
-                    .and_then(Value::as_object)
-                    .into_iter()
-                    .flatten()
-                    .map(|(client_event_id, item_ids)| {
-                        (
-                            (thread.thread_id.clone(), client_event_id.clone()),
-                            item_ids
-                                .as_array()
-                                .into_iter()
-                                .flatten()
-                                .filter_map(Value::as_str)
-                                .map(str::to_string)
-                                .collect::<Vec<_>>(),
-                        )
-                    })
-            })
-            .collect::<HashMap<_, _>>();
-        let client_forks = threads
-            .iter()
-            .filter_map(|thread| {
-                let source_thread_id = thread
-                    .metadata
-                    .extra
-                    .get("forkedFromThreadId")
-                    .and_then(Value::as_str)?;
-                let client_event_id = thread
-                    .metadata
-                    .extra
-                    .get("forkClientEventId")
-                    .and_then(Value::as_str)?;
-                Some((
-                    (source_thread_id.to_string(), client_event_id.to_string()),
-                    thread.thread_id.clone(),
-                ))
-            })
-            .collect::<HashMap<_, _>>();
+        let (client_events, client_forks) = projection_indexes(&threads);
         let mut state = self.lock()?;
         state.threads = threads;
         state.items = items;
+        state.client_events = client_events;
+        state.client_forks = client_forks;
+        Ok(())
+    }
+
+    pub(crate) fn replace_thread_projection(
+        &self,
+        thread: ThreadRecord,
+        items: Vec<ThreadItem>,
+    ) -> Result<(), WorkerProtocolError> {
+        let mut state = self.lock()?;
+        let thread_id = thread.thread_id.clone();
+        if let Some(existing) = state
+            .threads
+            .iter_mut()
+            .find(|existing| existing.thread_id == thread_id)
+        {
+            *existing = thread;
+        } else {
+            state.threads.push(thread);
+        }
+        state.items.insert(thread_id, items);
+        let (client_events, client_forks) = projection_indexes(&state.threads);
         state.client_events = client_events;
         state.client_forks = client_forks;
         Ok(())
@@ -787,6 +768,58 @@ impl MemoryThreadStore {
             )
         })
     }
+}
+
+fn projection_indexes(
+    threads: &[ThreadRecord],
+) -> (
+    HashMap<(String, String), Vec<String>>,
+    HashMap<(String, String), String>,
+) {
+    let client_events = threads
+        .iter()
+        .flat_map(|thread| {
+            thread
+                .metadata
+                .extra
+                .get(CLIENT_EVENT_IDS_KEY)
+                .and_then(Value::as_object)
+                .into_iter()
+                .flatten()
+                .map(|(client_event_id, item_ids)| {
+                    (
+                        (thread.thread_id.clone(), client_event_id.clone()),
+                        item_ids
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(Value::as_str)
+                            .map(str::to_string)
+                            .collect::<Vec<_>>(),
+                    )
+                })
+        })
+        .collect::<HashMap<_, _>>();
+    let client_forks = threads
+        .iter()
+        .filter_map(|thread| {
+            let source_thread_id = thread
+                .metadata
+                .extra
+                .get("forkedFromThreadId")
+                .and_then(Value::as_str)?;
+            let client_event_id = thread
+                .metadata
+                .extra
+                .get("forkClientEventId")
+                .and_then(Value::as_str)?;
+            Some((
+                (source_thread_id.to_string(), client_event_id.to_string()),
+                thread.thread_id.clone(),
+            ))
+        })
+        .collect::<HashMap<_, _>>();
+    (client_events, client_forks)
 }
 
 impl ThreadStore for MemoryThreadStore {

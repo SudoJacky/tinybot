@@ -1,14 +1,10 @@
 use crate::protocol::{WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource};
 use crate::threads::rollout::format::{RolloutItem, RolloutLine};
-use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{mpsc, Arc, Mutex, OnceLock, Weak};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
-
-static ROLLOUT_WRITERS: OnceLock<Mutex<HashMap<PathBuf, Weak<RolloutWriter>>>> = OnceLock::new();
-static ROLLOUT_PATH_LOCKS: OnceLock<Mutex<HashMap<PathBuf, Weak<Mutex<()>>>>> = OnceLock::new();
 
 enum RolloutWriterCommand {
     AddItems(Vec<RolloutLine>),
@@ -32,87 +28,6 @@ pub(super) struct RolloutWriter {
     tx: Mutex<Option<mpsc::Sender<RolloutWriterCommand>>>,
     terminal_failure: Arc<Mutex<Option<WorkerProtocolError>>>,
     worker: Mutex<Option<JoinHandle<()>>>,
-}
-
-pub(super) fn writer_for_path(path: &Path) -> Result<Arc<RolloutWriter>, WorkerProtocolError> {
-    let path_lock = path_lock_for(path)?;
-    let _path_guard = path_lock
-        .lock()
-        .map_err(|_| writer_lock_error(path, "writer path lifecycle"))?;
-    let mut writers = rollout_writers()
-        .lock()
-        .map_err(|_| writer_lock_error(path, "writer registry"))?;
-    if let Some(writer) = writers.get(path).and_then(Weak::upgrade) {
-        return Ok(writer);
-    }
-    let writer = Arc::new(RolloutWriter::spawn(path.to_path_buf())?);
-    writers.insert(path.to_path_buf(), Arc::downgrade(&writer));
-    Ok(writer)
-}
-
-pub(super) fn retire_writer_for_path<T>(
-    path: &Path,
-    operation: impl FnOnce() -> Result<T, WorkerProtocolError>,
-) -> Result<T, WorkerProtocolError> {
-    let path_lock = path_lock_for(path)?;
-    let _path_guard = path_lock
-        .lock()
-        .map_err(|_| writer_lock_error(path, "writer path lifecycle"))?;
-    let writer = {
-        let writers = rollout_writers()
-            .lock()
-            .map_err(|_| writer_lock_error(path, "writer registry"))?;
-        writers.get(path).and_then(Weak::upgrade)
-    };
-    if let Some(writer) = writer {
-        writer.shutdown()?;
-    }
-    rollout_writers()
-        .lock()
-        .map_err(|_| writer_lock_error(path, "writer registry"))?
-        .remove(path);
-    operation()
-}
-
-pub(super) fn with_inactive_writer_path<T>(
-    path: &Path,
-    operation: impl FnOnce() -> Result<T, WorkerProtocolError>,
-) -> Result<Option<T>, WorkerProtocolError> {
-    let path_lock = path_lock_for(path)?;
-    let _path_guard = path_lock
-        .lock()
-        .map_err(|_| writer_lock_error(path, "writer path lifecycle"))?;
-    let active = rollout_writers()
-        .lock()
-        .map_err(|_| writer_lock_error(path, "writer registry"))?
-        .get(path)
-        .and_then(Weak::upgrade)
-        .is_some();
-    if active {
-        return Ok(None);
-    }
-    rollout_writers()
-        .lock()
-        .map_err(|_| writer_lock_error(path, "writer registry"))?
-        .remove(path);
-    operation().map(Some)
-}
-
-fn rollout_writers() -> &'static Mutex<HashMap<PathBuf, Weak<RolloutWriter>>> {
-    ROLLOUT_WRITERS.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-fn path_lock_for(path: &Path) -> Result<Arc<Mutex<()>>, WorkerProtocolError> {
-    let mut locks = ROLLOUT_PATH_LOCKS
-        .get_or_init(|| Mutex::new(HashMap::new()))
-        .lock()
-        .map_err(|_| writer_lock_error(path, "writer path lock registry"))?;
-    if let Some(lock) = locks.get(path).and_then(Weak::upgrade) {
-        return Ok(lock);
-    }
-    let lock = Arc::new(Mutex::new(()));
-    locks.insert(path.to_path_buf(), Arc::downgrade(&lock));
-    Ok(lock)
 }
 
 impl std::fmt::Debug for RolloutWriter {
@@ -262,15 +177,6 @@ impl RolloutWriter {
 
 impl Drop for RolloutWriter {
     fn drop(&mut self) {
-        let Ok(mut writers) = rollout_writers().lock() else {
-            eprintln!(
-                "rollout_writer_registry_error path={} operation=drop error=registry_lock_poisoned",
-                self.path.display()
-            );
-            self.force_disconnect_and_join();
-            return;
-        };
-        writers.remove(&self.path);
         if let Err(error) = self.shutdown() {
             eprintln!(
                 "rollout_writer_shutdown_error path={} error={}",

@@ -10,7 +10,7 @@ use crate::agent::runtime_protocol::AgentTraceContext;
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
 use crate::rpc::call_rust_state_service;
-use std::path::PathBuf;
+use crate::threads::workspace_store::WorkspaceThreadStore;
 use std::time::Instant;
 
 fn now_unix_ms() -> u128 {
@@ -22,7 +22,7 @@ fn now_unix_ms() -> u128 {
 
 pub(crate) fn reject_native_agent_terminal_turn_reentry(
     spec: &serde_json::Value,
-    workspace_root: PathBuf,
+    thread_store: &WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
 ) -> Result<Option<serde_json::Value>, String> {
     let Some(session_id) = native_agent_rollout_id(spec) else {
@@ -33,7 +33,7 @@ pub(crate) fn reject_native_agent_terminal_turn_reentry(
     };
     let trace_context = agent_trace_context_from_value(spec);
     let existing = call_traced_state_service(
-        workspace_root,
+        thread_store,
         config_snapshot,
         &trace_context,
         "terminal-check",
@@ -116,7 +116,7 @@ fn terminal_turn_rejection(
 
 pub(crate) fn persist_native_agent_turn_start(
     spec: serde_json::Value,
-    workspace_root: PathBuf,
+    thread_store: &WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
 ) -> Result<(), String> {
     let session_id =
@@ -133,7 +133,7 @@ pub(crate) fn persist_native_agent_turn_start(
     let messages = materialized_turn_messages(&spec, &turn_id);
     let trace_context = agent_trace_context_from_value(&spec);
     call_traced_state_service(
-        workspace_root,
+        thread_store,
         config_snapshot,
         &trace_context,
         "turn-start",
@@ -270,7 +270,7 @@ fn native_agent_turn_context(
 pub(crate) fn persist_native_agent_turn_terminal_if_present(
     spec: serde_json::Value,
     result: &mut serde_json::Value,
-    workspace_root: PathBuf,
+    thread_store: &WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
 ) -> Result<(), String> {
     let session_id = native_agent_rollout_id(result)
@@ -354,7 +354,7 @@ pub(crate) fn persist_native_agent_turn_terminal_if_present(
     };
     let trace_context = trace_context_from_result_or_spec(result, &spec);
     let persisted = call_traced_state_service(
-        workspace_root,
+        thread_store,
         config_snapshot,
         &trace_context,
         "turn-record",
@@ -446,7 +446,7 @@ pub(crate) fn native_agent_turn_record(
 
 pub(crate) fn persist_native_agent_checkpoint_if_present(
     result: &serde_json::Value,
-    workspace_root: PathBuf,
+    thread_store: &WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
 ) -> Result<(), String> {
     let Some(checkpoint) = result.get("checkpoint").filter(|value| !value.is_null()) else {
@@ -462,7 +462,7 @@ pub(crate) fn persist_native_agent_checkpoint_if_present(
         .ok_or_else(|| "Rust agent checkpoint missing turn id".to_string())?;
     let trace_context = agent_trace_context_from_value(result);
     call_traced_state_service(
-        workspace_root,
+        thread_store,
         config_snapshot,
         &trace_context,
         "checkpoint-write",
@@ -492,9 +492,9 @@ pub(crate) fn cancel_agent_with_services(
 pub(crate) fn restore_agent_checkpoint_with_services(
     services: NativeAgentRuntimeServices,
     session_id: String,
-    workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = services.thread_store()?;
     let restored = services.restore_checkpoint(&session_id);
     if !restored
         .get("checkpoint")
@@ -502,7 +502,7 @@ pub(crate) fn restore_agent_checkpoint_with_services(
     {
         return restore_native_agent_checkpoint_from_session_store(
             session_id,
-            workspace_root,
+            &thread_store,
             config_snapshot,
         );
     }
@@ -512,12 +512,12 @@ pub(crate) fn restore_agent_checkpoint_with_services(
 
 fn restore_native_agent_checkpoint_from_session_store(
     session_id: String,
-    workspace_root: PathBuf,
+    thread_store: &WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     let request_id = next_worker_request_correlation();
     let checkpoint = call_rust_state_service(
-        workspace_root,
+        thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("session-get-native-checkpoint"),
@@ -570,7 +570,7 @@ fn trace_context_from_result_or_spec(
 
 #[allow(clippy::too_many_arguments)]
 fn call_traced_state_service(
-    workspace_root: PathBuf,
+    thread_store: &WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
     trace_context: &AgentTraceContext,
     operation: &str,
@@ -589,7 +589,7 @@ fn call_traced_state_service(
         ));
     }
     let started_at = Instant::now();
-    let result = call_rust_state_service(workspace_root, config_snapshot, request, label);
+    let result = call_rust_state_service(thread_store, config_snapshot, request, label);
     metrics.record_duration(
         &format!("persistence.{metric_kind}.durationMs"),
         started_at.elapsed(),

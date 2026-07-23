@@ -8,6 +8,7 @@ use crate::protocol::capability::default_desktop_capability_policy;
 use crate::protocol::request_id::{next_worker_request_correlation, WorkerRequestCorrelation};
 use crate::protocol::WorkerRequest;
 use crate::rpc::call_rust_state_service;
+use crate::threads::workspace_store::WorkspaceThreadStore;
 use crate::tools::permissions::{PermissionNetworkMode, ShellSandboxMode};
 use crate::tools::shell::{
     ShellProcessIdParams, ShellProcessListParams, ShellProcessOutput, ShellProcessPollParams,
@@ -393,7 +394,7 @@ async fn dispatch_tinyos_command(
 async fn dispatch_tinyos_agent_turn_control_command(
     shared: &SharedGateway,
     mut transport: serde_json::Value,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     let session_id = required_transport_string(&transport, "sessionId")?;
@@ -427,8 +428,9 @@ async fn dispatch_tinyos_agent_turn_control_command(
         "agent.pause" | "agent.resume" => {}
         _ => return Err(format!("unsupported TinyOS command kind: {command_kind}")),
     }
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     persist_tinyos_command_acknowledgement(
-        workspace_root,
+        &thread_store,
         config_snapshot,
         &session_id,
         &turn_id,
@@ -459,7 +461,7 @@ async fn dispatch_tinyos_agent_turn_control_command(
 }
 
 async fn dispatch_tinyos_file_command(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     mut transport: serde_json::Value,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -483,7 +485,8 @@ async fn dispatch_tinyos_file_command(
             "{command_kind} requires explicit user confirmation"
         ));
     }
-    ensure_no_active_agent_turn(&session_id, workspace_root.clone(), config_snapshot.clone())?;
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
+    ensure_no_active_agent_turn(&thread_store, &session_id, config_snapshot.clone())?;
     if !workspace_root.is_dir() {
         return Err("TinyOS file operation workspace root is unavailable".to_string());
     }
@@ -649,7 +652,8 @@ async fn dispatch_tinyos_terminal_command(
     {
         return Err("terminal.execute requires explicit user confirmation".to_string());
     }
-    ensure_no_active_agent_turn(&session_id, workspace_root.clone(), config_snapshot.clone())?;
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
+    ensure_no_active_agent_turn(&thread_store, &session_id, config_snapshot.clone())?;
     let command = required_transport_string(&transport, "command")?;
     if command.len() > 4_096 {
         return Err("terminal.execute command exceeds 4096 characters".to_string());
@@ -787,11 +791,12 @@ async fn dispatch_tinyos_retry_command(
         return Err("operation.retry requires a new target turnId".to_string());
     }
 
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     let source_item = validate_tinyos_retry_source(
+        &thread_store,
         &session_id,
         &source_turn_id,
         &item_id,
-        workspace_root.clone(),
         config_snapshot.clone(),
     )?;
     let description = tinyos_retry_source_description(&source_item);
@@ -859,12 +864,13 @@ async fn dispatch_tinyos_agent_request_change_command(
     for reference in references {
         validate_tinyos_agent_request_reference(reference)?;
     }
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     validate_tinyos_followup_turn_state(
+        &thread_store,
         &session_id,
         transport
             .get("observedTurnId")
             .and_then(serde_json::Value::as_str),
-        workspace_root.clone(),
         config_snapshot.clone(),
     )?;
     let command_metadata = serde_json::json!({
@@ -1015,14 +1021,14 @@ async fn dispatch_tinyos_new_turn_command(
 }
 
 fn validate_tinyos_followup_turn_state(
+    thread_store: &WorkspaceThreadStore,
     session_id: &str,
     observed_turn_id: Option<&str>,
-    workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> Result<(), String> {
     let request_id = next_worker_request_correlation();
     let turns = call_rust_state_service(
-        workspace_root,
+        thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("tinyos-followup-turn-list"),
@@ -1061,15 +1067,15 @@ fn validate_tinyos_followup_turn_state(
 }
 
 fn validate_tinyos_retry_source(
+    thread_store: &WorkspaceThreadStore,
     session_id: &str,
     source_turn_id: &str,
     item_id: &str,
-    workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     let request_id = next_worker_request_correlation();
     let turns = call_rust_state_service(
-        workspace_root.clone(),
+        thread_store,
         config_snapshot.clone(),
         WorkerRequest::new(
             request_id.id("tinyos-retry-turn-list"),
@@ -1105,7 +1111,7 @@ fn validate_tinyos_retry_source(
 
     let request_id = next_worker_request_correlation();
     let runtime_state = call_rust_state_service(
-        workspace_root,
+        thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("tinyos-retry-runtime-state"),
@@ -1153,13 +1159,13 @@ fn required_transport_string(value: &serde_json::Value, key: &str) -> Result<Str
 }
 
 fn ensure_no_active_agent_turn(
+    thread_store: &WorkspaceThreadStore,
     session_id: &str,
-    workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> Result<(), String> {
     let request_id = next_worker_request_correlation();
     let turns = call_rust_state_service(
-        workspace_root,
+        thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("tinyos-host-active-turns"),
@@ -1314,7 +1320,7 @@ fn emit_tinyos_host_operation(
 }
 
 fn persist_tinyos_command_acknowledgement(
-    workspace_root: PathBuf,
+    thread_store: &WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
     session_id: &str,
     turn_id: &str,
@@ -1323,7 +1329,7 @@ fn persist_tinyos_command_acknowledgement(
 ) -> Result<(), String> {
     let request_id = next_worker_request_correlation();
     call_rust_state_service(
-        workspace_root,
+        thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("tinyos-command-acknowledge"),

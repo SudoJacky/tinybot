@@ -76,7 +76,8 @@ fn cold_rollout_worker_compresses_plain_rollouts_without_changing_logical_path()
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(&path, b"{\"ordinal\":0,\"type\":\"session_meta\"}\n").unwrap();
 
-    run_rollout_compression_worker_with_age(&root, Duration::ZERO).unwrap();
+    let recorder = ThreadRecorder::new(root.clone());
+    run_rollout_compression_worker_with_age(&root, Duration::ZERO, &recorder).unwrap();
 
     assert!(!path.exists());
     assert!(compressed_rollout_path(&path).unwrap().exists());
@@ -115,7 +116,7 @@ fn cold_rollout_worker_skips_live_writer_and_future_append_remains_valid() {
         })
         .unwrap();
 
-    run_rollout_compression_worker_with_age(&root, Duration::ZERO).unwrap();
+    run_rollout_compression_worker_with_age(&root, Duration::ZERO, &recorder).unwrap();
     assert!(path.exists());
     assert!(!compressed_rollout_path(&path).unwrap().exists());
 

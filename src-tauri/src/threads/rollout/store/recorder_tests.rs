@@ -236,7 +236,7 @@ fn recorder_continues_ordinals_after_legacy_prefix() {
 }
 
 #[test]
-fn recorder_instances_share_one_process_writer_per_thread() {
+fn recorder_clones_share_one_workspace_writer_per_thread() {
     let root = temp_root("shared-writer");
     let _ = fs::remove_dir_all(&root);
     let recorder = ThreadRecorder::new(root.clone());
@@ -249,7 +249,7 @@ fn recorder_instances_share_one_process_writer_per_thread() {
         .unwrap();
     let mut workers = Vec::new();
     for index in 0..8 {
-        let recorder = ThreadRecorder::new(root.clone());
+        let recorder = recorder.clone();
         let path = path.clone();
         workers.push(std::thread::spawn(move || {
             recorder
@@ -337,7 +337,102 @@ fn recorder_flush_and_shutdown_are_acknowledged_barriers() {
 }
 
 #[test]
-fn recorder_add_items_waits_for_an_explicit_durable_barrier() {
+fn recorder_flush_all_drains_every_active_writer() {
+    let root = temp_root("flush-all");
+    let _ = fs::remove_dir_all(&root);
+    let recorder = ThreadRecorder::new(root.clone());
+    let first = recorder
+        .create_thread(thread_meta(
+            &root,
+            "thread-flush-all-a",
+            "2026-07-08T10:12:30Z",
+        ))
+        .unwrap();
+    let second = recorder
+        .create_thread(thread_meta(
+            &root,
+            "thread-flush-all-b",
+            "2026-07-08T10:12:31Z",
+        ))
+        .unwrap();
+    for path in [&first, &second] {
+        recorder
+            .add_items(
+                path,
+                "2026-07-08T10:13:30Z".to_string(),
+                vec![value_event(
+                    EventKind::UserMessage,
+                    serde_json::json!({ "barrier": "flush_all" }),
+                )],
+            )
+            .unwrap();
+    }
+
+    recorder.flush_all().unwrap();
+
+    assert_eq!(read_thread_lines(&first).unwrap().len(), 2);
+    assert_eq!(read_thread_lines(&second).unwrap().len(), 2);
+    recorder.shutdown_all().unwrap();
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn recorder_flush_all_does_not_create_thread_storage() {
+    let root = temp_root("flush-all-empty");
+    let _ = fs::remove_dir_all(&root);
+    let recorder = ThreadRecorder::new(root.clone());
+
+    recorder.flush_all().unwrap();
+
+    assert!(!root.join(".tinybot").join("threads").exists());
+    recorder.shutdown_all().unwrap();
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn recorder_shutdown_all_drains_writers_and_closes_every_clone() {
+    let root = temp_root("shutdown-all");
+    let _ = fs::remove_dir_all(&root);
+    let recorder = ThreadRecorder::new(root.clone());
+    let clone = recorder.clone();
+    let path = recorder
+        .create_thread(thread_meta(
+            &root,
+            "thread-shutdown-all",
+            "2026-07-08T10:12:30Z",
+        ))
+        .unwrap();
+    recorder
+        .add_items(
+            &path,
+            "2026-07-08T10:13:30Z".to_string(),
+            vec![value_event(
+                EventKind::UserMessage,
+                serde_json::json!({ "barrier": "shutdown_all" }),
+            )],
+        )
+        .unwrap();
+
+    recorder.shutdown_all().unwrap();
+    recorder.shutdown_all().unwrap();
+
+    assert_eq!(read_thread_lines(&path).unwrap().len(), 2);
+    let error = clone
+        .append_item(
+            &path,
+            "2026-07-08T10:14:30Z".to_string(),
+            value_event(
+                EventKind::UserMessage,
+                serde_json::json!({ "after": "shutdown_all" }),
+            ),
+        )
+        .unwrap_err();
+    assert!(error.message.contains("shut down"));
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn recorder_add_items_waits_for_an_explicit_flush_barrier() {
     let root = temp_root("add-items-buffered");
     let _ = fs::remove_dir_all(&root);
     let recorder = ThreadRecorder::new(root.clone());
@@ -433,7 +528,7 @@ fn recorder_delete_fences_live_writers_before_removing_rollout() {
             "2026-07-08T10:12:30Z",
         ))
         .unwrap();
-    let concurrent = ThreadRecorder::new(root.clone());
+    let concurrent = owner.clone();
     concurrent
         .add_items(
             &path,
@@ -460,7 +555,7 @@ fn recorder_delete_fences_live_writers_before_removing_rollout() {
         .unwrap_err();
     assert!(error
         .message
-        .contains("stopped before acknowledging command"));
+        .contains("new rollout must begin with session metadata"));
     assert!(!path.exists());
     let _ = fs::remove_dir_all(root);
 }

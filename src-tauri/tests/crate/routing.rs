@@ -49,7 +49,9 @@ use std::time::Duration;
 #[test]
 fn worker_webui_approval_and_form_routes_report_missing_checkpoints_with_rust_metadata() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
     let config = serde_json::json!({
         "desktop": { "nativeAgentRuntime": "rust" }
     });
@@ -174,7 +176,9 @@ fn worker_skills_list_reads_rust_workspace() {
         "skills/planner/SKILL.md",
         "---\nname: planner\ndescription: Plan work\n---\nPlan.",
     );
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
 
     let result = worker_skills_list_with_options(
         &shared,
@@ -193,7 +197,9 @@ fn worker_skills_list_reads_rust_workspace() {
 fn worker_workspace_file_commands_use_rust_workspace() {
     let fixture = WorkspaceFixture::new();
     fixture.write("docs/readme.md", "old readme");
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
 
     let files = worker_workspace_files_with_options(
         &shared,
@@ -254,7 +260,9 @@ fn worker_session_read_commands_use_rollout_state() {
             }
         }]
     }));
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
 
     let sessions = worker_sessions_list_with_options(
         &shared,
@@ -306,7 +314,7 @@ fn worker_agent_turn_runtime_commands_use_thread_log_turn_store() {
         "error": null
     });
     call_rust_state_service(
-        fixture.root.clone(),
+        &fixture.thread_store,
         serde_json::json!({}),
         WorkerRequest::new(
             "req-seed-agent-turn-thread-log",
@@ -318,7 +326,7 @@ fn worker_agent_turn_runtime_commands_use_thread_log_turn_store() {
     )
     .expect("agent turn should seed thread log store");
     call_rust_state_service(
-        fixture.root.clone(),
+        &fixture.thread_store,
         serde_json::json!({}),
         WorkerRequest::new(
             "req-seed-agent-turn-semantic",
@@ -350,7 +358,9 @@ fn worker_agent_turn_runtime_commands_use_thread_log_turn_store() {
         "agent turn semantic seed",
     )
     .expect("agent turn semantic records should seed thread log store");
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
 
     let turns = worker_turns_list_with_options(
         &shared,
@@ -400,7 +410,9 @@ fn worker_session_write_commands_use_rollout_state_on_rust_backend() {
             }
         }]
     }));
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
 
     let patch = worker_session_patch_with_options(
         &shared,
@@ -478,7 +490,9 @@ fn worker_session_branch_creates_new_session_without_runtime_state() {
             }
         }]
     }));
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
 
     let branch = worker_session_branch_with_options(
         &shared,
@@ -531,7 +545,9 @@ fn worker_session_branch_creates_new_session_without_runtime_state() {
 #[test]
 fn worker_cowork_route_serves_rust_sessions_on_rust_backend() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
 
     let created = worker_cowork_route_with_options(
         &shared,
@@ -661,7 +677,9 @@ fn worker_cowork_route_serves_rust_sessions_on_rust_backend() {
 #[test]
 fn worker_webui_tools_route_returns_effective_catalog() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
 
     let response = worker_webui_route_with_options(
         &shared,
@@ -701,7 +719,9 @@ fn worker_webui_route_serves_rust_owned_state_routes_on_rust_backend() {
             "extra": { "messages": [{ "role": "user", "content": "route" }] }
         }]
     }));
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
 
     let bootstrap = worker_webui_route_with_options(
         &shared,
@@ -921,7 +941,9 @@ fn worker_webui_route_serves_rust_owned_state_routes_on_rust_backend() {
 #[test]
 fn worker_webui_route_classifies_rust_owned_chat_and_unsupported_routes_on_rust_backend() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
 
     let chat = worker_webui_route_with_options(
         &shared,
@@ -979,7 +1001,9 @@ fn worker_webui_route_classifies_rust_owned_chat_and_unsupported_routes_on_rust_
 #[test]
 fn worker_webui_known_unsupported_routes_keep_targeted_policy_metadata() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
 
     for (method, path, route_group) in [
         ("PATCH", "/api/config", "config"),
@@ -1028,7 +1052,9 @@ fn worker_background_trace_list_request_wraps_filter_for_background_rpc() {
 #[test]
 fn worker_background_trace_list_reads_rust_registry_on_rust_backend() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
     let append = worker_background_trace_append_with_options(
         &shared,
         WorkerBackgroundTraceAppendInput {
@@ -1070,7 +1096,9 @@ fn worker_background_trace_list_reads_rust_registry_on_rust_backend() {
 #[test]
 fn worker_task_plan_commands_use_rust_store() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
     let plan = serde_json::json!({
         "id": "plan-1",
         "title": "Move state service",
@@ -1227,7 +1255,9 @@ fn worker_background_subagent_enqueue_input_request_wraps_subagent_payload() {
 #[test]
 fn worker_background_subagent_enqueue_input_writes_rust_registry() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
 
     let result = worker_background_subagent_enqueue_input_with_options(
         &shared,

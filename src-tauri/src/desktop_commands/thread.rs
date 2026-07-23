@@ -1,5 +1,5 @@
 use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
-use crate::desktop::SharedGateway;
+use crate::desktop::{lock_runtime, SharedGateway};
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
 use crate::rpc::call_rust_state_service;
@@ -91,10 +91,11 @@ pub(crate) fn worker_thread_request_with_options(
     request_suffix: &str,
     method: &str,
     body: serde_json::Value,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     let requested_turn_id = body
         .get("turnId")
         .or_else(|| body.get("turn_id"))
@@ -104,7 +105,7 @@ pub(crate) fn worker_thread_request_with_options(
         .map(str::to_string);
     let request_id = next_worker_request_correlation();
     let mut result = call_rust_state_service(
-        workspace_root,
+        &thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id(request_suffix),
@@ -125,7 +126,7 @@ pub(crate) fn worker_thread_request_with_options(
         if let Some(turn_id) = turn_id {
             let services = {
                 let runtime = crate::desktop::state::lock_runtime(shared);
-                runtime.native_agent_runtime.clone()
+                runtime.native_agent_services()
             };
             let cancellation = services.cancel(&turn_id);
             let result_object = result.as_object_mut().ok_or_else(|| {

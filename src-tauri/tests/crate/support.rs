@@ -1,6 +1,7 @@
 use crate::protocol::request_id::WorkerRequestCorrelation;
 use crate::protocol::WorkerRequest;
 use crate::rpc::call_rust_state_service;
+use crate::threads::workspace_store::WorkspaceThreadStore;
 use std::path::PathBuf;
 
 #[cfg(target_os = "windows")]
@@ -24,13 +25,13 @@ pub(super) fn lifecycle_echo_command() -> String {
 }
 
 pub(super) fn read_agent_turn_record(
-    workspace_root: PathBuf,
+    thread_store: &WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
     session_id: &str,
     turn_id: &str,
 ) -> serde_json::Value {
     call_rust_state_service(
-        workspace_root,
+        thread_store,
         config_snapshot,
         WorkerRequest::new(
             "req-agent-turn-get",
@@ -75,6 +76,7 @@ pub(super) fn compatibility_thread_log_paths(
 
 pub(super) struct WorkspaceFixture {
     pub(super) root: PathBuf,
+    pub(super) thread_store: WorkspaceThreadStore,
 }
 
 impl WorkspaceFixture {
@@ -88,7 +90,11 @@ impl WorkspaceFixture {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&root).expect("workspace fixture should create");
-        Self { root }
+        let thread_store = WorkspaceThreadStore::new(
+            root.clone(),
+            crate::protocol::capability::default_desktop_capability_policy(),
+        );
+        Self { root, thread_store }
     }
 
     pub(super) fn write(&self, relative_path: &str, contents: &str) {
@@ -205,6 +211,7 @@ impl WorkspaceFixture {
 
 impl Drop for WorkspaceFixture {
     fn drop(&mut self) {
+        let _ = self.thread_store.shutdown();
         let _ = std::fs::remove_dir_all(&self.root);
     }
 }

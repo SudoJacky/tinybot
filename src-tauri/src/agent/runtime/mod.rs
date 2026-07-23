@@ -528,6 +528,7 @@ pub struct NativeAgentRuntimeServices {
     context_contributors: context_contributors::AgentContextContributorRegistry,
     metrics: AgentRuntimeMetrics,
     approvals: approvals::NativeAgentApprovalBroker,
+    thread_store: Option<crate::threads::workspace_store::WorkspaceThreadStore>,
     #[cfg(test)]
     test_activated_tool_ids: Vec<String>,
     #[cfg(test)]
@@ -559,6 +560,7 @@ impl NativeAgentRuntimeServices {
             context_contributors: context_contributors::AgentContextContributorRegistry::default(),
             metrics: crate::runtime::observability::global_agent_runtime_metrics().clone(),
             approvals: approvals::NativeAgentApprovalBroker::default(),
+            thread_store: None,
             #[cfg(test)]
             test_activated_tool_ids: Vec::new(),
             #[cfg(test)]
@@ -650,6 +652,22 @@ impl NativeAgentRuntimeServices {
     pub(crate) fn with_mcp_runtime(mut self, runtime: McpRuntime) -> Self {
         self.mcp_runtime = runtime;
         self
+    }
+
+    pub(crate) fn with_thread_store(
+        mut self,
+        thread_store: crate::threads::workspace_store::WorkspaceThreadStore,
+    ) -> Self {
+        self.thread_store = Some(thread_store);
+        self
+    }
+
+    pub(crate) fn thread_store(
+        &self,
+    ) -> Result<crate::threads::workspace_store::WorkspaceThreadStore, String> {
+        self.thread_store
+            .clone()
+            .ok_or_else(|| "native agent workspace thread store is unavailable".to_string())
     }
 
     pub(crate) fn mcp_runtime(&self) -> McpRuntime {

@@ -1,5 +1,4 @@
 use crate::collaboration::subagents::{SubagentThreadManager, SubagentThreadStatus};
-use crate::protocol::capability::default_desktop_capability_policy;
 use crate::protocol::WorkerProtocolError;
 use crate::runtime::mcp::McpRuntime;
 use crate::runtime::turn_execution::{ShutdownReport, TurnExecutionRuntime};
@@ -8,11 +7,10 @@ use crate::threads::domain::{
 };
 use crate::threads::rollout::store::{
     AgentTurnRecoveryEntry, ThreadLogIndexConsistencyReport, ThreadLogIndexRepairReport,
-    WorkerThreadLogRpc,
 };
+use crate::threads::workspace_store::WorkspaceThreadStore;
 use crate::tools::shell::{ShellProcessCleanupReport, WorkerShellRuntime};
 use serde::Serialize;
-use std::path::Path;
 use std::time::{Duration, Instant};
 
 const MAX_LIFECYCLE_DIAGNOSTICS: usize = 50;
@@ -134,6 +132,7 @@ pub(crate) struct RuntimeLifecycle {
     shell: WorkerShellRuntime,
     mcp: McpRuntime,
     subagents: SubagentThreadManager,
+    threads: WorkspaceThreadStore,
 }
 
 impl RuntimeLifecycle {
@@ -142,16 +141,22 @@ impl RuntimeLifecycle {
         shell: WorkerShellRuntime,
         mcp: McpRuntime,
         subagents: SubagentThreadManager,
+        threads: WorkspaceThreadStore,
     ) -> Self {
         Self {
             agent_tasks,
             shell,
             mcp,
             subagents,
+            threads,
         }
     }
 
-    pub(crate) async fn shutdown(&self, timeout: Duration) -> RuntimeShutdownReport {
+    pub(crate) async fn shutdown(
+        &self,
+        timeout: Duration,
+        final_shutdown: bool,
+    ) -> RuntimeShutdownReport {
         let started = Instant::now();
         let mut failures = Vec::new();
 
@@ -246,10 +251,36 @@ impl RuntimeLifecycle {
                     .to_string(),
             }
         } else {
-            LifecycleStageReport {
-                completed: true,
-                detail: "Runtime stores are write-through and each owned rollout writer drains on release."
-                    .to_string(),
+            let result = if final_shutdown {
+                self.threads.shutdown()
+            } else {
+                self.threads.flush()
+            };
+            match result {
+                Ok(()) => LifecycleStageReport {
+                    completed: true,
+                    detail: if final_shutdown {
+                        "Workspace thread store flushed and all rollout writers stopped."
+                            .to_string()
+                    } else {
+                        "Workspace thread store and all active rollout writers flushed.".to_string()
+                    },
+                },
+                Err(error) => {
+                    failures.push(LifecycleFailure {
+                        stage: "state_persistence".to_string(),
+                        code: if final_shutdown {
+                            "shutdown_failed".to_string()
+                        } else {
+                            "flush_failed".to_string()
+                        },
+                        message: error.message.clone(),
+                    });
+                    LifecycleStageReport {
+                        completed: false,
+                        detail: error.message,
+                    }
+                }
             }
         };
 
@@ -266,14 +297,14 @@ impl RuntimeLifecycle {
     }
 
     pub(crate) fn reconcile_startup(
-        workspace_root: &Path,
+        thread_store: &WorkspaceThreadStore,
     ) -> Result<RuntimeStartupRecoveryReport, WorkerProtocolError> {
         let recovery_started = Instant::now();
         let metrics = crate::runtime::observability::global_agent_runtime_metrics();
         metrics.increment("recovery.orphaned_turns.requested");
-        let policy = default_desktop_capability_policy();
-        let thread = WorkerThreadRpc::new(workspace_root.to_path_buf(), policy.clone());
-        let thread_log = WorkerThreadLogRpc::new(workspace_root.to_path_buf(), policy);
+        let mut operation = thread_store.begin_operation()?;
+        let thread = operation.thread();
+        let thread_log = operation.thread_log();
         let mut report = RuntimeStartupRecoveryReport::default();
 
         report.session_log_index_migration = thread_log.prepare_state_index_for_startup()?;
@@ -385,6 +416,7 @@ impl RuntimeLifecycle {
             recovery_started.elapsed(),
         );
         metrics.increment("recovery.orphaned_turns.completed");
+        operation.reload_projection()?;
         Ok(report)
     }
 }

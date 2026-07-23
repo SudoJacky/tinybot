@@ -107,7 +107,9 @@ fn worker_transport_websocket_maps_controlled_host_commands() {
 #[test]
 fn worker_transport_dispatches_a_revision_guarded_file_command_and_rejects_fake_browser_control() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
     let session_id = "websocket:chat-host-file";
     let operation_id = "tinyos-host-file-test";
     let dispatched = worker_transport_dispatch_websocket_message_with_options(
@@ -139,7 +141,7 @@ fn worker_transport_dispatches_a_revision_guarded_file_command_and_rejects_fake_
     )
     .expect("confirmed file command should dispatch");
     let threads = call_rust_state_service(
-        fixture.root.clone(),
+        &fixture.thread_store,
         serde_json::json!({}),
         WorkerRequest::new(
             "req-host-file-thread-list",
@@ -268,7 +270,7 @@ fn worker_transport_dispatches_a_revision_guarded_file_command_and_rejects_fake_
         "{invalid_action_error}"
     );
     let threads_after_rejections = call_rust_state_service(
-        fixture.root.clone(),
+        &fixture.thread_store,
         serde_json::json!({}),
         WorkerRequest::new(
             "req-host-browser-rejection-thread-list",
@@ -391,7 +393,9 @@ fn worker_transport_websocket_maps_correlated_agent_pause_command() {
 #[test]
 fn worker_transport_agent_request_change_starts_new_correlated_turn() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
     let session_id = "websocket:chat-agent-request";
     let request_turn_id = "turn-agent-request-target";
     let references = serde_json::json!([{
@@ -519,7 +523,9 @@ fn worker_transport_agent_request_change_starts_new_correlated_turn() {
 #[test]
 fn worker_transport_operation_retry_starts_new_correlated_turn() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
     let session_id = "websocket:chat-operation-retry";
     let source_turn_id = "turn-operation-retry-source";
     let failed_config = serde_json::json!({
@@ -626,7 +632,9 @@ fn worker_transport_operation_retry_starts_new_correlated_turn() {
 #[test]
 fn tinyos_terminal_execute_fails_closed_without_network_enforcement_and_leaks_no_process() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
     let session_id = "websocket:chat-host-terminal";
     let operation_id = "tinyos-host-terminal-cancel-test";
     let error = worker_transport_dispatch_websocket_message_with_options(
@@ -669,7 +677,7 @@ fn tinyos_terminal_execute_fails_closed_without_network_enforcement_and_leaks_no
     );
 
     let threads = call_rust_state_service(
-        fixture.root.clone(),
+        &fixture.thread_store,
         serde_json::json!({}),
         WorkerRequest::new(
             "req-host-terminal-thread-list",

@@ -1,5 +1,5 @@
 use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
-use crate::desktop::SharedGateway;
+use crate::desktop::{lock_runtime, SharedGateway};
 use crate::native_browser::SharedBrowserRuntime;
 use crate::protocol::capability::{
     default_desktop_capability_policy, CapabilityPolicy, WorkerCapability,
@@ -7,6 +7,7 @@ use crate::protocol::capability::{
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
 use crate::rpc::call_rust_state_service;
+use crate::threads::workspace_store::WorkspaceThreadStore;
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, time::Duration};
 use tauri::State;
@@ -210,14 +211,15 @@ pub(crate) fn worker_session_task_progress(
 }
 
 pub(crate) fn worker_sessions_list_with_options(
-    _shared: &SharedGateway,
-    workspace_root: PathBuf,
+    shared: &SharedGateway,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     let request_id = next_worker_request_correlation();
     let result = call_rust_state_service(
-        workspace_root,
+        &thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("threads-list"),
@@ -241,16 +243,17 @@ pub(crate) fn worker_sessions_list_with_options(
 }
 
 pub(crate) fn worker_session_messages_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     key: String,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let thread_id = resolve_thread_id(&key, workspace_root.clone(), config_snapshot.clone())?;
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
+    let thread_id = resolve_thread_id(&thread_store, &key, config_snapshot.clone())?;
     let request_id = next_worker_request_correlation();
     let mut history = call_rust_state_service(
-        workspace_root.clone(),
+        &thread_store,
         config_snapshot.clone(),
         WorkerRequest::new(
             request_id.id("thread-messages"),
@@ -283,30 +286,22 @@ pub(crate) fn worker_session_messages_with_options(
     if let Some(updated_at) = object.get("updatedAt").cloned() {
         object.insert("updated_at".to_string(), updated_at);
     }
-    enrich_thread_history_metadata(
-        object,
-        &canonical_thread_id,
-        workspace_root,
-        config_snapshot,
-    )?;
+    enrich_thread_history_metadata(&thread_store, object, &canonical_thread_id, config_snapshot)?;
     Ok(history)
 }
 
 pub(crate) fn worker_turns_list_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     session_key: String,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let thread_id = resolve_thread_id(
-        &session_key,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-    )?;
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
+    let thread_id = resolve_thread_id(&thread_store, &session_key, config_snapshot.clone())?;
     let request_id = next_worker_request_correlation();
     call_rust_state_service(
-        workspace_root,
+        &thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("agent-turn-list"),
@@ -319,21 +314,18 @@ pub(crate) fn worker_turns_list_with_options(
 }
 
 pub(crate) fn worker_turn_runtime_state_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     session_key: String,
     turn_id: String,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let thread_id = resolve_thread_id(
-        &session_key,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-    )?;
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
+    let thread_id = resolve_thread_id(&thread_store, &session_key, config_snapshot.clone())?;
     let request_id = next_worker_request_correlation();
     let mut runtime_state = call_rust_state_service(
-        workspace_root,
+        &thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("agent-turn-runtime-state"),
@@ -569,16 +561,17 @@ fn unavailable_capability(reason_code: &str, reason: &str) -> serde_json::Value 
 }
 
 pub(crate) fn worker_session_delete_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     key: String,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let thread_id = resolve_thread_id(&key, workspace_root.clone(), config_snapshot.clone())?;
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
+    let thread_id = resolve_thread_id(&thread_store, &key, config_snapshot.clone())?;
     let request_id = next_worker_request_correlation();
     let mut result = call_rust_state_service(
-        workspace_root,
+        &thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("thread-delete"),
@@ -594,22 +587,23 @@ pub(crate) fn worker_session_delete_with_options(
 }
 
 pub(crate) fn worker_session_patch_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     key: String,
     body: serde_json::Value,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     let metadata = body
         .get("metadata")
         .cloned()
         .unwrap_or_else(|| body.clone());
     let metadata_patch = thread_metadata_patch(&metadata)?;
-    let thread_id = resolve_thread_id(&key, workspace_root.clone(), config_snapshot.clone())?;
+    let thread_id = resolve_thread_id(&thread_store, &key, config_snapshot.clone())?;
     let request_id = next_worker_request_correlation();
     let thread = call_rust_state_service(
-        workspace_root,
+        &thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("thread-patch"),
@@ -625,12 +619,13 @@ pub(crate) fn worker_session_patch_with_options(
 }
 
 pub(crate) fn worker_session_branch_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     body: serde_json::Value,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     let request_id = next_worker_request_correlation();
     let branch_key = branch_session_key(&body, request_id.suffix());
     let branch_turn_id = branch_string(&body, "turnId")
@@ -644,11 +639,8 @@ pub(crate) fn worker_session_branch_with_options(
     let source_session = branch_string(&body, "branchedFromSessionId")
         .or_else(|| branch_string(&body, "branched_from_session_id"))
         .unwrap_or_default();
-    let source_thread_id = resolve_thread_id(
-        &source_session,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-    )?;
+    let source_thread_id =
+        resolve_thread_id(&thread_store, &source_session, config_snapshot.clone())?;
     let source_message = branch_string(&body, "branchedFromMessageId")
         .or_else(|| branch_string(&body, "branched_from_message_id"))
         .unwrap_or_default();
@@ -658,7 +650,7 @@ pub(crate) fn worker_session_branch_with_options(
         .cloned()
         .unwrap_or_else(|| serde_json::json!({}));
     let created = call_rust_state_service(
-        workspace_root.clone(),
+        &thread_store,
         config_snapshot.clone(),
         WorkerRequest::new(
             request_id.id("thread-branch-create"),
@@ -689,7 +681,7 @@ pub(crate) fn worker_session_branch_with_options(
         .ok_or_else(|| "worker thread branch create failed: missing threadId".to_string())?
         .to_string();
     let thread = call_rust_state_service(
-        workspace_root,
+        &thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("thread-branch-append"),
@@ -707,16 +699,17 @@ pub(crate) fn worker_session_branch_with_options(
 }
 
 pub(crate) fn worker_session_clear_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     key: String,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let thread_id = resolve_thread_id(&key, workspace_root.clone(), config_snapshot.clone())?;
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
+    let thread_id = resolve_thread_id(&thread_store, &key, config_snapshot.clone())?;
     let request_id = next_worker_request_correlation();
     let mut result = call_rust_state_service(
-        workspace_root,
+        &thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("thread-clear"),
@@ -740,13 +733,14 @@ pub(crate) fn worker_session_clear_with_options(
 }
 
 pub(crate) fn worker_session_task_progress_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     key: String,
     body: serde_json::Value,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     let turn_id = body
         .get("turnId")
         .or_else(|| body.get("turn_id"))
@@ -767,10 +761,10 @@ pub(crate) fn worker_session_task_progress_with_options(
         .or_else(|| body.get("message"))
         .and_then(serde_json::Value::as_str)
         .unwrap_or("Task progress updated.");
-    let thread_id = resolve_thread_id(&key, workspace_root.clone(), config_snapshot.clone())?;
+    let thread_id = resolve_thread_id(&thread_store, &key, config_snapshot.clone())?;
     let request_id = next_worker_request_correlation();
     let thread = call_rust_state_service(
-        workspace_root,
+        &thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("thread-task-progress"),
@@ -851,14 +845,14 @@ fn webui_thread_item(thread: &serde_json::Value) -> Result<serde_json::Value, St
 }
 
 fn enrich_thread_history_metadata(
+    thread_store: &WorkspaceThreadStore,
     object: &mut serde_json::Map<String, serde_json::Value>,
     thread_id: &str,
-    workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> Result<(), String> {
     let request_id = next_worker_request_correlation();
     let snapshot = call_rust_state_service(
-        workspace_root,
+        thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("thread-history-metadata"),
@@ -941,13 +935,13 @@ fn branch_string(value: &serde_json::Value, key: &str) -> Option<String> {
 }
 
 fn resolve_thread_id(
+    thread_store: &WorkspaceThreadStore,
     session_key: &str,
-    workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> Result<String, String> {
     let request_id = next_worker_request_correlation();
     let result = call_rust_state_service(
-        workspace_root,
+        thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("thread-resolve-session-key"),

@@ -349,6 +349,7 @@ async fn worker_webui_rust_route_with_options(
         ("POST", "/webui/refresh-token") => Some(Ok(native_webui_bootstrap_body())),
         ("GET", "/api/status") => Some(Ok(native_webui_status_body(shared))),
         ("GET", "/api/config") => Some(worker_webui_config_body(
+            shared,
             workspace_root.clone(),
             config_snapshot.clone(),
         )),
@@ -385,8 +386,8 @@ async fn worker_webui_rust_route_with_options(
             timeout,
         )),
         ("GET", "/api/approvals") => Some(native_webui_approvals_body(
+            shared,
             &query,
-            workspace_root.clone(),
             config_snapshot.clone(),
         )),
         ("POST", "/api/skills") => Some(worker_skills_create_with_options(
@@ -683,12 +684,14 @@ fn native_webui_status_body(shared: &SharedGateway) -> serde_json::Value {
 }
 
 fn worker_webui_config_body(
-    workspace_root: PathBuf,
+    shared: &SharedGateway,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     let request_id = next_worker_request_correlation();
     let snapshot = call_rust_state_service(
-        workspace_root,
+        &thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("webui-config"),
@@ -703,14 +706,17 @@ fn worker_webui_config_body(
 
 async fn worker_webui_tools_body(
     shared: &SharedGateway,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let mcp_runtime = { lock_runtime(shared).mcp_runtime.clone() };
+    let (mcp_runtime, thread_store) = {
+        let runtime = lock_runtime(shared);
+        (runtime.mcp_runtime.clone(), runtime.thread_store.clone())
+    };
     tauri::async_runtime::spawn_blocking(move || {
         let request_id = next_worker_request_correlation();
         let mut router =
-            native_request_router(workspace_root, config_snapshot).with_mcp_runtime(mcp_runtime);
+            native_request_router(thread_store, config_snapshot).with_mcp_runtime(mcp_runtime);
         let response = router.dispatch(
             &WorkerRequest::new(
                 request_id.id("webui-tools"),
@@ -732,8 +738,8 @@ async fn worker_webui_tools_body(
 }
 
 fn native_webui_approvals_body(
+    shared: &SharedGateway,
     query: &HashMap<String, String>,
-    workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     let session_key = query
@@ -744,9 +750,13 @@ fn native_webui_approvals_body(
     let checkpoint = if session_key.is_empty() {
         None
     } else {
+        let thread_store = {
+            let runtime = lock_runtime(shared);
+            runtime.thread_store.clone()
+        };
         native_session_checkpoint(
             &session_key,
-            workspace_root,
+            &thread_store,
             config_snapshot,
             "native approvals checkpoint lookup",
         )?
@@ -768,7 +778,7 @@ pub(crate) async fn native_webui_approval_resolution_body_async(
 ) -> Result<serde_json::Value, String> {
     let base_services = {
         let runtime = lock_runtime(shared);
-        runtime.native_agent_runtime.clone()
+        runtime.native_agent_services()
     };
     resolve_approval_body_with_services(
         base_services,
@@ -791,7 +801,7 @@ pub(crate) async fn native_webui_agent_ui_form_resolution_body_async(
 ) -> Result<(u16, serde_json::Value), String> {
     let base_services = {
         let runtime = lock_runtime(shared);
-        runtime.native_agent_runtime.clone()
+        runtime.native_agent_services()
     };
     resolve_agent_ui_form_body_with_services(
         base_services,

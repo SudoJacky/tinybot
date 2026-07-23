@@ -2,7 +2,7 @@ use crate::agent::bridge::{native_agent_session_id, native_agent_string_field};
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
 use crate::rpc::call_rust_state_service;
-use std::path::PathBuf;
+use crate::threads::workspace_store::WorkspaceThreadStore;
 
 pub(crate) fn native_agent_user_messages(spec: &serde_json::Value) -> Vec<serde_json::Value> {
     if let Some(messages) = spec.get("messages").and_then(serde_json::Value::as_array) {
@@ -58,7 +58,7 @@ pub(crate) fn native_agent_thread_id(spec: &serde_json::Value) -> Option<String>
 
 pub(crate) fn hydrate_native_agent_history_for_runtime(
     mut spec: serde_json::Value,
-    workspace_root: PathBuf,
+    thread_store: &WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     let Some(session_id) = native_agent_session_id(&spec) else {
@@ -69,7 +69,7 @@ pub(crate) fn hydrate_native_agent_history_for_runtime(
         return Ok(spec);
     }
     let (history_messages, source_checkpoint) =
-        native_agent_session_history_messages(&session_id, workspace_root, config_snapshot)?;
+        native_agent_session_history_messages(&session_id, thread_store, config_snapshot)?;
     if history_messages.is_empty() {
         return Ok(spec);
     }
@@ -109,12 +109,12 @@ fn native_agent_runtime_messages(spec: &serde_json::Value) -> Vec<serde_json::Va
 
 fn native_agent_session_history_messages(
     session_id: &str,
-    workspace_root: PathBuf,
+    thread_store: &WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
 ) -> Result<(Vec<serde_json::Value>, Option<serde_json::Value>), String> {
     let request_id = next_worker_request_correlation();
     let history = call_rust_state_service(
-        workspace_root,
+        thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("session-history-for-agent-turn"),

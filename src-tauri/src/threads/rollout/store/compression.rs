@@ -5,16 +5,18 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime};
 
+use super::recorder::ThreadRecorder;
+
 const ZSTD_LEVEL: i32 = 3;
 const MIN_ROLLOUT_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const RUN_MARKER_STALE_AFTER: Duration = Duration::from_secs(6 * 60 * 60);
 static TEMP_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
-pub(super) fn spawn_rollout_compression_worker(workspace_root: PathBuf) {
+pub(super) fn spawn_rollout_compression_worker(workspace_root: PathBuf, recorder: ThreadRecorder) {
     if let Err(error) = std::thread::Builder::new()
         .name("tinybot-rollout-compression".to_string())
         .spawn(move || {
-            if let Err(error) = run_rollout_compression_worker(&workspace_root) {
+            if let Err(error) = run_rollout_compression_worker(&workspace_root, &recorder) {
                 eprintln!(
                     "rollout_compression_worker_failed workspace={} error={}",
                     workspace_root.display(),
@@ -340,13 +342,17 @@ impl Drop for CompressionRunMarker {
     }
 }
 
-fn run_rollout_compression_worker(workspace_root: &Path) -> Result<(), WorkerProtocolError> {
-    run_rollout_compression_worker_with_age(workspace_root, MIN_ROLLOUT_AGE)
+fn run_rollout_compression_worker(
+    workspace_root: &Path,
+    recorder: &ThreadRecorder,
+) -> Result<(), WorkerProtocolError> {
+    run_rollout_compression_worker_with_age(workspace_root, MIN_ROLLOUT_AGE, recorder)
 }
 
 fn run_rollout_compression_worker_with_age(
     workspace_root: &Path,
     minimum_age: Duration,
+    recorder: &ThreadRecorder,
 ) -> Result<(), WorkerProtocolError> {
     let rollout_roots = [
         workspace_root.join(".tinybot").join("archived_threads"),
@@ -414,9 +420,7 @@ fn run_rollout_compression_worker_with_age(
                     skipped = skipped.saturating_add(1);
                     continue;
                 }
-                match super::rollout_writer::with_inactive_writer_path(&path, || {
-                    compress_rollout(&path)
-                }) {
+                match recorder.with_inactive_writer_path(&path, || compress_rollout(&path)) {
                     Ok(Some(())) => compressed = compressed.saturating_add(1),
                     Ok(None) => skipped = skipped.saturating_add(1),
                     Err(error) => {

@@ -18,12 +18,11 @@ pub(crate) async fn run_agent_with_services(
     config_snapshot: serde_json::Value,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = base_services.thread_store()?;
     let trace_context = ensure_agent_trace_context(&mut spec)?;
-    if let Some(mut rejection) = reject_native_agent_terminal_turn_reentry(
-        &spec,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-    )? {
+    if let Some(mut rejection) =
+        reject_native_agent_terminal_turn_reentry(&spec, &thread_store, config_snapshot.clone())?
+    {
         rejection["traceContext"] = serde_json::to_value(trace_context)
             .map_err(|error| format!("failed to serialize terminal turn trace context: {error}"))?;
         return Ok(rejection);
@@ -39,25 +38,22 @@ pub(crate) async fn run_agent_with_services(
         serde_json::Value::String(instructions.rendered_prompt().to_string());
     persist_native_agent_turn_start(
         persistence_spec.clone(),
-        workspace_root.clone(),
+        &thread_store,
         config_snapshot.clone(),
     )?;
-    let runtime_spec = hydrate_native_agent_history_for_runtime(
-        spec,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-    )?;
+    let runtime_spec =
+        hydrate_native_agent_history_for_runtime(spec, &thread_store, config_snapshot.clone())?;
     let services = native_agent_services_with_tool_executor(
         base_services,
         workspace_root.clone(),
         config_snapshot.clone(),
-    )
+    )?
     .with_context_checkpoint_committer(native_agent_context_checkpoint_committer(
-        workspace_root.clone(),
+        thread_store.clone(),
         config_snapshot.clone(),
     ));
     let services = services.with_trace_sink(native_agent_trace_sink(
-        workspace_root.clone(),
+        thread_store.clone(),
         config_snapshot.clone(),
         live_trace_sink,
     ));
@@ -83,13 +79,9 @@ pub(crate) async fn run_agent_with_services(
     persist_native_agent_turn_terminal_if_present(
         persistence_spec.clone(),
         &mut result,
-        workspace_root.clone(),
+        &thread_store,
         config_snapshot.clone(),
     )?;
-    persist_native_agent_checkpoint_if_present(
-        &result,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-    )?;
+    persist_native_agent_checkpoint_if_present(&result, &thread_store, config_snapshot.clone())?;
     Ok(result)
 }

@@ -53,6 +53,14 @@ impl WorkerThreadRpc {
         self.store.replace_projection(threads, items)
     }
 
+    pub(crate) fn replace_thread_projection(
+        &self,
+        thread: ThreadRecord,
+        items: Vec<ThreadItem>,
+    ) -> Result<(), WorkerProtocolError> {
+        self.store.replace_thread_projection(thread, items)
+    }
+
     pub fn create_thread(
         &self,
         request: CreateThreadRequest,

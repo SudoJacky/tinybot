@@ -11,6 +11,7 @@ use crate::agent::runtime_protocol::{AgentApprovalDecision, AgentApprovalScope};
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
 use crate::rpc::call_rust_state_service;
+use crate::threads::workspace_store::WorkspaceThreadStore;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -49,11 +50,9 @@ pub(crate) async fn submit_thread_turn_with_services(
     config_snapshot: serde_json::Value,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 ) -> Result<serde_json::Value, String> {
-    let thread = ensure_thread_turn_target(
-        input.thread_id,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-    )?;
+    let thread_store = base_services.thread_store()?;
+    let thread =
+        ensure_thread_turn_target(input.thread_id, &thread_store, config_snapshot.clone())?;
     let thread_id = thread_thread_id(&thread)?;
     let thread_working_directory = thread_working_directory(&thread);
     let session_id = thread_id.clone();
@@ -165,7 +164,7 @@ pub(crate) async fn submit_thread_turn_with_services(
         &turn_id,
         &spec,
         &trace_context,
-        workspace_root.clone(),
+        &thread_store,
         config_snapshot.clone(),
     )?;
     let mut agent_result = run_agent_with_services(
@@ -178,7 +177,7 @@ pub(crate) async fn submit_thread_turn_with_services(
     .await?;
     let snapshot = read_thread_snapshot(
         &thread_id,
-        workspace_root.clone(),
+        &thread_store,
         config_snapshot.clone(),
         "submitted thread turn snapshot",
     )?;
@@ -260,9 +259,10 @@ pub(crate) async fn submit_thread_form_with_services(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = base_services.thread_store()?;
     let target_snapshot = read_thread_snapshot(
         &input.thread_id,
-        workspace_root.clone(),
+        &thread_store,
         config_snapshot.clone(),
         "thread form target read",
     )?;
@@ -274,7 +274,7 @@ pub(crate) async fn submit_thread_form_with_services(
     let session_id = thread_id.clone();
     let thread_checkpoint = native_session_checkpoint(
         &session_id,
-        workspace_root.clone(),
+        &thread_store,
         config_snapshot.clone(),
         "thread form Rollout checkpoint lookup",
     )?
@@ -299,7 +299,7 @@ pub(crate) async fn submit_thread_form_with_services(
     result["statusCode"] = serde_json::Value::Number(status_code.into());
     let snapshot = read_thread_snapshot(
         &thread_id,
-        workspace_root,
+        &thread_store,
         config_snapshot,
         "thread form snapshot",
     )?;
@@ -315,14 +315,14 @@ pub(crate) async fn submit_thread_form_with_services(
 
 fn ensure_thread_turn_target(
     thread_id: Option<String>,
-    workspace_root: PathBuf,
+    thread_store: &WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     match thread_id {
         Some(thread_id) if !thread_id.trim().is_empty() => {
             let snapshot = read_thread_snapshot(
                 &thread_id,
-                workspace_root,
+                thread_store,
                 config_snapshot,
                 "thread turn target read",
             )?;
@@ -335,7 +335,7 @@ fn ensure_thread_turn_target(
             let generated_thread_id = generate_thread_turn_thread_id();
             let request_id = next_worker_request_correlation();
             call_rust_state_service(
-                workspace_root,
+                thread_store,
                 config_snapshot,
                 WorkerRequest::new(
                     request_id.id("thread-turn-create"),
@@ -353,13 +353,13 @@ fn ensure_thread_turn_target(
 
 pub(crate) fn read_thread_snapshot(
     thread_id: &str,
-    workspace_root: PathBuf,
+    thread_store: &WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
     label: &str,
 ) -> Result<serde_json::Value, String> {
     let request_id = next_worker_request_correlation();
     call_rust_state_service(
-        workspace_root,
+        thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("thread-turn-read"),
@@ -475,13 +475,13 @@ fn start_native_agent_thread_turn(
     turn_id: &str,
     spec: &serde_json::Value,
     trace_context: &AgentTraceContext,
-    workspace_root: PathBuf,
+    thread_store: &WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     let input = native_agent_current_user_message(spec)
         .unwrap_or_else(|| serde_json::json!({ "role": "user", "content": "" }));
     call_rust_state_service(
-        workspace_root,
+        thread_store,
         config_snapshot.clone(),
         WorkerRequest::new(
             format!("{}:thread-start", trace_context.request_id),

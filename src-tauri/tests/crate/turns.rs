@@ -15,7 +15,9 @@ use std::time::Duration;
 #[test]
 fn worker_run_agent_uses_rust_runtime_when_selected() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
 
     let result = worker_run_agent_with_options(
         &shared,
@@ -54,7 +56,9 @@ fn worker_run_agent_uses_rust_runtime_when_selected() {
 #[test]
 fn worker_run_agent_preserves_trace_context_without_persisting_runtime_trace() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
     let config = serde_json::json!({
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
         "providers": { "fixture": { "responses": [{ "content": "traced answer" }] } }
@@ -76,7 +80,7 @@ fn worker_run_agent_preserves_trace_context_without_persisting_runtime_trace() {
     )
     .expect("traced Rust runtime should complete");
     let turn = read_agent_turn_record(
-        fixture.root.clone(),
+        &fixture.thread_store,
         config.clone(),
         "session-ingress-persistence",
         "turn-ingress-persistence",
@@ -102,7 +106,9 @@ fn worker_run_agent_preserves_trace_context_without_persisting_runtime_trace() {
 fn worker_run_agent_preserves_runtime_tool_content_with_envelope_payload() {
     let fixture = WorkspaceFixture::new();
     fixture.write("README.md", "README excerpt");
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
 
     let result = worker_run_agent_with_options(
         &shared,
@@ -167,7 +173,7 @@ fn worker_run_agent_persists_rust_turn_messages_in_canonical_rollout() {
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCancellation::default()),
         ),
-        ..GatewayRuntime::default()
+        ..GatewayRuntime::with_thread_store(fixture.thread_store.clone())
     }));
     let config = serde_json::json!({
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
@@ -216,7 +222,7 @@ fn worker_run_agent_persists_one_lossless_long_final_response() {
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCancellation::default()),
         ),
-        ..GatewayRuntime::default()
+        ..GatewayRuntime::with_thread_store(fixture.thread_store.clone())
     }));
     let config = serde_json::json!({
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
@@ -256,7 +262,7 @@ fn worker_run_agent_persists_one_lossless_long_final_response() {
     )
     .expect("long final response should reload from canonical Rollout");
     let metadata = call_rust_state_service(
-        fixture.root.clone(),
+        &fixture.thread_store,
         config,
         WorkerRequest::new(
             "req-long-final-metadata",
@@ -363,7 +369,7 @@ fn worker_run_agent_stops_before_provider_when_run_start_persistence_fails() {
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCancellation::default()),
         ),
-        ..GatewayRuntime::default()
+        ..GatewayRuntime::with_thread_store(fixture.thread_store.clone())
     }));
 
     let error = worker_run_agent_with_options(
@@ -432,7 +438,7 @@ fn worker_run_agent_fails_when_trace_persistence_breaks_after_provider_response(
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCancellation::default()),
         ),
-        ..GatewayRuntime::default()
+        ..GatewayRuntime::with_thread_store(fixture.thread_store.clone())
     }));
 
     let error = worker_run_agent_with_options(
@@ -668,7 +674,7 @@ fn worker_run_agent_hydrates_session_history_before_provider_call() {
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCancellation::default()),
         ),
-        ..GatewayRuntime::default()
+        ..GatewayRuntime::with_thread_store(fixture.thread_store.clone())
     }));
     let config = serde_json::json!({
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
@@ -721,7 +727,7 @@ fn worker_run_agent_combines_session_history_with_current_tool_results() {
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCancellation::default()),
         ),
-        ..GatewayRuntime::default()
+        ..GatewayRuntime::with_thread_store(fixture.thread_store.clone())
     }));
     let config = serde_json::json!({
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
@@ -758,7 +764,7 @@ fn worker_run_agent_combines_session_history_with_current_tool_results() {
     )
     .expect("session messages should stay compact after hydrated run");
     let metadata = call_rust_state_service(
-        fixture.root.clone(),
+        &fixture.thread_store,
         config,
         WorkerRequest::new(
             "req-tool-memory-metadata",
@@ -859,7 +865,7 @@ fn worker_run_agent_recalls_history_after_multiple_exchanges() {
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCancellation::default()),
         ),
-        ..GatewayRuntime::default()
+        ..GatewayRuntime::with_thread_store(fixture.thread_store.clone())
     }));
     let config = serde_json::json!({
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
@@ -944,7 +950,7 @@ fn worker_run_agent_rejects_terminal_run_reentry_before_provider_call() {
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCancellation::default()),
         ),
-        ..GatewayRuntime::default()
+        ..GatewayRuntime::with_thread_store(fixture.thread_store.clone())
     }));
     let config = serde_json::json!({
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
@@ -977,7 +983,7 @@ fn worker_run_agent_rejects_terminal_run_reentry_before_provider_call() {
     )
     .expect("terminal reentry should return structured rejection");
     let turn = read_agent_turn_record(
-        fixture.root.clone(),
+        &fixture.thread_store,
         config,
         "websocket:chat-terminal-reentry",
         "turn-terminal-reentry",
@@ -1002,7 +1008,9 @@ fn worker_run_agent_rejects_terminal_run_reentry_before_provider_call() {
 fn worker_run_agent_persists_agent_turn_record_and_keeps_history_compact() {
     let fixture = WorkspaceFixture::new();
     fixture.write("README.md", "README trace body");
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
     let config = serde_json::json!({
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
         "providers": {
@@ -1038,7 +1046,7 @@ fn worker_run_agent_persists_agent_turn_record_and_keeps_history_compact() {
         )
         .expect("Rust runtime should complete tool-backed turn");
     let run = call_rust_state_service(
-        fixture.root.clone(),
+        &fixture.thread_store,
         config.clone(),
         WorkerRequest::new(
             "req-agent-turn-get",
@@ -1090,7 +1098,9 @@ fn worker_run_agent_persists_agent_turn_record_and_keeps_history_compact() {
 fn worker_run_agent_projects_real_rust_run_into_canonical_session_history() {
     let fixture = WorkspaceFixture::new();
     fixture.write("README.md", "README thread body");
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
     let config = serde_json::json!({
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
         "providers": {
@@ -1152,7 +1162,7 @@ fn worker_run_agent_projects_real_rust_run_into_canonical_session_history() {
     assert!(messages.iter().all(|message| message["role"] != "tool"));
 
     let run = call_rust_state_service(
-        fixture.root.clone(),
+        &fixture.thread_store,
         config.clone(),
         WorkerRequest::new(
             "req-real-run-agent-get",
@@ -1178,7 +1188,9 @@ fn worker_run_agent_projects_real_rust_run_into_canonical_session_history() {
 #[test]
 fn session_owned_compaction_commits_installed_checkpoint_before_final_turn_persistence() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
     let session_id = "session-context-commit-integration";
     let config = serde_json::json!({
         "agents": { "defaults": {
@@ -1220,7 +1232,7 @@ fn session_owned_compaction_commits_installed_checkpoint_before_final_turn_persi
         result["contextCheckpoint"]["contextId"]
     );
     let context = call_rust_state_service(
-        fixture.root.clone(),
+        &fixture.thread_store,
         config.clone(),
         WorkerRequest::new(
             "req-session-context-after-commit",
@@ -1257,7 +1269,7 @@ fn session_owned_compaction_commits_installed_checkpoint_before_final_turn_persi
             "sessionId": session_id,
             "messages": [{ "role": "user", "content": "next current question" }]
         }),
-        fixture.root.clone(),
+        &fixture.thread_store,
         config,
     )
     .expect("next session run should hydrate canonical checkpoint lineage");
@@ -1294,7 +1306,9 @@ fn session_owned_compaction_commits_installed_checkpoint_before_final_turn_persi
 fn worker_run_agent_uses_native_tool_executor_for_registered_memory_tool() {
     let fixture = WorkspaceFixture::new();
     fixture.write("README.md", "actual executor README body");
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
     let config = serde_json::json!({
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
         "providers": {
@@ -1354,7 +1368,9 @@ fn worker_run_agent_uses_native_tool_executor_for_registered_memory_tool() {
 #[test]
 fn worker_run_agent_does_not_fallback_to_fixture_result_after_executor_error() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
     let config = serde_json::json!({
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
         "providers": {

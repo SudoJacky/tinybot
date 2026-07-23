@@ -4,7 +4,7 @@ use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
 use crate::rpc::call_rust_state_service;
 use crate::threads::rollout::store::is_turn_semantic_event;
-use std::path::PathBuf;
+use crate::threads::workspace_store::WorkspaceThreadStore;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::JoinHandle;
@@ -17,14 +17,17 @@ fn tauri_safe_event_name(event_name: &str) -> String {
 
 #[derive(Clone)]
 pub(crate) struct AgentTurnSemanticSink {
-    workspace_root: PathBuf,
+    thread_store: WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
 }
 
 impl AgentTurnSemanticSink {
-    pub(crate) fn new(workspace_root: PathBuf, config_snapshot: serde_json::Value) -> Self {
+    pub(crate) fn new(
+        thread_store: WorkspaceThreadStore,
+        config_snapshot: serde_json::Value,
+    ) -> Self {
         Self {
-            workspace_root,
+            thread_store,
             config_snapshot,
         }
     }
@@ -38,7 +41,7 @@ impl NativeAgentTraceSink for AgentTurnSemanticSink {
     ) -> Result<Vec<AgentRuntimeEventEnvelope>, String> {
         let generated = next_worker_request_correlation();
         let value = call_rust_state_service(
-            self.workspace_root.clone(),
+            &self.thread_store,
             self.config_snapshot.clone(),
             WorkerRequest::new(
                 generated.id("agent-turn-runtime-state"),
@@ -101,7 +104,7 @@ impl NativeAgentTraceSink for AgentTurnSemanticSink {
         metrics.increment("persistence.batch.started");
         let started_at = Instant::now();
         let result = call_rust_state_service(
-            self.workspace_root.clone(),
+            &self.thread_store,
             self.config_snapshot.clone(),
             WorkerRequest::new(
                 request_id,
@@ -512,12 +515,12 @@ pub(crate) fn desktop_agent_event_sink<R: Runtime + 'static>(
 }
 
 pub(crate) fn native_agent_trace_sink(
-    workspace_root: PathBuf,
+    thread_store: WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 ) -> Arc<dyn NativeAgentTraceSink> {
     let persisted_sink: Arc<dyn NativeAgentTraceSink> =
-        Arc::new(AgentTurnSemanticSink::new(workspace_root, config_snapshot));
+        Arc::new(AgentTurnSemanticSink::new(thread_store, config_snapshot));
     let live_trace_sink = live_trace_sink.unwrap_or_else(|| Arc::new(NoopNativeAgentTraceSink));
     Arc::new(BufferedNativeAgentTraceSink::new(
         persisted_sink,
