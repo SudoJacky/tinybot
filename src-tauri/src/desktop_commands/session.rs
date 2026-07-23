@@ -1,14 +1,13 @@
+use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
+use crate::desktop::{state::lock_runtime, SharedGateway};
 use crate::native_browser::SharedBrowserRuntime;
 use crate::protocol::capability::{
     default_desktop_capability_policy, CapabilityPolicy, WorkerCapability,
 };
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
+use crate::rpc::call_rust_state_service;
 use crate::tools::shell::{ShellProcessListParams, WorkerShellRpc};
-use crate::{
-    call_rust_state_service, experimental_worker_config_snapshot, lock_runtime,
-    native_backend_workspace_root, SharedGateway,
-};
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, time::Duration};
 use tauri::State;
@@ -60,7 +59,7 @@ pub(crate) fn worker_sessions_list(
     worker_sessions_list_with_options(
         state.inner(),
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -74,7 +73,7 @@ pub(crate) fn worker_session_messages(
         state.inner(),
         input.key,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -88,7 +87,7 @@ pub(crate) fn worker_agent_runs_list(
         state.inner(),
         input.key,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -103,7 +102,7 @@ pub(crate) fn worker_agent_run_runtime_state(
         input.session_key,
         input.run_id,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -118,7 +117,7 @@ pub(crate) fn worker_session_effective_capabilities(
         state.inner(),
         input.key,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )?;
     let browser = browser_runtime.capabilities();
@@ -155,7 +154,7 @@ pub(crate) fn worker_session_temporary_files(
         state.inner(),
         input.key,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -170,7 +169,7 @@ pub(crate) fn worker_session_upload_temporary_file(
         input.key,
         input.body,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -184,7 +183,7 @@ pub(crate) fn worker_session_clear_temporary_files(
         state.inner(),
         input.key,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -198,7 +197,7 @@ pub(crate) fn worker_session_delete(
         state.inner(),
         input.key,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -213,7 +212,7 @@ pub(crate) fn worker_session_patch(
         input.key,
         input.body,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -227,7 +226,7 @@ pub(crate) fn worker_session_branch(
         state.inner(),
         input.body,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -241,7 +240,7 @@ pub(crate) fn worker_session_clear(
         state.inner(),
         input.key,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -256,7 +255,7 @@ pub(crate) fn worker_session_task_progress(
         input.key,
         input.body,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }

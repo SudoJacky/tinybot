@@ -1,9 +1,8 @@
+use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
+use crate::desktop::SharedGateway;
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
-use crate::{
-    call_rust_state_service, experimental_worker_config_snapshot, experimental_worker_router,
-    native_backend_workspace_root, SharedGateway,
-};
+use crate::rpc::{call_rust_state_service, native_request_router};
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, time::Duration};
 use tauri::State;
@@ -43,7 +42,7 @@ pub(crate) fn worker_workspace_files(
     worker_workspace_files_with_options(
         state.inner(),
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -57,7 +56,7 @@ pub(crate) fn worker_workspace_file(
         state.inner(),
         input.path,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -72,7 +71,7 @@ pub(crate) fn worker_workspace_put_file(
         input.path,
         input.body,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -88,7 +87,7 @@ pub(crate) fn worker_workspace_directory(
         input.cursor,
         input.name_query,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -103,7 +102,7 @@ pub(crate) fn worker_workspace_file_chunk(
         input.path,
         input.cursor,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -202,7 +201,7 @@ pub(crate) fn worker_workspace_directory_with_options(
         .to_string_lossy()
         .to_string();
     let mut response =
-        experimental_worker_router(workspace_root, config_snapshot).dispatch(&WorkerRequest::new(
+        native_request_router(workspace_root, config_snapshot).dispatch(&WorkerRequest::new(
             request_id.id("workspace-directory"),
             request_id.trace_id("workspace-directory"),
             "workspace.list_dir_page",
@@ -236,7 +235,7 @@ pub(crate) fn worker_workspace_file_chunk_with_options(
 ) -> Result<serde_json::Value, String> {
     let request_id = next_worker_request_correlation();
     let response =
-        experimental_worker_router(workspace_root, config_snapshot).dispatch(&WorkerRequest::new(
+        native_request_router(workspace_root, config_snapshot).dispatch(&WorkerRequest::new(
             request_id.id("workspace-file-chunk"),
             request_id.trace_id("workspace-file-chunk"),
             "workspace.read_file_chunk",

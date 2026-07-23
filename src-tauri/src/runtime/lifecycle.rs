@@ -11,7 +11,6 @@ use crate::threads::rollout::store::{
     WorkerThreadLogRpc,
 };
 use crate::tools::shell::{ShellProcessCleanupReport, WorkerShellRuntime};
-use crate::transport::stdio_worker::manager::{WorkerManager, WorkerManagerState};
 use serde::Serialize;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -67,7 +66,6 @@ pub(crate) struct RuntimeShutdownReport {
     pub(crate) shell: ShellProcessCleanupReport,
     pub(crate) mcp: LifecycleStageReport,
     pub(crate) subagents: SubagentShutdownReport,
-    pub(crate) background_worker: LifecycleStageReport,
     pub(crate) state_persistence: LifecycleStageReport,
     pub(crate) failures: Vec<LifecycleFailure>,
 }
@@ -136,7 +134,6 @@ pub(crate) struct RuntimeLifecycle {
     shell: WorkerShellRuntime,
     mcp: McpRuntime,
     subagents: SubagentThreadManager,
-    background_worker: WorkerManager,
 }
 
 impl RuntimeLifecycle {
@@ -145,14 +142,12 @@ impl RuntimeLifecycle {
         shell: WorkerShellRuntime,
         mcp: McpRuntime,
         subagents: SubagentThreadManager,
-        background_worker: WorkerManager,
     ) -> Self {
         Self {
             agent_tasks,
             shell,
             mcp,
             subagents,
-            background_worker,
         }
     }
 
@@ -244,31 +239,6 @@ impl RuntimeLifecycle {
         }
         subagents.interrupted.sort();
 
-        let worker_was_running =
-            self.background_worker.status().state == WorkerManagerState::Running;
-        let background_worker = match self.background_worker.stop() {
-            Ok(()) => LifecycleStageReport {
-                completed: true,
-                detail: if worker_was_running {
-                    "Background worker stopped.".to_string()
-                } else {
-                    "Background worker was not running.".to_string()
-                },
-            },
-            Err(error) => {
-                let message = format!("failed to stop background worker: {error:?}");
-                failures.push(LifecycleFailure {
-                    stage: "background_worker".to_string(),
-                    code: "shutdown_failed".to_string(),
-                    message: message.clone(),
-                });
-                LifecycleStageReport {
-                    completed: false,
-                    detail: message,
-                }
-            }
-        };
-
         let state_persistence = if agent_tasks.timed_out {
             LifecycleStageReport {
                 completed: false,
@@ -290,7 +260,6 @@ impl RuntimeLifecycle {
             shell,
             mcp,
             subagents,
-            background_worker,
             state_persistence,
             failures,
         }

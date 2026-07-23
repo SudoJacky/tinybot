@@ -8,15 +8,14 @@ use crate::agent::runtime::NativeAgentTraceSink;
 use crate::collaboration::subagents::{
     SubagentSendInputParams, SubagentSpawnParams, SubagentTargetParams, SubagentWaitParams,
 };
-use crate::config::application::{
-    experimental_worker_config_snapshot, native_backend_workspace_root,
-};
+use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
+use crate::desktop::{state::lock_runtime, SharedGateway};
 use crate::desktop_commands::webui::{
     native_webui_agent_ui_form_resolution_body_async, native_webui_approval_resolution_body_async,
 };
 use crate::protocol::request_id::{next_worker_request_correlation, WorkerRequestCorrelation};
 use crate::protocol::WorkerRequest;
-use crate::{experimental_worker_router, lock_runtime, SharedGateway};
+use crate::rpc::native_request_router;
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tauri::{AppHandle, Runtime, State};
@@ -182,7 +181,7 @@ pub(crate) async fn worker_run_agent(
         &shared,
         input.spec,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(120),
     )
     .await
@@ -198,7 +197,7 @@ pub(crate) async fn worker_run_agent_input(
         &shared,
         input.input,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(120),
     )
     .await
@@ -215,7 +214,7 @@ pub(crate) async fn worker_submit_thread_turn<R: Runtime + 'static>(
         &shared,
         input,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(120),
         Some(desktop_agent_event_sink(app)),
     )
@@ -230,7 +229,7 @@ pub(crate) fn worker_cancel_agent(
     worker_cancel_agent_with_options(
         state.inner(),
         input.run_id,
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -244,7 +243,7 @@ pub(crate) fn worker_restore_agent_checkpoint(
         state.inner(),
         input.session_id,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -262,7 +261,7 @@ pub(crate) async fn worker_submit_agent_form(
         input.values,
         input.action,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(120),
     )
     .await
@@ -282,7 +281,7 @@ pub(crate) async fn worker_resume_agent_approval(
         input.scope,
         input.guidance,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(120),
     )
     .await
@@ -299,7 +298,7 @@ pub(crate) async fn worker_resolve_thread_approval<R: Runtime + 'static>(
         &shared,
         input,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(120),
         Some(desktop_agent_event_sink(app)),
     )
@@ -317,7 +316,7 @@ pub(crate) async fn worker_submit_thread_form<R: Runtime + 'static>(
         &shared,
         input,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(120),
         Some(desktop_agent_event_sink(app)),
     )
@@ -333,7 +332,7 @@ pub(crate) fn worker_background_trace_list(
         state.inner(),
         input,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -347,7 +346,7 @@ pub(crate) fn worker_background_trace_get_delegate_trace(
         state.inner(),
         input,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -361,7 +360,7 @@ pub(crate) fn worker_background_trace_get_artifact(
         state.inner(),
         input,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -375,7 +374,7 @@ pub(crate) fn worker_background_trace_append(
         state.inner(),
         input,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -389,7 +388,7 @@ pub(crate) fn worker_background_subagent_enqueue_input(
         state.inner(),
         input,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -507,7 +506,7 @@ pub(crate) fn worker_task_plan_list(
         state.inner(),
         input,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -521,7 +520,7 @@ pub(crate) fn worker_task_plan_get(
         state.inner(),
         input.plan_id,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -535,7 +534,7 @@ pub(crate) fn worker_task_plan_save(
         state.inner(),
         input.plan,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -549,7 +548,7 @@ pub(crate) fn worker_task_plan_delete(
         state.inner(),
         input.plan_id,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -815,7 +814,7 @@ pub(crate) fn worker_background_subagent_enqueue_input_with_options(
         runtime.subagent_manager.clone()
     };
     let mut router =
-        experimental_worker_router(workspace_root, config_snapshot).with_subagent_manager(manager);
+        native_request_router(workspace_root, config_snapshot).with_subagent_manager(manager);
     let response = router.dispatch(&request);
     if let Some(error) = response.error {
         return Err(format!(
@@ -855,7 +854,7 @@ fn dispatch_worker_background_trace_request(
     request: WorkerRequest,
     context: &str,
 ) -> Result<serde_json::Value, String> {
-    let mut router = experimental_worker_router(workspace_root, config_snapshot);
+    let mut router = native_request_router(workspace_root, config_snapshot);
     let response = router.dispatch(&request);
     if let Some(error) = response.error {
         return Err(format!("{context} returned error: {}", error.message));
@@ -877,11 +876,9 @@ fn dispatch_worker_subagent_request(
     let params = serde_json::to_value(input)
         .map_err(|error| format!("{context} request serialization failed: {error}"))?;
     let request_id = next_worker_request_correlation();
-    let mut router = experimental_worker_router(
-        native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
-    )
-    .with_subagent_manager(manager);
+    let mut router =
+        native_request_router(native_backend_workspace_root(), native_config_snapshot())
+            .with_subagent_manager(manager);
     let response = router.dispatch(&WorkerRequest::new(
         request_id.id(method),
         request_id.trace_id(method),
@@ -1135,7 +1132,7 @@ fn dispatch_rust_task_request(
     request: WorkerRequest,
     context: &str,
 ) -> Result<serde_json::Value, String> {
-    let mut router = experimental_worker_router(workspace_root, config_snapshot);
+    let mut router = native_request_router(workspace_root, config_snapshot);
     let response = router.dispatch(&request);
     if let Some(error) = response.error {
         return Err(format!("{context} returned error: {}", error.message));

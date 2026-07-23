@@ -3,9 +3,8 @@ use crate::agent::bridge::{
     resolve_agent_ui_form_body_with_services, resolve_approval_body_with_services,
 };
 use crate::collaboration::cowork::WorkerCoworkRuntime;
-use crate::config::application::{
-    experimental_worker_config_snapshot, native_backend_workspace_root,
-};
+use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
+use crate::desktop::{state::lock_runtime, SharedGateway};
 use crate::desktop_commands::session::{
     worker_session_branch_with_options, worker_session_clear_temporary_files_with_options,
     worker_session_clear_with_options, worker_session_delete_with_options,
@@ -23,15 +22,15 @@ use crate::desktop_commands::workspace::{
     worker_workspace_file_with_options, worker_workspace_files_with_options,
     worker_workspace_put_file_with_options,
 };
-use crate::native_backend_contract::webui_route_inventory_entry;
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
-use crate::transport::stdio_worker::manager::WorkerManagerState;
+use crate::rpc::{call_rust_state_service, native_request_router};
 use crate::transport::stdio_worker::status::WorkerRuntimeStatus;
-use crate::{call_rust_state_service, lock_runtime, SharedGateway, WORKER_WEBUI_ROUTE_TIMEOUT};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::PathBuf, time::Duration};
 use tauri::State;
+
+const WORKER_WEBUI_ROUTE_TIMEOUT: Duration = Duration::from_secs(10);
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorkerCoworkRouteInput {
@@ -74,7 +73,7 @@ pub(crate) fn worker_cowork_route(
         state.inner(),
         input,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(30),
     )
 }
@@ -90,7 +89,7 @@ pub(crate) async fn worker_webui_route(
         &shared,
         input,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         timeout,
     )
     .await
@@ -457,7 +456,7 @@ async fn worker_webui_rust_route_with_options(
             "rust",
             webui_route_group(&path),
         ))),
-        None if webui_route_inventory_entry(&method, &path).is_some() => {
+        None if unsupported_webui_route(&method, &path).is_some() => {
             Ok(Some(unsupported_webui_route_response(
                 &method,
                 &path,
@@ -676,17 +675,29 @@ fn native_webui_bootstrap_body() -> serde_json::Value {
 }
 
 fn native_webui_status_body(shared: &SharedGateway) -> serde_json::Value {
-    let status = lock_runtime(shared).experimental_worker.status();
+    let (last_error, accepting) = {
+        let runtime = lock_runtime(shared);
+        (
+            runtime.last_error.clone(),
+            runtime.native_agent_runtime.task_runtime().is_accepting(),
+        )
+    };
+    let status = match last_error {
+        Some(error) => WorkerRuntimeStatus::startup_failed(error),
+        None if accepting => WorkerRuntimeStatus::rust_backend_active(vec![]),
+        None => WorkerRuntimeStatus::rust_backend_stopped(),
+    };
+    let config = native_config_snapshot();
     serde_json::json!({
         "channels": {
             "websocket": {
                 "enabled": true,
-                "running": matches!(status.state, WorkerManagerState::Running | WorkerManagerState::Starting)
+                "running": accepting
             }
         },
         "native_backend": status,
         "provider": crate::agent::provider::resolve_provider_profile(
-            &experimental_worker_config_snapshot(),
+            &config,
             None,
             None,
         ).map(|profile| serde_json::json!({
@@ -695,7 +706,7 @@ fn native_webui_status_body(shared: &SharedGateway) -> serde_json::Value {
             "api_base": profile.api_base,
             "api_key_configured": profile.api_key_configured,
         })),
-        "model": crate::agent::provider::configured_model(&experimental_worker_config_snapshot()),
+        "model": crate::agent::provider::configured_model(&config),
     })
 }
 
@@ -726,8 +737,8 @@ async fn worker_webui_tools_body(
     let mcp_runtime = { lock_runtime(shared).mcp_runtime.clone() };
     tauri::async_runtime::spawn_blocking(move || {
         let request_id = next_worker_request_correlation();
-        let mut router = crate::experimental_worker_router(workspace_root, config_snapshot)
-            .with_mcp_runtime(mcp_runtime);
+        let mut router =
+            native_request_router(workspace_root, config_snapshot).with_mcp_runtime(mcp_runtime);
         let response = router.dispatch(
             &WorkerRequest::new(
                 request_id.id("webui-tools"),
@@ -975,25 +986,55 @@ fn webui_route_group(path: &str) -> &'static str {
 }
 
 fn unsupported_webui_route_response(method: &str, path: &str, message: &str) -> serde_json::Value {
-    let inventory = webui_route_inventory_entry(method, path);
-    let route_group = inventory
-        .as_ref()
+    let policy = unsupported_webui_route(method, path);
+    let route_group = policy
         .map(|entry| entry.route_group)
         .unwrap_or_else(|| webui_route_group(path));
     let mut body = serde_json::json!({
         "diagnostic": "unsupported-route",
-        "inventoryStatus": if inventory.is_some() { "unsupported" } else { "not-inventoried" },
+        "inventoryStatus": if policy.is_some() { "unsupported" } else { "not-inventoried" },
         "routeGroup": route_group,
         "error": { "message": message },
         "method": method,
         "path": path,
         "route": format!("{} {}", method, path),
     });
-    if let Some(entry) = inventory {
+    if let Some(entry) = policy {
         body["reason"] = serde_json::Value::String(entry.reason.to_string());
         body["replacementPlan"] = serde_json::Value::String(entry.replacement_plan.to_string());
     }
     webui_route_response(501, body, "unsupported", route_group)
+}
+
+#[derive(Clone, Copy)]
+struct UnsupportedWebuiRoute {
+    route_group: &'static str,
+    reason: &'static str,
+    replacement_plan: &'static str,
+}
+
+fn unsupported_webui_route(method: &str, path: &str) -> Option<UnsupportedWebuiRoute> {
+    if method.eq_ignore_ascii_case("PATCH") && path == "/api/config" {
+        return Some(UnsupportedWebuiRoute {
+            route_group: "config",
+            reason: "config patch is not implemented in the Rust backend",
+            replacement_plan: "add validated Rust config patch support before enabling",
+        });
+    }
+    if matches!(
+        method.to_ascii_uppercase().as_str(),
+        "GET" | "POST" | "PATCH" | "DELETE"
+    ) && path
+        .strip_prefix("/api/cowork/")
+        .is_some_and(|suffix| !suffix.is_empty())
+    {
+        return Some(UnsupportedWebuiRoute {
+            route_group: "cowork",
+            reason: "unimplemented Cowork routes are not exposed by the Rust backend",
+            replacement_plan: "add the specific Rust Cowork route before enabling",
+        });
+    }
+    None
 }
 
 pub(crate) fn worker_webui_route_timeout(input: &WorkerWebuiRouteInput) -> Duration {

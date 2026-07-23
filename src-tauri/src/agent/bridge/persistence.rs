@@ -9,9 +9,16 @@ use crate::agent::runtime::{agent_trace_context_from_value, NativeAgentRuntimeSe
 use crate::agent::runtime_protocol::AgentTraceContext;
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
-use crate::{call_rust_state_service, now_unix_ms};
+use crate::rpc::call_rust_state_service;
 use std::path::PathBuf;
 use std::time::Instant;
+
+fn now_unix_ms() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default()
+}
 
 pub(crate) fn reject_native_agent_terminal_run_reentry(
     spec: &serde_json::Value,

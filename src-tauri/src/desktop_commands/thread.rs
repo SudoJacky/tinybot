@@ -1,9 +1,8 @@
+use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
+use crate::desktop::SharedGateway;
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
-use crate::{
-    call_rust_state_service, experimental_worker_config_snapshot, native_backend_workspace_root,
-    SharedGateway,
-};
+use crate::rpc::call_rust_state_service;
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, time::Duration};
 use tauri::State;
@@ -32,7 +31,7 @@ macro_rules! thread_command {
                 $method,
                 input.body,
                 native_backend_workspace_root(),
-                experimental_worker_config_snapshot(),
+                native_config_snapshot(),
                 Duration::from_secs(10),
             )
         }
@@ -125,7 +124,7 @@ pub(crate) fn worker_thread_request_with_options(
         });
         if let Some(run_id) = run_id {
             let services = {
-                let runtime = crate::lock_runtime(shared);
+                let runtime = crate::desktop::state::lock_runtime(shared);
                 runtime.native_agent_runtime.clone()
             };
             let cancellation = services.cancel(&run_id);

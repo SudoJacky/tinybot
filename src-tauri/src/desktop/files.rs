@@ -1,3 +1,6 @@
+use crate::config::application::{
+    default_tinybot_config_path, resolve_native_backend_workspace_root_from_config_path,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     path::{Path, PathBuf},
@@ -205,17 +208,14 @@ pub(crate) fn allowed_workspace_file_path(
 }
 
 fn reveal_workspace_file_path(requested_path: &str) -> Result<PathBuf, String> {
-    reveal_workspace_file_path_from_config_path(
-        &crate::default_tinybot_config_path(),
-        requested_path,
-    )
+    reveal_workspace_file_path_from_config_path(&default_tinybot_config_path(), requested_path)
 }
 
 pub(crate) fn reveal_workspace_file_path_from_config_path(
     config_path: &Path,
     requested_path: &str,
 ) -> Result<PathBuf, String> {
-    let root = crate::resolve_native_backend_workspace_root_from_config_path(config_path);
+    let root = resolve_native_backend_workspace_root_from_config_path(config_path);
     allowed_workspace_file_path(&root, requested_path)
 }
 

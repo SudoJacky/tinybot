@@ -13,7 +13,7 @@ impl WorkerWorkspaceRpc {
         config_snapshot: &serde_json::Value,
     ) -> Result<serde_json::Value, WorkerProtocolError> {
         let skills =
-            crate::skill_resolver::resolve_skills(self.list_skills()?.skills, config_snapshot, &[])
+            crate::skills::resolve_skills(self.list_skills()?.skills, config_snapshot, &[])
                 .map_err(|error| skill_error(error, 400))?
                 .catalog;
         Ok(serde_json::json!({ "skills": skills }))
@@ -28,7 +28,7 @@ impl WorkerWorkspaceRpc {
         else {
             return Ok(serde_json::Value::Null);
         };
-        let definition = crate::skill_definition::SkillDefinition::parse(&skill.content)
+        let definition = crate::skills::SkillDefinition::parse(&skill.content)
             .map_err(|error| skill_error(format!("invalid skill: {error}"), 400))?;
         let availability = definition.availability();
         Ok(serde_json::json!({
@@ -74,7 +74,7 @@ impl WorkerWorkspaceRpc {
             .unwrap_or_else(|| format!("Custom skill: {name}"));
         let always = json_truthy(body.get("always"));
         let content = create_skill_body_content(body.get("content"), always)?;
-        let contents = crate::skill_definition::render_new_skill(
+        let contents = crate::skills::render_new_skill(
             &name,
             &description,
             &format!(
@@ -136,13 +136,9 @@ impl WorkerWorkspaceRpc {
             .get("content")
             .map(update_skill_body_content)
             .transpose()?;
-        let contents = crate::skill_definition::update_skill_document(
-            &file.content,
-            description,
-            always,
-            content,
-        )
-        .map_err(|error| skill_error(format!("failed to update skill: {error}"), 400))?;
+        let contents =
+            crate::skills::update_skill_document(&file.content, description, always, content)
+                .map_err(|error| skill_error(format!("failed to update skill: {error}"), 400))?;
         self.write_file(&path, &contents)?;
         Ok(serde_json::json!({
             "updated": true,
@@ -196,7 +192,7 @@ impl WorkerWorkspaceRpc {
                 }))
             }
         };
-        let definition = match crate::skill_definition::SkillDefinition::parse(&content) {
+        let definition = match crate::skills::SkillDefinition::parse(&content) {
             Ok(definition) => definition,
             Err(error) => {
                 return Ok(serde_json::json!({

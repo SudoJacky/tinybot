@@ -1,9 +1,9 @@
 use crate::agent::runtime::{
     NativeAgentContextCheckpointCommit, NativeAgentContextCheckpointCommitter,
 };
-use crate::call_rust_state_service;
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
+use crate::rpc::call_rust_state_service;
 use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::Arc;

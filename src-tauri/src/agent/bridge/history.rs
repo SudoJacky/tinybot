@@ -1,7 +1,7 @@
 use crate::agent::bridge::{native_agent_session_id, native_agent_string_field};
-use crate::call_rust_state_service;
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
+use crate::rpc::call_rust_state_service;
 use std::path::PathBuf;
 
 pub(crate) fn native_agent_user_messages(spec: &serde_json::Value) -> Vec<serde_json::Value> {
@@ -132,7 +132,7 @@ fn native_agent_session_history_messages(
     let source_checkpoint = history
         .get("contextCheckpoint")
         .or_else(|| history.get("context_checkpoint"))
-        .and_then(crate::context_checkpoint_lineage::checkpoint_lineage_metadata);
+        .and_then(crate::threads::rollout::checkpoint_lineage::checkpoint_lineage_metadata);
     Ok((messages, source_checkpoint))
 }
 

@@ -262,7 +262,7 @@ impl NativeAgentRunState {
             .get("contextId")
             .and_then(Value::as_str)
             .unwrap_or_default();
-        let window = crate::context_checkpoint_lineage::next_context_window(
+        let window = crate::threads::rollout::checkpoint_lineage::next_context_window(
             &self.session_id,
             context_id,
             parent_checkpoint,

@@ -2,14 +2,18 @@ use crate::agent::runtime::NativeAgentTraceSink;
 use crate::agent::runtime_protocol::{AgentRuntimeEventEnvelope, AgentTimelinePatch};
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
+use crate::rpc::call_rust_state_service;
 use crate::threads::rollout::store::is_agent_run_semantic_event;
-use crate::{call_rust_state_service, tauri_safe_event_name};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use tauri::{Emitter, Runtime};
+
+fn tauri_safe_event_name(event_name: &str) -> String {
+    event_name.replace('.', ":")
+}
 
 #[derive(Clone)]
 pub(crate) struct NativeAgentRunSemanticSink {

@@ -8,9 +8,9 @@ use crate::agent::runtime::{
 };
 use crate::agent::runtime_protocol::AgentTraceContext;
 use crate::agent::runtime_protocol::{AgentApprovalDecision, AgentApprovalScope};
-use crate::call_rust_state_service;
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
+use crate::rpc::call_rust_state_service;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};

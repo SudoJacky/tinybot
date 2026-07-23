@@ -1,4 +1,4 @@
-use crate::skill_definition::{SkillAvailability, SkillDefinition};
+use super::definition::{SkillAvailability, SkillDefinition};
 use crate::workspace::WorkspaceSkillEntry;
 use serde::Serialize;
 use serde_json::Value;

@@ -3,21 +3,20 @@ use crate::agent::runtime::NativeAgentTraceSink;
 use crate::agent::runtime_protocol::{
     AgentRuntimeEventEnvelope, LegacyNativeAgentEventEnvelopeInput,
 };
+use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
+use crate::desktop::{state::lock_runtime, SharedGateway};
 use crate::desktop_commands::agent::worker_run_agent_with_live_trace_sink_async;
 use crate::native_browser::{BrowserInteractionInput, SharedBrowserRuntime};
 use crate::protocol::capability::default_desktop_capability_policy;
 use crate::protocol::request_id::{next_worker_request_correlation, WorkerRequestCorrelation};
 use crate::protocol::WorkerRequest;
+use crate::rpc::call_rust_state_service;
 use crate::tools::permissions::{PermissionNetworkMode, ShellSandboxMode};
 use crate::tools::shell::{
     ShellProcessIdParams, ShellProcessListParams, ShellProcessOutput, ShellProcessPollParams,
     ShellStartParams, WorkerShellRpc,
 };
 use crate::workspace::WorkerWorkspaceRpc;
-use crate::{
-    call_rust_state_service, experimental_worker_config_snapshot, lock_runtime,
-    native_backend_workspace_root, SharedGateway,
-};
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tauri::{Runtime, State};
@@ -60,7 +59,7 @@ pub(crate) async fn worker_dispatch_tinyos_host_command<R: Runtime + 'static>(
 ) -> Result<serde_json::Value, String> {
     let shared = state.inner().clone();
     let workspace_root = native_backend_workspace_root();
-    let config_snapshot = experimental_worker_config_snapshot();
+    let config_snapshot = native_config_snapshot();
     let live_trace_sink = desktop_agent_event_sink(app);
     worker_transport_dispatch_websocket_message_with_live_trace_sink_async(
         &shared,

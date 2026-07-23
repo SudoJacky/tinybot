@@ -240,19 +240,18 @@ impl InstructionComposer {
         }
 
         let selected_skills = selected_skill_names(spec)?;
-        let skill_entries =
-            crate::workspace::discover_skill_entries(workspace_root, &crate::repo_root())
-                .map_err(|error| format!("failed to discover skills: {}", error.message))?;
-        let resolved_skills = crate::skill_resolver::resolve_skills(
-            skill_entries,
-            config_snapshot,
-            &selected_skills,
-        )?;
+        let skill_entries = crate::workspace::discover_skill_entries(
+            workspace_root,
+            &crate::config::application::repo_root(),
+        )
+        .map_err(|error| format!("failed to discover skills: {}", error.message))?;
+        let resolved_skills =
+            crate::skills::resolve_skills(skill_entries, config_snapshot, &selected_skills)?;
         for (index, skill) in resolved_skills.active.into_iter().enumerate() {
             let scope_root = if skill.entry.source == "workspace" {
                 workspace_root.to_path_buf()
             } else {
-                crate::repo_root()
+                crate::config::application::repo_root()
             };
             let path = scope_root.join(&skill.entry.path);
             let warnings = vec![format!("skill activation: {:?}", skill.activation)];

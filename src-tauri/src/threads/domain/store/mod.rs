@@ -178,7 +178,7 @@ pub(super) fn validate_context_checkpoint_lineage(
         let Some(checkpoint) = installed_context_checkpoint(item) else {
             continue;
         };
-        crate::context_checkpoint_lineage::validate_context_checkpoint_successor(
+        crate::threads::rollout::checkpoint_lineage::validate_context_checkpoint_successor(
             session_id,
             current_checkpoint,
             checkpoint,

@@ -1,10 +1,16 @@
-use crate::native_backend_contract::NativeBackendKind;
 use crate::protocol::{WorkerDiagnosticLine, WorkerTransportMode};
 use serde::Serialize;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
+pub enum NativeBackendKind {
+    Rust,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum WorkerRuntimeState {
+    Stopped,
     Running,
     Failed,
 }
@@ -20,6 +26,17 @@ pub struct WorkerRuntimeStatus {
 }
 
 impl WorkerRuntimeStatus {
+    pub fn rust_backend_stopped() -> Self {
+        Self {
+            state: WorkerRuntimeState::Stopped,
+            backend_kind: NativeBackendKind::Rust,
+            transport_mode: None,
+            diagnostics: Vec::new(),
+            last_error: None,
+            recovery_hint: None,
+        }
+    }
+
     pub fn rust_backend_active(diagnostics: Vec<WorkerDiagnosticLine>) -> Self {
         Self {
             state: WorkerRuntimeState::Running,
@@ -44,26 +61,12 @@ impl WorkerRuntimeStatus {
             ),
         }
     }
-
-    pub fn running(
-        transport_mode: WorkerTransportMode,
-        diagnostics: Vec<WorkerDiagnosticLine>,
-    ) -> Self {
-        Self {
-            state: WorkerRuntimeState::Running,
-            backend_kind: NativeBackendKind::Rust,
-            transport_mode: Some(transport_mode),
-            diagnostics,
-            last_error: None,
-            recovery_hint: None,
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{WorkerDiagnosticLine, WorkerTransportMode};
+    use crate::protocol::WorkerDiagnosticLine;
 
     #[test]
     fn rust_backend_active_reports_diagnostics() {
@@ -99,18 +102,12 @@ mod tests {
     }
 
     #[test]
-    fn running_worker_status_includes_transport_and_diagnostics() {
-        let status = WorkerRuntimeStatus::running(
-            WorkerTransportMode::Stdio,
-            vec![WorkerDiagnosticLine::new("stdout", "worker ready")],
-        );
+    fn stopped_rust_backend_has_no_transport_or_error() {
+        let status = WorkerRuntimeStatus::rust_backend_stopped();
 
-        assert_eq!(status.state, WorkerRuntimeState::Running);
+        assert_eq!(status.state, WorkerRuntimeState::Stopped);
         assert_eq!(status.backend_kind, NativeBackendKind::Rust);
-        assert_eq!(status.transport_mode, Some(WorkerTransportMode::Stdio));
-        assert_eq!(
-            status.diagnostics,
-            vec![WorkerDiagnosticLine::new("stdout", "worker ready")]
-        );
+        assert_eq!(status.transport_mode, None);
+        assert!(status.last_error.is_none());
     }
 }

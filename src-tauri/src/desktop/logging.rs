@@ -4,8 +4,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::protocol::WorkerDiagnosticLine;
-
 pub(crate) fn append_native_backend_log_line(
     path: &Path,
     max_bytes: u64,
@@ -48,19 +46,8 @@ fn native_backend_rotated_log_path(path: &Path) -> PathBuf {
     path.with_file_name(format!("{file_name}.1"))
 }
 
-pub(crate) fn gateway_runtime_logs(
-    runtime_logs: &VecDeque<String>,
-    diagnostics: &[WorkerDiagnosticLine],
-) -> Vec<String> {
-    runtime_logs
-        .iter()
-        .cloned()
-        .chain(
-            diagnostics
-                .iter()
-                .map(|line| format!("{}: {}", line.stream, line.line)),
-        )
-        .collect()
+pub(crate) fn gateway_runtime_logs(runtime_logs: &VecDeque<String>) -> Vec<String> {
+    runtime_logs.iter().cloned().collect()
 }
 
 pub(crate) fn read_native_backend_log_tail(path: &Path, max_lines: usize) -> Vec<String> {

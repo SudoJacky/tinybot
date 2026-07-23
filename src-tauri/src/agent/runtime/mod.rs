@@ -445,7 +445,7 @@ impl NativeAgentContextCheckpointCommitter for InMemoryNativeAgentContextCheckpo
             return Ok(());
         }
         if let Some(current) = state.latest_checkpoints.get(&input.session_id) {
-            crate::context_checkpoint_lineage::validate_context_checkpoint_successor(
+            crate::threads::rollout::checkpoint_lineage::validate_context_checkpoint_successor(
                 &input.session_id,
                 Some(current),
                 &input.checkpoint,

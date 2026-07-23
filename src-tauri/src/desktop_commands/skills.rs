@@ -1,9 +1,8 @@
+use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
+use crate::desktop::SharedGateway;
 use crate::protocol::request_id::{next_worker_request_correlation, WorkerRequestCorrelation};
 use crate::protocol::WorkerRequest;
-use crate::{
-    call_rust_state_service, experimental_worker_config_snapshot, native_backend_workspace_root,
-    SharedGateway,
-};
+use crate::rpc::call_rust_state_service;
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, time::Duration};
 use tauri::State;
@@ -34,7 +33,7 @@ pub(crate) fn worker_skills_list(
     worker_skills_list_with_options(
         state.inner(),
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -48,7 +47,7 @@ pub(crate) fn worker_skills_detail(
         state.inner(),
         input.name,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -62,7 +61,7 @@ pub(crate) fn worker_skills_create(
         state.inner(),
         input.body,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -77,7 +76,7 @@ pub(crate) fn worker_skills_update(
         input.name,
         input.body,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -91,7 +90,7 @@ pub(crate) fn worker_skills_delete(
         state.inner(),
         input.name,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -105,7 +104,7 @@ pub(crate) fn worker_skills_validate(
         state.inner(),
         input.name,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }

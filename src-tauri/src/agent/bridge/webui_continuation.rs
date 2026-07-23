@@ -6,9 +6,9 @@ use crate::agent::bridge::{
 use crate::agent::runtime::{
     run_native_agent_turn_with_workspace_async, NativeAgentRuntimeServices,
 };
-use crate::call_rust_state_service;
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
+use crate::rpc::call_rust_state_service;
 use std::path::PathBuf;
 
 pub(crate) fn pending_approvals_from_checkpoint(

@@ -2,9 +2,9 @@ use crate::agent::runtime::{
     NativeAgentRunContext, NativeAgentRuntimeServices, NativeAgentToolCall,
     NativeAgentToolDispatcher, NativeAgentToolResult,
 };
-use crate::call_rust_state_service_with_mcp_runtime;
 use crate::collaboration::subagents::SubagentThreadManager;
 use crate::protocol::{WorkerRequest, WorkerRequestCancellation};
+use crate::rpc::call_rust_state_service_with_mcp_runtime;
 use crate::runtime::mcp::{configured_mcp_servers, mcp_tool_is_enabled, McpRuntime};
 use crate::tools::registry::ToolExecutionTarget;
 use crate::tools::shell::WorkerShellRuntime;

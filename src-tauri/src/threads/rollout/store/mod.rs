@@ -27,6 +27,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
+mod checkpoint_lock;
+
 static CONTEXT_CHECKPOINT_COMMIT_LOCK: Mutex<()> = Mutex::new(());
 static THREAD_RECORD_CACHE: OnceLock<Mutex<HashMap<PathBuf, CachedThreadRecord>>> = OnceLock::new();
 const THREAD_RECORD_CACHE_CAPACITY: usize = 64;
@@ -1703,21 +1705,19 @@ impl WorkerThreadLogRpc {
             .thread_root
             .parent()
             .unwrap_or(self.thread_root.as_path());
-        let _file_guard = crate::context_checkpoint_lock::acquire_context_checkpoint_lock(
-            tinybot_root,
-        )
-        .map_err(|error| {
-            WorkerProtocolError::new(
-                WorkerProtocolErrorCode::WorkerError,
-                format!("failed to acquire cross-process context checkpoint lock: {error}"),
-                serde_json::json!({
-                    "runId": run_id,
-                    "sessionId": session_id,
-                }),
-                true,
-                WorkerProtocolErrorSource::RustCore,
-            )
-        })?;
+        let _file_guard =
+            checkpoint_lock::acquire_context_checkpoint_lock(tinybot_root).map_err(|error| {
+                WorkerProtocolError::new(
+                    WorkerProtocolErrorCode::WorkerError,
+                    format!("failed to acquire cross-process context checkpoint lock: {error}"),
+                    serde_json::json!({
+                        "runId": run_id,
+                        "sessionId": session_id,
+                    }),
+                    true,
+                    WorkerProtocolErrorSource::RustCore,
+                )
+            })?;
         self.ensure_state_index()?;
         let context_id = checkpoint
             .get("contextId")
@@ -1829,7 +1829,7 @@ impl WorkerThreadLogRpc {
                 .filter(|value| !value.trim().is_empty())
                 .map(|_| checkpoint)
         });
-        crate::context_checkpoint_lineage::validate_context_checkpoint_successor(
+        crate::threads::rollout::checkpoint_lineage::validate_context_checkpoint_successor(
             session_id,
             current_checkpoint,
             &checkpoint,
@@ -2137,22 +2137,19 @@ impl WorkerThreadLogRpc {
                 .thread_root
                 .parent()
                 .unwrap_or(self.thread_root.as_path());
-            let file_guard =
-                crate::context_checkpoint_lock::acquire_context_checkpoint_lock(tinybot_root)
-                    .map_err(|error| {
-                        WorkerProtocolError::new(
-                            WorkerProtocolErrorCode::WorkerError,
-                            format!(
-                                "failed to acquire cross-process context checkpoint lock: {error}"
-                            ),
-                            serde_json::json!({
-                                "runId": run_id,
-                                "sessionId": session_id,
-                            }),
-                            true,
-                            WorkerProtocolErrorSource::RustCore,
-                        )
-                    })?;
+            let file_guard = checkpoint_lock::acquire_context_checkpoint_lock(tinybot_root)
+                .map_err(|error| {
+                    WorkerProtocolError::new(
+                        WorkerProtocolErrorCode::WorkerError,
+                        format!("failed to acquire cross-process context checkpoint lock: {error}"),
+                        serde_json::json!({
+                            "runId": run_id,
+                            "sessionId": session_id,
+                        }),
+                        true,
+                        WorkerProtocolErrorSource::RustCore,
+                    )
+                })?;
             Some((process_guard, file_guard))
         } else {
             None
@@ -2231,7 +2228,7 @@ impl WorkerThreadLogRpc {
                             .map(|(_line_number, checkpoint)| checkpoint)
                     })
                     .transpose()?;
-                crate::context_checkpoint_lineage::validate_context_checkpoint_revision(
+                crate::threads::rollout::checkpoint_lineage::validate_context_checkpoint_revision(
                     current_checkpoint,
                     checkpoint,
                 )
@@ -2378,18 +2375,16 @@ impl WorkerThreadLogRpc {
             .thread_root
             .parent()
             .unwrap_or(self.thread_root.as_path());
-        let _file_guard = crate::context_checkpoint_lock::acquire_context_checkpoint_lock(
-            tinybot_root,
-        )
-        .map_err(|error| {
-            WorkerProtocolError::new(
-                WorkerProtocolErrorCode::WorkerError,
-                format!("failed to acquire cross-process context checkpoint lock: {error}"),
-                serde_json::json!({ "sessionId": session_id }),
-                true,
-                WorkerProtocolErrorSource::RustCore,
-            )
-        })?;
+        let _file_guard =
+            checkpoint_lock::acquire_context_checkpoint_lock(tinybot_root).map_err(|error| {
+                WorkerProtocolError::new(
+                    WorkerProtocolErrorCode::WorkerError,
+                    format!("failed to acquire cross-process context checkpoint lock: {error}"),
+                    serde_json::json!({ "sessionId": session_id }),
+                    true,
+                    WorkerProtocolErrorSource::RustCore,
+                )
+            })?;
         self.ensure_state_index()?;
         let timestamp = now_thread_timestamp();
         let mut record = self.ensure_session_record(session_id, &timestamp)?;
@@ -4631,7 +4626,7 @@ fn typed_compacted_item(value: Value, context: &str) -> Result<CompactedItem, Wo
 fn stale_context_checkpoint_error(
     run_id: &str,
     context_id: &str,
-    error: crate::context_checkpoint_lineage::ContextCheckpointLineageError,
+    error: crate::threads::rollout::checkpoint_lineage::ContextCheckpointLineageError,
 ) -> WorkerProtocolError {
     WorkerProtocolError::new(
         WorkerProtocolErrorCode::InvalidProtocol,

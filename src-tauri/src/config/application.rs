@@ -216,7 +216,7 @@ fn expand_tinybot_workspace_path(workspace: &str) -> PathBuf {
     PathBuf::from(workspace)
 }
 
-pub(crate) fn experimental_worker_default_config_snapshot() -> Value {
+pub(crate) fn native_default_config_snapshot() -> Value {
     serde_json::json!({
         "schemaVersion": 1,
         "agents": {
@@ -247,17 +247,24 @@ pub(crate) fn experimental_worker_default_config_snapshot() -> Value {
     })
 }
 
-pub(crate) fn experimental_worker_config_snapshot_from_path(config_path: &Path) -> Value {
-    ConfigStore::load(
-        config_path.to_path_buf(),
-        experimental_worker_default_config_snapshot(),
-    )
-    .map(|store| store.snapshot().clone())
-    .unwrap_or_else(|_| experimental_worker_default_config_snapshot())
+pub(crate) fn native_config_snapshot_from_path(config_path: &Path) -> Value {
+    ConfigStore::load(config_path.to_path_buf(), native_default_config_snapshot())
+        .map(|store| store.snapshot().clone())
+        .unwrap_or_else(|_| native_default_config_snapshot())
 }
 
-pub(crate) fn experimental_worker_config_snapshot() -> Value {
-    experimental_worker_config_snapshot_from_path(&default_tinybot_config_path())
+pub(crate) fn native_config_snapshot() -> Value {
+    native_config_snapshot_from_path(&default_tinybot_config_path())
+}
+
+pub(crate) fn repo_root() -> PathBuf {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    manifest_dir
+        .ancestors()
+        .find(|path| path.join("package.json").exists())
+        .map(PathBuf::from)
+        .or_else(|| manifest_dir.parent().map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from("."))
 }
 
 pub(crate) fn apply_config_patch_result_to_path(
@@ -293,11 +300,8 @@ pub(crate) fn apply_config_operations_to_path(
 pub(crate) fn ensure_default_config_file(
     config_path: &Path,
 ) -> Result<Vec<ConfigDiagnostic>, ConfigApplicationError> {
-    ConfigApplication::new(
-        config_path.to_path_buf(),
-        experimental_worker_default_config_snapshot(),
-    )
-    .ensure_default_file()
+    ConfigApplication::new(config_path.to_path_buf(), native_default_config_snapshot())
+        .ensure_default_file()
 }
 
 #[cfg(test)]

@@ -1,8 +1,8 @@
 use serde::Serialize;
 
-use crate::{
-    append_log, append_native_backend_log_line, lock_runtime, SharedGateway,
-    NATIVE_BACKEND_LOG_MAX_BYTES,
+use super::{
+    logging::append_native_backend_log_line,
+    state::{append_log, lock_runtime, SharedGateway, NATIVE_BACKEND_LOG_MAX_BYTES},
 };
 
 #[cfg(windows)]

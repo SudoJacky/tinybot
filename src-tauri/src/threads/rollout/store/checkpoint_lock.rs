@@ -79,7 +79,7 @@ mod tests {
         let first = acquire_context_checkpoint_lock(&root).unwrap();
         let mut child = Command::new(std::env::current_exe().unwrap())
             .arg("--exact")
-            .arg("context_checkpoint_lock::tests::context_checkpoint_lock_child")
+            .arg("threads::rollout::store::checkpoint_lock::tests::context_checkpoint_lock_child")
             .arg("--nocapture")
             .env(CHILD_ROOT_ENV, &root)
             .spawn()

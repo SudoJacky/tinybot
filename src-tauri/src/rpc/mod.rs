@@ -1215,5 +1215,58 @@ fn unavailable_subagent_manager() -> crate::protocol::WorkerProtocolError {
     )
 }
 
+pub(crate) fn call_rust_state_service(
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    request: WorkerRequest,
+    label: &str,
+) -> Result<serde_json::Value, String> {
+    let mut router = native_request_router(workspace_root, config_snapshot);
+    let response = router.dispatch(&request);
+    if let Some(error) = response.error {
+        return Err(format!("{label} failed: {}", error.message));
+    }
+    response
+        .result
+        .ok_or_else(|| format!("{label} failed: missing response result"))
+}
+
+pub(crate) fn call_rust_state_service_with_mcp_runtime(
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    mcp_runtime: McpRuntime,
+    shell_runtime: WorkerShellRuntime,
+    subagent_manager: SubagentThreadManager,
+    request: WorkerRequest,
+    label: &str,
+) -> Result<serde_json::Value, String> {
+    let mut router = native_request_router(workspace_root, config_snapshot)
+        .with_mcp_runtime(mcp_runtime)
+        .with_shell_runtime(shell_runtime)
+        .with_subagent_manager(subagent_manager);
+    let response = router.dispatch(&request);
+    if let Some(error) = response.error {
+        return Err(format!("{label} failed: {}", error.message));
+    }
+    response
+        .result
+        .ok_or_else(|| format!("{label} failed: missing response result"))
+}
+
+pub(crate) fn native_request_router(
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> WorkerRpcRouter {
+    WorkerRpcRouter::new_persistent_sessions(
+        workspace_root,
+        config_snapshot,
+        vec![],
+        200,
+        crate::protocol::capability::default_desktop_capability_policy(),
+    )
+    .expect("persistent session store should initialize")
+    .with_builtin_skills_root(crate::config::application::repo_root())
+}
+
 #[cfg(test)]
 mod tests;
