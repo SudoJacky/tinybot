@@ -144,7 +144,7 @@ mod tests {
             "trace-restart",
             "runtime.restart",
             json!({
-                "turn_id": "run-1",
+                "turn_id": "turn-1",
                 "session_id": "session-1"
             }),
         );
@@ -157,7 +157,7 @@ mod tests {
             result,
             json!({
                 "restart_requested": true,
-                "turn_id": "run-1",
+                "turn_id": "turn-1",
                 "session_id": "session-1"
             })
         );
@@ -167,7 +167,7 @@ mod tests {
                 .expect("restart request log should lock")
                 .as_slice(),
             [RuntimeRestartRequest {
-                turn_id: Some("run-1".to_string()),
+                turn_id: Some("turn-1".to_string()),
                 session_id: Some("session-1".to_string())
             }]
         );
@@ -195,7 +195,7 @@ mod tests {
             "trace-restart",
             "runtime.restart",
             json!({
-                "turn_id": "run-1",
+                "turn_id": "turn-1",
                 "session_id": "session-1"
             }),
         );
@@ -207,7 +207,7 @@ mod tests {
             response.result.expect("restart result should be present"),
             json!({
                 "restart_requested": true,
-                "turn_id": "run-1",
+                "turn_id": "turn-1",
                 "session_id": "session-1"
             })
         );
@@ -217,7 +217,7 @@ mod tests {
                 .expect("restart request log should lock")
                 .as_slice(),
             [RuntimeRestartRequest {
-                turn_id: Some("run-1".to_string()),
+                turn_id: Some("turn-1".to_string()),
                 session_id: Some("session-1".to_string())
             }]
         );
@@ -238,7 +238,7 @@ mod tests {
             "trace-restart",
             "runtime.restart",
             json!({
-                "turnId": "run-1",
+                "turnId": "turn-1",
                 "sessionId": "session-1"
             }),
         );
@@ -252,7 +252,7 @@ mod tests {
                 .expect("restart request log should lock")
                 .as_slice(),
             [RuntimeRestartRequest {
-                turn_id: Some("run-1".to_string()),
+                turn_id: Some("turn-1".to_string()),
                 session_id: Some("session-1".to_string())
             }]
         );

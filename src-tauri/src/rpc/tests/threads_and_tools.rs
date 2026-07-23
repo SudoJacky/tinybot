@@ -1744,7 +1744,7 @@ fn dispatches_permission_profile_resolve_tool_approval_records_thread_item() {
             "approvalId": approval_id,
             "approved": true,
             "scope": "once",
-            "guidance": "approved for this run"
+            "guidance": "approved for this turn"
         }),
     ));
 
@@ -2890,6 +2890,7 @@ fn dispatches_thread_append_items_idempotently_by_client_event_id() {
         "items": [{
             "itemId": "",
             "threadId": "",
+            "turnId": "turn-idempotent",
             "sequence": 0,
             "createdAt": "",
             "kind": {
@@ -3174,7 +3175,7 @@ fn dispatches_thread_apply_op_for_turn_lifecycle() {
                 "approvalId": "approval-op-1",
                 "approved": true,
                 "scope": "once",
-                "guidance": "Allowed for this run"
+                "guidance": "Allowed for this turn"
             }
         }),
     ));
@@ -3403,8 +3404,8 @@ fn dispatches_thread_apply_op_for_turn_lifecycle() {
         "thread operation targets a turn that is not active"
     );
 
-    let continue_without_active_run = router.dispatch(&WorkerRequest::new(
-        "req-thread-op-continue-without-active-run",
+    let continue_without_active_turn = router.dispatch(&WorkerRequest::new(
+        "req-thread-op-continue-without-active-turn",
         "trace-thread-op",
         "thread.apply_op",
         json!({
@@ -3416,11 +3417,11 @@ fn dispatches_thread_apply_op_for_turn_lifecycle() {
         }),
     ));
     assert_eq!(
-        continue_without_active_run.error.as_ref().unwrap().code,
+        continue_without_active_turn.error.as_ref().unwrap().code,
         crate::protocol::WorkerProtocolErrorCode::InvalidProtocol
     );
     assert_eq!(
-        continue_without_active_run.error.as_ref().unwrap().message,
+        continue_without_active_turn.error.as_ref().unwrap().message,
         "thread operation requires an active turn or explicit turnId"
     );
 
@@ -3571,15 +3572,15 @@ fn dispatches_thread_apply_op_records_terminal_error() {
         json!(null)
     );
 
-    let run_get = router.dispatch(&WorkerRequest::new(
+    let turn_get = router.dispatch(&WorkerRequest::new(
         "req-thread-error-op-turn-get",
         "trace-thread-error-op",
         "thread.turn.get",
         json!({ "session_id": "session-error-op", "turn_id": "turn-error-op-1" }),
     ));
-    assert!(run_get.result.is_none());
+    assert!(turn_get.result.is_none());
     assert_eq!(
-        run_get.error.as_ref().map(|error| error.message.as_str()),
+        turn_get.error.as_ref().map(|error| error.message.as_str()),
         Some("turn not found")
     );
 }
@@ -4006,18 +4007,10 @@ fn dispatches_thread_apply_op_updates_settings_and_records_item() {
         "deepseek-v4-flash"
     );
     assert_eq!(
-        settings.result.as_ref().unwrap()["appendedItems"][0]["kind"]["type"],
-        "settings_changed"
-    );
-    assert_eq!(
-        settings.result.as_ref().unwrap()["appendedItems"][0]["kind"]["payload"]["reason"],
-        "user changed model"
+        settings.result.as_ref().unwrap()["appendedItems"],
+        json!([])
     );
     assert_eq!(settings.result.as_ref().unwrap()["turn"], json!(null));
-    let settings_item_id = settings.result.as_ref().unwrap()["appendedItems"][0]["itemId"]
-        .as_str()
-        .unwrap()
-        .to_string();
 
     let settings_retry = router.dispatch(&WorkerRequest::new(
         "req-thread-settings-op-retry",
@@ -4040,12 +4033,8 @@ fn dispatches_thread_apply_op_updates_settings_and_records_item() {
     ));
     assert_eq!(settings_retry.error, None);
     assert_eq!(
-        settings_retry.result.as_ref().unwrap()["appendedItems"][0]["itemId"],
-        settings_item_id
-    );
-    assert_eq!(
-        settings_retry.result.as_ref().unwrap()["appendedItems"][0]["kind"]["payload"]["reason"],
-        "user changed model"
+        settings_retry.result.as_ref().unwrap()["appendedItems"],
+        json!([])
     );
     assert_eq!(
         settings_retry.result.as_ref().unwrap()["snapshot"]["thread"]["title"],
@@ -4067,10 +4056,7 @@ fn dispatches_thread_apply_op_updates_settings_and_records_item() {
         read.result.as_ref().unwrap()["thread"]["title"],
         "Settings after"
     );
-    assert_eq!(
-        read.result.as_ref().unwrap()["items"][0]["kind"]["type"],
-        "settings_changed"
-    );
+    assert_eq!(read.result.as_ref().unwrap()["items"], json!([]));
 }
 
 #[test]
@@ -4561,28 +4547,28 @@ fn agent_turn_requests_ignore_thread_only_items() {
     ));
     assert_eq!(append.error, None);
 
-    let run_list = router.dispatch(&WorkerRequest::new(
+    let turn_list = router.dispatch(&WorkerRequest::new(
         "req-thread-backed-turn-list",
         "trace-thread-backed-turn",
         "thread.turn.list",
         json!({ "sessionId": "session-1" }),
     ));
-    assert_eq!(run_list.error, None);
-    assert_eq!(run_list.result.as_ref().unwrap()["sessionId"], "session-1");
-    assert!(run_list.result.as_ref().unwrap()["turns"]
+    assert_eq!(turn_list.error, None);
+    assert_eq!(turn_list.result.as_ref().unwrap()["sessionId"], "session-1");
+    assert!(turn_list.result.as_ref().unwrap()["turns"]
         .as_array()
         .unwrap()
         .is_empty());
 
-    let run_get = router.dispatch(&WorkerRequest::new(
+    let turn_get = router.dispatch(&WorkerRequest::new(
         "req-thread-backed-turn-get",
         "trace-thread-backed-turn",
         "thread.turn.get",
         json!({ "session_id": "session-1", "turn_id": "turn-thread-only" }),
     ));
-    assert!(run_get.result.is_none());
+    assert!(turn_get.result.is_none());
     assert_eq!(
-        run_get.error.as_ref().map(|error| error.message.as_str()),
+        turn_get.error.as_ref().map(|error| error.message.as_str()),
         Some("turn not found")
     );
 
@@ -4635,7 +4621,7 @@ fn agent_turn_requests_ignore_thread_only_items() {
 }
 
 #[test]
-fn agent_turn_list_reads_canonical_rollout_runs() {
+fn agent_turn_list_reads_canonical_rollout_turns() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -4678,19 +4664,19 @@ fn agent_turn_list_reads_canonical_rollout_runs() {
     ));
     assert_eq!(upsert.error, None);
 
-    let run_list = router.dispatch(&WorkerRequest::new(
+    let turn_list = router.dispatch(&WorkerRequest::new(
         "req-mixed-agent-turn-list",
         "trace-mixed-agent-turns",
         "thread.turn.list",
         json!({ "sessionId": "session-1" }),
     ));
 
-    assert_eq!(run_list.error, None);
-    let runs = run_list.result.as_ref().unwrap()["turns"]
+    assert_eq!(turn_list.error, None);
+    let turns = turn_list.result.as_ref().unwrap()["turns"]
         .as_array()
-        .expect("thread.turn.list should return runs");
-    assert_eq!(runs.len(), 1);
-    assert!(runs.iter().any(|run| run["turnId"] == "turn-thread-log"));
+        .expect("thread.turn.list should return turns");
+    assert_eq!(turns.len(), 1);
+    assert!(turns.iter().any(|turn| turn["turnId"] == "turn-thread-log"));
 }
 
 #[test]
@@ -4841,7 +4827,7 @@ fn dispatches_thread_status_includes_active_child_activity() {
 }
 
 #[test]
-fn agent_turn_rpc_enforces_capabilities_and_unknown_run_errors() {
+fn agent_turn_rpc_enforces_capabilities_and_unknown_turn_errors() {
     let fixture = WorkspaceFixture::new();
     let mut denied_router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -4872,7 +4858,7 @@ fn agent_turn_rpc_enforces_capabilities_and_unknown_run_errors() {
         "req-missing",
         "trace-agent-turn",
         "thread.turn.get",
-        json!({ "session_id": "session-1", "turn_id": "missing-run" }),
+        json!({ "session_id": "session-1", "turn_id": "missing-turn" }),
     ));
     assert_eq!(
         missing.error.as_ref().unwrap().code,
@@ -4880,7 +4866,7 @@ fn agent_turn_rpc_enforces_capabilities_and_unknown_run_errors() {
     );
     assert_eq!(
         missing.error.as_ref().unwrap().details["turn_id"],
-        "missing-run"
+        "missing-turn"
     );
 
     let malformed = read_router.dispatch(&WorkerRequest::new(
@@ -4924,6 +4910,7 @@ fn dispatches_session_writes_for_new_experimental_session() {
         "session.append_messages",
         json!({
             "session_id": "desktop-session-1",
+            "turn_id": "turn-1",
             "messages": [
                 { "role": "assistant", "content": "done" }
             ]
@@ -4943,7 +4930,7 @@ fn dispatches_session_writes_for_new_experimental_session() {
     );
     assert_eq!(
         append_response.result.as_ref().unwrap()["extra"]["messages"],
-        json!([{ "role": "assistant", "content": "done" }])
+        json!([{ "role": "assistant", "content": "done", "turnId": "turn-1" }])
     );
     assert!(checkpoint_response.error.is_none());
     assert!(append_response.error.is_none());

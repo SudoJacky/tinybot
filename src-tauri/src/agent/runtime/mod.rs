@@ -712,7 +712,7 @@ impl NativeAgentRuntimeServices {
         let task = self
             .task_runtime
             .request_cancel(turn_id, AgentCancelReason::UserRequested);
-        self.approvals.cancel_run(turn_id);
+        self.approvals.cancel_turn(turn_id);
         serde_json::json!({
             "runtime": "rust",
             "turnId": turn_id,
@@ -743,7 +743,7 @@ impl NativeAgentRuntimeServices {
     }
 
     #[cfg(test)]
-    pub fn restore_run_checkpoint(&self, session_id: &str, turn_id: &str) -> Value {
+    pub fn restore_turn_checkpoint(&self, session_id: &str, turn_id: &str) -> Value {
         serde_json::json!({
             "runtime": "rust",
             "sessionId": session_id,
@@ -757,13 +757,13 @@ impl NativeAgentRuntimeServices {
     }
 
     #[cfg(test)]
-    pub fn save_run_checkpoint(&self, session_id: &str, turn_id: &str, checkpoint: Value) {
+    pub fn save_turn_checkpoint(&self, session_id: &str, turn_id: &str, checkpoint: Value) {
         self.checkpoints
             .save_for_turn(session_id, turn_id, checkpoint);
     }
 
     #[cfg(test)]
-    pub fn clear_run_checkpoint(&self, session_id: &str, turn_id: &str) {
+    pub fn clear_turn_checkpoint(&self, session_id: &str, turn_id: &str) {
         self.checkpoints.clear_for_turn(session_id, turn_id);
     }
 

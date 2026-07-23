@@ -75,7 +75,7 @@ pub struct AgentTurnRecoveryEntry {
 #[serde(rename_all = "camelCase")]
 pub struct AgentTurnRecoveryReport {
     pub scanned_sessions: usize,
-    pub scanned_runs: usize,
+    pub scanned_turns: usize,
     pub interrupted_turns: Vec<AgentTurnRecoveryEntry>,
     pub awaiting_interaction_turns: Vec<AgentTurnRecoveryEntry>,
     pub resumable_turns: Vec<AgentTurnRecoveryEntry>,
@@ -537,6 +537,15 @@ impl WorkerThreadLogRpc {
     ) -> Result<(), WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
         self.ensure_state_index()?;
+        if let Some(item) = items.iter().find(|item| item.turn_id.trim().is_empty()) {
+            return Err(thread_log_consistency_error(
+                "thread item turnId must not be empty",
+                serde_json::json!({
+                    "threadId": thread_id,
+                    "itemId": item.item_id,
+                }),
+            ));
+        }
         let Some(record) = self.state.find_by_session_or_thread_id(thread_id)? else {
             return Err(thread_log_consistency_error(
                 "canonical Rollout is missing for thread append",
@@ -594,9 +603,15 @@ impl WorkerThreadLogRpc {
         let record = self.ensure_session_record(session_id, &timestamp)?;
         let path = PathBuf::from(&record.thread_path);
         self.recorder.validate_thread_path(&path)?;
-        let turn_id = context.turn_id.clone().unwrap_or_default();
+        let turn_id = context.turn_id.clone();
+        if turn_id.trim().is_empty() {
+            return Err(thread_log_consistency_error(
+                "turn context turnId must not be empty",
+                serde_json::json!({ "sessionId": session_id }),
+            ));
+        }
         let mut items = Vec::with_capacity(2);
-        if !turn_id.is_empty() && thread_turn_state(&path, &turn_id)? == ThreadTurnState::Missing {
+        if thread_turn_state(&path, &turn_id)? == ThreadTurnState::Missing {
             items.push(value_event(
                 EventKind::TurnStarted,
                 serde_json::json!({ "turnId": turn_id }),
@@ -860,16 +875,16 @@ impl WorkerThreadLogRpc {
         self.recorder.validate_thread_path(&path)?;
         if let Err(error) = self.ensure_thread_log_head_current(&record, &path) {
             eprintln!(
-                "thread_state_index_targeted_rebuild thread_id={} reason={}",
-                record.id, error.message
+                "thread_state_index_targeted_rebuild thread_id={} reason={} details={}",
+                record.id, error.message, error.details
             );
             return self.get_agent_context_from_canonical_rollout(&path, limit);
         }
         let lines = read_thread_lines(&path)?;
         if let Err(error) = self.ensure_thread_log_head_current(&record, &path) {
             eprintln!(
-                "thread_state_index_targeted_rebuild thread_id={} reason={}",
-                record.id, error.message
+                "thread_state_index_targeted_rebuild thread_id={} reason={} details={}",
+                record.id, error.message, error.details
             );
             return self.get_agent_context_from_canonical_rollout(&path, limit);
         }
@@ -877,8 +892,8 @@ impl WorkerThreadLogRpc {
             Ok(checkpoint) => checkpoint,
             Err(error) => {
                 eprintln!(
-                    "thread_state_index_targeted_rebuild thread_id={} reason={}",
-                    record.id, error.message
+                    "thread_state_index_targeted_rebuild thread_id={} reason={} details={}",
+                    record.id, error.message, error.details
                 );
                 return self.get_agent_context_from_canonical_rollout(&path, limit);
             }
@@ -888,8 +903,8 @@ impl WorkerThreadLogRpc {
             Ok(replay) => replay,
             Err(error) => {
                 eprintln!(
-                    "thread_state_index_targeted_rebuild thread_id={} reason={}",
-                    record.id, error.message
+                    "thread_state_index_targeted_rebuild thread_id={} reason={} details={}",
+                    record.id, error.message, error.details
                 );
                 return self.get_agent_context_from_canonical_rollout(&path, limit);
             }
@@ -972,7 +987,7 @@ impl WorkerThreadLogRpc {
         let latest_checkpoint = active_turn.as_ref().and_then(|turn| {
             checkpoints
                 .iter()
-                .filter(|checkpoint| checkpoint.turn_id.as_deref() == Some(turn.turn_id.as_str()))
+                .filter(|checkpoint| checkpoint.turn_id == turn.turn_id)
                 .max_by_key(|checkpoint| checkpoint.sequence)
                 .cloned()
         });
@@ -1749,6 +1764,7 @@ impl WorkerThreadLogRpc {
                 )
             })?
             .clone();
+        insert_required_turn_id(&mut checkpoint, turn_id, "context checkpoint commit")?;
         checkpoint["preserveTranscript"] = Value::Bool(true);
 
         let timestamp = now_thread_timestamp();
@@ -1931,9 +1947,16 @@ impl WorkerThreadLogRpc {
     pub fn append_session_messages(
         &self,
         session_id: &str,
+        turn_id: &str,
         messages: Vec<Value>,
     ) -> Result<SessionMetadata, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
+        if turn_id.trim().is_empty() {
+            return Err(session_mutation_error(
+                "session message append requires a non-empty turn id",
+                session_id,
+            ));
+        }
         self.ensure_state_index()?;
         let timestamp = now_thread_timestamp();
         let mut record = self.ensure_session_record(session_id, &timestamp)?;
@@ -1942,18 +1965,45 @@ impl WorkerThreadLogRpc {
         let replay =
             reconstruction::reconstruct_canonical_rollout(&read_thread_lines(&path)?)?.semantic;
         let (saved_messages, _) = filter_new_session_messages(&replay.messages, messages);
+        let saved_messages = saved_messages
+            .into_iter()
+            .map(|mut message| {
+                insert_required_turn_id(&mut message, turn_id, "append session messages")?;
+                Ok(message)
+            })
+            .collect::<Result<Vec<_>, WorkerProtocolError>>()?;
         let mut next_messages = replay.messages;
         next_messages.extend(saved_messages.iter().cloned());
         let derived_title = is_default_session_title(&record.title)
             .then(|| title_from_messages(&next_messages))
             .flatten();
-        let mut items = saved_messages
-            .into_iter()
-            .map(|message| {
-                typed_response_item(message, "append session messages")
-                    .map(ThreadLogItem::ResponseItem)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut items = Vec::with_capacity(saved_messages.len() + 3);
+        if !saved_messages.is_empty()
+            && thread_turn_state(&path, turn_id)? == ThreadTurnState::Missing
+        {
+            items.push(value_event(
+                EventKind::TurnStarted,
+                serde_json::json!({ "turnId": turn_id }),
+            ));
+        }
+        items.extend(
+            saved_messages
+                .into_iter()
+                .map(|message| {
+                    typed_response_item(message, "append session messages")
+                        .map(ThreadLogItem::ResponseItem)
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        );
+        if items
+            .iter()
+            .any(|item| matches!(item, ThreadLogItem::ResponseItem(_)))
+        {
+            items.push(value_event(
+                EventKind::TurnComplete,
+                serde_json::json!({ "turnId": turn_id }),
+            ));
+        }
         if let Some(title) = derived_title.as_ref() {
             items.push(value_event(
                 EventKind::MetadataUpdated,
@@ -2071,12 +2121,14 @@ impl WorkerThreadLogRpc {
     pub fn upsert_task_progress(
         &self,
         session_id: &str,
+        turn_id: &str,
         plan_id: &str,
         progress: Value,
         content: String,
     ) -> Result<SessionMetadata, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
-        let message = normalized_task_progress_message(plan_id, progress, content)?;
+        let mut message = normalized_task_progress_message(plan_id, progress, content)?;
+        insert_required_turn_id(&mut message, turn_id, "task progress message")?;
         self.ensure_state_index()?;
         let timestamp = now_thread_timestamp();
         let mut record = self.ensure_session_record(session_id, &timestamp)?;
@@ -2167,6 +2219,13 @@ impl WorkerThreadLogRpc {
         let messages_before = replay.messages.len();
         let (saved_messages, duplicate_message_count) =
             filter_new_session_messages(&replay.messages, messages);
+        let saved_messages = saved_messages
+            .into_iter()
+            .map(|mut message| {
+                insert_required_turn_id(&mut message, turn_id, "persist turn")?;
+                Ok(message)
+            })
+            .collect::<Result<Vec<_>, WorkerProtocolError>>()?;
         let turn_already_started = match thread_turn_state(&thread_path, turn_id)? {
             ThreadTurnState::Complete if saved_messages.is_empty() => {
                 return Ok(PersistTurnResult {
@@ -2213,6 +2272,7 @@ impl WorkerThreadLogRpc {
                         )
                     })?
                     .clone();
+                insert_required_turn_id(&mut checkpoint, turn_id, "persist turn compaction")?;
                 checkpoint["preserveTranscript"] = Value::Bool(true);
                 Ok::<_, WorkerProtocolError>((checkpoint, replacement_history))
             })
@@ -2400,7 +2460,10 @@ impl WorkerThreadLogRpc {
             .turns
             .iter()
             .any(|turn| turn.checkpoint.is_some());
-        let checkpoint = serde_json::json!({ "replacementHistory": [] });
+        let checkpoint = serde_json::json!({
+            "replacementHistory": [],
+            "threadScoped": true
+        });
         self.recorder.append_items(
             &path,
             timestamp.clone(),
@@ -3418,7 +3481,7 @@ fn thread_turn_state(path: &Path, turn_id: &str) -> Result<ThreadTurnState, Work
         return Ok(ThreadTurnState::Missing);
     }
     let lines = read_thread_lines(path)?;
-    let mut saw_run = false;
+    let mut saw_turn = false;
     for line in lines {
         match line.item {
             ThreadLogItem::EventMsg(event) => {
@@ -3436,7 +3499,7 @@ fn thread_turn_state(path: &Path, turn_id: &str) -> Result<ThreadTurnState, Work
                     (EventKind::TurnStarted | EventKind::TaskStarted, Some(value))
                         if value == turn_id =>
                     {
-                        saw_run = true;
+                        saw_turn = true;
                     }
                     _ => {}
                 }
@@ -3448,13 +3511,13 @@ fn thread_turn_state(path: &Path, turn_id: &str) -> Result<ThreadTurnState, Work
                     .and_then(Value::as_str)
                     == Some(turn_id)
                 {
-                    saw_run = true;
+                    saw_turn = true;
                 }
             }
             _ => {}
         }
     }
-    Ok(if saw_run {
+    Ok(if saw_turn {
         ThreadTurnState::Incomplete
     } else {
         ThreadTurnState::Missing
@@ -3528,9 +3591,14 @@ fn thread_items_from_effective_rollout(
                 Some(ThreadItem {
                     item_id: rollout_thread_item_id(item.as_value(), thread_id, item_sequence),
                     thread_id: thread_id.to_string(),
-                    turn_id: string_value(item.as_value(), "turnId")
-                        .or_else(|| string_value(item.as_value(), "turn_id"))
-                        .or_else(|| active_turn_id.clone()),
+                    turn_id: required_thread_item_turn_id(
+                        string_value(item.as_value(), "turnId")
+                            .or_else(|| string_value(item.as_value(), "turn_id"))
+                            .or_else(|| active_turn_id.clone()),
+                        thread_id,
+                        line,
+                        "response_item",
+                    )?,
                     parent_item_id: string_value(item.as_value(), "parentItemId")
                         .or_else(|| string_value(item.as_value(), "parent_item_id")),
                     sequence: item_sequence,
@@ -3562,6 +3630,14 @@ fn thread_items_from_effective_rollout(
                     line,
                 )?)
             }
+            ThreadLogItem::Compacted(checkpoint)
+                if checkpoint
+                    .get("threadScoped")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false) =>
+            {
+                None
+            }
             ThreadLogItem::Compacted(checkpoint) => Some(ThreadItem {
                 item_id: checkpoint
                     .get("_threadItemId")
@@ -3569,7 +3645,23 @@ fn thread_items_from_effective_rollout(
                     .map(str::to_string)
                     .unwrap_or_else(|| format!("rollout:{thread_id}:{sequence}")),
                 thread_id: thread_id.to_string(),
-                turn_id: None,
+                turn_id: required_thread_item_turn_id(
+                    string_value(checkpoint.as_value(), "turnId")
+                        .or_else(|| string_value(checkpoint.as_value(), "turn_id"))
+                        .or_else(|| active_turn_id.clone()),
+                    thread_id,
+                    line,
+                    "compacted",
+                )
+                .map_err(|mut error| {
+                    error.details["checkpointStage"] = checkpoint
+                        .get("checkpointStage")
+                        .cloned()
+                        .unwrap_or(Value::Null);
+                    error.details["contextId"] =
+                        checkpoint.get("contextId").cloned().unwrap_or(Value::Null);
+                    error
+                })?,
                 parent_item_id: None,
                 sequence,
                 created_at: line.timestamp.clone(),
@@ -3582,8 +3674,14 @@ fn thread_items_from_effective_rollout(
             ThreadLogItem::InterAgentCommunication(communication) => Some(ThreadItem {
                 item_id: format!("rollout:{thread_id}:{sequence}"),
                 thread_id: thread_id.to_string(),
-                turn_id: string_value(communication.as_value(), "turnId")
-                    .or_else(|| string_value(communication.as_value(), "turn_id")),
+                turn_id: required_thread_item_turn_id(
+                    string_value(communication.as_value(), "turnId")
+                        .or_else(|| string_value(communication.as_value(), "turn_id"))
+                        .or_else(|| active_turn_id.clone()),
+                    thread_id,
+                    line,
+                    "inter_agent_communication",
+                )?,
                 parent_item_id: None,
                 sequence,
                 created_at: line.timestamp.clone(),
@@ -3668,7 +3766,12 @@ fn thread_boundary_item_from_rollout_event(
         .get("_threadItemSequence")
         .and_then(Value::as_u64)
         .unwrap_or(sequence);
-    let turn_id = string_value(&payload, "turnId").or_else(|| string_value(&payload, "turn_id"));
+    let turn_id = required_thread_item_turn_id(
+        string_value(&payload, "turnId").or_else(|| string_value(&payload, "turn_id")),
+        thread_id,
+        line,
+        event.kind().as_str(),
+    )?;
     let item_id = payload
         .get("_threadItemId")
         .and_then(Value::as_str)
@@ -3721,7 +3824,12 @@ fn thread_user_item_from_rollout_event(
         .get("_threadItemSequence")
         .and_then(Value::as_u64)
         .unwrap_or(sequence);
-    let turn_id = string_value(payload, "turnId").or_else(|| string_value(payload, "turn_id"));
+    let turn_id = required_thread_item_turn_id(
+        string_value(payload, "turnId").or_else(|| string_value(payload, "turn_id")),
+        thread_id,
+        line,
+        "user_message",
+    )?;
     let item_id = payload
         .get("_threadItemId")
         .and_then(Value::as_str)
@@ -3781,7 +3889,7 @@ fn thread_checkpoint_item_from_turn_event(
     Ok(ThreadItem {
         item_id: format!("rollout:{thread_id}:{turn_id}:checkpoint:{checkpoint_id}"),
         thread_id: thread_id.to_string(),
-        turn_id: Some(turn_id),
+        turn_id,
         parent_item_id: None,
         sequence,
         created_at: line.timestamp.clone(),
@@ -3842,11 +3950,7 @@ fn collapse_logical_user_messages(items: Vec<ThreadItem>) -> Vec<ThreadItem> {
         let message_id = string_value(payload, "messageId")
             .or_else(|| string_value(payload, "message_id"))
             .unwrap_or_default();
-        let turn_id = item.turn_id.as_deref().unwrap_or_default();
-        if turn_id.is_empty() && message_id.is_empty() {
-            collapsed.push(item);
-            continue;
-        }
+        let turn_id = item.turn_id.as_str();
         let identity = format!("{turn_id}\u{1f}{message_id}\u{1f}{content}");
         if !user_message_indexes.contains_key(&identity) {
             user_message_indexes.insert(identity, collapsed.len());
@@ -3935,7 +4039,7 @@ fn thread_turn_summary_from_turn(
         item_count: u64::try_from(
             items
                 .iter()
-                .filter(|item| item.turn_id.as_deref() == Some(turn.turn_id.as_str()))
+                .filter(|item| item.turn_id == turn.turn_id)
                 .count(),
         )
         .unwrap_or(u64::MAX),
@@ -3953,11 +4057,7 @@ fn thread_checkpoint_from_item(thread_id: &str, item: &ThreadItem) -> Option<Thr
     Some(ThreadCheckpoint {
         checkpoint_id,
         thread_id: thread_id.to_string(),
-        turn_id: item
-            .turn_id
-            .clone()
-            .or_else(|| string_value(payload, "turnId"))
-            .or_else(|| string_value(payload, "turn_id")),
+        turn_id: item.turn_id.clone(),
         sequence: item.sequence,
         label: string_value(payload, "label"),
         created_at: item.created_at.clone(),
@@ -4032,6 +4132,64 @@ fn string_value(value: &Value, key: &str) -> Option<String> {
     value.get(key).and_then(Value::as_str).map(str::to_string)
 }
 
+fn insert_required_turn_id(
+    value: &mut Value,
+    turn_id: &str,
+    context: &str,
+) -> Result<(), WorkerProtocolError> {
+    let turn_id = turn_id.trim();
+    if turn_id.is_empty() {
+        return Err(thread_log_consistency_error(
+            "canonical Rollout item turn id must not be empty",
+            serde_json::json!({ "context": context }),
+        ));
+    }
+    let object = value.as_object_mut().ok_or_else(|| {
+        thread_log_consistency_error(
+            "canonical Rollout item must be an object before assigning its turn id",
+            serde_json::json!({ "context": context }),
+        )
+    })?;
+    if let Some(existing) = object
+        .get("turnId")
+        .or_else(|| object.get("turn_id"))
+        .and_then(Value::as_str)
+        .filter(|existing| *existing != turn_id)
+    {
+        return Err(thread_log_consistency_error(
+            "canonical Rollout item turn id conflicts with its enclosing turn",
+            serde_json::json!({
+                "context": context,
+                "expectedTurnId": turn_id,
+                "actualTurnId": existing,
+            }),
+        ));
+    }
+    object.remove("turn_id");
+    object.insert("turnId".to_string(), Value::String(turn_id.to_string()));
+    Ok(())
+}
+
+fn required_thread_item_turn_id(
+    turn_id: Option<String>,
+    thread_id: &str,
+    line: &ThreadLogLine,
+    item_type: &str,
+) -> Result<String, WorkerProtocolError> {
+    turn_id
+        .filter(|turn_id| !turn_id.trim().is_empty())
+        .ok_or_else(|| {
+            thread_log_consistency_error(
+                "canonical Rollout item is missing its turn id",
+                serde_json::json!({
+                    "threadId": thread_id,
+                    "ordinal": line.ordinal,
+                    "itemType": item_type,
+                }),
+            )
+        })
+}
+
 fn thread_item_to_rollout_items(
     item: &ThreadItem,
 ) -> Result<Vec<ThreadLogItem>, WorkerProtocolError> {
@@ -4055,6 +4213,7 @@ fn thread_item_to_rollout_items(
                 .unwrap_or(payload);
             let mut checkpoint = checkpoint.clone();
             if let Some(object) = checkpoint.as_object_mut() {
+                object.insert("turnId".to_string(), Value::String(item.turn_id.clone()));
                 object.insert(
                     "_threadItemId".to_string(),
                     Value::String(item.item_id.clone()),
@@ -4106,6 +4265,7 @@ fn thread_boundary_event_payload(item: &ThreadItem, payload: &Value) -> Value {
         .cloned()
         .map(Value::Object)
         .unwrap_or_else(|| serde_json::json!({ "value": payload }));
+    payload["turnId"] = Value::String(item.turn_id.clone());
     payload["_threadItemId"] = Value::String(item.item_id.clone());
     payload["_threadItemSequence"] = Value::Number(item.sequence.into());
     payload
@@ -4120,9 +4280,7 @@ fn thread_user_message_event_payload(item: &ThreadItem, payload: &Value) -> Valu
         .or_else(|| payload.as_str())
         .unwrap_or_default();
     event["message"] = Value::String(message.to_string());
-    if let Some(turn_id) = &item.turn_id {
-        event["turnId"] = Value::String(turn_id.clone());
-    }
+    event["turnId"] = Value::String(item.turn_id.clone());
     event
 }
 
@@ -4145,9 +4303,7 @@ fn thread_item_message(item: &ThreadItem, payload: &Value, role: &str) -> Value 
     message["threadItemId"] = Value::String(item.item_id.clone());
     message["threadItemSequence"] = Value::Number(item.sequence.into());
     message["threadItemPayload"] = payload.clone();
-    if let Some(turn_id) = &item.turn_id {
-        message["turnId"] = Value::String(turn_id.clone());
-    }
+    message["turnId"] = Value::String(item.turn_id.clone());
     if let Some(parent_item_id) = &item.parent_item_id {
         message["parentItemId"] = Value::String(parent_item_id.clone());
     }
@@ -4350,8 +4506,8 @@ fn durable_thread_metadata(
         "preview",
         "lastActivityAt",
         "itemCount",
-        "runCount",
-        "hasActiveRun",
+        "turnCount",
+        "hasActiveTurn",
     ] {
         object.remove(derived);
     }
@@ -4687,6 +4843,27 @@ mod schema_tests {
     }
 
     #[test]
+    fn rollout_reconstruction_rejects_turnless_thread_items() {
+        let lines = vec![ThreadLogLine {
+            timestamp: "2026-07-23T00:00:00Z".to_string(),
+            ordinal: Some(0),
+            item: value_event(
+                EventKind::UserMessage,
+                serde_json::json!({ "message": "missing turn identity" }),
+            ),
+        }];
+
+        let error = thread_items_from_effective_rollout(&lines, &[0], "thread-turnless")
+            .expect_err("turnless Rollout records must not project as Thread items");
+
+        assert_eq!(
+            error.message,
+            "canonical Rollout item is missing its turn id"
+        );
+        assert_eq!(error.details["itemType"], "user_message");
+    }
+
+    #[test]
     fn repeated_identical_thread_record_does_not_append_metadata_snapshot() {
         let root = std::env::temp_dir().join(format!(
             "tinybot-thread-metadata-noop-{}-{}",
@@ -4800,12 +4977,33 @@ mod schema_tests {
         };
         rpc.create_from_thread_record(&thread)
             .expect("thread record should persist");
+        let missing_turn_error = rpc
+            .append_thread_items(
+                &thread.thread_id,
+                &[ThreadItem {
+                    item_id: "thread-item-without-turn".to_string(),
+                    thread_id: thread.thread_id.clone(),
+                    turn_id: String::new(),
+                    parent_item_id: None,
+                    sequence: 1,
+                    created_at: "2026-07-22T08:49:40.228Z".to_string(),
+                    kind: ThreadItemKind::UserMessage(serde_json::json!({
+                        "content": "invalid",
+                        "role": "user"
+                    })),
+                }],
+            )
+            .expect_err("thread items without a turn must be rejected");
+        assert_eq!(
+            missing_turn_error.message,
+            "thread item turnId must not be empty"
+        );
         rpc.append_thread_items(
             &thread.thread_id,
             &[ThreadItem {
                 item_id: "thread-runtime:thread-item-timestamp:turn-1:user".to_string(),
                 thread_id: thread.thread_id.clone(),
-                turn_id: Some("turn-1".to_string()),
+                turn_id: "turn-1".to_string(),
                 parent_item_id: None,
                 sequence: 1,
                 created_at: "1784710180728".to_string(),

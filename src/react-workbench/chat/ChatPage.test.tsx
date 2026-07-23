@@ -1286,7 +1286,7 @@ describe("ChatPage", () => {
         approvalId: "approval-1",
         approvalStatus: "approval_required",
         argsText: "{\"path\":\"src/main.ts\"}",
-        childTurnId: "child-run-1",
+        childTurnId: "child-turn-1",
         delegateId: "delegate-1",
         delegateTask: "Review implementation",
         delegateTitle: "Code reviewer",
@@ -1370,7 +1370,7 @@ describe("ChatPage", () => {
       description: "Collect itinerary constraints before planning.",
       submit_label: "Save preferences",
       cancel_label: "Skip",
-      correlation: { chat_id: "chat-1", turn_id: "run-1", session_id: "s1" },
+      correlation: { chat_id: "chat-1", turn_id: "turn-1", session_id: "s1" },
       fields: [
         { name: "destination", type: "text", label: "Destination", required: true },
         { name: "nights", type: "number", label: "Nights", required: false, min: 1, max: 30 },
@@ -1387,7 +1387,7 @@ describe("ChatPage", () => {
       text: "Plan my trip",
       status: "complete",
     }]);
-    canonical.turns[0].id = "run-1";
+    canonical.turns[0].id = "turn-1";
     canonical.turns[0].status = "awaiting_user";
     canonical.turns[0].steps.push({
       agentContext: { id: "main", title: "Tinybot", type: "main" },
@@ -1424,7 +1424,7 @@ describe("ChatPage", () => {
       },
       kind: "form.submit",
       source: { control: "chat-form", surface: "chat" },
-      target: expect.objectContaining({ turnId: "run-1", sessionId: "s1" }),
+      target: expect.objectContaining({ turnId: "turn-1", sessionId: "s1" }),
     }));
     expect(within(card).getByRole("button", { name: "Save preferences" }).hasAttribute("disabled")).toBe(true);
   });
@@ -1437,7 +1437,7 @@ describe("ChatPage", () => {
       title: "Travel preferences",
       submit_label: "Save preferences",
       cancel_label: "Skip",
-      correlation: { chat_id: "chat-1", turn_id: "run-1", session_id: "s1" },
+      correlation: { chat_id: "chat-1", turn_id: "turn-1", session_id: "s1" },
       fields: [{ name: "destination", type: "text", label: "Destination", required: true }],
       values: { destination: "Shanghai" },
       status: "pending",
@@ -1450,7 +1450,7 @@ describe("ChatPage", () => {
       text: "Plan my trip",
       status: "complete",
     }]);
-    canonical.turns[0].id = "run-1";
+    canonical.turns[0].id = "turn-1";
     canonical.turns[0].status = "awaiting_user";
     canonical.turns[0].steps.push({
       agentContext: { id: "main", title: "Tinybot", type: "main" },
@@ -1473,7 +1473,7 @@ describe("ChatPage", () => {
       form: { formId: "travel-preferences-1" },
       kind: "form.cancel",
       source: { control: "chat-form", surface: "chat" },
-      target: expect.objectContaining({ turnId: "run-1", sessionId: "s1" }),
+      target: expect.objectContaining({ turnId: "turn-1", sessionId: "s1" }),
     }));
     expect(within(card).getByRole("button", { name: "Skip" }).hasAttribute("disabled")).toBe(true);
   });
@@ -2984,7 +2984,7 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     expect(await screen.findByRole("button", { name: "Stop generation" })).toBeTruthy();
-    expect(screen.queryByLabelText("Agent run controls")).toBeNull();
+    expect(screen.queryByLabelText("Agent turn controls")).toBeNull();
     expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Resume" })).toBeNull();
     expect(screen.queryByText("任务执行中；此时发送的新消息会排队，并在当前步骤结束后送达。")).toBeNull();

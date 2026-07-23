@@ -38,7 +38,7 @@ fn worker_submit_thread_turn_creates_thread_and_runs_native_agent() {
             input: serde_json::json!({ "content": "answer from a new thread" }),
             spec: serde_json::json!({
                 "runtime": "rust",
-                "turnId": "run-thread-submit-new"
+                "turnId": "turn-thread-submit-new"
             }),
         },
         fixture.root.clone(),
@@ -48,7 +48,7 @@ fn worker_submit_thread_turn_creates_thread_and_runs_native_agent() {
     .expect("thread-first submit should run native agent");
 
     let thread_id = result["threadId"].as_str().expect("thread id").to_string();
-    assert_eq!(result["turnId"], "run-thread-submit-new");
+    assert_eq!(result["turnId"], "turn-thread-submit-new");
     assert_eq!(result["sessionId"], thread_id);
     assert_eq!(result["agentResult"]["stopReason"], "final_response");
     assert!(result["agentResult"]["runtimeEvents"]
@@ -91,7 +91,7 @@ fn worker_submit_thread_turn_creates_thread_and_runs_native_agent() {
         ),
         "thread submit session metadata",
     )
-    .expect("agent run session metadata should be readable");
+    .expect("agent turn session metadata should be readable");
     assert_eq!(metadata["session_id"], thread_id);
     let rollout_path = metadata["extra"]["threadPath"]
         .as_str()
@@ -106,7 +106,7 @@ fn worker_submit_thread_turn_creates_thread_and_runs_native_agent() {
         .collect::<Vec<_>>();
     assert!(rollout_items.iter().any(|line| {
         line["type"] == "turn_context"
-            && line["payload"]["turn_id"] == "run-thread-submit-new"
+            && line["payload"]["turn_id"] == "turn-thread-submit-new"
             && line["payload"]["model"] == "fixture-model"
     }));
     let turn_started = rollout_items
@@ -244,7 +244,7 @@ fn worker_submit_thread_turn_forwards_live_streaming_timeline_patches() {
                 input: serde_json::json!({ "content": "stream this answer" }),
                 spec: serde_json::json!({
                     "runtime": "rust",
-                    "turnId": "run-thread-live-stream"
+                    "turnId": "turn-thread-live-stream"
                 }),
             },
             fixture.root.clone(),
@@ -319,7 +319,7 @@ fn thread_owned_compaction_commits_installed_checkpoint_before_finalization() {
             input: serde_json::json!({ "content": "current question" }),
             spec: serde_json::json!({
                 "runtime": "rust",
-                "turnId": "run-thread-context-commit",
+                "turnId": "turn-thread-context-commit",
                 "messages": [
                     { "role": "user", "content": "old context ".repeat(200) },
                     { "role": "assistant", "content": "old answer ".repeat(200) },
@@ -391,7 +391,7 @@ fn thread_owned_terminal_reentry_uses_rollout_authority_after_restart() {
             input: serde_json::json!({ "content": "complete once" }),
             spec: serde_json::json!({
                 "runtime": "rust",
-                "turnId": "run-thread-terminal-reentry"
+                "turnId": "turn-thread-terminal-reentry"
             }),
         },
         fixture.root.clone(),
@@ -409,7 +409,7 @@ fn thread_owned_terminal_reentry_uses_rollout_authority_after_restart() {
             input: serde_json::json!({ "content": "complete once" }),
             spec: serde_json::json!({
                 "runtime": "rust",
-                "turnId": "run-thread-terminal-reentry"
+                "turnId": "turn-thread-terminal-reentry"
             }),
         },
         fixture.root.clone(),
@@ -598,7 +598,7 @@ fn canonical_thread_reads_supersede_stale_session_and_share_rollout_writes() {
             "thread.turn.start",
             serde_json::json!({ "record": duplicate_record }),
         ),
-        "persist compatibility agent run",
+        "persist compatibility agent turn",
     )
     .expect("thread-owned thread.turn.start should append to canonical Rollout");
     assert_eq!(compatibility_run["turnId"], "duplicate-run");
@@ -657,7 +657,7 @@ fn worker_submit_thread_turn_uses_thread_id_as_rollout_id() {
             input: serde_json::json!("continue existing thread"),
             spec: serde_json::json!({
                 "runtime": "rust",
-                "turnId": "run-thread-submit-existing"
+                "turnId": "turn-thread-submit-existing"
             }),
         },
         fixture.root.clone(),
@@ -686,7 +686,7 @@ fn worker_submit_thread_turn_uses_thread_id_as_rollout_id() {
         .as_array()
         .expect("thread items should be present")
         .iter()
-        .any(|item| item["turnId"] == "run-thread-submit-existing"));
+        .any(|item| item["turnId"] == "turn-thread-submit-existing"));
     let run_request = next_worker_request_correlation();
     let persisted_run = call_rust_state_service(
         fixture.root.clone(),
@@ -697,12 +697,12 @@ fn worker_submit_thread_turn_uses_thread_id_as_rollout_id() {
             "thread.turn.get",
             serde_json::json!({
                 "session_id": "thread-existing-submit",
-                "turn_id": "run-thread-submit-existing"
+                "turn_id": "turn-thread-submit-existing"
             }),
         ),
-        "existing thread agent run read",
+        "existing thread agent turn read",
     )
-    .expect("existing thread agent run should persist");
+    .expect("existing thread agent turn should persist");
     assert_eq!(
         persisted_run["instructionProvenance"]["workingDirectory"],
         working_directory.display().to_string()
@@ -745,7 +745,7 @@ fn worker_submit_thread_turn_does_not_require_a_session_key() {
             input: serde_json::json!("continue backfilled thread"),
             spec: serde_json::json!({
                 "runtime": "rust",
-                "turnId": "run-thread-submit-backfill"
+                "turnId": "turn-thread-submit-backfill"
             }),
         },
         fixture.root.clone(),
@@ -761,7 +761,7 @@ fn worker_submit_thread_turn_does_not_require_a_session_key() {
         .as_array()
         .expect("thread items should be present")
         .iter()
-        .any(|item| item["turnId"] == "run-thread-submit-backfill"));
+        .any(|item| item["turnId"] == "turn-thread-submit-backfill"));
 }
 
 #[test]
@@ -926,7 +926,7 @@ fn worker_thread_commands_expose_thread_service_surface() {
         "thread.start_turn",
         serde_json::json!({
             "threadId": "thread-command-surface",
-            "turnId": "run-command-surface",
+            "turnId": "turn-command-surface",
             "input": { "text": "start from command" }
         }),
         fixture.root.clone(),
@@ -934,7 +934,7 @@ fn worker_thread_commands_expose_thread_service_surface() {
         Duration::from_millis(10),
     )
     .expect("thread start turn command should work");
-    assert_eq!(started["turn"]["turnId"], "run-command-surface");
+    assert_eq!(started["turn"]["turnId"], "turn-command-surface");
     assert!(
         started["appendedItems"]
             .as_array()
@@ -949,7 +949,7 @@ fn worker_thread_commands_expose_thread_service_surface() {
         "thread.continue_turn",
         serde_json::json!({
             "threadId": "thread-command-surface",
-            "turnId": "run-command-surface",
+            "turnId": "turn-command-surface",
             "input": { "text": "continue from command" }
         }),
         fixture.root.clone(),
@@ -961,7 +961,7 @@ fn worker_thread_commands_expose_thread_service_surface() {
         .as_array()
         .expect("continue appended items should be an array")
         .iter()
-        .any(|item| item["turnId"] == "run-command-surface"));
+        .any(|item| item["turnId"] == "turn-command-surface"));
 
     let applied = worker_thread_request_with_options(
         &shared,
@@ -971,7 +971,7 @@ fn worker_thread_commands_expose_thread_service_surface() {
             "threadId": "thread-command-surface",
             "op": {
                 "type": "tool_call_started",
-                "turnId": "run-command-surface",
+                "turnId": "turn-command-surface",
                 "toolCallId": "tool-command-surface",
                 "toolName": "workspace.read_file",
                 "args": { "path": "README.md" }
@@ -996,7 +996,7 @@ fn worker_thread_commands_expose_thread_service_surface() {
     let owned_handle = task_runtime
         .start_blocking(
             crate::runtime::turn_execution::StartAgentTurn::new(
-                "run-command-surface",
+                "turn-command-surface",
                 "session-command-surface",
             ),
             move || {
@@ -1005,7 +1005,7 @@ fn worker_thread_commands_expose_thread_service_surface() {
                     .expect("owned thread command task release should arrive");
                 Ok(serde_json::json!({
                     "runtime": "rust",
-                    "turnId": "run-command-surface",
+                    "turnId": "turn-command-surface",
                     "sessionId": "session-command-surface",
                     "stopReason": "final_response"
                 }))
@@ -1019,7 +1019,7 @@ fn worker_thread_commands_expose_thread_service_surface() {
         "thread.interrupt",
         serde_json::json!({
             "threadId": "thread-command-surface",
-            "turnId": "run-command-surface",
+            "turnId": "turn-command-surface",
             "reason": "test interrupt"
         }),
         fixture.root.clone(),
@@ -1060,7 +1060,7 @@ fn native_agent_semantic_sink_updates_runtime_state_before_final_persistence() {
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
     let config = serde_json::json!({});
     let session_id = "websocket:chat-trace-sink";
-    let turn_id = "run-trace-sink";
+    let turn_id = "turn-trace-sink";
     let spec = serde_json::json!({
         "runtime": "rust",
         "turnId": turn_id,
@@ -1140,7 +1140,7 @@ fn worker_run_agent_persists_failed_tool_run_with_typed_results() {
         &shared,
         serde_json::json!({
             "runtime": "rust",
-            "turnId": "run-tool-error-persist",
+            "turnId": "turn-tool-error-persist",
             "sessionId": "websocket:chat-tool-error-persist",
             "maxIterations": 3,
             "selectedTools": ["memory.recall", "memory.search"],
@@ -1155,7 +1155,7 @@ fn worker_run_agent_persists_failed_tool_run_with_typed_results() {
         fixture.root.clone(),
         config,
         "websocket:chat-tool-error-persist",
-        "run-tool-error-persist",
+        "turn-tool-error-persist",
     );
 
     assert_eq!(result["stopReason"], "tool_error");
@@ -1183,13 +1183,13 @@ fn worker_run_agent_persists_cancelled_run_as_cancelled() {
     let config = serde_json::json!({});
     lock_runtime(&shared)
         .native_agent_runtime
-        .cancel("run-cancel-persist");
+        .cancel("turn-cancel-persist");
 
     let result = worker_run_agent_with_options(
         &shared,
         serde_json::json!({
             "runtime": "rust",
-            "turnId": "run-cancel-persist",
+            "turnId": "turn-cancel-persist",
             "sessionId": "websocket:chat-cancel-persist",
             "messages": [{ "role": "user", "content": "cancel me" }]
         }),
@@ -1202,7 +1202,7 @@ fn worker_run_agent_persists_cancelled_run_as_cancelled() {
         fixture.root.clone(),
         config,
         "websocket:chat-cancel-persist",
-        "run-cancel-persist",
+        "turn-cancel-persist",
     );
 
     assert_eq!(result["stopReason"], "cancelled");
@@ -1247,7 +1247,7 @@ fn worker_run_agent_projects_redacted_bounded_tool_result() {
         &shared,
         serde_json::json!({
             "runtime": "rust",
-            "turnId": "run-redacted-trace",
+            "turnId": "turn-redacted-trace",
             "sessionId": "websocket:chat-redacted-trace",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "read bounded" }]
@@ -1261,7 +1261,7 @@ fn worker_run_agent_projects_redacted_bounded_tool_result() {
         fixture.root.clone(),
         config,
         "websocket:chat-redacted-trace",
-        "run-redacted-trace",
+        "turn-redacted-trace",
     );
     let serialized = run.to_string();
     assert!(!serialized.contains("secret-token"));
@@ -1307,7 +1307,7 @@ fn worker_run_agent_omits_large_raw_tool_trace_from_persisted_run_record() {
         &shared,
         serde_json::json!({
             "runtime": "rust",
-            "turnId": "run-large-trace",
+            "turnId": "turn-large-trace",
             "sessionId": "websocket:chat-large-trace",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "read large" }]
@@ -1321,7 +1321,7 @@ fn worker_run_agent_omits_large_raw_tool_trace_from_persisted_run_record() {
         fixture.root.clone(),
         config,
         "websocket:chat-large-trace",
-        "run-large-trace",
+        "turn-large-trace",
     );
     let serialized = run.to_string();
 
@@ -1348,7 +1348,7 @@ fn worker_rust_agent_restore_rejects_unknown_checkpoint_schema_version() {
             serde_json::json!({
                 "schemaVersion": 999,
                 "runtime": "rust",
-                "turnId": "run-future-checkpoint",
+                "turnId": "turn-future-checkpoint",
                 "sessionId": "websocket:chat-future-checkpoint",
                 "phase": "awaiting_approval"
             }),

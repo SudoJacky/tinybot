@@ -5,8 +5,7 @@ use serde_json::Value;
 pub struct ThreadItem {
     pub item_id: String,
     pub thread_id: String,
-    #[serde(default)]
-    pub turn_id: Option<String>,
+    pub turn_id: String,
     #[serde(default)]
     pub parent_item_id: Option<String>,
     #[serde(default)]

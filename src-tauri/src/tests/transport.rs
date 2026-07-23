@@ -291,8 +291,8 @@ fn worker_transport_websocket_maps_correlated_operation_retry_command() {
             "command_id": "command-retry-1",
             "command_kind": "operation.retry",
             "turn_id": "turn-retry-1",
-            "source_turn_id": "run-failed-1",
-            "item_id": "run-failed-1:error"
+            "source_turn_id": "turn-failed-1",
+            "item_id": "turn-failed-1:error"
         }),
         attached_chat_id: Some("chat-1".to_string()),
         session_exists: Some(true),
@@ -306,8 +306,8 @@ fn worker_transport_websocket_maps_correlated_operation_retry_command() {
     assert_eq!(transport["kind"], "command");
     assert_eq!(transport["commandKind"], "operation.retry");
     assert_eq!(transport["turnId"], "turn-retry-1");
-    assert_eq!(transport["sourceTurnId"], "run-failed-1");
-    assert_eq!(transport["itemId"], "run-failed-1:error");
+    assert_eq!(transport["sourceTurnId"], "turn-failed-1");
+    assert_eq!(transport["itemId"], "turn-failed-1:error");
 }
 
 #[test]
@@ -404,7 +404,7 @@ fn worker_transport_agent_request_change_starts_new_correlated_turn() {
         "sourceEndLine": 6,
         "sourceText": "test failed",
         "evidenceId": "terminal-item-1",
-        "scope": "run-terminal-1"
+        "scope": "turn-terminal-1"
     }, {
         "kind": "reference",
         "title": "Execution plan",
@@ -412,7 +412,7 @@ fn worker_transport_agent_request_change_starts_new_correlated_turn() {
         "type": "tinyos.plan",
         "sourceText": "{\"steps\":[{\"step\":\"Verify\",\"status\":\"pending\"}]}",
         "evidenceId": "plan-item-1",
-        "scope": "run-plan-1"
+        "scope": "turn-plan-1"
     }]);
     let request_config = serde_json::json!({
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },

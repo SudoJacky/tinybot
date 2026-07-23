@@ -124,8 +124,8 @@ Known worker error sources:
   "worker_runtime": {},
   "agent_tasks": {
     "accepting": true,
-    "activeRuns": 0,
-    "drainingRuns": 0
+    "activeTurns": 0,
+    "drainingTurns": 0
   },
   "route_owner_summary": { "rustOwned": 0, "unsupported": 0 },
   "webui_route_inventory": [],
@@ -134,10 +134,10 @@ Known worker error sources:
     "startupReconciled": true,
     "lastStartupRecovery": {
       "scannedThreads": 0,
-      "scannedRunRecords": 0,
-      "interruptedRuns": [],
-      "awaitingInteractionRuns": [],
-      "resumableRuns": []
+      "scannedTurnRecords": 0,
+      "interruptedTurns": [],
+      "awaitingInteractionTurns": [],
+      "resumableTurns": []
     },
     "lastShutdown": null,
     "diagnostics": []
@@ -151,12 +151,12 @@ HTTP server, and another process listening on `18790` does not make the Rust run
 browser mode still performs its own `/webui/bootstrap` check.
 
 `lifecycle` is the queryable native-runtime recovery and cleanup record. Startup pauses new agent
-runs until canonical Rollouts and their rebuildable SQLite index pass consistency checks. The
+continues until canonical Rollouts and their rebuildable SQLite index pass consistency checks. The
 startup report includes `sessionLogIndex` and `sessionLogIndexMigration`; an actual Rollout/index
-divergence fails startup and requires an explicit repair command. A persisted `running` run with no
+divergence fails startup and requires an explicit repair command. A persisted `running` turn with no
 live owner is then closed as
 `status: "interrupted"`, `phase: "interrupted"`, and
-`stopReason: "runtime_restarted"`; waiting runs and their checkpoints remain unchanged. A storage
+`stopReason: "runtime_restarted"`; waiting turns and their checkpoints remain unchanged. A storage
 error leaves the task runtime non-accepting, sets `state: "failed"`/`last_error`, and appends a
 `startup_recovery` diagnostic instead of silently continuing.
 
@@ -181,10 +181,10 @@ error leaves the task runtime non-accepting, sets `state: "failed"`/`last_error`
 `SYSTEM.md` is the editable native-agent system-prompt template. The backend creates it once when
 missing and reloads it for each workspace-backed turn. Supported placeholders are `{{identity}}`,
 `{{working_directory}}`, and `{{operating_system}}`. Empty templates, unknown placeholders, and
-malformed delimiters fail explicitly. `{{working_directory}}` resolves to the run `cwd` (or thread
+malformed delimiters fail explicitly. `{{working_directory}}` resolves to the turn `cwd` (or thread
 `metadata.workingDirectory`) rather than the directory that stores Tinybot state.
 
-Before each workspace-backed run, the native runtime composes one ordered instruction stream with
+Before each workspace-backed turn, the native runtime composes one ordered instruction stream with
 source provenance. Increasing precedence is:
 
 1. built-in Tinybot identity (`100`);
@@ -197,7 +197,7 @@ source provenance. Increasing precedence is:
 7. `collaborationMode` and `agentRole` instructions (`800`, `810`);
 8. generated working-directory and operating-system facts (`900`).
 
-The four turn fields may appear at the run root or under `metadata`; snake_case aliases are also
+The four turn fields may appear at the turn specification root or under `metadata`; snake_case aliases are also
 accepted. `selectedSkills` is an ordered array of names. Workspace `skills/<name>/SKILL.md` wins over
 the bundled `builtin-skills/<name>/SKILL.md`. Skill frontmatter is parsed as typed YAML and requires
 `name` and `description`; optional `requires.bins` and `requires.env` entries determine runtime
@@ -402,9 +402,9 @@ UI should prefer `SettingsSnapshot` once the frontend is migrated to the Rust-ow
 
 | Command | Args | Response |
 | --- | --- | --- |
-| `worker_run_agent` | `{ input: { spec: NativeBackendRunSpec } }` | JSON result from native agent runtime |
+| `worker_run_agent` | `{ input: { spec: object } }` | JSON result from native agent runtime |
 | `worker_run_agent_input` | `{ input: { input: unknown } }` | JSON result from native agent runtime |
-| `worker_cancel_agent` | `{ input: { runId: string } }` | JSON result |
+| `worker_cancel_agent` | `{ input: { turnId: string } }` | JSON result |
 | `worker_restore_agent_checkpoint` | `{ input: { sessionId: string } }` | JSON result |
 | `worker_submit_agent_form` | `{ input: { sessionId, formId, values?, action? } }` | JSON result |
 | `worker_resume_agent_approval` | `{ input: { sessionId, approvalId, approved, scope?, guidance? } }` | JSON result |
@@ -415,16 +415,16 @@ Workspace-backed agent results include:
   instruction text, and ordered source records. Each source records `kind`, path identifier,
   precedence, scope root, load timestamp, source hash, truncation state, and validation warnings.
 - `instructionDiagnostics`: structured warnings derived from the source records.
-- `traceContext`: stable `requestId`, `traceId`, `runId`, `turnId`, optional `threadId`, and optional
-  `parentRunId` values shared by runtime events and durable run records.
-- `runMetrics`: the turn duration and terminal outcome for the completed invocation.
+- `traceContext`: stable `requestId`, `traceId`, `turnId`, optional `threadId`, and optional
+  `parentTurnId` values shared by runtime events and durable turn records.
+- `turnMetrics`: the turn duration and terminal outcome for the completed invocation.
 - `contextContributions`: ordered, content-free diagnostics for enabled context contributors. Each
   record includes `contributorId`, `kind`, `status`, `contentChars`, `contentSha256`,
   `referenceCount`, safe reference identifiers, and `truncated`.
 
-The instruction provenance and instruction diagnostics are stored on the durable agent-run record, so
-`worker_agent_runs_list` and `worker_agent_run_runtime_state` can explain the instruction inputs of
-a historical run without persisting a second write authority.
+The instruction provenance and instruction diagnostics are stored on the durable agent-turn record, so
+`worker_turns_list` and `worker_turn_runtime_state` can explain the instruction inputs of
+a historical turn without persisting a second write authority.
 
 ### Extension contributors and context hydration
 
@@ -441,7 +441,7 @@ current built-in contributor is memory:
 - Memory retrieval requires `memory.enabled: true`. `max_notes`/`maxNotes` defaults to `6` and must
   not exceed `20`; `max_chars`/`maxChars` defaults to `1600` and must not exceed `12000`.
 Malformed sections, incorrectly typed fields, out-of-range limits, and enabled-contributor
-retrieval failures stop the run before provider execution. Contributed text is JSON-encoded and
+retrieval failures stop the turn before provider execution. Contributed text is JSON-encoded and
 appended after the composed system instructions under an explicit evidence-only frame; retrieved
 text never receives instruction precedence.
 
@@ -457,13 +457,13 @@ The native runtime evaluates typed hooks at provider, tool, permission, turn, th
 compaction boundaries. Hook decisions are `continue`, `deny` with a non-empty reason,
 `replace_normalized_input` for the supported pre-tool boundary, or
 `append_diagnostic_metadata`. Returning a decision at an unsupported stage, returning malformed
-diagnostic metadata, or throwing a hook error fails the run explicitly; hook failures are never
+diagnostic metadata, or throwing a hook error fails the turn explicitly; hook failures are never
 converted into successful tool or provider results.
 
 Every native agent `runtimeEvents` entry includes the same `traceContext` object. Provider boundary events add
 `providerAttemptId`; tool events retain `itemId`/`toolCallId`. Internal tool, thread, trace, and
 persistence Worker RPC requests reuse the root `traceId` and derive operation-specific request IDs.
-Thread checkpoints/items or direct-session `AgentRunRecord` values persist the correlation context
+Thread checkpoints/items or direct-session `AgentTurnRecord` values persist the correlation context
 so approval/form continuations and post-restart diagnostics do not create an unrelated trace.
 Approval continuation specs restore the checkpoint `traceContext`, and approved tool continuations
 return and persist traced `runtimeEvents` for the approval decision, tool result, usage, and terminal
@@ -513,8 +513,8 @@ boundary. Persisted tool envelopes apply the same config-secret redaction used b
 Metric names and outcomes come from bounded runtime enums. Prompts, tool output, secrets, and memory
 content are not used as metric names or labels.
 Approval wait time is restored from the durable checkpoint timestamp. Cancellation cleanup, MCP
-server lifecycle, owned shell-process lifecycle, and orphaned-run reconciliation use fixed metric
-names; server names, process IDs, run IDs, and trace IDs are never metric keys.
+server lifecycle, owned shell-process lifecycle, and orphaned-turn reconciliation use fixed metric
+names; server names, process IDs, turn IDs, and trace IDs are never metric keys.
 
 ### Typed agent items and provider capabilities
 
@@ -530,7 +530,7 @@ non-string assistant content return an error before the runtime can persist or d
 turn. Tool, approval, and form continuations construct typed assistant/tool-result items before
 projecting the existing persisted message shape.
 
-Each `NativeAgentRunContext` also owns an immutable `AgentTurnSettings` snapshot parsed from the run
+Each `AgentTurnContext` also owns an immutable `AgentTurnSettings` snapshot parsed from the turn
 spec, metadata, and agent defaults. It includes model, provider, iteration and streaming limits,
 temperature, maximum completion tokens, context-window strategy, reasoning options, service tier, output schema,
 working directory, approval policy, permission profile, selected tools, and parallel-tool policy.
@@ -578,25 +578,25 @@ Turn-level runtime controls are also typed and validated before MCP discovery or
 
 ### Agent task ownership
 
-Every native run attempt is registered under one in-process task owner before system-prompt loading,
-provider execution, or tool dispatch. The owner tracks run/session identity, generation, current
+Every native turn attempt is registered under one in-process task owner before system-prompt loading,
+provider execution, or tool dispatch. The owner tracks turn/session identity, generation, current
 phase, cancellation request/reason, waiting checkpoint reference, terminal outcome, and ignored
-late-result count. A duplicate active run ID is rejected. An approval/form continuation starts a new
+late-result count. A duplicate active turn ID is rejected. An approval/form continuation starts a new
 generation only after the previous execution task has completed into a non-terminal waiting phase.
 
-Cancellation is idempotent and writes one owner terminal outcome. Normal async runs remain active in
+Cancellation is idempotent and writes one owner terminal outcome. Normal async turns remain active in
 the `cancelling` phase while owned child operations perform their bounded cleanup. The owner is
-removed only after the run returns a cancellation or cleanup-timeout result. A late result cannot
+removed only after the turn returns a cancellation or cleanup-timeout result. A late result cannot
 replace that terminal result. `worker_cancel_agent` includes the cancellation request transition:
 
 ```json
 {
   "runtime": "rust",
-  "runId": "run-1",
+  "turnId": "turn-1",
   "cancelled": true,
   "stopReason": "cancelled",
   "task": {
-    "runId": "run-1",
+    "turnId": "turn-1",
     "state": "cancel_requested",
     "reason": "user_requested",
     "activeTaskRemoved": false,
@@ -606,13 +606,13 @@ replace that terminal result. `worker_cancel_agent` includes the cancellation re
 ```
 
 Possible task states are `cancel_requested`, `cancelled_waiting`, `already_terminal`, and
-`not_found`. A repeated request for an already-cancelled run replays the owned cancellation result
+`not_found`. A repeated request for an already-cancelled turn replays the owned cancellation result
 without starting another task.
 
 The desktop `thread.interrupt` path first persists the thread cancellation item and then cancels the
-same run owner. Its existing thread result gains `taskCancellation`, containing the same
+same turn owner. Its existing thread result gains `taskCancellation`, containing the same
 `worker_cancel_agent` payload. Gateway shutdown follows one ordered path: stop accepting starts,
-cancel and drain owned runs, terminate retained shell process trees, stop MCP clients/stdio children,
+cancel and drain owned turns, terminate retained shell process trees, stop MCP clients/stdio children,
 interrupt non-terminal subagents, stop the background worker, and emit a `RuntimeShutdownReport`.
 For cooperative agent tasks, shutdown requests cancellation without publishing a terminal result;
 the cancellation or cleanup-timeout result becomes visible only after the owned operation has
@@ -631,7 +631,7 @@ OpenAI-compatible HTTP/SSE implementation are async end to end. Normal execution
 approval continuations dispatch through the same async owned-tool path.
 
 Provider cancellation is checked before a request, while opening a response, between SSE chunks,
-and immediately before and after each stream observer callback. Cancelling the owning run drops the
+and immediately before and after each stream observer callback. Cancelling the owning turn drops the
 provider future. Once the task owner publishes cancellation, a late chunk or provider result cannot
 emit `agent.delta`, `agent.reasoning_delta`, `agent.done`, or replace the terminal result.
 
@@ -650,14 +650,14 @@ cancellation follows the normal `agent.cancelled` path.
 
 Every dispatched tool call runs under an owned task handle and a child cancellation token. Parallel
 read scheduling, exclusive write scheduling, model-order result projection, single terminal
-ownership, and late-result diagnostics remain unchanged. The parent run retains each handle until
+ownership, and late-result diagnostics remain unchanged. The parent turn retains each handle until
 the task has joined; dropping an incomplete batch cancels and aborts every remaining wrapper task.
 The approval-resume path uses the same ownership boundary instead of a nested synchronous dispatch.
 Production providers and tool dispatchers must implement their async seam. The synchronous trait
 bridge exists only in unit-test builds; it fails explicitly in production instead of creating an
 unregistered blocking task. Tinybot's provider, MCP path, subagent dispatcher, and general tool
 executor all execute inside the registered provider/tool future, so cancellation cannot detach a
-lower-level `spawn_blocking` operation from the run owner.
+lower-level `spawn_blocking` operation from the turn owner.
 
 Tool teardown is selected from the registry runtime policy:
 
@@ -665,7 +665,7 @@ Tool teardown is selected from the registry runtime policy:
   `cancelled` result if the future does not finish in that interval.
 - `terminate_process`: require the implementation to terminate its owned process after receiving
   cancellation.
-- `detach_forbidden`: require the operation to return from cleanup before the run is considered
+- `detach_forbidden`: require the operation to return from cleanup before the turn is considered
   cleanly cancelled.
 
 Built-in cooperative tools default to `100 ms`; process-owning and detach-forbidden tools default to
@@ -673,25 +673,25 @@ Built-in cooperative tools default to `100 ms`; process-owning and detach-forbid
 `cancellationMode`, `cleanupTimeoutMs`, `waitsForRuntimeCancellation`, `mutatesWorkspace`, and
 `mutatesSession`.
 
-If `terminate_process` or `detach_forbidden` cleanup exceeds its bound, the run returns
+If `terminate_process` or `detach_forbidden` cleanup exceeds its bound, the turn returns
 `stopReason: "tool_cleanup_timeout"` and emits `agent.tool.cleanup_timeout` with the tool call ID,
-tool name, cancellation mode, and timeout. If the outer run itself cannot finish cooperative
+tool name, cancellation mode, and timeout. If the outer turn itself cannot finish cooperative
 cleanup within five seconds, the task owner returns `stopReason: "cancellation_cleanup_timeout"`
 and emits `agent.cleanup_timeout`. Neither timeout is reported as successful cancellation.
 
 When a tool operation completes successfully during bounded cancellation cleanup, its result and
-domain events are recorded before the run becomes cancelled. This preserves already-completed side
+domain events are recorded before the turn becomes cancelled. This preserves already-completed side
 effects without allowing another provider request. Results that arrive after the owned terminal gate
 remain ignored.
 
-`NativeBackendRunSpec`:
+Native agent turn specification:
 
-When `maxIterations` is omitted from the run spec, metadata, and agent defaults, the native runtime
-uses `200`. Explicit run or settings values still take precedence.
+When `maxIterations` is omitted from the turn specification, metadata, and agent defaults, the native
+runtime uses `200`. Explicit turn or settings values still take precedence.
 
 ```json
 {
-  "runId": "run-1",
+  "turnId": "turn-1",
   "sessionId": "websocket:chat-1",
   "messages": [{ "role": "user", "content": "Hello" }],
   "model": "deepseek-v4-pro",
@@ -710,11 +710,11 @@ uses `200`. Explicit run or settings values still take precedence.
 The native agent provider initially receives the foundational tools `exec_command`, `write_stdin`,
 `apply_patch`, `request_user_input`, `update_plan`, and `tool_search` when their capabilities are
 available. Memory, browser, subagent, and MCP tools are deferred until selected explicitly or found
-through `tool_search` in the current run. `update_plan` remains available when `selectedTools`
+through `tool_search` in the current turn. `update_plan` remains available when `selectedTools`
 limits ordinary tools.
 
 `update_plan` tracks the execution checklist for non-trivial work. Every call replaces the complete
-plan snapshot for the current run:
+plan snapshot for the current turn:
 
 ```json
 {
@@ -731,7 +731,7 @@ Statuses are `pending`, `in_progress`, and `completed`. An incomplete plan must 
 `in_progress` step; a completed plan has none. Empty, duplicate, oversized, unknown, or inconsistent
 input returns an explicit tool error to the model so it can correct the snapshot without terminating
 the turn. A valid update returns `Plan updated` to the model and emits one
-`agent.plan.progress` item keyed by `<runId>:plan`; later calls revise that item instead of adding
+`agent.plan.progress` item keyed by `<turnId>:plan`; later calls revise that item instead of adding
 rows. Derived `completed`, `total`, and `currentStep` values are validated against `steps`. The event
 and its canonical timeline patch use the normal trace persistence path, so live delivery and reload
 project the same plan item.
@@ -771,7 +771,7 @@ credentials:
 }
 ```
 
-Returned deferred tools become provider-visible only for the current run. A fresh or terminal run
+Returned deferred tools become provider-visible only for the current turn. A fresh or terminal turn
 does not inherit them. Calls to deferred tools that were not activated fail with
 `stopReason: "policy_denied"` before dispatch.
 
@@ -850,15 +850,15 @@ checkpoint and returns `stopReason: "form_cancelled"` with an observable resolut
 | --- | --- | --- |
 | `worker_sessions_list` | none | session list payload |
 | `worker_session_messages` | `{ input: { key: string } }` | `{ messages: [...] }` style payload |
-| `worker_agent_runs_list` | `{ input: { key: string } }` | agent run list |
-| `worker_agent_run_runtime_state` | `{ input: { sessionKey: string, runId: string } }` | `AgentRunRuntimeState` |
+| `worker_turns_list` | `{ input: { key: string } }` | agent turn list |
+| `worker_turn_runtime_state` | `{ input: { sessionKey: string, turnId: string } }` | `AgentTurnRuntimeState` |
 | `worker_session_delete` | `{ input: { key: string } }` | delete result |
 | `worker_session_patch` | `{ input: { key: string, body: { title?, metadata?, archived? } } }` | patched session payload |
 | `worker_session_branch` | `{ input: { body: unknown } }` | branch result |
 | `worker_session_clear` | `{ input: { key: string } }` | clear result |
-| `worker_session_task_progress` | `{ input: { key: string, body: unknown } }` | task progress result |
+| `worker_session_task_progress` | `{ input: { key: string, body: { turnId: string, ... } } }` | task progress result |
 
-`worker_agent_run_runtime_state` returns runtime events projected from the session's canonical
+`worker_turn_runtime_state` returns runtime events projected from the session's canonical
 Rollout plus one canonical timeline snapshot for product rendering. Rollout ordinals define event
 order; embedded event sequence values and in-memory thread items are not reconstruction sources.
 The former `turnItems` response field is not part of the contract.
@@ -869,15 +869,14 @@ The former `turnItems` response field is not part of the contract.
   "timeline": {
     "schemaVersion": "tinybot.timeline.v2",
     "sessionId": "websocket:chat-1",
-    "runId": "run-1",
+    "turnId": "turn-1",
     "snapshotRevision": 2,
     "items": [
       {
         "schemaVersion": "tinybot.turn_item.v2",
         "itemId": "message-1",
         "sessionId": "websocket:chat-1",
-        "runId": "run-1",
-        "turnId": "run-1",
+        "turnId": "turn-1",
         "sequence": 4,
         "revision": 2,
         "kind": "assistant_message",
@@ -955,7 +954,7 @@ terminal evidence into the visible message text:
     ]
   },
   "spec": {
-    "runId": "run-1",
+    "turnId": "turn-1",
     "sessionId": "thread-1",
     "stream": true,
     "metadata": { "clientEventId": "client-message-1" }
@@ -963,7 +962,7 @@ terminal evidence into the visible message text:
 }
 ```
 
-The Thread command preserves `references` in the Agent input and run metadata. The thread runtime
+The Thread command preserves `references` in the Agent input and turn metadata. The thread runtime
 persists them on the canonical `user_message`, so reloads keep the same visible
 reference chips. Immediately before a provider request, references whose `type` starts with
 `tinyos.` are appended to the provider-only user content inside an explicit untrusted-evidence
@@ -975,36 +974,36 @@ Desktop chat controls call `worker_thread_interrupt`, `worker_resolve_thread_app
 `worker_submit_thread_form` directly. Their canonical Thread timeline updates are delivered through
 typed Tauri events; no Native Event to Gateway Frame projection is part of the desktop contract.
 
-`agent.pause` and `agent.resume` use the native `command` frame and target the same active `run_id`.
+`agent.pause` and `agent.resume` use the native `command` frame and target the same active `turn_id`.
 Pause is cooperative: the runtime records `pause_requested`, then enters canonical `paused` state at
 the next safe boundary before a provider call or after a provider response and before Tool execution.
-The same owned run remains active while paused. Resume unblocks that run and restores its previous
+The same owned turn remains active while paused. Resume unblocks that turn and restores its previous
 runtime phase. Correlated `agent.paused` and `agent.resumed` system notices are operation-completion
 items distinct from their command acknowledgements. Cancellation remains available while paused.
 
 Approval resolution and Agent UI form actions use the same envelope on a native `command` frame.
 `approval.resolve` carries the approval decision and scope; `form.submit` carries `form_id` and
 validated `values`; `form.cancel` carries only `form_id`. Rust validates the pending checkpoint and
-target run before persisting acknowledgement. Form submission and cancellation complete through a
+target turn before persisting acknowledgement. Form submission and cancellation complete through a
 separate correlated `agent.form.resolution` item, while the compatibility Agent UI event is emitted
 only after runtime completion.
 
-`operation.retry` also uses the native `command` frame, but separates the new target `run_id` from
+`operation.retry` also uses the native `command` frame, but separates the new target `turn_id` from
 the failed source identified by `source_turn_id` and `item_id`. Rust rejects reused target IDs,
-stale/non-failed source runs, and non-failed source items before starting provider work. A valid
-retry hydrates the existing session history into a new run, emits its correlated
-`agent.command.acknowledged` item before the provider call, and uses the new run's terminal canonical
+stale/non-failed source turns, and non-failed source items before starting provider work. A valid
+retry hydrates the existing session history into a new turn, emits its correlated
+`agent.command.acknowledged` item before the provider call, and uses the new turn's terminal canonical
 item as operation completion.
 
-`agent.request_change` starts a new correlated run for an Agent follow-up grounded in structured
+`agent.request_change` starts a new correlated turn for an Agent follow-up grounded in structured
 TinyOS evidence. Files explanation/modification uses bounded `tinyos.file` references, Terminal
 explanation/follow-up uses bounded `tinyos.terminal` references with canonical item identity, and
 Plan adjustment uses a `tinyos.plan` snapshot plus canonical identity. Rust requires a non-empty
 instruction and 1–16 validated references, enforces the 64 KiB serialized reference limit, and
-rejects stale observed-run state or any active run before provider work. A valid request persists
+rejects stale observed-turn state or any active turn before provider work. A valid request persists
 the references on the new canonical `user_message`, emits the correlated command acknowledgement,
-and completes at the new run's terminal canonical item. Requests issued from a History view still
-create this new live run and never mutate the historical snapshot.
+and completes at the new turn's terminal canonical item. Requests issued from a History view still
+create this new live turn and never mutate the historical snapshot.
 
 TinyOS is the Tinybot feature that presents these capabilities as a lightweight virtual desktop
 shared by the user and Agent. Files, terminal sessions, browser tabs, and generated artifacts refer
@@ -1018,7 +1017,7 @@ console.
 
 Canonical history still indexes every raw item revision as an exact event boundary for audit and
 deterministic reconstruction, but TinyOS does not expose a persistent Time Machine or playback
-surface. Opening an older item passes its event index together with run, turn, and item identity to
+surface. Opening an older item passes its event index together with turn and item identity to
 projector version `1`; an identity mismatch is an error rather than a nearest-match fallback. Native
 snapshots observed after that boundary are excluded so current native state cannot leak backward in
 time. The historical context exposes only a compact Return-to-Live action in the system bar.
@@ -1036,7 +1035,7 @@ current projector remains below that threshold, so canonical reconstruction does
 persist checkpoints yet.
 
 TinyOS controlled-host actions use the same `tinybot.command.v1` gateway and dedicated
-`tinyos-host-*` run identities. They are never inferred from local window state:
+`tinyos-host-*` operation identities. They are never inferred from local window state:
 
 - `file.save` carries `path`, `content`, `create_only`, `confirmed`, and, for an existing file,
   `base_revision`;
@@ -1044,7 +1043,7 @@ TinyOS controlled-host actions use the same `tinybot.command.v1` gateway and ded
 - `file.delete` carries `path`, `base_revision`, and `confirmed`;
 - `terminal.execute` carries the exact `command`, optional workspace-relative `cwd`, and
   `confirmed`;
-- `terminal.cancel` targets the running `tinyos-host-terminal-*` run;
+- `terminal.cancel` targets the running `tinyos-host-terminal-*` operation;
 - `browser.interact` requires the correlated `browser_session_id`, `tab_id`, control epoch,
   observation/capture identity where required, explicit confirmation, and a typed browser action.
   The native boundary validates those identities and routes the action to the same managed WebView2
@@ -1054,15 +1053,15 @@ File changes are workspace-bound and revision guarded. The frontend keeps edits 
 shows the before/after content before enabling save, and submits the revision returned by the
 workspace read. A changed source, an existing create target, an existing move target, or an invalid
 path returns a visible error; Rust does not overwrite, move, or delete on conflict. Successful and
-failed attempts are persisted as canonical host-operation runs with command acknowledgement, Tool
+failed attempts are persisted as canonical host operations with command acknowledgement, Tool
 start, and Tool result or error events.
 
 `terminal.execute` uses the shared Rust process manager with a read-only sandbox, denied network,
 and a working directory restricted to the configured workspace. Output is streamed through
 canonical Tool updates, retained in a bounded tail, and sanitized against configured secrets and
 common secret-assignment markers before persistence. Cancellation interrupts the process correlated
-to the host run and records a canonical cancelled terminal outcome. On capability evaluation after
-a restart, a persisted active `tinyos-host-*` run without a matching live terminal process is
+to the host operation and records a canonical cancelled terminal outcome. On capability evaluation after
+a restart, a persisted active `tinyos-host-*` operation without a matching live terminal process is
 marked failed with an explicit interrupted-recovery event instead of remaining active indefinitely.
 
 The delivered Terminal contract is `retained_execution_v1`, not a persistent PTY session. Every
@@ -1080,7 +1079,7 @@ forward, reload, stop, tab creation, tab activation, tab closing, and persistent
 state. The client never substitutes a timeline projection, local raster preview, or stale capture
 when the live native surface is unavailable; it shows an explicit unavailable state instead.
 
-`browser_session_v1` snapshots bind `browserSessionId`, `sessionId`, `runId`, `activeTabId`, ordered
+`browser_session_v1` snapshots bind `browserSessionId`, `ownerSessionId`, `activeTabId`, ordered
 tabs and navigation state, persistent profile identity, native-surface placement, and shared-control
 state. Captures and semantic observations remain backend evidence for validated Agent actions and
 diagnostics, but are not rendered as a user-facing browser fallback. An Agent interaction must
@@ -1096,21 +1095,21 @@ desktop reports the exact feature/platform unavailable reason and does not creat
 `GET /api/sessions/{key}/effective-capabilities` and the native
 `worker_session_effective_capabilities` command return `tinybot.effective_capabilities.v1` decisions.
 Unavailable decisions include both `reasonCode` and a user-facing `reason`; the response identifies
-the evaluated run used for the decision when present. Retry is available only when that latest run
-is failed and no active run supersedes it. `files.requestChange` is available when workspace read
-access is granted, the workspace root is available, and no run is active.
+the evaluated turn used for the decision when present. Retry is available only when that latest turn
+is failed and no active turn supersedes it. `files.requestChange` is available when workspace read
+access is granted, the workspace root is available, and no turn is active.
 The `terminal` capability group also declares `contract: "retained_execution_v1"` and
 `persistentPty: false`; clients reject a different or missing execution contract instead of
 silently treating it as the delivered retained-execution model.
 `files.directEdit`, `files.save`, and `terminal.execute` additionally require their corresponding
-desktop capability, an available workspace, and no active run. The current native shell backend
+desktop capability, an available workspace, and no active turn. The current native shell backend
 cannot enforce denied-network execution, so `terminal.execute` fails closed with
 `reasonCode: "network_enforcement_unavailable"` instead of starting a less restricted process.
 `terminal.cancel` is available only
-for a running `tinyos-host-terminal-*` run. The generic Agent cancel control remains unavailable for
-host-operation runs so the owning TinyOS application remains the single control surface.
-`agent.pause` is available for a running run; `agent.resume` is available only when the evaluated
-run has `status: "waiting"` and `phase: "paused"`.
+for a running `tinyos-host-terminal-*` operation. The generic Agent cancel control remains unavailable
+for host operations so the owning TinyOS application remains the single control surface.
+`agent.pause` is available for a running turn; `agent.resume` is available only when the evaluated
+turn has `status: "waiting"` and `phase: "paused"`.
 
 Product-facing canonical item data includes the following lifecycle details:
 
@@ -1123,8 +1122,8 @@ Product-facing canonical item data includes the following lifecycle details:
   `estimatedTokensAfter`.
 - `file_reference`: stable `id`, `path`, optional `mimeType`, and `referenceKind`. `parentItemId`
   associates the reference with its owning Tool, Form, or Subagent item.
-- `subagent_lifecycle`: stable `agentId`, `action`, and `status`; optional `childRunId`,
-  `childThreadId`, `parentAgentId`, `parentRunId`, `name`, `task`, `message`, and `traceRef` retain
+- `subagent_lifecycle`: stable `agentId`, `action`, and `status`; optional `childTurnId`,
+  `childThreadId`, `parentAgentId`, `parentTurnId`, `name`, `task`, `message`, and `traceRef` retain
   the backend-authored parent and assigned-work correlation used by TinyOS Agent process groups.
   Missing relationships remain absent and are not inferred from labels.
 - `error`: `code`, `message`, and `cancelled`. An error with `parentItemId` is scoped to its owner;
@@ -1152,7 +1151,7 @@ Key response shapes used by the lower-level session RPC:
 ```json
 {
   "session_id": "websocket:chat-1",
-  "run_id": "run-1",
+  "turn_id": "turn-1",
   "status": "running",
   "phase": "tool_calling",
   "started_at": "...",
@@ -1167,7 +1166,7 @@ Key response shapes used by the lower-level session RPC:
 
 ## Session and Thread Persistence
 
-Tinybot keeps the existing `session.*`, `thread.*`, and `agent_run.*` response shapes for frontend
+Tinybot keeps the existing `session.*`, `thread.*`, and `thread.turn.*` response shapes for frontend
 compatibility, but all conversation and runtime state has one persistence authority: typed,
 append-only Rollout files under `.tinybot/threads/YYYY/MM/DD/thread-*.jsonl`.
 `.tinybot/state/state.sqlite` is only a rebuildable discovery and metadata index. Deleting the
@@ -1177,33 +1176,38 @@ The removed `sessions/sessions.sqlite`, `.tinybot/state/thread-store.jsonl`, and
 `.tinybot/threads/threads.sqlite` stores are neither read nor written. There is no startup import,
 request-time compatibility fallback, or completed-result double write for those paths.
 
+The durable hierarchy is strict: a Thread may exist without an active Turn, but every persisted
+`ThreadItem` and every Turn checkpoint has one non-empty `turnId`. Thread-level metadata updates made
+while no Turn is active update Thread metadata without manufacturing a turnless Item. A Rollout
+record that would project to a Thread item without a Turn identity is a consistency error.
+
 Turn writes follow Codex-style ordering: one start batch contains `turn_started`, `turn_context`,
 the materialized system/developer prompt when it changed, and the user message. Later batches append
 typed message/tool/reasoning records, per-provider-call `token_count`, resumable checkpoints, and one
 `turn_complete` or `turn_aborted`. Compaction, metadata changes, rollback, fork, archive, and
 subagent communication use the same Rollout authority. UI thread snapshots, session history, model
-context, AgentRun records, and active checkpoints are reconstructed projections of that file.
+context, AgentTurn records, and active checkpoints are reconstructed projections of that file.
 Canonical append or reconstruction errors fail the operation instead of falling back to an old
 store.
 
-Native agent lifecycle persistence is fail-fast: a terminal-run lookup or run-start write failure
-returns a command error before the provider is called, and a run-record write failure returns a
-command error instead of embedding a failed `runPersistence` diagnostic in an otherwise successful
+Native agent lifecycle persistence is fail-fast: a terminal-turn lookup or turn-start write failure
+returns a command error before the provider is called, and a turn-record write failure returns a
+command error instead of embedding a failed persistence diagnostic in an otherwise successful
 result.
 
-For direct-session native runs with a live desktop sink, runtime deltas, phase/status changes, and UI
+For direct-session native turns with a live desktop sink, runtime deltas, phase/status changes, and UI
 patches remain live-only. Stable semantic events enter a bounded ordered queue and are materialized
-through `agent_run.append_semantic_batch` as typed Rollout records. Tool-call confirmation, approval,
+through `thread.turn.append_semantic_batch` as typed Rollout records. Tool-call confirmation, approval,
 tool output, usage, error, cancellation, and terminal boundaries flush the relevant batch before the
 runtime crosses that boundary. Queue or flush failure fails the command explicitly. Reload projects
 the authoritative timeline only from typed durable records; live event sequence never advances the
 durable Rollout revision.
 Thread-owned commands such as `worker_submit_thread_turn`, `worker_resolve_thread_approval`, and
-`worker_submit_thread_form` append their runtime events, run state, resumable checkpoint,
+`worker_submit_thread_form` append their runtime events, turn state, resumable checkpoint,
 approvals/forms, and final assistant or error items directly to the canonical Rollout. The native
 agent result is not replayed through `thread.apply_op`, so each logical value has one canonical
 payload. The turn-start seed retains instruction provenance and diagnostics, so derived
-`agent_run.get` projections preserve the effective working directory and instruction sources.
+`thread.turn.get` projections preserve the effective working directory and instruction sources.
 Approval/form continuation restores `latestCheckpoint.restorePayload` from Rollout, including
 after a new runtime instance starts; a later terminal item makes that checkpoint inactive. Direct
 non-thread agent commands use the same start, semantic, checkpoint, and terminal batches.
@@ -1284,8 +1288,8 @@ message verbatim and does not copy attachment files. The agent reads a mentioned
   "title": "New session",
   "status": "idle",
   "sessionKey": "websocket:chat-1",
-  "rootRunId": "run-1",
-  "activeRunId": null,
+  "rootTurnId": "turn-1",
+  "activeTurnId": null,
   "parentThreadId": null,
   "source": "desktop",
   "createdAt": "...",
@@ -1298,8 +1302,8 @@ message verbatim and does not copy attachment files. The agent reads a mentioned
     "model": null,
     "workingDirectory": null,
     "itemCount": 0,
-    "runCount": 0,
-    "hasActiveRun": false,
+    "turnCount": 0,
+    "hasActiveTurn": false,
     "extra": {}
   }
 }
@@ -1311,8 +1315,8 @@ message verbatim and does not copy attachment files. The agent reads a mentioned
 {
   "thread": {},
   "items": [],
-  "runs": [],
-  "activeRun": null,
+  "turns": [],
+  "activeTurn": null,
   "latestCheckpoint": null,
   "children": [],
   "turnItems": [],
@@ -1441,7 +1445,7 @@ retryable metadata rather than returning an empty successful page.
 {
   "patch": "*** Begin Patch\n*** Update File: README.md\n@@\n-old\n+new\n*** End Patch",
   "sessionId": "websocket:chat-1",
-  "runId": "run-1"
+  "turnId": "turn-1"
 }
 ```
 
@@ -1535,9 +1539,9 @@ Model-visible deferred tools map to the richer RPC surface:
 | `exec_command` | `shell.start` | per command | `terminate_process` |
 | `write_stdin` | `shell.write_stdin` | none after launch | `detach_forbidden` |
 
-The worker overwrites tool-supplied identity fields with the active `sessionId`, `runId`, and
+The worker overwrites tool-supplied identity fields with the active `sessionId`, `ownerId`, and
 `toolCallId` when these tools dispatch. An owned process cannot be polled, written, resized,
-interrupted, or terminated without the matching `runId`.
+interrupted, or terminated without the matching `ownerId`.
 
 ### Shell RPC methods
 
@@ -1549,8 +1553,8 @@ interrupted, or terminated without the matching `runId`.
 | `shell.resize` | Resize an active PTY in rows and columns. |
 | `shell.interrupt` | Send SIGINT on Unix or Ctrl-C to a Windows PTY. |
 | `shell.terminate` | Terminate one owned process tree and verify its exit. |
-| `shell.terminate_run` | Terminate all live processes owned by one run. |
-| `shell.list` | List retained process snapshots, optionally filtered by `runId`. |
+| `shell.terminate_owner` | Terminate all live processes owned by one owner. |
+| `shell.list` | List retained process snapshots, optionally filtered by `ownerId`. |
 | `shell.shutdown` | Terminate live processes, join terminal lifecycle threads, and release records. |
 
 `shell.start` accepts:
@@ -1566,12 +1570,12 @@ interrupted, or terminated without the matching `runId`.
   "sandboxMode": "unsandboxed",
   "networkMode": "unrestricted",
   "sessionId": "websocket:chat-1",
-  "runId": "run-1",
+  "ownerId": "turn-1",
   "toolCallId": "call-1"
 }
 ```
 
-`runId` and `toolCallId` are required for retained processes. The one-shot `shell.execute` adapter
+`ownerId` and `toolCallId` are required for retained processes. The one-shot `shell.execute` adapter
 uses an internal transient owner and releases its record before returning.
 
 `sandboxMode` accepts `unsandboxed` (the default) or `read_only`. `networkMode` accepts
@@ -1586,7 +1590,7 @@ adapter fail closed.
 
 Windows unsandboxed pipe processes also receive a dedicated kill-on-close Job Object immediately
 after creation. Failure to create or assign that job fails the start and terminates the direct child.
-`shell.terminate`, run cancellation, and gateway shutdown terminate the job and verify the root
+`shell.terminate`, turn cancellation, and gateway shutdown terminate the job and verify the root
 record reaches terminal state, preventing descendants from retaining inherited pipe handles or
 surviving the owner.
 
@@ -1596,7 +1600,7 @@ Process snapshots use camel-case fields and include:
 {
   "processId": "process-1",
   "systemProcessId": 1234,
-  "runId": "run-1",
+  "ownerId": "turn-1",
   "toolCallId": "call-1",
   "command": "python -i",
   "workingDir": ".",
@@ -1681,7 +1685,7 @@ await invoke("worker_dispatch_tinyos_host_command", {
     clientId: "client-1",
     frame: { type: "command", command_kind: "file.save", path: "notes.txt", content: "hello" },
     attachedChatId: "thread-1",
-    runId: "run-1",
+    turnId: "turn-1",
   }
 });
 ```
@@ -1801,7 +1805,7 @@ External callers should usually prefer the Tauri commands above.
 
 | Namespace | Methods |
 | --- | --- |
-| `agent_run` | `append_semantic_batch`, `clear_checkpoint`, `get`, `get_checkpoint`, `list`, `mark_cancelled`, `mark_completed`, `mark_failed`, `mark_interrupted`, `runtime_state`, `set_checkpoint`, `start` |
+| `thread.turn` | `append_semantic_batch`, `clear_checkpoint`, `get`, `get_checkpoint`, `list`, `mark_cancelled`, `mark_completed`, `mark_failed`, `mark_interrupted`, `runtime_state`, `set_checkpoint`, `start` |
 | `approval` | `list_pending`, `request`, `resolve` |
 | `config` | `apply_operations`, `apply_patch_result`, `get`, `snapshot_public` |
 | `diagnostics` | `append` |
@@ -1812,7 +1816,7 @@ External callers should usually prefer the Tauri commands above.
 | `provider` | `resolve_secret` |
 | `runtime` | `metrics`, `now`, `restart` |
 | `session` | `append_messages`, `clear`, `clear_checkpoint`, `delete`, `get_checkpoint`, `get_history`, `get_metadata`, `list_metadata`, `patch_metadata`, `patch_user_profile`, `persist_turn`, `set_checkpoint`, `trim` |
-| `shell` | `execute`, `start`, `poll`, `write_stdin`, `resize`, `interrupt`, `terminate`, `terminate_run`, `list`, `shutdown` |
+| `shell` | `execute`, `start`, `poll`, `write_stdin`, `resize`, `interrupt`, `terminate`, `terminate_owner`, `list`, `shutdown` |
 | `skills` | `list`, `webui_create`, `webui_delete`, `webui_detail`, `webui_list`, `webui_update`, `webui_validate` |
 | `subagent` | `cancel`, `close`, `list`, `query`, `resume`, `send_input`, `spawn`, `wait` |
 | `thread` | `activity`, `agent_registry`, `append_items`, `apply_op`, `archive`, `continue_turn`, `create`, `delete`, `events`, `fork`, `interrupt`, `list`, `read`, `restore_checkpoint`, `resume`, `search`, `start_turn`, `status`, `unarchive`, `update_metadata` |
@@ -1820,11 +1824,11 @@ External callers should usually prefer the Tauri commands above.
 | `tool_registry` | `list`, `search` |
 | `workspace` | `apply_patch`, `create_dir`, `delete_file`, `list_dir`, `list_files`, `read_bootstrap_files`, `read_file`, `resolve_path`, `write_file` |
 
-`agent_run.start` atomically appends the minimal run seed, turn context, changed materialized
-instructions, and current user message. `agent_run.append_semantic_batch` accepts only stable events
+`thread.turn.start` atomically appends the minimal turn seed, turn context, changed materialized
+instructions, and current user message. `thread.turn.append_semantic_batch` accepts only stable events
 that can be materialized as typed message, reasoning, tool, approval, usage, or terminal records;
 delta, phase, status, provider-start, and generic trace envelopes are rejected or kept live-only.
-Agent-run reads are derived from the thread JSONL and never fall back to the in-memory thread store.
+Agent-turn reads are derived from the thread JSONL and never fall back to the in-memory thread store.
 
 ### MCP Runtime RPC
 
@@ -2015,22 +2019,24 @@ the runtime-state snapshot:
 {
   "schemaVersion": "tinybot.timeline_patch.v2",
   "sessionId": "websocket:chat-1",
-  "runId": "run-1",
+  "turnId": "turn-1",
   "snapshotRevision": 3,
   "item": {}
 }
 ```
 
-The frontend applies patches by run ID and item ID. A revision gap triggers an authoritative
+The frontend applies patches by turn ID and item ID. A revision gap triggers an authoritative
 snapshot reload and reapplication of the received patch. If the reload still cannot close the gap,
 the error remains visible. Identity/schema mismatches, invalid assistant-phase transitions,
 post-final work, and terminal-state regressions are rejected;
 lower item revisions are ignored with a diagnostic. Raw events remain available for traces but are
 not a second Chat state source.
 
-`session.task_progress.upsert` requires the same complete `steps` snapshot and persists the resulting
-`plan_progress` item under `_agent_item` in its compatibility progress message. Counter-only payloads
-are rejected; provided counters and current-step values must match the backend-derived values. User
+`session.task_progress.upsert` requires a non-empty `turnId` plus the same complete `steps` snapshot,
+and persists the resulting `plan_progress` item under `_agent_item` in its compatibility progress
+message. Counter-only payloads are rejected; provided counters and current-step values must match
+the backend-derived values. `session.append_messages` likewise requires `turn_id` and writes that
+identity into every persisted message. User
 message content parts of type `file`, `input_file`,
 `image_url`, or `input_image` emit one `agent.file.reference` event per reference; image references
 use `referenceKind: "image"` and file references use `referenceKind: "file"`.
@@ -2050,7 +2056,7 @@ context-window budget fields:
   `compact`.
 - `percent`: context-window usage percentage.
 
-Rust agent context-window controls are read from `agents.defaults` or the run spec:
+Rust agent context-window controls are read from `agents.defaults` or the turn specification:
 
 - `contextWindowTokens` / `context_window_tokens`: effective context window. The fallback is
   `128000`.
@@ -2072,7 +2078,7 @@ failure path as the main provider request; failure is explicit and does not sile
 ```json
 {
   "sessionId": "websocket:chat-1",
-  "runId": "run-1",
+  "turnId": "turn-1",
   "traceId": "trace-1",
   "eventName": "agent.delta",
   "timestamp": "2026-07-06T00:00:00Z",

@@ -1109,7 +1109,7 @@ describe("native chat state", () => {
           _delegate_trace: {
             delegateId: "delegate-1",
             childTurnId: "delegate-1",
-            parentTurnId: "run-1",
+            parentTurnId: "turn-1",
             parentSessionKey: "websocket:chat-1",
             status: "completed",
             steps: [{
@@ -1149,7 +1149,7 @@ describe("native chat state", () => {
     });
   });
 
-  test("hydrates child trace journal events into delegated run traces", () => {
+  test("hydrates child trace journal events into delegated turn traces", () => {
     const state = createNativeChatState();
     const sessionKey = "websocket:chat-1";
     setMessages(state, sessionKey, normalizeMessagesPayload({

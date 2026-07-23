@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { createAgentTimelineModel } from "./agentTimelineModel";
 
 const sessionId = "WebSocket:timeline-test";
-const turnId = "run-1";
+const turnId = "turn-1";
 
 function item(overrides: Record<string, unknown> = {}) {
   return {
@@ -394,7 +394,7 @@ describe("canonical agent timeline model", () => {
     }))).toThrow("cannot transition phase from commentary to final_answer");
   });
 
-  test("ignores a lower item revision but advances the run cursor with a diagnostic", () => {
+  test("ignores a lower item revision but advances the turn cursor with a diagnostic", () => {
     const model = createAgentTimelineModel();
     model.load(sessionId, [runtimeState(2, [item({ revision: 2 })])]);
 

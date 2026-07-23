@@ -26,9 +26,9 @@ describe("desktop native sessions API", () => {
       command: "worker_turns_list",
       args: { input: { key: "websocket:chat-1" } },
     });
-    await expect(api.agentTurnRuntimeState!("websocket:chat-1", "run-1")).resolves.toEqual({
+    await expect(api.agentTurnRuntimeState!("websocket:chat-1", "turn-1")).resolves.toEqual({
       command: "worker_turn_runtime_state",
-      args: { input: { sessionKey: "websocket:chat-1", turnId: "run-1" } },
+      args: { input: { sessionKey: "websocket:chat-1", turnId: "turn-1" } },
     });
     await expect(api.delete!("websocket:chat-1")).resolves.toEqual({
       command: "worker_session_delete",

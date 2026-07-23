@@ -1525,7 +1525,7 @@ mod tests {
     fn spawn_params(session_key: &str, subagent_id: &str) -> SubagentSpawnParams {
         SubagentSpawnParams {
             session_key: session_key.to_string(),
-            parent_turn_id: Some("parent-run".to_string()),
+            parent_turn_id: Some("parent-turn".to_string()),
             parent_subagent_id: None,
             delegation_depth: None,
             history_mode: None,
@@ -1730,7 +1730,7 @@ mod tests {
                     event_id: "event-running".to_string(),
                     event_type: "agent.delegate.running".to_string(),
                     session_key: "session-a".to_string(),
-                    turn_id: "parent-run".to_string(),
+                    turn_id: "parent-turn".to_string(),
                     parent_step_id: None,
                     delegate_id: Some("worker-1".to_string()),
                     child_turn_id: Some("child-1".to_string()),
@@ -1747,7 +1747,7 @@ mod tests {
                     event_id: "event-completed".to_string(),
                     event_type: "agent.delegate.completed".to_string(),
                     session_key: "session-a".to_string(),
-                    turn_id: "parent-run".to_string(),
+                    turn_id: "parent-turn".to_string(),
                     parent_step_id: None,
                     delegate_id: Some("worker-2".to_string()),
                     child_turn_id: Some("child-2".to_string()),
@@ -1869,7 +1869,7 @@ mod tests {
     }
 
     #[test]
-    fn wait_stops_when_the_parent_run_is_cancelled() {
+    fn wait_stops_when_the_parent_turn_is_cancelled() {
         let manager = SubagentThreadManager::default();
         manager.spawn(spawn_params("session-a", "worker-1"));
 

@@ -3396,7 +3396,7 @@ function ErrorDetails({ step, turn }: { step: ChatStep; turn: ChatTurn }) {
   return (
     <div className="react-error-detail">
       <dl>
-        <div><dt>Run ID</dt><dd><code>{turn.id}</code></dd></div>
+        <div><dt>Turn ID</dt><dd><code>{turn.id}</code></dd></div>
         <div><dt>状态</dt><dd>{turn.status}</dd></div>
         <div><dt>停止原因</dt><dd><code>{error.code}</code></dd></div>
         {failedPlanStep(turn) ? <div><dt>中断位置</dt><dd>{failedPlanStep(turn)}</dd></div> : null}
@@ -3462,7 +3462,7 @@ function SubagentDetails({
         <div><dt>ID</dt><dd>{delegate.id}</dd></div>
         <div><dt>Status</dt><dd>{delegate.status}</dd></div>
         {delegate.traceRef ? <div><dt>Trace</dt><dd>{delegate.traceRef}</dd></div> : null}
-        {delegate.childTurnId ? <div><dt>Child run</dt><dd>{delegate.childTurnId}</dd></div> : null}
+        {delegate.childTurnId ? <div><dt>Child turn</dt><dd>{delegate.childTurnId}</dd></div> : null}
       </dl>
       {delegate.task ? <p>{delegate.task}</p> : null}
       {delegate.latestActivity ? <p>{delegate.latestActivity}</p> : null}
@@ -3535,8 +3535,7 @@ function toolCallDetailSections(toolCall: ToolCallSummary): Array<{ label: strin
     ]) },
     { label: "Trace", value: formatDetailLines([
       ["Trace", toolCall.traceRef],
-      ["Child run", toolCall.childTurnId],
-      ["Parent run", toolCall.parentTurnId],
+      ["Child turn", toolCall.childTurnId],
       ["Parent turn", toolCall.parentTurnId],
       ["Session", toolCall.sessionKey],
     ]) },

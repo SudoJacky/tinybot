@@ -59,7 +59,7 @@ fn strict_patch_search_approval_and_real_dispatch_work_end_to_end() {
         run_native_agent_turn_with_workspace(
             &run_services,
             json!({
-                "turnId": "run-real-patch",
+                "turnId": "turn-real-patch",
                 "sessionId": "session-real-patch",
                 "maxIterations": 4,
                 "messages": [{ "role": "user", "content": "create the note" }]
@@ -68,7 +68,7 @@ fn strict_patch_search_approval_and_real_dispatch_work_end_to_end() {
             &run_workspace,
         )
     });
-    let approval_id = wait_for_approval_id(&trace_sink, "run-real-patch");
+    let approval_id = wait_for_approval_id(&trace_sink, "turn-real-patch");
     assert!(!workspace.root.join("notes/created.md").exists());
     services
         .approval_broker()
@@ -177,7 +177,7 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
     let waiting = run_native_agent_turn_with_config(
         &services,
         json!({
-            "turnId": "run-user-input",
+            "turnId": "turn-user-input",
             "sessionId": "session-user-input",
             "maxIterations": 4,
             "messages": [{ "role": "user", "content": "inspect the right file" }]
@@ -203,7 +203,7 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
     let resumed = run_native_agent_turn_with_config(
         &services,
         json!({
-            "turnId": "run-user-input",
+            "turnId": "turn-user-input",
             "sessionId": "session-user-input",
             "maxIterations": 4,
             "metadata": {
@@ -265,7 +265,7 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
     .expect("tool observation content should parse");
     assert_eq!(content["values"]["target"], "README.md");
     assert!(
-        services.restore_run_checkpoint("session-user-input", "run-user-input")["checkpoint"]
+        services.restore_turn_checkpoint("session-user-input", "turn-user-input")["checkpoint"]
             .is_null()
     );
 }
@@ -302,7 +302,7 @@ fn request_user_input_rejects_invalid_forms_without_waiting() {
     let result = run_native_agent_turn_with_config(
         &services,
         json!({
-            "turnId": "run-invalid-user-input",
+            "turnId": "turn-invalid-user-input",
             "sessionId": "session-invalid-user-input",
             "messages": [{ "role": "user", "content": "ask me" }]
         }),
@@ -316,7 +316,7 @@ fn request_user_input_rejects_invalid_forms_without_waiting() {
         .expect("tool error should include a message")
         .contains("fields must contain between 1 and 50 entries"));
     assert!(services
-        .restore_run_checkpoint("session-invalid-user-input", "run-invalid-user-input")
+        .restore_turn_checkpoint("session-invalid-user-input", "turn-invalid-user-input")
         ["checkpoint"]
         .is_null());
 }
@@ -455,7 +455,7 @@ lines.on("line", (line) => {
         run_native_agent_turn_with_workspace(
             &run_services,
             json!({
-                "turnId": "run-real-mcp-router",
+                "turnId": "turn-real-mcp-router",
                 "sessionId": "session-real-mcp-router",
                 "maxIterations": 3,
                 "messages": [{ "role": "user", "content": "echo through docs" }]
@@ -464,7 +464,7 @@ lines.on("line", (line) => {
             &run_workspace,
         )
     });
-    let approval_id = wait_for_approval_id(&trace_sink, "run-real-mcp-router");
+    let approval_id = wait_for_approval_id(&trace_sink, "turn-real-mcp-router");
     services
         .approval_broker()
         .resolve(
@@ -548,7 +548,7 @@ fn max_iterations_clears_deferred_tool_activation_checkpoint() {
     let result = run_native_agent_turn_with_config(
         &services,
         json!({
-            "turnId": "run-search-max-iterations",
+            "turnId": "turn-search-max-iterations",
             "sessionId": "session-search-max-iterations",
             "maxIterations": 1,
             "messages": [{ "role": "user", "content": "find shell" }]
@@ -558,9 +558,10 @@ fn max_iterations_clears_deferred_tool_activation_checkpoint() {
     .expect("max-iteration run should return a structured result");
 
     assert_eq!(result["stopReason"], "max_iterations");
-    assert!(services
-        .restore_run_checkpoint("session-search-max-iterations", "run-search-max-iterations")
-        ["checkpoint"]
+    assert!(services.restore_turn_checkpoint(
+        "session-search-max-iterations",
+        "turn-search-max-iterations"
+    )["checkpoint"]
         .is_null());
 }
 
@@ -603,7 +604,7 @@ fn provider_error_clears_deferred_tool_activation_checkpoint() {
     let result = run_native_agent_turn_with_config(
         &services,
         json!({
-            "turnId": "run-search-provider-error",
+            "turnId": "turn-search-provider-error",
             "sessionId": "session-search-provider-error",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "find shell" }]
@@ -613,9 +614,10 @@ fn provider_error_clears_deferred_tool_activation_checkpoint() {
     .expect("provider-error run should return a structured result");
 
     assert_eq!(result["stopReason"], "provider_error");
-    assert!(services
-        .restore_run_checkpoint("session-search-provider-error", "run-search-provider-error")
-        ["checkpoint"]
+    assert!(services.restore_turn_checkpoint(
+        "session-search-provider-error",
+        "turn-search-provider-error"
+    )["checkpoint"]
         .is_null());
 }
 
@@ -623,7 +625,7 @@ fn provider_error_clears_deferred_tool_activation_checkpoint() {
 fn tool_search_excludes_deferred_tools_denied_by_capability_policy() {
     let mut context = AgentTurnContext::from_spec(
         json!({
-            "turnId": "run-tool-search-capabilities",
+            "turnId": "turn-tool-search-capabilities",
             "sessionId": "session-tool-search-capabilities",
             "messages": [{ "role": "user", "content": "find file tools" }]
         }),
@@ -648,7 +650,7 @@ fn tool_search_excludes_deferred_tools_denied_by_capability_policy() {
 fn tool_search_does_not_reexpose_hidden_legacy_file_or_shell_tools() {
     let mut context = AgentTurnContext::from_spec(
         json!({
-            "turnId": "run-tool-search-words",
+            "turnId": "turn-tool-search-words",
             "sessionId": "session-tool-search-words",
             "messages": [{ "role": "user", "content": "find editing tools" }]
         }),
@@ -674,7 +676,7 @@ fn tool_search_does_not_reexpose_hidden_legacy_file_or_shell_tools() {
 fn deferred_tool_activation_round_trips_through_checkpoint_validation() {
     let mut context = AgentTurnContext::from_spec(
         json!({
-            "turnId": "run-tool-search-checkpoint",
+            "turnId": "turn-tool-search-checkpoint",
             "sessionId": "session-tool-search-checkpoint",
             "messages": [{ "role": "user", "content": "find memory search" }]
         }),
@@ -683,7 +685,7 @@ fn deferred_tool_activation_round_trips_through_checkpoint_validation() {
     context
         .tool_router
         .search_and_activate(r#"{"query":"memory search","limit":1}"#)
-        .expect("memory search should activate for the current run");
+        .expect("memory search should activate for the current turn");
     let checkpoint = super::checkpoint::checkpoint_value(
         &context,
         "awaiting_approval",
@@ -700,7 +702,7 @@ fn deferred_tool_activation_round_trips_through_checkpoint_validation() {
 
     let mut restored = AgentTurnContext::from_spec(
         json!({
-            "turnId": "run-tool-search-checkpoint",
+            "turnId": "turn-tool-search-checkpoint",
             "sessionId": "session-tool-search-checkpoint",
             "messages": [{ "role": "user", "content": "continue" }]
         }),
@@ -737,7 +739,7 @@ fn deferred_tool_activation_round_trips_through_checkpoint_validation() {
 fn duplicate_deferred_tool_activation_fails_without_partial_state() {
     let mut context = AgentTurnContext::from_spec(
         json!({
-            "turnId": "run-duplicate-activation",
+            "turnId": "turn-duplicate-activation",
             "sessionId": "session-duplicate-activation",
             "messages": [{ "role": "user", "content": "find memory search" }]
         }),
@@ -827,7 +829,7 @@ fn direct_calls_to_unactivated_deferred_tools_are_rejected() {
             Arc::new(InMemoryNativeAgentCancellation::default()),
         ),
         json!({
-            "turnId": "run-unactivated-deferred",
+            "turnId": "turn-unactivated-deferred",
             "sessionId": "session-unactivated-deferred",
             "maxIterations": 1,
             "messages": [{ "role": "user", "content": "guess a shell tool" }]
@@ -930,7 +932,7 @@ fn approval_gates_the_original_batch_and_injects_all_results_before_the_next_mod
         run_native_agent_turn_with_config(
             &run_services,
             json!({
-                "turnId": "run-approval-batch",
+                "turnId": "turn-approval-batch",
                 "sessionId": "session-approval-batch",
                 "maxIterations": 2,
                 "messages": [{ "role": "user", "content": "write then read" }]
@@ -939,7 +941,7 @@ fn approval_gates_the_original_batch_and_injects_all_results_before_the_next_mod
         )
     });
 
-    let approval_id = wait_for_approval_id(&trace_sink, "run-approval-batch");
+    let approval_id = wait_for_approval_id(&trace_sink, "turn-approval-batch");
     assert!(dispatched
         .lock()
         .expect("dispatched calls lock should not be poisoned")
@@ -1050,7 +1052,7 @@ fn denied_approval_becomes_a_tool_result_and_does_not_abort_the_turn() {
         run_native_agent_turn_with_config(
             &run_services,
             json!({
-                "turnId": "run-denied-approval",
+                "turnId": "turn-denied-approval",
                 "sessionId": "session-denied-approval",
                 "maxIterations": 2,
                 "messages": [{ "role": "user", "content": "try a write" }]
@@ -1058,7 +1060,7 @@ fn denied_approval_becomes_a_tool_result_and_does_not_abort_the_turn() {
             json!({}),
         )
     });
-    let approval_id = wait_for_approval_id(&trace_sink, "run-denied-approval");
+    let approval_id = wait_for_approval_id(&trace_sink, "turn-denied-approval");
     services
         .approval_broker()
         .resolve(
@@ -1083,7 +1085,7 @@ fn chat_completion_request_enables_parallel_tool_calls_only_when_explicitly_requ
     let mut context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
-            "turnId": "run-parallel-request",
+            "turnId": "turn-parallel-request",
             "sessionId": "websocket:chat-parallel-request",
             "model": "fixture-model",
             "parallelToolCalls": true,
@@ -1111,7 +1113,7 @@ fn chat_completion_request_enables_parallel_tool_calls_only_when_explicitly_requ
     let mut disabled_context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
-            "turnId": "run-parallel-request-disabled",
+            "turnId": "turn-parallel-request-disabled",
             "sessionId": "websocket:chat-parallel-request",
             "model": "fixture-model",
             "parallelToolCalls": false,
@@ -1130,7 +1132,7 @@ fn chat_completion_request_exposes_core_controls_when_no_capability_tools_are_av
     let mut context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
-            "turnId": "run-no-tools",
+            "turnId": "turn-no-tools",
             "sessionId": "websocket:chat-no-tools",
             "model": "fixture-model",
             "messages": [{ "role": "user", "content": "hello" }]
@@ -1157,7 +1159,7 @@ fn chat_completion_request_encodes_tool_continuation_names_for_provider() {
     let mut context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
-            "turnId": "run-tool-continuation",
+            "turnId": "turn-tool-continuation",
             "sessionId": "websocket:chat-tool-continuation",
             "model": "fixture-model",
             "messages": [
@@ -1212,7 +1214,7 @@ fn provider_tool_call_names_restore_internal_registry_methods() {
     let mut context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
-            "turnId": "run-provider-tool-name",
+            "turnId": "turn-provider-tool-name",
             "sessionId": "websocket:chat-provider-tool-name",
             "model": "fixture-model",
             "messages": [{ "role": "user", "content": "search memory" }]
@@ -1425,7 +1427,7 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
         &services,
         json!({
             "runtime": "rust",
-            "turnId": "run-selected-tools",
+            "turnId": "turn-selected-tools",
             "sessionId": "session-selected-tools",
             "selectedTools": ["memory.search"],
             "messages": [{ "role": "user", "content": "search memory" }]
@@ -1436,7 +1438,7 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
         &services,
         json!({
             "runtime": "rust",
-            "turnId": "run-selected-apply-patch",
+            "turnId": "turn-selected-apply-patch",
             "sessionId": "session-selected-apply-patch",
             "selectedTools": ["apply_patch"],
             "messages": [{ "role": "user", "content": "prepare one patch tool" }]
@@ -1447,7 +1449,7 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
         &services,
         json!({
             "runtime": "rust",
-            "turnId": "run-never-approval",
+            "turnId": "turn-never-approval",
             "sessionId": "session-never-approval",
             "approvalPolicy": "never",
             "messages": [{ "role": "user", "content": "use safe tools only" }]
@@ -1516,7 +1518,7 @@ fn invalid_turn_policy_stops_before_provider_dispatch() {
         &services,
         json!({
             "runtime": "rust",
-            "turnId": "run-invalid-profile",
+            "turnId": "turn-invalid-profile",
             "sessionId": "session-invalid-profile",
             "permissionProfile": "remote-worker",
             "messages": [{ "role": "user", "content": "hello" }]
@@ -1527,7 +1529,7 @@ fn invalid_turn_policy_stops_before_provider_dispatch() {
         &services,
         json!({
             "runtime": "rust",
-            "turnId": "run-never-approval-tool",
+            "turnId": "turn-never-approval-tool",
             "sessionId": "session-never-approval-tool",
             "approvalPolicy": "never",
             "selectedTools": ["apply_patch"],
@@ -1539,7 +1541,7 @@ fn invalid_turn_policy_stops_before_provider_dispatch() {
         &services,
         json!({
             "runtime": "rust",
-            "turnId": "run-unknown-selected-tool",
+            "turnId": "turn-unknown-selected-tool",
             "sessionId": "session-unknown-selected-tool",
             "selectedTools": ["missing.tool"],
             "messages": [{ "role": "user", "content": "use missing tool" }]
@@ -1559,7 +1561,7 @@ fn invalid_request_stops_before_provider_call() {
         &NativeAgentRuntimeServices::default(),
         json!({
             "runtime": "rust",
-            "turnId": "run-invalid",
+            "turnId": "turn-invalid",
             "sessionId": "websocket:chat-invalid"
         }),
         json!({

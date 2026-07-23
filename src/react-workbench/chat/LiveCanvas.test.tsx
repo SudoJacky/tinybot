@@ -264,7 +264,7 @@ describe("LiveCanvas TinyOS", () => {
 
   it("routes retry for the failed canonical operation through the shared callback", async () => {
     const onRetryOperation = vi.fn();
-    const failed = entry(step({ id: "error-failed", kind: "error", status: "failed", title: "Operation failed" }), "run-failed");
+    const failed = entry(step({ id: "error-failed", kind: "error", status: "failed", title: "Operation failed" }), "turn-failed");
     render(<LiveCanvas {...canvasProps([failed], { canRetryTurn: true, onRetryOperation })} />);
 
     await userEvent.click(screen.getByRole("button", { name: "Retry" }));
@@ -274,13 +274,13 @@ describe("LiveCanvas TinyOS", () => {
 
   it("explains backend-authored cancellation denial", () => {
     render(<LiveCanvas {...canvasProps([], {
-      cancelUnavailableReason: "The run is waiting for user input.",
+      cancelUnavailableReason: "The turn is waiting for user input.",
     })} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Open command palette" }));
-    const cancel = within(screen.getByRole("dialog", { name: "command palette" })).getByRole("option", { name: /Cancel active Agent run/ });
+    const cancel = within(screen.getByRole("dialog", { name: "command palette" })).getByRole("option", { name: /Cancel active Agent turn/ });
     expect((cancel as HTMLButtonElement).disabled).toBe(true);
-    expect(cancel.getAttribute("title")).toBe("The run is waiting for user input.");
+    expect(cancel.getAttribute("title")).toBe("The turn is waiting for user input.");
   });
 
   it("renders stable Files and Terminal applications from canonical entries", () => {
@@ -612,11 +612,11 @@ describe("LiveCanvas TinyOS", () => {
       data: {
         action: "started",
         agentId: "agent-child",
-        childTurnId: "run-child",
+        childTurnId: "turn-child",
         message: "Child started",
         name: "Reviewer",
         parentAgentId: "agent-main",
-        parentTurnId: "run-1",
+        parentTurnId: "turn-1",
         status: "running",
         task: "Run tests",
         traceRef: "trace-child",
@@ -988,7 +988,7 @@ describe("LiveCanvas TinyOS", () => {
 
     await user.clear(search);
     await user.type(search, "pause active");
-    const pause = within(palette).getByRole("option", { name: /Pause active Agent run/ });
+    const pause = within(palette).getByRole("option", { name: /Pause active Agent turn/ });
     expect((pause as HTMLButtonElement).disabled).toBe(true);
     expect(pause.getAttribute("title")).toBe("The backend did not advertise pause.");
   });

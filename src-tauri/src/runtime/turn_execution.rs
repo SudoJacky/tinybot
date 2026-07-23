@@ -1310,7 +1310,7 @@ mod tests {
     }
 
     #[test]
-    fn completed_run_releases_its_active_handle_and_records_one_terminal_outcome() {
+    fn completed_turn_releases_its_active_handle_and_records_one_terminal_outcome() {
         let runtime = TurnExecutionRuntime::new();
         let handle = runtime
             .start_blocking(request("turn-complete"), || {
@@ -1332,7 +1332,7 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_active_run_is_rejected() {
+    fn duplicate_active_turn_is_rejected() {
         let runtime = TurnExecutionRuntime::new();
         let (release_sender, release_receiver) = mpsc::channel();
         let handle = runtime
@@ -1387,7 +1387,7 @@ mod tests {
     }
 
     #[test]
-    fn waiting_run_releases_task_and_can_resume_with_same_identity() {
+    fn waiting_turn_releases_task_and_can_resume_with_same_identity() {
         let runtime = TurnExecutionRuntime::new();
         let first = runtime
             .start_blocking(request("turn-wait"), || {
@@ -1422,7 +1422,7 @@ mod tests {
     }
 
     #[test]
-    fn cooperative_pause_and_resume_continue_the_same_active_run() {
+    fn cooperative_pause_and_resume_continue_the_same_active_turn() {
         tauri::async_runtime::block_on(async {
             let runtime = TurnExecutionRuntime::new();
             let operation_runtime = runtime.clone();

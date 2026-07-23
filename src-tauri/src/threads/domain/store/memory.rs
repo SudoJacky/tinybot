@@ -601,6 +601,15 @@ impl MemoryThreadStore {
         client_event_id: Option<&str>,
     ) -> Result<AppendThreadItemsResult, WorkerProtocolError> {
         validate_thread_id(thread_id)?;
+        if let Some(item) = items.iter().find(|item| item.turn_id.trim().is_empty()) {
+            return Err(invalid_thread_request(
+                "thread item turnId must not be empty",
+                serde_json::json!({
+                    "threadId": thread_id,
+                    "itemId": item.item_id,
+                }),
+            ));
+        }
         let mut state = self.lock()?;
         if let Some(client_event_id) = normalized_client_event_id(client_event_id) {
             if let Some(item_ids) = state
@@ -713,6 +722,9 @@ impl MemoryThreadStore {
         else {
             return Ok(None);
         };
+        if item_ids.is_empty() {
+            return Ok(Some(Vec::new()));
+        }
         let Some(items) = state.items.get(thread_id) else {
             return Ok(None);
         };

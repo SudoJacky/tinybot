@@ -6,7 +6,7 @@ function createController(overrides: Record<string, unknown> = {}) {
   const submitThreadTurn = vi.fn(async () => ({
     threadId: "thread-1",
     sessionId: "thread-1",
-    turnId: "run-1",
+    turnId: "turn-1",
     agentResult: {},
     snapshot: {},
   }));
@@ -21,7 +21,7 @@ function createController(overrides: Record<string, unknown> = {}) {
         updatedAt: "2026-07-14T00:00:00.000Z",
       }],
     })),
-    listTurns: vi.fn(async () => ({ runs: [] })),
+    listTurns: vi.fn(async () => ({ turns: [] })),
     getAgentTurnRuntimeState: vi.fn(async () => null),
     submitThreadTurn,
     ...overrides,
@@ -31,7 +31,7 @@ function createController(overrides: Record<string, unknown> = {}) {
     controller: createDesktopChatSessionController({
       api,
       createClientEventId: () => "client-1",
-      createTurnId: () => "run-1",
+      createTurnId: () => "turn-1",
       now: () => "2026-07-14T00:00:01.000Z",
     }),
     submitThreadTurn,
@@ -64,7 +64,7 @@ describe("desktop native chat session controller", () => {
       status: "sent",
       sessionId: "thread-1",
       threadId: "thread-1",
-      turnId: "run-1",
+      turnId: "turn-1",
       content: "hello",
       clientEventId: "client-1",
       completion: expect.any(Promise),
@@ -84,7 +84,7 @@ describe("desktop native chat session controller", () => {
         references: [{ kind: "reference", title: "README", detail: "selected file" }],
       },
       spec: {
-        turnId: "run-1",
+        turnId: "turn-1",
         sessionId: "thread-1",
         stream: true,
         model: "model-1",
@@ -130,7 +130,7 @@ describe("desktop native chat session controller", () => {
     const patch = {
       schemaVersion: "tinybot.timeline_patch.v2",
       sessionId: "thread-1",
-      turnId: "run-1",
+      turnId: "turn-1",
       snapshotRevision: 1,
       item: {
         schemaVersion: "tinybot.turn_item.v2",
@@ -149,7 +149,7 @@ describe("desktop native chat session controller", () => {
 
     await expect(controller.applyTimelinePatch("thread-1", patch)).resolves.toMatchObject({
       source: "canonical",
-      turns: [expect.objectContaining({ id: "run-1" })],
+      turns: [expect.objectContaining({ id: "turn-1" })],
     });
   });
 });

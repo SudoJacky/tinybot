@@ -92,7 +92,6 @@ fn reasoning_response_text(value: &Value) -> String {
 fn runtime_event_from_thread_item(
     item: &ThreadItem,
     session_id: &str,
-    turn_id: &str,
 ) -> Option<AgentRuntimeEventEnvelope> {
     let (event_name, payload) = semantic_event_from_thread_item(item)?;
     let item_id = semantic_item_id(item);
@@ -100,11 +99,7 @@ fn runtime_event_from_thread_item(
         LegacyNativeAgentEventEnvelopeInput {
             session_id: session_id.to_string(),
             thread_id: Some(item.thread_id.clone()),
-            turn_id: item
-                .turn_id
-                .clone()
-                .or_else(|| item.turn_id.clone())
-                .unwrap_or_else(|| turn_id.to_string()),
+            turn_id: item.turn_id.clone(),
             parent_turn_id: None,
             item_id: Some(item_id),
             event_name: event_name.to_string(),
@@ -176,8 +171,8 @@ pub(crate) fn runtime_events_from_thread_items(
 ) -> Vec<AgentRuntimeEventEnvelope> {
     items
         .iter()
-        .filter(|item| item.turn_id.as_deref() == Some(turn_id))
-        .filter_map(|item| runtime_event_from_thread_item(item, session_id, turn_id))
+        .filter(|item| item.turn_id == turn_id)
+        .filter_map(|item| runtime_event_from_thread_item(item, session_id))
         .collect()
 }
 
@@ -206,7 +201,7 @@ mod tests {
         ThreadItem {
             item_id: item_id.to_string(),
             thread_id: "thread-1".to_string(),
-            turn_id: Some("run-1".to_string()),
+            turn_id: "turn-1".to_string(),
             parent_item_id: None,
             sequence,
             created_at: sequence.to_string(),
@@ -226,23 +221,23 @@ mod tests {
 
     #[test]
     fn persisted_approval_order_follows_rollout_order() {
-        let approval_id = "approval:run-1:call-1";
+        let approval_id = "approval:turn-1:call-1";
         let items = vec![
             approval_item(
-                "thread-runtime:thread-1:run-1:event:1",
+                "thread-runtime:thread-1:turn-1:event:1",
                 1,
                 "agent.approval.decision",
                 approval_id,
             ),
             approval_item(
-                "thread-runtime:thread-1:run-1:event:209",
+                "thread-runtime:thread-1:turn-1:event:209",
                 209,
                 "agent.awaiting_approval",
                 approval_id,
             ),
         ];
 
-        let events = runtime_events_from_thread_items(&items, "thread-1", "run-1");
+        let events = runtime_events_from_thread_items(&items, "thread-1", "turn-1");
         assert_eq!(events[0].event_name, "agent.approval.decision");
         assert_eq!(events[1].event_name, "agent.awaiting_approval");
         assert_eq!(events[0].sequence, 1);
@@ -254,7 +249,7 @@ mod tests {
         let items = vec![ThreadItem {
             item_id: "rollout-item-99".to_string(),
             thread_id: "canonical-thread".to_string(),
-            turn_id: Some("canonical-run".to_string()),
+            turn_id: "canonical-turn".to_string(),
             parent_item_id: None,
             sequence: 99,
             created_at: "2026-07-20T00:00:99Z".to_string(),
@@ -266,14 +261,15 @@ mod tests {
             })),
         }];
 
-        let events = runtime_events_from_thread_items(&items, "canonical-session", "canonical-run");
+        let events =
+            runtime_events_from_thread_items(&items, "canonical-session", "canonical-turn");
 
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].sequence, 99);
         assert_eq!(events[0].timestamp, "2026-07-20T00:00:99Z");
         assert_eq!(events[0].session_id, "canonical-session");
         assert_eq!(events[0].thread_id.as_deref(), Some("canonical-thread"));
-        assert_eq!(events[0].turn_id, "canonical-run");
+        assert_eq!(events[0].turn_id, "canonical-turn");
     }
 
     #[test]
@@ -281,7 +277,7 @@ mod tests {
         let item = |item_id: &str, sequence: u64, kind: ThreadItemKind| ThreadItem {
             item_id: item_id.to_string(),
             thread_id: "thread-1".to_string(),
-            turn_id: Some("turn-1".to_string()),
+            turn_id: "turn-1".to_string(),
             parent_item_id: None,
             sequence,
             created_at: sequence.to_string(),
@@ -311,7 +307,7 @@ mod tests {
             ),
         ];
 
-        let events = runtime_events_from_thread_items(&items, "thread-1", "run-1");
+        let events = runtime_events_from_thread_items(&items, "thread-1", "turn-1");
         assert_eq!(
             events[1].payload,
             json!({
@@ -320,7 +316,7 @@ mod tests {
             })
         );
 
-        let projected = turn_items_from_thread_items(&items, "thread-1", "run-1");
+        let projected = turn_items_from_thread_items(&items, "thread-1", "turn-1");
         assert_eq!(projected.len(), 1);
         assert!(matches!(
             &projected[0].data,
@@ -336,7 +332,7 @@ mod tests {
         let persisted_item = |item_id: &str, sequence: u64, kind: ThreadItemKind| ThreadItem {
             item_id: item_id.to_string(),
             thread_id: "thread-1".to_string(),
-            turn_id: Some("run-1".to_string()),
+            turn_id: "turn-1".to_string(),
             parent_item_id: None,
             sequence,
             created_at: sequence.to_string(),
@@ -366,13 +362,13 @@ mod tests {
             ),
         ];
 
-        let events = runtime_events_from_thread_items(&items, "thread-1", "run-1");
+        let events = runtime_events_from_thread_items(&items, "thread-1", "turn-1");
         assert_eq!(events.len(), 2);
         assert!(events.iter().all(|event| !matches!(
             event.event_name.as_str(),
             "agent.delta" | "agent.reasoning_delta"
         )));
-        let projected = turn_items_from_thread_items(&items, "thread-1", "run-1");
+        let projected = turn_items_from_thread_items(&items, "thread-1", "turn-1");
 
         assert_eq!(projected.len(), 2);
         assert!(matches!(

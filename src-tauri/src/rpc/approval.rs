@@ -23,7 +23,7 @@ pub(super) struct WorkerApprovalRpc {
     pending: HashMap<String, ApprovalRecord>,
     approved_once: Vec<ApprovalGrant>,
     approved_session: Vec<ApprovalGrant>,
-    approved_current_run: Vec<ApprovalRunGrant>,
+    approved_current_turn: Vec<ApprovalTurnGrant>,
     denied: Vec<Value>,
 }
 
@@ -34,7 +34,7 @@ impl WorkerApprovalRpc {
             pending: HashMap::new(),
             approved_once: Vec::new(),
             approved_session: Vec::new(),
-            approved_current_run: Vec::new(),
+            approved_current_turn: Vec::new(),
             denied: Vec::new(),
         }
     }
@@ -65,8 +65,8 @@ impl WorkerApprovalRpc {
         self.require(WorkerCapability::ApprovalRequest)?;
         let record = ApprovalRecord::from_params(params)?;
         if self.consume_once_approval(&record) {
-            self.approved_current_run
-                .push(ApprovalRunGrant::from_record(&record));
+            self.approved_current_turn
+                .push(ApprovalTurnGrant::from_record(&record));
             return Ok(approval_allowed_result(&record, "once"));
         }
         if self.has_session_approval(&record) {
@@ -182,7 +182,7 @@ impl WorkerApprovalRpc {
         requirement: SensitiveOperationApproval,
     ) -> Result<(), WorkerProtocolError> {
         let record = requirement.to_record();
-        if self.consume_current_run_approval(&record)
+        if self.consume_current_turn_approval(&record)
             || self.consume_once_approval(&record)
             || self.has_session_approval(&record)
         {
@@ -191,16 +191,16 @@ impl WorkerApprovalRpc {
         Err(approval_required_error(&requirement))
     }
 
-    fn consume_current_run_approval(&mut self, record: &ApprovalRecord) -> bool {
-        let grant = ApprovalRunGrant::from_record(record);
+    fn consume_current_turn_approval(&mut self, record: &ApprovalRecord) -> bool {
+        let grant = ApprovalTurnGrant::from_record(record);
         let Some(index) = self
-            .approved_current_run
+            .approved_current_turn
             .iter()
             .position(|item| item == &grant)
         else {
             return false;
         };
-        self.approved_current_run.remove(index);
+        self.approved_current_turn.remove(index);
         true
     }
 
@@ -557,13 +557,13 @@ struct ApprovalGrant {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct ApprovalRunGrant {
+struct ApprovalTurnGrant {
     turn_id: String,
     session_id: Option<String>,
     fingerprint: String,
 }
 
-impl ApprovalRunGrant {
+impl ApprovalTurnGrant {
     fn from_record(record: &ApprovalRecord) -> Self {
         Self {
             turn_id: record.turn_id.clone(),
@@ -1137,7 +1137,7 @@ mod tests {
             WorkerApprovalRpc::new(CapabilityPolicy::new([WorkerCapability::ApprovalRequest]));
         let request = approval_request(
             "req-1",
-            "run-1",
+            "turn-1",
             "session-1",
             operation.clone(),
             "write_file:notes/today.md",
@@ -1158,7 +1158,7 @@ mod tests {
         assert_eq!(result["operation"]["toolName"], operation["toolName"]);
         assert_eq!(result["operation"]["arguments"], operation["arguments"]);
         assert_eq!(result["operation"]["effects"], result["effects"]);
-        assert_eq!(result["turnId"], "run-1");
+        assert_eq!(result["turnId"], "turn-1");
         assert_eq!(result["sessionId"], "session-1");
         assert_eq!(result["category"], "filesystem_write");
         assert_eq!(result["risk"], "medium");
@@ -1185,7 +1185,7 @@ mod tests {
         let request_response = approval
             .request_from_request(&approval_request(
                 "req-request",
-                "run-1",
+                "turn-1",
                 "session-1",
                 operation.clone(),
                 "write_file:notes/today.md",
@@ -1236,7 +1236,7 @@ mod tests {
         let request_response = approval
             .request_from_request(&approval_request(
                 "req-request",
-                "run-1",
+                "turn-1",
                 "WebSocket:chat-1",
                 operation,
                 "write_file:notes/today.md",
@@ -1274,7 +1274,7 @@ mod tests {
         let request_response = approval
             .request_from_request(&approval_request(
                 "req-request",
-                "run-1",
+                "turn-1",
                 "WebSocket:chat-1",
                 operation,
                 "write_file:notes/today.md",
@@ -1306,7 +1306,7 @@ mod tests {
         let request_response = approval
             .request_from_request(&approval_request(
                 "req-request",
-                "run-1",
+                "turn-1",
                 "WebSocket:chat-1",
                 operation.clone(),
                 "write_file:notes/today.md",
@@ -1331,7 +1331,7 @@ mod tests {
         let response = approval
             .request_from_request(&approval_request(
                 "req-request-again",
-                "run-2",
+                "turn-2",
                 "websocket:chat-1",
                 operation,
                 "write_file:notes/today.md",
@@ -1354,7 +1354,7 @@ mod tests {
         let request_response = approval
             .request_from_request(&approval_request(
                 "req-request-1",
-                "run-1",
+                "turn-1",
                 "session-1",
                 operation.clone(),
                 "write_file:notes/today.md",
@@ -1365,7 +1365,7 @@ mod tests {
         approval
             .request_from_request(&approval_request(
                 "req-request-2",
-                "run-2",
+                "turn-2",
                 "session-2",
                 operation,
                 "write_file:notes/other.md",
@@ -1386,7 +1386,7 @@ mod tests {
         assert_eq!(response["approvals"].as_array().map(Vec::len), Some(1));
         let pending = &response["approvals"][0];
         assert_eq!(pending["id"], approval_id);
-        assert_eq!(pending["turnId"], "run-1");
+        assert_eq!(pending["turnId"], "turn-1");
         assert_eq!(pending["sessionId"], "session-1");
         assert_eq!(pending["operation"]["toolName"], "write_file");
         assert_eq!(
@@ -1432,7 +1432,7 @@ mod tests {
         let request_response = approval
             .request_from_request(&approval_request(
                 "req-request",
-                "run-1",
+                "turn-1",
                 "session-1",
                 operation.clone(),
                 "write_file:notes/today.md",
@@ -1457,7 +1457,7 @@ mod tests {
         let allowed = approval
             .request_from_request(&approval_request(
                 "req-allowed",
-                "run-2",
+                "turn-2",
                 "session-1",
                 operation.clone(),
                 "write_file:notes/today.md",
@@ -1473,7 +1473,7 @@ mod tests {
         let pending_again = approval
             .request_from_request(&approval_request(
                 "req-pending-again",
-                "run-3",
+                "turn-3",
                 "session-1",
                 operation,
                 "write_file:notes/today.md",
@@ -1495,7 +1495,7 @@ mod tests {
         let request_response = approval
             .request_from_request(&approval_request(
                 "req-request",
-                "run-1",
+                "turn-1",
                 "session-1",
                 original_operation,
                 "write_file:notes/today.md:hello",
@@ -1525,7 +1525,7 @@ mod tests {
         let allowed = approval
             .request_from_request(&approval_request(
                 "req-allowed",
-                "run-2",
+                "turn-2",
                 "session-1",
                 changed_operation.clone(),
                 "write_file:notes/today.md:changed",
@@ -1547,7 +1547,7 @@ mod tests {
         let other_session = approval
             .request_from_request(&approval_request(
                 "req-other-session",
-                "run-3",
+                "turn-3",
                 "session-2",
                 changed_operation,
                 "write_file:notes/today.md:changed",
@@ -1564,7 +1564,7 @@ mod tests {
         let requirement = workspace_write_approval(
             "notes/today.md",
             Some("session-1".to_string()),
-            Some("run-write".to_string()),
+            Some("turn-write".to_string()),
         );
         let record = requirement.to_record();
         let error = approval
@@ -1576,7 +1576,7 @@ mod tests {
         let request_response = approval
             .request_from_request(&approval_request(
                 "req-request",
-                "run-1",
+                "turn-1",
                 "session-1",
                 record.operation,
                 &record.fingerprint,
@@ -1604,18 +1604,18 @@ mod tests {
     }
 
     #[test]
-    fn sensitive_operation_accepts_current_run_after_once_request_allows() {
+    fn sensitive_operation_accepts_current_turn_after_once_request_allows() {
         let mut approval = approval_rpc();
         let requirement = workspace_write_approval(
             "notes/today.md",
             Some("session-1".to_string()),
-            Some("run-1".to_string()),
+            Some("turn-1".to_string()),
         );
         let record = requirement.to_record();
         let request_response = approval
             .request_from_request(&approval_request(
                 "req-request",
-                "run-1",
+                "turn-1",
                 "session-1",
                 record.operation.clone(),
                 &record.fingerprint,
@@ -1640,7 +1640,7 @@ mod tests {
         let allowed = approval
             .request_from_request(&approval_request(
                 "req-allowed",
-                "run-1",
+                "turn-1",
                 "session-1",
                 record.operation,
                 &record.fingerprint,
@@ -1652,11 +1652,11 @@ mod tests {
 
         approval
             .require_sensitive_operation(requirement.clone())
-            .expect("same-run native operation should use the consumed once approval");
+            .expect("same-turn native operation should use the consumed once approval");
 
         approval
             .require_sensitive_operation(requirement)
-            .expect_err("same-run once bridge should be consumed");
+            .expect_err("same-turn once bridge should be consumed");
     }
 
     #[test]
@@ -1664,7 +1664,7 @@ mod tests {
         let requirement = workspace_write_approval(
             "notes/today.md",
             Some("session-1".to_string()),
-            Some("run-1".to_string()),
+            Some("turn-1".to_string()),
         );
         let record = requirement.to_record();
 
@@ -1686,7 +1686,7 @@ mod tests {
                 "trace-1",
                 "approval.request",
                 json!({
-                    "turn_id": "run-1",
+                    "turn_id": "turn-1",
                     "session_id": "session-1",
                     "operation": {
                         "toolName": "write_file",
@@ -1724,7 +1724,7 @@ mod tests {
                 "trace-1",
                 "approval.request",
                 json!({
-                    "turn_id": "run-1",
+                    "turn_id": "turn-1",
                     "session_id": "session-1",
                     "operation": {
                         "toolName": "exec",

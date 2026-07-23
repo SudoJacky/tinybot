@@ -141,7 +141,7 @@ impl NativeAgentApprovalBroker {
         }
     }
 
-    pub(crate) fn cancel_run(&self, turn_id: &str) {
+    pub(crate) fn cancel_turn(&self, turn_id: &str) {
         if let Ok(mut state) = self.state.lock() {
             state
                 .pending
@@ -159,7 +159,7 @@ mod tests {
         NativeAgentApprovalRequest {
             approval_id: approval_id.to_string(),
             session_id: session_id.to_string(),
-            turn_id: "run-1".to_string(),
+            turn_id: "turn-1".to_string(),
             scope_key: scope_key.to_string(),
         }
     }

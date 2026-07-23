@@ -40,7 +40,7 @@ function canonicalRuntimeState(
   };
 }
 
-describe("chat run model", () => {
+describe("chat turn model", () => {
   test("converts legacy messages into turns with separate process steps and final answer", () => {
     const messages: NativeChatMessage[] = [
       {
@@ -101,7 +101,7 @@ describe("chat run model", () => {
   });
 
   test("projects backend turn items into restored chat turns before legacy adapters are removed", () => {
-    const runtimeState = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("run-1", [
+    const runtimeState = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("turn-1", [
         {
           itemId: "user-1",
           kind: "user_message",
@@ -126,7 +126,7 @@ describe("chat run model", () => {
         {
           itemId: "reasoning-1",
           sessionId: "WebSocket:chat-1",
-          turnId: "run-1",
+          turnId: "turn-1",
           kind: "reasoning",
           status: "completed",
           createdAt: "2026-07-03T01:00:01Z",
@@ -136,7 +136,7 @@ describe("chat run model", () => {
         {
           itemId: "call-read",
           sessionId: "WebSocket:chat-1",
-          turnId: "run-1",
+          turnId: "turn-1",
           kind: "tool_call",
           status: "completed",
           createdAt: "2026-07-03T01:00:02Z",
@@ -157,7 +157,7 @@ describe("chat run model", () => {
         {
           itemId: "approval-1",
           sessionId: "WebSocket:chat-1",
-          turnId: "run-1",
+          turnId: "turn-1",
           kind: "approval",
           status: "waiting",
           createdAt: "2026-07-03T01:00:04Z",
@@ -176,7 +176,7 @@ describe("chat run model", () => {
 
     expect(turns).toHaveLength(1);
     expect(turns[0]).toMatchObject({
-      id: "run-1",
+      id: "turn-1",
       status: "awaiting_approval",
       userMessage: {
         references: [expect.objectContaining({ evidenceId: "item-file-1", sourcePath: "README.md" })],
@@ -203,11 +203,11 @@ describe("chat run model", () => {
   });
 
   test("restores runtime-only blocked turns with their original user prompt", () => {
-    const runtimeState = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("run-approval", [
+    const runtimeState = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("turn-approval", [
         {
-          itemId: "run-approval:user",
+          itemId: "turn-approval:user",
           sessionId: "WebSocket:chat-1",
-          turnId: "run-approval",
+          turnId: "turn-approval",
           kind: "user_message",
           status: "completed",
           createdAt: "2026-07-03T01:00:00Z",
@@ -220,7 +220,7 @@ describe("chat run model", () => {
         {
           itemId: "approval-1",
           sessionId: "WebSocket:chat-1",
-          turnId: "run-approval",
+          turnId: "turn-approval",
           kind: "approval",
           status: "waiting",
           createdAt: "2026-07-03T01:00:04Z",
@@ -238,7 +238,7 @@ describe("chat run model", () => {
 
     expect(turns).toHaveLength(1);
     expect(turns[0]).toMatchObject({
-      id: "run-approval",
+      id: "turn-approval",
       status: "awaiting_approval",
       userMessageId: "user-approval",
       userMessage: { text: "Write the config file" },
@@ -247,11 +247,11 @@ describe("chat run model", () => {
   });
 
   test("restores runtime-only completed assistant messages without legacy final messages", () => {
-    const runtimeState = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("run-completed", [
+    const runtimeState = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("turn-completed", [
         {
-          itemId: "run-completed:user",
+          itemId: "turn-completed:user",
           sessionId: "WebSocket:chat-1",
-          turnId: "run-completed",
+          turnId: "turn-completed",
           kind: "user_message",
           status: "completed",
           createdAt: "2026-07-03T01:00:00Z",
@@ -262,9 +262,9 @@ describe("chat run model", () => {
           },
         },
         {
-          itemId: "run-completed:assistant",
+          itemId: "turn-completed:assistant",
           sessionId: "WebSocket:chat-1",
-          turnId: "run-completed",
+          turnId: "turn-completed",
           kind: "assistant_message",
           status: "completed",
           createdAt: "2026-07-03T01:00:01Z",
@@ -282,7 +282,7 @@ describe("chat run model", () => {
 
     expect(turns).toHaveLength(1);
     expect(turns[0]).toMatchObject({
-      id: "run-completed",
+      id: "turn-completed",
       status: "completed",
       userMessage: { text: "Say hello" },
       finalAnswer: {
@@ -293,15 +293,15 @@ describe("chat run model", () => {
   });
 
   test("reconciles stale running steps when a canonical turn fails", () => {
-    const runtimeState = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("run-failed", [
+    const runtimeState = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("turn-failed", [
       {
-        itemId: "run-failed:user",
+        itemId: "turn-failed:user",
         kind: "user_message",
         status: "completed",
         data: { type: "user_message", messageId: "user-failed", content: "Run the plan" },
       },
       {
-        itemId: "run-failed:plan",
+        itemId: "turn-failed:plan",
         kind: "plan_progress",
         status: "running",
         title: "Plan 0/2",
@@ -317,14 +317,14 @@ describe("chat run model", () => {
         },
       },
       {
-        itemId: "run-failed:tool",
+        itemId: "turn-failed:tool",
         kind: "tool_call",
         status: "running",
         title: "update_plan",
         data: { type: "tool_call", toolCallId: "call-plan", name: "update_plan", status: "running" },
       },
       {
-        itemId: "run-failed:error",
+        itemId: "turn-failed:error",
         kind: "error",
         status: "failed",
         title: "Error",
@@ -352,15 +352,15 @@ describe("chat run model", () => {
   });
 
   test("reconciles stale running steps when a canonical turn is cancelled", () => {
-    const runtimeState = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("run-cancelled", [
+    const runtimeState = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("turn-cancelled", [
       {
-        itemId: "run-cancelled:user",
+        itemId: "turn-cancelled:user",
         kind: "user_message",
         status: "completed",
         data: { type: "user_message", messageId: "user-cancelled", content: "Run the plan" },
       },
       {
-        itemId: "run-cancelled:plan",
+        itemId: "turn-cancelled:plan",
         kind: "plan_progress",
         status: "running",
         data: {
@@ -375,14 +375,14 @@ describe("chat run model", () => {
         },
       },
       {
-        itemId: "run-cancelled:tool",
+        itemId: "turn-cancelled:tool",
         kind: "tool_call",
         status: "running",
         title: "workspace.read_file",
         data: { type: "tool_call", toolCallId: "call-read", name: "workspace.read_file", status: "running" },
       },
       {
-        itemId: "run-cancelled:error",
+        itemId: "turn-cancelled:error",
         kind: "error",
         status: "cancelled",
         data: { type: "error", code: "cancelled", message: "Run cancelled", cancelled: true },
@@ -400,19 +400,19 @@ describe("chat run model", () => {
   });
 
   test("orders restored runtime states by numeric millisecond timestamps", () => {
-    const early = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("z-run-early", [{
-        itemId: "z-run-early:user",
+    const early = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("z-turn-early", [{
+        itemId: "z-turn-early:user",
         sessionId: "WebSocket:chat-1",
-        turnId: "z-run-early",
+        turnId: "z-turn-early",
         kind: "user_message",
         status: "completed",
         createdAt: "1782961828408",
         data: { type: "user_message", messageId: "user-early", content: "first restored prompt" },
       }]));
-    const late = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("a-run-late", [{
-        itemId: "a-run-late:user",
+    const late = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("a-turn-late", [{
+        itemId: "a-turn-late:user",
         sessionId: "WebSocket:chat-1",
-        turnId: "a-run-late",
+        turnId: "a-turn-late",
         kind: "user_message",
         status: "completed",
         createdAt: "1782961829408",
@@ -421,7 +421,7 @@ describe("chat run model", () => {
 
     const turns = backendRuntimeStatesToTurns("WebSocket:chat-1", [late, early]);
 
-    expect(turns.map((turn) => turn.id)).toEqual(["z-run-early", "a-run-late"]);
+    expect(turns.map((turn) => turn.id)).toEqual(["z-turn-early", "a-turn-late"]);
     expect(turns.map((turn) => turn.userMessage.text)).toEqual(["first restored prompt", "second restored prompt"]);
   });
 
@@ -794,7 +794,7 @@ describe("chat run model", () => {
         trace: {
           delegateId: "delegate-1",
           childTurnId: "delegate-1",
-          parentTurnId: "parent-run",
+          parentTurnId: "parent-turn",
           parentSessionKey: "WebSocket:chat-1",
           status: "running",
           steps: [{
@@ -1054,7 +1054,7 @@ describe("chat run model", () => {
     });
   });
 
-  test("replays interrupted delegated runs as cancelled steps", () => {
+  test("replays interrupted delegated turns as cancelled steps", () => {
     const state = createChatTurnState();
     reduceAgentEvent(state, {
       schema_version: "tinybot.agent_event.v1",
@@ -1069,7 +1069,7 @@ describe("chat run model", () => {
       payload: {
         delegate_id: "delegate-1",
         delegate_type: "spawn",
-        latest_activity: "Delegated run interrupted.",
+        latest_activity: "Delegated turn interrupted.",
         status: "cancelled",
         task: "long review",
         title: "Long review",

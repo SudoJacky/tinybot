@@ -5,7 +5,7 @@ use super::continuations::{
 };
 use super::events::runtime_event_timestamp;
 use super::hooks::AgentHookEvaluation;
-use super::result::{cancelled_result, cancelled_run_result, error_result};
+use super::result::{cancelled_result, cancelled_turn_result, error_result};
 use super::state::AgentTurnState;
 use super::tool_runtime::{execute_tool_calls_for_iteration, NativeAgentToolExecutionOutcome};
 use super::usage::{
@@ -160,7 +160,7 @@ async fn run_owned_native_agent_turn_async(
         })
         .map_err(|error| format!("failed to start owned agent task: {error}"))?;
     if handle.turn_id() != identity.turn_id || handle.session_id() != identity.session_id {
-        return Err("owned agent task identity does not match the normalized run".to_string());
+        return Err("owned agent task identity does not match the normalized turn".to_string());
     }
     if handle.status().is_none() {
         return Err("owned agent task did not publish a runtime status".to_string());
@@ -219,7 +219,7 @@ async fn run_owned_native_agent_turn_async(
     append_hook_evaluation_to_result(&mut result, &identity, &invocation, &evaluation)?;
     result["traceContext"] = serde_json::to_value(&identity.trace_context)
         .map_err(|error| format!("failed to serialize agent trace context: {error}"))?;
-    result["runMetrics"] = serde_json::json!({
+    result["turnMetrics"] = serde_json::json!({
         "turnDurationMs": duration.as_millis().min(u128::from(u64::MAX)) as u64,
         "outcome": if completed { "completed" } else { "aborted" },
     });
@@ -255,7 +255,7 @@ async fn run_native_agent_turn_with_instructions_async(
             "Rust agent runtime reached max iterations before provider call.",
         ));
     }
-    if run_context_is_cancelled(&context) {
+    if turn_context_is_cancelled(&context) {
         let checkpoint = save_phase_checkpoint(
             services,
             &context,
@@ -347,7 +347,8 @@ async fn run_native_agent_turn_with_instructions_async(
         ));
     }
     if let Some(workspace_root) = workspace_root {
-        let request = AgentContextRequest::from_run_context(workspace_root.to_path_buf(), &context);
+        let request =
+            AgentContextRequest::from_turn_context(workspace_root.to_path_buf(), &context);
         let hydration = services
             .context_contributors
             .hydrate(&request, context.system_instruction_prompt())?;
@@ -399,9 +400,9 @@ async fn run_native_agent_turn_with_instructions_async(
     }
     for iteration in start_iteration..context.max_iterations {
         state.transition_phase(AgentRuntimePhase::CallingModel, iteration, "provider_call");
-        if run_context_is_cancelled(&context) {
+        if turn_context_is_cancelled(&context) {
             state.transition_phase(AgentRuntimePhase::Cancelled, iteration, "agent.cancelled");
-            return Ok(cancelled_run_result(
+            return Ok(cancelled_turn_result(
                 services,
                 &context,
                 state.take_runtime_events(),
@@ -411,9 +412,9 @@ async fn run_native_agent_turn_with_instructions_async(
             ));
         }
         honor_pause_request(services, &context, &mut state, iteration).await?;
-        if run_context_is_cancelled(&context) {
+        if turn_context_is_cancelled(&context) {
             state.transition_phase(AgentRuntimePhase::Cancelled, iteration, "agent.cancelled");
-            return Ok(cancelled_run_result(
+            return Ok(cancelled_turn_result(
                 services,
                 &context,
                 state.take_runtime_events(),
@@ -435,7 +436,7 @@ async fn run_native_agent_turn_with_instructions_async(
             Ok(projection) => projection,
             Err(error) if error.kind() == NativeAgentProviderFailureKind::Cancelled => {
                 state.transition_phase(AgentRuntimePhase::Cancelled, iteration, "agent.cancelled");
-                return Ok(cancelled_run_result(
+                return Ok(cancelled_turn_result(
                     services,
                     &context,
                     state.take_runtime_events(),
@@ -554,7 +555,7 @@ async fn run_native_agent_turn_with_instructions_async(
         let mut provider_observer_cancelled = false;
         let provider_response = {
             let mut stream_observer = |event: NativeAgentProviderStreamEvent| {
-                if run_context_is_cancelled(&context) {
+                if turn_context_is_cancelled(&context) {
                     provider_observer_cancelled = true;
                     return;
                 }
@@ -678,7 +679,7 @@ async fn run_native_agent_turn_with_instructions_async(
         state.emit_hook_evaluation(&after_provider_invocation, &after_provider_evaluation);
         if provider_observer_cancelled {
             state.transition_phase(AgentRuntimePhase::Cancelled, iteration, "agent.cancelled");
-            return Ok(cancelled_run_result(
+            return Ok(cancelled_turn_result(
                 services,
                 &context,
                 state.take_runtime_events(),
@@ -691,7 +692,7 @@ async fn run_native_agent_turn_with_instructions_async(
             Ok(response) => response,
             Err(error) if error.kind() == NativeAgentProviderFailureKind::Cancelled => {
                 state.transition_phase(AgentRuntimePhase::Cancelled, iteration, "agent.cancelled");
-                return Ok(cancelled_run_result(
+                return Ok(cancelled_turn_result(
                     services,
                     &context,
                     state.take_runtime_events(),
@@ -729,9 +730,9 @@ async fn run_native_agent_turn_with_instructions_async(
                 NativeAgentProviderFailure::provider(message),
             ));
         }
-        if run_context_is_cancelled(&context) && provider_response.tool_calls.is_empty() {
+        if turn_context_is_cancelled(&context) && provider_response.tool_calls.is_empty() {
             state.transition_phase(AgentRuntimePhase::Cancelled, iteration, "agent.cancelled");
-            return Ok(cancelled_run_result(
+            return Ok(cancelled_turn_result(
                 services,
                 &context,
                 state.take_runtime_events(),
@@ -1018,7 +1019,7 @@ async fn honor_pause_request(
     Ok(())
 }
 
-fn run_context_is_cancelled(context: &AgentTurnContext) -> bool {
+fn turn_context_is_cancelled(context: &AgentTurnContext) -> bool {
     context
         .cancellation
         .as_ref()

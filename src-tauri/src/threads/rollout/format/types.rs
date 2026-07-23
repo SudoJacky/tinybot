@@ -558,8 +558,7 @@ fn optional_string(
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct TurnContextItem {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub turn_id: Option<String>,
+    pub turn_id: String,
     pub cwd: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_roots: Option<Vec<String>>,
@@ -810,7 +809,7 @@ mod tests {
     #[test]
     fn turn_context_serializes_with_codex_snake_case_keys() {
         let context = TurnContextItem {
-            turn_id: Some("turn-1".to_string()),
+            turn_id: "turn-1".to_string(),
             cwd: "D:/workspace".to_string(),
             workspace_roots: Some(vec!["D:/workspace".to_string()]),
             current_date: Some("2026-07-20".to_string()),

@@ -48,7 +48,7 @@ describe("TinyOS native snapshot adapters", () => {
     const terminal = createTinyOsTerminalProcessSnapshot({
       kind: "terminal_process",
       nativeProcessId: "process-1",
-      operationId: "run-1",
+      operationId: "turn-1",
       sessionId: "session-1",
       state: "running",
       toolCallId: "call-1",
@@ -77,7 +77,7 @@ describe("TinyOS native snapshot adapters", () => {
     expect(() => createTinyOsTerminalProcessSnapshot({
       kind: "terminal_process",
       nativeProcessId: "",
-      operationId: "run-1",
+      operationId: "turn-1",
       sessionId: "session-1",
       state: "running",
     }, metadata)).toThrow(/process id is required/i);
@@ -85,7 +85,7 @@ describe("TinyOS native snapshot adapters", () => {
       droppedBytes: -1,
       kind: "terminal_process",
       nativeProcessId: "process-1",
-      operationId: "run-1",
+      operationId: "turn-1",
       sessionId: "session-1",
       state: "running",
     }, metadata)).toThrow(/dropped bytes must be non-negative/i);
@@ -103,7 +103,7 @@ describe("TinyOS native snapshot adapters", () => {
       contract: "browser_session_v1",
       interaction: { click: true, navigate: true, type: false },
       kind: "browser_session",
-      operationId: "run-1",
+      operationId: "turn-1",
       sessionId: "session-1",
       state: "running",
       tabs: [{

@@ -44,7 +44,7 @@ fn owned_task_runtime_cancels_normal_turn_and_ignores_late_provider_result() {
             &runner_services,
             json!({
                 "runtime": "rust",
-                "turnId": "run-owned-cancel",
+                "turnId": "turn-owned-cancel",
                 "sessionId": "session-owned-cancel",
                 "messages": [{ "role": "user", "content": "wait" }]
             }),
@@ -56,12 +56,12 @@ fn owned_task_runtime_cancels_normal_turn_and_ignores_late_provider_result() {
 
     let active = services
         .task_runtime
-        .status("run-owned-cancel")
+        .status("turn-owned-cancel")
         .expect("owned turn status should exist");
     assert!(active.active);
     assert_eq!(active.phase, "running");
 
-    let cancellation = services.cancel("run-owned-cancel");
+    let cancellation = services.cancel("turn-owned-cancel");
     let result = runner
         .join()
         .expect("owned runner should not panic")
@@ -76,7 +76,7 @@ fn owned_task_runtime_cancels_normal_turn_and_ignores_late_provider_result() {
         .expect("provider release should send");
     let cancelled = services
         .task_runtime
-        .status("run-owned-cancel")
+        .status("turn-owned-cancel")
         .expect("cancelled turn status should remain");
     assert_eq!(services.task_runtime.draining_count(), 0);
     assert_eq!(cancelled.terminal_outcome.as_deref(), Some("cancelled"));
@@ -191,7 +191,7 @@ fn cancellation_during_subagent_wait_prevents_followup_model_call() {
         &services,
         json!({
             "runtime": "rust",
-            "turnId": "run-cancel-subagent-wait",
+            "turnId": "turn-cancel-subagent-wait",
             "sessionId": "websocket:chat-cancel-subagent-wait",
             "maxIterations": 4,
             "messages": [{ "role": "user", "content": "spawn then wait" }]
@@ -331,7 +331,7 @@ fn stores_active_turn_tool_wait_and_cancellation_checkpoints() {
         &services,
         json!({
             "runtime": "rust",
-            "turnId": "run-checkpoint-storage",
+            "turnId": "turn-checkpoint-storage",
             "sessionId": "websocket:chat-checkpoint-storage",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "read" }]
@@ -344,12 +344,12 @@ fn stores_active_turn_tool_wait_and_cancellation_checkpoints() {
         services.restore_checkpoint("websocket:chat-checkpoint-storage")["checkpoint"].is_null()
     );
 
-    services.cancel("run-cancel-checkpoint");
+    services.cancel("turn-cancel-checkpoint");
     let cancelled = run_native_agent_turn_with_services(
         &services,
         json!({
             "runtime": "rust",
-            "turnId": "run-cancel-checkpoint",
+            "turnId": "turn-cancel-checkpoint",
             "sessionId": "websocket:chat-cancel-checkpoint"
         }),
     )
@@ -364,73 +364,73 @@ fn stores_active_turn_tool_wait_and_cancellation_checkpoints() {
 }
 
 #[test]
-fn runtime_checkpoint_store_isolates_same_session_runs() {
+fn runtime_checkpoint_store_isolates_same_session_turns() {
     let services = NativeAgentRuntimeServices::default();
-    services.save_run_checkpoint(
+    services.save_turn_checkpoint(
         "websocket:chat-1",
-        "run-1",
+        "turn-1",
         json!({
             "sessionId": "websocket:chat-1",
-            "turnId": "run-1",
+            "turnId": "turn-1",
             "phase": "tool_running"
         }),
     );
-    services.save_run_checkpoint(
+    services.save_turn_checkpoint(
         "websocket:chat-1",
-        "run-2",
+        "turn-2",
         json!({
             "sessionId": "websocket:chat-1",
-            "turnId": "run-2",
+            "turnId": "turn-2",
             "phase": "awaiting_approval"
         }),
     );
 
     assert_eq!(
-        services.restore_run_checkpoint("websocket:chat-1", "run-1")["checkpoint"]["turnId"],
-        "run-1"
+        services.restore_turn_checkpoint("websocket:chat-1", "turn-1")["checkpoint"]["turnId"],
+        "turn-1"
     );
     assert_eq!(
-        services.restore_run_checkpoint("websocket:chat-1", "run-2")["checkpoint"]["turnId"],
-        "run-2"
+        services.restore_turn_checkpoint("websocket:chat-1", "turn-2")["checkpoint"]["turnId"],
+        "turn-2"
     );
 
-    services.clear_run_checkpoint("websocket:chat-1", "run-1");
-    assert!(services.restore_run_checkpoint("websocket:chat-1", "run-1")["checkpoint"].is_null());
+    services.clear_turn_checkpoint("websocket:chat-1", "turn-1");
+    assert!(services.restore_turn_checkpoint("websocket:chat-1", "turn-1")["checkpoint"].is_null());
     assert_eq!(
-        services.restore_run_checkpoint("websocket:chat-1", "run-2")["checkpoint"]["turnId"],
-        "run-2"
+        services.restore_turn_checkpoint("websocket:chat-1", "turn-2")["checkpoint"]["turnId"],
+        "turn-2"
     );
 }
 
 #[test]
-fn runtime_checkpoint_restore_by_session_uses_latest_resumable_run() {
+fn runtime_checkpoint_restore_by_session_uses_latest_resumable_turn() {
     let services = NativeAgentRuntimeServices::default();
-    services.save_run_checkpoint(
+    services.save_turn_checkpoint(
         "websocket:chat-1",
-        "run-old",
+        "turn-old",
         json!({
             "sessionId": "websocket:chat-1",
-            "turnId": "run-old",
+            "turnId": "turn-old",
             "phase": "tool_running"
         }),
     );
-    services.save_run_checkpoint(
+    services.save_turn_checkpoint(
         "websocket:chat-1",
-        "run-new",
+        "turn-new",
         json!({
             "sessionId": "websocket:chat-1",
-            "turnId": "run-new",
+            "turnId": "turn-new",
             "phase": "awaiting_form"
         }),
     );
 
     let restored = services.restore_checkpoint("websocket:chat-1");
 
-    assert_eq!(restored["checkpoint"]["turnId"], "run-new");
+    assert_eq!(restored["checkpoint"]["turnId"], "turn-new");
 }
 
 #[test]
-fn native_run_projects_core_canonical_timeline_equally_live_and_after_reload() {
+fn native_turn_projects_core_canonical_timeline_equally_live_and_after_reload() {
     struct AcceptanceProvider {
         calls: AtomicUsize,
     }
@@ -527,7 +527,7 @@ fn native_run_projects_core_canonical_timeline_equally_live_and_after_reload() {
     .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"]))
     .with_trace_sink(sink);
     let session_id = "websocket:chat-canonical-acceptance";
-    let turn_id = "run-canonical-acceptance";
+    let turn_id = "turn-canonical-acceptance";
 
     let result = run_native_agent_turn_with_services(
         &services,
@@ -726,7 +726,7 @@ fn invalid_update_plan_returns_a_tool_error_that_the_model_can_correct() {
         &services,
         json!({
             "runtime": "rust",
-            "turnId": "run-plan-correction",
+            "turnId": "turn-plan-correction",
             "sessionId": "session-plan-correction",
             "maxIterations": 3,
             "messages": [{ "role": "user", "content": "Use a plan" }]
@@ -754,7 +754,7 @@ fn approval_and_form_continuations_fail_without_matching_checkpoints() {
     let approval_error = run_native_agent_turn_with_services(
         &services,
         json!({
-            "turnId": "run-missing-approval-checkpoint",
+            "turnId": "turn-missing-approval-checkpoint",
             "sessionId": "session-missing-approval-checkpoint",
             "metadata": {
                 "agentContinuation": {
@@ -770,7 +770,7 @@ fn approval_and_form_continuations_fail_without_matching_checkpoints() {
     let form_error = run_native_agent_turn_with_services(
         &services,
         json!({
-            "turnId": "run-missing-form-checkpoint",
+            "turnId": "turn-missing-form-checkpoint",
             "sessionId": "session-missing-form-checkpoint",
             "metadata": {
                 "agentContinuation": {
@@ -826,7 +826,7 @@ fn queued_user_message_continuation_becomes_next_turn_input() {
         &services,
         json!({
             "runtime": "rust",
-            "turnId": "run-queued-message",
+            "turnId": "turn-queued-message",
             "sessionId": "websocket:chat-queued-message",
             "metadata": {
                 "agentContinuation": {
@@ -906,7 +906,7 @@ fn guidance_continuation_is_inserted_before_next_model_call_after_tools() {
         &services,
         json!({
             "runtime": "rust",
-            "turnId": "run-guided-message",
+            "turnId": "turn-guided-message",
             "sessionId": "websocket:chat-guided-message",
             "maxIterations": 3,
             "messages": [{ "role": "user", "content": "read first" }],
@@ -994,7 +994,7 @@ fn provider_stream_observer_emits_live_deltas_without_duplicate_final_delta() {
         &services,
         json!({
             "runtime": "rust",
-            "turnId": "run-streaming-provider",
+            "turnId": "turn-streaming-provider",
             "sessionId": "websocket:chat-streaming-provider",
             "stream": true,
             "messages": [{ "role": "user", "content": "hello" }]
@@ -1031,7 +1031,7 @@ fn provider_stream_observer_emits_live_deltas_without_duplicate_final_delta() {
 }
 
 #[test]
-fn async_provider_is_not_called_when_run_was_cancelled_before_request() {
+fn async_provider_is_not_called_when_turn_was_cancelled_before_request() {
     struct CountingProvider(Arc<AtomicUsize>);
 
     impl NativeAgentProvider for CountingProvider {
@@ -1057,13 +1057,13 @@ fn async_provider_is_not_called_when_run_was_cancelled_before_request() {
             Arc::new(InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(InMemoryNativeAgentCancellation::default()),
         );
-        services.cancel("run-async-cancel-before-request");
+        services.cancel("turn-async-cancel-before-request");
 
         let result = run_native_agent_turn_with_config_async(
             &services,
             json!({
                 "runtime": "rust",
-                "turnId": "run-async-cancel-before-request",
+                "turnId": "turn-async-cancel-before-request",
                 "sessionId": "websocket:chat-async-cancel-before-request",
                 "messages": [{ "role": "user", "content": "hello" }]
             }),
@@ -1078,7 +1078,7 @@ fn async_provider_is_not_called_when_run_was_cancelled_before_request() {
 }
 
 #[test]
-fn async_provider_run_pauses_at_safe_boundary_and_resumes_same_run() {
+fn async_provider_turn_pauses_at_safe_boundary_and_resumes_same_turn() {
     struct BoundaryProvider {
         release: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
         started: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
@@ -1153,7 +1153,7 @@ fn async_provider_run_pauses_at_safe_boundary_and_resumes_same_run() {
                 &run_services,
                 json!({
                     "runtime": "rust",
-                    "turnId": "run-safe-boundary-pause",
+                    "turnId": "turn-safe-boundary-pause",
                     "sessionId": "websocket:chat-safe-boundary-pause",
                     "messages": [{ "role": "user", "content": "pause safely" }]
                 }),
@@ -1167,7 +1167,7 @@ fn async_provider_run_pauses_at_safe_boundary_and_resumes_same_run() {
 
         services
             .task_runtime()
-            .request_pause("run-safe-boundary-pause", "command-pause-1")
+            .request_pause("turn-safe-boundary-pause", "command-pause-1")
             .expect("pause request should be accepted");
         release_sender
             .send(())
@@ -1176,7 +1176,7 @@ fn async_provider_run_pauses_at_safe_boundary_and_resumes_same_run() {
             loop {
                 if services
                     .task_runtime()
-                    .status("run-safe-boundary-pause")
+                    .status("turn-safe-boundary-pause")
                     .is_some_and(|status| status.phase == "paused")
                 {
                     break;
@@ -1188,14 +1188,14 @@ fn async_provider_run_pauses_at_safe_boundary_and_resumes_same_run() {
         .expect("run should pause at a safe boundary before the timeout");
         let paused_status = services
             .task_runtime()
-            .status("run-safe-boundary-pause")
+            .status("turn-safe-boundary-pause")
             .expect("paused turn status should exist");
         assert_eq!(paused_status.phase, "paused");
         assert!(paused_status.active);
 
         services
             .task_runtime()
-            .request_resume("run-safe-boundary-pause", "command-resume-1")
+            .request_resume("turn-safe-boundary-pause", "command-resume-1")
             .expect("resume request should be accepted");
         let result = run_task
             .await
@@ -1206,7 +1206,7 @@ fn async_provider_run_pauses_at_safe_boundary_and_resumes_same_run() {
             .expect("recorded events lock should not be poisoned")
             .clone();
 
-        assert_eq!(result["turnId"], "run-safe-boundary-pause");
+        assert_eq!(result["turnId"], "turn-safe-boundary-pause");
         assert_eq!(result["finalContent"], "done after resume");
         assert!(events.iter().any(|event| {
             event.event_name == "agent.paused" && event.payload["commandId"] == "command-pause-1"
@@ -1295,7 +1295,7 @@ fn async_provider_cancellation_after_partial_output_drops_stream_without_late_ev
                 &run_services,
                 json!({
                     "runtime": "rust",
-                    "turnId": "run-async-stream-cancel",
+                    "turnId": "turn-async-stream-cancel",
                     "sessionId": "websocket:chat-async-stream-cancel",
                     "stream": true,
                     "messages": [{ "role": "user", "content": "hello" }]
@@ -1308,7 +1308,7 @@ fn async_provider_cancellation_after_partial_output_drops_stream_without_late_ev
             .await
             .expect("provider should emit the first stream delta");
 
-        let cancellation = services.cancel("run-async-stream-cancel");
+        let cancellation = services.cancel("turn-async-stream-cancel");
         let result = run_task
             .await
             .expect("owned async run task should join")
@@ -1386,7 +1386,7 @@ fn async_provider_failures_keep_distinct_stop_reasons() {
             (NativeAgentProviderFailureKind::Provider, "provider_error"),
         ];
         for (index, (kind, expected_stop_reason)) in cases.into_iter().enumerate() {
-            let turn_id = format!("run-async-provider-failure-{index}");
+            let turn_id = format!("turn-async-provider-failure-{index}");
             let services = NativeAgentRuntimeServices::new(
                 Arc::new(FailingProvider(kind)),
                 Arc::new(FakeNativeAgentToolDispatcher),
@@ -1412,7 +1412,7 @@ fn async_provider_failures_keep_distinct_stop_reasons() {
 }
 
 #[test]
-fn hanging_cleanup_tool_batch_times_out_without_hanging_the_owned_run() {
+fn hanging_cleanup_tool_batch_times_out_without_hanging_the_owned_turn() {
     struct HangingToolProvider;
 
     impl NativeAgentProvider for HangingToolProvider {
@@ -1536,7 +1536,7 @@ fn hanging_cleanup_tool_batch_times_out_without_hanging_the_owned_run() {
                 &run_services,
                 json!({
                     "runtime": "rust",
-                    "turnId": "run-hanging-tool-cleanup",
+                    "turnId": "turn-hanging-tool-cleanup",
                     "sessionId": "session-hanging-tool-cleanup",
                     "maxIterations": 2,
                     "messages": [{ "role": "user", "content": "run hanging tool" }]
@@ -1549,7 +1549,7 @@ fn hanging_cleanup_tool_batch_times_out_without_hanging_the_owned_run() {
             .await
             .expect("hanging cleanup tool should start");
 
-        let cancellation = services.cancel("run-hanging-tool-cleanup");
+        let cancellation = services.cancel("turn-hanging-tool-cleanup");
         let result = run_task
             .await
             .expect("owned hanging-tool run should join")
@@ -1755,7 +1755,7 @@ fn lifecycle_hook_denial_aborts_before_provider_call() {
         &services,
         json!({
             "runtime": "rust",
-            "turnId": "run-hook-denied",
+            "turnId": "turn-hook-denied",
             "sessionId": "session-hook-denied",
             "messages": [{ "role": "user", "content": "hello" }]
         }),

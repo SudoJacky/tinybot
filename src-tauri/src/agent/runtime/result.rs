@@ -66,7 +66,7 @@ pub(super) fn cancelled_result(
     })
 }
 
-pub(super) fn cancelled_run_result(
+pub(super) fn cancelled_turn_result(
     services: &NativeAgentRuntimeServices,
     context: &AgentTurnContext,
     mut runtime_events: Vec<AgentRuntimeEventEnvelope>,
@@ -134,7 +134,7 @@ pub(super) fn append_runtime_events_to_sink(
             Ok(existing) => existing,
             Err(error) => {
                 eprintln!(
-                    "canonical timeline history load failed for run {}: {}",
+                    "canonical timeline history load failed for turn {}: {}",
                     context.turn_id, error
                 );
                 Vec::new()
@@ -149,7 +149,7 @@ pub(super) fn append_runtime_events_to_sink(
                 Ok(projector) => projector,
                 Err(error) => {
                     eprintln!(
-                        "canonical timeline history projection failed for run {}: {}",
+                        "canonical timeline history projection failed for turn {}: {}",
                         context.turn_id, error
                     );
                     return;
@@ -202,7 +202,7 @@ pub(super) fn append_runtime_events_to_sink(
                 }
                 Ok(None) => {}
                 Err(error) => eprintln!(
-                    "canonical timeline patch projection failed for run {} event {}: {}",
+                    "canonical timeline patch projection failed for turn {} event {}: {}",
                     context.turn_id, event.event_id, error
                 ),
             }

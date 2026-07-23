@@ -27,7 +27,7 @@ impl AgentContextRequest {
         &self.config_snapshot
     }
 
-    pub(super) fn from_run_context(workspace_root: PathBuf, context: &AgentTurnContext) -> Self {
+    pub(super) fn from_turn_context(workspace_root: PathBuf, context: &AgentTurnContext) -> Self {
         Self {
             workspace_root,
             current_message: current_user_text(&context.messages),

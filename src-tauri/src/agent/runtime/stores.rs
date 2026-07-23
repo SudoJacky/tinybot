@@ -95,26 +95,26 @@ fn legacy_session_turn_id(session_id: &str) -> String {
 
 #[derive(Default)]
 pub struct InMemoryNativeAgentCancellation {
-    cancelled_runs: Mutex<HashMap<String, Option<String>>>,
+    cancelled_turns: Mutex<HashMap<String, Option<String>>>,
 }
 
 impl NativeAgentCancellation for InMemoryNativeAgentCancellation {
     fn cancel(&self, turn_id: &str) {
-        self.cancelled_runs
+        self.cancelled_turns
             .lock()
             .expect("cancellation store lock should not be poisoned")
             .insert(turn_id.to_string(), None);
     }
 
     fn cancel_with_command_id(&self, turn_id: &str, command_id: &str) {
-        self.cancelled_runs
+        self.cancelled_turns
             .lock()
             .expect("cancellation store lock should not be poisoned")
             .insert(turn_id.to_string(), Some(command_id.to_string()));
     }
 
     fn command_id(&self, turn_id: &str) -> Option<String> {
-        self.cancelled_runs
+        self.cancelled_turns
             .lock()
             .expect("cancellation store lock should not be poisoned")
             .get(turn_id)
@@ -123,7 +123,7 @@ impl NativeAgentCancellation for InMemoryNativeAgentCancellation {
     }
 
     fn is_cancelled(&self, turn_id: &str) -> bool {
-        self.cancelled_runs
+        self.cancelled_turns
             .lock()
             .expect("cancellation store lock should not be poisoned")
             .contains_key(turn_id)

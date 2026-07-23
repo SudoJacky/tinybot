@@ -82,11 +82,11 @@ mod tests {
     fn pending_approvals_preserve_runtime_tool_approval_id() {
         let checkpoint = serde_json::json!({
             "phase": "awaiting_approval",
-            "turnId": "run-deferred-write",
+            "turnId": "turn-deferred-write",
             "sessionId": "session-deferred-write",
             "payload": {
                 "kind": "tool_approval",
-                "approvalId": "approval:run-deferred-write:call-write",
+                "approvalId": "approval:turn-deferred-write:call-write",
                 "operation": {
                     "toolCallId": "call-write",
                     "toolName": "workspace.write_file",
@@ -101,7 +101,10 @@ mod tests {
         let approvals = pending_approvals_from_checkpoint(Some(&checkpoint));
 
         assert_eq!(approvals.len(), 1);
-        assert_eq!(approvals[0]["id"], "approval:run-deferred-write:call-write");
+        assert_eq!(
+            approvals[0]["id"],
+            "approval:turn-deferred-write:call-write"
+        );
         assert_eq!(approvals[0]["tool_name"], "workspace.write_file");
     }
 
@@ -132,7 +135,7 @@ mod tests {
     }
 
     #[test]
-    fn continuation_run_reports_both_runtime_and_flush_failures() {
+    fn continuation_turn_reports_both_runtime_and_flush_failures() {
         let error = finish_native_agent_turn::<()>(
             Err("runtime failed".to_string()),
             Err("flush failed".to_string()),
@@ -149,16 +152,16 @@ mod tests {
 }
 
 fn finish_native_agent_turn<T>(
-    run_result: Result<T, String>,
+    turn_result: Result<T, String>,
     flush_result: Result<(), String>,
     label: &str,
 ) -> Result<T, String> {
-    match (run_result, flush_result) {
+    match (turn_result, flush_result) {
         (Ok(result), Ok(())) => Ok(result),
-        (Err(run_error), Ok(())) => Err(run_error),
+        (Err(turn_error), Ok(())) => Err(turn_error),
         (Ok(_), Err(flush_error)) => Err(flush_error),
-        (Err(run_error), Err(flush_error)) => Err(format!(
-            "{label} failed: {run_error}; trace persistence flush failed: {flush_error}"
+        (Err(turn_error), Err(flush_error)) => Err(format!(
+            "{label} failed: {turn_error}; trace persistence flush failed: {flush_error}"
         )),
     }
 }
@@ -365,7 +368,7 @@ pub(crate) async fn resolve_approval_continuation_with_services(
         config_snapshot.clone(),
         None,
     ));
-    let run_result = run_native_agent_turn_with_workspace_async(
+    let turn_result = run_native_agent_turn_with_workspace_async(
         &services,
         continuation_spec.clone(),
         config_snapshot.clone(),
@@ -373,7 +376,7 @@ pub(crate) async fn resolve_approval_continuation_with_services(
     )
     .await;
     let mut continuation = finish_native_agent_turn(
-        run_result,
+        turn_result,
         services.flush_trace_sink(),
         "native approval continuation",
     )?;
@@ -682,7 +685,7 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
         config_snapshot.clone(),
         None,
     ));
-    let run_result = run_native_agent_turn_with_workspace_async(
+    let turn_result = run_native_agent_turn_with_workspace_async(
         &services,
         continuation_spec.clone(),
         config_snapshot.clone(),
@@ -690,7 +693,7 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
     )
     .await;
     let mut continuation = finish_native_agent_turn(
-        run_result,
+        turn_result,
         services.flush_trace_sink(),
         "native Agent UI form continuation",
     )?;

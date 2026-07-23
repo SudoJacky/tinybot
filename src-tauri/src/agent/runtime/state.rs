@@ -90,7 +90,7 @@ impl AgentTurnState {
                 crate::runtime::observability::global_agent_runtime_metrics()
                     .increment("trace.sink.failed");
                 eprintln!(
-                    "native agent trace sink failed for run {} event {}: {}",
+                    "native agent trace sink failed for turn {} event {}: {}",
                     self.turn_id, event.event_id, error
                 );
             }
@@ -108,7 +108,7 @@ impl AgentTurnState {
                         crate::runtime::observability::global_agent_runtime_metrics()
                             .increment("timeline.patch.sink.failed");
                         eprintln!(
-                            "canonical timeline patch sink failed for run {} item {} revision {}: {}",
+                            "canonical timeline patch sink failed for turn {} item {} revision {}: {}",
                             self.turn_id, patch.item.item_id, patch.item.revision, error
                         );
                     }
@@ -118,7 +118,7 @@ impl AgentTurnState {
                     crate::runtime::observability::global_agent_runtime_metrics()
                         .increment("timeline.patch.projection.failed");
                     eprintln!(
-                        "canonical timeline patch projection failed for run {} event {}: {}",
+                        "canonical timeline patch projection failed for turn {} event {}: {}",
                         self.turn_id, event.event_id, error
                     );
                 }

@@ -145,16 +145,18 @@ impl WorkerRpcRouter {
             }
             "session.append_messages" => {
                 let params: SessionAppendMessagesParams = parse_params(request)?;
-                serde_json::to_value(
-                    self.thread_log
-                        .append_session_messages(&params.session_id, params.messages)?,
-                )
+                serde_json::to_value(self.thread_log.append_session_messages(
+                    &params.session_id,
+                    &params.turn_id,
+                    params.messages,
+                )?)
                 .map_err(serialization_error)
             }
             "session.task_progress.upsert" => {
                 let params: SessionTaskProgressUpsertParams = parse_params(request)?;
                 serde_json::to_value(self.thread_log.upsert_task_progress(
                     &params.session_id,
+                    &params.turn_id,
                     &params.plan_id,
                     params.progress,
                     params.content,

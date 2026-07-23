@@ -356,7 +356,7 @@ impl WorkerThreadLogRpc {
         };
         for session_id in session_ids {
             for turn in self.turn_records_for_session(&session_id)? {
-                report.scanned_runs = report.scanned_runs.saturating_add(1);
+                report.scanned_turns = report.scanned_turns.saturating_add(1);
                 let entry = AgentTurnRecoveryEntry {
                     session_id: turn.session_id.clone(),
                     turn_id: turn.turn_id.clone(),
@@ -823,7 +823,12 @@ impl WorkerThreadLogRpc {
                 "error": error,
             }),
         )];
-        if let Some(context_checkpoint) = context_checkpoint {
+        if let Some(mut context_checkpoint) = context_checkpoint {
+            super::insert_required_turn_id(
+                &mut context_checkpoint,
+                turn_id,
+                "agent turn terminal context finalization",
+            )?;
             validate_finalized_context_checkpoint(&path, &context_checkpoint)?;
             items.insert(
                 0,
@@ -1064,7 +1069,7 @@ fn semantic_thread_item_from_runtime_event(
     Some(crate::threads::domain::ThreadItem {
         item_id: format!("semantic:{session_id}:{turn_id}:{event_id}"),
         thread_id: session_id.to_string(),
-        turn_id: Some(turn_id.to_string()),
+        turn_id: turn_id.to_string(),
         parent_item_id: None,
         sequence: 0,
         created_at: timestamp.to_string(),

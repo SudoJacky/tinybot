@@ -187,7 +187,7 @@ fn wait_for_approval_id(trace_sink: &RecordingTraceSink, turn_id: &str) -> Strin
         }
         assert!(
             std::time::Instant::now() < deadline,
-            "approval event for run `{turn_id}` was not emitted"
+            "approval event for turn `{turn_id}` was not emitted"
         );
         thread::sleep(Duration::from_millis(5));
     }

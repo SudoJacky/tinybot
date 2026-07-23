@@ -598,11 +598,11 @@ mod tests {
         let durable = Arc::new(RecordingTraceSink::with_delay(Duration::from_millis(200)));
         let live = Arc::new(RecordingTraceSink::default());
         let sink = BufferedNativeAgentTraceSink::new(durable.clone(), live.clone());
-        let mut emitter = AgentTurnEmitter::new("session-1", "run-1");
+        let mut emitter = AgentTurnEmitter::new("session-1", "turn-1");
         let event = emitter.assistant_delta("unix-ms:1", "hello");
 
         let started_at = Instant::now();
-        sink.append_trace_event("session-1", "run-1", &event)
+        sink.append_trace_event("session-1", "turn-1", &event)
             .expect("live trace event should enqueue");
 
         assert!(
@@ -620,13 +620,13 @@ mod tests {
         let durable = Arc::new(RecordingTraceSink::default());
         let live = Arc::new(RecordingTraceSink::default());
         let sink = BufferedNativeAgentTraceSink::new(durable.clone(), live.clone());
-        let mut emitter = AgentTurnEmitter::new("session-1", "run-1");
+        let mut emitter = AgentTurnEmitter::new("session-1", "turn-1");
         let first = emitter.assistant_delta("unix-ms:1", "hel");
         let second = emitter.assistant_delta("unix-ms:2", "lo");
 
-        sink.append_trace_event("session-1", "run-1", &first)
+        sink.append_trace_event("session-1", "turn-1", &first)
             .expect("first event should enqueue");
-        sink.append_trace_event("session-1", "run-1", &second)
+        sink.append_trace_event("session-1", "turn-1", &second)
             .expect("second event should enqueue");
         sink.flush().expect("durable trace should flush");
 
@@ -640,14 +640,14 @@ mod tests {
         let durable = Arc::new(RecordingTraceSink::default());
         let live = Arc::new(RecordingTraceSink::default());
         let sink = BufferedNativeAgentTraceSink::new(durable.clone(), live.clone());
-        let mut emitter = AgentTurnEmitter::new("session-1", "run-1");
+        let mut emitter = AgentTurnEmitter::new("session-1", "turn-1");
         let first = emitter.message_completed("unix-ms:1", Some("message-1".to_string()), "first");
         let second =
             emitter.message_completed("unix-ms:2", Some("message-2".to_string()), "second");
 
-        sink.append_trace_event("session-1", "run-1", &first)
+        sink.append_trace_event("session-1", "turn-1", &first)
             .expect("first event should enqueue");
-        sink.append_trace_event("session-1", "run-1", &second)
+        sink.append_trace_event("session-1", "turn-1", &second)
             .expect("second event should enqueue");
         sink.flush().expect("durable trace should flush");
 
@@ -660,7 +660,7 @@ mod tests {
         let durable = Arc::new(RecordingTraceSink::default());
         let live = Arc::new(RecordingTraceSink::default());
         let sink = BufferedNativeAgentTraceSink::new(durable.clone(), live.clone());
-        let mut emitter = AgentTurnEmitter::new("session-1", "run-1");
+        let mut emitter = AgentTurnEmitter::new("session-1", "turn-1");
         let phase = emitter.emit(AgentRuntimeEventAppendInput {
             parent_turn_id: None,
             item_id: None,
@@ -706,11 +706,11 @@ mod tests {
             }),
         });
 
-        sink.append_trace_event("session-1", "run-1", &phase)
+        sink.append_trace_event("session-1", "turn-1", &phase)
             .expect("phase event should remain live");
-        sink.append_trace_event("session-1", "run-1", &status)
+        sink.append_trace_event("session-1", "turn-1", &status)
             .expect("status event should remain live");
-        sink.append_trace_event("session-1", "run-1", &blocking_status)
+        sink.append_trace_event("session-1", "turn-1", &blocking_status)
             .expect("blocking status should remain live");
         assert_eq!(durable.event_count(), 0);
         sink.flush().expect("trace sink should flush");

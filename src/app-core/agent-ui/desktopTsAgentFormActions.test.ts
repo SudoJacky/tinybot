@@ -7,7 +7,7 @@ const baseForm: AgentUiForm = {
   title: "Travel plan",
   fields: [{ name: "destination", type: "text", label: "Destination", required: true }],
   correlation: {
-    turn_id: "run-1",
+    turn_id: "turn-1",
     session_id: "WebSocket:chat-1",
   },
   status: "pending",

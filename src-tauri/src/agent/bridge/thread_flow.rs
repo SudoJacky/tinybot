@@ -57,7 +57,7 @@ pub(crate) async fn submit_thread_turn_with_services(
     let thread_id = thread_thread_id(&thread)?;
     let thread_working_directory = thread_working_directory(&thread);
     let session_id = thread_id.clone();
-    let turn_id = native_agent_turn_id(&input.spec).unwrap_or_else(generate_thread_turn_turn_id);
+    let turn_id = native_agent_turn_id(&input.spec).unwrap_or_else(generate_thread_turn_id);
     let spec_has_working_directory = native_agent_string_field(&input.spec, "cwd")
         .or_else(|| native_agent_string_field(&input.spec, "workingDirectory"))
         .or_else(|| native_agent_string_field(&input.spec, "working_directory"))
@@ -451,8 +451,8 @@ fn validate_turn_messages(messages: &serde_json::Value) -> Result<(), String> {
     Ok(())
 }
 
-fn generate_thread_turn_turn_id() -> String {
-    format!("run-thread-turn-{}", now_unix_ms())
+fn generate_thread_turn_id() -> String {
+    format!("turn-thread-{}", now_unix_ms())
 }
 
 fn generate_thread_turn_thread_id() -> String {
@@ -516,7 +516,7 @@ mod approval_tests {
             .register(NativeAgentApprovalRequest {
                 approval_id: "approval-live-1".to_string(),
                 session_id: "thread-live-1".to_string(),
-                turn_id: "run-live-1".to_string(),
+                turn_id: "turn-live-1".to_string(),
                 scope_key: "exec:echo-hi".to_string(),
             })
             .expect("approval should register")

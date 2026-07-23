@@ -590,6 +590,9 @@ pub(crate) fn worker_session_branch_with_options(
 ) -> Result<serde_json::Value, String> {
     let request_id = next_worker_request_correlation();
     let branch_key = branch_session_key(&body, request_id.suffix());
+    let branch_turn_id = branch_string(&body, "turnId")
+        .or_else(|| branch_string(&body, "turn_id"))
+        .unwrap_or_else(|| format!("turn-branch-{}", request_id.suffix()));
     let messages = branch_messages(&body);
     if messages.is_empty() {
         return Err("worker session branch failed: branch messages are required".to_string());
@@ -615,6 +618,7 @@ pub(crate) fn worker_session_branch_with_options(
             "session.append_messages",
             serde_json::json!({
                 "session_id": branch_key.clone(),
+                "turn_id": branch_turn_id,
                 "messages": messages,
             }),
         ),
@@ -675,6 +679,12 @@ pub(crate) fn worker_session_task_progress_with_options(
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let turn_id = body
+        .get("turnId")
+        .or_else(|| body.get("turn_id"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|turn_id| !turn_id.trim().is_empty())
+        .ok_or_else(|| "worker session task progress requires turnId".to_string())?;
     let plan_id = body
         .get("planId")
         .or_else(|| body.get("plan_id"))
@@ -699,6 +709,7 @@ pub(crate) fn worker_session_task_progress_with_options(
             "session.task_progress.upsert",
             serde_json::json!({
                 "session_id": key,
+                "turn_id": turn_id,
                 "plan_id": plan_id,
                 "progress": progress,
                 "content": content,

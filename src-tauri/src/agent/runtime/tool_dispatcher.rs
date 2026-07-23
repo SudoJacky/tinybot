@@ -454,7 +454,7 @@ mod tests {
     fn removed_workspace_list_files_alias_is_not_permitted() {
         let context = AgentTurnContext::from_spec(
             serde_json::json!({
-                "turnId": "run-no-list-alias",
+                "turnId": "turn-no-list-alias",
                 "sessionId": "session-no-list-alias",
                 "messages": [{ "role": "user", "content": "list files" }]
             }),

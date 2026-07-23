@@ -31,11 +31,11 @@ fn close_shutdown_cancels_and_drains_owned_agent_task() {
     let handle = task_runtime
         .start_blocking(
             crate::runtime::turn_execution::StartAgentTurn::new(
-                "run-shutdown-owned",
+                "turn-shutdown-owned",
                 "session-shutdown-owned",
             ),
             move || {
-                while !operation_runtime.is_cancelled("run-shutdown-owned") {
+                while !operation_runtime.is_cancelled("turn-shutdown-owned") {
                     std::thread::sleep(Duration::from_millis(5));
                 }
                 Ok(serde_json::json!({ "stopReason": "late_completion" }))
@@ -54,7 +54,7 @@ fn close_shutdown_cancels_and_drains_owned_agent_task() {
     assert_eq!(task_runtime.draining_count(), 0);
     assert_eq!(
         task_runtime
-            .status("run-shutdown-owned")
+            .status("turn-shutdown-owned")
             .and_then(|status| status.terminal_outcome),
         Some("cancelled".to_string())
     );
@@ -257,7 +257,7 @@ fn startup_reconciles_orphaned_turn_and_preserves_waiting_checkpoint() {
         .thread_projection()
         .expect("reconciled Rollout should project thread state");
     assert!(items.values().flatten().any(|item| {
-        item.turn_id.as_deref() == Some("turn-orphaned")
+        item.turn_id == "turn-orphaned"
             && matches!(
                 &item.kind,
                 crate::threads::domain::ThreadItemKind::TurnCompleted(_)
@@ -484,7 +484,7 @@ fn close_shutdown_exposes_cleanup_timeout_diagnostics() {
     let handle = task_runtime
         .start_blocking(
             crate::runtime::turn_execution::StartAgentTurn::new(
-                "run-cleanup-timeout",
+                "turn-cleanup-timeout",
                 "session-cleanup-timeout",
             ),
             move || {

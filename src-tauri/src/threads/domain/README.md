@@ -1,7 +1,7 @@
 # Worker Thread
 
 `threads::domain` is Tinybot's typed conversation domain. It defines Thread
-records, items, lifecycle operations, active-run projections, and the
+records, Turns, Items, lifecycle operations, active-Turn projections, and the
 in-process projection used by Thread-owned flows.
 
 The durable authority is the Rollout owned by
@@ -16,7 +16,7 @@ compatibility APIs.
 - Apply turn, tool, approval, form, subagent, checkpoint, and terminal
   operations as append-only Thread items.
 - Provide idempotency through client event IDs.
-- Project status, activity, runs, checkpoints, and timeline events from stored
+- Project status, activity, Turns, checkpoints, and timeline events from stored
   items.
 - Reconstruct typed Thread snapshots from canonical Rollout records.
 - Provide an in-memory projection for typed operations without creating a
@@ -47,7 +47,7 @@ WorkerThreadRpc --> canonical Rollout append/reconstruction
                     ThreadRuntime / LiveThread
 ```
 
-`ThreadRuntime` does not own durable state. Snapshots, run summaries, status,
+`ThreadRuntime` does not own durable state. Snapshots, Turn summaries, status,
 pending interactions, and activity must remain reconstructable from the
 canonical Rollout.
 
@@ -62,6 +62,9 @@ canonical Rollout.
 
 - Thread history is append-oriented. Derived metadata changes use explicit
   metadata updates rather than rewriting historical items.
+- Every persisted `ThreadItem` belongs to exactly one Turn and therefore has a
+  non-empty `turnId`. Thread-level metadata changes do not create turnless
+  Items.
 - A client event ID makes the corresponding mutation idempotent; retries must
   return the existing result instead of appending duplicates.
 - Parent/child relationships are explicit and fork/archive policies must state

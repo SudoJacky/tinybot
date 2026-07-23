@@ -121,8 +121,12 @@ impl WorkspaceFixture {
                 .as_array()
                 .cloned()
                 .unwrap_or_default();
-            rpc.append_session_messages(session_id, messages)
-                .expect("fixture Rollout messages should append");
+            rpc.append_session_messages(
+                session_id,
+                &format!("turn-fixture-{session_id}"),
+                messages,
+            )
+            .expect("fixture Rollout messages should append");
             let mut metadata = session["extra"]["metadata"]
                 .as_object()
                 .cloned()

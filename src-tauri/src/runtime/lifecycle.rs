@@ -76,7 +76,7 @@ pub(crate) struct RuntimeStartupRecoveryReport {
     pub(crate) session_log_index: Option<ThreadLogIndexConsistencyReport>,
     pub(crate) session_log_index_migration: Option<ThreadLogIndexRepairReport>,
     pub(crate) scanned_threads: usize,
-    pub(crate) scanned_run_records: usize,
+    pub(crate) scanned_turn_records: usize,
     pub(crate) interrupted_turns: Vec<LifecycleTurnRef>,
     pub(crate) awaiting_interaction_turns: Vec<LifecycleTurnRef>,
     pub(crate) resumable_turns: Vec<LifecycleTurnRef>,
@@ -301,12 +301,11 @@ impl RuntimeLifecycle {
             match active_turn.status {
                 crate::threads::domain::ThreadStatus::WaitingForApproval
                 | crate::threads::domain::ThreadStatus::WaitingForInput => {
-                    if status.latest_checkpoint.as_ref().is_some_and(|checkpoint| {
-                        checkpoint
-                            .turn_id
-                            .as_deref()
-                            .is_none_or(|turn_id| turn_id == active_turn.turn_id)
-                    }) {
+                    if status
+                        .latest_checkpoint
+                        .as_ref()
+                        .is_some_and(|checkpoint| checkpoint.turn_id == active_turn.turn_id)
+                    {
                         report.resumable_turns.push(turn_ref);
                     } else {
                         report.awaiting_interaction_turns.push(turn_ref);
@@ -338,7 +337,7 @@ impl RuntimeLifecycle {
         }
 
         let turn_report = thread_log.reconcile_orphaned_turns()?;
-        report.scanned_run_records = turn_report.scanned_runs;
+        report.scanned_turn_records = turn_report.scanned_turns;
         report.interrupted_turns.extend(
             turn_report
                 .interrupted_turns
@@ -360,11 +359,11 @@ impl RuntimeLifecycle {
         normalize_turn_refs(&mut report.interrupted_turns);
         normalize_turn_refs(&mut report.awaiting_interaction_turns);
         normalize_turn_refs(&mut report.resumable_turns);
-        let interrupted_keys = run_keys(&report.interrupted_turns);
+        let interrupted_keys = turn_keys(&report.interrupted_turns);
         report.resumable_turns.retain(|turn| {
             !interrupted_keys.contains(&(turn.session_id.clone(), turn.turn_id.clone()))
         });
-        let resumable_keys = run_keys(&report.resumable_turns);
+        let resumable_keys = turn_keys(&report.resumable_turns);
         report.awaiting_interaction_turns.retain(|turn| {
             let key = (turn.session_id.clone(), turn.turn_id.clone());
             !interrupted_keys.contains(&key) && !resumable_keys.contains(&key)
@@ -444,7 +443,7 @@ fn normalize_turn_refs(turns: &mut Vec<LifecycleTurnRef>) {
     *turns = normalized;
 }
 
-fn run_keys(turns: &[LifecycleTurnRef]) -> std::collections::BTreeSet<(String, String)> {
+fn turn_keys(turns: &[LifecycleTurnRef]) -> std::collections::BTreeSet<(String, String)> {
     turns
         .iter()
         .map(|turn| (turn.session_id.clone(), turn.turn_id.clone()))

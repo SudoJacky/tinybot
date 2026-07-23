@@ -8,7 +8,7 @@ fn runs_fixture_tool_event_sequence() {
         &services,
         json!({
             "runtime": "rust",
-            "turnId": "run-tool",
+            "turnId": "turn-tool",
             "sessionId": "websocket:chat-1",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "read" }]
@@ -133,7 +133,7 @@ fn feeds_tool_observation_back_into_second_provider_call() {
         &services,
         json!({
             "runtime": "rust",
-            "turnId": "run-tool-loop",
+            "turnId": "turn-tool-loop",
             "sessionId": "websocket:chat-tool-loop",
             "maxIterations": 4,
             "messages": [{ "role": "user", "content": "read README then answer" }]
@@ -211,7 +211,7 @@ fn selected_deferred_tool_calls_are_permitted_by_runtime_dispatch() {
         &services,
         json!({
             "runtime": "rust",
-            "turnId": "run-memory-search-tool",
+            "turnId": "turn-memory-search-tool",
             "sessionId": "websocket:chat-memory-search-tool",
             "maxIterations": 2,
             "selectedTools": ["memory.search"],
@@ -305,7 +305,7 @@ fn tool_runtime_dispatches_through_async_dispatch_seam() {
         .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"])),
         json!({
             "runtime": "rust",
-            "turnId": "run-async-dispatch-seam",
+            "turnId": "turn-async-dispatch-seam",
             "sessionId": "websocket:chat-async-dispatch-seam",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "run async dispatcher" }]
@@ -519,7 +519,7 @@ fn read_only_tool_batch_runs_concurrently_and_preserves_model_ordered_observatio
         ])),
         json!({
             "runtime": "rust",
-            "turnId": "run-read-only-parallel-tools",
+            "turnId": "turn-read-only-parallel-tools",
             "sessionId": "websocket:chat-read-only-parallel-tools",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "run read-only tools" }]
@@ -635,7 +635,7 @@ fn mcp_call_scheduling_uses_registry_runtime_policy() {
         .with_test_activated_tools(&["mcp.call_tool"]),
         json!({
             "runtime": "rust",
-            "turnId": "run-read-only-mcp-tools",
+            "turnId": "turn-read-only-mcp-tools",
             "sessionId": "websocket:chat-read-only-mcp-tools",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "run read-only mcp tools" }]
@@ -759,7 +759,7 @@ fn shell_read_only_allowlist_uses_read_lock_only_when_explicitly_enabled() {
         .with_test_tool_registry_entries(test_registry_with_model_tools(&["exec_command"])),
         json!({
             "runtime": "rust",
-            "turnId": "run-shell-read-allowlist",
+            "turnId": "turn-shell-read-allowlist",
             "sessionId": "websocket:chat-shell-read-allowlist",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "run read-only shell tools" }]
@@ -847,7 +847,7 @@ fn parallel_tool_failures_use_model_order_for_the_single_terminal_error() {
         ])),
         json!({
             "runtime": "rust",
-            "turnId": "run-two-parallel-failures",
+            "turnId": "turn-two-parallel-failures",
             "sessionId": "websocket:chat-two-parallel-failures",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "run failing parallel tools" }]
@@ -1060,7 +1060,7 @@ fn mixed_parallel_and_non_parallel_tool_batch_uses_read_write_lock_scheduling() 
         ])),
         json!({
             "runtime": "rust",
-            "turnId": "run-mixed-tool-batch",
+            "turnId": "turn-mixed-tool-batch",
             "sessionId": "websocket:chat-mixed-tool-batch",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "run mixed tools" }]
@@ -1246,7 +1246,7 @@ fn cancellation_before_queued_write_lock_dispatch_skips_waiting_tool() {
         ])),
         json!({
             "runtime": "rust",
-            "turnId": "run-cancel-queued-write",
+            "turnId": "turn-cancel-queued-write",
             "sessionId": "websocket:chat-cancel-queued-write",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "read then cancel write" }]
@@ -1331,7 +1331,7 @@ fn terminal_failure_before_queued_write_dispatch_skips_waiting_tool() {
         .with_test_tool_registry_entries(test_registry_with_model_tools(&["exec_command"])),
         json!({
             "runtime": "rust",
-            "turnId": "run-failed-queued-write",
+            "turnId": "turn-failed-queued-write",
             "sessionId": "websocket:chat-failed-queued-write",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "fail then skip write" }]
@@ -1441,7 +1441,7 @@ fn cancellation_during_non_cleanup_parallel_tool_returns_without_waiting_for_lat
             .with_trace_sink(trace_sink),
             json!({
                 "runtime": "rust",
-                "turnId": "run-cancel-slow-read",
+                "turnId": "turn-cancel-slow-read",
                 "sessionId": "websocket:chat-cancel-slow-read",
                 "maxIterations": 2,
                 "messages": [{ "role": "user", "content": "cancel slow read" }]
@@ -1454,7 +1454,7 @@ fn cancellation_during_non_cleanup_parallel_tool_returns_without_waiting_for_lat
         .recv_timeout(Duration::from_secs(10))
         .expect("slow read dispatcher should trigger cancellation");
     assert!(
-        cancellation_probe.is_cancelled("run-cancel-slow-read"),
+        cancellation_probe.is_cancelled("turn-cancel-slow-read"),
         "dispatcher cancellation signal must update the runtime cancellation store"
     );
     let result = match result_rx.recv_timeout(Duration::from_secs(10)) {
@@ -1535,7 +1535,7 @@ fn provider_error_after_tool_result_preserves_accumulated_tool_state() {
         &services,
         json!({
             "runtime": "rust",
-            "turnId": "run-provider-error-after-tool",
+            "turnId": "turn-provider-error-after-tool",
             "sessionId": "websocket:chat-provider-error-after-tool",
             "maxIterations": 3,
             "messages": [{ "role": "user", "content": "read then fail" }]
@@ -1572,7 +1572,7 @@ fn emits_tool_result_envelope_with_legacy_content_projection() {
         &services,
         json!({
             "runtime": "rust",
-            "turnId": "run-tool-envelope",
+            "turnId": "turn-tool-envelope",
             "sessionId": "websocket:chat-tool-envelope",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "read" }]
@@ -1653,7 +1653,7 @@ fn subagent_tools_share_manager_state_without_copying_child_transcript_to_parent
             &services,
             json!({
                 "runtime": "rust",
-                "turnId": "run-subagent-tools",
+                "turnId": "turn-subagent-tools",
                 "sessionId": "websocket:chat-subagent-tools",
                 "maxIterations": 7,
                 "messages": [{ "role": "user", "content": "delegate then close" }]
@@ -1766,7 +1766,7 @@ fn subagent_tools_share_manager_state_without_copying_child_transcript_to_parent
         .iter()
         .find(|event| event["eventName"] == "agent.delegate.linked")
         .expect("subagent spawn should emit a parent-child link event");
-    assert_eq!(link_event["payload"]["parentTurnId"], "run-subagent-tools");
+    assert_eq!(link_event["payload"]["parentTurnId"], "turn-subagent-tools");
     assert_eq!(link_event["payload"]["delegateId"], "delegate-1");
     assert_eq!(link_event["payload"]["subagentId"], "delegate-1");
     assert_eq!(link_event["payload"]["childTurnId"], "child-1");
@@ -1873,7 +1873,7 @@ fn private_user_subagent_input_is_not_added_to_main_model_context() {
         &services,
         json!({
             "runtime": "rust",
-            "turnId": "run-private-subagent-input",
+            "turnId": "turn-private-subagent-input",
             "sessionId": "websocket:chat-private-subagent-input",
             "maxIterations": 3,
             "messages": [{ "role": "user", "content": "start private subagent" }]
@@ -1912,7 +1912,7 @@ fn tool_result_projection_redacts_and_truncates_model_content() {
         ),
         json!({
             "runtime": "rust",
-            "turnId": "run-tool-budget",
+            "turnId": "turn-tool-budget",
             "sessionId": "websocket:chat-tool-budget",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "read bounded result" }]
@@ -1987,7 +1987,7 @@ fn dispatches_multiple_tool_calls_from_one_provider_response_in_order() {
         &services,
         json!({
             "runtime": "rust",
-            "turnId": "run-multiple-tools",
+            "turnId": "turn-multiple-tools",
             "sessionId": "websocket:chat-multiple-tools",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "inspect workspace" }]
@@ -2101,7 +2101,7 @@ fn later_tool_error_preserves_earlier_completed_tool_result() {
         ])),
         json!({
             "runtime": "rust",
-            "turnId": "run-later-tool-error",
+            "turnId": "turn-later-tool-error",
             "sessionId": "websocket:chat-later-tool-error",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "run two tools" }]
@@ -2141,7 +2141,7 @@ fn rejects_unpermitted_native_tool_with_structured_error_result() {
         &services,
         json!({
             "runtime": "rust",
-            "turnId": "run-tool-denied",
+            "turnId": "turn-tool-denied",
             "sessionId": "websocket:chat-tool-denied",
             "messages": [{ "role": "user", "content": "run shell" }]
         }),
@@ -2191,7 +2191,7 @@ fn rejects_unpermitted_native_tool_with_structured_error_result() {
 fn reports_provider_and_iteration_errors_as_frontend_events() {
     let provider_error = run_native_agent_turn(json!({
         "runtime": "rust",
-        "turnId": "run-error",
+        "turnId": "turn-error",
         "sessionId": "websocket:chat-1",
         "messages": [{ "role": "user", "content": "hello" }],
         "config": {
@@ -2202,7 +2202,7 @@ fn reports_provider_and_iteration_errors_as_frontend_events() {
     .expect("provider error should return compatibility result");
     let iteration_error = run_native_agent_turn(json!({
         "runtime": "rust",
-        "turnId": "run-iteration",
+        "turnId": "turn-iteration",
         "sessionId": "websocket:chat-1",
         "maxIterations": 0
     }))
@@ -2222,7 +2222,7 @@ fn stops_with_max_iterations_after_bounded_tool_iterations() {
         ),
         json!({
             "runtime": "rust",
-            "turnId": "run-max-iterations",
+            "turnId": "turn-max-iterations",
             "sessionId": "websocket:chat-max-iterations",
             "maxIterations": 1,
             "messages": [{ "role": "user", "content": "read forever" }]
@@ -2268,7 +2268,7 @@ fn denied_tool_stops_with_policy_denied_without_tool_dispatch() {
         &NativeAgentRuntimeServices::default(),
         json!({
             "runtime": "rust",
-            "turnId": "run-policy-denied",
+            "turnId": "turn-policy-denied",
             "sessionId": "websocket:chat-policy-denied",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "run shell" }]
@@ -2359,7 +2359,7 @@ fn cancellation_before_tool_dispatch_stops_without_dispatching_tool() {
         &services,
         json!({
             "runtime": "rust",
-            "turnId": "run-cancel-before-tool",
+            "turnId": "turn-cancel-before-tool",
             "sessionId": "websocket:chat-cancel-before-tool",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "read then cancel" }]
@@ -2389,7 +2389,7 @@ fn cancellation_before_tool_dispatch_stops_without_dispatching_tool() {
     assert_eq!(cancelled_event["eventName"], "agent.cancelled");
     assert_eq!(
         cancelled_event["payload"]["turnId"],
-        "run-cancel-before-tool"
+        "turn-cancel-before-tool"
     );
     assert_eq!(
         cancelled_event["payload"]["sessionId"],
@@ -2490,7 +2490,7 @@ fn cancellation_context_is_available_to_provider_and_tool_dispatch() {
         &services,
         json!({
             "runtime": "rust",
-            "turnId": "run-cancellation-context",
+            "turnId": "turn-cancellation-context",
             "sessionId": "websocket:chat-cancellation-context",
             "messages": [{ "role": "user", "content": "use cancellable tool" }]
         }),
@@ -2576,7 +2576,7 @@ fn cancellation_after_tool_result_preserves_completed_tool_state() {
         &services,
         json!({
             "runtime": "rust",
-            "turnId": "run-cancel-after-result",
+            "turnId": "turn-cancel-after-result",
             "sessionId": "websocket:chat-cancel-after-result",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "read then cancel" }]

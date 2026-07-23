@@ -391,7 +391,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             REQUEST_USER_INPUT_METHOD,
             "interaction",
             "Request user input",
-            "Pause the current run and ask the user to complete a structured form when required information cannot be inferred safely.",
+            "Pause the current turn and ask the user to complete a structured form when required information cannot be inferred safely.",
             ToolRuntimeControl::RequestUserInput,
             runtime_policy(false, ToolCancellationMode::Cooperative, false, true),
             vec![WorkerCapability::FormRequest],

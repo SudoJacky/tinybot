@@ -2,7 +2,7 @@ use super::approvals::{
     ApprovalRegistration, NativeAgentApprovalRequest, NativeAgentApprovalResolution,
 };
 use super::checkpoint::save_phase_checkpoint;
-use super::result::cancelled_run_result;
+use super::result::cancelled_turn_result;
 use super::state::AgentTurnState;
 use super::tool_dispatcher::{
     native_tool_call_supports_parallel, native_tool_cancellation_mode,
@@ -2222,7 +2222,7 @@ fn cancelled_result(
 ) -> NativeAgentToolExecutionOutcome {
     emit_pending_tool_hook_evaluations(context, state);
     state.transition_phase(AgentRuntimePhase::Cancelled, iteration, "agent.cancelled");
-    NativeAgentToolExecutionOutcome::Finished(cancelled_run_result(
+    NativeAgentToolExecutionOutcome::Finished(cancelled_turn_result(
         services,
         context,
         state.take_runtime_events(),

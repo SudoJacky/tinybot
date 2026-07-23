@@ -508,6 +508,7 @@ fn dispatches_session_task_progress_upsert_request() {
         "session.task_progress.upsert",
         json!({
             "session_id": "session-1",
+            "turn_id": "turn-progress-1",
             "plan_id": "plan-1",
             "content": "first progress",
             "progress": {
@@ -526,6 +527,7 @@ fn dispatches_session_task_progress_upsert_request() {
         "session.task_progress.upsert",
         json!({
             "session_id": "session-1",
+            "turn_id": "turn-progress-1",
             "plan_id": "plan-1",
             "content": "updated progress",
             "progress": {
@@ -761,7 +763,7 @@ fn background_subagent_enqueue_input_writes_user_message_trace_event() {
             "subagentId": "subagent-1",
             "content": "Use the safer option.",
             "traceRef": "trace-subagent-1",
-            "childTurnId": "run-subagent-1",
+            "childTurnId": "turn-subagent-1",
             "createdAt": "2026-06-28T00:00:02.000Z"
         }),
     ));
@@ -810,7 +812,7 @@ fn dispatches_subagent_control_requests() {
         "subagent.spawn",
         json!({
             "sessionKey": "desktop:chat-1",
-            "parentTurnId": "parent-run-1",
+            "parentTurnId": "parent-turn-1",
             "subagentId": "delegate-1",
             "childTurnId": "child-1",
             "traceRef": "trace-delegate-1",
@@ -1175,9 +1177,9 @@ fn subagent_history_modes_copy_only_public_parent_messages() {
             "subagent.spawn",
             json!({
                 "sessionKey": "desktop:history",
-                "parentTurnId": "parent-run",
+                "parentTurnId": "parent-turn",
                 "subagentId": subagent_id,
-                "childTurnId": format!("run-{subagent_id}"),
+                "childTurnId": format!("turn-{subagent_id}"),
                 "task": "Inspect inherited context",
                 "historyMode": history_mode
             }),
@@ -1260,18 +1262,18 @@ fn nested_subagents_persist_their_direct_parent_thread_edge() {
     for params in [
         json!({
             "sessionKey": "desktop:nested",
-            "parentTurnId": "root-run",
+            "parentTurnId": "root-turn",
             "subagentId": "delegate-parent",
-            "childTurnId": "delegate-parent-run",
+            "childTurnId": "delegate-parent-turn",
             "delegationDepth": 1,
             "task": "Delegate a bounded child task"
         }),
         json!({
             "sessionKey": "desktop:nested",
-            "parentTurnId": "delegate-parent-run",
+            "parentTurnId": "delegate-parent-turn",
             "parentSubagentId": "delegate-parent",
             "subagentId": "delegate-child",
-            "childTurnId": "delegate-child-run",
+            "childTurnId": "delegate-child-turn",
             "delegationDepth": 2,
             "task": "Inspect the nested detail"
         }),
@@ -1389,7 +1391,7 @@ fn subagent_list_restores_interrupted_children_from_background_trace() {
                 "eventId": "event-running",
                 "eventType": "agent.delegate.running",
                 "sessionKey": "desktop:chat-1",
-                "turnId": "parent-run",
+                "turnId": "parent-turn",
                 "delegateId": "delegate-1",
                 "childTurnId": "child-1",
                 "traceRef": "trace-delegate-1",
@@ -1438,7 +1440,7 @@ fn subagent_restart_restores_canonical_edges_and_resumes_only_selected_children(
             "subagent.spawn",
             json!({
                 "sessionKey": "desktop:restart",
-                "parentTurnId": "parent-run",
+                "parentTurnId": "parent-turn",
                 "subagentId": subagent_id,
                 "childTurnId": format!("child-{subagent_id}"),
                 "task": format!("Task for {subagent_id}"),

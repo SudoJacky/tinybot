@@ -63,10 +63,10 @@ function timeline(): BackendAgentTurnItem[] {
     item("subagent-1", "subagent_lifecycle", "completed", {
       action: "completed",
       agentId: "agent-child",
-      childTurnId: "run-child",
+      childTurnId: "turn-child",
       name: "Reviewer",
       parentAgentId: "agent-main",
-      parentTurnId: "run-1",
+      parentTurnId: "turn-1",
       status: "completed",
       task: "Review the implementation",
       type: "subagent_lifecycle",
@@ -124,7 +124,7 @@ describe("TinyOS simulation kernel", () => {
     expect(subagentGroup).toMatchObject({
       agentId: "agent-child",
       assignedWork: "Review the implementation",
-      childTurnId: "run-child",
+      childTurnId: "turn-child",
       id: createTinyOsAgentGroupId("session-1", "agent-child"),
       parentAgentId: "agent-main",
       parentProcessId: turn?.id,
@@ -400,7 +400,7 @@ describe("TinyOS simulation kernel", () => {
 
   it("rejects terminal process-state regression", () => {
     const process: TinyOsProcess = {
-      correlation: { turnId: "run-1", sessionId: "session-1" },
+      correlation: { turnId: "turn-1", sessionId: "session-1" },
       id: "process-1",
       kind: "terminal_process",
       provenance: { kind: "native_query", sourceId: "shell.list" },
@@ -473,7 +473,9 @@ describe("TinyOS simulation kernel", () => {
     const first = projectTinyOsKernel(items);
     const second = projectTinyOsKernel(JSON.parse(JSON.stringify(items)) as BackendAgentTurnItem[]);
 
-    expect(first.processes).toHaveLength(2_002);
+    expect(first.processes).toHaveLength(2_001);
+    expect(first.processes.filter((process) => process.kind === "agent_turn")).toHaveLength(1);
+    expect(first.processes.filter((process) => process.kind === "tool_operation")).toHaveLength(2_000);
     expect(second.processes.map((process) => process.id)).toEqual(first.processes.map((process) => process.id));
     expect(first.cursor).toMatchObject({ eventCount: 2_000, eventIndex: 1_999 });
   });

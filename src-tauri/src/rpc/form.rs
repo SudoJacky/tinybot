@@ -110,7 +110,7 @@ mod tests {
             "trace-1",
             "form.request",
             json!({
-                "turn_id": "run-1",
+                "turn_id": "turn-1",
                 "session_id": "session-1",
                 "form": form,
                 "continuation_mode": "resume"
@@ -130,7 +130,7 @@ mod tests {
                 "formId": "travel_plan",
                 "form": form,
                 "continuationMode": "resume",
-                "turnId": "run-1",
+                "turnId": "turn-1",
                 "sessionId": "session-1"
             })
         );
@@ -144,7 +144,7 @@ mod tests {
             "trace-1",
             "form.request",
             json!({
-                "turn_id": "run-1",
+                "turn_id": "turn-1",
                 "form": { "fields": [] }
             }),
         );
@@ -165,7 +165,7 @@ mod tests {
             "trace-1",
             "form.request",
             json!({
-                "turn_id": "run-1",
+                "turn_id": "turn-1",
                 "form": { "form_id": "travel_plan" }
             }),
         );

@@ -47,7 +47,7 @@ capability checks, timestamps, and reconstruction stay aligned. The removed
   the caller.
 - Checkpoints are cleared only by explicit completion, cancellation, restore,
   or session-clear behavior.
-- Compatibility projections must preserve message, run, checkpoint, and usage
+- Compatibility projections must preserve message, Turn, checkpoint, and usage
   identity fields.
 - Do not add a session snapshot database, fallback read, or completed-turn
   double write.

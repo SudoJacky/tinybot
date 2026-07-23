@@ -483,9 +483,8 @@ impl<S: ThreadStore> ThreadRuntime<S> {
             limit: None,
         })?;
         let turn = appended_items
-            .iter()
-            .find_map(|item| item.turn_id.as_deref())
-            .and_then(|turn_id| turn_from_snapshot(&snapshot.turns, turn_id));
+            .first()
+            .and_then(|item| turn_from_snapshot(&snapshot.turns, &item.turn_id));
         Ok(Some(ThreadTurnRuntimeResult {
             snapshot,
             turn,
@@ -509,10 +508,16 @@ impl<S: ThreadStore> ThreadRuntime<S> {
         live.update_metadata(metadata.clone())?;
         let status = self.store.get_thread_status(&thread_id)?;
         let active_turn_id = status.active_turn.as_ref().map(|turn| turn.turn_id.clone());
-        let append = live.append_with_client_event_id(
-            settings_changed_item(&thread_id, active_turn_id.as_deref(), metadata, reason),
-            client_event_id.as_deref(),
-        )?;
+        let appended_items = if let Some(turn_id) = active_turn_id.as_deref() {
+            live.append_with_client_event_id(
+                settings_changed_item(&thread_id, turn_id, metadata, reason),
+                client_event_id.as_deref(),
+            )?
+            .items
+        } else {
+            live.append_many_with_client_event_id(Vec::new(), client_event_id.as_deref())?
+                .items
+        };
         let snapshot = live.snapshot(None, None)?;
         let turn = active_turn_id
             .as_deref()
@@ -520,7 +525,7 @@ impl<S: ThreadStore> ThreadRuntime<S> {
         Ok(ThreadTurnRuntimeResult {
             snapshot,
             turn,
-            appended_items: append.items,
+            appended_items,
         })
     }
 
@@ -612,9 +617,7 @@ fn find_request_parent_item_id<S: ThreadStore>(
         .items
         .iter()
         .rev()
-        .find(|item| {
-            item.turn_id.as_deref() == Some(turn_id) && request_parent_kind_matches(item, &kind)
-        })
+        .find(|item| item.turn_id == turn_id && request_parent_kind_matches(item, &kind))
         .map(|item| item.item_id.clone())
 }
 
@@ -651,7 +654,7 @@ fn user_message_item(thread_id: &str, turn_id: &str, input: Value) -> ThreadItem
     ThreadItem {
         item_id: format!("thread-runtime:{thread_id}:{turn_id}:user"),
         thread_id: String::new(),
-        turn_id: Some(turn_id.to_string()),
+        turn_id: turn_id.to_string(),
         parent_item_id: None,
         sequence: 0,
         created_at: String::new(),
@@ -669,7 +672,7 @@ fn turn_started_item(
     ThreadItem {
         item_id: format!("thread-runtime:{thread_id}:{turn_id}:started"),
         thread_id: String::new(),
-        turn_id: Some(turn_id.to_string()),
+        turn_id: turn_id.to_string(),
         parent_item_id: None,
         sequence: 0,
         created_at: String::new(),
@@ -690,7 +693,7 @@ fn continuation_item(thread_id: &str, turn_id: &str, input: Value) -> ThreadItem
             next_runtime_item_id()
         ),
         thread_id: String::new(),
-        turn_id: Some(turn_id.to_string()),
+        turn_id: turn_id.to_string(),
         parent_item_id: None,
         sequence: 0,
         created_at: String::new(),
@@ -705,7 +708,7 @@ fn cancelled_item(thread_id: &str, turn_id: &str, reason: Option<String>) -> Thr
     ThreadItem {
         item_id: format!("thread-runtime:{thread_id}:{turn_id}:cancelled"),
         thread_id: String::new(),
-        turn_id: Some(turn_id.to_string()),
+        turn_id: turn_id.to_string(),
         parent_item_id: None,
         sequence: 0,
         created_at: String::new(),
@@ -729,7 +732,7 @@ fn approval_request_item(
     ThreadItem {
         item_id: format!("thread-runtime:{thread_id}:{turn_id}:approval-request:{approval_id}"),
         thread_id: String::new(),
-        turn_id: Some(turn_id.to_string()),
+        turn_id: turn_id.to_string(),
         parent_item_id: None,
         sequence: 0,
         created_at: String::new(),
@@ -758,7 +761,7 @@ fn approval_decision_item(
     ThreadItem {
         item_id: format!("thread-runtime:{thread_id}:{turn_id}:approval:{approval_id}"),
         thread_id: String::new(),
-        turn_id: Some(turn_id.to_string()),
+        turn_id: turn_id.to_string(),
         parent_item_id,
         sequence: 0,
         created_at: String::new(),
@@ -785,7 +788,7 @@ fn tool_call_started_item(
     ThreadItem {
         item_id: format!("thread-runtime:{thread_id}:{turn_id}:tool-call:{tool_call_id}"),
         thread_id: String::new(),
-        turn_id: Some(turn_id.to_string()),
+        turn_id: turn_id.to_string(),
         parent_item_id: None,
         sequence: 0,
         created_at: String::new(),
@@ -813,7 +816,7 @@ fn tool_result_item(
     ThreadItem {
         item_id: format!("thread-runtime:{thread_id}:{turn_id}:tool-result:{tool_call_id}"),
         thread_id: String::new(),
-        turn_id: Some(turn_id.to_string()),
+        turn_id: turn_id.to_string(),
         parent_item_id,
         sequence: 0,
         created_at: String::new(),
@@ -841,7 +844,7 @@ fn subagent_spawned_item(
     ThreadItem {
         item_id: format!("thread-runtime:{thread_id}:{turn_id}:subagent:{subagent_id}:spawned"),
         thread_id: String::new(),
-        turn_id: Some(turn_id.to_string()),
+        turn_id: turn_id.to_string(),
         parent_item_id: None,
         sequence: 0,
         created_at: String::new(),
@@ -875,7 +878,7 @@ fn subagent_message_item(
             next_runtime_item_id()
         ),
         thread_id: String::new(),
-        turn_id: Some(turn_id.to_string()),
+        turn_id: turn_id.to_string(),
         parent_item_id: None,
         sequence: 0,
         created_at: String::new(),
@@ -905,7 +908,7 @@ fn subagent_completed_item(
     ThreadItem {
         item_id: format!("thread-runtime:{thread_id}:{turn_id}:subagent:{subagent_id}:completed"),
         thread_id: String::new(),
-        turn_id: Some(turn_id.to_string()),
+        turn_id: turn_id.to_string(),
         parent_item_id: None,
         sequence: 0,
         created_at: String::new(),
@@ -933,7 +936,7 @@ fn checkpoint_item(
     ThreadItem {
         item_id: format!("thread-runtime:{thread_id}:{turn_id}:checkpoint:{checkpoint_id}"),
         thread_id: String::new(),
-        turn_id: Some(turn_id.to_string()),
+        turn_id: turn_id.to_string(),
         parent_item_id: None,
         sequence: 0,
         created_at: String::new(),
@@ -971,7 +974,7 @@ fn assistant_message_delta_item(
             next_runtime_item_id()
         ),
         thread_id: String::new(),
-        turn_id: Some(turn_id.to_string()),
+        turn_id: turn_id.to_string(),
         parent_item_id: None,
         sequence: 0,
         created_at: String::new(),
@@ -991,7 +994,7 @@ fn reasoning_item(
             next_runtime_item_id()
         ),
         thread_id: String::new(),
-        turn_id: Some(turn_id.to_string()),
+        turn_id: turn_id.to_string(),
         parent_item_id: None,
         sequence: 0,
         created_at: String::new(),
@@ -1016,7 +1019,7 @@ fn agent_step_item(
     ThreadItem {
         item_id: format!("thread-runtime:{thread_id}:{turn_id}:step:{step_id}"),
         thread_id: String::new(),
-        turn_id: Some(turn_id.to_string()),
+        turn_id: turn_id.to_string(),
         parent_item_id: None,
         sequence: 0,
         created_at: String::new(),
@@ -1082,7 +1085,7 @@ fn runtime_event_item(
     ThreadItem {
         item_id,
         thread_id: String::new(),
-        turn_id: Some(turn_id.to_string()),
+        turn_id: turn_id.to_string(),
         parent_item_id: None,
         sequence: 0,
         created_at: String::new(),
@@ -1117,7 +1120,7 @@ fn assistant_message_completed_item(
             next_runtime_item_id()
         ),
         thread_id: String::new(),
-        turn_id: Some(turn_id.to_string()),
+        turn_id: turn_id.to_string(),
         parent_item_id: None,
         sequence: 0,
         created_at: String::new(),
@@ -1136,7 +1139,7 @@ fn turn_completed_item(
     ThreadItem {
         item_id: format!("thread-runtime:{thread_id}:{turn_id}:completed"),
         thread_id: String::new(),
-        turn_id: Some(turn_id.to_string()),
+        turn_id: turn_id.to_string(),
         parent_item_id: None,
         sequence: 0,
         created_at: String::new(),
@@ -1164,7 +1167,7 @@ fn error_item(
             next_runtime_item_id()
         ),
         thread_id: String::new(),
-        turn_id: Some(turn_id.to_string()),
+        turn_id: turn_id.to_string(),
         parent_item_id: None,
         sequence: 0,
         created_at: String::new(),
@@ -1180,7 +1183,7 @@ fn error_item(
 
 fn settings_changed_item(
     thread_id: &str,
-    turn_id: Option<&str>,
+    turn_id: &str,
     metadata: super::types::ThreadMetadataPatch,
     reason: Option<String>,
 ) -> ThreadItem {
@@ -1190,7 +1193,7 @@ fn settings_changed_item(
             next_runtime_item_id()
         ),
         thread_id: String::new(),
-        turn_id: turn_id.map(str::to_string),
+        turn_id: turn_id.to_string(),
         parent_item_id: None,
         sequence: 0,
         created_at: String::new(),

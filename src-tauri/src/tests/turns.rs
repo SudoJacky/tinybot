@@ -21,7 +21,7 @@ fn worker_run_agent_uses_rust_runtime_when_selected() {
         &shared,
         serde_json::json!({
             "runtime": "rust",
-            "turnId": "run-rust-1",
+            "turnId": "turn-rust-1",
             "sessionId": "websocket:chat-1",
             "stream": true,
             "messages": [{ "role": "user", "content": "hello rust" }]
@@ -108,7 +108,7 @@ fn worker_run_agent_preserves_runtime_tool_content_with_envelope_payload() {
         &shared,
         serde_json::json!({
             "runtime": "rust",
-            "turnId": "run-rust-tool-envelope",
+            "turnId": "turn-rust-tool-envelope",
             "sessionId": "websocket:chat-tool-envelope",
             "maxIterations": 2,
             "messages": [{ "role": "user", "content": "read with envelope" }]
@@ -178,7 +178,7 @@ fn worker_run_agent_persists_rust_turn_messages_in_canonical_rollout() {
         &shared,
         serde_json::json!({
             "runtime": "rust",
-            "turnId": "run-persist",
+            "turnId": "turn-persist",
             "sessionId": "websocket:chat-persist",
             "messages": [{ "role": "user", "content": "persist me" }]
         }),
@@ -222,7 +222,7 @@ fn worker_run_agent_persists_one_lossless_long_final_response() {
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
     });
     let session_id = "websocket:chat-long-final";
-    let turn_id = "run-long-final";
+    let turn_id = "turn-long-final";
     let expected = long_final_content();
 
     let result = worker_run_agent_with_options(
@@ -368,7 +368,7 @@ fn worker_run_agent_stops_before_provider_when_run_start_persistence_fails() {
         &shared,
         serde_json::json!({
             "runtime": "rust",
-            "turnId": "run-persistence-failure",
+            "turnId": "turn-persistence-failure",
             "messages": [{ "role": "user", "content": "do not call provider" }]
         }),
         fixture.root.clone(),
@@ -437,7 +437,7 @@ fn worker_run_agent_fails_when_trace_persistence_breaks_after_provider_response(
         &shared,
         serde_json::json!({
             "runtime": "rust",
-            "turnId": "run-record-persistence-failure",
+            "turnId": "turn-record-persistence-failure",
             "sessionId": "session-record-persistence-failure",
             "messages": [{ "role": "user", "content": "break persistence after start" }]
         }),
@@ -463,13 +463,13 @@ fn worker_run_agent_fails_when_trace_persistence_breaks_after_provider_response(
 fn native_agent_turn_record_includes_structured_token_usage_info() {
     let spec = serde_json::json!({
         "runtime": "rust",
-        "turnId": "run-token-info",
+        "turnId": "turn-token-info",
         "sessionId": "websocket:chat-token-info",
         "messages": [{ "role": "user", "content": "hello" }]
     });
     let result = serde_json::json!({
         "runtime": "rust",
-        "turnId": "run-token-info",
+        "turnId": "turn-token-info",
         "sessionId": "websocket:chat-token-info",
         "stopReason": "final_response",
         "events": [{
@@ -494,7 +494,7 @@ fn native_agent_turn_record_includes_structured_token_usage_info() {
             "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } }
         }),
         "websocket:chat-token-info",
-        "run-token-info",
+        "turn-token-info",
     );
 
     assert_eq!(
@@ -680,7 +680,7 @@ fn worker_run_agent_hydrates_session_history_before_provider_call() {
             "session.persist_turn",
             serde_json::json!({
                 "session_id": "websocket:chat-memory",
-                "turn_id": "run-previous",
+                "turn_id": "turn-previous",
                 "messages": [
                     { "role": "user", "content": "a" },
                     { "role": "assistant", "content": "agent replied a" }
@@ -696,7 +696,7 @@ fn worker_run_agent_hydrates_session_history_before_provider_call() {
         &shared,
         serde_json::json!({
             "runtime": "rust",
-            "turnId": "run-next",
+            "turnId": "turn-next",
             "sessionId": "websocket:chat-memory",
             "input": { "role": "user", "content": "what did I say before?" }
         }),
@@ -745,7 +745,7 @@ fn worker_run_agent_combines_session_history_with_current_tool_results() {
             "session.persist_turn",
             serde_json::json!({
                 "session_id": "websocket:chat-tool-memory",
-                "turn_id": "run-previous-tool-memory",
+                "turn_id": "turn-previous-tool-memory",
                 "messages": [
                     { "role": "user", "content": "remember alpha" },
                     { "role": "assistant", "content": "alpha stored" }
@@ -761,7 +761,7 @@ fn worker_run_agent_combines_session_history_with_current_tool_results() {
         &shared,
         serde_json::json!({
             "runtime": "rust",
-            "turnId": "run-tool-memory",
+            "turnId": "turn-tool-memory",
             "sessionId": "websocket:chat-tool-memory",
             "maxIterations": 3,
             "messages": [{ "role": "user", "content": "read README and combine" }]
@@ -851,8 +851,8 @@ fn worker_run_agent_combines_session_history_with_current_tool_results() {
         "tool-output:call-durable-history"
     );
     assert_eq!(tool_output["payload"]["call_id"], "call-durable-history");
-    assert_eq!(tool_output["payload"]["turnId"], "run-tool-memory");
-    assert_eq!(tool_output["payload"]["turnId"], "run-tool-memory");
+    assert_eq!(tool_output["payload"]["turnId"], "turn-tool-memory");
+    assert_eq!(tool_output["payload"]["turnId"], "turn-tool-memory");
     assert!(tool_output["payload"]["output"]
         .as_str()
         .is_some_and(|output| output.contains("Plan updated")));
@@ -882,7 +882,7 @@ fn worker_run_agent_recalls_history_after_multiple_exchanges() {
         &shared,
         serde_json::json!({
             "runtime": "rust",
-            "turnId": "run-recall-1",
+            "turnId": "turn-recall-1",
             "sessionId": session_id,
             "messages": [{ "role": "user", "content": "I said apple" }]
         }),
@@ -895,7 +895,7 @@ fn worker_run_agent_recalls_history_after_multiple_exchanges() {
         &shared,
         serde_json::json!({
             "runtime": "rust",
-            "turnId": "run-recall-2",
+            "turnId": "turn-recall-2",
             "sessionId": session_id,
             "messages": [{ "role": "user", "content": "I said banana" }]
         }),
@@ -908,7 +908,7 @@ fn worker_run_agent_recalls_history_after_multiple_exchanges() {
         &shared,
         serde_json::json!({
             "runtime": "rust",
-            "turnId": "run-recall-3",
+            "turnId": "turn-recall-3",
             "sessionId": session_id,
             "messages": [{ "role": "user", "content": "What did I say earlier?" }]
         }),
@@ -966,7 +966,7 @@ fn worker_run_agent_rejects_terminal_run_reentry_before_provider_call() {
         &shared,
         serde_json::json!({
             "runtime": "rust",
-            "turnId": "run-terminal-reentry",
+            "turnId": "turn-terminal-reentry",
             "sessionId": "websocket:chat-terminal-reentry",
             "messages": [{ "role": "user", "content": "finish once" }]
         }),
@@ -979,7 +979,7 @@ fn worker_run_agent_rejects_terminal_run_reentry_before_provider_call() {
         &shared,
         serde_json::json!({
             "runtime": "rust",
-            "turnId": "run-terminal-reentry",
+            "turnId": "turn-terminal-reentry",
             "sessionId": "websocket:chat-terminal-reentry",
             "messages": [{ "role": "user", "content": "try to continue" }]
         }),
@@ -992,7 +992,7 @@ fn worker_run_agent_rejects_terminal_run_reentry_before_provider_call() {
         fixture.root.clone(),
         config,
         "websocket:chat-terminal-reentry",
-        "run-terminal-reentry",
+        "turn-terminal-reentry",
     );
 
     assert_eq!(first["stopReason"], "final_response");
@@ -1039,7 +1039,7 @@ fn worker_run_agent_persists_agent_turn_record_and_keeps_history_compact() {
             &shared,
             serde_json::json!({
                 "runtime": "rust",
-                "turnId": "run-trace-persist",
+                "turnId": "turn-trace-persist",
                 "sessionId": "websocket:chat-run-trace",
                 "maxIterations": 2,
                 "messages": [{ "role": "user", "content": "read and answer", "messageId": "user-read-answer" }]
@@ -1058,10 +1058,10 @@ fn worker_run_agent_persists_agent_turn_record_and_keeps_history_compact() {
             "thread.turn.get",
             serde_json::json!({
                 "session_id": "websocket:chat-run-trace",
-                "turn_id": "run-trace-persist"
+                "turn_id": "turn-trace-persist"
             }),
         ),
-        "agent run read",
+        "agent turn read",
     )
     .expect("agent turn record should persist");
     let history = worker_session_messages_with_options(
@@ -1128,7 +1128,7 @@ fn worker_run_agent_projects_real_rust_run_into_canonical_session_history() {
         &shared,
         serde_json::json!({
             "runtime": "rust",
-            "turnId": "run-thread-real",
+            "turnId": "turn-thread-real",
             "sessionId": session_id,
             "maxIterations": 2,
             "messages": [{
@@ -1172,7 +1172,7 @@ fn worker_run_agent_projects_real_rust_run_into_canonical_session_history() {
             "thread.turn.get",
             serde_json::json!({
                 "session_id": session_id,
-                "turn_id": "run-thread-real"
+                "turn_id": "turn-thread-real"
             }),
         ),
         "real Rust run agent record",
@@ -1210,7 +1210,7 @@ fn session_owned_compaction_commits_installed_checkpoint_before_final_turn_persi
         &shared,
         serde_json::json!({
             "runtime": "rust",
-            "turnId": "run-session-context-commit",
+            "turnId": "turn-session-context-commit",
             "sessionId": session_id,
             "messages": [
                 { "role": "user", "content": "old context ".repeat(200) },
@@ -1265,7 +1265,7 @@ fn session_owned_compaction_commits_installed_checkpoint_before_final_turn_persi
     let hydrated = crate::agent::bridge::hydrate_native_agent_history_for_runtime(
         serde_json::json!({
             "runtime": "rust",
-            "turnId": "run-session-context-commit-next",
+            "turnId": "turn-session-context-commit-next",
             "sessionId": session_id,
             "messages": [{ "role": "user", "content": "next current question" }]
         }),
@@ -1331,7 +1331,7 @@ fn worker_run_agent_uses_native_tool_executor_for_registered_memory_tool() {
         &shared,
         serde_json::json!({
             "runtime": "rust",
-            "turnId": "run-native-tool-executor",
+            "turnId": "turn-native-tool-executor",
             "sessionId": "websocket:chat-native-tool-executor",
             "maxIterations": 2,
             "selectedTools": ["memory.search"],
@@ -1388,7 +1388,7 @@ fn worker_run_agent_does_not_fallback_to_fixture_result_after_executor_error() {
         &shared,
         serde_json::json!({
             "runtime": "rust",
-            "turnId": "run-native-tool-executor-error",
+            "turnId": "turn-native-tool-executor-error",
             "sessionId": "websocket:chat-native-tool-executor-error",
             "maxIterations": 2,
             "selectedTools": ["memory.search"],

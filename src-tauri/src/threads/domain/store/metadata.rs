@@ -60,8 +60,6 @@ pub(super) fn set_metadata_extra_string(extra: &mut Value, key: &str, value: &st
 }
 
 pub(super) fn recompute_dynamic_metadata(record: &mut ThreadRecord, items: &[ThreadItem]) {
-    const DEFAULT_TURN_KEY: &str = "__thread_default_run__";
-
     #[derive(Default)]
     struct TurnLifecycle {
         active: bool,
@@ -84,10 +82,7 @@ pub(super) fn recompute_dynamic_metadata(record: &mut ThreadRecord, items: &[Thr
     };
     let mut turn_lifecycles: HashMap<String, TurnLifecycle> = HashMap::new();
     for item in items {
-        let run_key = item
-            .turn_id
-            .clone()
-            .unwrap_or_else(|| DEFAULT_TURN_KEY.to_string());
+        let turn_key = item.turn_id.clone();
         match &item.kind {
             ThreadItemKind::UserMessage(payload) => {
                 record.metadata.last_user_message_at = Some(item.created_at.clone());
@@ -111,9 +106,9 @@ pub(super) fn recompute_dynamic_metadata(record: &mut ThreadRecord, items: &[Thr
             ThreadItemKind::TurnStarted(_) => {
                 record.metadata.turn_count = record.metadata.turn_count.saturating_add(1);
                 if record.root_turn_id.is_none() {
-                    record.root_turn_id = item.turn_id.clone();
+                    record.root_turn_id = Some(item.turn_id.clone());
                 }
-                let lifecycle = turn_lifecycles.entry(run_key).or_default();
+                let lifecycle = turn_lifecycles.entry(turn_key).or_default();
                 lifecycle.active = true;
                 lifecycle.waiting_for_approval = false;
                 lifecycle.terminal = false;
@@ -129,7 +124,7 @@ pub(super) fn recompute_dynamic_metadata(record: &mut ThreadRecord, items: &[Thr
                         );
                     }
                 }
-                let lifecycle = turn_lifecycles.entry(run_key).or_default();
+                let lifecycle = turn_lifecycles.entry(turn_key).or_default();
                 if !lifecycle.terminal {
                     lifecycle.active = false;
                     lifecycle.waiting_for_approval = false;
@@ -139,7 +134,7 @@ pub(super) fn recompute_dynamic_metadata(record: &mut ThreadRecord, items: &[Thr
                 }
             }
             ThreadItemKind::SubagentCompleted(_) => {
-                let lifecycle = turn_lifecycles.entry(run_key).or_default();
+                let lifecycle = turn_lifecycles.entry(turn_key).or_default();
                 if !lifecycle.terminal {
                     lifecycle.active = false;
                     lifecycle.waiting_for_approval = false;
@@ -149,7 +144,7 @@ pub(super) fn recompute_dynamic_metadata(record: &mut ThreadRecord, items: &[Thr
                 }
             }
             ThreadItemKind::ApprovalRequested(_) => {
-                let lifecycle = turn_lifecycles.entry(run_key).or_default();
+                let lifecycle = turn_lifecycles.entry(turn_key).or_default();
                 if !lifecycle.terminal {
                     lifecycle.active = true;
                     lifecycle.waiting_for_approval = true;
@@ -157,7 +152,7 @@ pub(super) fn recompute_dynamic_metadata(record: &mut ThreadRecord, items: &[Thr
                 }
             }
             ThreadItemKind::ApprovalResolved(_) => {
-                if let Some(lifecycle) = turn_lifecycles.get_mut(&run_key) {
+                if let Some(lifecycle) = turn_lifecycles.get_mut(&turn_key) {
                     if lifecycle.active && !lifecycle.terminal {
                         lifecycle.waiting_for_approval = false;
                         lifecycle.last_sequence = item.sequence;
@@ -165,7 +160,7 @@ pub(super) fn recompute_dynamic_metadata(record: &mut ThreadRecord, items: &[Thr
                 }
             }
             ThreadItemKind::Error(_) => {
-                let lifecycle = turn_lifecycles.entry(run_key).or_default();
+                let lifecycle = turn_lifecycles.entry(turn_key).or_default();
                 if !lifecycle.terminal {
                     lifecycle.active = false;
                     lifecycle.waiting_for_approval = false;
@@ -175,7 +170,7 @@ pub(super) fn recompute_dynamic_metadata(record: &mut ThreadRecord, items: &[Thr
                 }
             }
             ThreadItemKind::Cancelled(_) => {
-                let lifecycle = turn_lifecycles.entry(run_key).or_default();
+                let lifecycle = turn_lifecycles.entry(turn_key).or_default();
                 if !lifecycle.terminal {
                     lifecycle.active = false;
                     lifecycle.waiting_for_approval = false;
@@ -190,7 +185,7 @@ pub(super) fn recompute_dynamic_metadata(record: &mut ThreadRecord, items: &[Thr
     record.metadata.has_active_turn = turn_lifecycles.values().any(|lifecycle| lifecycle.active);
     record.active_turn_id = turn_lifecycles
         .iter()
-        .filter(|(turn_id, lifecycle)| lifecycle.active && turn_id.as_str() != DEFAULT_TURN_KEY)
+        .filter(|(_, lifecycle)| lifecycle.active)
         .max_by_key(|(_, lifecycle)| lifecycle.last_sequence)
         .map(|(turn_id, _)| turn_id.clone());
     let status = if turn_lifecycles

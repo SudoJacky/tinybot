@@ -11,9 +11,7 @@ pub(crate) fn turn_summaries_from_items(
 ) -> Vec<ThreadTurnSummary> {
     let mut turns = Vec::<ThreadTurnSummary>::new();
     for item in items {
-        let Some(turn_id) = item.turn_id.as_ref() else {
-            continue;
-        };
+        let turn_id = &item.turn_id;
         let position = turns
             .iter()
             .position(|turn| turn.turn_id == *turn_id)
@@ -34,7 +32,7 @@ pub(crate) fn turn_summaries_from_items(
         let turn = &mut turns[position];
         turn.item_count = turn.item_count.saturating_add(1);
         turn.updated_at = Some(item.created_at.clone());
-        update_run_summary_from_item(turn, item);
+        update_turn_summary_from_item(turn, item);
     }
     if turns.is_empty() {
         if let Some(turn_id) = thread.root_turn_id.clone() {
@@ -59,7 +57,7 @@ pub(crate) fn turn_summaries_from_items(
     turns
 }
 
-fn update_run_summary_from_item(turn: &mut ThreadTurnSummary, item: &ThreadItem) {
+fn update_turn_summary_from_item(turn: &mut ThreadTurnSummary, item: &ThreadItem) {
     match &item.kind {
         ThreadItemKind::TurnStarted(payload) => {
             turn.status = ThreadStatus::Running;

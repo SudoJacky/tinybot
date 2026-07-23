@@ -949,12 +949,14 @@ struct SessionPatchUserProfileParams {
 #[derive(Deserialize)]
 struct SessionAppendMessagesParams {
     session_id: String,
+    turn_id: String,
     messages: Vec<Value>,
 }
 
 #[derive(Deserialize)]
 struct SessionTaskProgressUpsertParams {
     session_id: String,
+    turn_id: String,
     plan_id: String,
     progress: Value,
     content: String,

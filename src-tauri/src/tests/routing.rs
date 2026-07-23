@@ -285,7 +285,7 @@ fn worker_agent_turn_runtime_commands_use_thread_log_turn_store() {
     let fixture = WorkspaceFixture::new();
     let record = serde_json::json!({
         "sessionId": "websocket:chat-1",
-        "turnId": "run-1",
+        "turnId": "turn-1",
         "status": "completed",
         "phase": "completed",
         "startedAt": "2026-07-03T01:00:00Z",
@@ -326,14 +326,14 @@ fn worker_agent_turn_runtime_commands_use_thread_log_turn_store() {
             "thread.turn.append_semantic_batch",
             serde_json::json!({
                 "session_id": "websocket:chat-1",
-                "turn_id": "run-1",
+                "turn_id": "turn-1",
                 "events": [{
                     "schemaVersion": "tinybot.agent_event.v1",
-                    "eventId": "run-1:agent-done:0000000000000001",
+                    "eventId": "turn-1:agent-done:0000000000000001",
                     "sequence": 1,
                     "sessionId": "websocket:chat-1",
-                    "turnId": "run-1",
-                    "itemId": "run-1:assistant",
+                    "turnId": "turn-1",
+                    "itemId": "turn-1:assistant",
                     "eventName": "agent.message.completed",
                     "phase": "completed",
                     "timestamp": "2026-07-03T01:00:02Z",
@@ -341,7 +341,7 @@ fn worker_agent_turn_runtime_commands_use_thread_log_turn_store() {
                     "visibility": "user",
                     "payload": {
                         "content": "Done from runtime state",
-                        "messageId": "run-1:assistant",
+                        "messageId": "turn-1:assistant",
                         "messagePhase": "final_answer"
                     }
                 }]
@@ -363,16 +363,16 @@ fn worker_agent_turn_runtime_commands_use_thread_log_turn_store() {
     let runtime_state = worker_turn_runtime_state_with_options(
         &shared,
         "websocket:chat-1".to_string(),
-        "run-1".to_string(),
+        "turn-1".to_string(),
         fixture.root.clone(),
         serde_json::json!({}),
         Duration::from_millis(10),
     )
     .expect("agent turn runtime state should be served by thread log store");
 
-    assert_eq!(turns["turns"][0]["turnId"], "run-1");
+    assert_eq!(turns["turns"][0]["turnId"], "turn-1");
     assert_eq!(runtime_state["timeline"]["sessionId"], "websocket:chat-1");
-    assert_eq!(runtime_state["timeline"]["turnId"], "run-1");
+    assert_eq!(runtime_state["timeline"]["turnId"], "turn-1");
     assert_eq!(
         runtime_state["timeline"]["items"][0]["kind"],
         "assistant_message"
@@ -423,6 +423,7 @@ fn worker_session_write_commands_use_rollout_state_on_rust_backend() {
         &shared,
         "websocket:chat-1".to_string(),
         serde_json::json!({
+            "turnId": "turn-task-progress-1",
             "planId": "plan-1",
             "progress": {
                 "completed": 1,

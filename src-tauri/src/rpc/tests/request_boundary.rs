@@ -1,12 +1,12 @@
 use super::*;
 
 #[test]
-fn tool_executor_preserves_explicit_parent_run_context() {
+fn tool_executor_preserves_explicit_parent_turn_context() {
     let arguments = tool_executor_arguments_with_context(&ToolExecutorExecuteRequest {
         tool_id: "subagent.spawn".to_string(),
         arguments: json!({
             "sessionKey": "session-parent",
-            "parentTurnId": "run-parent",
+            "parentTurnId": "turn-parent",
             "task": "Inspect one bounded boundary"
         }),
         thread_id: None,
@@ -15,7 +15,7 @@ fn tool_executor_preserves_explicit_parent_run_context() {
         tool_call_id: Some("call-subagent-spawn".to_string()),
     });
 
-    assert_eq!(arguments["parentTurnId"], "run-parent");
+    assert_eq!(arguments["parentTurnId"], "turn-parent");
     assert!(arguments.get("turnId").is_none());
 }
 
@@ -120,7 +120,7 @@ fn dispatches_workspace_write_file_version_conflict() {
     );
     approve_once(
         &mut router,
-        "run-write-conflict",
+        "turn-write-conflict",
         "session-1",
         json!({
             "toolName": "write_file",
@@ -234,7 +234,7 @@ fn workspace_apply_patch_requires_a_matching_approval_grant() {
 
     approve_once(
         &mut router,
-        "run-apply-patch",
+        "turn-apply-patch",
         "session-1",
         json!({
             "toolName": "apply_patch",

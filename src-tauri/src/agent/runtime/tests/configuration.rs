@@ -20,11 +20,11 @@ fn selects_rust_runtime_from_spec_or_config() {
 }
 
 #[test]
-fn normalizes_desktop_run_spec_inputs_for_rust_turns() {
+fn normalizes_desktop_turn_spec_inputs_for_rust_turns() {
     let context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
-            "turnId": "run-normalized",
+            "turnId": "turn-normalized",
             "activeSessionId": "websocket:active-chat",
             "provider": "fixture",
             "model": "fixture-model",
@@ -41,7 +41,7 @@ fn normalizes_desktop_run_spec_inputs_for_rust_turns() {
         }),
     );
     let request = agent_chat_completion_request(&context)
-        .expect("normalized run spec should produce a chat completion request");
+        .expect("normalized turn spec should produce a chat completion request");
     let provider_config = agent_provider_config(&context);
 
     assert_eq!(context.session_id, "websocket:active-chat");
@@ -238,7 +238,7 @@ fn composed_workspace_instructions_reach_provider_and_reload_user_edits() {
     let default_result = run_native_agent_turn_with_workspace(
         &services,
         json!({
-            "turnId": "run-system-prompt-default",
+            "turnId": "turn-system-prompt-default",
             "sessionId": "session-system-prompt-default",
             "cwd": working_directory,
             "messages": [{ "role": "user", "content": "hello" }]
@@ -261,7 +261,7 @@ fn composed_workspace_instructions_reach_provider_and_reload_user_edits() {
     let custom_result = run_native_agent_turn_with_workspace(
         &services,
         json!({
-            "turnId": "run-system-prompt-custom",
+            "turnId": "turn-system-prompt-custom",
             "sessionId": "session-system-prompt-custom",
             "cwd": working_directory,
             "messages": [{ "role": "user", "content": "hello again" }]
@@ -398,7 +398,7 @@ fn memory_contributor_hydrates_prompt_with_safe_provenance() {
     let result = run_native_agent_turn_with_workspace(
         &services,
         json!({
-            "turnId": "run-context-contributors",
+            "turnId": "turn-context-contributors",
             "sessionId": "session-context-contributors",
             "messages": [{
                 "role": "user",
@@ -495,7 +495,7 @@ fn malformed_context_config_fails_before_provider_execution() {
     let error = run_native_agent_turn_with_workspace(
         &services,
         json!({
-            "turnId": "run-invalid-context-config",
+            "turnId": "turn-invalid-context-config",
             "sessionId": "session-invalid-context-config",
             "messages": [{ "role": "user", "content": "hello" }]
         }),
@@ -513,7 +513,7 @@ fn chat_completion_request_exposes_only_foundational_model_tools() {
     let mut context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
-            "turnId": "run-tools",
+            "turnId": "turn-tools",
             "sessionId": "websocket:chat-tools",
             "model": "fixture-model",
             "messages": [{ "role": "user", "content": "read the workspace" }]
@@ -582,7 +582,7 @@ fn feature_build_defers_browser_tools_until_searched() {
     let context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
-            "turnId": "run-browser-tools",
+            "turnId": "turn-browser-tools",
             "sessionId": "websocket:chat-browser-tools",
             "model": "fixture-model",
             "messages": [{ "role": "user", "content": "inspect the shared browser" }]
@@ -746,7 +746,7 @@ fn tool_search_activates_dispatches_and_expires_a_deferred_tool() {
     let result = run_native_agent_turn_with_config(
         &services,
         json!({
-            "turnId": "run-tool-search-activation",
+            "turnId": "turn-tool-search-activation",
             "sessionId": "session-tool-search-activation",
             "maxIterations": 3,
             "messages": [{ "role": "user", "content": "find a deferred echo tool" }]
@@ -777,18 +777,18 @@ fn tool_search_activates_dispatches_and_expires_a_deferred_tool() {
         vec!["test.deferred_echo".to_string()]
     );
 
-    let second_run = run_native_agent_turn_with_config(
+    let second_turn = run_native_agent_turn_with_config(
         &services,
         json!({
-            "turnId": "run-tool-search-expired",
+            "turnId": "turn-tool-search-expired",
             "sessionId": "session-tool-search-expired",
             "maxIterations": 1,
-            "messages": [{ "role": "user", "content": "start a fresh run" }]
+            "messages": [{ "role": "user", "content": "start a fresh turn" }]
         }),
         json!({}),
     )
-    .expect("fresh run should complete without inherited activation");
-    assert_eq!(second_run["stopReason"], "final_response");
+    .expect("fresh turn should complete without inherited activation");
+    assert_eq!(second_turn["stopReason"], "final_response");
 
     let requests = requests
         .lock()

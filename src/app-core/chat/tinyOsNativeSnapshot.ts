@@ -190,7 +190,7 @@ export function createTinyOsTerminalProcessSnapshot(
     ...data,
     executionContract: data.executionContract ?? "retained_execution_v1",
     nativeProcessId: requiredText(data.nativeProcessId, "Native process id"),
-    operationId: requiredText(data.operationId, "Terminal run id"),
+    operationId: requiredText(data.operationId, "Terminal operation id"),
     sessionId: requiredText(data.sessionId, "Terminal session id"),
     ...optionalNonNegative(data.droppedBytes, "Terminal dropped bytes", "droppedBytes"),
     ...optionalNonNegative(data.durationMs, "Terminal duration", "durationMs"),
@@ -227,7 +227,7 @@ export function createTinyOsBrowserSessionSnapshot(
     ...data,
     activeTabId,
     browserSessionId: requiredText(data.browserSessionId, "Browser session id"),
-    operationId: requiredText(data.operationId, "Browser run id"),
+    operationId: requiredText(data.operationId, "Browser operation id"),
     sessionId: requiredText(data.sessionId, "Browser owner session id"),
     tabs,
   }, metadata, "native_query");

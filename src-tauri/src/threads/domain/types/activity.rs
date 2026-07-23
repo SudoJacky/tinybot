@@ -142,8 +142,7 @@ pub struct ThreadActivitySummary {
 pub struct ThreadPendingApproval {
     pub thread_id: String,
     pub item_id: String,
-    #[serde(default)]
-    pub turn_id: Option<String>,
+    pub turn_id: String,
     pub approval_id: String,
     #[serde(default)]
     pub summary: Option<String>,
@@ -158,8 +157,7 @@ pub struct ThreadPendingApproval {
 pub struct ThreadRunningTool {
     pub thread_id: String,
     pub item_id: String,
-    #[serde(default)]
-    pub turn_id: Option<String>,
+    pub turn_id: String,
     pub tool_call_id: String,
     #[serde(default)]
     pub tool_name: Option<String>,

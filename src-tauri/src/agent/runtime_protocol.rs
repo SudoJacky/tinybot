@@ -2548,17 +2548,17 @@ mod tests {
     #[test]
     fn subagent_lifecycle_retains_parent_and_assigned_work_correlation() {
         let items = project_turn_items_from_trace_events(&[runtime_event(
-            "run-parent",
+            "turn-parent",
             "agent.delegate.linked",
             AgentRuntimePhase::AwaitingSubagent,
             Some("subagent-1"),
             1,
             json!({
                 "delegateId": "agent-child",
-                "childTurnId": "run-child",
+                "childTurnId": "turn-child",
                 "childThreadId": "thread-child",
                 "parentAgentId": "agent-main",
-                "parentTurnId": "run-parent",
+                "parentTurnId": "turn-parent",
                 "name": "Reviewer",
                 "task": "Review the implementation",
                 "status": "running",
@@ -2568,10 +2568,10 @@ mod tests {
 
         let data = serde_json::to_value(&items[0].data).unwrap();
         assert_eq!(data["agentId"], "agent-child");
-        assert_eq!(data["childTurnId"], "run-child");
+        assert_eq!(data["childTurnId"], "turn-child");
         assert_eq!(data["childThreadId"], "thread-child");
         assert_eq!(data["parentAgentId"], "agent-main");
-        assert_eq!(data["parentTurnId"], "run-parent");
+        assert_eq!(data["parentTurnId"], "turn-parent");
         assert_eq!(data["name"], "Reviewer");
         assert_eq!(data["task"], "Review the implementation");
         assert_eq!(data["traceRef"], "trace-child");
@@ -2641,7 +2641,7 @@ mod tests {
     }
 
     #[test]
-    fn run_emitter_buffers_events_and_takes_them_in_sequence_order() {
+    fn turn_emitter_buffers_events_and_takes_them_in_sequence_order() {
         let mut emitter = AgentTurnEmitter::new("session-1", "turn-1");
 
         let first = emitter.phase_changed(
@@ -2676,8 +2676,8 @@ mod tests {
     }
 
     #[test]
-    fn run_emitter_status_event_is_user_visible_without_turn_item() {
-        let mut emitter = AgentTurnEmitter::new("session-1", "run-1");
+    fn turn_emitter_status_event_is_user_visible_without_turn_item() {
+        let mut emitter = AgentTurnEmitter::new("session-1", "turn-1");
 
         let event = emitter.status(
             "2026-07-03T00:00:01Z",
@@ -2700,7 +2700,7 @@ mod tests {
     }
 
     #[test]
-    fn run_emitter_helpers_emit_canonical_payloads() {
+    fn turn_emitter_helpers_emit_canonical_payloads() {
         let mut emitter = AgentTurnEmitter::new("session-1", "turn-1");
 
         emitter.user_turn_started(
@@ -3055,7 +3055,7 @@ mod tests {
                 json!({
                     "formId": "form-1",
                     "form": {
-                        "title": "Configure run",
+                        "title": "Configure turn",
                         "fields": [{ "name": "destination", "required": true }]
                     },
                     "errors": { "destination": "Required" }
@@ -3080,8 +3080,8 @@ mod tests {
         assert_eq!(items[0].item_id, "form-1");
         assert_eq!(items[0].kind, AgentTurnItemKind::Form);
         assert_eq!(items[0].status, AgentTurnItemStatus::Completed);
-        assert_eq!(items[0].title.as_deref(), Some("Configure run"));
-        assert_eq!(items[0].summary.as_deref(), Some("Configure run"));
+        assert_eq!(items[0].title.as_deref(), Some("Configure turn"));
+        assert_eq!(items[0].summary.as_deref(), Some("Configure turn"));
         assert_eq!(items[0].payload["status"], "completed");
         assert_eq!(items[0].payload["action"], "submit");
         assert_eq!(items[0].payload["values"]["destination"], "Paris");
@@ -3173,7 +3173,7 @@ mod tests {
     fn canonical_turn_items_cover_typed_runtime_items_with_stable_revisions() {
         let events = vec![
             runtime_event(
-                "run-typed",
+                "turn-typed",
                 "agent.plan.progress",
                 AgentRuntimePhase::ToolRunning,
                 Some("plan-1"),
@@ -3194,7 +3194,7 @@ mod tests {
                 }),
             ),
             runtime_event(
-                "run-typed",
+                "turn-typed",
                 "agent.plan.progress",
                 AgentRuntimePhase::ToolRunning,
                 Some("plan-1"),
@@ -3216,15 +3216,15 @@ mod tests {
                 }),
             ),
             runtime_event(
-                "run-typed",
+                "turn-typed",
                 "agent.context.compacted",
                 AgentRuntimePhase::CallingModel,
-                Some("run-typed:context:1"),
+                Some("turn-typed:context:1"),
                 3,
                 json!({
                     "agentItem": {
                         "type": "context_compaction",
-                        "id": "run-typed:context:1",
+                        "id": "turn-typed:context:1",
                         "summary": "compact",
                         "droppedItemCount": 4,
                         "estimatedTokensBefore": 12000,
@@ -3233,15 +3233,15 @@ mod tests {
                 }),
             ),
             runtime_event(
-                "run-typed",
+                "turn-typed",
                 "agent.usage",
                 AgentRuntimePhase::CallingModel,
-                Some("run-typed:usage:1"),
+                Some("turn-typed:usage:1"),
                 4,
                 json!({
                     "agentItem": {
                         "type": "usage",
-                        "id": "run-typed:usage:1",
+                        "id": "turn-typed:usage:1",
                         "inputTokens": 10,
                         "outputTokens": 5,
                         "totalTokens": 15,
@@ -3250,7 +3250,7 @@ mod tests {
                 }),
             ),
             runtime_event(
-                "run-typed",
+                "turn-typed",
                 "agent.file.reference",
                 AgentRuntimePhase::ToolRunning,
                 Some("file-1"),
@@ -3266,15 +3266,15 @@ mod tests {
                 }),
             ),
             runtime_event(
-                "run-typed",
+                "turn-typed",
                 "agent.cancelled",
                 AgentRuntimePhase::Cancelled,
-                Some("run-typed:error:cancelled"),
+                Some("turn-typed:error:cancelled"),
                 6,
                 json!({
                     "agentItem": {
                         "type": "error",
-                        "id": "run-typed:error:cancelled",
+                        "id": "turn-typed:error:cancelled",
                         "code": "cancelled",
                         "message": "Cancelled by user",
                         "cancelled": true
@@ -3289,7 +3289,7 @@ mod tests {
 
         assert_eq!(items.len(), 5);
         assert_eq!(items[0]["schemaVersion"], "tinybot.turn_item.v2");
-        assert_eq!(items[0]["turnId"], "run-typed");
+        assert_eq!(items[0]["turnId"], "turn-typed");
         assert_eq!(items[0]["sequence"], 1);
         assert_eq!(items[0]["revision"], 2);
         assert_eq!(items[0]["kind"], "plan_progress");
@@ -3314,7 +3314,7 @@ mod tests {
     fn timeline_snapshot_and_patch_share_revision_and_item_projection() {
         let events = vec![
             runtime_event(
-                "run-live",
+                "turn-live",
                 "agent.phase.changed",
                 AgentRuntimePhase::CallingModel,
                 None,
@@ -3322,7 +3322,7 @@ mod tests {
                 json!({ "nextPhase": "calling_model" }),
             ),
             runtime_event(
-                "run-live",
+                "turn-live",
                 "agent.delta",
                 AgentRuntimePhase::StreamingModel,
                 Some("assistant-1"),
@@ -3330,7 +3330,7 @@ mod tests {
                 json!({ "delta": "hel" }),
             ),
             runtime_event(
-                "run-live",
+                "turn-live",
                 "agent.delta",
                 AgentRuntimePhase::StreamingModel,
                 Some("assistant-1"),
@@ -3339,9 +3339,9 @@ mod tests {
             ),
         ];
 
-        let snapshot = project_timeline_snapshot("session-1", "run-live", &events)
+        let snapshot = project_timeline_snapshot("session-1", "turn-live", &events)
             .expect("timeline snapshot should project");
-        let patch = project_timeline_patch("session-1", "run-live", &events)
+        let patch = project_timeline_patch("session-1", "turn-live", &events)
             .expect("timeline patch should project")
             .expect("assistant delta should create a patch");
 
@@ -3360,7 +3360,7 @@ mod tests {
     fn canonical_projection_rejects_terminal_status_regression() {
         let events = vec![
             runtime_event(
-                "run-terminal",
+                "turn-terminal",
                 "agent.tool.result",
                 AgentRuntimePhase::Completed,
                 Some("tool-1"),
@@ -3368,7 +3368,7 @@ mod tests {
                 json!({ "toolCallId": "tool-1", "toolName": "shell" }),
             ),
             runtime_event(
-                "run-terminal",
+                "turn-terminal",
                 "agent.tool.start",
                 AgentRuntimePhase::ToolRunning,
                 Some("tool-1"),
@@ -3377,13 +3377,13 @@ mod tests {
             ),
         ];
 
-        let _ = project_timeline_snapshot("session-1", "run-terminal", &events);
+        let _ = project_timeline_snapshot("session-1", "turn-terminal", &events);
     }
 
     #[test]
     fn canonical_projection_preserves_explicit_subagent_messages() {
         let event = runtime_event(
-            "run-subagent-message",
+            "turn-subagent-message",
             "agent.delegate.user_message",
             AgentRuntimePhase::AwaitingSubagent,
             Some("child-message-1"),
@@ -3399,7 +3399,7 @@ mod tests {
             }),
         );
 
-        let snapshot = project_timeline_snapshot("session-1", "run-subagent-message", &[event])
+        let snapshot = project_timeline_snapshot("session-1", "turn-subagent-message", &[event])
             .expect("subagent message should project");
 
         assert_eq!(snapshot.items[0].kind, AgentTurnItemKind::SubagentMessage);
@@ -3413,7 +3413,7 @@ mod tests {
 
     #[test]
     fn canonical_user_item_preserves_client_event_id() {
-        let mut emitter = AgentTurnEmitter::new("session-1", "run-client-event");
+        let mut emitter = AgentTurnEmitter::new("session-1", "turn-client-event");
         let event = emitter.user_turn_started(
             "2026-07-11T00:00:00Z",
             Some("user-1".to_string()),
@@ -3421,7 +3421,7 @@ mod tests {
             "hello",
             Vec::new(),
         );
-        let snapshot = project_timeline_snapshot("session-1", "run-client-event", &[event])
+        let snapshot = project_timeline_snapshot("session-1", "turn-client-event", &[event])
             .expect("user item should project");
         let data = serde_json::to_value(&snapshot.items[0].data)
             .expect("canonical user data should serialize");
@@ -3432,7 +3432,7 @@ mod tests {
     #[test]
     fn canonical_user_item_preserves_tinyos_references() {
         let event = runtime_event(
-            "run-tinyos-reference",
+            "turn-tinyos-reference",
             "agent.turn.started",
             AgentRuntimePhase::HydratingHistory,
             Some("user-1"),
@@ -3452,7 +3452,7 @@ mod tests {
                 }
             }),
         );
-        let snapshot = project_timeline_snapshot("session-1", "run-tinyos-reference", &[event])
+        let snapshot = project_timeline_snapshot("session-1", "turn-tinyos-reference", &[event])
             .expect("user reference should project");
         let data = serde_json::to_value(&snapshot.items[0].data)
             .expect("canonical user data should serialize");
@@ -3465,7 +3465,7 @@ mod tests {
     fn canonical_timeline_preserves_interleaved_model_calls_and_message_phases() {
         let events = vec![
             runtime_event(
-                "run-interleaved",
+                "turn-interleaved",
                 "agent.reasoning_delta",
                 AgentRuntimePhase::StreamingModel,
                 Some("reasoning-call-0"),
@@ -3473,7 +3473,7 @@ mod tests {
                 json!({ "delta": "Inspect the workspace.", "modelCallId": "call-0" }),
             ),
             runtime_event(
-                "run-interleaved",
+                "turn-interleaved",
                 "agent.delta",
                 AgentRuntimePhase::StreamingModel,
                 Some("message-call-0"),
@@ -3481,7 +3481,7 @@ mod tests {
                 json!({ "delta": "I will inspect the workspace.", "modelCallId": "call-0" }),
             ),
             runtime_event(
-                "run-interleaved",
+                "turn-interleaved",
                 "agent.message.classified",
                 AgentRuntimePhase::ToolRunning,
                 Some("message-call-0"),
@@ -3489,7 +3489,7 @@ mod tests {
                 json!({ "modelCallId": "call-0", "messagePhase": "commentary" }),
             ),
             runtime_event(
-                "run-interleaved",
+                "turn-interleaved",
                 "agent.tool.start",
                 AgentRuntimePhase::ToolRunning,
                 Some("tool-1"),
@@ -3497,7 +3497,7 @@ mod tests {
                 json!({ "toolCallId": "tool-1", "toolName": "workspace.read_file" }),
             ),
             runtime_event(
-                "run-interleaved",
+                "turn-interleaved",
                 "agent.tool.result",
                 AgentRuntimePhase::ToolRunning,
                 Some("tool-1"),
@@ -3509,7 +3509,7 @@ mod tests {
                 }),
             ),
             runtime_event(
-                "run-interleaved",
+                "turn-interleaved",
                 "agent.plan.progress",
                 AgentRuntimePhase::ToolRunning,
                 Some("plan-1"),
@@ -3523,7 +3523,7 @@ mod tests {
                 }),
             ),
             runtime_event(
-                "run-interleaved",
+                "turn-interleaved",
                 "agent.reasoning_delta",
                 AgentRuntimePhase::StreamingModel,
                 Some("reasoning-call-1"),
@@ -3531,7 +3531,7 @@ mod tests {
                 json!({ "delta": "Summarize the result.", "modelCallId": "call-1" }),
             ),
             runtime_event(
-                "run-interleaved",
+                "turn-interleaved",
                 "agent.message.completed",
                 AgentRuntimePhase::Completed,
                 Some("message-call-1"),
@@ -3545,7 +3545,7 @@ mod tests {
             ),
         ];
 
-        let snapshot = project_timeline_snapshot("session-1", "run-interleaved", &events)
+        let snapshot = project_timeline_snapshot("session-1", "turn-interleaved", &events)
             .expect("interleaved timeline should project");
 
         assert_eq!(
@@ -3586,7 +3586,7 @@ mod tests {
     #[test]
     fn canonical_projection_omits_non_user_reasoning() {
         let mut event = runtime_event(
-            "run-hidden-reasoning",
+            "turn-hidden-reasoning",
             "agent.reasoning_delta",
             AgentRuntimePhase::StreamingModel,
             Some("reasoning-1"),
@@ -3595,7 +3595,7 @@ mod tests {
         );
         event.visibility = AgentRuntimeEventVisibility::Debug;
 
-        let snapshot = project_timeline_snapshot("session-1", "run-hidden-reasoning", &[event])
+        let snapshot = project_timeline_snapshot("session-1", "turn-hidden-reasoning", &[event])
             .expect("hidden reasoning should be ignored");
 
         assert!(snapshot.items.is_empty());
@@ -3606,7 +3606,7 @@ mod tests {
     fn canonical_projection_rejects_reclassifying_commentary_as_final_answer() {
         let events = vec![
             runtime_event(
-                "run-phase-regression",
+                "turn-phase-regression",
                 "agent.message.classified",
                 AgentRuntimePhase::ToolRunning,
                 Some("message-1"),
@@ -3614,7 +3614,7 @@ mod tests {
                 json!({ "modelCallId": "call-0", "messagePhase": "commentary" }),
             ),
             runtime_event(
-                "run-phase-regression",
+                "turn-phase-regression",
                 "agent.message.completed",
                 AgentRuntimePhase::Completed,
                 Some("message-1"),
@@ -3634,7 +3634,7 @@ mod tests {
     fn canonical_timeline_rejects_work_after_final_answer() {
         let events = vec![
             runtime_event(
-                "run-post-final",
+                "turn-post-final",
                 "agent.message.completed",
                 AgentRuntimePhase::Completed,
                 Some("message-1"),
@@ -3646,7 +3646,7 @@ mod tests {
                 }),
             ),
             runtime_event(
-                "run-post-final",
+                "turn-post-final",
                 "agent.tool.start",
                 AgentRuntimePhase::ToolRunning,
                 Some("tool-1"),
@@ -3655,7 +3655,7 @@ mod tests {
             ),
         ];
 
-        let error = project_timeline_snapshot("session-1", "run-post-final", &events)
+        let error = project_timeline_snapshot("session-1", "turn-post-final", &events)
             .expect_err("post-final work must be rejected");
 
         assert!(error.contains("appears after final answer"));
@@ -3665,7 +3665,7 @@ mod tests {
     fn incremental_timeline_projector_matches_full_projection_at_every_event() {
         let events = vec![
             runtime_event(
-                "run-incremental",
+                "turn-incremental",
                 "agent.reasoning_delta",
                 AgentRuntimePhase::StreamingModel,
                 Some("reasoning-call-0"),
@@ -3673,7 +3673,7 @@ mod tests {
                 json!({ "delta": "Inspect.", "modelCallId": "call-0" }),
             ),
             runtime_event(
-                "run-incremental",
+                "turn-incremental",
                 "agent.delta",
                 AgentRuntimePhase::StreamingModel,
                 Some("message-call-0"),
@@ -3681,7 +3681,7 @@ mod tests {
                 json!({ "delta": "Checking.", "modelCallId": "call-0" }),
             ),
             runtime_event(
-                "run-incremental",
+                "turn-incremental",
                 "agent.message.classified",
                 AgentRuntimePhase::ToolRunning,
                 Some("message-call-0"),
@@ -3689,7 +3689,7 @@ mod tests {
                 json!({ "modelCallId": "call-0", "messagePhase": "commentary" }),
             ),
             runtime_event(
-                "run-incremental",
+                "turn-incremental",
                 "agent.tool.start",
                 AgentRuntimePhase::ToolRunning,
                 Some("tool-1"),
@@ -3697,7 +3697,7 @@ mod tests {
                 json!({ "toolCallId": "tool-1", "toolName": "workspace.read_file" }),
             ),
             runtime_event(
-                "run-incremental",
+                "turn-incremental",
                 "agent.tool.result",
                 AgentRuntimePhase::ToolRunning,
                 Some("tool-1"),
@@ -3705,7 +3705,7 @@ mod tests {
                 json!({ "toolCallId": "tool-1", "toolName": "workspace.read_file", "result": { "ok": true } }),
             ),
             runtime_event(
-                "run-incremental",
+                "turn-incremental",
                 "agent.message.completed",
                 AgentRuntimePhase::Completed,
                 Some("message-call-1"),
@@ -3717,7 +3717,7 @@ mod tests {
                 }),
             ),
         ];
-        let mut projector = AgentTimelineProjector::new("session-1", "run-incremental");
+        let mut projector = AgentTimelineProjector::new("session-1", "turn-incremental");
         let mut prefix = Vec::new();
 
         for event in events {
@@ -3728,7 +3728,7 @@ mod tests {
             let incremental = projector
                 .snapshot()
                 .expect("incremental snapshot should build");
-            let full = project_timeline_snapshot("session-1", "run-incremental", &prefix)
+            let full = project_timeline_snapshot("session-1", "turn-incremental", &prefix)
                 .expect("full snapshot should build");
 
             assert_eq!(incremental, full);
@@ -3748,7 +3748,7 @@ mod tests {
     fn live_deltas_do_not_advance_durable_timeline_revision() {
         let events = vec![
             runtime_event(
-                "run-durable-revision",
+                "turn-durable-revision",
                 "agent.reasoning_delta",
                 AgentRuntimePhase::StreamingModel,
                 Some("reasoning-1"),
@@ -3756,7 +3756,7 @@ mod tests {
                 json!({"delta": "Inspect "}),
             ),
             runtime_event(
-                "run-durable-revision",
+                "turn-durable-revision",
                 "agent.reasoning.completed",
                 AgentRuntimePhase::StreamingModel,
                 Some("reasoning-1"),
@@ -3764,7 +3764,7 @@ mod tests {
                 json!({"summary": "Inspect first."}),
             ),
             runtime_event(
-                "run-durable-revision",
+                "turn-durable-revision",
                 "agent.delta",
                 AgentRuntimePhase::Finalizing,
                 Some("assistant-1"),
@@ -3772,7 +3772,7 @@ mod tests {
                 json!({"delta": "Done."}),
             ),
             runtime_event(
-                "run-durable-revision",
+                "turn-durable-revision",
                 "agent.message.completed",
                 AgentRuntimePhase::Completed,
                 Some("assistant-1"),
@@ -3780,7 +3780,7 @@ mod tests {
                 json!({"content": "Done.", "messagePhase": "final_answer"}),
             ),
         ];
-        let mut projector = AgentTimelineProjector::new("session-1", "run-durable-revision");
+        let mut projector = AgentTimelineProjector::new("session-1", "turn-durable-revision");
         let revisions = events
             .iter()
             .map(|event| {
@@ -3795,7 +3795,7 @@ mod tests {
         assert_eq!(revisions, vec![0, 1, 1, 2]);
         assert_eq!(projector.snapshot().unwrap().snapshot_revision, 2);
         assert_eq!(
-            project_timeline_snapshot("session-1", "run-durable-revision", &events)
+            project_timeline_snapshot("session-1", "turn-durable-revision", &events)
                 .unwrap()
                 .snapshot_revision,
             2

@@ -35,7 +35,7 @@ fn workspace_write_consumes_matching_once_approval_grant() {
 
     approve_once(
         &mut router,
-        "run-1",
+        "turn-1",
         "session-1",
         json!({
             "toolName": "write_file",
@@ -203,7 +203,7 @@ fn dispatches_workspace_list_dir_and_delete_file_requests() {
     ));
     approve_once(
         &mut router,
-        "run-delete",
+        "turn-delete",
         "session-1",
         json!({
             "toolName": "delete_file",
@@ -252,7 +252,7 @@ fn dispatches_shell_execute_request() {
     );
     approve_once(
         &mut router,
-        "run-shell",
+        "turn-shell",
         "session-1",
         json!({
             "toolName": "exec",
@@ -304,7 +304,7 @@ fn read_only_shell_approval_cannot_authorize_unsandboxed_execution() {
     let command = "type readable.txt & echo blocked>blocked.txt";
     approve_once(
         &mut router,
-        "run-shell-read-only",
+        "turn-shell-read-only",
         "session-1",
         json!({
             "toolName": "exec",
@@ -326,7 +326,7 @@ fn read_only_shell_approval_cannot_authorize_unsandboxed_execution() {
         json!({
             "command": command,
             "sessionId": "session-1",
-            "turnId": "run-shell-read-only"
+            "turnId": "turn-shell-read-only"
         }),
     ));
     let error = unsandboxed
@@ -347,7 +347,7 @@ fn read_only_shell_approval_cannot_authorize_unsandboxed_execution() {
             "sandboxMode": "read_only",
             "networkMode": "unrestricted",
             "sessionId": "session-1",
-            "turnId": "run-shell-read-only"
+            "turnId": "turn-shell-read-only"
         }),
     ));
     assert!(read_only.error.is_none(), "{read_only:?}");
@@ -383,7 +383,7 @@ fn dispatches_owned_shell_process_lifecycle() {
     let command = blocking_shell_command_with_marker();
     approve_once(
         &mut router,
-        "run-shell-process",
+        "turn-shell-process",
         "session-shell-process",
         json!({
             "toolName": "exec_command",
@@ -476,7 +476,7 @@ fn tool_executor_injects_turn_ownership_into_exec_command() {
     let command = blocking_shell_command_with_marker();
     approve_once(
         &mut router,
-        "run-exec-command",
+        "turn-exec-command",
         "session-exec-command",
         json!({
             "toolName": "exec_command",
@@ -608,7 +608,7 @@ fn tool_executor_forwards_request_cancellation_to_shell_execute() {
     let command = blocking_shell_command_with_marker();
     approve_once(
         &mut router,
-        "run-shell-cancel",
+        "turn-shell-cancel",
         "session-1",
         json!({
             "toolName": "exec",
@@ -631,7 +631,7 @@ fn tool_executor_forwards_request_cancellation_to_shell_execute() {
                 "working_dir": ".",
                 "timeout": 30,
                 "sessionId": "session-1",
-                "turnId": "run-shell-cancel"
+                "turnId": "turn-shell-cancel"
             }
         }),
     )

@@ -833,7 +833,7 @@ mod tests {
                     cols: None,
                     sandbox_mode: Some(ShellSandboxMode::Unsandboxed),
                     network_mode: Some(PermissionNetworkMode::Unrestricted),
-                    owner_id: Some("run-external-read".to_string()),
+                    owner_id: Some("turn-external-read".to_string()),
                     tool_call_id: Some("call-external-read".to_string()),
                     cancellation: None,
                 },

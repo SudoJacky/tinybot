@@ -147,8 +147,7 @@ pub struct ThreadTurnSummary {
 pub struct ThreadCheckpoint {
     pub checkpoint_id: String,
     pub thread_id: String,
-    #[serde(default)]
-    pub turn_id: Option<String>,
+    pub turn_id: String,
     pub sequence: u64,
     #[serde(default)]
     pub label: Option<String>,

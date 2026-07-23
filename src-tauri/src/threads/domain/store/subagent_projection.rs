@@ -42,7 +42,7 @@ pub(super) fn inherited_subagent_history_items(
                     summary.session_key, summary.subagent_id, source.item_id
                 ),
                 thread_id: String::new(),
-                turn_id: Some(summary.child_turn_id.clone()),
+                turn_id: summary.child_turn_id.clone(),
                 parent_item_id: None,
                 sequence: 0,
                 created_at: source.created_at.clone(),
@@ -88,7 +88,7 @@ pub(super) fn subagent_initial_child_items(
                 summary.session_key, summary.subagent_id
             ),
             thread_id: String::new(),
-            turn_id: Some(summary.child_turn_id.clone()),
+            turn_id: summary.child_turn_id.clone(),
             parent_item_id: None,
             sequence: 0,
             created_at: summary.created_at.clone(),
@@ -105,7 +105,7 @@ pub(super) fn subagent_initial_child_items(
             summary.session_key, summary.subagent_id
         ),
         thread_id: String::new(),
-        turn_id: Some(summary.child_turn_id.clone()),
+        turn_id: summary.child_turn_id.clone(),
         parent_item_id: None,
         sequence: 0,
         created_at: summary.created_at.clone(),
@@ -122,7 +122,7 @@ pub(super) fn subagent_input_item(
     ThreadItem {
         item_id: input.input_id.clone(),
         thread_id: String::new(),
-        turn_id: Some(summary.child_turn_id.clone()),
+        turn_id: summary.child_turn_id.clone(),
         parent_item_id: None,
         sequence: 0,
         created_at: input.created_at.clone(),
@@ -161,7 +161,7 @@ pub(super) fn subagent_child_status_item(
             summary.session_key, summary.subagent_id
         ),
         thread_id: String::new(),
-        turn_id: Some(summary.child_turn_id.clone()),
+        turn_id: summary.child_turn_id.clone(),
         parent_item_id: None,
         sequence: 0,
         created_at: summary.updated_at.clone(),
@@ -193,7 +193,10 @@ pub(super) fn subagent_parent_item(
             summary.session_key, summary.subagent_id
         ),
         thread_id: String::new(),
-        turn_id: summary.parent_turn_id.clone(),
+        turn_id: summary
+            .parent_turn_id
+            .clone()
+            .expect("subagent parent projection requires a parent turn id"),
         parent_item_id: None,
         sequence: 0,
         created_at: summary.updated_at.clone(),

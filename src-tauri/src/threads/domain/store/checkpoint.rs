@@ -11,10 +11,7 @@ pub(super) fn latest_checkpoint_from_items(
         .filter(|checkpoint| {
             !items.iter().any(|item| {
                 item.sequence > checkpoint.sequence
-                    && checkpoint
-                        .turn_id
-                        .as_ref()
-                        .is_some_and(|turn_id| item.turn_id.as_ref() == Some(turn_id))
+                    && item.turn_id == checkpoint.turn_id
                     && is_terminal_turn_item(item)
             })
         })
@@ -29,11 +26,6 @@ pub(super) fn checkpoint_from_item(thread_id: &str, item: &ThreadItem) -> Option
         .or_else(|| string_field(payload, "checkpoint_id"))
         .or_else(|| non_empty_string(&item.item_id))
         .unwrap_or_else(|| format!("checkpoint:{}", item.sequence));
-    let turn_id = item
-        .turn_id
-        .clone()
-        .or_else(|| string_field(payload, "turnId"))
-        .or_else(|| string_field(payload, "turn_id"));
     let restore_payload = payload
         .get("restorePayload")
         .or_else(|| payload.get("restore_payload"))
@@ -43,7 +35,7 @@ pub(super) fn checkpoint_from_item(thread_id: &str, item: &ThreadItem) -> Option
     Some(ThreadCheckpoint {
         checkpoint_id,
         thread_id: thread_id.to_string(),
-        turn_id,
+        turn_id: item.turn_id.clone(),
         sequence: item.sequence,
         label: string_field(payload, "label"),
         created_at: item.created_at.clone(),

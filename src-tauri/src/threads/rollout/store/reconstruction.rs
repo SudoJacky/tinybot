@@ -82,7 +82,7 @@ mod tests {
     use serde_json::{json, Value};
 
     #[test]
-    fn one_rollout_drives_consistent_context_transcript_ui_runs_and_checkpoints() {
+    fn one_rollout_drives_consistent_context_transcript_ui_turns_and_checkpoints() {
         let lines = vec![
             line(
                 0,
@@ -121,6 +121,7 @@ mod tests {
                 5,
                 RolloutItem::Compacted(
                     CompactedItem::from_value(json!({
+                        "turnId": "turn-1",
                         "replacementHistory": [{
                             "role": "assistant",
                             "content": "summary before current window"
@@ -230,11 +231,7 @@ mod tests {
                     "threadItemSequence": 6
                 }),
             ),
-            event_line(
-                16,
-                EventKind::TurnComplete,
-                json!({"turnId": "turn-discarded", "turnId": "turn-3"}),
-            ),
+            event_line(16, EventKind::TurnComplete, json!({"turnId": "turn-3"})),
             event_line(17, EventKind::ThreadRolledBack, json!({"numTurns": 1})),
         ];
 
@@ -270,7 +267,7 @@ mod tests {
                 .semantic
                 .reference_context
                 .as_ref()
-                .and_then(|context| context.turn_id.as_deref()),
+                .map(|context| context.turn_id.as_str()),
             Some("turn-2")
         );
         assert_eq!(reconstructed.semantic.compaction_window.window_number, 2);
@@ -306,7 +303,7 @@ mod tests {
             .iter()
             .all(|item| item.item_id != "item-discarded"));
         assert_eq!(reconstructed.turns.len(), 1);
-        assert_eq!(reconstructed.turns[0].turn_id, "turn-1");
+        assert_eq!(reconstructed.turns[0].turn_id, "turn-2");
         assert!(reconstructed.turns[0].checkpoint.is_none());
         assert_eq!(reconstructed.checkpoints.len(), 2);
         assert!(reconstructed
@@ -341,7 +338,7 @@ mod tests {
 
     fn turn_context(turn_id: &str, model: &str) -> TurnContextItem {
         TurnContextItem {
-            turn_id: Some(turn_id.to_string()),
+            turn_id: turn_id.to_string(),
             cwd: "D:/workspace".to_string(),
             workspace_roots: Some(vec!["D:/workspace".to_string()]),
             current_date: Some("2026-07-17".to_string()),

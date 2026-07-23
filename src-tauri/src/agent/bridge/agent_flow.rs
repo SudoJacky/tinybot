@@ -25,7 +25,7 @@ pub(crate) async fn run_agent_with_services(
         config_snapshot.clone(),
     )? {
         rejection["traceContext"] = serde_json::to_value(trace_context)
-            .map_err(|error| format!("failed to serialize terminal run trace context: {error}"))?;
+            .map_err(|error| format!("failed to serialize terminal turn trace context: {error}"))?;
         return Ok(rejection);
     }
     let mut persistence_spec = spec.clone();
@@ -61,7 +61,7 @@ pub(crate) async fn run_agent_with_services(
         config_snapshot.clone(),
         live_trace_sink,
     ));
-    let run_result = run_native_agent_turn_with_workspace_and_instructions_async(
+    let turn_result = run_native_agent_turn_with_workspace_and_instructions_async(
         &services,
         runtime_spec,
         config_snapshot.clone(),
@@ -70,13 +70,13 @@ pub(crate) async fn run_agent_with_services(
     )
     .await;
     let flush_result = services.flush_trace_sink();
-    let mut result = match (run_result, flush_result) {
+    let mut result = match (turn_result, flush_result) {
         (Ok(result), Ok(())) => result,
-        (Err(run_error), Ok(())) => return Err(run_error),
+        (Err(turn_error), Ok(())) => return Err(turn_error),
         (Ok(_), Err(flush_error)) => return Err(flush_error),
-        (Err(run_error), Err(flush_error)) => {
+        (Err(turn_error), Err(flush_error)) => {
             return Err(format!(
-            "native agent turn failed: {run_error}; trace persistence flush failed: {flush_error}"
+            "native agent turn failed: {turn_error}; trace persistence flush failed: {flush_error}"
         ))
         }
     };
