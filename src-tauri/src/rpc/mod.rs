@@ -34,7 +34,7 @@ use crate::threads::domain::{
     ThreadOp, ThreadPersistenceRepairRequest, UpdateThreadMetadataRequest, WorkerThreadRpc,
 };
 use crate::threads::rollout::store::{ThreadLogIndexRepairRequest, WorkerThreadLogRpc};
-use crate::threads::session::{AgentRunRecord, AgentRunSummary, SessionMetadata, WorkerSessionRpc};
+use crate::threads::session::{AgentRunRecord, AgentRunSummary, SessionMetadata};
 use crate::tools::executor::{
     tool_not_found_error, tool_unavailable_error, ToolExecutorExecuteRequest,
     ToolExecutorExecuteResult,
@@ -96,7 +96,6 @@ pub struct WorkerRpcRouter {
     workspace: WorkerWorkspaceRpc,
     config: WorkerConfigRpc,
     secret: WorkerSecretRpc,
-    session: WorkerSessionRpc,
     diagnostics: WorkerDiagnosticsRpc,
     shell: WorkerShellRpc,
     approval: WorkerApprovalRpc,
@@ -121,7 +120,7 @@ impl WorkerRpcRouter {
     pub fn new(
         workspace_root: PathBuf,
         config_snapshot: Value,
-        sessions: Vec<SessionMetadata>,
+        _sessions: Vec<SessionMetadata>,
         diagnostic_capacity: usize,
         policy: CapabilityPolicy,
     ) -> Self {
@@ -129,7 +128,6 @@ impl WorkerRpcRouter {
             workspace: WorkerWorkspaceRpc::new(workspace_root.clone(), policy.clone()),
             config: WorkerConfigRpc::new(config_snapshot.clone(), policy.clone()),
             secret: WorkerSecretRpc::new(config_snapshot.clone(), policy.clone()),
-            session: WorkerSessionRpc::new(sessions, policy.clone()),
             diagnostics: WorkerDiagnosticsRpc::new(diagnostic_capacity, policy.clone()),
             shell: WorkerShellRpc::new(workspace_root.clone(), policy.clone()),
             approval: WorkerApprovalRpc::new(policy.clone()),
@@ -161,21 +159,15 @@ impl WorkerRpcRouter {
     pub fn new_persistent_sessions(
         workspace_root: PathBuf,
         config_snapshot: Value,
-        sessions: Vec<SessionMetadata>,
+        _sessions: Vec<SessionMetadata>,
         diagnostic_capacity: usize,
         policy: CapabilityPolicy,
     ) -> Result<Self, crate::protocol::WorkerProtocolError> {
         let thread_log = WorkerThreadLogRpc::new(workspace_root.clone(), policy.clone());
-        let session = WorkerSessionRpc::new_persistent_resources(
-            workspace_root.clone(),
-            sessions,
-            policy.clone(),
-        )?;
         Ok(Self {
             workspace: WorkerWorkspaceRpc::new(workspace_root.clone(), policy.clone()),
             config: WorkerConfigRpc::new(config_snapshot.clone(), policy.clone()),
             secret: WorkerSecretRpc::new(config_snapshot.clone(), policy.clone()),
-            session,
             diagnostics: WorkerDiagnosticsRpc::new(diagnostic_capacity, policy.clone()),
             shell: WorkerShellRpc::new(workspace_root.clone(), policy.clone()),
             approval: WorkerApprovalRpc::new(policy.clone()),
@@ -959,15 +951,6 @@ struct SessionPatchUserProfileParams {
     #[serde(alias = "userProfile")]
     user_profile: Value,
     metadata: Option<Value>,
-}
-
-#[derive(Deserialize)]
-struct SessionTemporaryFileUploadParams {
-    session_id: String,
-    name: String,
-    file_type: String,
-    content: String,
-    size_bytes: Option<u64>,
 }
 
 #[derive(Deserialize)]

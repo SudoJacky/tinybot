@@ -4,7 +4,6 @@ mod reader;
 mod reconstruction;
 mod recorder;
 mod rollout_writer;
-mod session_adapter;
 mod state_db;
 
 pub(crate) use self::agent_run::is_agent_run_semantic_event;
@@ -16,7 +15,8 @@ use crate::threads::domain::{
     ThreadPagination, ThreadRecord, ThreadRunSummary, ThreadSnapshot, ThreadStatus,
 };
 use crate::threads::session::{
-    AgentRunRecord, AgentRunStatus, ClearSessionResult, DeleteSessionResult, PersistTurnResult,
+    agent_context_from_replay, metadata_from_state, session_history_from_replay, AgentRunRecord,
+    AgentRunStatus, ClearSessionResult, DeleteSessionResult, PersistTurnResult,
     SessionHistoryProjection, SessionMetadata, TrimSessionResult,
 };
 use serde::{Deserialize, Serialize};
@@ -39,20 +39,17 @@ use self::reader::read_thread_lines_for_discovery;
 use self::recorder::ThreadLogHead;
 use self::recorder::{canonicalize_thread_timestamp, is_canonical_thread_log_path};
 pub use self::recorder::{value_event, ThreadRecorder};
-pub use self::session_adapter::{
-    agent_context_from_replay, metadata_from_state, session_history_from_replay,
-};
 pub use self::state_db::ThreadStateDb;
 use self::state_db::{thread_projection_hash, LatestContextCheckpointRecord, ThreadLogHeadRecord};
 pub use crate::threads::rollout::format::reconstruct_rollout as replay_thread;
 use crate::threads::rollout::format::reconstruct_transcript as replay_thread_transcript;
-#[cfg(test)]
-pub use crate::threads::rollout::format::TokenUsage;
 pub use crate::threads::rollout::format::{
     CompactedItem, EventKind, EventMsg, ResponseItem, RolloutItem as ThreadLogItem,
     RolloutLine as ThreadLogLine, RolloutReconstruction as ThreadReplay, SessionMeta as ThreadMeta,
-    ThreadStateRecord, TokenUsageInfo,
+    ThreadStateRecord,
 };
+#[cfg(test)]
+pub use crate::threads::rollout::format::{TokenUsage, TokenUsageInfo};
 pub(crate) use crate::threads::time::now_thread_timestamp;
 pub const THREAD_LOG_SCHEMA_VERSION: u32 = crate::threads::rollout::format::ROLLOUT_SCHEMA_VERSION;
 

@@ -1,9 +1,9 @@
 # Worker Session
 
-`threads::session` exposes Tinybot's session-shaped API used by direct-session
-flows and compatibility callers. Conversation history, metadata, task
-progress, checkpoints, and agent-run records are reconstructed from canonical
-Rollouts; this module separately owns temporary upload resources.
+`threads::session` defines Tinybot's session-shaped projection used by
+direct-session flows and compatibility callers. Conversation history,
+metadata, task progress, checkpoints, and agent-run records are reconstructed
+from canonical Rollouts.
 
 The module root is `mod.rs`; this directory splits the aggregate by concern.
 
@@ -11,11 +11,6 @@ The module root is `mod.rs`; this directory splits the aggregate by concern.
 
 Conversation and runtime state is not stored in a session database. The
 durable authority is the append-only Rollout owned by `threads::rollout::store`.
-Temporary uploads use the independent resource sidecar:
-
-```text
-.tinybot/resources/session-temporary-files.json
-```
 
 Session-shaped reads and mutations go through Rollout adapters so validation,
 capability checks, timestamps, and reconstruction stay aligned. The removed
@@ -29,14 +24,13 @@ capability checks, timestamps, and reconstruction stay aligned. The removed
 - Query agent-run summaries, traces, runtime state, and checkpoints from
   Rollout.
 - Project user profiles and task progress from Rollout records.
-- Manage temporary-file metadata and lifecycle.
 - Enforce session ID validation and session read/write capabilities.
 
 ## Internal layout
 
-- `types.rs`: session and temporary-file compatibility shapes.
-- `resource_store.rs`: durable temporary-resource sidecar.
-- `temporary_file.rs`: temporary upload records and cleanup.
+- `types.rs`: session compatibility shapes.
+- `projection.rs`: maps canonical Rollout reconstruction into session-shaped
+  responses.
 
 ## Boundaries with Thread persistence
 
@@ -45,8 +39,6 @@ capability checks, timestamps, and reconstruction stay aligned. The removed
   `threads::rollout::store`.
 - Session API compatibility belongs here, but conversation writes still append
   to the same Rollout authority.
-- Temporary resource cleanup must accompany session clear/delete without
-  treating the resource sidecar as conversation history.
 
 ## Invariants
 
@@ -55,8 +47,6 @@ capability checks, timestamps, and reconstruction stay aligned. The removed
   the caller.
 - Checkpoints are cleared only by explicit completion, cancellation, restore,
   or session-clear behavior.
-- Temporary files have explicit ownership and cleanup; they are not ordinary
-  durable message attachments.
 - Compatibility projections must preserve message, run, checkpoint, and usage
   identity fields.
 - Do not add a session snapshot database, fallback read, or completed-turn

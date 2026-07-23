@@ -56,7 +56,7 @@ The main layers are:
    - [`threads/rollout/store/`](src/threads/rollout/store/README.md) owns
      canonical append-only Rollouts and their rebuildable SQLite index.
    - [`threads/session/`](src/threads/session/README.md) exposes session-shaped
-     Rollout projections and owns temporary upload resources.
+     projections of canonical Rollouts.
 5. **Domain services**
    - `workspace/`, `memory/`, `tools/`, `automation/`, `collaboration/`, and
      `config/` own their business rules and do not depend on RPC or Tauri.
@@ -100,7 +100,6 @@ roles:
 | --- | --- | --- |
 | `.tinybot/threads/<year>/<month>/<day>/*.jsonl` | `threads::rollout::store` | Canonical append-only Rollouts |
 | `.tinybot/state/state.sqlite` | `threads::rollout::store` | Rebuildable discovery and metadata index |
-| `.tinybot/resources/session-temporary-files.json` | `threads::session` | Temporary upload resource sidecar |
 
 The removed `sessions/sessions.sqlite`, `.tinybot/state/thread-store.jsonl`,
 and `.tinybot/threads/threads.sqlite` paths are not compatibility authorities

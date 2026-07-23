@@ -110,7 +110,6 @@ impl WorkerRpcRouter {
             }
             "session.clear" => {
                 let params: SessionIdParams = parse_params(request)?;
-                self.session.clear_temporary_files(&params.session_id)?;
                 serde_json::to_value(self.thread_log.clear_session(&params.session_id)?)
                     .map_err(serialization_error)
             }
@@ -124,8 +123,6 @@ impl WorkerRpcRouter {
             }
             "session.delete" => {
                 let params: SessionIdParams = parse_params(request)?;
-                self.session
-                    .remove_temporary_file_resources(&params.session_id)?;
                 serde_json::to_value(self.thread_log.delete_session(&params.session_id)?)
                     .map_err(serialization_error)
             }
@@ -145,26 +142,6 @@ impl WorkerRpcRouter {
                     params.metadata.unwrap_or_else(|| serde_json::json!({})),
                 )?)
                 .map_err(serialization_error)
-            }
-            "session.temporary_file.upload" => {
-                let params: SessionTemporaryFileUploadParams = parse_params(request)?;
-                self.session.upload_temporary_file(
-                    &params.session_id,
-                    &params.name,
-                    &params.file_type,
-                    &params.content,
-                    params
-                        .size_bytes
-                        .unwrap_or_else(|| params.content.len() as u64),
-                )
-            }
-            "session.temporary_file.list" => {
-                let params: SessionIdParams = parse_params(request)?;
-                self.session.list_temporary_files(&params.session_id)
-            }
-            "session.temporary_file.clear" => {
-                let params: SessionIdParams = parse_params(request)?;
-                self.session.clear_temporary_files(&params.session_id)
             }
             "session.append_messages" => {
                 let params: SessionAppendMessagesParams = parse_params(request)?;

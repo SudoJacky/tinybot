@@ -28,55 +28,6 @@ mod request_boundary;
 mod sessions;
 mod threads_and_tools;
 
-fn persistent_router_with_temporary_file(
-    fixture: &WorkspaceFixture,
-    session_id: &str,
-    policy: CapabilityPolicy,
-) -> WorkerRpcRouter {
-    let mut session = session_fixture();
-    session.session_id = session_id.to_string();
-    let mut router = WorkerRpcRouter::new_persistent_sessions(
-        fixture.root.clone(),
-        json!({}),
-        vec![session],
-        20,
-        policy,
-    )
-    .unwrap();
-    assert_eq!(
-        router
-            .dispatch(&WorkerRequest::new(
-                format!("req-{session_id}-resource-history"),
-                format!("trace-{session_id}-resource"),
-                "session.append_messages",
-                json!({
-                    "session_id": session_id,
-                    "messages": [{ "role": "user", "content": "remove everything" }]
-                }),
-            ))
-            .error,
-        None
-    );
-    assert_eq!(
-        router
-            .dispatch(&WorkerRequest::new(
-                format!("req-{session_id}-resource-upload"),
-                format!("trace-{session_id}-resource"),
-                "session.temporary_file.upload",
-                json!({
-                    "session_id": session_id,
-                    "name": "Remove Me.md",
-                    "file_type": "md",
-                    "content": "temporary resource evidence",
-                    "size_bytes": 27
-                }),
-            ))
-            .error,
-        None
-    );
-    router
-}
-
 fn approve_once(
     router: &mut WorkerRpcRouter,
     run_id: &str,

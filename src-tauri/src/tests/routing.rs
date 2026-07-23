@@ -20,14 +20,11 @@ use crate::desktop_commands::agent::WorkerTaskPlanListInput;
 use crate::desktop_commands::session::worker_agent_run_runtime_state_with_options;
 use crate::desktop_commands::session::worker_agent_runs_list_with_options;
 use crate::desktop_commands::session::worker_session_branch_with_options;
-use crate::desktop_commands::session::worker_session_clear_temporary_files_with_options;
 use crate::desktop_commands::session::worker_session_clear_with_options;
 use crate::desktop_commands::session::worker_session_delete_with_options;
 use crate::desktop_commands::session::worker_session_messages_with_options;
 use crate::desktop_commands::session::worker_session_patch_with_options;
 use crate::desktop_commands::session::worker_session_task_progress_with_options;
-use crate::desktop_commands::session::worker_session_temporary_files_with_options;
-use crate::desktop_commands::session::worker_session_upload_temporary_file_with_options;
 use crate::desktop_commands::session::worker_sessions_list_with_options;
 use crate::desktop_commands::skills::build_worker_skills_create_request;
 use crate::desktop_commands::skills::build_worker_skills_delete_request;
@@ -405,28 +402,6 @@ fn worker_session_write_commands_use_rollout_state_on_rust_backend() {
     }));
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
 
-    let uploaded = worker_session_upload_temporary_file_with_options(
-        &shared,
-        "websocket:chat-1".to_string(),
-        serde_json::json!({
-            "name": "context.md",
-            "file_type": "md",
-            "content": "hello native",
-            "size_bytes": 12
-        }),
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("temporary upload should be served by Rust session state");
-    let temporary_files = worker_session_temporary_files_with_options(
-        &shared,
-        "websocket:chat-1".to_string(),
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("temporary file list should be served by Rust session state");
     let patch = worker_session_patch_with_options(
         &shared,
         "websocket:chat-1".to_string(),
@@ -436,14 +411,6 @@ fn worker_session_write_commands_use_rollout_state_on_rust_backend() {
         Duration::from_millis(10),
     )
     .expect("session patch should be served by Rust session state");
-    let cleared_files = worker_session_clear_temporary_files_with_options(
-        &shared,
-        "websocket:chat-1".to_string(),
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("temporary file clear should be served by Rust session state");
     let cleared_session = worker_session_clear_with_options(
         &shared,
         "websocket:chat-1".to_string(),
@@ -481,12 +448,8 @@ fn worker_session_write_commands_use_rollout_state_on_rust_backend() {
     )
     .expect("session delete should be served by Rust session state");
 
-    assert_eq!(uploaded["name"], "context.md");
-    assert_eq!(temporary_files["key"], "websocket:chat-1");
-    assert_eq!(temporary_files["temporary_files"][0]["name"], "context.md");
     assert_eq!(patch["key"], "websocket:chat-1");
     assert_eq!(patch["metadata"]["pinned"], true);
-    assert_eq!(cleared_files["cleared"], 1);
     assert_eq!(cleared_session["messages_before"], 1);
     assert_eq!(progress["key"], "websocket:chat-1");
     assert_eq!(

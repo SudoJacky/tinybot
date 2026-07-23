@@ -6,11 +6,10 @@ use crate::collaboration::cowork::WorkerCoworkRuntime;
 use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
 use crate::desktop::{state::lock_runtime, SharedGateway};
 use crate::desktop_commands::session::{
-    worker_session_branch_with_options, worker_session_clear_temporary_files_with_options,
-    worker_session_clear_with_options, worker_session_delete_with_options,
-    worker_session_effective_capabilities_with_options, worker_session_messages_with_options,
-    worker_session_patch_with_options, worker_session_temporary_files_with_options,
-    worker_session_upload_temporary_file_with_options, worker_sessions_list_with_options,
+    worker_session_branch_with_options, worker_session_clear_with_options,
+    worker_session_delete_with_options, worker_session_effective_capabilities_with_options,
+    worker_session_messages_with_options, worker_session_patch_with_options,
+    worker_sessions_list_with_options,
 };
 use crate::desktop_commands::skills::{
     worker_skills_create_with_options, worker_skills_delete_with_options,
@@ -515,33 +514,6 @@ async fn worker_webui_rust_dynamic_route(
                 timeout,
             ));
         }
-    }
-    if let Some(key) = webui_session_route_key(path, "/temporary-files") {
-        return match method {
-            "GET" => Some(worker_session_temporary_files_with_options(
-                shared,
-                key,
-                workspace_root,
-                config_snapshot,
-                timeout,
-            )),
-            "POST" => Some(worker_session_upload_temporary_file_with_options(
-                shared,
-                key,
-                body.clone(),
-                workspace_root,
-                config_snapshot,
-                timeout,
-            )),
-            "DELETE" => Some(worker_session_clear_temporary_files_with_options(
-                shared,
-                key,
-                workspace_root,
-                config_snapshot,
-                timeout,
-            )),
-            _ => None,
-        };
     }
     if let Some(key) = webui_session_route_key(path, "/clear") {
         if method == "POST" {

@@ -40,7 +40,7 @@ context, agent runs, checkpoints, and token usage.
 - `reader.rs`: bounded line reads.
 - `reconstruction.rs`: canonical Thread/session/runtime projection.
 - `state_db.rs`: SQLite index schema and queries.
-- `session_adapter.rs`: session compatibility projection.
+- `../../session/projection.rs`: session compatibility projection.
 - `agent_run.rs`: agent-run persistence and recovery over log/index state.
 - `mod.rs`: capability-checked service and index consistency/repair behavior.
 

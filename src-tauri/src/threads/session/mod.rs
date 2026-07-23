@@ -1,18 +1,7 @@
-use crate::protocol::capability::{CapabilityPolicy, WorkerCapability};
-use crate::protocol::{WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource};
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::path::PathBuf;
-
-#[derive(Clone, Debug)]
-pub struct WorkerSessionRpc {
-    sessions: Vec<SessionMetadata>,
-    policy: CapabilityPolicy,
-    resource_path: Option<PathBuf>,
-}
-
-mod resource_store;
-mod temporary_file;
+mod projection;
 mod types;
 
+pub(crate) use self::projection::{
+    agent_context_from_replay, metadata_from_state, session_history_from_replay,
+};
 pub use self::types::*;

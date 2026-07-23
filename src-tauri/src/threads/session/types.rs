@@ -1,3 +1,8 @@
+use crate::protocol::{WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource};
+use crate::threads::rollout::format::TokenUsageInfo;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 pub struct SessionMetadata {
     pub session_id: String,
@@ -59,8 +64,6 @@ pub struct DeleteSessionResult {
     pub deleted: bool,
 }
 
-use super::*;
-
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentRunStatus {
@@ -117,30 +120,6 @@ pub struct AgentRunRecord {
     #[serde(default)]
     pub trace_context: Option<crate::agent::runtime_protocol::AgentTraceContext>,
     pub error: Option<Value>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TokenUsage {
-    #[serde(default)]
-    pub input_tokens: i64,
-    #[serde(default)]
-    pub cached_input_tokens: i64,
-    #[serde(default)]
-    pub output_tokens: i64,
-    #[serde(default)]
-    pub reasoning_output_tokens: i64,
-    #[serde(default)]
-    pub total_tokens: i64,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TokenUsageInfo {
-    pub total_token_usage: TokenUsage,
-    pub last_token_usage: TokenUsage,
-    #[serde(default)]
-    pub model_context_window: Option<i64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]

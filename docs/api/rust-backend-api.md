@@ -852,9 +852,6 @@ checkpoint and returns `stopReason: "form_cancelled"` with an observable resolut
 | `worker_session_messages` | `{ input: { key: string } }` | `{ messages: [...] }` style payload |
 | `worker_agent_runs_list` | `{ input: { key: string } }` | agent run list |
 | `worker_agent_run_runtime_state` | `{ input: { sessionKey: string, runId: string } }` | `AgentRunRuntimeState` |
-| `worker_session_temporary_files` | `{ input: { key: string } }` | temporary file list |
-| `worker_session_upload_temporary_file` | `{ input: { key: string, body: { name, file_type, content, size_bytes? } } }` | uploaded file payload |
-| `worker_session_clear_temporary_files` | `{ input: { key: string } }` | clear result |
 | `worker_session_delete` | `{ input: { key: string } }` | delete result |
 | `worker_session_patch` | `{ input: { key: string, body: { title?, metadata?, archived? } } }` | patched session payload |
 | `worker_session_branch` | `{ input: { body: unknown } }` | branch result |
@@ -1748,9 +1745,6 @@ Use `routeResponse()` if the status and headers are needed.
 | `PATCH` | `/api/sessions/{key}` | sessions | Patch session metadata/title/archive state |
 | `DELETE` | `/api/sessions/{key}` | sessions | Delete session |
 | `POST` | `/api/sessions/{key}/clear` | sessions | Clear messages/profile/checkpoint |
-| `GET` | `/api/sessions/{key}/temporary-files` | sessions | List temporary files |
-| `POST` | `/api/sessions/{key}/temporary-files` | sessions | Upload text temporary file |
-| `DELETE` | `/api/sessions/{key}/temporary-files` | sessions | Clear temporary files |
 | `GET` | `/api/skills` | skills | List skills |
 | `POST` | `/api/skills` | skills | Create skill |
 | `GET` | `/api/skills/{name}` | skills | Skill detail |
@@ -1817,7 +1811,7 @@ External callers should usually prefer the Tauri commands above.
 | `permission_profile` | `current`, `evaluate_tool`, `request_tool_approval`, `resolve_tool_approval` |
 | `provider` | `resolve_secret` |
 | `runtime` | `metrics`, `now`, `restart` |
-| `session` | `append_messages`, `clear`, `clear_checkpoint`, `delete`, `get_checkpoint`, `get_history`, `get_metadata`, `list_metadata`, `patch_metadata`, `patch_user_profile`, `persist_turn`, `set_checkpoint`, `temporary_file.clear`, `temporary_file.list`, `temporary_file.upload`, `trim` |
+| `session` | `append_messages`, `clear`, `clear_checkpoint`, `delete`, `get_checkpoint`, `get_history`, `get_metadata`, `list_metadata`, `patch_metadata`, `patch_user_profile`, `persist_turn`, `set_checkpoint`, `trim` |
 | `shell` | `execute`, `start`, `poll`, `write_stdin`, `resize`, `interrupt`, `terminate`, `terminate_run`, `list`, `shutdown` |
 | `skills` | `list`, `webui_create`, `webui_delete`, `webui_detail`, `webui_list`, `webui_update`, `webui_validate` |
 | `subagent` | `cancel`, `close`, `list`, `query`, `resume`, `send_input`, `spawn`, `wait` |

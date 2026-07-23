@@ -1,8 +1,10 @@
-use super::{ThreadReplay, ThreadStateRecord, TokenUsageInfo};
-use crate::threads::session::{SessionHistoryProjection, SessionMetadata};
+use super::{SessionHistoryProjection, SessionMetadata};
+use crate::threads::rollout::format::{
+    RolloutReconstruction as ThreadReplay, ThreadStateRecord, TokenUsageInfo,
+};
 use serde_json::{json, Value};
 
-pub fn metadata_from_state(record: ThreadStateRecord) -> SessionMetadata {
+pub(crate) fn metadata_from_state(record: ThreadStateRecord) -> SessionMetadata {
     SessionMetadata {
         session_id: record.session_id.unwrap_or_else(|| record.id.clone()),
         title: record.title,
@@ -22,7 +24,7 @@ pub fn metadata_from_state(record: ThreadStateRecord) -> SessionMetadata {
     }
 }
 
-pub fn history_from_replay(replay: ThreadReplay, limit: usize) -> SessionHistoryProjection {
+fn history_from_replay(replay: ThreadReplay, limit: usize) -> SessionHistoryProjection {
     let mut messages = replay.messages;
     if limit == 0 {
         messages.clear();
@@ -44,7 +46,7 @@ pub fn history_from_replay(replay: ThreadReplay, limit: usize) -> SessionHistory
     }
 }
 
-pub fn session_history_from_replay(
+pub(crate) fn session_history_from_replay(
     mut replay: ThreadReplay,
     limit: usize,
 ) -> SessionHistoryProjection {
@@ -52,7 +54,7 @@ pub fn session_history_from_replay(
     history_from_replay(replay, limit)
 }
 
-pub fn agent_context_from_replay(
+pub(crate) fn agent_context_from_replay(
     mut replay: ThreadReplay,
     limit: usize,
 ) -> SessionHistoryProjection {
@@ -144,7 +146,7 @@ fn usage_from_token_usage_info(info: &TokenUsageInfo) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::threads::rollout::store::{TokenUsage, TokenUsageInfo};
+    use crate::threads::rollout::format::{TokenUsage, TokenUsageInfo};
     use serde_json::json;
 
     #[test]

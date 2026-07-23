@@ -40,13 +40,6 @@ pub(crate) struct WorkerSessionBranchInput {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct WorkerSessionTemporaryFileUploadInput {
-    key: String,
-    body: serde_json::Value,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub(crate) struct WorkerSessionTaskProgressInput {
     key: String,
     body: serde_json::Value,
@@ -143,49 +136,6 @@ pub(crate) fn worker_session_effective_capabilities(
         );
     }
     Ok(capabilities)
-}
-
-#[tauri::command]
-pub(crate) fn worker_session_temporary_files(
-    input: WorkerSessionInput,
-    state: State<'_, SharedGateway>,
-) -> Result<serde_json::Value, String> {
-    worker_session_temporary_files_with_options(
-        state.inner(),
-        input.key,
-        native_backend_workspace_root(),
-        native_config_snapshot(),
-        Duration::from_secs(10),
-    )
-}
-
-#[tauri::command]
-pub(crate) fn worker_session_upload_temporary_file(
-    input: WorkerSessionTemporaryFileUploadInput,
-    state: State<'_, SharedGateway>,
-) -> Result<serde_json::Value, String> {
-    worker_session_upload_temporary_file_with_options(
-        state.inner(),
-        input.key,
-        input.body,
-        native_backend_workspace_root(),
-        native_config_snapshot(),
-        Duration::from_secs(10),
-    )
-}
-
-#[tauri::command]
-pub(crate) fn worker_session_clear_temporary_files(
-    input: WorkerSessionInput,
-    state: State<'_, SharedGateway>,
-) -> Result<serde_json::Value, String> {
-    worker_session_clear_temporary_files_with_options(
-        state.inner(),
-        input.key,
-        native_backend_workspace_root(),
-        native_config_snapshot(),
-        Duration::from_secs(10),
-    )
 }
 
 #[tauri::command]
@@ -709,86 +659,6 @@ fn unavailable_capability(reason_code: &str, reason: &str) -> serde_json::Value 
         "reasonCode": reason_code,
         "reason": reason,
     })
-}
-
-pub(crate) fn worker_session_temporary_files_with_options(
-    _shared: &SharedGateway,
-    key: String,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    _timeout: Duration,
-) -> Result<serde_json::Value, String> {
-    let request_id = next_worker_request_correlation();
-    let mut result = call_rust_state_service(
-        workspace_root,
-        config_snapshot,
-        WorkerRequest::new(
-            request_id.id("session-temporary-files"),
-            request_id.trace_id("session-temporary-files"),
-            "session.temporary_file.list",
-            serde_json::json!({ "session_id": key }),
-        ),
-        "worker session temporary files",
-    )?;
-    add_session_key_fields(&mut result)?;
-    Ok(result)
-}
-
-pub(crate) fn worker_session_upload_temporary_file_with_options(
-    _shared: &SharedGateway,
-    key: String,
-    body: serde_json::Value,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    _timeout: Duration,
-) -> Result<serde_json::Value, String> {
-    let request_id = next_worker_request_correlation();
-    call_rust_state_service(
-        workspace_root,
-        config_snapshot,
-        WorkerRequest::new(
-            request_id.id("session-upload-temporary-file"),
-            request_id.trace_id("session-upload-temporary-file"),
-            "session.temporary_file.upload",
-            serde_json::json!({
-                "session_id": key,
-                "name": body.get("name").and_then(serde_json::Value::as_str).unwrap_or_default(),
-                "file_type": body.get("file_type")
-                    .or_else(|| body.get("fileType"))
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or_default(),
-                "content": body.get("content").and_then(serde_json::Value::as_str).unwrap_or_default(),
-                "size_bytes": body.get("size_bytes")
-                    .or_else(|| body.get("sizeBytes"))
-                    .and_then(serde_json::Value::as_u64)
-                    .unwrap_or_default(),
-            }),
-        ),
-        "worker session temporary file upload",
-    )
-}
-
-pub(crate) fn worker_session_clear_temporary_files_with_options(
-    _shared: &SharedGateway,
-    key: String,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    _timeout: Duration,
-) -> Result<serde_json::Value, String> {
-    let request_id = next_worker_request_correlation();
-    let mut result = call_rust_state_service(
-        workspace_root,
-        config_snapshot,
-        WorkerRequest::new(
-            request_id.id("session-clear-temporary-files"),
-            request_id.trace_id("session-clear-temporary-files"),
-            "session.temporary_file.clear",
-            serde_json::json!({ "session_id": key }),
-        ),
-        "worker session temporary files clear",
-    )?;
-    add_session_key_fields(&mut result)?;
-    Ok(result)
 }
 
 pub(crate) fn worker_session_delete_with_options(
