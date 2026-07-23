@@ -100,7 +100,6 @@ Known worker error sources:
 | `stop_gateway` | none | `GatewayRuntimeStatus` |
 | `set_gateway_keep_running` | `{ keepRunning: boolean }` | `GatewayRuntimeStatus` |
 | `worker_probe_status` | none | `WorkerRuntimeStatus` |
-| `worker_echo_agent` | `{ input: string }` | `{ ok, echo, configValue, workspaceFileCount }`; diagnostic/test route |
 
 `GatewayRuntimeStatus` includes:
 

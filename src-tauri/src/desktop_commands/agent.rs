@@ -16,20 +16,10 @@ use crate::desktop_commands::webui::{
 };
 use crate::protocol::request_id::{next_worker_request_correlation, WorkerRequestCorrelation};
 use crate::protocol::WorkerRequest;
-use crate::transport::stdio_worker::client::WorkerClient;
 use crate::{experimental_worker_router, lock_runtime, SharedGateway};
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tauri::{AppHandle, Runtime, State};
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct WorkerAgentEchoResult {
-    pub(crate) ok: bool,
-    pub(crate) echo: String,
-    pub(crate) config_value: serde_json::Value,
-    pub(crate) workspace_file_count: usize,
-}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -180,20 +170,6 @@ pub(crate) struct WorkerTaskPlanIdInput {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorkerTaskPlanSaveInput {
     pub(crate) plan: serde_json::Value,
-}
-
-#[tauri::command]
-pub(crate) fn worker_echo_agent(
-    input: String,
-    state: State<'_, SharedGateway>,
-) -> Result<WorkerAgentEchoResult, String> {
-    worker_echo_agent_with_options(
-        state.inner(),
-        input,
-        experimental_worker_workspace_root(),
-        experimental_worker_config_snapshot(),
-        Duration::from_secs(10),
-    )
 }
 
 #[tauri::command]
@@ -578,27 +554,6 @@ pub(crate) fn worker_task_plan_delete(
     )
 }
 
-pub(crate) fn worker_echo_agent_with_options(
-    shared: &SharedGateway,
-    input: String,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    timeout: Duration,
-) -> Result<WorkerAgentEchoResult, String> {
-    let client = WorkerClient::experimental_fixture(shared, workspace_root, config_snapshot)?;
-
-    let request_id = next_worker_request_correlation();
-    let request = WorkerRequest::new(
-        request_id.id("agent-echo"),
-        request_id.trace_id("agent-echo"),
-        "agent.echo",
-        serde_json::json!({ "input": input }),
-    );
-    let result = client.call(&request, timeout, "worker echo")?;
-    serde_json::from_value(result)
-        .map_err(|error| format!("worker echo response shape is invalid: {error}"))
-}
-
 #[cfg(test)]
 pub(crate) fn worker_run_agent_with_options(
     shared: &SharedGateway,
@@ -909,7 +864,6 @@ fn dispatch_worker_background_trace_request(
         .result
         .ok_or_else(|| format!("{context} response missing result"))
 }
-
 fn dispatch_worker_subagent_request(
     shared: &SharedGateway,
     method: &str,
@@ -1189,21 +1143,4 @@ fn dispatch_rust_task_request(
     response
         .result
         .ok_or_else(|| format!("{context} response missing result"))
-}
-
-fn experimental_worker_workspace_root() -> PathBuf {
-    let desktop_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("src-tauri should have repo parent")
-        .to_path_buf();
-    let current_layout = desktop_dir.join("workers").join("ts-worker-fixture");
-    if current_layout.exists() {
-        current_layout
-    } else {
-        desktop_dir
-            .join("apps")
-            .join("desktop")
-            .join("workers")
-            .join("ts-worker-fixture")
-    }
 }

@@ -1,4 +1,3 @@
-pub(crate) mod client;
 pub(crate) mod codec;
 pub(crate) mod connection;
 pub(crate) mod diagnostics;

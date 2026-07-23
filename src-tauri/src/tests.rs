@@ -712,34 +712,6 @@ fn gateway_status_reports_managed_worker_diagnostics() {
 }
 
 #[test]
-fn worker_echo_agent_uses_experimental_fixture_worker() {
-    let fixture = WorkspaceFixture::new();
-    fixture.write("AGENTS.md", "agents");
-    fixture.write("notes/today.md", "hello command");
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
-
-    let result = worker_echo_agent_with_options(
-        &shared,
-        "hello command".to_string(),
-        fixture.root.clone(),
-        serde_json::json!({ "agents": { "defaults": { "model": "gpt-5" } } }),
-        Duration::from_secs(5),
-    )
-    .expect("experimental worker echo should complete");
-
-    assert!(result.ok);
-    assert_eq!(result.echo, "hello command");
-    assert_eq!(result.config_value, serde_json::json!("gpt-5"));
-    assert_eq!(result.workspace_file_count, 2);
-
-    let runtime = lock_runtime(&shared);
-    assert_eq!(
-        runtime.experimental_worker.status().state,
-        WorkerManagerState::Running
-    );
-}
-
-#[test]
 fn native_backend_uses_default_tinybot_workspace_root() {
     let fixture = WorkspaceFixture::new();
     let expected = default_tinybot_workspace_root();
