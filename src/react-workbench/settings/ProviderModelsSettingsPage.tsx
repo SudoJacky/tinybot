@@ -222,7 +222,7 @@ function DefaultLlmPanel({
       <header>
         <div>
           <h3 id="default-llm-title">Default model</h3>
-          <p>This model is used for new chats and agent runs unless overridden.</p>
+          <p>This model is used for new chats and agent turns unless overridden.</p>
         </div>
       </header>
       <div className="react-default-llm-summary">
@@ -322,7 +322,7 @@ function DefaultLlmPanel({
             </section>
           </div>
           <footer>
-            <span>{data.revision ? `Config revision ${data.revision}` : "Changes apply to new agent runs."}</span>
+            <span>{data.revision ? `Config revision ${data.revision}` : "Changes apply to new agent turns."}</span>
             <div>
               <button
                 type="button"

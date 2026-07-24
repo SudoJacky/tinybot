@@ -1,0 +1,77 @@
+# Worker Thread Log
+
+`threads::rollout::store` owns Tinybot's canonical append-only Rollout. It validates
+paths, records typed lines, reconstructs Thread and runtime projections,
+and maintains a rebuildable SQLite index for discovery and startup recovery.
+
+`threads::domain` is the live typed projection of this authority. It must not
+introduce a durable journal, database, fallback read, or completed-turn double
+write.
+
+## Storage model
+
+| Path | Role |
+| --- | --- |
+| `.tinybot/threads/<year>/<month>/<day>/thread-*.jsonl` | Canonical per-thread append-only log |
+| `.tinybot/state/state.sqlite` | Queryable index of Thread metadata |
+
+A log begins with `ThreadMeta` and can contain event messages, strongly typed
+response items, turn context, world state, compaction records, and inter-agent
+communication.
+Canonical reconstruction produces Thread items, Thread history, model context,
+agent turns, checkpoints, and token usage.
+
+## Responsibilities
+
+- Generate and validate canonical log paths under the workspace thread root.
+- Append complete JSON lines and flush them before reporting success.
+- Replay log history without mutating the source log.
+- Project replayed state into typed Thread history and runtime context shapes.
+- Maintain the `ThreadStateDb` index used for listing and lookup.
+- Detect missing, unreadable, or divergent indexes.
+- Rebuild the index explicitly from canonical logs.
+- Reconcile persisted agent turns during runtime startup.
+
+## Internal layout
+
+- `../format/`: versioned Rollout lines, typed items, and shared replay.
+- `rollout_writer.rs`, `recorder.rs`: ordered append, flushing, path validation,
+  archive/delete, and compression-aware IO.
+- `reader.rs`: bounded line reads.
+- `reconstruction.rs`: canonical Thread and runtime projection.
+- `projection.rs`: Thread history and model-context projection.
+- `state_db.rs`: SQLite index schema and queries.
+- `turn.rs`: agent-turn persistence and recovery over log/index state.
+- `mod.rs`: capability-checked service and index consistency/repair behavior.
+
+## Invariants
+
+- Rollouts are canonical; `state.sqlite` is an index that can be rebuilt.
+- Paths must remain under `.tinybot/threads`; caller-provided paths are
+  validated before reads or appends.
+- Log lines are appended, not edited in place.
+- Reconstruction is deterministic and side-effect free.
+- Index inconsistency is reported. Rebuild occurs only through the explicit
+  repair path or a named startup migration for a missing legacy index.
+- Archived state, titles, previews, token usage, and timestamps in the index
+  must be derivable from canonical logs.
+- Unknown or malformed persisted semantics return structured errors rather
+  than being silently discarded when they affect replay correctness.
+- Diagnostic agent trace may be bounded, but canonical messages, completed
+  reasoning, tool calls, and tool outputs are materialized from the lossless
+  runtime event first and never reconstructed from truncated text.
+- Streaming deltas, phase changes, and non-blocking status updates remain live
+  presentation events. Blocking status boundaries remain persisted for
+  recovery. One completed reasoning ResponseItem is persisted per model call.
+- Ordinary canonical runtime events are durably appended in batches of up to
+  64 events or 50 milliseconds. Blocking status and turn/continuation exit
+  remain explicit synchronous durability barriers.
+- A trace batch is appended as one recorder transaction and response-backed
+  projection replays the Rollout at most once for the whole batch.
+- `AddItems` only stages ordered lines in the writer. `Persist`, `Flush`, or
+  `Shutdown` owns the file write/flush barrier; an append must not auto-flush
+  and then immediately flush again through `Persist`.
+- Repeating an identical full Thread record is a metadata no-op and must not
+  append another snapshot.
+
+See [`threads::domain`](../../domain/README.md) for the typed Thread domain.

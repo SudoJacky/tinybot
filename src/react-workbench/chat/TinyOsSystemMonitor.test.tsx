@@ -11,18 +11,17 @@ afterEach(cleanup);
 
 function process(overrides: Partial<TinyOsProcess> & Pick<TinyOsProcess, "id" | "kind" | "state" | "title">): TinyOsProcess {
   return {
-    correlation: { runId: "run-1", sessionId: "session-1", turnId: "turn-1" },
+    correlation: { sessionId: "session-1", turnId: "turn-1" },
     provenance: { kind: "canonical_event", revision: 1, sourceId: overrides.id },
     ...overrides,
   };
 }
 
 function snapshot(): TinyOsKernelSnapshot {
-  const run = process({ id: "run", kind: "agent_run", state: "running", title: "Agent run run-1" });
-  const turn = process({ id: "turn", kind: "agent_turn", parentProcessId: run.id, state: "running", title: "Agent turn turn-1" });
+  const turn = process({ id: "turn", kind: "agent_turn", state: "running", title: "Agent turn turn-1" });
   const tool = process({
     applicationId: "terminal",
-    correlation: { itemId: "tool-1", runId: "run-1", sessionId: "session-1", toolCallId: "call-1", turnId: "turn-1" },
+    correlation: { itemId: "tool-1", sessionId: "session-1", toolCallId: "call-1", turnId: "turn-1" },
     id: "tool",
     kind: "tool_operation",
     parentProcessId: turn.id,
@@ -46,7 +45,7 @@ function snapshot(): TinyOsKernelSnapshot {
     discrepancies: [],
     metrics: [],
     notifications: [],
-    processes: [run, turn, tool, failed],
+    processes: [turn, tool, failed],
     resources: [{
       access: "execute",
       id: "terminal-resource",
@@ -61,21 +60,21 @@ function snapshot(): TinyOsKernelSnapshot {
 
 function controls(overrides: Partial<TinyOsSystemMonitorControls> = {}): TinyOsSystemMonitorControls {
   return {
-    activeRunId: "run-1",
-    canCancelRun: true,
-    canPauseRun: true,
-    canResumeRun: false,
-    canRetryRun: false,
+    activeTurnId: "turn-1",
+    canCancelTurn: true,
+    canPauseTurn: true,
+    canResumeTurn: false,
+    canRetryTurn: false,
     commandLifecycle: { stage: "idle" },
     history: false,
     inspectableItemIds: ["tool-1"],
-    onCancelRun: vi.fn(),
+    onCancelTurn: vi.fn(),
     onInspect: vi.fn(),
-    onPauseRun: vi.fn(),
-    onResumeRun: vi.fn(),
+    onPauseTurn: vi.fn(),
+    onResumeTurn: vi.fn(),
     onRetry: vi.fn(),
     onReveal: vi.fn(),
-    resumeUnavailableReason: "The backend reports that this run is not paused.",
+    resumeUnavailableReason: "The backend reports that this turn is not paused.",
     revealableApplicationIds: ["terminal"],
     ...overrides,
   };
@@ -86,7 +85,7 @@ describe("TinyOS System Monitor", () => {
     const user = userEvent.setup();
     render(<TinyOsSystemMonitor snapshot={snapshot()} />);
 
-    expect(screen.getByText("Processes").previousSibling?.textContent).toBe("4");
+    expect(screen.getByText("Processes").previousSibling?.textContent).toBe("3");
     await user.click(screen.getByRole("button", { name: /Run tests/ }));
     const details = screen.getByRole("complementary", { name: "Process details" });
     expect(within(details).getAllByText("tool-1")).toHaveLength(2);
@@ -96,7 +95,7 @@ describe("TinyOS System Monitor", () => {
     expect(within(details).getByText(/does not estimate CPU/)).toBeTruthy();
   });
 
-  it("filters by lifecycle, Agent, run, turn, and application", async () => {
+  it("filters by lifecycle, Agent, turn, operation, and application", async () => {
     const user = userEvent.setup();
     render(<TinyOsSystemMonitor snapshot={snapshot()} />);
 
@@ -114,16 +113,15 @@ describe("TinyOS System Monitor", () => {
     const rows = tinyOsSystemMonitorRows(processes, {
       agentId: "agent-child",
       applicationId: "",
+      operationId: "",
       query: "",
-      runId: "run-1",
       state: "failed",
       turnId: "turn-1",
     }, "tree");
 
     expect(rows.map((row) => [row.process.id, row.depth])).toEqual([
-      ["run", 0],
-      ["turn", 1],
-      ["failed", 2],
+      ["turn", 0],
+      ["failed", 1],
     ]);
   });
 
@@ -132,11 +130,11 @@ describe("TinyOS System Monitor", () => {
     const monitorControls = controls();
     render(<TinyOsSystemMonitor controls={monitorControls} snapshot={snapshot()} />);
 
-    await user.click(screen.getByRole("button", { name: "Pause run" }));
-    expect(monitorControls.onPauseRun).toHaveBeenCalledTimes(1);
-    const resume = screen.getByRole("button", { name: "Resume run" }) as HTMLButtonElement;
+    await user.click(screen.getByRole("button", { name: "Pause turn" }));
+    expect(monitorControls.onPauseTurn).toHaveBeenCalledTimes(1);
+    const resume = screen.getByRole("button", { name: "Resume turn" }) as HTMLButtonElement;
     expect(resume.disabled).toBe(true);
-    expect(resume.title).toBe("The backend reports that this run is not paused.");
+    expect(resume.title).toBe("The backend reports that this turn is not paused.");
 
     await user.click(screen.getByRole("button", { name: /Run tests/ }));
     await user.click(screen.getByRole("button", { name: "Reveal app" }));
@@ -145,7 +143,7 @@ describe("TinyOS System Monitor", () => {
     expect(monitorControls.onInspect).toHaveBeenCalledWith(expect.objectContaining({ id: "tool" }));
   });
 
-  it("keeps acknowledgement timeout visible and correlated to the selected run", () => {
+  it("keeps acknowledgement timeout visible and correlated to the selected turn", () => {
     render(<TinyOsSystemMonitor controls={controls({
       commandLifecycle: {
         command: {
@@ -154,7 +152,7 @@ describe("TinyOS System Monitor", () => {
           issuedAt: "2026-07-14T00:00:00Z",
           kind: "agent.pause",
           source: { control: "system-monitor", surface: "tinyos" },
-          target: { runId: "run-1", sessionId: "session-1" },
+          target: { turnId: "turn-1", sessionId: "session-1" },
         },
         dispatchedAtMs: 1,
         error: "No canonical acknowledgement within 5000 ms",

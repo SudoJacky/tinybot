@@ -46,14 +46,14 @@ describe("desktop native threads API", () => {
     await expect(api.submitTurn({
       threadId: "thread-1",
       input: { role: "user", content: "hello", clientEventId: "client-1" },
-      spec: { runId: "run-1", sessionId: "thread-1", stream: true, metadata: {} },
+      spec: { turnId: "turn-1", sessionId: "thread-1", stream: true, metadata: {} },
     })).resolves.toEqual({
       command: "worker_submit_thread_turn",
       args: {
         input: {
           threadId: "thread-1",
           input: { role: "user", content: "hello", clientEventId: "client-1" },
-          spec: { runId: "run-1", sessionId: "thread-1", stream: true, metadata: {} },
+          spec: { turnId: "turn-1", sessionId: "thread-1", stream: true, metadata: {} },
         },
       },
     });

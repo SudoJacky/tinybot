@@ -6,7 +6,6 @@ export type NativeHostCommandDispatchRequest = {
   clientId: string;
   frame: Record<string, unknown>;
   attachedChatId: string;
-  runId: string;
 };
 
 export type NativeHostCommandApi = {

@@ -1,10 +1,11 @@
-mod commands;
+pub(crate) mod commands;
 #[cfg(all(windows, feature = "native-browser-integration"))]
 pub(crate) mod integration;
 mod manager;
 mod model;
 mod platform;
 #[cfg(any(test, all(windows, feature = "native-browser-integration")))]
+#[path = "tests/fixture.rs"]
 mod test_fixture;
 #[cfg(any(
     test,
@@ -15,6 +16,7 @@ mod unsupported;
 #[cfg(all(windows, feature = "native-browser-runtime"))]
 mod windows;
 
+use crate::desktop_commands::gateway::native_backend_log_path;
 pub(crate) use manager::SharedBrowserRuntime;
 use manager::{BrowserDiagnosticSink, BrowserSessionManager, BrowserSnapshotSink};
 pub(crate) use model::{
@@ -23,6 +25,7 @@ pub(crate) use model::{
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 
+#[cfg(feature = "native-browser-integration")]
 pub(crate) use commands::{
     browser_activate_tab, browser_back, browser_capabilities, browser_close_session,
     browser_close_tab, browser_create_session, browser_create_tab, browser_delete_profile,
@@ -45,13 +48,13 @@ pub(crate) fn create_runtime(app: &AppHandle) -> Result<SharedBrowserRuntime, St
         }
     });
     let diagnostic_app = app.clone();
-    let diagnostic_log_path = crate::native_backend_log_path();
+    let diagnostic_log_path = native_backend_log_path();
     let diagnostic_sink: BrowserDiagnosticSink = Arc::new(move |diagnostic| {
         match serde_json::to_string(&diagnostic) {
             Ok(line) => {
-                if let Err(error) = crate::desktop_logging::append_native_backend_log_line(
+                if let Err(error) = crate::desktop::logging::append_native_backend_log_line(
                     &diagnostic_log_path,
-                    crate::NATIVE_BACKEND_LOG_MAX_BYTES,
+                    crate::desktop::state::NATIVE_BACKEND_LOG_MAX_BYTES,
                     "browser",
                     &line,
                 ) {

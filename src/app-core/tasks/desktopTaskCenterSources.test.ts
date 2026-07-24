@@ -111,11 +111,11 @@ describe("desktop task center source projections", () => {
         event_type: AGENT_UI_EVENT_TYPES["ui.form.requested"],
         chat_id: "chat-1",
         message_id: "msg-1",
-        run_id: "run-1",
+        turn_id: "turn-1",
         payload: {
           form_id: "approval-form-1",
           title: "Approve deployment",
-          correlation: { chat_id: "chat-1", message_id: "msg-1", run_id: "run-1" },
+          correlation: { chat_id: "chat-1", message_id: "msg-1", turn_id: "turn-1" },
           fields: [{ name: "confirm", type: "checkbox", label: "Confirm", required: true }],
         },
       },

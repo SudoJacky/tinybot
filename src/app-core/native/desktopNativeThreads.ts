@@ -17,7 +17,7 @@ export type NativeThreadRecord = {
   title: string;
   status: NativeThreadStatus;
   sessionKey?: string;
-  activeRunId?: string;
+  activeTurnId?: string;
   createdAt: string;
   updatedAt: string;
   archivedAt?: string;
@@ -43,7 +43,7 @@ export type NativeThreadTurnInput = {
     references?: unknown[];
   };
   spec: {
-    runId: string;
+    turnId: string;
     sessionId: string;
     stream: true;
     model?: string;
@@ -54,7 +54,7 @@ export type NativeThreadTurnInput = {
 export type NativeThreadTurnResult = {
   threadId: string;
   sessionId: string;
-  runId: string;
+  turnId: string;
   agentResult: unknown;
   snapshot: unknown;
 };
@@ -87,7 +87,7 @@ export type NativeThreadsApi = {
   agentRegistry(body?: Record<string, unknown>): Promise<unknown>;
   startTurn(body: Record<string, unknown>): Promise<unknown>;
   continueTurn(body: Record<string, unknown>): Promise<unknown>;
-  interrupt(body: { threadId: string; runId?: string; clientEventId?: string; reason?: string }): Promise<unknown>;
+  interrupt(body: { threadId: string; turnId?: string; clientEventId?: string; reason?: string }): Promise<unknown>;
   applyOp(body: Record<string, unknown>): Promise<unknown>;
   archive(body: { threadId: string; archived?: boolean }): Promise<NativeThreadRecord>;
   unarchive(body: { threadId: string }): Promise<NativeThreadRecord>;

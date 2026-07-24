@@ -1,26 +1,23 @@
-use crate::agent_loop_runtime_protocol::{
-    AgentRuntimeEventEnvelope, LegacyNativeAgentEventEnvelopeInput,
-};
+use crate::agent::bridge::desktop_agent_event_sink;
+use crate::agent::runtime::NativeAgentTraceSink;
+use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
+use crate::desktop::{state::lock_runtime, SharedGateway};
 use crate::desktop_commands::agent::worker_run_agent_with_live_trace_sink_async;
-use crate::native_agent_bridge::{desktop_agent_event_sink, persist_native_agent_run_start};
 use crate::native_browser::{BrowserInteractionInput, SharedBrowserRuntime};
-use crate::worker_agent_runtime::NativeAgentTraceSink;
-use crate::worker_capability::default_desktop_capability_policy;
-use crate::worker_permission_profile::{PermissionNetworkMode, ShellSandboxMode};
-use crate::worker_protocol::WorkerRequest;
-use crate::worker_request_id::{next_worker_request_correlation, WorkerRequestCorrelation};
-use crate::worker_shell::{
+use crate::protocol::capability::default_desktop_capability_policy;
+use crate::protocol::request_id::{next_worker_request_correlation, WorkerRequestCorrelation};
+use crate::protocol::WorkerRequest;
+use crate::rpc::call_rust_state_service;
+use crate::threads::workspace_store::WorkspaceThreadStore;
+use crate::tools::permissions::{PermissionNetworkMode, ShellSandboxMode};
+use crate::tools::shell::{
     ShellProcessIdParams, ShellProcessListParams, ShellProcessOutput, ShellProcessPollParams,
     ShellStartParams, WorkerShellRpc,
 };
-use crate::worker_workspace::WorkerWorkspaceRpc;
-use crate::{
-    call_rust_state_service, experimental_worker_config_snapshot, lock_runtime,
-    native_backend_workspace_root, SharedGateway,
-};
+use crate::workspace::WorkerWorkspaceRpc;
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, sync::Arc, time::Duration};
-use tauri::{Runtime, State};
+use tauri::{Emitter, Runtime, State};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -38,8 +35,6 @@ pub(crate) struct WorkerTransportWebSocketDispatchInput {
     #[serde(default)]
     pub(crate) max_iterations: Option<u32>,
     #[serde(default)]
-    pub(crate) run_id: Option<String>,
-    #[serde(default)]
     pub(crate) stream: Option<bool>,
 }
 
@@ -47,9 +42,26 @@ pub(crate) struct WorkerTransportWebSocketDispatchInput {
 pub(crate) struct WorkerTransportWebSocketDispatchOptions {
     pub(crate) model: Option<String>,
     pub(crate) max_iterations: Option<u32>,
-    pub(crate) run_id: Option<String>,
+    pub(crate) turn_id: Option<String>,
     pub(crate) stream: Option<bool>,
 }
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TinyOsHostOperationEvent {
+    session_id: String,
+    operation_id: String,
+    command_id: String,
+    command_kind: String,
+    status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    process_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+type TinyOsHostOperationSink =
+    Arc<dyn Fn(TinyOsHostOperationEvent) -> Result<(), String> + Send + Sync + 'static>;
 
 #[tauri::command]
 pub(crate) async fn worker_dispatch_tinyos_host_command<R: Runtime + 'static>(
@@ -60,8 +72,12 @@ pub(crate) async fn worker_dispatch_tinyos_host_command<R: Runtime + 'static>(
 ) -> Result<serde_json::Value, String> {
     let shared = state.inner().clone();
     let workspace_root = native_backend_workspace_root();
-    let config_snapshot = experimental_worker_config_snapshot();
-    let live_trace_sink = desktop_agent_event_sink(app);
+    let config_snapshot = native_config_snapshot();
+    let live_trace_sink = desktop_agent_event_sink(app.clone());
+    let host_operation_sink: TinyOsHostOperationSink = Arc::new(move |event| {
+        app.emit("tinyos:host-operation", event)
+            .map_err(|error| format!("TinyOS host operation event emit failed: {error}"))
+    });
     worker_transport_dispatch_websocket_message_with_live_trace_sink_async(
         &shared,
         input,
@@ -70,6 +86,7 @@ pub(crate) async fn worker_dispatch_tinyos_host_command<R: Runtime + 'static>(
         Duration::from_secs(60),
         Some(live_trace_sink),
         Some(browser_runtime.inner().clone()),
+        Some(host_operation_sink),
     )
     .await
 }
@@ -91,6 +108,7 @@ pub(crate) fn worker_transport_dispatch_websocket_message_with_options(
             timeout,
             None,
             None,
+            None,
         ),
     )
 }
@@ -103,6 +121,7 @@ async fn worker_transport_dispatch_websocket_message_with_live_trace_sink_async(
     timeout: Duration,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
     browser_runtime: Option<SharedBrowserRuntime>,
+    host_operation_sink: Option<TinyOsHostOperationSink>,
 ) -> Result<serde_json::Value, String> {
     validate_tinyos_host_command_frame(&input.frame)?;
     let Some(transport_result) = native_websocket_transport_result(&input) else {
@@ -116,6 +135,7 @@ async fn worker_transport_dispatch_websocket_message_with_live_trace_sink_async(
         live_trace_sink,
         timeout,
         browser_runtime,
+        host_operation_sink,
     )
     .await
 }
@@ -156,9 +176,20 @@ pub(crate) fn native_websocket_transport_result(
         json_string_field(frame, "command_id").or_else(|| json_string_field(frame, "commandId"))?;
     let command_kind = json_string_field(frame, "command_kind")
         .or_else(|| json_string_field(frame, "commandKind"))?;
-    let run_id = json_string_field(frame, "run_id")
-        .or_else(|| json_string_field(frame, "runId"))
-        .or(input.run_id.as_deref())?;
+    let agent_command = matches!(
+        command_kind,
+        "agent.pause" | "agent.resume" | "operation.retry" | "agent.request_change"
+    );
+    let identity_key = if agent_command {
+        "turnId"
+    } else {
+        "operationId"
+    };
+    let identity = if agent_command {
+        json_string_field(frame, "turn_id").or_else(|| json_string_field(frame, "turnId"))
+    } else {
+        json_string_field(frame, "operation_id").or_else(|| json_string_field(frame, "operationId"))
+    }?;
     let session_id = json_string_field(frame, "session_id")
         .or_else(|| json_string_field(frame, "sessionId"))
         .map(str::to_string)
@@ -169,12 +200,11 @@ pub(crate) fn native_websocket_transport_result(
         "sessionId": session_id,
         "commandId": command_id,
         "commandKind": command_kind,
-        "runId": run_id,
-        "turnId": json_string_field(frame, "turn_id").or_else(|| json_string_field(frame, "turnId")),
         "threadId": json_string_field(frame, "thread_id").or_else(|| json_string_field(frame, "threadId")),
         "source": frame.get("source").cloned().unwrap_or(serde_json::Value::Null),
         "frames": [],
     });
+    transport[identity_key] = serde_json::Value::String(identity.to_string());
     if command_kind == "operation.retry" {
         transport["sourceTurnId"] = frame
             .get("source_turn_id")
@@ -191,9 +221,9 @@ pub(crate) fn native_websocket_transport_result(
             .get("instruction")
             .cloned()
             .unwrap_or(serde_json::Value::Null);
-        transport["observedRunId"] = frame
-            .get("observed_run_id")
-            .or_else(|| frame.get("observedRunId"))
+        transport["observedTurnId"] = frame
+            .get("observed_turn_id")
+            .or_else(|| frame.get("observedTurnId"))
             .cloned()
             .unwrap_or(serde_json::Value::Null);
         transport["references"] = frame
@@ -286,6 +316,7 @@ async fn dispatch_tinyos_command(
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
     timeout: Duration,
     browser_runtime: Option<SharedBrowserRuntime>,
+    host_operation_sink: Option<TinyOsHostOperationSink>,
 ) -> Result<serde_json::Value, String> {
     match transport
         .get("commandKind")
@@ -314,7 +345,7 @@ async fn dispatch_tinyos_command(
             .await
         }
         Some("agent.pause" | "agent.resume") => {
-            dispatch_tinyos_agent_run_control_command(
+            dispatch_tinyos_agent_turn_control_command(
                 shared,
                 transport,
                 workspace_root,
@@ -339,6 +370,7 @@ async fn dispatch_tinyos_command(
                 workspace_root,
                 config_snapshot,
                 live_trace_sink,
+                host_operation_sink,
             )
             .await
         }
@@ -359,14 +391,14 @@ async fn dispatch_tinyos_command(
     }
 }
 
-async fn dispatch_tinyos_agent_run_control_command(
+async fn dispatch_tinyos_agent_turn_control_command(
     shared: &SharedGateway,
     mut transport: serde_json::Value,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     let session_id = required_transport_string(&transport, "sessionId")?;
-    let run_id = required_transport_string(&transport, "runId")?;
+    let turn_id = required_transport_string(&transport, "turnId")?;
     let command_id = required_transport_string(&transport, "commandId")?;
     let command_kind = required_transport_string(&transport, "commandKind")?;
     let task_runtime = {
@@ -374,36 +406,41 @@ async fn dispatch_tinyos_agent_run_control_command(
         runtime.native_agent_runtime.task_runtime()
     };
     let task_status = task_runtime
-        .status(&run_id)
-        .ok_or_else(|| format!("{command_kind} target run `{run_id}` was not found"))?;
+        .status(&turn_id)
+        .ok_or_else(|| format!("{command_kind} target turn `{turn_id}` was not found"))?;
     if task_status.session_id != session_id {
         return Err(format!(
-            "{command_kind} target run `{run_id}` belongs to session `{}`",
+            "{command_kind} target turn `{turn_id}` belongs to session `{}`",
             task_status.session_id
         ));
     }
     match command_kind.as_str() {
         "agent.pause" if !task_status.active || task_status.phase == "paused" => {
-            return Err(format!("agent.pause target run `{run_id}` is not running"));
+            return Err(format!(
+                "agent.pause target turn `{turn_id}` is not running"
+            ));
         }
         "agent.resume" if !task_status.active || task_status.phase != "paused" => {
-            return Err(format!("agent.resume target run `{run_id}` is not paused"));
+            return Err(format!(
+                "agent.resume target turn `{turn_id}` is not paused"
+            ));
         }
         "agent.pause" | "agent.resume" => {}
         _ => return Err(format!("unsupported TinyOS command kind: {command_kind}")),
     }
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     persist_tinyos_command_acknowledgement(
-        workspace_root,
+        &thread_store,
         config_snapshot,
         &session_id,
-        &run_id,
+        &turn_id,
         &command_id,
         &transport,
     )?;
     let outcome = if command_kind == "agent.pause" {
-        task_runtime.request_pause(&run_id, &command_id)
+        task_runtime.request_pause(&turn_id, &command_id)
     } else {
-        task_runtime.request_resume(&run_id, &command_id)
+        task_runtime.request_resume(&turn_id, &command_id)
     }
     .map_err(|error| format!("{command_kind} failed: {error}"))?;
     transport["frames"] = serde_json::json!([
@@ -411,32 +448,32 @@ async fn dispatch_tinyos_agent_run_control_command(
             "event": "command_accepted",
             "chat_id": transport.get("chatId").cloned().unwrap_or(serde_json::Value::Null),
             "command_id": &command_id,
-            "run_id": &run_id,
+            "turn_id": &turn_id,
         },
         {
             "event": "command_canonical_updated",
             "chat_id": transport.get("chatId").cloned().unwrap_or(serde_json::Value::Null),
             "command_id": &command_id,
-            "run_id": &run_id,
+            "turn_id": &turn_id,
         }
     ]);
     Ok(serde_json::json!({ "transport": transport, "control": outcome }))
 }
 
 async fn dispatch_tinyos_file_command(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     mut transport: serde_json::Value,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
-    live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
+    _live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 ) -> Result<serde_json::Value, String> {
     let session_id = required_transport_string(&transport, "sessionId")?;
-    let run_id = required_transport_string(&transport, "runId")?;
+    let operation_id = required_transport_string(&transport, "operationId")?;
     let command_id = required_transport_string(&transport, "commandId")?;
     let command_kind = required_transport_string(&transport, "commandKind")?;
-    if !run_id.starts_with("tinyos-host-file-") {
+    if !operation_id.starts_with("tinyos-host-file-") {
         return Err(format!(
-            "{command_kind} requires a dedicated TinyOS file operation run"
+            "{command_kind} requires a dedicated TinyOS file operation"
         ));
     }
     if transport
@@ -448,12 +485,8 @@ async fn dispatch_tinyos_file_command(
             "{command_kind} requires explicit user confirmation"
         ));
     }
-    ensure_no_active_host_or_agent_run(
-        &session_id,
-        &run_id,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-    )?;
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
+    ensure_no_active_agent_turn(&thread_store, &session_id, config_snapshot.clone())?;
     if !workspace_root.is_dir() {
         return Err("TinyOS file operation workspace root is unavailable".to_string());
     }
@@ -499,69 +532,6 @@ async fn dispatch_tinyos_file_command(
         "file.save" | "file.move" | "file.delete" => {}
         _ => return Err(format!("unsupported TinyOS file command: {command_kind}")),
     }
-    start_tinyos_host_operation(
-        &session_id,
-        &run_id,
-        &command_id,
-        &command_kind,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-    )?;
-    if let Err(error) = persist_tinyos_command_acknowledgement(
-        workspace_root.clone(),
-        config_snapshot.clone(),
-        &session_id,
-        &run_id,
-        &command_id,
-        &transport,
-    ) {
-        let _ = mark_tinyos_host_run(
-            workspace_root,
-            config_snapshot,
-            &session_id,
-            &run_id,
-            "failed",
-            Some(format!("Command acknowledgement failed: {error}")),
-        );
-        return Err(error);
-    }
-    let args = serde_json::json!({
-        "path": path,
-        "targetPath": target_path,
-        "baseRevision": base_revision,
-        "createOnly": create_only,
-    });
-    if let Err(error) = append_tinyos_host_event(
-        workspace_root.clone(),
-        config_snapshot.clone(),
-        live_trace_sink.clone(),
-        &session_id,
-        &run_id,
-        serde_json::json!({
-            "eventId": format!("{run_id}:host-start:{command_id}"),
-            "itemId": command_id,
-            "eventName": "agent.tool.start",
-            "payload": {
-                "args": args,
-                "approvalDecision": "user_confirmed",
-                "capabilityDecision": "available",
-                "commandId": command_id,
-                "summary": host_file_operation_summary(&command_kind, &path, target_path.as_deref()),
-                "toolCallId": command_id,
-                "toolName": host_file_tool_name(&command_kind),
-            }
-        }),
-    ) {
-        let _ = mark_tinyos_host_run(
-            workspace_root,
-            config_snapshot,
-            &session_id,
-            &run_id,
-            "failed",
-            Some(format!("File operation audit start failed: {error}")),
-        );
-        return Err(error);
-    }
     let workspace =
         WorkerWorkspaceRpc::new(workspace_root.clone(), default_desktop_capability_policy());
     let operation = match command_kind.as_str() {
@@ -596,51 +566,10 @@ async fn dispatch_tinyos_file_command(
         Ok(result) => result,
         Err(error) => {
             let message = worker_protocol_error_message(&error);
-            fail_tinyos_host_operation(
-                workspace_root,
-                config_snapshot,
-                live_trace_sink,
-                &session_id,
-                &run_id,
-                &command_id,
-                &message,
-            )?;
             return Err(format!("{command_kind} failed: {message}"));
         }
     };
-    append_tinyos_host_event(
-        workspace_root.clone(),
-        config_snapshot.clone(),
-        live_trace_sink,
-        &session_id,
-        &run_id,
-        serde_json::json!({
-            "eventId": format!("{run_id}:host-result:{command_id}"),
-            "itemId": command_id,
-            "eventName": "agent.tool.result",
-            "payload": {
-                "commandId": command_id,
-                "envelope": { "status": "completed", "summary": host_file_operation_summary(&command_kind, &path, target_path.as_deref()) },
-                "result": result,
-                "summary": host_file_operation_summary(&command_kind, &path, target_path.as_deref()),
-                "toolCallId": command_id,
-                "toolName": host_file_tool_name(&command_kind),
-            }
-        }),
-    )?;
-    mark_tinyos_host_run(
-        workspace_root,
-        config_snapshot,
-        &session_id,
-        &run_id,
-        "completed",
-        Some(host_file_operation_summary(
-            &command_kind,
-            &path,
-            target_path.as_deref(),
-        )),
-    )?;
-    set_tinyos_command_frames(&mut transport, &command_id, &run_id);
+    set_tinyos_operation_frames(&mut transport, &command_id, &operation_id);
     Ok(serde_json::json!({ "transport": transport, "operation": result }))
 }
 
@@ -649,15 +578,16 @@ async fn dispatch_tinyos_terminal_command(
     mut transport: serde_json::Value,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
-    live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
+    _live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
+    host_operation_sink: Option<TinyOsHostOperationSink>,
 ) -> Result<serde_json::Value, String> {
     let session_id = required_transport_string(&transport, "sessionId")?;
-    let run_id = required_transport_string(&transport, "runId")?;
+    let operation_id = required_transport_string(&transport, "operationId")?;
     let command_id = required_transport_string(&transport, "commandId")?;
     let command_kind = required_transport_string(&transport, "commandKind")?;
-    if !run_id.starts_with("tinyos-host-terminal-") {
+    if !operation_id.starts_with("tinyos-host-terminal-") {
         return Err(format!(
-            "{command_kind} requires a TinyOS terminal operation run"
+            "{command_kind} requires a TinyOS terminal operation"
         ));
     }
     let shell_runtime = {
@@ -672,7 +602,7 @@ async fn dispatch_tinyos_terminal_command(
     if command_kind == "terminal.cancel" {
         let processes = shell
             .list(ShellProcessListParams {
-                run_id: Some(run_id.clone()),
+                owner_id: Some(operation_id.clone()),
             })
             .map_err(|error| {
                 format!(
@@ -683,19 +613,13 @@ async fn dispatch_tinyos_terminal_command(
         let active = processes
             .into_iter()
             .find(|process| process.running)
-            .ok_or_else(|| format!("terminal.cancel found no running process for `{run_id}`"))?;
-        persist_tinyos_command_acknowledgement(
-            workspace_root.clone(),
-            config_snapshot.clone(),
-            &session_id,
-            &run_id,
-            &command_id,
-            &transport,
-        )?;
+            .ok_or_else(|| {
+                format!("terminal.cancel found no running process for `{operation_id}`")
+            })?;
         let outcome = shell
             .interrupt(ShellProcessIdParams {
                 process_id: active.process_id,
-                run_id: Some(run_id.clone()),
+                owner_id: Some(operation_id.clone()),
             })
             .map_err(|error| {
                 format!(
@@ -703,33 +627,17 @@ async fn dispatch_tinyos_terminal_command(
                     worker_protocol_error_message(&error)
                 )
             })?;
-        append_tinyos_host_event(
-            workspace_root.clone(),
-            config_snapshot.clone(),
-            live_trace_sink,
+        emit_tinyos_host_operation(
+            &host_operation_sink,
             &session_id,
-            &run_id,
-            serde_json::json!({
-                "eventId": format!("{run_id}:host-cancel:{command_id}"),
-                "itemId": command_id,
-                "eventName": "agent.cancelled",
-                "payload": {
-                    "commandId": command_id,
-                    "message": "Terminal process cancelled",
-                    "processId": outcome.process_id,
-                    "reason": "user_requested",
-                }
-            }),
-        )?;
-        mark_tinyos_host_run(
-            workspace_root,
-            config_snapshot,
-            &session_id,
-            &run_id,
+            &operation_id,
+            &command_id,
+            &command_kind,
             "cancelled",
+            Some(outcome.process_id.clone()),
             None,
         )?;
-        set_tinyos_command_frames(&mut transport, &command_id, &run_id);
+        set_tinyos_operation_frames(&mut transport, &command_id, &operation_id);
         return Ok(serde_json::json!({ "transport": transport, "operation": outcome }));
     }
     if command_kind != "terminal.execute" {
@@ -744,12 +652,8 @@ async fn dispatch_tinyos_terminal_command(
     {
         return Err("terminal.execute requires explicit user confirmation".to_string());
     }
-    ensure_no_active_host_or_agent_run(
-        &session_id,
-        &run_id,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-    )?;
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
+    ensure_no_active_agent_turn(&thread_store, &session_id, config_snapshot.clone())?;
     let command = required_transport_string(&transport, "command")?;
     if command.len() > 4_096 {
         return Err("terminal.execute command exceeds 4096 characters".to_string());
@@ -763,32 +667,6 @@ async fn dispatch_tinyos_terminal_command(
     if cwd.len() > 1_024 {
         return Err("terminal.execute cwd exceeds 1024 characters".to_string());
     }
-    start_tinyos_host_operation(
-        &session_id,
-        &run_id,
-        &command_id,
-        &command_kind,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-    )?;
-    if let Err(error) = persist_tinyos_command_acknowledgement(
-        workspace_root.clone(),
-        config_snapshot.clone(),
-        &session_id,
-        &run_id,
-        &command_id,
-        &transport,
-    ) {
-        let _ = mark_tinyos_host_run(
-            workspace_root,
-            config_snapshot,
-            &session_id,
-            &run_id,
-            "failed",
-            Some(format!("Command acknowledgement failed: {error}")),
-        );
-        return Err(error);
-    }
     let initial = match shell.start_with_approval_decision(
         ShellStartParams {
             command: command.clone(),
@@ -800,7 +678,7 @@ async fn dispatch_tinyos_terminal_command(
             cols: None,
             sandbox_mode: Some(ShellSandboxMode::ReadOnly),
             network_mode: Some(PermissionNetworkMode::Denied),
-            run_id: Some(run_id.clone()),
+            owner_id: Some(operation_id.clone()),
             tool_call_id: Some(command_id.clone()),
             cancellation: None,
         },
@@ -809,217 +687,88 @@ async fn dispatch_tinyos_terminal_command(
         Ok(output) => output,
         Err(error) => {
             let message = worker_protocol_error_message(&error);
-            fail_tinyos_host_operation(
-                workspace_root,
-                config_snapshot,
-                live_trace_sink,
-                &session_id,
-                &run_id,
-                &command_id,
-                &message,
-            )?;
             return Err(format!("terminal.execute failed: {message}"));
         }
     };
     if let Some(message) = tinyos_terminal_process_failure(&initial) {
-        fail_tinyos_host_operation(
-            workspace_root,
-            config_snapshot,
-            live_trace_sink,
-            &session_id,
-            &run_id,
-            &command_id,
-            &message,
-        )?;
         return Err(format!("terminal.execute failed: {message}"));
-    }
-    if let Err(error) = append_tinyos_terminal_event(
-        workspace_root.clone(),
-        config_snapshot.clone(),
-        live_trace_sink.clone(),
-        &session_id,
-        &run_id,
-        &command_id,
-        &command,
-        &cwd,
-        &initial,
-        !initial.running,
-    ) {
-        if initial.running {
-            let _ = shell.interrupt(ShellProcessIdParams {
-                process_id: initial.process_id.clone(),
-                run_id: Some(run_id.clone()),
-            });
-        }
-        let _ = mark_tinyos_host_run(
-            workspace_root,
-            config_snapshot,
-            &session_id,
-            &run_id,
-            "failed",
-            Some(format!("Terminal audit start failed: {error}")),
-        );
-        return Err(error);
     }
     let initial_response = serde_json::json!({
         "processId": initial.process_id.clone(),
-        "runId": run_id.clone(),
+        "operationId": operation_id.clone(),
         "status": initial.status.clone(),
     });
+    emit_tinyos_host_operation(
+        &host_operation_sink,
+        &session_id,
+        &operation_id,
+        &command_id,
+        &command_kind,
+        if initial.running {
+            "running"
+        } else {
+            "completed"
+        },
+        Some(initial.process_id.clone()),
+        None,
+    )?;
     let background_shell = shell.clone();
-    let background_workspace_root = workspace_root.clone();
-    let background_config = config_snapshot.clone();
+    let background_operation_id = operation_id.clone();
     let background_session_id = session_id.clone();
-    let background_run_id = run_id.clone();
     let background_command_id = command_id.clone();
-    let background_command = command.clone();
-    let background_cwd = cwd.clone();
-    let background_live_sink = live_trace_sink.clone();
+    let background_command_kind = command_kind.clone();
+    let background_operation_sink = host_operation_sink.clone();
     tauri::async_runtime::spawn(async move {
         let mut output = initial;
-        loop {
-            if !output.running {
-                break;
-            }
+        while output.running {
             tokio::time::sleep(Duration::from_millis(100)).await;
             match background_shell.poll(ShellProcessPollParams {
                 process_id: output.process_id.clone(),
-                run_id: Some(background_run_id.clone()),
+                owner_id: Some(background_operation_id.clone()),
                 cursor: Some(output.cursor),
                 yield_time_ms: Some(50),
             }) {
-                Ok(next) => {
-                    let changed = next.cursor != output.cursor || next.running != output.running;
-                    output = next;
-                    if output.status == "cancelled" {
-                        break;
-                    }
-                    if let Some(message) = tinyos_terminal_process_failure(&output) {
-                        if let Err(error) = fail_tinyos_host_operation(
-                            background_workspace_root.clone(),
-                            background_config.clone(),
-                            background_live_sink.clone(),
-                            &background_session_id,
-                            &background_run_id,
-                            &background_command_id,
-                            &message,
-                        ) {
-                            eprintln!(
-                                "TinyOS terminal failed to persist process failure for {}: {}",
-                                background_run_id, error
-                            );
-                        }
-                        return;
-                    }
-                    if changed {
-                        let snapshot = match background_shell.poll(ShellProcessPollParams {
-                            process_id: output.process_id.clone(),
-                            run_id: Some(background_run_id.clone()),
-                            cursor: Some(0),
-                            yield_time_ms: Some(0),
-                        }) {
-                            Ok(snapshot) => snapshot,
-                            Err(error) => {
-                                let message = worker_protocol_error_message(&error);
-                                if let Err(persist_error) = fail_tinyos_host_operation(
-                                    background_workspace_root.clone(),
-                                    background_config.clone(),
-                                    background_live_sink.clone(),
-                                    &background_session_id,
-                                    &background_run_id,
-                                    &background_command_id,
-                                    &message,
-                                ) {
-                                    eprintln!(
-                                        "TinyOS terminal failed to persist snapshot error for {}: {}",
-                                        background_run_id, persist_error
-                                    );
-                                }
-                                return;
-                            }
-                        };
-                        if let Err(error) = append_tinyos_terminal_event(
-                            background_workspace_root.clone(),
-                            background_config.clone(),
-                            background_live_sink.clone(),
-                            &background_session_id,
-                            &background_run_id,
-                            &background_command_id,
-                            &background_command,
-                            &background_cwd,
-                            &snapshot,
-                            !output.running,
-                        ) {
-                            eprintln!(
-                                "TinyOS terminal failed to persist output for {}: {}",
-                                background_run_id, error
-                            );
-                            let _ = fail_tinyos_host_operation(
-                                background_workspace_root.clone(),
-                                background_config.clone(),
-                                background_live_sink.clone(),
-                                &background_session_id,
-                                &background_run_id,
-                                &background_command_id,
-                                &error,
-                            );
-                            return;
-                        }
-                    }
-                }
+                Ok(next) => output = next,
                 Err(error) => {
-                    if let Err(persist_error) = fail_tinyos_host_operation(
-                        background_workspace_root.clone(),
-                        background_config.clone(),
-                        background_live_sink.clone(),
+                    let message = worker_protocol_error_message(&error);
+                    eprintln!(
+                        "TinyOS terminal polling failed for operation {}: {}",
+                        background_operation_id, message
+                    );
+                    let _ = emit_tinyos_host_operation(
+                        &background_operation_sink,
                         &background_session_id,
-                        &background_run_id,
+                        &background_operation_id,
                         &background_command_id,
-                        &worker_protocol_error_message(&error),
-                    ) {
-                        eprintln!(
-                            "TinyOS terminal failed to persist polling error for {}: {}",
-                            background_run_id, persist_error
-                        );
-                    }
+                        &background_command_kind,
+                        "failed",
+                        Some(output.process_id.clone()),
+                        Some(message),
+                    );
                     return;
                 }
             }
         }
-        if output.status == "cancelled" {
-            if let Err(error) = mark_tinyos_host_run(
-                background_workspace_root,
-                background_config,
-                &background_session_id,
-                &background_run_id,
-                "cancelled",
-                None,
-            ) {
-                eprintln!(
-                    "TinyOS terminal failed to persist cancellation for {}: {}",
-                    background_run_id, error
-                );
-            }
+        let terminal_error = tinyos_terminal_process_failure(&output);
+        let status = if output.status == "cancelled" {
+            "cancelled"
+        } else if terminal_error.is_some() {
+            "failed"
         } else {
-            if let Err(error) = mark_tinyos_host_run(
-                background_workspace_root,
-                background_config,
-                &background_session_id,
-                &background_run_id,
-                "completed",
-                Some(format!(
-                    "Terminal exited with code {}",
-                    output.exit_code.unwrap_or(-1)
-                )),
-            ) {
-                eprintln!(
-                    "TinyOS terminal failed to persist completion for {}: {}",
-                    background_run_id, error
-                );
-            }
-        }
+            "completed"
+        };
+        let _ = emit_tinyos_host_operation(
+            &background_operation_sink,
+            &background_session_id,
+            &background_operation_id,
+            &background_command_id,
+            &background_command_kind,
+            status,
+            Some(output.process_id),
+            terminal_error,
+        );
     });
-    set_tinyos_command_frames(&mut transport, &command_id, &run_id);
+    set_tinyos_operation_frames(&mut transport, &command_id, &operation_id);
     Ok(serde_json::json!({
         "transport": transport,
         "operation": initial_response,
@@ -1035,23 +784,24 @@ async fn dispatch_tinyos_retry_command(
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
     let session_id = required_transport_string(&transport, "sessionId")?;
-    let retry_run_id = required_transport_string(&transport, "runId")?;
+    let retry_turn_id = required_transport_string(&transport, "turnId")?;
     let source_turn_id = required_transport_string(&transport, "sourceTurnId")?;
     let item_id = required_transport_string(&transport, "itemId")?;
-    if retry_run_id == source_turn_id {
-        return Err("operation.retry requires a new target runId".to_string());
+    if retry_turn_id == source_turn_id {
+        return Err("operation.retry requires a new target turnId".to_string());
     }
 
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     let source_item = validate_tinyos_retry_source(
+        &thread_store,
         &session_id,
         &source_turn_id,
         &item_id,
-        workspace_root.clone(),
         config_snapshot.clone(),
     )?;
     let description = tinyos_retry_source_description(&source_item);
     let content = format!(
-        "Retry the failed canonical operation `{description}` (source item `{item_id}` from run `{source_turn_id}`). Preserve completed work, verify the failure context, and continue the task from that operation."
+        "Retry the failed canonical operation `{description}` (source item `{item_id}` from turn `{source_turn_id}`). Preserve completed work, verify the failure context, and continue the task from that operation."
     );
     let command_metadata = serde_json::json!({
         "commandId": required_transport_string(&transport, "commandId")?,
@@ -1062,12 +812,12 @@ async fn dispatch_tinyos_retry_command(
         },
         "source": transport.get("source").cloned().unwrap_or(serde_json::Value::Null),
         "target": {
-            "runId": &retry_run_id,
+            "turnId": &retry_turn_id,
             "sessionId": &session_id,
             "threadId": transport.get("threadId").cloned().unwrap_or(serde_json::Value::Null),
         },
     });
-    dispatch_tinyos_new_run_command(
+    dispatch_tinyos_new_turn_command(
         shared,
         transport,
         content,
@@ -1090,7 +840,7 @@ async fn dispatch_tinyos_agent_request_change_command(
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
     let session_id = required_transport_string(&transport, "sessionId")?;
-    let request_run_id = required_transport_string(&transport, "runId")?;
+    let request_turn_id = required_transport_string(&transport, "turnId")?;
     let command_id = required_transport_string(&transport, "commandId")?;
     let instruction = required_transport_string(&transport, "instruction")?;
     if instruction.chars().count() > 4_096 {
@@ -1114,29 +864,30 @@ async fn dispatch_tinyos_agent_request_change_command(
     for reference in references {
         validate_tinyos_agent_request_reference(reference)?;
     }
-    validate_tinyos_followup_run_state(
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
+    validate_tinyos_followup_turn_state(
+        &thread_store,
         &session_id,
         transport
-            .get("observedRunId")
+            .get("observedTurnId")
             .and_then(serde_json::Value::as_str),
-        workspace_root.clone(),
         config_snapshot.clone(),
     )?;
     let command_metadata = serde_json::json!({
         "commandId": command_id,
         "commandKind": "agent.request_change",
         "request": {
-            "observedRunId": transport.get("observedRunId").cloned().unwrap_or(serde_json::Value::Null),
+            "observedTurnId": transport.get("observedTurnId").cloned().unwrap_or(serde_json::Value::Null),
             "referenceCount": references.len(),
         },
         "source": transport.get("source").cloned().unwrap_or(serde_json::Value::Null),
         "target": {
-            "runId": request_run_id,
+            "turnId": request_turn_id,
             "sessionId": session_id,
             "threadId": transport.get("threadId").cloned().unwrap_or(serde_json::Value::Null),
         },
     });
-    dispatch_tinyos_new_run_command(
+    dispatch_tinyos_new_turn_command(
         shared,
         transport.clone(),
         instruction,
@@ -1199,7 +950,7 @@ fn validate_tinyos_agent_request_reference(reference: &serde_json::Value) -> Res
     }
 }
 
-async fn dispatch_tinyos_new_run_command(
+async fn dispatch_tinyos_new_turn_command(
     shared: &SharedGateway,
     mut transport: serde_json::Value,
     content: String,
@@ -1211,14 +962,14 @@ async fn dispatch_tinyos_new_run_command(
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
     let session_id = required_transport_string(&transport, "sessionId")?;
-    let run_id = required_transport_string(&transport, "runId")?;
+    let turn_id = required_transport_string(&transport, "turnId")?;
     let command_id = required_transport_string(&transport, "commandId")?;
     let command_kind = required_transport_string(&transport, "commandKind")?;
     let mut metadata = serde_json::json!({ "_tinyosCommand": command_metadata });
     if let Some(references) = references {
         metadata["references"] = references;
     }
-    let run_transport = serde_json::json!({
+    let turn_transport = serde_json::json!({
         "inbound": {
             "channel": "websocket",
             "chat_id": transport.get("chatId").cloned().unwrap_or(serde_json::Value::Null),
@@ -1227,24 +978,24 @@ async fn dispatch_tinyos_new_run_command(
             "session_key": &session_id,
         }
     });
-    let run_request = build_worker_transport_websocket_run_input_request(
+    let turn_request = build_worker_transport_websocket_turn_input_request(
         next_worker_request_correlation(),
-        &run_transport,
+        &turn_transport,
         WorkerTransportWebSocketDispatchOptions {
-            run_id: Some(run_id.clone()),
+            turn_id: Some(turn_id.clone()),
             stream: Some(true),
             ..WorkerTransportWebSocketDispatchOptions::default()
         },
     )
-    .ok_or_else(|| format!("{command_kind} failed to build Agent run input"))?;
-    let run_spec = run_request
+    .ok_or_else(|| format!("{command_kind} failed to build Agent turn input"))?;
+    let turn_spec = turn_request
         .params
         .get("input")
         .cloned()
-        .ok_or_else(|| format!("{command_kind} Agent run input is missing"))?;
+        .ok_or_else(|| format!("{command_kind} Agent turn input is missing"))?;
     let agent_result = worker_run_agent_with_live_trace_sink_async(
         shared,
-        run_spec,
+        turn_spec,
         workspace_root,
         config_snapshot,
         timeout,
@@ -1257,112 +1008,118 @@ async fn dispatch_tinyos_new_run_command(
             "event": "command_accepted",
             "chat_id": transport.get("chatId").cloned().unwrap_or(serde_json::Value::Null),
             "command_id": &command_id,
-            "run_id": &run_id,
+            "turn_id": &turn_id,
         },
         {
             "event": "command_canonical_updated",
             "chat_id": transport.get("chatId").cloned().unwrap_or(serde_json::Value::Null),
             "command_id": &command_id,
-            "run_id": &run_id,
+            "turn_id": &turn_id,
         }
     ]);
     Ok(serde_json::json!({ "transport": transport, "agent": agent_result }))
 }
 
-fn validate_tinyos_followup_run_state(
+fn validate_tinyos_followup_turn_state(
+    thread_store: &WorkspaceThreadStore,
     session_id: &str,
-    observed_run_id: Option<&str>,
-    workspace_root: PathBuf,
+    observed_turn_id: Option<&str>,
     config_snapshot: serde_json::Value,
 ) -> Result<(), String> {
     let request_id = next_worker_request_correlation();
-    let runs = call_rust_state_service(
-        workspace_root,
+    let turns = call_rust_state_service(
+        thread_store,
         config_snapshot,
         WorkerRequest::new(
-            request_id.id("tinyos-followup-run-list"),
-            request_id.trace_id("tinyos-followup-run-list"),
-            "agent_run.list",
-            serde_json::json!({ "session_id": session_id }),
+            request_id.id("tinyos-followup-turn-list"),
+            request_id.trace_id("tinyos-followup-turn-list"),
+            "thread.turn.list",
+            serde_json::json!({ "threadId": session_id }),
         ),
-        "TinyOS follow-up run lookup",
+        "TinyOS follow-up turn lookup",
     )?;
-    let runs = runs
-        .get("runs")
+    let turns = turns
+        .get("turns")
         .and_then(serde_json::Value::as_array)
         .map(Vec::as_slice)
         .unwrap_or_default();
-    let latest = runs.first();
-    let latest_run_id = latest
-        .and_then(|run| run.get("runId"))
+    let latest = turns.first();
+    let latest_turn_id = latest
+        .and_then(|turn| turn.get("turnId"))
         .and_then(serde_json::Value::as_str);
-    if latest_run_id != observed_run_id {
+    if latest_turn_id != observed_turn_id {
         return Err(format!(
-            "agent.request_change observed stale run `{}`; latest run is `{}`",
-            observed_run_id.unwrap_or("none"),
-            latest_run_id.unwrap_or("none")
+            "agent.request_change observed stale turn `{}`; latest turn is `{}`",
+            observed_turn_id.unwrap_or("none"),
+            latest_turn_id.unwrap_or("none")
         ));
     }
-    if runs.iter().any(|run| {
-        run.get("status")
+    if turns.iter().any(|turn| {
+        turn.get("status")
             .and_then(serde_json::Value::as_str)
             .is_some_and(|status| matches!(status, "running" | "waiting"))
     }) {
-        return Err("agent.request_change is unavailable while an Agent run is active".to_string());
+        return Err(
+            "agent.request_change is unavailable while an Agent turn is active".to_string(),
+        );
     }
     Ok(())
 }
 
 fn validate_tinyos_retry_source(
+    thread_store: &WorkspaceThreadStore,
     session_id: &str,
     source_turn_id: &str,
     item_id: &str,
-    workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     let request_id = next_worker_request_correlation();
-    let runs = call_rust_state_service(
-        workspace_root.clone(),
+    let turns = call_rust_state_service(
+        thread_store,
         config_snapshot.clone(),
         WorkerRequest::new(
-            request_id.id("tinyos-retry-run-list"),
-            request_id.trace_id("tinyos-retry-run-list"),
-            "agent_run.list",
-            serde_json::json!({ "session_id": session_id }),
+            request_id.id("tinyos-retry-turn-list"),
+            request_id.trace_id("tinyos-retry-turn-list"),
+            "thread.turn.list",
+            serde_json::json!({ "threadId": session_id }),
         ),
-        "TinyOS retry run lookup",
+        "TinyOS retry turn lookup",
     )?;
-    let latest_run = runs
-        .get("runs")
+    let latest_turn = turns
+        .get("turns")
         .and_then(serde_json::Value::as_array)
-        .and_then(|runs| runs.first())
-        .ok_or_else(|| "operation.retry source run was not found".to_string())?;
-    let latest_run_id = latest_run
-        .get("runId")
+        .and_then(|turns| turns.first())
+        .ok_or_else(|| "operation.retry source turn was not found".to_string())?;
+    let latest_turn_id = latest_turn
+        .get("turnId")
         .and_then(serde_json::Value::as_str)
         .unwrap_or_default();
-    if latest_run_id != source_turn_id {
+    if latest_turn_id != source_turn_id {
         return Err(format!(
-            "operation.retry targets stale run `{source_turn_id}`; latest run is `{latest_run_id}`"
+            "operation.retry targets stale turn `{source_turn_id}`; latest turn is `{latest_turn_id}`"
         ));
     }
-    if latest_run.get("status").and_then(serde_json::Value::as_str) != Some("failed") {
+    if latest_turn
+        .get("status")
+        .and_then(serde_json::Value::as_str)
+        != Some("failed")
+    {
         return Err(format!(
-            "operation.retry source run `{source_turn_id}` is not failed"
+            "operation.retry source turn `{source_turn_id}` is not failed"
         ));
     }
 
     let request_id = next_worker_request_correlation();
     let runtime_state = call_rust_state_service(
-        workspace_root,
+        thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("tinyos-retry-runtime-state"),
             request_id.trace_id("tinyos-retry-runtime-state"),
-            "agent_run.runtime_state",
+            "thread.turn.runtime_state",
             serde_json::json!({
-                "session_id": session_id,
-                "run_id": source_turn_id,
+                "threadId": session_id,
+                "turnId": source_turn_id,
             }),
         ),
         "TinyOS retry source item lookup",
@@ -1401,41 +1158,39 @@ fn required_transport_string(value: &serde_json::Value, key: &str) -> Result<Str
         .ok_or_else(|| format!("TinyOS command is missing {key}"))
 }
 
-fn ensure_no_active_host_or_agent_run(
+fn ensure_no_active_agent_turn(
+    thread_store: &WorkspaceThreadStore,
     session_id: &str,
-    target_run_id: &str,
-    workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> Result<(), String> {
     let request_id = next_worker_request_correlation();
-    let runs = call_rust_state_service(
-        workspace_root,
+    let turns = call_rust_state_service(
+        thread_store,
         config_snapshot,
         WorkerRequest::new(
-            request_id.id("tinyos-host-active-runs"),
-            request_id.trace_id("tinyos-host-active-runs"),
-            "agent_run.list",
-            serde_json::json!({ "session_id": session_id }),
+            request_id.id("tinyos-host-active-turns"),
+            request_id.trace_id("tinyos-host-active-turns"),
+            "thread.turn.list",
+            serde_json::json!({ "threadId": session_id }),
         ),
-        "TinyOS host operation active-run validation",
+        "TinyOS host operation active-turn validation",
     )?;
-    let active = runs
-        .get("runs")
+    let active = turns
+        .get("turns")
         .and_then(serde_json::Value::as_array)
         .into_iter()
         .flatten()
-        .find(|run| {
-            run.get("runId").and_then(serde_json::Value::as_str) != Some(target_run_id)
-                && matches!(
-                    run.get("status").and_then(serde_json::Value::as_str),
-                    Some("running" | "waiting")
-                )
+        .find(|turn| {
+            matches!(
+                turn.get("status").and_then(serde_json::Value::as_str),
+                Some("running" | "waiting")
+            )
         });
     if let Some(active) = active {
         return Err(format!(
-            "TinyOS host operation is unavailable while run `{}` is active",
+            "TinyOS host operation is unavailable while turn `{}` is active",
             active
-                .get("runId")
+                .get("turnId")
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("unknown")
         ));
@@ -1443,7 +1198,7 @@ fn ensure_no_active_host_or_agent_run(
     Ok(())
 }
 
-fn worker_protocol_error_message(error: &crate::worker_protocol::WorkerProtocolError) -> String {
+fn worker_protocol_error_message(error: &crate::protocol::WorkerProtocolError) -> String {
     if error.details.is_null()
         || error
             .details
@@ -1456,239 +1211,18 @@ fn worker_protocol_error_message(error: &crate::worker_protocol::WorkerProtocolE
     }
 }
 
-fn start_tinyos_host_operation(
-    session_id: &str,
-    run_id: &str,
-    command_id: &str,
-    command_kind: &str,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-) -> Result<(), String> {
-    persist_native_agent_run_start(
-        serde_json::json!({
-            "sessionId": session_id,
-            "runId": run_id,
-            "instructionProvenance": {
-                "kind": "tinyos_host_command",
-                "commandId": command_id,
-                "commandKind": command_kind,
-            },
-        }),
-        workspace_root,
-        config_snapshot,
-    )
-}
-
-fn append_tinyos_host_event(
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
-    session_id: &str,
-    run_id: &str,
-    event: serde_json::Value,
-) -> Result<(), String> {
-    let event_id = event
-        .get("eventId")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| "TinyOS host event is missing eventId".to_string())?
-        .to_string();
-    let event_name = event
-        .get("eventName")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| "TinyOS host event is missing eventName".to_string())?;
-    if crate::worker_thread_log::is_agent_run_semantic_event(event_name) {
-        let request_id = next_worker_request_correlation();
-        call_rust_state_service(
-            workspace_root.clone(),
-            config_snapshot.clone(),
-            WorkerRequest::new(
-                request_id.id("tinyos-host-event"),
-                request_id.trace_id("tinyos-host-event"),
-                "agent_run.append_semantic_batch",
-                serde_json::json!({
-                    "session_id": session_id,
-                    "run_id": run_id,
-                    "events": [event.clone()],
-                }),
-            ),
-            "TinyOS host semantic event append",
-        )?;
-    }
-    if let Some(live_trace_sink) = live_trace_sink {
-        let event_name = event_name.to_string();
-        let event = AgentRuntimeEventEnvelope::from_legacy_native_event(
-            LegacyNativeAgentEventEnvelopeInput {
-                session_id: session_id.to_string(),
-                thread_id: Some(session_id.to_string()),
-                turn_id: run_id.to_string(),
-                parent_turn_id: None,
-                item_id: event
-                    .get("itemId")
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_string)
-                    .or_else(|| Some(event_id)),
-                event_name,
-                sequence: 0,
-                timestamp: crate::worker_thread_log::now_thread_timestamp(),
-                payload: event
-                    .get("payload")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null),
-            },
-        );
-        live_trace_sink.append_trace_event(session_id, run_id, &event)?;
-    }
-    Ok(())
-}
-
-fn mark_tinyos_host_run(
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    session_id: &str,
-    run_id: &str,
-    status: &str,
-    detail: Option<String>,
-) -> Result<(), String> {
-    let request_id = next_worker_request_correlation();
-    let (method, params) = match status {
-        "completed" => (
-            "agent_run.mark_completed",
-            serde_json::json!({
-                "session_id": session_id,
-                "run_id": run_id,
-                "stop_reason": "host_operation_completed",
-                "final_content": detail,
-            }),
-        ),
-        "failed" => (
-            "agent_run.mark_failed",
-            serde_json::json!({
-                "session_id": session_id,
-                "run_id": run_id,
-                "stop_reason": "host_operation_failed",
-                "error": detail,
-            }),
-        ),
-        "cancelled" => (
-            "agent_run.mark_cancelled",
-            serde_json::json!({
-                "session_id": session_id,
-                "run_id": run_id,
-            }),
-        ),
-        _ => return Err(format!("unsupported TinyOS host run status: {status}")),
-    };
-    call_rust_state_service(
-        workspace_root,
-        config_snapshot,
-        WorkerRequest::new(
-            request_id.id("tinyos-host-run-terminal"),
-            request_id.trace_id("tinyos-host-run-terminal"),
-            method,
-            params,
-        ),
-        "TinyOS host run terminal update",
-    )?;
-    Ok(())
-}
-
-fn fail_tinyos_host_operation(
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
-    session_id: &str,
-    run_id: &str,
-    command_id: &str,
-    message: &str,
-) -> Result<(), String> {
-    append_tinyos_host_event(
-        workspace_root.clone(),
-        config_snapshot.clone(),
-        live_trace_sink,
-        session_id,
-        run_id,
-        serde_json::json!({
-            "eventId": format!("{run_id}:host-error:{command_id}"),
-            "itemId": command_id,
-            "eventName": "agent.error",
-            "payload": {
-                "commandId": command_id,
-                "message": message,
-            }
-        }),
-    )?;
-    mark_tinyos_host_run(
-        workspace_root,
-        config_snapshot,
-        session_id,
-        run_id,
-        "failed",
-        Some(message.to_string()),
-    )
-}
-
-fn append_tinyos_terminal_event(
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
-    session_id: &str,
-    run_id: &str,
-    command_id: &str,
-    command: &str,
-    cwd: &str,
-    output: &ShellProcessOutput,
-    terminal: bool,
-) -> Result<(), String> {
-    let stdout = sanitize_tinyos_host_text(&output.stdout, &config_snapshot);
-    let stderr = sanitize_tinyos_host_text(&output.stderr, &config_snapshot);
-    let result = tinyos_terminal_result_payload(output, &stdout, &stderr);
-    append_tinyos_host_event(
-        workspace_root,
-        config_snapshot,
-        live_trace_sink,
-        session_id,
-        run_id,
-        serde_json::json!({
-            "eventId": format!("{run_id}:terminal:{}:{}", if terminal { "result" } else { "stream" }, output.cursor),
-            "itemId": command_id,
-            "eventName": if terminal { "agent.tool.result" } else { "agent.tool.start" },
-            "payload": {
-                "args": {
-                    "command": command,
-                    "cwd": cwd,
-                    "networkMode": "denied",
-                    "sandboxMode": "read_only",
-                },
-                "approvalDecision": "user_confirmed",
-                "capabilityDecision": "available",
-                "commandId": command_id,
-                "envelope": {
-                    "status": if terminal { "completed" } else { "running" },
-                    "summary": if terminal { "Terminal command finished" } else { "Terminal command running" },
-                },
-                "result": result,
-                "stderr": stderr,
-                "stdout": stdout,
-                "summary": if terminal { "Terminal command finished" } else { "Terminal command running" },
-                "toolCallId": command_id,
-                "toolName": "shell.execute",
-            }
-        }),
-    )
-}
-
 async fn dispatch_tinyos_browser_command(
     mut transport: serde_json::Value,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
+    _workspace_root: PathBuf,
+    _config_snapshot: serde_json::Value,
+    _live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
     browser_runtime: Option<SharedBrowserRuntime>,
 ) -> Result<serde_json::Value, String> {
-    let run_id = required_transport_string(&transport, "runId")?;
+    let operation_id = required_transport_string(&transport, "operationId")?;
     let command_kind = required_transport_string(&transport, "commandKind")?;
-    if !run_id.starts_with("tinyos-host-browser-") {
+    if !operation_id.starts_with("tinyos-host-browser-") {
         return Err(format!(
-            "{command_kind} requires a dedicated TinyOS browser operation run"
+            "{command_kind} requires a dedicated TinyOS browser operation"
         ));
     }
     if transport
@@ -1698,7 +1232,6 @@ async fn dispatch_tinyos_browser_command(
     {
         return Err("browser.interact requires explicit user confirmation".to_string());
     }
-    let session_id = required_transport_string(&transport, "sessionId")?;
     let command_id = required_transport_string(&transport, "commandId")?;
     let browser_session_id = required_transport_string(&transport, "browserSessionId")?;
     let tab_id = required_transport_string(&transport, "tabId")?;
@@ -1717,102 +1250,12 @@ async fn dispatch_tinyos_browser_command(
             .to_string()
     })?;
 
-    persist_tinyos_command_acknowledgement(
-        workspace_root.clone(),
-        config_snapshot.clone(),
-        &session_id,
-        &run_id,
-        &command_id,
-        &transport,
-    )?;
-    let result = match browser_runtime.interact(input).await {
-        Ok(result) => result,
-        Err(error) => {
-            fail_tinyos_host_operation(
-                workspace_root,
-                config_snapshot,
-                live_trace_sink,
-                &session_id,
-                &run_id,
-                &command_id,
-                &error,
-            )?;
-            return Err(format!("browser.interact failed: {error}"));
-        }
-    };
-    let result_value = serde_json::to_value(&result)
-        .map_err(|error| format!("browser.interact result serialization failed: {error}"))?;
-    let status = result_value
-        .get("status")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("failed");
-    let succeeded = matches!(status, "completed" | "user_required");
-    let summary = match status {
-        "completed" => "Browser interaction completed".to_string(),
-        "user_required" => "Browser interaction requires direct user input".to_string(),
-        _ => result_value
-            .get("reason")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("Browser interaction failed")
-            .to_string(),
-    };
-    append_tinyos_host_event(
-        workspace_root.clone(),
-        config_snapshot.clone(),
-        live_trace_sink,
-        &session_id,
-        &run_id,
-        serde_json::json!({
-            "eventId": format!("{run_id}:host-result:{command_id}"),
-            "itemId": command_id,
-            "eventName": "agent.tool.result",
-            "payload": {
-                "approvalDecision": "user_confirmed",
-                "capabilityDecision": "available",
-                "commandId": command_id,
-                "envelope": { "status": if succeeded { "completed" } else { "failed" }, "summary": summary },
-                "result": result_value,
-                "summary": summary,
-                "toolCallId": command_id,
-                "toolName": "browser.interact",
-            }
-        }),
-    )?;
-    mark_tinyos_host_run(
-        workspace_root,
-        config_snapshot,
-        &session_id,
-        &run_id,
-        if succeeded { "completed" } else { "failed" },
-        Some(summary),
-    )?;
-    set_tinyos_command_frames(&mut transport, &command_id, &run_id);
+    let result = browser_runtime
+        .interact(input)
+        .await
+        .map_err(|error| format!("browser.interact failed: {error}"))?;
+    set_tinyos_operation_frames(&mut transport, &command_id, &operation_id);
     Ok(serde_json::json!({ "transport": transport, "operation": result }))
-}
-
-pub(crate) fn tinyos_terminal_result_payload(
-    output: &ShellProcessOutput,
-    stdout: &str,
-    stderr: &str,
-) -> serde_json::Value {
-    serde_json::json!({
-        "cancelled": output.status == "cancelled",
-        "droppedBytes": output.dropped_bytes,
-        "durationMs": output.last_activity_ms.saturating_sub(output.started_at_ms),
-        "executionContract": "retained_execution_v1",
-        "exitCode": output.exit_code,
-        "lastActivityMs": output.last_activity_ms,
-        "networkMode": output.network_mode,
-        "processId": output.process_id,
-        "sandboxMode": output.sandbox_mode,
-        "stderr": stderr,
-        "stderrBytes": stderr.len(),
-        "startedAtMs": output.started_at_ms,
-        "stdout": stdout,
-        "stdoutBytes": stdout.len(),
-        "tty": output.tty,
-        "truncated": output.truncated,
-    })
 }
 
 fn tinyos_terminal_process_failure(output: &ShellProcessOutput) -> Option<String> {
@@ -1830,144 +1273,74 @@ fn tinyos_terminal_process_failure(output: &ShellProcessOutput) -> Option<String
     })
 }
 
-pub(crate) fn sanitize_tinyos_host_text(text: &str, config_snapshot: &serde_json::Value) -> String {
-    let mut secrets = Vec::new();
-    collect_tinyos_secret_values(config_snapshot, None, &mut secrets);
-    let mut sanitized = text
-        .chars()
-        .rev()
-        .take(10_000)
-        .collect::<String>()
-        .chars()
-        .rev()
-        .collect::<String>();
-    for secret in secrets {
-        if secret.len() >= 4 {
-            sanitized = sanitized.replace(&secret, "[REDACTED]");
-        }
-    }
-    for marker in [
-        "api_key=",
-        "apikey=",
-        "authorization:",
-        "password=",
-        "secret=",
-        "token=",
-    ] {
-        sanitized = redact_assignment(&sanitized, marker);
-    }
-    sanitized
-}
-
-fn collect_tinyos_secret_values(
-    value: &serde_json::Value,
-    key: Option<&str>,
-    secrets: &mut Vec<String>,
+fn set_tinyos_operation_frames(
+    transport: &mut serde_json::Value,
+    command_id: &str,
+    operation_id: &str,
 ) {
-    match value {
-        serde_json::Value::Object(object) => {
-            for (child_key, child_value) in object {
-                collect_tinyos_secret_values(child_value, Some(child_key), secrets);
-            }
-        }
-        serde_json::Value::Array(values) => {
-            for child in values {
-                collect_tinyos_secret_values(child, key, secrets);
-            }
-        }
-        serde_json::Value::String(secret)
-            if key.is_some_and(|key| {
-                let key = key.to_ascii_lowercase();
-                ["api_key", "apikey", "password", "secret", "token"]
-                    .iter()
-                    .any(|candidate| key.contains(candidate))
-            }) =>
-        {
-            secrets.push(secret.clone());
-        }
-        _ => {}
-    }
-}
-
-fn redact_assignment(text: &str, marker: &str) -> String {
-    let mut output = text.to_string();
-    let mut search_from = 0;
-    loop {
-        let lower = output.to_ascii_lowercase();
-        let Some(offset) = lower[search_from..].find(marker) else {
-            break;
-        };
-        let value_start = search_from + offset + marker.len();
-        let value_end = output[value_start..]
-            .find(char::is_whitespace)
-            .map(|length| value_start + length)
-            .unwrap_or(output.len());
-        output.replace_range(value_start..value_end, "[REDACTED]");
-        search_from = value_start + "[REDACTED]".len();
-        if search_from >= lower.len() {
-            break;
-        }
-    }
-    output
-}
-
-fn host_file_tool_name(command_kind: &str) -> &'static str {
-    match command_kind {
-        "file.save" => "workspace.write_file",
-        "file.move" => "workspace.move_file",
-        "file.delete" => "workspace.delete_file",
-        _ => "workspace.host_operation",
-    }
-}
-
-fn host_file_operation_summary(command_kind: &str, path: &str, target: Option<&str>) -> String {
-    match command_kind {
-        "file.save" => format!("Saved {path}"),
-        "file.move" => format!("Moved {path} to {}", target.unwrap_or("unknown target")),
-        "file.delete" => format!("Deleted {path}"),
-        _ => format!("Updated {path}"),
-    }
-}
-
-fn set_tinyos_command_frames(transport: &mut serde_json::Value, command_id: &str, run_id: &str) {
     transport["frames"] = serde_json::json!([
         {
             "event": "command_accepted",
             "chat_id": transport.get("chatId").cloned().unwrap_or(serde_json::Value::Null),
             "command_id": command_id,
-            "run_id": run_id,
+            "operation_id": operation_id,
         },
         {
             "event": "command_canonical_updated",
             "chat_id": transport.get("chatId").cloned().unwrap_or(serde_json::Value::Null),
             "command_id": command_id,
-            "run_id": run_id,
+            "operation_id": operation_id,
         }
     ]);
 }
 
+#[allow(clippy::too_many_arguments)]
+fn emit_tinyos_host_operation(
+    sink: &Option<TinyOsHostOperationSink>,
+    session_id: &str,
+    operation_id: &str,
+    command_id: &str,
+    command_kind: &str,
+    status: &str,
+    process_id: Option<String>,
+    error: Option<String>,
+) -> Result<(), String> {
+    let Some(sink) = sink else {
+        return Ok(());
+    };
+    sink(TinyOsHostOperationEvent {
+        session_id: session_id.to_string(),
+        operation_id: operation_id.to_string(),
+        command_id: command_id.to_string(),
+        command_kind: command_kind.to_string(),
+        status: status.to_string(),
+        process_id,
+        error,
+    })
+}
+
 fn persist_tinyos_command_acknowledgement(
-    workspace_root: PathBuf,
+    thread_store: &WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
     session_id: &str,
-    run_id: &str,
+    turn_id: &str,
     command_id: &str,
     transport: &serde_json::Value,
 ) -> Result<(), String> {
     let request_id = next_worker_request_correlation();
     call_rust_state_service(
-        workspace_root,
+        thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("tinyos-command-acknowledge"),
             request_id.trace_id("tinyos-command-acknowledge"),
-            "agent_run.append_semantic_batch",
+            "thread.turn.append_semantic_batch",
             serde_json::json!({
-                "session_id": session_id,
-                "run_id": run_id,
+                "threadId": session_id,
+                "turnId": turn_id,
                 "events": [{
-                    "eventId": format!("{run_id}:command-ack:{command_id}"),
-                    "itemId": format!("{run_id}:command-ack:{command_id}"),
+                    "eventId": format!("{turn_id}:command-ack:{command_id}"),
+                    "itemId": format!("{turn_id}:command-ack:{command_id}"),
                     "eventName": "agent.command.acknowledged",
                     "payload": {
                         "commandId": command_id,
@@ -1977,8 +1350,7 @@ fn persist_tinyos_command_acknowledgement(
                         "source": transport.get("source").cloned().unwrap_or(serde_json::Value::Null),
                         "target": {
                             "sessionId": session_id,
-                            "runId": run_id,
-                            "turnId": transport.get("turnId").cloned().unwrap_or(serde_json::Value::Null),
+                            "turnId": turn_id,
                             "threadId": transport.get("threadId").cloned().unwrap_or(serde_json::Value::Null),
                         }
                     }
@@ -1990,7 +1362,7 @@ fn persist_tinyos_command_acknowledgement(
     Ok(())
 }
 
-pub(crate) fn build_worker_transport_websocket_run_input_request(
+pub(crate) fn build_worker_transport_websocket_turn_input_request(
     request_id: WorkerRequestCorrelation,
     transport_result: &serde_json::Value,
     options: WorkerTransportWebSocketDispatchOptions,
@@ -2007,10 +1379,10 @@ pub(crate) fn build_worker_transport_websocket_run_input_request(
         .unwrap_or_default();
     metadata.insert("_wants_stream".to_string(), serde_json::Value::Bool(true));
 
-    let run_id = options.run_id.unwrap_or_else(|| {
+    let turn_id = options.turn_id.unwrap_or_else(|| {
         format!(
             "websocket-{}-{}",
-            sanitize_worker_run_id_part(if chat_id.is_empty() {
+            sanitize_worker_turn_id_part(if chat_id.is_empty() {
                 session_id
             } else {
                 chat_id
@@ -2026,7 +1398,7 @@ pub(crate) fn build_worker_transport_websocket_run_input_request(
         .filter(|value| value.is_array())
         .cloned();
     let mut input = serde_json::json!({
-        "runId": run_id,
+        "turnId": turn_id,
         "sessionId": session_id,
         "input": {
             "role": "user",
@@ -2051,9 +1423,9 @@ pub(crate) fn build_worker_transport_websocket_run_input_request(
     }
 
     Some(WorkerRequest::new(
-        request_id.id("transport-websocket-run-input"),
-        request_id.trace_id("transport-websocket-run-input"),
-        "agent.run_input",
+        request_id.id("transport-websocket-turn-input"),
+        request_id.trace_id("transport-websocket-turn-input"),
+        "agent.turn_input",
         serde_json::json!({ "input": input }),
     ))
 }
@@ -2065,7 +1437,7 @@ fn json_string_field<'a>(
     object.get(key).and_then(serde_json::Value::as_str)
 }
 
-fn sanitize_worker_run_id_part(value: &str) -> String {
+fn sanitize_worker_turn_id_part(value: &str) -> String {
     let sanitized: String = value
         .chars()
         .map(|ch| {

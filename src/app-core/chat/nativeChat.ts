@@ -1,14 +1,14 @@
 import type { NormalizedGatewayEvent } from "../gateway/gatewayWebSocketClient";
 import { logDesktopNativeChatDebug, summarizeDebugText } from "../native/desktopNativeChatDebug";
 import {
-  createChatRunState,
+  createChatTurnState,
   legacyMessagesToTurns,
   reduceAgentEvent,
   turnsToConversationMessages,
   type AgentEventEnvelope,
-  type ChatRunState,
+  type ChatTurnState,
   type TokenUsage,
-} from "./chatRunModel";
+} from "./chatTurnModel";
 
 export type NativeChatSession = {
   key: string;
@@ -39,7 +39,7 @@ export type NativeChatMessage = {
 export type NativeChatToolActivity = {
   approvalId?: string;
   delegatedTrace?: Record<string, unknown>;
-  childRunId?: string;
+  childTurnId?: string;
   delegateId?: string;
   delegateTitle?: string;
   delegateTask?: string;
@@ -53,7 +53,6 @@ export type NativeChatToolActivity = {
   scopeLabel?: string;
   kind: "call" | "result";
   approvalStatus?: string;
-  parentRunId?: string;
   parentTurnId?: string;
   traceRef?: string;
   sessionKey?: string;
@@ -99,7 +98,7 @@ export type NativeBackgroundTraceEvent = {
 export type NativeChatState = {
   sessions: NativeChatSession[];
   messages: Map<string, NativeChatMessage[]>;
-  chatRuns: ChatRunState;
+  chatTurns: ChatTurnState;
   activeSessionKey: string;
   activeChatId: string;
   respondingSessionKeys: Set<string>;
@@ -110,7 +109,7 @@ export function createNativeChatState(): NativeChatState {
   return {
     sessions: [],
     messages: new Map(),
-    chatRuns: createChatRunState(),
+    chatTurns: createChatTurnState(),
     activeSessionKey: "",
     activeChatId: "",
     respondingSessionKeys: new Set(),
@@ -216,12 +215,12 @@ export function setSessions(state: NativeChatState, sessions: NativeChatSession[
 
 export function setMessages(state: NativeChatState, sessionKey: string, messages: NativeChatMessage[]) {
   state.messages.set(sessionKey, messages);
-  state.chatRuns.legacyMessagesBySession.set(sessionKey, messages);
-  state.chatRuns.turnsBySession.set(sessionKey, legacyMessagesToTurns(sessionKey, messages));
-  hydrateDelegatedRunsFromMessages(state, sessionKey, messages);
+  state.chatTurns.legacyMessagesBySession.set(sessionKey, messages);
+  state.chatTurns.turnsBySession.set(sessionKey, legacyMessagesToTurns(sessionKey, messages));
+  hydrateDelegatedTurnsFromMessages(state, sessionKey, messages);
 }
 
-export function hydrateDelegatedRunsFromTraceEvents(
+export function hydrateDelegatedTurnsFromTraceEvents(
   state: NativeChatState,
   sessionKey: string,
   events: NativeBackgroundTraceEvent[],
@@ -229,10 +228,10 @@ export function hydrateDelegatedRunsFromTraceEvents(
   if (!events.length) {
     return;
   }
-  if (!state.chatRuns.turnsBySession.has(sessionKey)) {
+  if (!state.chatTurns.turnsBySession.has(sessionKey)) {
     const legacyMessages = state.messages.get(sessionKey) ?? [];
-    state.chatRuns.legacyMessagesBySession.set(sessionKey, legacyMessages);
-    state.chatRuns.turnsBySession.set(sessionKey, legacyMessagesToTurns(sessionKey, legacyMessages));
+    state.chatTurns.legacyMessagesBySession.set(sessionKey, legacyMessages);
+    state.chatTurns.turnsBySession.set(sessionKey, legacyMessagesToTurns(sessionKey, legacyMessages));
   }
   const sortedEvents = [...events].sort((left, right) => (numberValue(left.sequence) ?? 0) - (numberValue(right.sequence) ?? 0));
   for (const raw of sortedEvents) {
@@ -250,7 +249,7 @@ export function hydrateDelegatedRunsFromTraceEvents(
     if (!replayEventType.startsWith("agent.delegate.")) {
       continue;
     }
-    reduceAgentEvent(state.chatRuns, {
+    reduceAgentEvent(state.chatTurns, {
       chat_id: state.activeChatId,
       created_at: stringValue(raw.createdAt ?? raw.created_at) || new Date().toISOString(),
       event_id: childTracePayload
@@ -265,7 +264,7 @@ export function hydrateDelegatedRunsFromTraceEvents(
       turn_id: stringValue(raw.turnId ?? raw.turn_id) || stringValue(replayPayload.parent_turn_id ?? replayPayload.parentTurnId) || `restore:${sessionKey}`,
     });
   }
-  const turns = state.chatRuns.turnsBySession.get(sessionKey) ?? [];
+  const turns = state.chatTurns.turnsBySession.get(sessionKey) ?? [];
   state.messages.set(sessionKey, coalesceToolActivityMessages(conversationMessagesToNativeMessages(turnsToConversationMessages(turns))));
 }
 
@@ -280,13 +279,13 @@ function childTracePayloadFromJournalEvent(
   if (!delegateId || !step) {
     return undefined;
   }
-  const childRunId = stringValue(payload.child_run_id ?? payload.childRunId) || delegateId;
+  const childTurnId = stringValue(payload.child_turn_id ?? payload.childTurnId) || delegateId;
   const traceRef = stringValue(raw.traceRef ?? raw.trace_ref ?? payload.trace_ref ?? payload.traceRef);
-  const runStatus = stringValue(payload.delegate_status ?? payload.delegateStatus ?? payload.status) || "running";
+  const turnStatus = stringValue(payload.delegate_status ?? payload.delegateStatus ?? payload.status) || "running";
   const approval = step.kind === "approval"
     ? {
       approvalId: step.approvalId,
-      childRunId,
+      childTurnId,
       childToolCallId: step.toolCallId,
       delegateId,
       status: step.resultPreview === "Denied." ? "denied" : step.status === "completed" ? "approved" : "approval_required",
@@ -295,17 +294,17 @@ function childTracePayloadFromJournalEvent(
     : undefined;
   return {
     ...payload,
-    child_run_id: childRunId,
+    child_turn_id: childTurnId,
     delegate_id: delegateId,
     parent_session_key: sessionKey,
-    status: runStatus,
+    status: turnStatus,
     trace: {
       approvals: approval?.approvalId ? [approval] : [],
       artifacts: [],
-      childRunId,
+      childTurnId,
       delegateId,
       parentSessionKey: sessionKey,
-      status: runStatus,
+      status: turnStatus,
       steps: [step],
       updatedAt: step.updatedAt || step.createdAt || stringValue(raw.createdAt ?? raw.created_at),
     },
@@ -401,13 +400,13 @@ function childTraceTitle(kind: string, status: string): string {
   return "Trace step";
 }
 
-function hydrateDelegatedRunsFromMessages(
+function hydrateDelegatedTurnsFromMessages(
   state: NativeChatState,
   sessionKey: string,
   messages: NativeChatMessage[],
 ) {
   let sequence = 0;
-  const turns = state.chatRuns.turnsBySession.get(sessionKey) ?? [];
+  const turns = state.chatTurns.turnsBySession.get(sessionKey) ?? [];
   const turnId = turns[turns.length - 1]?.id || `restore:${sessionKey}`;
   for (const message of messages) {
     for (const activity of message.toolActivities ?? []) {
@@ -424,7 +423,6 @@ function hydrateDelegatedRunsFromMessages(
           delegate_id: delegateId,
           delegate_type: activity.delegateType || "spawn",
           final_output: activity.finalOutput,
-          parent_run_id: activity.parentRunId,
           parent_turn_id: activity.parentTurnId,
           status: activity.status || "completed",
           task: activity.delegateTask,
@@ -439,7 +437,7 @@ function hydrateDelegatedRunsFromMessages(
         step_id: `restore:delegate:${delegateId}`,
         turn_id: turnId,
       };
-      reduceAgentEvent(state.chatRuns, event);
+      reduceAgentEvent(state.chatTurns, event);
     }
   }
 }
@@ -470,7 +468,7 @@ export function resolveNativeChatApproval(
       };
     });
   }
-  const turns = state.chatRuns.turnsBySession.get(sessionKey) ?? [];
+  const turns = state.chatTurns.turnsBySession.get(sessionKey) ?? [];
   for (const turn of turns) {
     for (const step of turn.steps) {
       if (step.toolCall?.approvalId === options.approvalId) {
@@ -564,19 +562,19 @@ export function applyChatEvent(state: NativeChatState, event: NormalizedGatewayE
     if (!sessionKey) {
       return;
     }
-    if (!state.chatRuns.turnsBySession.has(sessionKey)) {
+    if (!state.chatTurns.turnsBySession.has(sessionKey)) {
       const legacyMessages = state.messages.get(sessionKey) ?? [];
-      state.chatRuns.turnsBySession.set(sessionKey, legacyMessagesToTurns(sessionKey, legacyMessages));
+      state.chatTurns.turnsBySession.set(sessionKey, legacyMessagesToTurns(sessionKey, legacyMessages));
     }
-    const seededTurns = state.chatRuns.turnsBySession.get(sessionKey) ?? [];
+    const seededTurns = state.chatTurns.turnsBySession.get(sessionKey) ?? [];
     if (!seededTurns.some((turn) => turn.id === envelope.turn_id)) {
       const pendingTurn = seededTurns[seededTurns.length - 1];
       if (pendingTurn && !pendingTurn.finalMessage) {
         pendingTurn.id = envelope.turn_id;
       }
     }
-    reduceAgentEvent(state.chatRuns, { ...envelope, session_key: sessionKey });
-    const turns = state.chatRuns.turnsBySession.get(sessionKey) ?? [];
+    reduceAgentEvent(state.chatTurns, { ...envelope, session_key: sessionKey });
+    const turns = state.chatTurns.turnsBySession.get(sessionKey) ?? [];
     state.messages.set(sessionKey, coalesceToolActivityMessages(conversationMessagesToNativeMessages(turnsToConversationMessages(turns))));
     const turn = turns.find((item) => item.id === envelope.turn_id);
     if (turn && isTerminalTurnStatus(turn.status)) {
@@ -598,13 +596,13 @@ export function applyChatEvent(state: NativeChatState, event: NormalizedGatewayE
     if (!sessionKey) {
       return;
     }
-    const turns = state.chatRuns.turnsBySession.get(sessionKey) ?? [];
+    const turns = state.chatTurns.turnsBySession.get(sessionKey) ?? [];
     const turn = turns[turns.length - 1];
     if (!turn) {
       return;
     }
-    const sequence = numberValue(event.raw.sequence) ?? state.chatRuns.appliedEventIds.size + 1;
-    reduceAgentEvent(state.chatRuns, {
+    const sequence = numberValue(event.raw.sequence) ?? state.chatTurns.appliedEventIds.size + 1;
+    reduceAgentEvent(state.chatTurns, {
       chat_id: event.chatId || state.activeChatId,
       created_at: stringValue(event.raw.created_at) || new Date().toISOString(),
       event_id: stringValue(event.raw.event_id) || `usage:${sessionKey}:${turn.id}:${sequence}`,
@@ -617,7 +615,7 @@ export function applyChatEvent(state: NativeChatState, event: NormalizedGatewayE
       session_key: sessionKey,
       turn_id: turn.id,
     });
-    const updatedTurns = state.chatRuns.turnsBySession.get(sessionKey) ?? [];
+    const updatedTurns = state.chatTurns.turnsBySession.get(sessionKey) ?? [];
     state.messages.set(sessionKey, coalesceToolActivityMessages(conversationMessagesToNativeMessages(turnsToConversationMessages(updatedTurns))));
     logDesktopNativeChatDebug("state.event.after", {
       event: summarizeChatEvent(event),
@@ -942,7 +940,6 @@ function conversationMessagesToNativeMessages(messages: ReturnType<typeof turnsT
         id: activity.id,
         kind: activity.kind,
         name: activity.name,
-        parentRunId: activity.parentRunId,
         parentTurnId: activity.parentTurnId,
         responseText: activity.responseText,
         scopeKey: activity.scopeKey,
@@ -971,7 +968,7 @@ function conversationMessagesToNativeMessages(messages: ReturnType<typeof turnsT
       })),
     } : {}),
     timestamp: message.time,
-    messageId: message.messageId || `agent-run:${index}`,
+    messageId: message.messageId || `agent-turn:${index}`,
     ...(message.turnId ? { turnId: message.turnId } : {}),
     ...(message.turnStatus ? { turnStatus: message.turnStatus } : {}),
     ...(message.usage ? { usage: message.usage } : {}),
@@ -1195,13 +1192,12 @@ function delegatedToolActivityFromMessage(message: Record<string, unknown>, resp
     ...(approvalId ? { approvalId } : {}),
     ...(approvalStatus ? { approvalStatus } : {}),
     ...(delegatedTrace ? { delegatedTrace } : {}),
-    childRunId: stringValue(message._delegate_child_run_id ?? metadata._delegate_child_run_id),
+    childTurnId: stringValue(message._delegate_child_turn_id ?? metadata._delegate_child_turn_id),
     delegateId: stringValue(message._delegate_id ?? metadata._delegate_id),
     delegateTitle: stringValue(message._delegate_label ?? metadata._delegate_label ?? message.title),
     delegateTask: stringValue(message._delegate_task ?? metadata._delegate_task),
     delegateType: "spawn",
     finalOutput: stringValue(message.final_output ?? metadata.final_output),
-    parentRunId: stringValue(message._delegate_parent_run_id ?? metadata._delegate_parent_run_id),
     parentTurnId: stringValue(message._delegate_parent_turn_id ?? metadata._delegate_parent_turn_id),
     traceRef: stringValue(message._delegate_trace_ref ?? metadata._delegate_trace_ref),
     status,
@@ -1217,7 +1213,7 @@ function delegatedToolArgsText(
     agent_kind: "spawn",
     approval_id: stringValue(message.approvalId ?? message.approval_id ?? message._approval_id ?? metadata.approvalId ?? metadata.approval_id),
     approval_status: stringValue(message.approvalStatus ?? message.approval_status ?? message._approval_status ?? metadata.approvalStatus ?? metadata.approval_status),
-    child_run_id: stringValue(message._delegate_child_run_id ?? metadata._delegate_child_run_id),
+    child_turn_id: stringValue(message._delegate_child_turn_id ?? metadata._delegate_child_turn_id),
     child_tool_call_id: stringValue(message._delegate_child_tool_call_id ?? metadata._delegate_child_tool_call_id),
     operation_preview: stringValue(message._delegate_operation_preview ?? metadata._delegate_operation_preview),
     status,
@@ -1270,14 +1266,14 @@ function directToolActivityRows(value: unknown): NativeChatToolActivity[] {
       kind,
       ...(stringValue(row.approvalId ?? row.approval_id ?? row._approval_id) ? { approvalId: stringValue(row.approvalId ?? row.approval_id ?? row._approval_id) } : {}),
       ...(stringValue(row.approvalStatus ?? row.approval_status ?? row._approval_status) ? { approvalStatus: stringValue(row.approvalStatus ?? row.approval_status ?? row._approval_status) } : {}),
-      ...(stringValue(row.childRunId ?? row.child_run_id) ? { childRunId: stringValue(row.childRunId ?? row.child_run_id) } : {}),
+      ...(stringValue(row.childTurnId ?? row.child_turn_id) ? { childTurnId: stringValue(row.childTurnId ?? row.child_turn_id) } : {}),
       ...(stringValue(row.delegateId ?? row.delegate_id) ? { delegateId: stringValue(row.delegateId ?? row.delegate_id) } : {}),
       ...(stringValue(row.delegateTask ?? row.delegate_task) ? { delegateTask: stringValue(row.delegateTask ?? row.delegate_task) } : {}),
       ...(stringValue(row.delegateTitle ?? row.delegate_title) ? { delegateTitle: stringValue(row.delegateTitle ?? row.delegate_title) } : {}),
       ...(stringValue(row.delegateType ?? row.delegate_type) ? { delegateType: stringValue(row.delegateType ?? row.delegate_type) } : {}),
       ...(delegatedTrace ? { delegatedTrace } : {}),
       ...(stringValue(row.finalOutput ?? row.final_output) ? { finalOutput: stringValue(row.finalOutput ?? row.final_output) } : {}),
-      ...(stringValue(row.parentRunId ?? row.parent_run_id) ? { parentRunId: stringValue(row.parentRunId ?? row.parent_run_id) } : {}),
+      ...(stringValue(row.parentTurnId ?? row.parent_turn_id) ? { parentTurnId: stringValue(row.parentTurnId ?? row.parent_turn_id) } : {}),
       ...(stringValue(row.parentTurnId ?? row.parent_turn_id) ? { parentTurnId: stringValue(row.parentTurnId ?? row.parent_turn_id) } : {}),
       ...(stringValue(row.sessionKey ?? row.session_key) ? { sessionKey: stringValue(row.sessionKey ?? row.session_key) } : {}),
       ...(stringValue(row.scopeKey ?? row.scope_key) ? { scopeKey: stringValue(row.scopeKey ?? row.scope_key) } : {}),

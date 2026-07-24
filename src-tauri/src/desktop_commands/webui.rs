@@ -1,12 +1,15 @@
-use crate::config_application::{
-    experimental_worker_config_snapshot, native_backend_workspace_root,
+use crate::agent::bridge::{
+    native_session_checkpoint, pending_approvals_from_checkpoint,
+    resolve_agent_ui_form_body_with_services, resolve_approval_body_with_services,
 };
+use crate::collaboration::cowork::WorkerCoworkRuntime;
+use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
+use crate::desktop::{state::lock_runtime, SharedGateway};
 use crate::desktop_commands::session::{
-    worker_session_branch_with_options, worker_session_clear_temporary_files_with_options,
-    worker_session_clear_with_options, worker_session_delete_with_options,
-    worker_session_effective_capabilities_with_options, worker_session_messages_with_options,
-    worker_session_patch_with_options, worker_session_temporary_files_with_options,
-    worker_session_upload_temporary_file_with_options, worker_sessions_list_with_options,
+    worker_session_branch_with_options, worker_session_clear_with_options,
+    worker_session_delete_with_options, worker_session_effective_capabilities_with_options,
+    worker_session_messages_with_options, worker_session_patch_with_options,
+    worker_sessions_list_with_options,
 };
 use crate::desktop_commands::skills::{
     worker_skills_create_with_options, worker_skills_delete_with_options,
@@ -18,20 +21,15 @@ use crate::desktop_commands::workspace::{
     worker_workspace_file_with_options, worker_workspace_files_with_options,
     worker_workspace_put_file_with_options,
 };
-use crate::native_agent_bridge::{
-    native_session_checkpoint, pending_approvals_from_checkpoint,
-    resolve_agent_ui_form_body_with_services, resolve_approval_body_with_services,
-};
-use crate::native_backend_contract::webui_route_inventory_entry;
-use crate::worker_cowork_runtime::WorkerCoworkRuntime;
-use crate::worker_manager::WorkerManagerState;
-use crate::worker_protocol::WorkerRequest;
-use crate::worker_request_id::next_worker_request_correlation;
-use crate::worker_runtime::WorkerRuntimeStatus;
-use crate::{call_rust_state_service, lock_runtime, SharedGateway, WORKER_WEBUI_ROUTE_TIMEOUT};
+use crate::protocol::request_id::next_worker_request_correlation;
+use crate::protocol::WorkerRequest;
+use crate::rpc::{call_rust_state_service, native_request_router};
+use crate::transport::stdio_worker::status::WorkerRuntimeStatus;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::PathBuf, time::Duration};
 use tauri::State;
+
+const WORKER_WEBUI_ROUTE_TIMEOUT: Duration = Duration::from_secs(10);
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorkerCoworkRouteInput {
@@ -56,15 +54,13 @@ pub(crate) struct WorkerWebuiRouteInput {
 
 #[tauri::command]
 pub(crate) fn worker_probe_status() -> WorkerRuntimeStatus {
-    WorkerRuntimeStatus::rust_backend_active(vec![
-        crate::worker_protocol::WorkerDiagnosticLine::new(
-            "stdout",
-            format!(
-                "rust backend protocol {}",
-                crate::worker_protocol::WORKER_PROTOCOL_VERSION
-            ),
+    WorkerRuntimeStatus::rust_backend_active(vec![crate::protocol::WorkerDiagnosticLine::new(
+        "stdout",
+        format!(
+            "rust backend protocol {}",
+            crate::protocol::WORKER_PROTOCOL_VERSION
         ),
-    ])
+    )])
 }
 
 #[tauri::command]
@@ -76,7 +72,7 @@ pub(crate) fn worker_cowork_route(
         state.inner(),
         input,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(30),
     )
 }
@@ -92,7 +88,7 @@ pub(crate) async fn worker_webui_route(
         &shared,
         input,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         timeout,
     )
     .await
@@ -319,11 +315,8 @@ async fn worker_webui_rust_route_with_options(
 
     if method == "POST" && path == "/v1/chat/completions" {
         return Ok(Some(
-            crate::native_provider_runtime::openai_chat_completions_route_async(
-                &config_snapshot,
-                &body,
-            )
-            .await,
+            crate::agent::provider::openai_chat_completions_route_async(&config_snapshot, &body)
+                .await,
         ));
     }
     if method == "POST" {
@@ -356,19 +349,21 @@ async fn worker_webui_rust_route_with_options(
         ("POST", "/webui/refresh-token") => Some(Ok(native_webui_bootstrap_body())),
         ("GET", "/api/status") => Some(Ok(native_webui_status_body(shared))),
         ("GET", "/api/config") => Some(worker_webui_config_body(
+            shared,
             workspace_root.clone(),
             config_snapshot.clone(),
         )),
         ("GET", "/api/tools") => Some(
             worker_webui_tools_body(shared, workspace_root.clone(), config_snapshot.clone()).await,
         ),
-        ("GET", "/api/providers") => Some(Ok(
-            crate::native_provider_runtime::provider_catalog_body(&config_snapshot),
-        )),
-        ("POST", "/api/provider-models") => Some(Ok(
-            crate::native_provider_runtime::provider_models_body(&config_snapshot, &body),
-        )),
-        ("GET", "/v1/models") => Some(Ok(crate::native_provider_runtime::openai_models_body(
+        ("GET", "/api/providers") => Some(Ok(crate::agent::provider::provider_catalog_body(
+            &config_snapshot,
+        ))),
+        ("POST", "/api/provider-models") => Some(Ok(crate::agent::provider::provider_models_body(
+            &config_snapshot,
+            &body,
+        ))),
+        ("GET", "/v1/models") => Some(Ok(crate::agent::provider::openai_models_body(
             &config_snapshot,
         ))),
         ("GET", "/api/sessions") => Some(worker_sessions_list_with_options(
@@ -391,8 +386,8 @@ async fn worker_webui_rust_route_with_options(
             timeout,
         )),
         ("GET", "/api/approvals") => Some(native_webui_approvals_body(
+            shared,
             &query,
-            workspace_root.clone(),
             config_snapshot.clone(),
         )),
         ("POST", "/api/skills") => Some(worker_skills_create_with_options(
@@ -461,7 +456,7 @@ async fn worker_webui_rust_route_with_options(
             "rust",
             webui_route_group(&path),
         ))),
-        None if webui_route_inventory_entry(&method, &path).is_some() => {
+        None if unsupported_webui_route(&method, &path).is_some() => {
             Ok(Some(unsupported_webui_route_response(
                 &method,
                 &path,
@@ -520,33 +515,6 @@ async fn worker_webui_rust_dynamic_route(
                 timeout,
             ));
         }
-    }
-    if let Some(key) = webui_session_route_key(path, "/temporary-files") {
-        return match method {
-            "GET" => Some(worker_session_temporary_files_with_options(
-                shared,
-                key,
-                workspace_root,
-                config_snapshot,
-                timeout,
-            )),
-            "POST" => Some(worker_session_upload_temporary_file_with_options(
-                shared,
-                key,
-                body.clone(),
-                workspace_root,
-                config_snapshot,
-                timeout,
-            )),
-            "DELETE" => Some(worker_session_clear_temporary_files_with_options(
-                shared,
-                key,
-                workspace_root,
-                config_snapshot,
-                timeout,
-            )),
-            _ => None,
-        };
     }
     if let Some(key) = webui_session_route_key(path, "/clear") {
         if method == "POST" {
@@ -680,17 +648,29 @@ fn native_webui_bootstrap_body() -> serde_json::Value {
 }
 
 fn native_webui_status_body(shared: &SharedGateway) -> serde_json::Value {
-    let status = lock_runtime(shared).experimental_worker.status();
+    let (last_error, accepting) = {
+        let runtime = lock_runtime(shared);
+        (
+            runtime.last_error.clone(),
+            runtime.native_agent_runtime.task_runtime().is_accepting(),
+        )
+    };
+    let status = match last_error {
+        Some(error) => WorkerRuntimeStatus::startup_failed(error),
+        None if accepting => WorkerRuntimeStatus::rust_backend_active(vec![]),
+        None => WorkerRuntimeStatus::rust_backend_stopped(),
+    };
+    let config = native_config_snapshot();
     serde_json::json!({
         "channels": {
             "websocket": {
                 "enabled": true,
-                "running": matches!(status.state, WorkerManagerState::Running | WorkerManagerState::Starting)
+                "running": accepting
             }
         },
         "native_backend": status,
-        "provider": crate::native_provider_runtime::resolve_provider_profile(
-            &experimental_worker_config_snapshot(),
+        "provider": crate::agent::provider::resolve_provider_profile(
+            &config,
             None,
             None,
         ).map(|profile| serde_json::json!({
@@ -699,17 +679,19 @@ fn native_webui_status_body(shared: &SharedGateway) -> serde_json::Value {
             "api_base": profile.api_base,
             "api_key_configured": profile.api_key_configured,
         })),
-        "model": crate::native_provider_runtime::configured_model(&experimental_worker_config_snapshot()),
+        "model": crate::agent::provider::configured_model(&config),
     })
 }
 
 fn worker_webui_config_body(
-    workspace_root: PathBuf,
+    shared: &SharedGateway,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     let request_id = next_worker_request_correlation();
     let snapshot = call_rust_state_service(
-        workspace_root,
+        &thread_store,
         config_snapshot,
         WorkerRequest::new(
             request_id.id("webui-config"),
@@ -724,14 +706,17 @@ fn worker_webui_config_body(
 
 async fn worker_webui_tools_body(
     shared: &SharedGateway,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let mcp_runtime = { lock_runtime(shared).mcp_runtime.clone() };
+    let (mcp_runtime, thread_store) = {
+        let runtime = lock_runtime(shared);
+        (runtime.mcp_runtime.clone(), runtime.thread_store.clone())
+    };
     tauri::async_runtime::spawn_blocking(move || {
         let request_id = next_worker_request_correlation();
-        let mut router = crate::experimental_worker_router(workspace_root, config_snapshot)
-            .with_mcp_runtime(mcp_runtime);
+        let mut router =
+            native_request_router(thread_store, config_snapshot).with_mcp_runtime(mcp_runtime);
         let response = router.dispatch(
             &WorkerRequest::new(
                 request_id.id("webui-tools"),
@@ -753,8 +738,8 @@ async fn worker_webui_tools_body(
 }
 
 fn native_webui_approvals_body(
+    shared: &SharedGateway,
     query: &HashMap<String, String>,
-    workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     let session_key = query
@@ -765,9 +750,13 @@ fn native_webui_approvals_body(
     let checkpoint = if session_key.is_empty() {
         None
     } else {
+        let thread_store = {
+            let runtime = lock_runtime(shared);
+            runtime.thread_store.clone()
+        };
         native_session_checkpoint(
             &session_key,
-            workspace_root,
+            &thread_store,
             config_snapshot,
             "native approvals checkpoint lookup",
         )?
@@ -789,7 +778,7 @@ pub(crate) async fn native_webui_approval_resolution_body_async(
 ) -> Result<serde_json::Value, String> {
     let base_services = {
         let runtime = lock_runtime(shared);
-        runtime.native_agent_runtime.clone()
+        runtime.native_agent_services()
     };
     resolve_approval_body_with_services(
         base_services,
@@ -812,7 +801,7 @@ pub(crate) async fn native_webui_agent_ui_form_resolution_body_async(
 ) -> Result<(u16, serde_json::Value), String> {
     let base_services = {
         let runtime = lock_runtime(shared);
-        runtime.native_agent_runtime.clone()
+        runtime.native_agent_services()
     };
     resolve_agent_ui_form_body_with_services(
         base_services,
@@ -979,25 +968,55 @@ fn webui_route_group(path: &str) -> &'static str {
 }
 
 fn unsupported_webui_route_response(method: &str, path: &str, message: &str) -> serde_json::Value {
-    let inventory = webui_route_inventory_entry(method, path);
-    let route_group = inventory
-        .as_ref()
+    let policy = unsupported_webui_route(method, path);
+    let route_group = policy
         .map(|entry| entry.route_group)
         .unwrap_or_else(|| webui_route_group(path));
     let mut body = serde_json::json!({
         "diagnostic": "unsupported-route",
-        "inventoryStatus": if inventory.is_some() { "unsupported" } else { "not-inventoried" },
+        "inventoryStatus": if policy.is_some() { "unsupported" } else { "not-inventoried" },
         "routeGroup": route_group,
         "error": { "message": message },
         "method": method,
         "path": path,
         "route": format!("{} {}", method, path),
     });
-    if let Some(entry) = inventory {
+    if let Some(entry) = policy {
         body["reason"] = serde_json::Value::String(entry.reason.to_string());
         body["replacementPlan"] = serde_json::Value::String(entry.replacement_plan.to_string());
     }
     webui_route_response(501, body, "unsupported", route_group)
+}
+
+#[derive(Clone, Copy)]
+struct UnsupportedWebuiRoute {
+    route_group: &'static str,
+    reason: &'static str,
+    replacement_plan: &'static str,
+}
+
+fn unsupported_webui_route(method: &str, path: &str) -> Option<UnsupportedWebuiRoute> {
+    if method.eq_ignore_ascii_case("PATCH") && path == "/api/config" {
+        return Some(UnsupportedWebuiRoute {
+            route_group: "config",
+            reason: "config patch is not implemented in the Rust backend",
+            replacement_plan: "add validated Rust config patch support before enabling",
+        });
+    }
+    if matches!(
+        method.to_ascii_uppercase().as_str(),
+        "GET" | "POST" | "PATCH" | "DELETE"
+    ) && path
+        .strip_prefix("/api/cowork/")
+        .is_some_and(|suffix| !suffix.is_empty())
+    {
+        return Some(UnsupportedWebuiRoute {
+            route_group: "cowork",
+            reason: "unimplemented Cowork routes are not exposed by the Rust backend",
+            replacement_plan: "add the specific Rust Cowork route before enabling",
+        });
+    }
+    None
 }
 
 pub(crate) fn worker_webui_route_timeout(input: &WorkerWebuiRouteInput) -> Duration {

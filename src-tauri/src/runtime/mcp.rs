@@ -2,7 +2,7 @@ use crate::adapters::mcp_http::{
     http_transport_config, parse_http_server_config, HttpServerConfig,
 };
 use crate::adapters::mcp_stdio::{parse_stdio_server_config, stdio_command, StdioServerConfig};
-use crate::worker_protocol::WorkerRequestCancellation;
+use crate::protocol::WorkerRequestCancellation;
 use rmcp::model::{
     CallToolRequestParams, ClientCapabilities, ClientInfo, Implementation, PaginatedRequestParams,
     ProtocolVersion,

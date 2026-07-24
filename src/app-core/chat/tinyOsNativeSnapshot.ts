@@ -22,7 +22,7 @@ export type TinyOsNativeTerminalProcess = {
   networkMode?: "denied" | "unavailable";
   nativeProcessId: string;
   outputTruncated?: boolean;
-  runId: string;
+  operationId: string;
   sandboxMode?: "read_only" | "unavailable";
   sessionId: string;
   state: TinyOsProcessState;
@@ -122,7 +122,7 @@ export type TinyOsNativeBrowserSession = {
   lifecycle?: "creating" | "ready" | "closing" | "closed" | "failed" | "crashed";
   profileId?: string;
   profilePersistence?: "persistent" | "incognito";
-  runId: string;
+  operationId: string;
   runtimeKind?: string;
   runtimeVersion?: string;
   sessionId: string;
@@ -190,7 +190,7 @@ export function createTinyOsTerminalProcessSnapshot(
     ...data,
     executionContract: data.executionContract ?? "retained_execution_v1",
     nativeProcessId: requiredText(data.nativeProcessId, "Native process id"),
-    runId: requiredText(data.runId, "Terminal run id"),
+    operationId: requiredText(data.operationId, "Terminal operation id"),
     sessionId: requiredText(data.sessionId, "Terminal session id"),
     ...optionalNonNegative(data.droppedBytes, "Terminal dropped bytes", "droppedBytes"),
     ...optionalNonNegative(data.durationMs, "Terminal duration", "durationMs"),
@@ -227,7 +227,7 @@ export function createTinyOsBrowserSessionSnapshot(
     ...data,
     activeTabId,
     browserSessionId: requiredText(data.browserSessionId, "Browser session id"),
-    runId: requiredText(data.runId, "Browser run id"),
+    operationId: requiredText(data.operationId, "Browser operation id"),
     sessionId: requiredText(data.sessionId, "Browser owner session id"),
     tabs,
   }, metadata, "native_query");

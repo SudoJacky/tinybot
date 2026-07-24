@@ -10,7 +10,7 @@ function session(): TinyOsNativeBrowserSession {
     contract: "browser_session_v1",
     interaction: { click: true, navigate: true, type: true },
     kind: "browser_session",
-    runId: "run-1",
+    operationId: "operation-1",
     sessionId: "session-1",
     state: "running",
     tabs: [{

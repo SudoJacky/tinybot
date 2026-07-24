@@ -66,7 +66,7 @@ export type AgentUiForm = {
   updated_at?: string;
   chat_id?: string;
   message_id?: string;
-  run_id?: string;
+  turn_id?: string;
 };
 
 export type AgentUiBrowserFrame = {
@@ -81,7 +81,7 @@ export type AgentUiEvent = {
   event_type: string;
   chat_id: string;
   message_id: string;
-  run_id: string;
+  turn_id: string;
   parent_id: string;
   timestamp: string;
   payload: Record<string, unknown>;
@@ -219,7 +219,7 @@ function normalizeNativeAgentUiFrame(frame: Record<string, unknown>): AgentUiEve
         event_type: eventType,
         chat_id: stringValue(source.chat_id ?? frame.chat_id ?? correlation.chat_id),
         message_id: stringValue(source.message_id ?? correlation.message_id),
-        run_id: stringValue(source.run_id ?? correlation.run_id),
+        turn_id: stringValue(source.turn_id ?? correlation.turn_id),
         parent_id: stringValue(source.parent_id ?? correlation.parent_id),
         timestamp: stringValue(source.timestamp ?? frame.timestamp) || new Date().toISOString(),
         payload,
@@ -317,7 +317,7 @@ function reduceFormEventState(state: AgentUiState, event: AgentUiEvent, status: 
     updated_at: event.timestamp,
     chat_id: event.chat_id || existing?.chat_id || "",
     message_id: event.message_id || existing?.message_id || "",
-    run_id: event.run_id || existing?.run_id || "",
+    turn_id: event.turn_id || existing?.turn_id || "",
     correlation: isRecord(event.payload.correlation)
       ? { ...(existing?.correlation ?? {}), ...event.payload.correlation, form_id: formId }
       : { ...(existing?.correlation ?? {}), form_id: formId },
@@ -461,7 +461,7 @@ function createAgentUiEventEnvelope(frame: Record<string, unknown>, eventType: s
     event_type: eventType,
     chat_id: stringValue(frame.chat_id),
     message_id: stringValue(frame.message_id),
-    run_id: stringValue(frame.run_id),
+    turn_id: stringValue(frame.turn_id),
     parent_id: stringValue(frame.parent_id),
     timestamp: stringValue(frame.timestamp ?? frame.created_at) || new Date().toISOString(),
     payload,

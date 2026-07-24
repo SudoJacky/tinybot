@@ -85,7 +85,7 @@ export function AgentDefaultsSettingsPage({ onNavigateToProviderModels, settings
       <div className="react-provider-settings__header">
         <div>
           <h2 id="agent-defaults-title">Agent Defaults</h2>
-          <p>Runtime defaults apply to new chat and agent runs unless a specific Agent overrides them.</p>
+          <p>Runtime defaults apply to new chat and agent turns unless a specific Agent overrides them.</p>
         </div>
       </div>
 

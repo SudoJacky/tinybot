@@ -140,11 +140,6 @@ describe("gateway HTTP client", () => {
 
     await client.sessions.list();
     await client.sessions.messages("WebSocket:chat-1");
-    await client.sessions.temporaryFiles("WebSocket:chat-1");
-    const temporaryForm = new FormData();
-    temporaryForm.append("file", new File(["temporary"], "temporary.txt", { type: "text/plain" }));
-    await client.sessions.uploadTemporaryFile("WebSocket:chat-1", temporaryForm);
-    await client.sessions.clearTemporaryFiles("WebSocket:chat-1");
     await client.workspace.file("docs/readme.md");
     await client.workspace.putFile("docs/readme.md", {
       content: "# Readme\n",
@@ -181,9 +176,6 @@ describe("gateway HTTP client", () => {
       "http://127.0.0.1:18790/webui/bootstrap",
       "http://127.0.0.1:18790/api/sessions",
       "http://127.0.0.1:18790/api/sessions/WebSocket%3Achat-1/messages",
-      "http://127.0.0.1:18790/api/sessions/WebSocket%3Achat-1/temporary-files",
-      "http://127.0.0.1:18790/api/sessions/WebSocket%3Achat-1/temporary-files",
-      "http://127.0.0.1:18790/api/sessions/WebSocket%3Achat-1/temporary-files",
       "http://127.0.0.1:18790/api/workspace/files/docs%2Freadme.md",
       "http://127.0.0.1:18790/api/workspace/files/docs%2Freadme.md",
       "http://127.0.0.1:18790/health",
@@ -210,16 +202,6 @@ describe("gateway HTTP client", () => {
       "http://127.0.0.1:18790/api/cowork/blueprints/preview",
     ]);
     expect(fetchFn.mock.calls[4][1]).toMatchObject({
-      method: "POST",
-      body: temporaryForm,
-    });
-    expect(fetchFn.mock.calls[5][1]).toMatchObject({
-      method: "DELETE",
-    });
-    expect((fetchFn.mock.calls[4][1] as RequestInit).headers).not.toMatchObject({
-      "Content-Type": expect.any(String),
-    });
-    expect(fetchFn.mock.calls[7][1]).toMatchObject({
       method: "PUT",
       headers: expect.objectContaining({
         Authorization: "Bearer token-1",
@@ -230,7 +212,7 @@ describe("gateway HTTP client", () => {
         expected_updated_at: "2026-05-31T10:00:00+00:00",
       }),
     });
-    expect(fetchFn.mock.calls[10][1]).toMatchObject({
+    expect(fetchFn.mock.calls[7][1]).toMatchObject({
       method: "POST",
       headers: expect.objectContaining({
         Authorization: "Bearer token-1",
@@ -242,7 +224,7 @@ describe("gateway HTTP client", () => {
         session_id: "desktop-chat",
       }),
     });
-    expect(fetchFn.mock.calls[13][1]).toMatchObject({
+    expect(fetchFn.mock.calls[10][1]).toMatchObject({
       method: "PATCH",
       headers: expect.objectContaining({
         Authorization: "Bearer token-1",
@@ -250,13 +232,13 @@ describe("gateway HTTP client", () => {
       }),
       body: JSON.stringify({ content: "# Updated" }),
     });
-    expect(fetchFn.mock.calls[14][1]).toMatchObject({ method: "POST" });
-    expect(fetchFn.mock.calls[15][1]).toMatchObject({ method: "DELETE" });
-    expect(fetchFn.mock.calls[17][1]).toMatchObject({
+    expect(fetchFn.mock.calls[11][1]).toMatchObject({ method: "POST" });
+    expect(fetchFn.mock.calls[12][1]).toMatchObject({ method: "DELETE" });
+    expect(fetchFn.mock.calls[14][1]).toMatchObject({
       method: "POST",
       body: JSON.stringify({ goal: "Ship desktop" }),
     });
-    expect(fetchFn.mock.calls[29][1]).toMatchObject({
+    expect(fetchFn.mock.calls[26][1]).toMatchObject({
       method: "POST",
       body: JSON.stringify({ blueprint: {} }),
     });
@@ -720,9 +702,6 @@ describe("gateway HTTP client", () => {
     const nativeSessions = {
       list: vi.fn(),
       messages: vi.fn(),
-      temporaryFiles: vi.fn(async (key: string) => ({ key, temporary_files: [{ name: "context.md" }] })),
-      uploadTemporaryFile: vi.fn(async (key: string, body: unknown) => ({ key, uploaded: true, body })),
-      clearTemporaryFiles: vi.fn(async (key: string) => ({ key, cleared: 1 })),
       delete: vi.fn(async (key: string) => ({ key, deleted: true })),
       patch: vi.fn(async (key: string, body: unknown) => ({ key, metadata: { pinned: true }, body })),
       clear: vi.fn(async (key: string) => ({ key, cleared: true })),
@@ -732,27 +711,6 @@ describe("gateway HTTP client", () => {
       fetchFn,
       nativeSessions,
       nativeWebui,
-    });
-    const form = new FormData();
-    form.append("file", new File(["hello native"], "context.md", { type: "text/markdown" }));
-
-    await expect(client.sessions.temporaryFiles("websocket:chat-1")).resolves.toEqual({
-      key: "websocket:chat-1",
-      temporary_files: [{ name: "context.md" }],
-    });
-    await expect(client.sessions.uploadTemporaryFile("websocket:chat-1", form)).resolves.toEqual({
-      key: "websocket:chat-1",
-      uploaded: true,
-      body: {
-        name: "context.md",
-        file_type: "md",
-        content: "hello native",
-        size_bytes: 12,
-      },
-    });
-    await expect(client.sessions.clearTemporaryFiles("websocket:chat-1")).resolves.toEqual({
-      key: "websocket:chat-1",
-      cleared: 1,
     });
     await expect(client.sessions.patch("websocket:chat-1", { metadata: { pinned: true } })).resolves.toEqual({
       key: "websocket:chat-1",
@@ -924,125 +882,6 @@ describe("gateway HTTP client", () => {
         method: "POST",
       }),
     );
-  });
-
-  test("prefers native WebUI session temporary files route when available", async () => {
-    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
-    const nativeWebui = {
-      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
-        items: [{ id: "tmp-1", name: "context.md", file_type: "md", temporary: true }],
-        request,
-      })),
-    };
-    const client = createGatewayApiClient({
-      config: DEFAULT_GATEWAY_CONFIG,
-      fetchFn,
-      nativeWebui,
-    });
-
-    await expect(client.sessions.temporaryFiles("websocket:chat-1")).resolves.toMatchObject({
-      items: [{ id: "tmp-1", name: "context.md", file_type: "md", temporary: true }],
-    });
-    expect(nativeWebui.route).toHaveBeenCalledWith({
-      method: "GET",
-      path: "/api/sessions/websocket%3Achat-1/temporary-files",
-    });
-    expect(fetchFn).not.toHaveBeenCalled();
-  });
-
-  test("prefers native WebUI session temporary file upload when available", async () => {
-    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
-    const nativeWebui = {
-      route: vi.fn(async (request: { method: string; path: string; body?: unknown }) => ({
-        id: "session_doc_1",
-        name: "context.md",
-        file_type: "md",
-        temporary: true,
-        request,
-      })),
-    };
-    const client = createGatewayApiClient({
-      config: DEFAULT_GATEWAY_CONFIG,
-      fetchFn,
-      nativeWebui,
-    });
-    const form = new FormData();
-    form.append("file", new File(["hello native"], "context.md", { type: "text/markdown" }));
-
-    await expect(client.sessions.uploadTemporaryFile("websocket:chat-1", form)).resolves.toMatchObject({
-      id: "session_doc_1",
-      name: "context.md",
-      file_type: "md",
-    });
-    expect(nativeWebui.route).toHaveBeenCalledWith({
-      method: "POST",
-      path: "/api/sessions/websocket%3Achat-1/temporary-files",
-      body: {
-        name: "context.md",
-        file_type: "md",
-        content: "hello native",
-        size_bytes: 12,
-      },
-    });
-    expect(fetchFn).not.toHaveBeenCalled();
-  });
-
-  test("keeps extractor-dependent session temporary uploads on the HTTP gateway fallback", async () => {
-    const fetchFn = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
-      if (String(url).endsWith("/webui/bootstrap")) {
-        return new Response(JSON.stringify({ token: "token-1" }), { status: 200 });
-      }
-      return new Response(JSON.stringify({ gateway: true }), { status: 200 });
-    });
-    const nativeWebui = {
-      route: vi.fn(async () => {
-        throw new Error("pdf temporary upload should not use native route");
-      }),
-    };
-    const client = createGatewayApiClient({
-      config: DEFAULT_GATEWAY_CONFIG,
-      fetchFn,
-      nativeWebui,
-    });
-    const form = new FormData();
-    form.append("file", new File(["%PDF-1.4"], "context.pdf", { type: "application/pdf" }));
-
-    await expect(client.sessions.uploadTemporaryFile("websocket:chat-1", form)).resolves.toEqual({ gateway: true });
-    expect(nativeWebui.route).not.toHaveBeenCalled();
-    expect(fetchFn.mock.calls.map((call) => String((call as unknown[])[0]))).toEqual([
-      "http://127.0.0.1:18790/webui/bootstrap",
-      "http://127.0.0.1:18790/api/sessions/websocket%3Achat-1/temporary-files",
-    ]);
-    expect(fetchFn.mock.calls[1][1]).toMatchObject({
-      method: "POST",
-      body: form,
-    });
-  });
-
-  test("prefers native WebUI session temporary file clear when available", async () => {
-    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ gateway: true }), { status: 200 }));
-    const nativeWebui = {
-      route: vi.fn(async (request: { method: string; path: string }) => ({
-        items: [],
-        cleared: 2,
-        request,
-      })),
-    };
-    const client = createGatewayApiClient({
-      config: DEFAULT_GATEWAY_CONFIG,
-      fetchFn,
-      nativeWebui,
-    });
-
-    await expect(client.sessions.clearTemporaryFiles("websocket:chat-1")).resolves.toMatchObject({
-      items: [],
-      cleared: 2,
-    });
-    expect(nativeWebui.route).toHaveBeenCalledWith({
-      method: "DELETE",
-      path: "/api/sessions/websocket%3Achat-1/temporary-files",
-    });
-    expect(fetchFn).not.toHaveBeenCalled();
   });
 
   test("prefers native Rust skills read operations when both native paths are available", async () => {
@@ -1797,7 +1636,6 @@ describe("gateway WebSocket client", () => {
       kind: "agent.cancel",
       source: { control: "stop-response", surface: "chat" },
       target: {
-        runId: "run-1",
         sessionId: "websocket:chat-1",
         threadId: "thread-1",
         turnId: "turn-1",
@@ -1807,7 +1645,6 @@ describe("gateway WebSocket client", () => {
       chat_id: "chat-1",
       command_id: "command-1",
       command_kind: "agent.cancel",
-      run_id: "run-1",
       session_id: "websocket:chat-1",
       source: { control: "stop-response", surface: "chat" },
       thread_id: "thread-1",
@@ -1819,16 +1656,15 @@ describe("gateway WebSocket client", () => {
       issuedAt: "2026-07-13T00:00:00Z",
       kind: "agent.pause",
       source: { control: "system-bar-pause", surface: "tinyos" },
-      target: { runId: "run-1", sessionId: "websocket:chat-1", turnId: "run-1" },
+      target: { turnId: "turn-1", sessionId: "websocket:chat-1" },
     })).toEqual({
       type: "command",
       chat_id: "chat-1",
       command_id: "command-pause-1",
       command_kind: "agent.pause",
-      run_id: "run-1",
       session_id: "websocket:chat-1",
       source: { control: "system-bar-pause", surface: "tinyos" },
-      turn_id: "run-1",
+      turn_id: "turn-1",
     });
     expect(createGatewaySocketMessage.command("chat-1", {
       schemaVersion: "tinybot.command.v1",
@@ -1836,14 +1672,14 @@ describe("gateway WebSocket client", () => {
       issuedAt: "2026-07-13T00:00:00Z",
       kind: "approval.resolve",
       source: { control: "inspector-approval", surface: "tinyos" },
-      target: { runId: "run-1", sessionId: "websocket:chat-1" },
+      target: { turnId: "turn-1", sessionId: "websocket:chat-1" },
       approval: { approvalId: "approval-1", approved: true, scope: "session" },
     })).toEqual({
       type: "command",
       chat_id: "chat-1",
       command_id: "command-approval-1",
       command_kind: "approval.resolve",
-      run_id: "run-1",
+      turn_id: "turn-1",
       session_id: "websocket:chat-1",
       source: { control: "inspector-approval", surface: "tinyos" },
       approval_id: "approval-1",
@@ -1856,16 +1692,15 @@ describe("gateway WebSocket client", () => {
       issuedAt: "2026-07-13T00:00:00Z",
       kind: "form.submit",
       source: { control: "system-form", surface: "tinyos" },
-      target: { runId: "run-1", sessionId: "websocket:chat-1", turnId: "run-1" },
+      target: { turnId: "turn-1", sessionId: "websocket:chat-1" },
       form: { formId: "travel-preferences-1", values: { destination: "Singapore" } },
     })).toEqual({
       type: "command",
       chat_id: "chat-1",
       command_id: "command-form-1",
       command_kind: "form.submit",
-      run_id: "run-1",
       session_id: "websocket:chat-1",
-      turn_id: "run-1",
+      turn_id: "turn-1",
       source: { control: "system-form", surface: "tinyos" },
       form_id: "travel-preferences-1",
       values: { destination: "Singapore" },
@@ -1876,16 +1711,15 @@ describe("gateway WebSocket client", () => {
       issuedAt: "2026-07-13T00:00:00Z",
       kind: "form.cancel",
       source: { control: "chat-form", surface: "chat" },
-      target: { runId: "run-1", sessionId: "websocket:chat-1", turnId: "run-1" },
+      target: { turnId: "turn-1", sessionId: "websocket:chat-1" },
       form: { formId: "travel-preferences-1" },
     })).toEqual({
       type: "command",
       chat_id: "chat-1",
       command_id: "command-form-cancel-1",
       command_kind: "form.cancel",
-      run_id: "run-1",
       session_id: "websocket:chat-1",
-      turn_id: "run-1",
+      turn_id: "turn-1",
       source: { control: "chat-form", surface: "chat" },
       form_id: "travel-preferences-1",
     });
@@ -1895,18 +1729,18 @@ describe("gateway WebSocket client", () => {
       issuedAt: "2026-07-13T00:00:00Z",
       kind: "operation.retry",
       source: { control: "operation-shelf", surface: "tinyos" },
-      target: { runId: "run-retry-1", sessionId: "websocket:chat-1" },
-      operation: { itemId: "run-failed:error", turnId: "run-failed" },
+      target: { turnId: "turn-retry-1", sessionId: "websocket:chat-1" },
+      operation: { itemId: "turn-failed:error", turnId: "turn-failed" },
     })).toEqual({
       type: "command",
       chat_id: "chat-1",
       command_id: "command-retry-1",
       command_kind: "operation.retry",
-      run_id: "run-retry-1",
+      turn_id: "turn-retry-1",
       session_id: "websocket:chat-1",
       source: { control: "operation-shelf", surface: "tinyos" },
-      source_turn_id: "run-failed",
-      item_id: "run-failed:error",
+      source_turn_id: "turn-failed",
+      item_id: "turn-failed:error",
     });
     expect(createGatewaySocketMessage.command("chat-1", {
       schemaVersion: "tinybot.command.v1",
@@ -1914,10 +1748,10 @@ describe("gateway WebSocket client", () => {
       issuedAt: "2026-07-13T00:00:00Z",
       kind: "agent.request_change",
       source: { control: "files-explain-selection", surface: "tinyos" },
-      target: { runId: "run-request-1", sessionId: "websocket:chat-1" },
+      target: { turnId: "turn-request-1", sessionId: "websocket:chat-1" },
       request: {
         instruction: "Explain this selection.",
-        observedRunId: "run-completed-1",
+        observedTurnId: "turn-completed-1",
         references: [{
           detail: "TinyOS file selection",
           kind: "reference",
@@ -1934,11 +1768,11 @@ describe("gateway WebSocket client", () => {
       chat_id: "chat-1",
       command_id: "command-request-1",
       command_kind: "agent.request_change",
-      run_id: "run-request-1",
+      turn_id: "turn-request-1",
       session_id: "websocket:chat-1",
       source: { control: "files-explain-selection", surface: "tinyos" },
       instruction: "Explain this selection.",
-      observed_run_id: "run-completed-1",
+      observed_turn_id: "turn-completed-1",
       references: [{
         detail: "TinyOS file selection",
         kind: "reference",
@@ -1956,7 +1790,7 @@ describe("gateway WebSocket client", () => {
       issuedAt: "2026-07-13T00:00:00Z",
       kind: "file.save",
       source: { control: "files-editor", surface: "tinyos" },
-      target: { runId: "tinyos-host-file-1", sessionId: "websocket:chat-1" },
+      target: { operationId: "tinyos-host-file-1", sessionId: "websocket:chat-1" },
       file: {
         baseRevision: "metadata:12:34",
         confirmed: true,
@@ -1969,7 +1803,7 @@ describe("gateway WebSocket client", () => {
       chat_id: "chat-1",
       command_id: "command-file-save-1",
       command_kind: "file.save",
-      run_id: "tinyos-host-file-1",
+      operation_id: "tinyos-host-file-1",
       session_id: "websocket:chat-1",
       source: { control: "files-editor", surface: "tinyos" },
       path: "notes/today.md",
@@ -1984,14 +1818,14 @@ describe("gateway WebSocket client", () => {
       issuedAt: "2026-07-13T00:00:00Z",
       kind: "terminal.execute",
       source: { control: "terminal-command", surface: "tinyos" },
-      target: { runId: "tinyos-host-terminal-1", sessionId: "websocket:chat-1" },
+      target: { operationId: "tinyos-host-terminal-1", sessionId: "websocket:chat-1" },
       terminal: { command: "npm test", confirmed: true, cwd: "apps/desktop" },
     })).toEqual({
       type: "command",
       chat_id: "chat-1",
       command_id: "command-terminal-1",
       command_kind: "terminal.execute",
-      run_id: "tinyos-host-terminal-1",
+      operation_id: "tinyos-host-terminal-1",
       session_id: "websocket:chat-1",
       source: { control: "terminal-command", surface: "tinyos" },
       command: "npm test",
