@@ -277,13 +277,30 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
 
 #[test]
 fn request_user_input_rejects_invalid_forms_without_waiting() {
-    struct InvalidInputProvider;
+    struct InvalidInputProvider {
+        calls: AtomicUsize,
+    }
 
     impl NativeAgentProvider for InvalidInputProvider {
         fn complete(
             &self,
-            _context: &AgentTurnContext,
+            context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
+            if self.calls.fetch_add(1, Ordering::SeqCst) > 0 {
+                assert!(context.messages.iter().any(|message| {
+                    message["role"] == "tool"
+                        && message["tool_call_id"] == "invalid-form"
+                        && message["content"].as_str().is_some_and(|content| {
+                            content.contains("fields must contain between 1 and 50 entries")
+                        })
+                }));
+                return Ok(NativeAgentProviderResponse {
+                    final_content: "invalid form handled".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: Vec::new(),
+                });
+            }
             Ok(NativeAgentProviderResponse {
                 final_content: String::new(),
                 reasoning_delta: None,
@@ -299,7 +316,9 @@ fn request_user_input_rejects_invalid_forms_without_waiting() {
     }
 
     let services = NativeAgentRuntimeServices::new(
-        Arc::new(InvalidInputProvider),
+        Arc::new(InvalidInputProvider {
+            calls: AtomicUsize::new(0),
+        }),
         Arc::new(FakeNativeAgentToolDispatcher),
         Arc::new(InMemoryNativeAgentCheckpointStore::default()),
         Arc::new(InMemoryNativeAgentCancellation::default()),
@@ -313,13 +332,10 @@ fn request_user_input_rejects_invalid_forms_without_waiting() {
         }),
         json!({}),
     )
-    .expect("invalid model tool arguments should produce an explicit tool error result");
+    .expect("invalid model tool arguments should be returned to the model");
 
-    assert_eq!(result["stopReason"], "tool_error");
-    assert!(result["error"]
-        .as_str()
-        .expect("tool error should include a message")
-        .contains("fields must contain between 1 and 50 entries"));
+    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(result["finalContent"], "invalid form handled");
     assert!(services
         .restore_turn_checkpoint("session-invalid-user-input", "turn-invalid-user-input")
         ["checkpoint"]
@@ -798,13 +814,30 @@ fn provider_tool_name_collisions_fail_before_request_dispatch() {
 
 #[test]
 fn direct_calls_to_unactivated_deferred_tools_are_rejected() {
-    struct DeferredToolProvider;
+    struct DeferredToolProvider {
+        calls: AtomicUsize,
+    }
 
     impl NativeAgentProvider for DeferredToolProvider {
         fn complete(
             &self,
-            _context: &AgentTurnContext,
+            context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
+            if self.calls.fetch_add(1, Ordering::SeqCst) > 0 {
+                assert!(context.messages.iter().any(|message| {
+                    message["role"] == "tool"
+                        && message["tool_call_id"] == "unactivated-shell"
+                        && message["content"]
+                            .as_str()
+                            .is_some_and(|content| content.contains("not permitted"))
+                }));
+                return Ok(NativeAgentProviderResponse {
+                    final_content: "deferred tool rejection handled".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: Vec::new(),
+                });
+            }
             Ok(NativeAgentProviderResponse {
                 final_content: String::new(),
                 reasoning_delta: None,
@@ -833,7 +866,9 @@ fn direct_calls_to_unactivated_deferred_tools_are_rejected() {
 
     let result = run_native_agent_turn_with_config(
         &NativeAgentRuntimeServices::new(
-            Arc::new(DeferredToolProvider),
+            Arc::new(DeferredToolProvider {
+                calls: AtomicUsize::new(0),
+            }),
             Arc::new(PanickingDeferredDispatcher),
             Arc::new(InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(InMemoryNativeAgentCancellation::default()),
@@ -841,14 +876,15 @@ fn direct_calls_to_unactivated_deferred_tools_are_rejected() {
         json!({
             "turnId": "turn-unactivated-deferred",
             "sessionId": "session-unactivated-deferred",
-            "maxIterations": 1,
+            "maxIterations": 2,
             "messages": [{ "role": "user", "content": "guess a shell tool" }]
         }),
         json!({}),
     )
-    .expect("policy rejection should be a structured result");
+    .expect("policy rejection should be returned to the model");
 
-    assert_eq!(result["stopReason"], "policy_denied");
+    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(result["finalContent"], "deferred tool rejection handled");
     assert_eq!(result["events"][1]["payload"]["toolName"], "shell.execute");
 }
 

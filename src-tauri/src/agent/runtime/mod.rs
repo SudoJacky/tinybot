@@ -375,9 +375,16 @@ pub trait NativeAgentToolDispatcher: Send + Sync + 'static {
         #[cfg(test)]
         {
             return Box::pin(async move {
-                tauri::async_runtime::spawn_blocking(move || self.dispatch(&context, &tool_call))
-                    .await
-                    .map_err(|error| format!("blocking native tool test task failed: {error}"))?
+                match tauri::async_runtime::spawn_blocking(move || {
+                    self.dispatch(&context, &tool_call)
+                })
+                .await
+                {
+                    Ok(result) => result,
+                    Err(error) => {
+                        panic!("blocking native tool test task failed to join: {error}")
+                    }
+                }
             });
         }
         #[cfg(not(test))]

@@ -55,13 +55,13 @@ pub(super) enum OwnedToolCallResult {
     },
 }
 
-struct ToolDispatchSuccess {
+struct ToolDispatchCompleted {
     tool_call: NativeAgentToolCall,
     result: super::NativeAgentToolResult,
 }
 
 enum ToolDispatchOutcome {
-    Success(ToolDispatchSuccess),
+    Completed(ToolDispatchCompleted),
     Failure {
         tool_call: NativeAgentToolCall,
         error: String,
@@ -79,6 +79,11 @@ enum ToolDispatchOutcome {
         tool_call: NativeAgentToolCall,
         terminal_outcome: ToolBatchTerminalOutcome,
     },
+}
+
+fn completed_tool_error(tool_call: NativeAgentToolCall, error: String) -> ToolDispatchOutcome {
+    let result = super::NativeAgentToolResult::generic_error(&tool_call, error);
+    ToolDispatchOutcome::Completed(ToolDispatchCompleted { tool_call, result })
 }
 
 struct SequencedToolDispatchOutcome {
@@ -380,7 +385,7 @@ pub(super) async fn execute_tool_calls_for_iteration(
             }),
         );
         if !native_tool_is_permitted(context, &tool_call.name) {
-            return policy_denied_result(services, context, state, iteration, tool_call);
+            return policy_denied_tool_result(services, context, state, iteration, tool_call);
         }
     }
 
@@ -846,7 +851,7 @@ fn execute_tool_search(
         }
     };
     state.emit_hook_evaluation(&after_invocation, &after_evaluation);
-    record_tool_success(&*context, state, iteration, tool_call, result);
+    record_tool_result(&*context, state, iteration, tool_call, result);
     state.clear_pending_tool_calls();
     state.transition_phase(AgentRuntimePhase::Planning, iteration, "agent.tool.result");
     save_phase_checkpoint(
@@ -942,7 +947,7 @@ fn execute_update_plan(
         }
     };
     state.emit_hook_evaluation(&after_invocation, &after_evaluation);
-    record_tool_success(context, state, iteration, tool_call, result);
+    record_tool_result(context, state, iteration, tool_call, result);
     state.clear_pending_tool_calls();
     state.transition_phase(AgentRuntimePhase::Planning, iteration, "agent.tool.result");
     save_phase_checkpoint(
@@ -964,7 +969,7 @@ fn recoverable_update_plan_error(
 ) -> NativeAgentToolExecutionOutcome {
     state.tools_used.push(tool_call.name.clone());
     let result = super::NativeAgentToolResult::generic_error(&tool_call, error);
-    record_tool_success(context, state, iteration, tool_call.clone(), result);
+    record_tool_result(context, state, iteration, tool_call.clone(), result);
     let after_invocation = AgentHookInvocation::tool(
         AgentHookStage::AfterToolUse,
         context.trace_context.clone(),
@@ -1031,9 +1036,11 @@ async fn execute_sequential_tool_batch(
         )
         .await
         {
-            ToolDispatchOutcome::Success(success) => success.result,
+            ToolDispatchOutcome::Completed(completed) => completed.result,
             ToolDispatchOutcome::Failure { error, .. } => {
-                return tool_error_result(services, context, state, iteration, &tool_call, error);
+                return fatal_tool_error_result(
+                    services, context, state, iteration, &tool_call, error,
+                );
             }
             ToolDispatchOutcome::Cancelled { .. } => {
                 return cancelled_result(services, context, state, iteration);
@@ -1054,7 +1061,7 @@ async fn execute_sequential_tool_batch(
                 );
             }
             ToolDispatchOutcome::Skipped { .. } => {
-                return tool_error_result(
+                return fatal_tool_error_result(
                     services,
                     context,
                     state,
@@ -1064,7 +1071,7 @@ async fn execute_sequential_tool_batch(
                 );
             }
         };
-        record_tool_success(context, state, iteration, tool_call, result);
+        record_tool_result(context, state, iteration, tool_call, result);
         state.clear_pending_tool_calls();
         state.transition_phase(AgentRuntimePhase::Planning, iteration, "agent.tool.result");
         save_phase_checkpoint(
@@ -1133,7 +1140,9 @@ pub(super) async fn dispatch_owned_tool_call(
     tool_call: NativeAgentToolCall,
 ) -> Result<OwnedToolCallResult, String> {
     match dispatch_owned_sequential_tool(dispatcher, context, tool_call).await {
-        ToolDispatchOutcome::Success(success) => Ok(OwnedToolCallResult::Completed(success.result)),
+        ToolDispatchOutcome::Completed(completed) => {
+            Ok(OwnedToolCallResult::Completed(completed.result))
+        }
         ToolDispatchOutcome::Failure { error, .. } => Err(error),
         ToolDispatchOutcome::Cancelled { .. } => Ok(OwnedToolCallResult::Cancelled),
         ToolDispatchOutcome::CleanupTimedOut {
@@ -1158,13 +1167,11 @@ async fn dispatch_tool_with_cancellation_policy(
     let normalized_input = match serde_json::from_str::<Value>(&tool_call.arguments_json) {
         Ok(input) => input,
         Err(error) => {
-            return ToolDispatchOutcome::Failure {
-                error: format!(
-                    "native tool `{}` arguments are invalid JSON before hook dispatch: {error}",
-                    tool_call.name
-                ),
-                tool_call,
-            };
+            let error = format!(
+                "native tool `{}` arguments are invalid JSON before hook dispatch: {error}",
+                tool_call.name
+            );
+            return completed_tool_error(tool_call, error);
         }
     };
     let before_invocation = AgentHookInvocation::tool(
@@ -1177,7 +1184,7 @@ async fn dispatch_tool_with_cancellation_policy(
     );
     let before_evaluation = match context.evaluate_hook(before_invocation.clone()) {
         Ok(evaluation) => evaluation,
-        Err(error) => return ToolDispatchOutcome::Failure { tool_call, error },
+        Err(error) => return completed_tool_error(tool_call, error),
     };
     let denied_reason = before_evaluation.denied_reason.clone();
     let replacement = before_evaluation
@@ -1187,31 +1194,25 @@ async fn dispatch_tool_with_cancellation_policy(
     context.queue_hook_evaluation(before_invocation, before_evaluation);
     if let Some(reason) = denied_reason {
         context.metrics().increment("tool.denied");
-        return ToolDispatchOutcome::Failure {
-            error: format!("native tool `{}` denied by hook: {reason}", tool_call.name),
-            tool_call,
-        };
+        let error = format!("native tool `{}` denied by hook: {reason}", tool_call.name);
+        return completed_tool_error(tool_call, error);
     }
     if let Some(replacement) = replacement {
         if !replacement.is_object() {
-            return ToolDispatchOutcome::Failure {
-                error: format!(
-                    "native tool `{}` hook replacement must be a JSON object",
-                    tool_call.name
-                ),
-                tool_call,
-            };
+            let error = format!(
+                "native tool `{}` hook replacement must be a JSON object",
+                tool_call.name
+            );
+            return completed_tool_error(tool_call, error);
         }
         tool_call.arguments_json = match serde_json::to_string(&replacement) {
             Ok(arguments) => arguments,
             Err(error) => {
-                return ToolDispatchOutcome::Failure {
-                    error: format!(
-                        "native tool `{}` hook replacement failed to serialize: {error}",
-                        tool_call.name
-                    ),
-                    tool_call,
-                };
+                let error = format!(
+                    "native tool `{}` hook replacement failed to serialize: {error}",
+                    tool_call.name
+                );
+                return completed_tool_error(tool_call, error);
             }
         };
     }
@@ -1233,7 +1234,7 @@ async fn dispatch_tool_with_cancellation_policy(
             )
             .await;
             match cleanup {
-                Ok(Ok(result)) => ToolDispatchOutcome::Success(ToolDispatchSuccess {
+                Ok(Ok(result)) => ToolDispatchOutcome::Completed(ToolDispatchCompleted {
                     tool_call,
                     result,
                 }),
@@ -1251,14 +1252,11 @@ async fn dispatch_tool_with_cancellation_policy(
             }
         }
         result = &mut operation => match result {
-            Ok(result) => ToolDispatchOutcome::Success(ToolDispatchSuccess {
+            Ok(result) => ToolDispatchOutcome::Completed(ToolDispatchCompleted {
                 tool_call,
                 result,
             }),
-            Err(error) => ToolDispatchOutcome::Failure {
-                tool_call,
-                error,
-            },
+            Err(error) => completed_tool_error(tool_call, error),
         },
     };
     let tool_duration = tool_started_at.elapsed();
@@ -1266,7 +1264,17 @@ async fn dispatch_tool_with_cancellation_policy(
         .metrics()
         .record_duration("tool.durationMs", tool_duration);
     let outcome_label = match &outcome {
-        ToolDispatchOutcome::Success(_) => "completed",
+        ToolDispatchOutcome::Completed(completed)
+            if completed
+                .result
+                .envelope
+                .get("status")
+                .and_then(Value::as_str)
+                == Some("error") =>
+        {
+            "failed"
+        }
+        ToolDispatchOutcome::Completed(_) => "completed",
         ToolDispatchOutcome::Failure { .. } => "failed",
         ToolDispatchOutcome::Cancelled { .. } => "cancelled",
         ToolDispatchOutcome::CleanupTimedOut { .. } => "cleanup_timeout",
@@ -1286,10 +1294,7 @@ async fn dispatch_tool_with_cancellation_policy(
     let after_evaluation = match context.evaluate_hook(after_invocation.clone()) {
         Ok(evaluation) => evaluation,
         Err(error) => {
-            return ToolDispatchOutcome::Failure {
-                tool_call: tool_dispatch_outcome_tool_call(&outcome).clone(),
-                error,
-            };
+            return completed_tool_error(tool_dispatch_outcome_tool_call(&outcome).clone(), error);
         }
     };
     context.queue_hook_evaluation(after_invocation, after_evaluation);
@@ -1564,7 +1569,7 @@ async fn execute_locked_tool_batch(
             Some(ToolDispatchEvent::Finished { index, result }) => {
                 if let Err(error) = owned_batch.finish(index).await {
                     state.clear_pending_tool_calls();
-                    return tool_error_result(
+                    return fatal_tool_error_result(
                         services,
                         context,
                         state,
@@ -1583,7 +1588,7 @@ async fn execute_locked_tool_batch(
             }
             None => {
                 state.clear_pending_tool_calls();
-                return tool_error_result(
+                return fatal_tool_error_result(
                     services,
                     context,
                     state,
@@ -1626,15 +1631,15 @@ async fn execute_locked_tool_batch(
     {
         for (index, indexed_result) in indexed_results.iter().enumerate() {
             match &indexed_result.outcome {
-                ToolDispatchOutcome::Success(success)
+                ToolDispatchOutcome::Completed(completed)
                     if indexed_result.sequence < timeout_sequence || index < timeout_index =>
                 {
-                    record_tool_success(
+                    record_tool_result(
                         context,
                         state,
                         iteration,
-                        success.tool_call.clone(),
-                        success.result.clone(),
+                        completed.tool_call.clone(),
+                        completed.result.clone(),
                     );
                 }
                 ToolDispatchOutcome::Failure {
@@ -1717,7 +1722,7 @@ async fn execute_locked_tool_batch(
         emit_pending_tool_hook_evaluations(context, state);
         for (index, indexed_result) in indexed_results.iter().enumerate() {
             match &indexed_result.outcome {
-                ToolDispatchOutcome::Success(success)
+                ToolDispatchOutcome::Completed(completed)
                     if match terminal_outcome {
                         ToolBatchTerminalOutcome::Failed => index < terminal_index,
                         ToolBatchTerminalOutcome::Cancelled => {
@@ -1725,12 +1730,12 @@ async fn execute_locked_tool_batch(
                         }
                     } =>
                 {
-                    record_tool_success(
+                    record_tool_result(
                         context,
                         state,
                         iteration,
-                        success.tool_call.clone(),
-                        success.result.clone(),
+                        completed.tool_call.clone(),
+                        completed.result.clone(),
                     );
                 }
                 ToolDispatchOutcome::Failure {
@@ -1793,8 +1798,14 @@ async fn execute_locked_tool_batch(
     }
 
     for indexed_result in indexed_results {
-        if let ToolDispatchOutcome::Success(success) = indexed_result.outcome {
-            record_tool_success(context, state, iteration, success.tool_call, success.result);
+        if let ToolDispatchOutcome::Completed(completed) = indexed_result.outcome {
+            record_tool_result(
+                context,
+                state,
+                iteration,
+                completed.tool_call,
+                completed.result,
+            );
         }
     }
     state.clear_pending_tool_calls();
@@ -1876,7 +1887,7 @@ fn emit_late_terminal_debug(
 
 fn tool_dispatch_outcome_tool_call(outcome: &ToolDispatchOutcome) -> &NativeAgentToolCall {
     match outcome {
-        ToolDispatchOutcome::Success(success) => &success.tool_call,
+        ToolDispatchOutcome::Completed(completed) => &completed.tool_call,
         ToolDispatchOutcome::Failure { tool_call, .. }
         | ToolDispatchOutcome::Cancelled { tool_call, .. }
         | ToolDispatchOutcome::CleanupTimedOut { tool_call, .. }
@@ -1942,7 +1953,7 @@ fn start_tool_call(
     );
 }
 
-fn record_tool_success(
+fn record_tool_result(
     context: &AgentTurnContext,
     state: &mut AgentTurnState,
     iteration: i64,
@@ -1953,9 +1964,15 @@ fn record_tool_success(
     let result = normalize_tool_result_for_context(result, context);
     let observation_content = tool_observation_content(&result);
     let completed_result = completed_tool_result_entry(&tool_call, &result);
+    let observation_message =
+        if result.envelope.get("status").and_then(Value::as_str) == Some("error") {
+            tool_error_observation_message(&tool_call, &observation_content)
+        } else {
+            tool_observation_message(&tool_call, &observation_content)
+        };
     state
         .history
-        .record_message(tool_observation_message(&tool_call, &observation_content))
+        .record_message(observation_message)
         .expect("runtime-generated tool observation message must be valid");
     state.emit_event(
         "agent.tool.result",
@@ -2035,54 +2052,45 @@ fn record_tool_failure(
     state.completed_tool_results.push(completed_result);
 }
 
-fn policy_denied_result(
+fn policy_denied_tool_result(
     services: &NativeAgentRuntimeServices,
     context: &AgentTurnContext,
     state: &mut AgentTurnState,
     iteration: i64,
     tool_call: &NativeAgentToolCall,
 ) -> NativeAgentToolExecutionOutcome {
-    emit_pending_tool_hook_evaluations(context, state);
     let error = format!(
         "native tool `{}` is not permitted by Rust capability policy",
         tool_call.name
     );
-    record_tool_failure(context, state, iteration, tool_call, &error);
-    state.set_stop_reason("policy_denied", iteration, "agent.error");
-    state.emit_event(
-        "agent.error",
-        serde_json::json!({
-            "turnId": context.turn_id,
-            "sessionId": context.session_id,
-            "iteration": iteration,
-            "stopReason": "policy_denied",
-            "error": error,
-            "toolCallId": tool_call.id,
-            "toolName": tool_call.name,
-            "name": tool_call.name,
-        }),
-    );
-    services
-        .checkpoints
-        .clear_for_turn(&context.session_id, &context.turn_id);
-    let runtime_events = state.runtime_events();
-    let events = state.legacy_events();
-    NativeAgentToolExecutionOutcome::Finished(serde_json::json!({
-        "runtime": "rust",
-        "turnId": context.turn_id,
-        "sessionId": context.session_id,
-        "finalContent": "",
-        "stopReason": "policy_denied",
-        "messages": [],
-        "toolsUsed": state.tools_used,
-        "completedToolResults": state.completed_tool_results,
-        "error": error,
-        "events": events,
-        "runtimeEvents": runtime_events,
-    }))
+    tool_error_result(services, context, state, iteration, tool_call, error)
 }
 
 fn tool_error_result(
+    services: &NativeAgentRuntimeServices,
+    context: &AgentTurnContext,
+    state: &mut AgentTurnState,
+    iteration: i64,
+    tool_call: &NativeAgentToolCall,
+    error: String,
+) -> NativeAgentToolExecutionOutcome {
+    emit_pending_tool_hook_evaluations(context, state);
+    record_tool_failure(context, state, iteration, tool_call, &error);
+    state.clear_pending_tool_calls();
+    state.transition_phase(AgentRuntimePhase::Planning, iteration, "agent.tool.result");
+    save_phase_checkpoint(
+        services,
+        context,
+        state.phase.as_str(),
+        state.active_checkpoint_payload("tool_failed"),
+    );
+    if context_is_cancelled(context) {
+        return cancelled_result(services, context, state, iteration);
+    }
+    NativeAgentToolExecutionOutcome::Continue
+}
+
+fn fatal_tool_error_result(
     services: &NativeAgentRuntimeServices,
     context: &AgentTurnContext,
     state: &mut AgentTurnState,

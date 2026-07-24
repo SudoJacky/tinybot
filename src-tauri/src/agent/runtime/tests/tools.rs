@@ -789,14 +789,38 @@ fn shell_read_only_allowlist_uses_read_lock_only_when_explicitly_enabled() {
 }
 
 #[test]
-fn parallel_tool_failures_use_model_order_for_the_single_terminal_error() {
-    struct TwoFailingToolsProvider;
+fn parallel_tool_failures_are_returned_to_the_model_in_call_order() {
+    struct TwoFailingToolsProvider {
+        calls: AtomicUsize,
+    }
 
     impl NativeAgentProvider for TwoFailingToolsProvider {
         fn complete(
             &self,
-            _context: &AgentTurnContext,
+            context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
+            if self.calls.fetch_add(1, Ordering::SeqCst) > 0 {
+                let tool_messages = context
+                    .messages
+                    .iter()
+                    .filter(|message| message["role"] == "tool")
+                    .collect::<Vec<_>>();
+                assert_eq!(tool_messages.len(), 2);
+                assert_eq!(tool_messages[0]["tool_call_id"], "call-first-fails");
+                assert_eq!(tool_messages[1]["tool_call_id"], "call-second-fails");
+                assert!(tool_messages[0]["content"]
+                    .as_str()
+                    .is_some_and(|content| content.contains("call-first-fails failed")));
+                assert!(tool_messages[1]["content"]
+                    .as_str()
+                    .is_some_and(|content| content.contains("call-second-fails failed")));
+                return Ok(NativeAgentProviderResponse {
+                    final_content: "handled both tool errors".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: Vec::new(),
+                });
+            }
             Ok(NativeAgentProviderResponse {
                 final_content: String::new(),
                 reasoning_delta: None,
@@ -836,7 +860,9 @@ fn parallel_tool_failures_use_model_order_for_the_single_terminal_error() {
 
     let result = run_native_agent_turn_with_services(
         &NativeAgentRuntimeServices::new(
-            Arc::new(TwoFailingToolsProvider),
+            Arc::new(TwoFailingToolsProvider {
+                calls: AtomicUsize::new(0),
+            }),
             Arc::new(FailingParallelDispatcher),
             Arc::new(InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(InMemoryNativeAgentCancellation::default()),
@@ -853,7 +879,7 @@ fn parallel_tool_failures_use_model_order_for_the_single_terminal_error() {
             "messages": [{ "role": "user", "content": "run failing parallel tools" }]
         }),
     )
-    .expect("parallel tool failures should return structured failure");
+    .expect("parallel tool failures should be returned to the model");
     let events = result["events"]
         .as_array()
         .expect("events should be returned");
@@ -866,22 +892,10 @@ fn parallel_tool_failures_use_model_order_for_the_single_terminal_error() {
         .filter(|event| event["eventName"] == "agent.tool.debug")
         .collect::<Vec<_>>();
 
-    assert_eq!(result["stopReason"], "tool_error");
-    assert_eq!(terminal_errors.len(), 1);
-    assert_eq!(
-        terminal_errors[0]["payload"]["toolCallId"],
-        "call-first-fails"
-    );
-    assert_eq!(debug_events.len(), 1);
-    assert_eq!(
-        debug_events[0]["payload"]["ignoredReason"],
-        "terminal_outcome_already_claimed"
-    );
-    assert_eq!(debug_events[0]["payload"]["terminalOutcome"], "failed");
-    assert_eq!(
-        debug_events[0]["payload"]["toolCallId"],
-        "call-second-fails"
-    );
+    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(result["finalContent"], "handled both tool errors");
+    assert!(terminal_errors.is_empty());
+    assert!(debug_events.is_empty());
     assert_eq!(result["completedToolResults"].as_array().unwrap().len(), 2);
     assert_eq!(
         result["completedToolResults"][0]["toolCallId"],
@@ -1267,14 +1281,32 @@ fn cancellation_before_queued_write_lock_dispatch_skips_waiting_tool() {
 }
 
 #[test]
-fn terminal_failure_before_queued_write_dispatch_skips_waiting_tool() {
-    struct FailingWriteThenWriteProvider;
+fn returned_failure_before_queued_write_does_not_skip_waiting_tool() {
+    struct FailingWriteThenWriteProvider {
+        calls: AtomicUsize,
+    }
 
     impl NativeAgentProvider for FailingWriteThenWriteProvider {
         fn complete(
             &self,
-            _context: &AgentTurnContext,
+            context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
+            if self.calls.fetch_add(1, Ordering::SeqCst) > 0 {
+                let tool_messages = context
+                    .messages
+                    .iter()
+                    .filter(|message| message["role"] == "tool")
+                    .collect::<Vec<_>>();
+                assert_eq!(tool_messages.len(), 2);
+                assert_eq!(tool_messages[0]["tool_call_id"], "call-first-write-fails");
+                assert_eq!(tool_messages[1]["tool_call_id"], "call-second-write-waits");
+                return Ok(NativeAgentProviderResponse {
+                    final_content: "handled write failure".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: Vec::new(),
+                });
+            }
             Ok(NativeAgentProviderResponse {
                 final_content: String::new(),
                 reasoning_delta: None,
@@ -1323,7 +1355,9 @@ fn terminal_failure_before_queued_write_dispatch_skips_waiting_tool() {
     });
     let result = run_native_agent_turn_with_services(
         &NativeAgentRuntimeServices::new(
-            Arc::new(FailingWriteThenWriteProvider),
+            Arc::new(FailingWriteThenWriteProvider {
+                calls: AtomicUsize::new(0),
+            }),
             dispatcher.clone(),
             Arc::new(InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(InMemoryNativeAgentCancellation::default()),
@@ -1334,27 +1368,24 @@ fn terminal_failure_before_queued_write_dispatch_skips_waiting_tool() {
             "turnId": "turn-failed-queued-write",
             "sessionId": "websocket:chat-failed-queued-write",
             "maxIterations": 2,
-            "messages": [{ "role": "user", "content": "fail then skip write" }]
+            "messages": [{ "role": "user", "content": "fail then continue write" }]
         }),
     )
-    .expect("queued write failure should return a structured result");
+    .expect("queued write failure should be returned to the model");
 
     let events = result["events"]
         .as_array()
         .expect("events should be returned");
-    assert_eq!(result["stopReason"], "tool_error");
-    assert_eq!(dispatcher.second_write_dispatches.load(Ordering::SeqCst), 0);
-    assert!(!events.iter().any(|event| {
+    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(dispatcher.second_write_dispatches.load(Ordering::SeqCst), 1);
+    assert!(events.iter().any(|event| {
         event["eventName"] == "agent.tool.start"
             && event["payload"]["toolCallId"] == "call-second-write-waits"
             && event["payload"]["status"] == "running"
     }));
-    assert!(events.iter().any(|event| {
-        event["eventName"] == "agent.tool.debug"
-            && event["payload"]["toolCallId"] == "call-second-write-waits"
-            && event["payload"]["ignoredReason"] == "dispatch_skipped_after_terminal"
-            && event["payload"]["terminalOutcome"] == "failed"
-    }));
+    assert!(!events
+        .iter()
+        .any(|event| event["eventName"] == "agent.tool.debug"));
 }
 
 #[test]
@@ -2040,14 +2071,35 @@ fn dispatches_multiple_tool_calls_from_one_provider_response_in_order() {
 }
 
 #[test]
-fn later_tool_error_preserves_earlier_completed_tool_result() {
-    struct TwoToolProvider;
+fn later_tool_error_and_earlier_success_are_both_returned_to_the_model() {
+    struct TwoToolProvider {
+        calls: AtomicUsize,
+    }
 
     impl NativeAgentProvider for TwoToolProvider {
         fn complete(
             &self,
-            _context: &AgentTurnContext,
+            context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
+            if self.calls.fetch_add(1, Ordering::SeqCst) > 0 {
+                let tool_messages = context
+                    .messages
+                    .iter()
+                    .filter(|message| message["role"] == "tool")
+                    .collect::<Vec<_>>();
+                assert_eq!(tool_messages.len(), 2);
+                assert_eq!(tool_messages[0]["tool_call_id"], "call-first-ok");
+                assert_eq!(tool_messages[1]["tool_call_id"], "call-second-fails");
+                assert!(tool_messages[1]["content"]
+                    .as_str()
+                    .is_some_and(|content| content.contains("missing path")));
+                return Ok(NativeAgentProviderResponse {
+                    final_content: "handled mixed tool results".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: Vec::new(),
+                });
+            }
             Ok(NativeAgentProviderResponse {
                 final_content: "".to_string(),
                 reasoning_delta: None,
@@ -2090,7 +2142,9 @@ fn later_tool_error_preserves_earlier_completed_tool_result() {
 
     let result = run_native_agent_turn_with_services(
         &NativeAgentRuntimeServices::new(
-            Arc::new(TwoToolProvider),
+            Arc::new(TwoToolProvider {
+                calls: AtomicUsize::new(0),
+            }),
             Arc::new(FailingSecondToolDispatcher),
             Arc::new(InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(InMemoryNativeAgentCancellation::default()),
@@ -2107,9 +2161,10 @@ fn later_tool_error_preserves_earlier_completed_tool_result() {
             "messages": [{ "role": "user", "content": "run two tools" }]
         }),
     )
-    .expect("later tool error should return structured failure");
+    .expect("later tool error should be returned to the model");
 
-    assert_eq!(result["stopReason"], "tool_error");
+    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(result["finalContent"], "handled mixed tool results");
     assert_eq!(
         result["toolsUsed"],
         json!(["workspace.read_file", "memory.search"])
@@ -2124,14 +2179,93 @@ fn later_tool_error_preserves_earlier_completed_tool_result() {
         "call-second-fails"
     );
     assert_eq!(result["completedToolResults"][1]["status"], "error");
-    assert_eq!(
-        result["events"].as_array().unwrap().last().unwrap()["eventName"],
-        "agent.error"
-    );
-    assert_eq!(
-        result["events"].as_array().unwrap().last().unwrap()["payload"]["toolCallId"],
-        "call-second-fails"
-    );
+    assert!(!result["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|event| event["eventName"] == "agent.error"));
+}
+
+#[test]
+fn single_tool_dispatch_error_is_returned_to_the_model() {
+    struct RecoveringProvider {
+        calls: AtomicUsize,
+    }
+
+    impl NativeAgentProvider for RecoveringProvider {
+        fn complete(
+            &self,
+            context: &AgentTurnContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            if self.calls.fetch_add(1, Ordering::SeqCst) > 0 {
+                assert!(context.messages.iter().any(|message| {
+                    message["role"] == "tool"
+                        && message["tool_call_id"] == "call-single-fails"
+                        && message["content"]
+                            .as_str()
+                            .is_some_and(|content| content.contains("single tool failed"))
+                }));
+                return Ok(NativeAgentProviderResponse {
+                    final_content: "single tool error handled".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: Vec::new(),
+                });
+            }
+            Ok(NativeAgentProviderResponse {
+                final_content: String::new(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: vec![NativeAgentToolCall {
+                    id: "call-single-fails".to_string(),
+                    name: "workspace.read_file".to_string(),
+                    arguments_json: "{\"path\":\"missing.md\"}".to_string(),
+                    result: Value::Null,
+                }],
+            })
+        }
+    }
+
+    struct FailingDispatcher;
+
+    impl NativeAgentToolDispatcher for FailingDispatcher {
+        fn dispatch(
+            &self,
+            _context: &AgentTurnContext,
+            _tool_call: &NativeAgentToolCall,
+        ) -> Result<NativeAgentToolResult, String> {
+            Err("single tool failed".to_string())
+        }
+    }
+
+    let result = run_native_agent_turn_with_services(
+        &NativeAgentRuntimeServices::new(
+            Arc::new(RecoveringProvider {
+                calls: AtomicUsize::new(0),
+            }),
+            Arc::new(FailingDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        )
+        .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"])),
+        json!({
+            "runtime": "rust",
+            "turnId": "turn-single-tool-error",
+            "sessionId": "session-single-tool-error",
+            "maxIterations": 2,
+            "messages": [{ "role": "user", "content": "read a missing file" }]
+        }),
+    )
+    .expect("single tool error should be returned to the model");
+
+    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(result["finalContent"], "single tool error handled");
+    assert_eq!(result["completedToolResults"][0]["status"], "error");
+    assert!(!result["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|event| event["eventName"] == "agent.error"));
 }
 
 #[test]
@@ -2149,37 +2283,32 @@ fn rejects_unpermitted_native_tool_with_structured_error_result() {
             "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
             "providers": {
                 "fixture": {
-                    "responses": [{
-                        "content": "should not finish",
-                        "toolCalls": [{
-                            "id": "call-denied",
-                            "name": "shell.exec",
-                            "argumentsJson": "{\"command\":\"rm -rf .\"}",
-                            "result": { "content": "denied" }
-                        }]
-                    }]
+                    "responses": [
+                        {
+                            "content": "",
+                            "toolCalls": [{
+                                "id": "call-denied",
+                                "name": "shell.exec",
+                                "argumentsJson": "{\"command\":\"rm -rf .\"}",
+                                "result": { "content": "denied" }
+                            }]
+                        },
+                        { "content": "permission denial handled" }
+                    ]
                 }
             }
         }),
     )
-    .expect("tool denial should return a structured result");
+    .expect("tool denial should be returned to the model");
 
-    assert_eq!(result["stopReason"], "policy_denied");
+    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(result["finalContent"], "permission denial handled");
     assert_eq!(result["toolsUsed"], json!([]));
-    assert!(result["error"]
-        .as_str()
-        .expect("tool error should be a string")
-        .contains("not permitted"));
-    assert_eq!(
-        event_names(&result),
-        vec![
-            "agent.message.classified",
-            "agent.tool_call.delta",
-            "agent.tool.result",
-            "agent.error"
-        ]
-    );
-    assert_eq!(result["events"][3]["payload"]["toolName"], "shell.exec");
+    assert!(!result["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|event| event["eventName"] == "agent.error"));
     assert_eq!(
         result["completedToolResults"][0]["toolCallId"],
         "call-denied"
@@ -2263,7 +2392,7 @@ fn stops_with_max_iterations_after_bounded_tool_iterations() {
 }
 
 #[test]
-fn denied_tool_stops_with_policy_denied_without_tool_dispatch() {
+fn denied_tool_is_returned_to_the_model_without_tool_dispatch() {
     let result = run_native_agent_turn_with_config(
         &NativeAgentRuntimeServices::default(),
         json!({
@@ -2277,33 +2406,96 @@ fn denied_tool_stops_with_policy_denied_without_tool_dispatch() {
             "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
             "providers": {
                 "fixture": {
-                    "responses": [{
-                        "content": "",
-                        "toolCalls": [{
-                            "id": "call-denied",
-                            "name": "shell.exec",
-                            "argumentsJson": "{\"command\":\"rm -rf .\"}",
-                            "result": { "content": "must not execute" }
-                        }]
-                    }]
+                    "responses": [
+                        {
+                            "content": "",
+                            "toolCalls": [{
+                                "id": "call-denied",
+                                "name": "shell.exec",
+                                "argumentsJson": "{\"command\":\"rm -rf .\"}",
+                                "result": { "content": "must not execute" }
+                            }]
+                        },
+                        { "content": "policy denial handled" }
+                    ]
                 }
             }
         }),
     )
-    .expect("policy denial should return a structured result");
+    .expect("policy denial should be returned to the model");
 
-    assert_eq!(result["stopReason"], "policy_denied");
+    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(result["finalContent"], "policy denial handled");
     assert_eq!(result["toolsUsed"], json!([]));
-    assert_eq!(
-        event_names(&result),
-        vec!["agent.tool_call.delta", "agent.tool.result", "agent.error"]
-    );
-    assert_eq!(result["events"][2]["payload"]["toolName"], "shell.exec");
+    assert!(!event_names(&result).contains(&"agent.error"));
     assert_eq!(
         result["completedToolResults"][0]["toolCallId"],
         "call-denied"
     );
     assert_eq!(result["completedToolResults"][0]["status"], "error");
+}
+
+#[test]
+fn tool_task_panic_remains_terminal() {
+    struct OneToolProvider;
+
+    impl NativeAgentProvider for OneToolProvider {
+        fn complete(
+            &self,
+            _context: &AgentTurnContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            Ok(NativeAgentProviderResponse {
+                final_content: String::new(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: vec![NativeAgentToolCall {
+                    id: "call-panics".to_string(),
+                    name: "workspace.read_file".to_string(),
+                    arguments_json: "{\"path\":\"README.md\"}".to_string(),
+                    result: Value::Null,
+                }],
+            })
+        }
+    }
+
+    struct PanickingToolDispatcher;
+
+    impl NativeAgentToolDispatcher for PanickingToolDispatcher {
+        fn dispatch(
+            &self,
+            _context: &AgentTurnContext,
+            _tool_call: &NativeAgentToolCall,
+        ) -> Result<NativeAgentToolResult, String> {
+            panic!("tool task panic");
+        }
+    }
+
+    let result = run_native_agent_turn_with_services(
+        &NativeAgentRuntimeServices::new(
+            Arc::new(OneToolProvider),
+            Arc::new(PanickingToolDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        )
+        .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"])),
+        json!({
+            "runtime": "rust",
+            "turnId": "turn-tool-task-panic",
+            "sessionId": "session-tool-task-panic",
+            "maxIterations": 2,
+            "messages": [{ "role": "user", "content": "trigger a tool panic" }]
+        }),
+    )
+    .expect("tool panic should return a structured terminal result");
+
+    assert_eq!(result["stopReason"], "tool_error");
+    assert!(result["error"]
+        .as_str()
+        .is_some_and(|error| error.contains("owned native tool task panicked")));
+    assert_eq!(
+        result["events"].as_array().unwrap().last().unwrap()["eventName"],
+        "agent.error"
+    );
 }
 
 #[test]
