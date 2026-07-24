@@ -947,7 +947,7 @@ fn native_agent_semantic_sink_updates_runtime_state_before_final_persistence() {
 }
 
 #[test]
-fn worker_run_agent_persists_failed_tool_run_with_typed_results() {
+fn worker_run_agent_persists_recovered_tool_error_with_typed_results() {
     let fixture = WorkspaceFixture::new();
     let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
         fixture.thread_store.clone(),
@@ -956,23 +956,26 @@ fn worker_run_agent_persists_failed_tool_run_with_typed_results() {
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
         "providers": {
             "fixture": {
-                "responses": [{
-                    "content": "",
-                    "toolCalls": [
-                        {
-                            "id": "call-before-tool-error",
-                            "name": "memory.recall",
-                            "argumentsJson": "{\"query\":\"Prepare failure\"}",
-                            "result": { "content": "fixture result should not be used" }
-                        },
-                        {
-                            "id": "call-tool-error",
-                            "name": "memory.search",
-                            "argumentsJson": "{not json",
-                            "result": { "content": "unused" }
-                        }
-                    ]
-                }]
+                "responses": [
+                    {
+                        "content": "",
+                        "toolCalls": [
+                            {
+                                "id": "call-before-tool-error",
+                                "name": "memory.recall",
+                                "argumentsJson": "{\"query\":\"Prepare failure\"}",
+                                "result": { "content": "fixture result should not be used" }
+                            },
+                            {
+                                "id": "call-tool-error",
+                                "name": "memory.search",
+                                "argumentsJson": "{not json",
+                                "result": { "content": "unused" }
+                            }
+                        ]
+                    },
+                    { "content": "Recovered after inspecting the tool error" }
+                ]
             }
         }
     });
@@ -991,7 +994,7 @@ fn worker_run_agent_persists_failed_tool_run_with_typed_results() {
         config.clone(),
         Duration::from_millis(10),
     )
-    .expect("Rust runtime should return structured tool error");
+    .expect("Rust runtime should return the tool error to the Agent");
     let run = read_agent_turn_record(
         &fixture.thread_store,
         config,
@@ -999,9 +1002,9 @@ fn worker_run_agent_persists_failed_tool_run_with_typed_results() {
         "turn-tool-error-persist",
     );
 
-    assert_eq!(result["stopReason"], "tool_error");
-    assert_eq!(run["status"], "failed");
-    assert_eq!(run["stopReason"], "tool_error");
+    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(run["status"], "completed");
+    assert_eq!(run["stopReason"], "final_response");
     assert_eq!(
         run["completedToolResults"][0]["toolCallId"],
         "call-before-tool-error"

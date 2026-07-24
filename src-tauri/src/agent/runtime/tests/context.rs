@@ -60,6 +60,119 @@ fn runs_fixture_streaming_final_answer_with_frontend_events() {
         "final_response"
     );
     assert!(result["events"][5]["payload"].get("finalContent").is_none());
+    assert_eq!(
+        runtime_transcript(&result),
+        vec![
+            json!({
+                "event": "agent.phase.changed",
+                "phase": "hydrating_history",
+                "iteration": 0,
+                "transition": ["queued", "hydrating_history"],
+            }),
+            json!({
+                "event": "agent.phase.changed",
+                "phase": "planning",
+                "iteration": 0,
+                "transition": ["hydrating_history", "planning"],
+            }),
+            json!({ "event": "agent.turn.started", "phase": "planning" }),
+            json!({
+                "event": "agent.phase.changed",
+                "phase": "calling_model",
+                "iteration": 0,
+                "transition": ["planning", "calling_model"],
+            }),
+            json!({
+                "event": "agent.status",
+                "phase": "calling_model",
+                "iteration": 0,
+            }),
+            json!({
+                "event": "agent.provider.requested",
+                "phase": "planning",
+                "iteration": 0,
+            }),
+            json!({
+                "event": "agent.phase.changed",
+                "phase": "streaming_model",
+                "iteration": 0,
+                "transition": ["calling_model", "streaming_model"],
+            }),
+            json!({
+                "event": "agent.status",
+                "phase": "streaming_model",
+                "iteration": 0,
+            }),
+            json!({
+                "event": "agent.delta",
+                "phase": "streaming_model",
+                "iteration": 0,
+                "item": "turn-1:assistant:0",
+                "modelCall": "turn-1:provider:1",
+                "message": "turn-1:assistant:0",
+            }),
+            json!({
+                "event": "agent.provider.completed",
+                "phase": "planning",
+                "iteration": 0,
+            }),
+            json!({
+                "event": "agent.model_call.completed",
+                "phase": "planning",
+                "iteration": 0,
+                "modelCall": "turn-1:provider:1",
+            }),
+            json!({
+                "event": "agent.token_count",
+                "phase": "planning",
+                "iteration": 0,
+                "modelCall": "turn-1:provider:1",
+            }),
+            json!({
+                "event": "agent.usage",
+                "phase": "calling_model",
+                "iteration": 0,
+                "item": "turn-1:usage:0",
+                "modelCall": "turn-1:provider:1",
+            }),
+            json!({
+                "event": "agent.phase.changed",
+                "phase": "finalizing",
+                "iteration": 0,
+                "transition": ["streaming_model", "finalizing"],
+            }),
+            json!({
+                "event": "agent.status",
+                "phase": "finalizing",
+                "iteration": 0,
+            }),
+            json!({
+                "event": "agent.message.completed",
+                "phase": "completed",
+                "iteration": 0,
+                "item": "turn-1:assistant:0",
+                "modelCall": "turn-1:provider:1",
+                "message": "turn-1:assistant:0",
+            }),
+            json!({
+                "event": "agent.phase.changed",
+                "phase": "completed",
+                "iteration": 0,
+                "transition": ["finalizing", "completed"],
+            }),
+            json!({
+                "event": "agent.status",
+                "phase": "completed",
+                "iteration": 0,
+            }),
+            json!({
+                "event": "agent.done",
+                "phase": "completed",
+                "iteration": 0,
+                "stop": "final_response",
+            }),
+        ]
+    );
 }
 
 #[test]

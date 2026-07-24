@@ -1366,7 +1366,7 @@ fn worker_run_agent_uses_native_tool_executor_for_registered_memory_tool() {
 }
 
 #[test]
-fn worker_run_agent_does_not_fallback_to_fixture_result_after_executor_error() {
+fn worker_run_agent_returns_executor_error_to_agent_without_fixture_fallback() {
     let fixture = WorkspaceFixture::new();
     let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
         fixture.thread_store.clone(),
@@ -1375,15 +1375,18 @@ fn worker_run_agent_does_not_fallback_to_fixture_result_after_executor_error() {
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
         "providers": {
             "fixture": {
-                "responses": [{
-                    "content": "",
-                    "toolCalls": [{
-                        "id": "call-native-executor-missing",
-                        "name": "memory.search",
-                        "argumentsJson": "{not json",
-                        "result": { "content": "fixture success must not be used" }
-                    }]
-                }]
+                "responses": [
+                    {
+                        "content": "",
+                        "toolCalls": [{
+                            "id": "call-native-executor-missing",
+                            "name": "memory.search",
+                            "argumentsJson": "{not json",
+                            "result": { "content": "fixture success must not be used" }
+                        }]
+                    },
+                    { "content": "Handled the executor error" }
+                ]
             }
         }
     });
@@ -1402,9 +1405,10 @@ fn worker_run_agent_does_not_fallback_to_fixture_result_after_executor_error() {
         config,
         Duration::from_millis(10),
     )
-    .expect("executor failure should return a structured tool error");
+    .expect("executor failure should be returned to the Agent");
 
-    assert_eq!(result["stopReason"], "tool_error");
+    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(result["finalContent"], "Handled the executor error");
     assert_eq!(result["completedToolResults"][0]["status"], "error");
     assert!(!result
         .to_string()

@@ -199,6 +199,54 @@ mod interactions;
 mod lifecycle;
 mod tools;
 
+fn runtime_transcript(result: &Value) -> Vec<Value> {
+    result["runtimeEvents"]
+        .as_array()
+        .expect("runtimeEvents should be an array")
+        .iter()
+        .map(|event| {
+            let mut entry = serde_json::Map::from_iter([
+                (
+                    "event".to_string(),
+                    event["eventName"].as_str().unwrap_or_default().into(),
+                ),
+                (
+                    "phase".to_string(),
+                    event["phase"].as_str().unwrap_or_default().into(),
+                ),
+            ]);
+            let payload = &event["payload"];
+            for (source, target) in [
+                ("iteration", "iteration"),
+                ("modelCallId", "modelCall"),
+                ("messageId", "message"),
+                ("toolCallId", "toolCall"),
+                ("resultStatus", "result"),
+                ("stopReason", "stop"),
+            ] {
+                if let Some(value) = payload.get(source).filter(|value| !value.is_null()) {
+                    entry.insert(target.to_string(), value.clone());
+                }
+            }
+            if let Some(item_id) = event.get("itemId").filter(|value| !value.is_null()) {
+                entry.insert("item".to_string(), item_id.clone());
+            }
+            if let (Some(previous), Some(next)) = (
+                payload
+                    .get("previousPhase")
+                    .filter(|value| !value.is_null()),
+                payload.get("nextPhase").filter(|value| !value.is_null()),
+            ) {
+                entry.insert(
+                    "transition".to_string(),
+                    Value::Array(vec![previous.clone(), next.clone()]),
+                );
+            }
+            Value::Object(entry)
+        })
+        .collect()
+}
+
 fn event_names(result: &Value) -> Vec<&str> {
     result["events"]
         .as_array()

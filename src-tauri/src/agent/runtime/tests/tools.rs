@@ -70,6 +70,190 @@ fn runs_fixture_tool_event_sequence() {
     assert_eq!(event_names.last().copied(), Some("agent.done"));
     assert_eq!(result["finalContent"], "tool complete");
     assert_eq!(result["toolsUsed"][0], "workspace.read_file");
+    assert_eq!(
+        runtime_transcript(&result),
+        vec![
+            json!({
+                "event": "agent.phase.changed",
+                "phase": "hydrating_history",
+                "iteration": 0,
+                "transition": ["queued", "hydrating_history"],
+            }),
+            json!({
+                "event": "agent.phase.changed",
+                "phase": "planning",
+                "iteration": 0,
+                "transition": ["hydrating_history", "planning"],
+            }),
+            json!({ "event": "agent.turn.started", "phase": "planning" }),
+            json!({
+                "event": "agent.phase.changed",
+                "phase": "calling_model",
+                "iteration": 0,
+                "transition": ["planning", "calling_model"],
+            }),
+            json!({
+                "event": "agent.status",
+                "phase": "calling_model",
+                "iteration": 0,
+            }),
+            json!({
+                "event": "agent.provider.requested",
+                "phase": "planning",
+                "iteration": 0,
+            }),
+            json!({
+                "event": "agent.provider.completed",
+                "phase": "planning",
+                "iteration": 0,
+            }),
+            json!({
+                "event": "agent.phase.changed",
+                "phase": "tool_calling",
+                "iteration": 0,
+                "transition": ["calling_model", "tool_calling"],
+            }),
+            json!({
+                "event": "agent.status",
+                "phase": "tool_calling",
+                "iteration": 0,
+            }),
+            json!({
+                "event": "agent.tool_call.delta",
+                "phase": "tool_calling",
+                "iteration": 0,
+                "item": "call-1",
+                "toolCall": "call-1",
+            }),
+            json!({
+                "event": "agent.phase.changed",
+                "phase": "tool_running",
+                "iteration": 0,
+                "transition": ["tool_calling", "tool_running"],
+            }),
+            json!({
+                "event": "agent.status",
+                "phase": "tool_running",
+                "iteration": 0,
+            }),
+            json!({
+                "event": "agent.tool.start",
+                "phase": "tool_running",
+                "iteration": 0,
+                "item": "call-1",
+                "toolCall": "call-1",
+            }),
+            json!({
+                "event": "agent.tool.result",
+                "phase": "tool_running",
+                "iteration": 0,
+                "item": "call-1",
+                "toolCall": "call-1",
+                "result": "ok",
+            }),
+            json!({
+                "event": "agent.phase.changed",
+                "phase": "planning",
+                "iteration": 0,
+                "transition": ["tool_running", "planning"],
+            }),
+            json!({
+                "event": "agent.model_call.completed",
+                "phase": "planning",
+                "iteration": 0,
+                "modelCall": "turn-tool:provider:1",
+            }),
+            json!({
+                "event": "agent.token_count",
+                "phase": "planning",
+                "iteration": 0,
+                "modelCall": "turn-tool:provider:1",
+            }),
+            json!({
+                "event": "agent.usage",
+                "phase": "calling_model",
+                "iteration": 0,
+                "item": "turn-tool:usage:0",
+                "modelCall": "turn-tool:provider:1",
+            }),
+            json!({
+                "event": "agent.phase.changed",
+                "phase": "calling_model",
+                "iteration": 1,
+                "transition": ["planning", "calling_model"],
+            }),
+            json!({
+                "event": "agent.status",
+                "phase": "calling_model",
+                "iteration": 1,
+            }),
+            json!({
+                "event": "agent.provider.requested",
+                "phase": "planning",
+                "iteration": 1,
+            }),
+            json!({
+                "event": "agent.provider.completed",
+                "phase": "planning",
+                "iteration": 1,
+            }),
+            json!({
+                "event": "agent.model_call.completed",
+                "phase": "planning",
+                "iteration": 1,
+                "modelCall": "turn-tool:provider:2",
+            }),
+            json!({
+                "event": "agent.token_count",
+                "phase": "planning",
+                "iteration": 1,
+                "modelCall": "turn-tool:provider:2",
+            }),
+            json!({
+                "event": "agent.usage",
+                "phase": "calling_model",
+                "iteration": 1,
+                "item": "turn-tool:usage:1",
+                "modelCall": "turn-tool:provider:2",
+            }),
+            json!({
+                "event": "agent.phase.changed",
+                "phase": "finalizing",
+                "iteration": 1,
+                "transition": ["calling_model", "finalizing"],
+            }),
+            json!({
+                "event": "agent.status",
+                "phase": "finalizing",
+                "iteration": 1,
+            }),
+            json!({
+                "event": "agent.message.completed",
+                "phase": "completed",
+                "iteration": 1,
+                "item": "turn-tool:assistant:1",
+                "modelCall": "turn-tool:provider:2",
+                "message": "turn-tool:assistant:1",
+            }),
+            json!({
+                "event": "agent.phase.changed",
+                "phase": "completed",
+                "iteration": 1,
+                "transition": ["finalizing", "completed"],
+            }),
+            json!({
+                "event": "agent.status",
+                "phase": "completed",
+                "iteration": 1,
+            }),
+            json!({
+                "event": "agent.done",
+                "phase": "completed",
+                "iteration": 1,
+                "stop": "final_response",
+            }),
+        ]
+    );
 }
 
 #[test]

@@ -550,7 +550,7 @@ fn worker_transport_operation_retry_starts_new_correlated_turn() {
             "runtime": "rust",
             "turnId": source_turn_id,
             "sessionId": session_id,
-            "maxIterations": 2,
+            "maxIterations": 1,
             "messages": [{ "role": "user", "content": "Run the failing operation" }]
         }),
         fixture.root.clone(),
