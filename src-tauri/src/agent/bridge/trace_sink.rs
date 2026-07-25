@@ -1,5 +1,8 @@
 use crate::agent::runtime::NativeAgentTraceSink;
-use crate::agent::runtime_protocol::{AgentRuntimeEventEnvelope, AgentTimelinePatch};
+use crate::agent::runtime_protocol::{
+    resolve_event_name, AgentEventKind, AgentRuntimeEventEnvelope, AgentTimelinePatch,
+    EventNameResolution,
+};
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
 use crate::rpc::call_rust_state_service;
@@ -507,16 +510,22 @@ fn run_trace_persistence_worker(
 }
 
 fn agent_runtime_event_requires_durable_boundary(event: &AgentRuntimeEventEnvelope) -> bool {
-    matches!(
-        event.event_name.as_str(),
-        "agent.tool_call.delta"
-            | "agent.tool.result"
-            | "agent.token_count"
-            | "agent.awaiting_approval"
-            | "agent.approval.decision"
-            | "agent.error"
-            | "agent.cancelled"
-    )
+    match resolve_event_name(&event.event_name) {
+        EventNameResolution::Canonical(kind) => matches!(
+            kind,
+            AgentEventKind::ToolCallDelta
+                | AgentEventKind::ToolResult
+                | AgentEventKind::TokenCount
+                | AgentEventKind::AwaitingApproval
+                | AgentEventKind::ApprovalDecision
+                | AgentEventKind::Error
+                | AgentEventKind::Cancelled
+        ),
+        EventNameResolution::DeprecatedIgnored(_) => false,
+        EventNameResolution::Unknown => {
+            panic!("unknown canonical runtime event `{}`", event.event_name)
+        }
+    }
 }
 
 fn persist_pending_trace_events(

@@ -191,6 +191,18 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
         .expect("checkpoint messages should be an array")
         .iter()
         .any(|message| message["tool_calls"][0]["id"] == "clarify-1"));
+    let mut checkpoint_with_prior_result = waiting["checkpoint"].clone();
+    checkpoint_with_prior_result["completedToolResults"] = json!([{
+        "toolCallId": "call-before-form",
+        "toolName": "workspace.read_file",
+        "status": "ok",
+        "summary": "completed before form"
+    }]);
+    services.save_turn_checkpoint(
+        "session-user-input",
+        "turn-user-input",
+        checkpoint_with_prior_result,
+    );
 
     let resumed = run_native_agent_turn_with_config(
         &services,
@@ -216,6 +228,15 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
     assert_eq!(
         resumed["toolsUsed"],
         json!(["request_user_input", "workspace.read_file"])
+    );
+    assert_eq!(
+        resumed["completedToolResults"]
+            .as_array()
+            .expect("completed tool results should be an array")
+            .iter()
+            .map(|result| result["toolCallId"].as_str().unwrap_or_default())
+            .collect::<Vec<_>>(),
+        vec!["call-before-form", "clarify-1", "read-after-input"]
     );
     assert!(resumed["runtimeEvents"]
         .as_array()

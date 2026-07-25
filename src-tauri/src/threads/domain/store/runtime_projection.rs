@@ -1,18 +1,18 @@
 use crate::agent::runtime_protocol::{
-    project_turn_items_from_trace_events, AgentRuntimeEventEnvelope, AgentTurnItem,
+    project_turn_items_from_trace_events, AgentEventKind, AgentRuntimeEventEnvelope, AgentTurnItem,
     LegacyNativeAgentEventEnvelopeInput,
 };
 use crate::threads::domain::types::{ThreadItem, ThreadItemKind};
 use serde_json::Value;
 
-fn semantic_event_from_thread_item(item: &ThreadItem) -> Option<(&'static str, Value)> {
+fn semantic_event_from_thread_item(item: &ThreadItem) -> Option<(AgentEventKind, Value)> {
     match &item.kind {
         ThreadItemKind::UserMessage(value) => Some((
-            "agent.turn.started",
+            AgentEventKind::TurnStarted,
             serde_json::json!({ "userMessage": value }),
         )),
         ThreadItemKind::AssistantMessageCompleted(value) => Some((
-            "agent.message.completed",
+            AgentEventKind::MessageCompleted,
             serde_json::json!({
                 "content": response_item_text(value),
                 "messageId": value.get("messageId").or_else(|| value.get("id")).cloned().unwrap_or_else(|| Value::String(item.item_id.clone())),
@@ -20,7 +20,7 @@ fn semantic_event_from_thread_item(item: &ThreadItem) -> Option<(&'static str, V
             }),
         )),
         ThreadItemKind::Reasoning(value) => Some((
-            "agent.reasoning.completed",
+            AgentEventKind::ReasoningCompleted,
             serde_json::json!({
                 "summary": reasoning_response_text(value),
                 "reasoningId": value.get("reasoningId").or_else(|| value.get("id")).cloned().unwrap_or_else(|| Value::String(item.item_id.clone())),
@@ -28,7 +28,7 @@ fn semantic_event_from_thread_item(item: &ThreadItem) -> Option<(&'static str, V
             }),
         )),
         ThreadItemKind::ToolCallStarted(value) => Some((
-            "agent.tool_call.delta",
+            AgentEventKind::ToolCallDelta,
             serde_json::json!({
                 "toolCallId": semantic_item_id(item),
                 "toolName": value.get("name").or_else(|| value.get("toolName")).cloned().unwrap_or(Value::Null),
@@ -36,23 +36,30 @@ fn semantic_event_from_thread_item(item: &ThreadItem) -> Option<(&'static str, V
             }),
         )),
         ThreadItemKind::ToolCallOutput(value) => Some((
-            "agent.tool.result",
+            AgentEventKind::ToolResult,
             serde_json::json!({
                 "toolCallId": semantic_item_id(item),
                 "content": value.get("output").cloned().unwrap_or(Value::Null),
             }),
         )),
         ThreadItemKind::ApprovalRequested(value) => {
-            Some(("agent.awaiting_approval", value.clone()))
+            Some((AgentEventKind::AwaitingApproval, value.clone()))
         }
-        ThreadItemKind::ApprovalResolved(value) => Some(("agent.approval.decision", value.clone())),
-        ThreadItemKind::SubagentSpawned(value) => Some(("agent.delegate.spawned", value.clone())),
-        ThreadItemKind::SubagentMessage(value) => Some(("agent.delegate.message", value.clone())),
+        ThreadItemKind::ApprovalResolved(value) => {
+            Some((AgentEventKind::ApprovalDecision, value.clone()))
+        }
+        ThreadItemKind::SubagentSpawned(value) => {
+            Some((AgentEventKind::DelegateSpawned, value.clone()))
+        }
+        ThreadItemKind::SubagentMessage(value) => Some((
+            AgentEventKind::DelegateMessage,
+            normalized_subagent_message_payload(item, value),
+        )),
         ThreadItemKind::SubagentCompleted(value) => {
-            Some(("agent.delegate.completed", value.clone()))
+            Some((AgentEventKind::DelegateCompleted, value.clone()))
         }
-        ThreadItemKind::Error(value) => Some(("agent.error", value.clone())),
-        ThreadItemKind::Cancelled(value) => Some(("agent.cancelled", value.clone())),
+        ThreadItemKind::Error(value) => Some((AgentEventKind::Error, value.clone())),
+        ThreadItemKind::Cancelled(value) => Some((AgentEventKind::Cancelled, value.clone())),
         ThreadItemKind::AssistantMessageDelta(_)
         | ThreadItemKind::TurnStarted(_)
         | ThreadItemKind::TurnStep(_)
@@ -93,7 +100,7 @@ fn runtime_event_from_thread_item(
     item: &ThreadItem,
     session_id: &str,
 ) -> Option<AgentRuntimeEventEnvelope> {
-    let (event_name, payload) = semantic_event_from_thread_item(item)?;
+    let (event_kind, payload) = semantic_event_from_thread_item(item)?;
     let item_id = semantic_item_id(item);
     Some(AgentRuntimeEventEnvelope::from_legacy_native_event(
         LegacyNativeAgentEventEnvelopeInput {
@@ -102,7 +109,7 @@ fn runtime_event_from_thread_item(
             turn_id: item.turn_id.clone(),
             parent_turn_id: None,
             item_id: Some(item_id),
-            event_name: event_name.to_string(),
+            event_name: event_kind.wire_name().to_string(),
             sequence: item.sequence,
             timestamp: item.created_at.clone(),
             payload,
@@ -117,6 +124,15 @@ fn semantic_item_id(item: &ThreadItem) -> String {
         return value
             .get("approvalId")
             .or_else(|| value.get("approval_id"))
+            .or_else(|| value.get("id"))
+            .and_then(Value::as_str)
+            .unwrap_or(&item.item_id)
+            .to_string();
+    }
+    if let ThreadItemKind::SubagentMessage(value) = &item.kind {
+        return value
+            .get("messageId")
+            .or_else(|| value.get("message_id"))
             .or_else(|| value.get("id"))
             .and_then(Value::as_str)
             .unwrap_or(&item.item_id)
@@ -147,6 +163,29 @@ fn semantic_item_id(item: &ThreadItem) -> String {
     .find_map(|key| value.get(key).and_then(Value::as_str))
     .unwrap_or(&item.item_id)
     .to_string()
+}
+
+fn normalized_subagent_message_payload(item: &ThreadItem, value: &Value) -> Value {
+    let mut payload = value
+        .as_object()
+        .cloned()
+        .unwrap_or_else(|| panic!("persisted subagent message payload must be an object"));
+    if !payload.contains_key("agentId") {
+        if let Some(agent_id) = ["agent_id", "delegateId", "delegate_id", "subagentId"]
+            .into_iter()
+            .find_map(|key| payload.get(key).cloned())
+        {
+            payload.insert("agentId".to_string(), agent_id);
+        }
+    }
+    if !payload.contains_key("messageId") {
+        let message_id = ["message_id", "id"]
+            .into_iter()
+            .find_map(|key| payload.get(key).cloned())
+            .unwrap_or_else(|| Value::String(item.item_id.clone()));
+        payload.insert("messageId".to_string(), message_id);
+    }
+    Value::Object(payload)
 }
 
 fn response_item_text(value: &Value) -> String {

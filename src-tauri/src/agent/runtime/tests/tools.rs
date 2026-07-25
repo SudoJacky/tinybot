@@ -98,16 +98,6 @@ fn runs_fixture_tool_event_sequence() {
                 "iteration": 0,
             }),
             json!({
-                "event": "agent.provider.requested",
-                "phase": "planning",
-                "iteration": 0,
-            }),
-            json!({
-                "event": "agent.provider.completed",
-                "phase": "planning",
-                "iteration": 0,
-            }),
-            json!({
                 "event": "agent.phase.changed",
                 "phase": "tool_calling",
                 "iteration": 0,
@@ -185,16 +175,6 @@ fn runs_fixture_tool_event_sequence() {
             json!({
                 "event": "agent.status",
                 "phase": "calling_model",
-                "iteration": 1,
-            }),
-            json!({
-                "event": "agent.provider.requested",
-                "phase": "planning",
-                "iteration": 1,
-            }),
-            json!({
-                "event": "agent.provider.completed",
-                "phase": "planning",
                 "iteration": 1,
             }),
             json!({
@@ -1990,6 +1970,14 @@ fn subagent_tools_share_manager_state_without_copying_child_transcript_to_parent
     assert_eq!(link_event["payload"]["agentItem"]["type"], "subagent");
     assert_eq!(link_event["payload"]["agentItem"]["agentId"], "delegate-1");
     assert_eq!(link_event["payload"]["agentItem"]["id"], "delegate-1");
+    let wait_event = result["events"]
+        .as_array()
+        .expect("events should be present")
+        .iter()
+        .find(|event| event["eventName"] == "agent.delegate.wait")
+        .expect("subagent wait should emit an activity event");
+    assert_eq!(wait_event["payload"]["parentTurnId"], "turn-subagent-tools");
+    assert_eq!(wait_event["payload"]["sourceToolCallId"], "call-wait");
     assert_eq!(
         result["messages"],
         json!([{ "role": "assistant", "content": "Subagent lifecycle handled." }])

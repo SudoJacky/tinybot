@@ -3,6 +3,7 @@ use super::{
     thread_id_for_session_id, title_from_messages, value_event, AgentTurnRecoveryEntry,
     AgentTurnRecoveryReport, ThreadLogItem, WorkerThreadLogRpc,
 };
+use crate::agent::runtime_protocol::{resolve_event_name, AgentEventKind, EventNameResolution};
 use crate::protocol::capability::WorkerCapability;
 use crate::protocol::{WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource};
 use crate::threads::turn::{
@@ -215,7 +216,7 @@ impl WorkerThreadLogRpc {
         let path = PathBuf::from(state.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
         let latest_total_tokens = events.iter().rev().find_map(|event| {
-            if event.get("eventName").and_then(Value::as_str) != Some("agent.token_count") {
+            if runtime_event_kind(event) != Some(AgentEventKind::TokenCount) {
                 return None;
             }
             event
@@ -253,15 +254,14 @@ impl WorkerThreadLogRpc {
                 })
                 .map(|item| super::typed_response_item(item, "agent turn semantic event"))
                 .transpose()?;
-            let token_info = (event.get("eventName").and_then(Value::as_str)
-                == Some("agent.token_count"))
-            .then(|| {
-                event
-                    .get("payload")
-                    .and_then(|payload| payload.get("info"))
-                    .cloned()
-            })
-            .flatten();
+            let token_info = (runtime_event_kind(&event) == Some(AgentEventKind::TokenCount))
+                .then(|| {
+                    event
+                        .get("payload")
+                        .and_then(|payload| payload.get("info"))
+                        .cloned()
+                })
+                .flatten();
             if let Some(info) = token_info {
                 let usage = canonical_provider_call_usage(&info).ok_or_else(|| {
                     invalid_turn_semantic_event_error(
@@ -269,7 +269,7 @@ impl WorkerThreadLogRpc {
                         session_id,
                         turn_id,
                         0,
-                        Some("agent.token_count"),
+                        Some(AgentEventKind::TokenCount.wire_name()),
                     )
                 })?;
                 items.push(value_event(
@@ -654,7 +654,7 @@ impl WorkerThreadLogRpc {
             turn_id,
             serde_json::json!({
                 "eventId": format!("startup-recovery:{session_id}:{turn_id}"),
-                "eventName": "agent.cancelled",
+                "eventName": AgentEventKind::Cancelled.wire_name(),
                 "timestamp": now_thread_timestamp(),
                 "payload": {
                     "turnId": turn_id,
@@ -863,10 +863,18 @@ impl WorkerThreadLogRpc {
     }
 }
 
+fn runtime_event_kind(event: &Value) -> Option<AgentEventKind> {
+    let event_name = event.get("eventName").and_then(Value::as_str)?;
+    match resolve_event_name(event_name) {
+        EventNameResolution::Canonical(kind) => Some(kind),
+        EventNameResolution::DeprecatedIgnored(_) | EventNameResolution::Unknown => None,
+    }
+}
+
 fn response_item_from_runtime_event(event: &Value) -> Option<Value> {
     let payload = event.get("payload")?;
-    match event.get("eventName").and_then(Value::as_str)? {
-        "agent.turn.started" => {
+    match runtime_event_kind(event)? {
+        AgentEventKind::TurnStarted => {
             let mut message = payload.get("userMessage")?.clone();
             let content = message.get("content").cloned().unwrap_or(Value::Null);
             message["type"] = Value::String("message".to_string());
@@ -885,7 +893,7 @@ fn response_item_from_runtime_event(event: &Value) -> Option<Value> {
             }
             Some(message)
         }
-        "agent.message.completed" => {
+        AgentEventKind::MessageCompleted => {
             let content = payload.get("content")?.as_str()?;
             let message_id = payload.get("messageId").cloned().unwrap_or(Value::Null);
             Some(serde_json::json!({
@@ -900,7 +908,7 @@ fn response_item_from_runtime_event(event: &Value) -> Option<Value> {
                     .unwrap_or_else(|| Value::String("final_answer".to_string())),
             }))
         }
-        "agent.message.classified" => {
+        AgentEventKind::MessageClassified => {
             let message_id = payload.get("messageId").cloned().unwrap_or(Value::Null);
             Some(serde_json::json!({
                 "type": "message",
@@ -917,7 +925,7 @@ fn response_item_from_runtime_event(event: &Value) -> Option<Value> {
                     .unwrap_or_else(|| Value::String("commentary".to_string())),
             }))
         }
-        "agent.reasoning.completed" => {
+        AgentEventKind::ReasoningCompleted => {
             let summary = payload.get("summary")?.as_str()?;
             Some(serde_json::json!({
                 "type": "reasoning",
@@ -935,7 +943,7 @@ fn response_item_from_runtime_event(event: &Value) -> Option<Value> {
                 "reasoningId": payload.get("reasoningId").cloned().unwrap_or(Value::Null),
             }))
         }
-        "agent.tool_call.delta" => Some(serde_json::json!({
+        AgentEventKind::ToolCallDelta => Some(serde_json::json!({
             "type": "custom_tool_call",
             "id": payload.get("toolCallId")?.clone(),
             "call_id": payload.get("toolCallId")?.clone(),
@@ -948,14 +956,14 @@ fn response_item_from_runtime_event(event: &Value) -> Option<Value> {
                 .cloned()
                 .unwrap_or_else(|| serde_json::json!("{}")),
         })),
-        "agent.command.acknowledged" => Some(serde_json::json!({
+        AgentEventKind::CommandAcknowledged => Some(serde_json::json!({
             "type": "custom_tool_call",
             "id": payload.get("commandId")?.clone(),
             "call_id": payload.get("commandId")?.clone(),
             "name": payload.get("commandKind")?.clone(),
             "input": payload.get("target").cloned().unwrap_or_else(|| serde_json::json!({})),
         })),
-        "agent.tool.result" => {
+        AgentEventKind::ToolResult => {
             let call_id = payload.get("toolCallId")?.clone();
             let item_id = call_id
                 .as_str()
@@ -1043,24 +1051,23 @@ fn semantic_thread_item_from_runtime_event(
     timestamp: &str,
     event: &Value,
 ) -> Option<crate::threads::domain::ThreadItem> {
-    let event_name = event.get("eventName").and_then(Value::as_str)?;
     let payload = event.get("payload").cloned().unwrap_or(Value::Null);
-    let kind = match event_name {
-        "agent.awaiting_approval" => {
+    let kind = match runtime_event_kind(event)? {
+        AgentEventKind::AwaitingApproval => {
             crate::threads::domain::ThreadItemKind::ApprovalRequested(payload)
         }
-        "agent.approval.decision" => {
+        AgentEventKind::ApprovalDecision => {
             crate::threads::domain::ThreadItemKind::ApprovalResolved(payload)
         }
-        "agent.error" => crate::threads::domain::ThreadItemKind::Error(payload),
-        "agent.cancelled" => crate::threads::domain::ThreadItemKind::Cancelled(payload),
-        "agent.delegate.spawned" => {
+        AgentEventKind::Error => crate::threads::domain::ThreadItemKind::Error(payload),
+        AgentEventKind::Cancelled => crate::threads::domain::ThreadItemKind::Cancelled(payload),
+        AgentEventKind::DelegateSpawned => {
             crate::threads::domain::ThreadItemKind::SubagentSpawned(payload)
         }
-        "agent.delegate.message" => {
+        AgentEventKind::DelegateMessage => {
             crate::threads::domain::ThreadItemKind::SubagentMessage(payload)
         }
-        "agent.delegate.completed" => {
+        AgentEventKind::DelegateCompleted => {
             crate::threads::domain::ThreadItemKind::SubagentCompleted(payload)
         }
         _ => return None,
@@ -1093,24 +1100,33 @@ fn canonical_message_content(content: Value, part_type: &str) -> Value {
 }
 
 pub(crate) fn is_turn_semantic_event(event_name: &str) -> bool {
-    event_name != "agent.turn.started"
-        && crate::agent::runtime_protocol::is_durable_agent_timeline_event(event_name)
-        || matches!(
-            event_name,
-            "agent.command.acknowledged" | "agent.token_count"
-        )
+    match resolve_event_name(event_name) {
+        EventNameResolution::Canonical(kind) => {
+            (kind != AgentEventKind::TurnStarted && kind.definition().is_durable())
+                || matches!(
+                    kind,
+                    AgentEventKind::CommandAcknowledged | AgentEventKind::TokenCount
+                )
+        }
+        EventNameResolution::DeprecatedIgnored(_) => false,
+        EventNameResolution::Unknown => {
+            panic!("unknown canonical runtime event `{event_name}`")
+        }
+    }
 }
 
 fn response_item_from_runtime_event_name(event_name: &str) -> bool {
     matches!(
-        event_name,
-        "agent.turn.started"
-            | "agent.reasoning.completed"
-            | "agent.message.classified"
-            | "agent.message.completed"
-            | "agent.tool_call.delta"
-            | "agent.tool.result"
-            | "agent.command.acknowledged"
+        resolve_event_name(event_name),
+        EventNameResolution::Canonical(
+            AgentEventKind::TurnStarted
+                | AgentEventKind::ReasoningCompleted
+                | AgentEventKind::MessageClassified
+                | AgentEventKind::MessageCompleted
+                | AgentEventKind::ToolCallDelta
+                | AgentEventKind::ToolResult
+                | AgentEventKind::CommandAcknowledged
+        )
     )
 }
 
@@ -1155,16 +1171,7 @@ fn validate_turn_semantic_event(
             Some(event_name),
         ));
     }
-    let requires_response_item = matches!(
-        event_name,
-        "agent.turn.started"
-            | "agent.reasoning.completed"
-            | "agent.message.classified"
-            | "agent.message.completed"
-            | "agent.tool_call.delta"
-            | "agent.tool.result"
-            | "agent.command.acknowledged"
-    );
+    let requires_response_item = response_item_from_runtime_event_name(event_name);
     if requires_response_item && response_item_from_runtime_event(event).is_none() {
         return Err(invalid_turn_semantic_event_error(
             "semantic runtime event cannot be materialized as a typed response item",

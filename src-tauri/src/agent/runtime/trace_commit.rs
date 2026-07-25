@@ -268,7 +268,9 @@ fn log_assistant_phase_classification(
         .get("classificationSource")
         .and_then(serde_json::Value::as_str)
         .unwrap_or_else(|| {
-            if event.event_name == "agent.message.phase" {
+            if event.event_name
+                == crate::agent::runtime_protocol::AgentEventKind::MessagePhase.wire_name()
+            {
                 "provider"
             } else {
                 "runtime_projection"

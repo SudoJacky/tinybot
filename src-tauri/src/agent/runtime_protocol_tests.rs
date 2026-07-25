@@ -1,5 +1,5 @@
 use super::*;
-use serde_json::json;
+use serde_json::{json, Value};
 
 #[test]
 fn runtime_phase_serializes_as_snake_case() {
@@ -137,7 +137,7 @@ fn legacy_native_event_maps_to_runtime_envelope() {
             "eventName": "agent.tool.start",
             "phase": "tool_running",
             "timestamp": "2026-07-03T00:00:07Z",
-            "source": "rust_backend",
+            "source": "tool",
             "visibility": "user",
             "payload": { "toolName": "read_file" }
         })
@@ -1277,6 +1277,52 @@ fn canonical_timeline_rejects_work_after_final_answer() {
         .expect_err("post-final work must be rejected");
 
     assert!(error.contains("appears after final answer"));
+}
+
+#[test]
+fn canonical_timeline_rejects_unknown_event_names() {
+    let event = runtime_event(
+        "turn-unknown-event",
+        "agent.unknown",
+        AgentRuntimePhase::Planning,
+        None,
+        1,
+        json!({}),
+    );
+
+    let error = project_timeline_snapshot("session-1", "turn-unknown-event", &[event])
+        .expect_err("unknown canonical events must fail fast");
+
+    assert_eq!(error, "unknown canonical runtime event `agent.unknown`");
+}
+
+#[test]
+fn canonical_timeline_ignores_deprecated_provider_lifecycle_events() {
+    let events = vec![
+        runtime_event(
+            "turn-deprecated-provider",
+            "agent.provider.requested",
+            AgentRuntimePhase::Planning,
+            None,
+            1,
+            json!({}),
+        ),
+        runtime_event(
+            "turn-deprecated-provider",
+            "agent.provider.completed",
+            AgentRuntimePhase::Planning,
+            None,
+            2,
+            json!({}),
+        ),
+    ];
+
+    let snapshot = project_timeline_snapshot("session-1", "turn-deprecated-provider", &events)
+        .expect("deprecated provider lifecycle events should remain replay-compatible");
+
+    assert_eq!(snapshot.snapshot_revision, 0);
+    assert!(snapshot.items.is_empty());
+    assert!(project_legacy_native_agent_events(&events).is_empty());
 }
 
 #[test]

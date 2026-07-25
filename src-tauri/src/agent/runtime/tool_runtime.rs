@@ -6,15 +6,13 @@ use super::tool_dispatcher::{
     native_tool_cleanup_timeout_ms, native_tool_is_permitted, native_tool_mutates_session,
     native_tool_mutates_workspace, native_tool_waits_for_runtime_cancellation,
 };
-use super::tool_projection::{
-    assistant_tool_calls_message, completed_tool_result_entry, normalize_tool_result_for_context,
-    subagent_activity_events_from_tool_result, subagent_link_event_from_tool_result,
-    tool_error_observation_message, tool_observation_content, tool_observation_message,
-};
+use super::tool_projection::{assistant_tool_calls_message, commit_tool_observation};
 use super::{
     AgentTurnContext, NativeAgentRuntimeServices, NativeAgentToolCall, NativeAgentToolDispatcher,
 };
-use crate::agent::runtime_protocol::AgentRuntimePhase;
+use crate::agent::runtime_protocol::{
+    AgentEventKind, AgentRuntimePhase, PendingAgentEvent, TerminalEvent, ToolLifecycleEvent,
+};
 use crate::tools::registry::ToolCancellationMode;
 use crate::tools::registry::{REQUEST_USER_INPUT_METHOD, TOOL_SEARCH_METHOD, UPDATE_PLAN_METHOD};
 use futures_util::{future::join_all, FutureExt};
@@ -192,7 +190,7 @@ pub(super) async fn execute_tool_calls_for_iteration(
     state.transition_phase(
         AgentRuntimePhase::ToolCalling,
         iteration,
-        "agent.tool_call.delta",
+        AgentEventKind::ToolCallDelta.wire_name(),
     )?;
     state
         .history
@@ -200,18 +198,13 @@ pub(super) async fn execute_tool_calls_for_iteration(
         .expect("runtime-generated assistant tool call message must be valid");
 
     for tool_call in &tool_calls {
-        state.emit_event(
-            "agent.tool_call.delta",
-            serde_json::json!({
-                "turnId": context.turn_id,
-                "sessionId": context.session_id,
-                "iteration": iteration,
-                "toolCallId": tool_call.id,
-                "toolName": tool_call.name,
-                "name": tool_call.name,
-                "argumentsDelta": tool_call.arguments_json,
-            }),
-        )?;
+        state.emit(ToolLifecycleEvent::Delta(serde_json::json!({
+            "iteration": iteration,
+            "toolCallId": tool_call.id,
+            "toolName": tool_call.name,
+            "name": tool_call.name,
+            "argumentsDelta": tool_call.arguments_json,
+        })))?;
         if !native_tool_is_permitted(context, &tool_call.name) {
             return policy_denied_tool_result(services, context, state, iteration, tool_call);
         }
@@ -337,9 +330,13 @@ fn execute_tool_search(
         .record_duration("tool.durationMs", tool_started_at.elapsed());
     context.metrics().increment("tool.completed");
     let result = super::NativeAgentToolResult::generic_success(&tool_call, raw_result);
-    record_tool_result(&*context, state, iteration, tool_call, result)?;
+    commit_tool_observation(&*context, state, iteration, tool_call, result)?;
     state.clear_pending_tool_calls();
-    state.transition_phase(AgentRuntimePhase::Planning, iteration, "agent.tool.result")?;
+    state.transition_phase(
+        AgentRuntimePhase::Planning,
+        iteration,
+        AgentEventKind::ToolResult.wire_name(),
+    )?;
     save_phase_checkpoint(
         services,
         &*context,
@@ -391,13 +388,11 @@ fn execute_update_plan(
     state.transition_phase(
         AgentRuntimePhase::ToolRunning,
         iteration,
-        "agent.plan.progress",
+        AgentEventKind::PlanProgress.wire_name(),
     )?;
-    state.emit_event(
-        "agent.plan.progress",
+    state.emit(PendingAgentEvent::new(
+        AgentEventKind::PlanProgress,
         serde_json::json!({
-            "turnId": context.turn_id,
-            "sessionId": context.session_id,
             "iteration": iteration,
             "planId": plan_id,
             "explanation": plan.explanation,
@@ -407,7 +402,7 @@ fn execute_update_plan(
             "total": total,
             "currentStep": current_step,
         }),
-    )?;
+    ))?;
 
     let result = super::NativeAgentToolResult::generic_success(
         &tool_call,
@@ -418,9 +413,13 @@ fn execute_update_plan(
         .record_duration("tool.durationMs", tool_started_at.elapsed());
     context.metrics().increment("tool.completed");
 
-    record_tool_result(context, state, iteration, tool_call, result)?;
+    commit_tool_observation(context, state, iteration, tool_call, result)?;
     state.clear_pending_tool_calls();
-    state.transition_phase(AgentRuntimePhase::Planning, iteration, "agent.tool.result")?;
+    state.transition_phase(
+        AgentRuntimePhase::Planning,
+        iteration,
+        AgentEventKind::ToolResult.wire_name(),
+    )?;
     save_phase_checkpoint(
         services,
         context,
@@ -440,9 +439,13 @@ fn recoverable_update_plan_error(
 ) -> Result<NativeAgentToolExecutionOutcome, String> {
     state.tools_used.push(tool_call.name.clone());
     let result = super::NativeAgentToolResult::generic_error(&tool_call, error);
-    record_tool_result(context, state, iteration, tool_call, result)?;
+    commit_tool_observation(context, state, iteration, tool_call, result)?;
     state.clear_pending_tool_calls();
-    state.transition_phase(AgentRuntimePhase::Planning, iteration, "agent.tool.result")?;
+    state.transition_phase(
+        AgentRuntimePhase::Planning,
+        iteration,
+        AgentEventKind::ToolResult.wire_name(),
+    )?;
     save_phase_checkpoint(
         services,
         context,
@@ -691,7 +694,7 @@ async fn execute_tool_batch(
 
         let decision = reduce_wave_outcomes(execute_tool_wave(services, context, wave).await);
         for completed in decision.completed {
-            record_tool_result(
+            commit_tool_observation(
                 context,
                 state,
                 iteration,
@@ -703,7 +706,6 @@ async fn execute_tool_batch(
         if let Some(terminal) = decision.terminal {
             let terminal_reason = tool_dispatch_outcome_name(&terminal.outcome);
             emit_ignored_wave_outcomes(
-                context,
                 state,
                 iteration,
                 wave_index,
@@ -721,7 +723,11 @@ async fn execute_tool_batch(
     }
 
     state.clear_pending_tool_calls();
-    state.transition_phase(AgentRuntimePhase::Planning, iteration, "agent.tool.result")?;
+    state.transition_phase(
+        AgentRuntimePhase::Planning,
+        iteration,
+        AgentEventKind::ToolResult.wire_name(),
+    )?;
     save_phase_checkpoint(
         services,
         context,
@@ -741,7 +747,7 @@ fn queue_tool_batch(
     state.transition_phase(
         AgentRuntimePhase::ToolRunning,
         iteration,
-        "agent.tool.start",
+        AgentEventKind::ToolStarted.wire_name(),
     )?;
     let queued_tool_calls = calls
         .iter()
@@ -751,22 +757,17 @@ fn queue_tool_batch(
         let tool_call = &call.tool_call;
         let runtime_policy = tool_runtime_policy_payload(context, &tool_call.name);
         state.tools_used.push(tool_call.name.clone());
-        state.emit_event(
-            "agent.tool.start",
-            serde_json::json!({
-                "turnId": context.turn_id,
-                "sessionId": context.session_id,
-                "iteration": iteration,
-                "modelIndex": call.index,
-                "toolCallId": tool_call.id,
-                "toolName": tool_call.name,
-                "name": tool_call.name,
-                "detailId": format!("tool:{}", tool_call.id),
-                "status": "queued",
-                "parallelMode": call.mode.as_str(),
-                "runtimePolicy": runtime_policy,
-            }),
-        )?;
+        state.emit(ToolLifecycleEvent::Started(serde_json::json!({
+            "iteration": iteration,
+            "modelIndex": call.index,
+            "toolCallId": tool_call.id,
+            "toolName": tool_call.name,
+            "name": tool_call.name,
+            "detailId": format!("tool:{}", tool_call.id),
+            "status": "queued",
+            "parallelMode": call.mode.as_str(),
+            "runtimePolicy": runtime_policy,
+        })))?;
     }
     state.set_queued_tool_calls(&queued_tool_calls);
     save_phase_checkpoint(
@@ -794,23 +795,18 @@ fn mark_tool_wave_running(
         let tool_call = &call.tool_call;
         state.mark_pending_tool_running(&tool_call.id);
         let runtime_policy = tool_runtime_policy_payload(context, &tool_call.name);
-        state.emit_event(
-            "agent.tool.start",
-            serde_json::json!({
-                "turnId": context.turn_id,
-                "sessionId": context.session_id,
-                "iteration": iteration,
-                "waveIndex": wave_index,
-                "modelIndex": call.index,
-                "toolCallId": tool_call.id,
-                "toolName": tool_call.name,
-                "name": tool_call.name,
-                "detailId": format!("tool:{}", tool_call.id),
-                "status": "running",
-                "parallelMode": call.mode.as_str(),
-                "runtimePolicy": runtime_policy,
-            }),
-        )?;
+        state.emit(ToolLifecycleEvent::Started(serde_json::json!({
+            "iteration": iteration,
+            "waveIndex": wave_index,
+            "modelIndex": call.index,
+            "toolCallId": tool_call.id,
+            "toolName": tool_call.name,
+            "name": tool_call.name,
+            "detailId": format!("tool:{}", tool_call.id),
+            "status": "running",
+            "parallelMode": call.mode.as_str(),
+            "runtimePolicy": runtime_policy,
+        })))?;
     }
     save_phase_checkpoint(
         services,
@@ -859,7 +855,6 @@ fn finish_wave_terminal(
 }
 
 fn emit_ignored_wave_outcomes(
-    context: &AgentTurnContext,
     state: &mut AgentTurnState,
     iteration: i64,
     wave_index: usize,
@@ -882,23 +877,18 @@ fn emit_ignored_wave_outcomes(
                 (tool_call, "cleanup_timeout_after_terminal", None)
             }
         };
-        state.emit_event(
-            "agent.tool.debug",
-            serde_json::json!({
-                "turnId": context.turn_id,
-                "sessionId": context.session_id,
-                "iteration": iteration,
-                "waveIndex": wave_index,
-                "modelIndex": model_index,
-                "toolCallId": tool_call.id,
-                "toolName": tool_call.name,
-                "name": tool_call.name,
-                "detailId": format!("tool:{}", tool_call.id),
-                "ignoredReason": ignored_reason,
-                "terminalOutcome": terminal_reason,
-                "error": error,
-            }),
-        )?;
+        state.emit(ToolLifecycleEvent::Debug(serde_json::json!({
+            "iteration": iteration,
+            "waveIndex": wave_index,
+            "modelIndex": model_index,
+            "toolCallId": tool_call.id,
+            "toolName": tool_call.name,
+            "name": tool_call.name,
+            "detailId": format!("tool:{}", tool_call.id),
+            "ignoredReason": ignored_reason,
+            "terminalOutcome": terminal_reason,
+            "error": error,
+        })))?;
     }
     Ok(())
 }
@@ -949,21 +939,16 @@ fn start_tool_call(
     state.transition_phase(
         AgentRuntimePhase::ToolRunning,
         iteration,
-        "agent.tool.start",
+        AgentEventKind::ToolStarted.wire_name(),
     )?;
-    state.emit_event(
-        "agent.tool.start",
-        serde_json::json!({
-            "turnId": context.turn_id,
-            "sessionId": context.session_id,
-            "iteration": iteration,
-            "toolCallId": tool_call.id,
-            "toolName": tool_call.name,
-            "name": tool_call.name,
-            "detailId": format!("tool:{}", tool_call.id),
-            "status": "running",
-        }),
-    )?;
+    state.emit(ToolLifecycleEvent::Started(serde_json::json!({
+        "iteration": iteration,
+        "toolCallId": tool_call.id,
+        "toolName": tool_call.name,
+        "name": tool_call.name,
+        "detailId": format!("tool:{}", tool_call.id),
+        "status": "running",
+    })))?;
     state.set_pending_tool_call(tool_call);
     save_phase_checkpoint(
         services,
@@ -981,69 +966,6 @@ fn start_tool_call(
     Ok(())
 }
 
-fn record_tool_result(
-    context: &AgentTurnContext,
-    state: &mut AgentTurnState,
-    iteration: i64,
-    tool_call: NativeAgentToolCall,
-    result: super::NativeAgentToolResult,
-) -> Result<(), String> {
-    emit_pending_tool_hook_evaluations(context, state)?;
-    let result = normalize_tool_result_for_context(result, context);
-    let observation_content = tool_observation_content(&result);
-    let completed_result = completed_tool_result_entry(&tool_call, &result);
-    let observation_message =
-        if result.envelope.get("status").and_then(Value::as_str) == Some("error") {
-            tool_error_observation_message(&tool_call, &observation_content)
-        } else {
-            tool_observation_message(&tool_call, &observation_content)
-        };
-    state
-        .history
-        .record_message(observation_message)
-        .expect("runtime-generated tool observation message must be valid");
-    state.emit_event(
-        "agent.tool.result",
-        serde_json::json!({
-            "turnId": context.turn_id,
-            "sessionId": context.session_id,
-            "iteration": iteration,
-            "toolCallId": tool_call.id,
-            "toolName": tool_call.name,
-            "name": tool_call.name,
-            "detailId": format!("tool:{}", tool_call.id),
-            "status": "completed",
-            "resultStatus": result.envelope.get("status").cloned().unwrap_or_else(|| serde_json::json!("ok")),
-            "summary": result.envelope.get("summary").cloned().unwrap_or_else(|| Value::String(observation_content.clone())),
-            "timing": {
-                "durationMs": result
-                    .envelope
-                    .get("metrics")
-                    .and_then(|metrics| metrics.get("durationMs"))
-                    .cloned()
-                    .unwrap_or(Value::Null),
-            },
-            "content": observation_content,
-            "envelope": result.envelope.clone(),
-        }),
-    )?;
-    if let Some(link_event) = subagent_link_event_from_tool_result(context, &tool_call, &result) {
-        state.emit_native_event(link_event)?;
-    }
-    for event in subagent_activity_events_from_tool_result(context, &tool_call, &result) {
-        if event.event_name == "agent.delegate.wait" {
-            state.transition_phase(
-                AgentRuntimePhase::AwaitingSubagent,
-                iteration,
-                "agent.delegate.wait",
-            )?;
-        }
-        state.emit_native_event(event)?;
-    }
-    state.completed_tool_results.push(completed_result);
-    Ok(())
-}
-
 fn record_tool_failure(
     context: &AgentTurnContext,
     state: &mut AgentTurnState,
@@ -1052,34 +974,7 @@ fn record_tool_failure(
     error: &str,
 ) -> Result<(), String> {
     let result = super::NativeAgentToolResult::generic_error(tool_call, error.to_string());
-    let observation_content = tool_observation_content(&result);
-    let completed_result = completed_tool_result_entry(tool_call, &result);
-    state
-        .history
-        .record_message(tool_error_observation_message(
-            tool_call,
-            &observation_content,
-        ))
-        .expect("runtime-generated tool error observation message must be valid");
-    state.emit_event(
-        "agent.tool.result",
-        serde_json::json!({
-            "turnId": context.turn_id,
-            "sessionId": context.session_id,
-            "iteration": iteration,
-            "toolCallId": tool_call.id,
-            "toolName": tool_call.name,
-            "name": tool_call.name,
-            "detailId": format!("tool:{}", tool_call.id),
-            "status": "completed",
-            "resultStatus": result.envelope.get("status").cloned().unwrap_or_else(|| serde_json::json!("error")),
-            "summary": result.envelope.get("summary").cloned().unwrap_or_else(|| Value::String(observation_content.clone())),
-            "content": observation_content,
-            "envelope": result.envelope.clone(),
-        }),
-    )?;
-    state.completed_tool_results.push(completed_result);
-    Ok(())
+    commit_tool_observation(context, state, iteration, tool_call.clone(), result)
 }
 
 fn policy_denied_tool_result(
@@ -1104,10 +999,13 @@ fn tool_error_result(
     tool_call: &NativeAgentToolCall,
     error: String,
 ) -> Result<NativeAgentToolExecutionOutcome, String> {
-    emit_pending_tool_hook_evaluations(context, state)?;
     record_tool_failure(context, state, iteration, tool_call, &error)?;
     state.clear_pending_tool_calls();
-    state.transition_phase(AgentRuntimePhase::Planning, iteration, "agent.tool.result")?;
+    state.transition_phase(
+        AgentRuntimePhase::Planning,
+        iteration,
+        AgentEventKind::ToolResult.wire_name(),
+    )?;
     save_phase_checkpoint(
         services,
         context,
@@ -1128,7 +1026,6 @@ fn fatal_tool_error_result(
     tool_call: &NativeAgentToolCall,
     error: String,
 ) -> Result<NativeAgentToolExecutionOutcome, String> {
-    emit_pending_tool_hook_evaluations(context, state)?;
     record_tool_failure(context, state, iteration, tool_call, &error)?;
     finish_tool_error_result(services, context, state, iteration, tool_call, error)
 }
@@ -1141,20 +1038,15 @@ fn finish_tool_error_result(
     tool_call: &NativeAgentToolCall,
     error: String,
 ) -> Result<NativeAgentToolExecutionOutcome, String> {
-    state.set_stop_reason("tool_error", iteration, "agent.error")?;
-    state.emit_event(
-        "agent.error",
-        serde_json::json!({
-            "turnId": context.turn_id,
-            "sessionId": context.session_id,
-            "iteration": iteration,
-            "stopReason": "tool_error",
-            "error": error,
-            "toolCallId": tool_call.id,
-            "toolName": tool_call.name,
-            "name": tool_call.name,
-        }),
-    )?;
+    state.set_stop_reason("tool_error", iteration, AgentEventKind::Error.wire_name())?;
+    state.emit(TerminalEvent::Error(serde_json::json!({
+        "iteration": iteration,
+        "stopReason": "tool_error",
+        "error": error,
+        "toolCallId": tool_call.id,
+        "toolName": tool_call.name,
+        "name": tool_call.name,
+    })))?;
     services
         .checkpoints
         .clear_for_turn(&context.session_id, &context.turn_id);
@@ -1186,7 +1078,6 @@ fn tool_cleanup_timeout_result(
     cancellation_mode: ToolCancellationMode,
     timeout_ms: u64,
 ) -> Result<NativeAgentToolExecutionOutcome, String> {
-    emit_pending_tool_hook_evaluations(context, state)?;
     let error = format!(
         "native tool `{}` cleanup exceeded {} ms for cancellation mode `{}`",
         tool_call.name,
@@ -1197,13 +1088,11 @@ fn tool_cleanup_timeout_result(
     state.set_stop_reason(
         "tool_cleanup_timeout",
         iteration,
-        "agent.tool.cleanup_timeout",
+        AgentEventKind::ToolCleanupTimeout.wire_name(),
     )?;
-    state.emit_event(
-        "agent.tool.cleanup_timeout",
+    state.emit(PendingAgentEvent::new(
+        AgentEventKind::ToolCleanupTimeout,
         serde_json::json!({
-            "turnId": context.turn_id,
-            "sessionId": context.session_id,
             "iteration": iteration,
             "stopReason": "tool_cleanup_timeout",
             "error": error,
@@ -1213,7 +1102,7 @@ fn tool_cleanup_timeout_result(
             "cancellationMode": cancellation_mode.as_str(),
             "timeoutMs": timeout_ms,
         }),
-    )?;
+    ))?;
     services
         .checkpoints
         .clear_for_turn(&context.session_id, &context.turn_id);
@@ -1242,28 +1131,15 @@ fn cancelled_result(
     state: &mut AgentTurnState,
     iteration: i64,
 ) -> Result<NativeAgentToolExecutionOutcome, String> {
-    emit_pending_tool_hook_evaluations(context, state)?;
-    state.transition_phase(AgentRuntimePhase::Cancelled, iteration, "agent.cancelled")?;
+    state.emit_pending_hook_evaluations(context)?;
+    state.transition_phase(
+        AgentRuntimePhase::Cancelled,
+        iteration,
+        AgentEventKind::Cancelled.wire_name(),
+    )?;
     Ok(NativeAgentToolExecutionOutcome::Finished(
-        cancelled_turn_result(
-            services,
-            context,
-            state.take_runtime_events(),
-            std::mem::take(&mut state.tools_used),
-            std::mem::take(&mut state.completed_tool_results),
-            iteration,
-        ),
+        cancelled_turn_result(services, context, state, iteration)?,
     ))
-}
-
-fn emit_pending_tool_hook_evaluations(
-    context: &AgentTurnContext,
-    state: &mut AgentTurnState,
-) -> Result<(), String> {
-    for (invocation, evaluation) in context.drain_hook_evaluations() {
-        state.emit_hook_evaluation(&invocation, &evaluation)?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]

@@ -1685,12 +1685,10 @@ fn trace_context_follows_provider_tool_and_completion_without_tool_hook_rewrite(
     let runtime_events = result["runtimeEvents"]
         .as_array()
         .expect("runtime events should be present");
-    assert!(runtime_events
-        .iter()
-        .any(|event| event["eventName"] == "agent.provider.requested"));
-    assert!(runtime_events
-        .iter()
-        .any(|event| event["eventName"] == "agent.provider.completed"));
+    assert!(runtime_events.iter().all(|event| {
+        event["eventName"] != "agent.provider.requested"
+            && event["eventName"] != "agent.provider.completed"
+    }));
     assert!(runtime_events
         .iter()
         .any(|event| event["eventName"] == "agent.hook.decision"));

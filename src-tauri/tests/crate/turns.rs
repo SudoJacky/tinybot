@@ -1081,7 +1081,11 @@ fn worker_run_agent_persists_agent_turn_record_and_keeps_history_compact() {
         .expect("runtime events should be returned");
     assert!(result_runtime_events
         .iter()
-        .any(|event| event["eventName"] == "agent.provider.requested"));
+        .any(|event| event["eventName"] == "agent.model_call.completed"));
+    assert!(result_runtime_events.iter().all(|event| !matches!(
+        event["eventName"].as_str(),
+        Some("agent.provider.requested" | "agent.provider.completed")
+    )));
     assert!(
         run.get("traceEvents").is_none(),
         "runtime trace must not be canonical"

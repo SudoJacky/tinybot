@@ -5,6 +5,7 @@ use super::types::{
     StartThreadTurnRequest, ThreadApplyOpRequest, ThreadItem, ThreadItemKind, ThreadOp,
     ThreadStatusResult, ThreadTurnRuntimeResult, ThreadTurnSummary,
 };
+use crate::agent::runtime_protocol::{resolve_event_name, AgentEventKind, EventNameResolution};
 use crate::protocol::{WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource};
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -1054,6 +1055,7 @@ fn runtime_event_item(
     visibility: Option<String>,
     payload: Value,
 ) -> ThreadItem {
+    let event_kind = resolve_event_name(&event_name);
     let item_id = event_id
         .as_deref()
         .map(str::trim)
@@ -1077,9 +1079,13 @@ fn runtime_event_item(
         "payload": payload,
         "threadSource": "thread.apply_op"
     });
-    let kind = match event_payload.get("eventName").and_then(Value::as_str) {
-        Some("agent.context.compacted") => ThreadItemKind::ContextCompaction(event_payload),
-        Some("agent.context.trimmed") => ThreadItemKind::ContextTrimmed(event_payload),
+    let kind = match event_kind {
+        EventNameResolution::Canonical(AgentEventKind::ContextCompacted) => {
+            ThreadItemKind::ContextCompaction(event_payload)
+        }
+        EventNameResolution::Canonical(AgentEventKind::ContextTrimmed) => {
+            ThreadItemKind::ContextTrimmed(event_payload)
+        }
         _ => ThreadItemKind::Event(event_payload),
     };
     ThreadItem {

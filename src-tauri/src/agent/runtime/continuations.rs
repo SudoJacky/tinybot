@@ -1,22 +1,15 @@
-use super::events::{event, runtime_event_item_id, runtime_event_timestamp};
+use super::events::event;
 use super::result::cancelled_result;
 use super::state::AgentTurnState;
-use super::tool_projection::{
-    append_continuation_tool_error_observation, append_continuation_tool_observation,
-    completed_tool_result_entry, normalize_tool_result_for_context,
-    prepare_continuation_tool_observation, tool_observation_content,
-};
+use super::tool_projection::{commit_tool_observation, prepare_continuation_tool_observation};
 use super::tool_runtime::{dispatch_owned_tool_call, OwnedToolCallResult};
-use super::trace_commit::TraceCommitter;
-use super::usage::{enrich_usage_with_context_window, estimate_context_tokens_for_request};
 use super::{
-    string_field, AgentTurnContext, NativeAgentEvent, NativeAgentProviderFailureKind,
-    NativeAgentProviderStreamEvent, NativeAgentRuntimeServices, NativeAgentToolCall,
-    NativeAgentToolResult, NativeToolResultEnvelope,
+    string_field, AgentTurnContext, NativeAgentEvent, NativeAgentRuntimeServices,
+    NativeAgentToolCall, NativeAgentToolResult, NativeToolResultEnvelope,
 };
 use crate::agent::runtime_protocol::{
-    AgentApprovalDecision, AgentApprovalScope, AgentContinuationInput, AgentRuntimeEventAppender,
-    AgentRuntimeEventEnvelope,
+    AgentApprovalDecision, AgentApprovalScope, AgentContinuationInput, AgentEventKind,
+    AgentRuntimeEventEnvelope, PendingAgentEvent,
 };
 use serde_json::Value;
 
@@ -128,7 +121,7 @@ pub(super) async fn maybe_approval_resume_result(
     services: &NativeAgentRuntimeServices,
     context: &mut AgentTurnContext,
 ) -> Result<Option<ApprovalContinuationOutcome>, String> {
-    let Some((approval, continuation)) = approval_resume_metadata(context) else {
+    let Some(continuation) = approval_resume_metadata(context) else {
         return Ok(None);
     };
     let approved = matches!(continuation.decision, AgentApprovalDecision::Approved);
@@ -166,34 +159,21 @@ pub(super) async fn maybe_approval_resume_result(
             .map(Some);
     }
     if let Some(guidance) = continuation.guidance.clone() {
-        return Ok(Some(ApprovalContinuationOutcome::Finished(
-            approval_denied_guidance_result(
-                services,
-                context,
-                &approval,
-                &continuation,
-                guidance,
-                checkpoint,
-            )
-            .await?,
-        )));
+        let checkpoint = checkpoint
+            .ok_or_else(|| "denied approval continuation checkpoint disappeared".to_string())?;
+        return denied_approval_resume(services, context, &continuation, guidance, checkpoint)
+            .map(ApprovalContinuationOutcome::Resume)
+            .map(Some);
     }
     services
         .checkpoints
         .clear_for_turn(&context.session_id, &context.turn_id);
-    let message = continuation
-        .guidance
-        .clone()
-        .or_else(|| string_field(&approval, "guidance"))
-        .map(|guidance| format!("Rust agent approval was denied. User guidance: {guidance}"))
-        .unwrap_or_else(|| "Rust agent approval was denied.".to_string());
+    let message = "Rust agent approval was denied.".to_string();
     let events = vec![
         approval_decision_event(context, &continuation),
         event(
-            "agent.error",
+            AgentEventKind::Error,
             serde_json::json!({
-                "turnId": context.turn_id,
-                "sessionId": context.session_id,
                 "stopReason": "approval_denied",
                 "message": message,
                 "error": message,
@@ -255,9 +235,7 @@ async fn approved_tool_continuation_outcome(
             tool_call.name
         )
     })? {
-        OwnedToolCallResult::Completed(result) => {
-            normalize_tool_result_for_context(result, context)
-        }
+        OwnedToolCallResult::Completed(result) => result,
         OwnedToolCallResult::Cancelled => {
             return Ok(ApprovalContinuationOutcome::Finished(cancelled_result(
                 services,
@@ -282,8 +260,6 @@ async fn approved_tool_continuation_outcome(
             ));
         }
     };
-    let observation_content = tool_observation_content(&result);
-    let completed_result = completed_tool_result_entry(&tool_call, &result);
     let restored_completed_results = checkpoint
         .get("completedToolResults")
         .and_then(Value::as_array)
@@ -298,18 +274,14 @@ async fn approved_tool_continuation_outcome(
                 .and_then(Value::as_i64)
         })
         .ok_or_else(|| "invalid tool approval checkpoint: iteration is missing".to_string())?;
-    append_continuation_tool_observation(&mut messages, &tool_call, &observation_content, false)
-        .map_err(|error| format!("invalid tool approval checkpoint: {error}"))?;
     context.messages = messages.clone();
     context.spec["messages"] = Value::Array(messages);
 
     Ok(ApprovalContinuationOutcome::Resume(ApprovalResume {
         iteration,
         tool_call,
-        completed_result,
+        result,
         restored_completed_results,
-        observation_content,
-        envelope: result.envelope,
         continuation: continuation.clone(),
     }))
 }
@@ -319,40 +291,14 @@ fn continuation_runtime_events(
     context: &AgentTurnContext,
     events: &[NativeAgentEvent],
 ) -> Result<Vec<AgentRuntimeEventEnvelope>, String> {
-    let (mut committer, existing) = TraceCommitter::resume(
-        &context.session_id,
-        &context.turn_id,
-        services.trace_sink.clone(),
-    )
-    .map_err(|error| error.to_string())?;
-    let mut appender = if existing.is_empty() {
-        AgentRuntimeEventAppender::new_with_trace_context(
-            &context.session_id,
-            context.trace_context.clone(),
-        )
-    } else {
-        AgentRuntimeEventAppender::from_existing_events_with_thread_id(
-            &context.session_id,
-            &context.turn_id,
-            context.thread_id.clone(),
-            &existing,
-        )
-    };
-    let events = events
-        .iter()
-        .map(|event| {
-            appender.append_legacy_native_event(
-                event.event_name.clone(),
-                runtime_event_item_id(&event.event_name, &event.payload),
-                runtime_event_timestamp(),
-                event.payload.clone(),
-            )
-        })
-        .collect::<Vec<_>>();
-    committer
-        .commit_batch(&events)
-        .map_err(|error| error.to_string())?;
-    Ok(events)
+    let mut state = AgentTurnState::new_for_continuation(context, services.trace_sink.clone())?;
+    for event in events {
+        state.emit(PendingAgentEvent::try_from_wire_name(
+            &event.event_name,
+            event.payload.clone(),
+        )?)?;
+    }
+    Ok(state.take_runtime_events())
 }
 
 fn approved_tool_cleanup_timeout_result(
@@ -372,10 +318,8 @@ fn approved_tool_cleanup_timeout_result(
     let events = vec![
         approval_decision_event(context, continuation),
         event(
-            "agent.tool.cleanup_timeout",
+            AgentEventKind::ToolCleanupTimeout,
             serde_json::json!({
-                "turnId": context.turn_id,
-                "sessionId": context.session_id,
                 "stopReason": "tool_cleanup_timeout",
                 "error": error,
                 "toolCallId": tool_call.id,
@@ -436,198 +380,56 @@ fn approved_pending_tool_call(checkpoint: &Value) -> Result<NativeAgentToolCall,
     })
 }
 
-async fn approval_denied_guidance_result(
+fn denied_approval_resume(
     services: &NativeAgentRuntimeServices,
-    context: &AgentTurnContext,
-    approval: &Value,
+    context: &mut AgentTurnContext,
     continuation: &ApprovalContinuationData,
     guidance: String,
-    checkpoint: Option<Value>,
-) -> Result<Value, String> {
-    services
-        .checkpoints
-        .clear_for_turn(&context.session_id, &context.turn_id);
-    let tool_call = approval_resume_tool_call(checkpoint.as_ref(), approval)?;
+    checkpoint: Value,
+) -> Result<ApprovalResume, String> {
+    if checkpoint.pointer("/payload/kind").and_then(Value::as_str) != Some("tool_approval") {
+        return Err("denied continuation requires an exact tool_approval checkpoint".to_string());
+    }
+    let tool_call = approved_pending_tool_call(&checkpoint)?;
+    let mut messages = checkpoint
+        .get("messages")
+        .and_then(Value::as_array)
+        .cloned()
+        .ok_or_else(|| {
+            "invalid denied approval checkpoint: messages must be an array".to_string()
+        })?;
+    prepare_continuation_tool_observation(&mut messages, &tool_call, false)
+        .map_err(|error| format!("invalid denied approval checkpoint: {error}"))?;
+    let restored_completed_results = checkpoint
+        .get("completedToolResults")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let iteration = checkpoint
+        .get("iteration")
+        .and_then(Value::as_i64)
+        .or_else(|| {
+            checkpoint
+                .pointer("/payload/iteration")
+                .and_then(Value::as_i64)
+        })
+        .ok_or_else(|| "invalid denied approval checkpoint: iteration is missing".to_string())?;
     let summary = format!("Approval denied by user. Guidance: {guidance}");
     let result = NativeAgentToolResult {
         content: Value::String(summary.clone()),
-        envelope: NativeToolResultEnvelope::approval_denied(
-            &tool_call,
-            summary.clone(),
-            guidance.clone(),
-        ),
+        envelope: NativeToolResultEnvelope::approval_denied(&tool_call, summary, guidance),
     };
-    let completed_result = completed_tool_result_entry(&tool_call, &result);
-    let mut messages = checkpoint
-        .as_ref()
-        .and_then(|checkpoint| checkpoint.get("messages"))
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_else(|| context.messages.clone());
-    append_continuation_tool_error_observation(&mut messages, &tool_call, &summary, false)
-        .map_err(|error| format!("invalid denied approval checkpoint: {error}"))?;
-
-    let mut resumed_context = context.clone();
-    resumed_context.messages = messages.clone();
-    resumed_context.spec["messages"] = Value::Array(messages);
-    let mut events = vec![
-        approval_decision_event(context, continuation),
-        event(
-            "agent.tool.result",
-            serde_json::json!({
-                "turnId": context.turn_id,
-                "sessionId": context.session_id,
-                "toolCallId": tool_call.id,
-                "toolName": tool_call.name,
-                "name": tool_call.name,
-                "detailId": format!("tool:{}", tool_call.id),
-                "status": "completed",
-                "resultStatus": result.envelope.get("status").cloned().unwrap_or(Value::Null),
-                "summary": summary,
-                "content": summary,
-                "envelope": result.envelope.clone(),
-            }),
-        ),
-    ];
-
-    let mut provider_observer = |_event: NativeAgentProviderStreamEvent| {};
-    let provider_call = services
-        .provider
-        .clone()
-        .complete_streaming_async(&resumed_context, &mut provider_observer);
-    tokio::pin!(provider_call);
-    let provider_response = if let Some(cancellation) = resumed_context.cancellation.clone() {
-        tokio::select! {
-            biased;
-            _ = cancellation.cancelled() => {
-                return Ok(cancelled_result(
-                    services,
-                    &context.turn_id,
-                    &context.session_id,
-                    checkpoint.unwrap_or(Value::Null),
-                ));
-            }
-            result = &mut provider_call => result,
-        }
-    } else {
-        provider_call.await
-    };
-    let mut result = match provider_response {
-        Ok(provider_response) => {
-            let final_content = provider_response.final_content;
-            if let Some(usage) = provider_response.usage {
-                let estimated_context_tokens =
-                    estimate_context_tokens_for_request(&resumed_context);
-                let usage = enrich_usage_with_context_window(
-                    &resumed_context,
-                    usage,
-                    estimated_context_tokens,
-                    0,
-                );
-                events.push(event(
-                    "agent.usage",
-                    serde_json::json!({
-                        "turnId": context.turn_id,
-                        "sessionId": context.session_id,
-                        "usage": usage,
-                    }),
-                ));
-            }
-            events.push(final_message_event(context, &final_content));
-            events.push(event(
-                "agent.done",
-                serde_json::json!({
-                    "turnId": context.turn_id,
-                    "sessionId": context.session_id,
-                    "stopReason": "final_response",
-                }),
-            ));
-            serde_json::json!({
-                "runtime": "rust",
-                "turnId": context.turn_id,
-                "sessionId": context.session_id,
-                "finalContent": final_content,
-                "stopReason": "final_response",
-                "messages": [{ "role": "assistant", "content": final_content }],
-                "toolsUsed": [],
-                "completedToolResults": [completed_result],
-                "restoredCheckpoint": checkpoint,
-                "continuation": {
-                    "kind": "approval",
-                    "approvalId": continuation.approval_id,
-                    "decision": "denied",
-                    "scope": approval_scope_str(&continuation.scope),
-                    "guidance": guidance,
-                },
-                "events": events.clone(),
-            })
-        }
-        Err(error) if error.kind() == NativeAgentProviderFailureKind::Cancelled => {
-            cancelled_result(
-                services,
-                &context.turn_id,
-                &context.session_id,
-                checkpoint.unwrap_or(Value::Null),
-            )
-        }
-        Err(error) => {
-            let stop_reason = error.stop_reason();
-            let message = error.message().to_string();
-            events.push(event(
-                "agent.error",
-                serde_json::json!({
-                    "turnId": context.turn_id,
-                    "sessionId": context.session_id,
-                    "stopReason": stop_reason,
-                    "message": message,
-                    "error": message,
-                }),
-            ));
-            serde_json::json!({
-                "runtime": "rust",
-                "turnId": context.turn_id,
-                "sessionId": context.session_id,
-                "finalContent": "",
-                "stopReason": stop_reason,
-                "messages": [],
-                "toolsUsed": [],
-                "completedToolResults": [completed_result],
-                "restoredCheckpoint": checkpoint,
-                "error": message,
-                "events": events.clone(),
-            })
-        }
-    };
-    let runtime_events = continuation_runtime_events(services, context, &events)?;
-    result["runtimeEvents"] = serde_json::to_value(runtime_events)
-        .map_err(|error| format!("failed to serialize denied approval runtime events: {error}"))?;
-    Ok(result)
-}
-
-fn approval_resume_tool_call(
-    checkpoint: Option<&Value>,
-    approval: &Value,
-) -> Result<NativeAgentToolCall, String> {
-    let pending_tool_call = checkpoint
-        .and_then(|checkpoint| checkpoint.get("pendingToolCalls"))
-        .and_then(Value::as_array)
-        .and_then(|pending_tool_calls| pending_tool_calls.first());
-    Ok(NativeAgentToolCall {
-        id: pending_tool_call
-            .and_then(|tool_call| string_field(tool_call, "toolCallId"))
-            .or_else(|| string_field(approval, "toolCallId"))
-            .ok_or_else(|| {
-                "invalid denied approval checkpoint: pending toolCallId is missing".to_string()
-            })?,
-        name: pending_tool_call
-            .and_then(|tool_call| string_field(tool_call, "toolName"))
-            .or_else(|| string_field(approval, "toolName"))
-            .unwrap_or_else(|| "approval".to_string()),
-        arguments_json: pending_tool_call
-            .and_then(|tool_call| string_field(tool_call, "argumentsJson"))
-            .or_else(|| string_field(approval, "argumentsJson"))
-            .unwrap_or_else(|| "{}".to_string()),
-        result: Value::Null,
+    context.messages = messages.clone();
+    context.spec["messages"] = Value::Array(messages);
+    services
+        .checkpoints
+        .clear_for_turn(&context.session_id, &context.turn_id);
+    Ok(ApprovalResume {
+        iteration,
+        tool_call,
+        result,
+        restored_completed_results,
+        continuation: continuation.clone(),
     })
 }
 
@@ -635,9 +437,27 @@ fn approval_decision_event(
     context: &AgentTurnContext,
     continuation: &ApprovalContinuationData,
 ) -> NativeAgentEvent {
+    event(
+        AgentEventKind::ApprovalDecision,
+        approval_decision_payload(context, continuation),
+    )
+}
+
+fn approval_decision_pending(
+    context: &AgentTurnContext,
+    continuation: &ApprovalContinuationData,
+) -> PendingAgentEvent {
+    PendingAgentEvent::new(
+        AgentEventKind::ApprovalDecision,
+        approval_decision_payload(context, continuation),
+    )
+}
+
+fn approval_decision_payload(
+    context: &AgentTurnContext,
+    continuation: &ApprovalContinuationData,
+) -> Value {
     let mut payload = serde_json::json!({
-        "turnId": context.turn_id,
-        "sessionId": context.session_id,
         "approvalId": continuation.approval_id,
         "detailId": format!("approval:{}", continuation.approval_id),
         "status": "completed",
@@ -656,7 +476,7 @@ fn approval_decision_event(
     {
         payload["commandId"] = serde_json::Value::String(command_id.to_string());
     }
-    event("agent.approval.decision", payload)
+    payload
 }
 
 fn approval_scope_str(scope: &AgentApprovalScope) -> &'static str {
@@ -674,10 +494,8 @@ pub(super) enum ApprovalContinuationOutcome {
 pub(super) struct ApprovalResume {
     iteration: i64,
     tool_call: NativeAgentToolCall,
-    completed_result: Value,
+    result: NativeAgentToolResult,
     restored_completed_results: Vec<Value>,
-    observation_content: String,
-    envelope: NativeToolResultEnvelope,
     continuation: ApprovalContinuationData,
 }
 
@@ -691,30 +509,9 @@ impl ApprovalResume {
             .completed_tool_results
             .extend(self.restored_completed_results);
         state.tools_used.push(self.tool_call.name.clone());
-        state.completed_tool_results.push(self.completed_result);
         state.clear_pending_tool_calls();
-        state.emit_native_event(approval_decision_event(context, &self.continuation))?;
-        state.emit_event(
-            "agent.tool.result",
-            serde_json::json!({
-                "turnId": context.turn_id,
-                "sessionId": context.session_id,
-                "iteration": self.iteration,
-                "toolCallId": self.tool_call.id,
-                "toolName": self.tool_call.name,
-                "name": self.tool_call.name,
-                "detailId": format!("tool:{}", self.tool_call.id),
-                "status": "completed",
-                "resultStatus": self.envelope.get("status").cloned().unwrap_or(Value::Null),
-                "summary": self
-                    .envelope
-                    .get("summary")
-                    .cloned()
-                    .unwrap_or_else(|| Value::String(self.observation_content.clone())),
-                "content": self.observation_content,
-                "envelope": self.envelope,
-            }),
-        )?;
+        state.emit(approval_decision_pending(context, &self.continuation))?;
+        commit_tool_observation(context, state, self.iteration, self.tool_call, self.result)?;
         Ok(self.iteration.saturating_add(1))
     }
 }
@@ -727,66 +524,133 @@ struct ApprovalContinuationData {
     guidance: Option<String>,
 }
 
-fn approval_resume_metadata(
-    context: &AgentTurnContext,
-) -> Option<(Value, ApprovalContinuationData)> {
-    if let Some(AgentContinuationInput::Approval {
+fn approval_resume_metadata(context: &AgentTurnContext) -> Option<ApprovalContinuationData> {
+    let AgentContinuationInput::Approval {
         approval_id,
         decision,
         scope,
         guidance,
-    }) = typed_continuation_metadata(context)
-    {
-        let approved = matches!(decision, AgentApprovalDecision::Approved);
-        let tool_result = if approved {
-            "approved".to_string()
-        } else if let Some(guidance) = guidance.as_deref() {
-            format!("denied: {guidance}")
-        } else {
-            "denied".to_string()
-        };
-        let mut approval = serde_json::json!({
-            "approvalId": approval_id,
-            "approved": approved,
-            "toolCallId": approval_id,
-            "toolName": "approval",
-            "toolResult": tool_result,
-        });
-        if let Some(guidance) = guidance.as_ref() {
-            approval["guidance"] = Value::String(guidance.clone());
-        }
-        if let Some(final_content) = string_field(&context.metadata, "finalContent")
-            .or_else(|| string_field(&context.metadata, "final_content"))
-        {
-            approval["finalContent"] = Value::String(final_content);
-        }
-        return Some((
-            approval,
-            ApprovalContinuationData {
-                approval_id,
-                decision,
-                scope,
-                guidance,
-            },
-        ));
-    }
-
-    None
+    } = typed_continuation_metadata(context)?
+    else {
+        return None;
+    };
+    Some(ApprovalContinuationData {
+        approval_id,
+        decision,
+        scope,
+        guidance,
+    })
 }
 
 fn typed_continuation_metadata(context: &AgentTurnContext) -> Option<AgentContinuationInput> {
     typed_continuation_from_metadata(&context.metadata)
 }
 
-fn final_message_event(context: &AgentTurnContext, content: &str) -> NativeAgentEvent {
-    event(
-        "agent.message.completed",
-        serde_json::json!({
-            "turnId": context.turn_id,
-            "sessionId": context.session_id,
-            "messageId": format!("{}:assistant:0", context.turn_id),
-            "messagePhase": "final_answer",
-            "content": content,
-        }),
-    )
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn guided_approval_denial_resumes_through_the_common_tool_commit() {
+        let services = NativeAgentRuntimeServices::default();
+        let mut context = AgentTurnContext::from_spec(
+            json!({
+                "turnId": "turn-guided-denial",
+                "sessionId": "session-guided-denial",
+                "messages": [],
+                "metadata": {
+                    "agentContinuation": {
+                        "kind": "approval",
+                        "approvalId": "call-write",
+                        "decision": "denied",
+                        "scope": "once",
+                        "guidance": "Use a read-only tool."
+                    }
+                }
+            }),
+            json!({}),
+        );
+        services.save_turn_checkpoint(
+            &context.session_id,
+            &context.turn_id,
+            json!({
+                "turnId": context.turn_id,
+                "sessionId": context.session_id,
+                "phase": "awaiting_approval",
+                "iteration": 2,
+                "payload": {
+                    "kind": "tool_approval",
+                    "approvalId": "call-write",
+                    "iteration": 2
+                },
+                "pendingToolCalls": [{
+                    "toolCallId": "call-write",
+                    "toolName": "exec_command",
+                    "argumentsJson": "{\"command\":\"write\"}"
+                }],
+                "completedToolResults": [{
+                    "toolCallId": "call-prior",
+                    "toolName": "workspace.read_file",
+                    "status": "ok",
+                    "summary": "prior"
+                }],
+                "messages": [
+                    { "role": "user", "content": "change the file" },
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [{
+                            "id": "call-write",
+                            "type": "function",
+                            "function": {
+                                "name": "exec_command",
+                                "arguments": "{\"command\":\"write\"}"
+                            }
+                        }]
+                    }
+                ]
+            }),
+        );
+
+        let outcome = maybe_approval_resume_result(&services, &mut context)
+            .await
+            .expect("guided denial should prepare")
+            .expect("guided denial metadata should be recognized");
+        let ApprovalContinuationOutcome::Resume(resume) = outcome else {
+            panic!("guided denial must return to the ordinary provider/tool loop");
+        };
+        let mut state =
+            AgentTurnState::new_for_continuation(&context, None).expect("state should resume");
+
+        let next_iteration = resume
+            .apply(&context, &mut state)
+            .expect("guided denial should commit");
+
+        assert_eq!(next_iteration, 3);
+        assert_eq!(state.completed_tool_results.len(), 2);
+        assert_eq!(state.completed_tool_results[0]["toolCallId"], "call-prior");
+        assert_eq!(state.completed_tool_results[1]["status"], "denied");
+        let runtime_events = state.runtime_events();
+        let event_names = runtime_events
+            .iter()
+            .map(|event| event.event_name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            event_names,
+            vec!["agent.approval.decision", "agent.tool.result"]
+        );
+        assert_eq!(runtime_events[1].payload["resultStatus"], "denied");
+        assert!(state.history.messages().iter().any(|message| {
+            message["role"] == "tool"
+                && message["tool_call_id"] == "call-write"
+                && message["content"]
+                    .as_str()
+                    .is_some_and(|content| content.contains("Use a read-only tool."))
+        }));
+        assert!(
+            services.restore_turn_checkpoint(&context.session_id, &context.turn_id)["checkpoint"]
+                .is_null()
+        );
+    }
 }

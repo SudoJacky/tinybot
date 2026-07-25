@@ -1,3 +1,4 @@
+use crate::agent::runtime_protocol::AgentEventKind;
 use crate::protocol::capability::{CapabilityPolicy, WorkerCapability};
 use crate::protocol::{WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource};
 use serde::{Deserialize, Serialize};
@@ -273,7 +274,9 @@ impl WorkerBackgroundRpc {
                 "subagent-input-{}-{sequence}",
                 safe_event_id_part(subagent_id)
             ),
-            event_type: "agent.delegate.message_queued".to_string(),
+            event_type: AgentEventKind::DelegateMessageQueued
+                .wire_name()
+                .to_string(),
             session_key: session_key.to_string(),
             turn_id: params
                 .turn_id

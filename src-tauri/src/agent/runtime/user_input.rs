@@ -1,13 +1,14 @@
 use super::checkpoint::save_phase_checkpoint;
 use super::continuations::typed_continuation_from_metadata;
 use super::state::AgentTurnState;
-use super::tool_projection::{
-    append_continuation_tool_observation, completed_tool_result_entry, tool_observation_content,
-};
+use super::tool_projection::{commit_tool_observation, prepare_continuation_tool_observation};
 use super::{
     AgentTurnContext, NativeAgentRuntimeServices, NativeAgentToolCall, NativeAgentToolResult,
 };
-use crate::agent::runtime_protocol::{AgentContinuationInput, AgentFormAction, AgentRuntimePhase};
+use crate::agent::runtime_protocol::{
+    AgentContinuationInput, AgentEventKind, AgentFormAction, AgentRuntimePhase, PendingAgentEvent,
+    TerminalEvent,
+};
 use crate::tools::registry::REQUEST_USER_INPUT_METHOD;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -26,9 +27,8 @@ pub(super) enum UserInputContinuationOutcome {
 pub(super) struct UserInputResume {
     iteration: i64,
     tool_call: NativeAgentToolCall,
-    completed_result: Value,
-    observation_content: String,
-    envelope: Value,
+    result: NativeAgentToolResult,
+    restored_completed_results: Vec<Value>,
     form_id: String,
     values: Value,
 }
@@ -39,13 +39,13 @@ impl UserInputResume {
         context: &AgentTurnContext,
         state: &mut AgentTurnState,
     ) -> Result<i64, String> {
+        state
+            .completed_tool_results
+            .extend(self.restored_completed_results);
         state.tools_used.push(self.tool_call.name.clone());
-        state.completed_tool_results.push(self.completed_result);
-        state.emit_event(
-            "agent.form.resolution",
+        state.emit(PendingAgentEvent::new(
+            AgentEventKind::FormResolution,
             serde_json::json!({
-                "turnId": context.turn_id,
-                "sessionId": context.session_id,
                 "iteration": self.iteration,
                 "formId": self.form_id,
                 "detailId": format!("form:{}", self.form_id),
@@ -53,28 +53,8 @@ impl UserInputResume {
                 "action": "submit",
                 "values": self.values,
             }),
-        )?;
-        state.emit_event(
-            "agent.tool.result",
-            serde_json::json!({
-                "turnId": context.turn_id,
-                "sessionId": context.session_id,
-                "iteration": self.iteration,
-                "toolCallId": self.tool_call.id,
-                "toolName": self.tool_call.name,
-                "name": self.tool_call.name,
-                "detailId": format!("tool:{}", self.tool_call.id),
-                "status": "completed",
-                "resultStatus": self.envelope.get("status").cloned().unwrap_or(Value::Null),
-                "summary": self
-                    .envelope
-                    .get("summary")
-                    .cloned()
-                    .unwrap_or_else(|| Value::String(self.observation_content.clone())),
-                "content": self.observation_content,
-                "envelope": self.envelope,
-            }),
-        )?;
+        ))?;
+        commit_tool_observation(context, state, self.iteration, self.tool_call, self.result)?;
         Ok(self.iteration.saturating_add(1))
     }
 }
@@ -103,7 +83,7 @@ pub(super) fn awaiting_user_input_result(
     state.transition_phase(
         AgentRuntimePhase::AwaitingForm,
         iteration,
-        "agent.awaiting_form",
+        AgentEventKind::AwaitingForm.wire_name(),
     )?;
     let checkpoint = save_phase_checkpoint(
         services,
@@ -120,20 +100,16 @@ pub(super) fn awaiting_user_input_result(
             "resumeToken": format!("form:{form_id}"),
         }),
     );
-    state.emit_event(
-        "agent.checkpoint",
+    state.emit(PendingAgentEvent::new(
+        AgentEventKind::Checkpoint,
         serde_json::json!({
-            "turnId": context.turn_id,
-            "sessionId": context.session_id,
             "phase": "awaiting_form",
             "checkpoint": checkpoint.clone(),
         }),
-    )?;
-    state.emit_event(
-        "agent.awaiting_form",
+    ))?;
+    state.emit(PendingAgentEvent::new(
+        AgentEventKind::AwaitingForm,
         serde_json::json!({
-            "turnId": context.turn_id,
-            "sessionId": context.session_id,
             "iteration": iteration,
             "formId": form_id,
             "toolCallId": tool_call.id,
@@ -143,17 +119,12 @@ pub(super) fn awaiting_user_input_result(
             "summary": form["title"],
             "form": form,
         }),
-    )?;
-    state.set_stop_reason("awaiting_form", iteration, "agent.done")?;
-    state.emit_event(
-        "agent.done",
-        serde_json::json!({
-            "turnId": context.turn_id,
-            "sessionId": context.session_id,
-            "iteration": iteration,
-            "stopReason": "awaiting_form",
-        }),
-    )?;
+    ))?;
+    state.set_stop_reason("awaiting_form", iteration, AgentEventKind::Done.wire_name())?;
+    state.emit(TerminalEvent::Done(serde_json::json!({
+        "iteration": iteration,
+        "stopReason": "awaiting_form",
+    })))?;
     let runtime_events = state.runtime_events();
     let events = state.legacy_events();
     Ok(serde_json::json!({
@@ -229,12 +200,13 @@ pub(super) fn prepare_user_input_continuation(
         "values": values,
     });
     let result = NativeAgentToolResult::generic_success(&tool_call, raw_result);
-    let observation_content = tool_observation_content(&result);
-    let completed_result = completed_tool_result_entry(&tool_call, &result);
-    let envelope = serde_json::to_value(&result.envelope)
-        .map_err(|error| format!("failed to serialize user input tool result: {error}"))?;
-    append_continuation_tool_observation(&mut messages, &tool_call, &observation_content, false)
+    prepare_continuation_tool_observation(&mut messages, &tool_call, false)
         .map_err(|error| format!("invalid user input checkpoint: {error}"))?;
+    let restored_completed_results = checkpoint
+        .get("completedToolResults")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     context.messages = messages.clone();
     context.spec["messages"] = Value::Array(messages);
     services
@@ -245,9 +217,8 @@ pub(super) fn prepare_user_input_continuation(
         UserInputResume {
             iteration,
             tool_call,
-            completed_result,
-            observation_content,
-            envelope,
+            result,
+            restored_completed_results,
             form_id,
             values,
         },
@@ -267,32 +238,29 @@ fn cancelled_user_input_result(
     state.transition_phase(
         AgentRuntimePhase::AwaitingForm,
         iteration,
-        "agent.form.resolution",
+        AgentEventKind::FormResolution.wire_name(),
     )?;
-    state.emit_event(
-        "agent.form.resolution",
+    state.emit(PendingAgentEvent::new(
+        AgentEventKind::FormResolution,
         serde_json::json!({
-            "turnId": context.turn_id,
-            "sessionId": context.session_id,
             "iteration": iteration,
             "formId": form_id,
             "detailId": format!("form:{form_id}"),
             "status": "completed",
             "action": "cancel",
         }),
+    ))?;
+    state.set_stop_reason(
+        "form_cancelled",
+        iteration,
+        AgentEventKind::Error.wire_name(),
     )?;
-    state.set_stop_reason("form_cancelled", iteration, "agent.error")?;
-    state.emit_event(
-        "agent.error",
-        serde_json::json!({
-            "turnId": context.turn_id,
-            "sessionId": context.session_id,
-            "iteration": iteration,
-            "stopReason": "form_cancelled",
-            "message": message,
-            "error": message,
-        }),
-    )?;
+    state.emit(TerminalEvent::Error(serde_json::json!({
+        "iteration": iteration,
+        "stopReason": "form_cancelled",
+        "message": message,
+        "error": message,
+    })))?;
     let runtime_events = state.runtime_events();
     let events = state.legacy_events();
     Ok(serde_json::json!({

@@ -1,3 +1,4 @@
+use crate::agent::runtime_protocol::AgentEventKind;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::{
@@ -863,13 +864,14 @@ fn spawn_delegate(session: &mut Value, body: Value, now: String) -> Value {
     array_field_mut(session, "artifacts").push(serde_json::to_value(&artifact).unwrap());
 
     let delegated_events = [
-        "agent.delegate.started",
-        "agent.delegate.running",
-        "agent.delegate.trace.updated",
-        "agent.delegate.completed",
+        AgentEventKind::DelegateStarted,
+        AgentEventKind::DelegateRunning,
+        AgentEventKind::DelegateTraceUpdated,
+        AgentEventKind::DelegateCompleted,
     ]
     .into_iter()
-    .map(|event_type| {
+    .map(|event_kind| {
+        let event_type = event_kind.wire_name();
         serde_json::json!({
             "event_type": event_type,
             "delegate_id": delegate_id,

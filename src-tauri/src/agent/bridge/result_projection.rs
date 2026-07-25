@@ -139,7 +139,7 @@ pub(crate) fn native_agent_usage(result: &serde_json::Value) -> Vec<serde_json::
                 .iter()
                 .filter(|event| {
                     event.get("eventName").and_then(serde_json::Value::as_str)
-                        == Some("agent.usage")
+                        == Some(AgentEventKind::Usage.wire_name())
                 })
                 .filter_map(|event| event.get("payload"))
                 .filter_map(|payload| payload.get("usage"))
@@ -159,7 +159,8 @@ pub(crate) fn native_agent_token_usage_info(
         .flatten()
         .rev()
         .find(|event| {
-            event.get("eventName").and_then(serde_json::Value::as_str) == Some("agent.token_count")
+            event.get("eventName").and_then(serde_json::Value::as_str)
+                == Some(AgentEventKind::TokenCount.wire_name())
         })
         .and_then(|event| event.get("payload"))
         .and_then(|payload| payload.get("info"))
@@ -242,3 +243,4 @@ fn usage_i64_field(value: &serde_json::Value, keys: &[&str]) -> Option<i64> {
         })
     })
 }
+use crate::agent::runtime_protocol::AgentEventKind;

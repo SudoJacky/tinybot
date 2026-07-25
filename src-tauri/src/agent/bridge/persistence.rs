@@ -6,7 +6,7 @@ use crate::agent::bridge::{
     native_agent_turn_status, native_agent_usage,
 };
 use crate::agent::runtime::{agent_trace_context_from_value, NativeAgentRuntimeServices};
-use crate::agent::runtime_protocol::AgentTraceContext;
+use crate::agent::runtime_protocol::{AgentEventKind, AgentTraceContext};
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
 use crate::rpc::call_rust_state_service;
@@ -102,7 +102,7 @@ fn terminal_turn_rejection(
             "phase": phase,
         },
         "events": [{
-            "eventName": "agent.error",
+            "eventName": AgentEventKind::Error.wire_name(),
             "payload": {
                 "turnId": turn_id,
                 "sessionId": session_id,

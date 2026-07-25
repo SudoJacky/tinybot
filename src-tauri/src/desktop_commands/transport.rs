@@ -1,5 +1,6 @@
 use crate::agent::bridge::desktop_agent_event_sink;
 use crate::agent::runtime::NativeAgentTraceSink;
+use crate::agent::runtime_protocol::AgentEventKind;
 use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
 use crate::desktop::{state::lock_runtime, SharedGateway};
 use crate::desktop_commands::agent::worker_run_agent_with_live_trace_sink_async;
@@ -1331,7 +1332,7 @@ fn persist_tinyos_command_acknowledgement(
                 "events": [{
                     "eventId": format!("{turn_id}:command-ack:{command_id}"),
                     "itemId": format!("{turn_id}:command-ack:{command_id}"),
-                    "eventName": "agent.command.acknowledged",
+                    "eventName": AgentEventKind::CommandAcknowledged.wire_name(),
                     "payload": {
                         "commandId": command_id,
                         "commandKind": transport.get("commandKind").cloned().unwrap_or(serde_json::Value::Null),

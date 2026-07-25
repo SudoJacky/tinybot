@@ -1,3 +1,4 @@
+use crate::agent::runtime_protocol::{resolve_event_name, AgentEventKind, EventNameResolution};
 use crate::automation::background::BackgroundTraceEvent;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -456,7 +457,7 @@ impl SubagentThreadManager {
         if delegation_depth > self.max_delegation_depth {
             let event = next_event(
                 &mut state,
-                "agent.delegate.spawn_rejected",
+                AgentEventKind::DelegateSpawnRejected,
                 session_key,
                 params.parent_turn_id.as_deref().unwrap_or("subagent-spawn"),
                 &subagent_id,
@@ -486,7 +487,7 @@ impl SubagentThreadManager {
         if session_at_capacity || global_at_capacity {
             let event = next_event(
                 &mut state,
-                "agent.delegate.spawn_rejected",
+                AgentEventKind::DelegateSpawnRejected,
                 session_key,
                 params.parent_turn_id.as_deref().unwrap_or("subagent-spawn"),
                 &subagent_id,
@@ -581,7 +582,7 @@ impl SubagentThreadManager {
         self.changed.notify_all();
         let event = next_event(
             &mut state,
-            "agent.delegate.started",
+            AgentEventKind::DelegateStarted,
             session_key,
             record.parent_turn_id.as_deref().unwrap_or("subagent-spawn"),
             &subagent_id,
@@ -721,7 +722,7 @@ impl SubagentThreadManager {
         self.changed.notify_all();
         let event = next_event(
             &mut state,
-            "agent.delegate.message_queued",
+            AgentEventKind::DelegateMessageQueued,
             session_key,
             input
                 .turn_id
@@ -915,18 +916,18 @@ impl SubagentThreadManager {
         });
         let summary = record.summary();
         self.changed.notify_all();
-        let event_type = match summary.status {
-            SubagentThreadStatus::Completed => "agent.delegate.completed",
-            SubagentThreadStatus::Failed => "agent.delegate.failed",
-            SubagentThreadStatus::Cancelled => "agent.delegate.cancelled",
-            SubagentThreadStatus::Closed => "agent.delegate.closed",
-            SubagentThreadStatus::Interrupted => "agent.delegate.interrupted",
-            SubagentThreadStatus::AwaitingApproval => "agent.delegate.awaiting_approval",
-            _ => "agent.delegate.running",
+        let event_kind = match summary.status {
+            SubagentThreadStatus::Completed => AgentEventKind::DelegateCompleted,
+            SubagentThreadStatus::Failed => AgentEventKind::DelegateFailed,
+            SubagentThreadStatus::Cancelled => AgentEventKind::DelegateCancelled,
+            SubagentThreadStatus::Closed => AgentEventKind::DelegateClosed,
+            SubagentThreadStatus::Interrupted => AgentEventKind::DelegateInterrupted,
+            SubagentThreadStatus::AwaitingApproval => AgentEventKind::DelegateAwaitingApproval,
+            _ => AgentEventKind::DelegateRunning,
         };
         let event = next_event(
             &mut state,
-            event_type,
+            event_kind,
             session_key,
             summary
                 .parent_turn_id
@@ -1038,7 +1039,7 @@ impl SubagentThreadManager {
         self.changed.notify_all();
         let event = next_event(
             &mut state,
-            "agent.delegate.resumed",
+            AgentEventKind::DelegateResumed,
             session_key,
             summary
                 .parent_turn_id
@@ -1396,7 +1397,7 @@ impl SubagentLifecycleResult {
 
 fn next_event(
     state: &mut SubagentThreadManagerState,
-    event_type: &str,
+    event_kind: AgentEventKind,
     session_key: &str,
     turn_id: &str,
     subagent_id: &str,
@@ -1404,6 +1405,7 @@ fn next_event(
     trace_ref: Option<&str>,
     payload: Value,
 ) -> BackgroundTraceEvent {
+    let event_type = event_kind.wire_name();
     let sequence = state.next_sequence;
     state.next_sequence += 1;
     let event_nonce = now_unix_nanos();
@@ -1446,12 +1448,14 @@ fn active_count_global(records: &HashMap<String, SubagentThreadRecord>) -> usize
 
 fn terminal_event_type(event_type: &str) -> bool {
     matches!(
-        event_type,
-        "agent.delegate.completed"
-            | "agent.delegate.failed"
-            | "agent.delegate.cancelled"
-            | "agent.delegate.closed"
-            | "agent.delegate.interrupted"
+        resolve_event_name(event_type),
+        EventNameResolution::Canonical(
+            AgentEventKind::DelegateCompleted
+                | AgentEventKind::DelegateFailed
+                | AgentEventKind::DelegateCancelled
+                | AgentEventKind::DelegateClosed
+                | AgentEventKind::DelegateInterrupted
+        )
     )
 }
 

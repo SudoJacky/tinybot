@@ -1,5 +1,5 @@
 use crate::agent::runtime_protocol::{
-    AgentRuntimeEventEnvelope, AgentTraceContext, LegacyNativeAgentEventProjection,
+    AgentEventKind, AgentRuntimeEventEnvelope, AgentTraceContext, LegacyNativeAgentEventProjection,
 };
 use crate::collaboration::subagents::SubagentThreadManager;
 #[cfg(test)]
@@ -33,6 +33,7 @@ mod result;
 mod settings;
 mod state;
 mod stores;
+mod subagent_projection;
 mod tool_dispatcher;
 mod tool_projection;
 mod tool_result;
@@ -746,7 +747,7 @@ impl NativeAgentRuntimeServices {
             "messages": [],
             "toolsUsed": [],
             "task": task,
-            "events": [event_value("agent.cancelled", serde_json::json!({
+            "events": [event_value(AgentEventKind::Cancelled, serde_json::json!({
                 "turnId": turn_id,
                 "cancelled": true,
                 "commandId": command_id,

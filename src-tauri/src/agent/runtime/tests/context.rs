@@ -88,11 +88,6 @@ fn runs_fixture_streaming_final_answer_with_frontend_events() {
                 "iteration": 0,
             }),
             json!({
-                "event": "agent.provider.requested",
-                "phase": "planning",
-                "iteration": 0,
-            }),
-            json!({
                 "event": "agent.phase.changed",
                 "phase": "streaming_model",
                 "iteration": 0,
@@ -110,11 +105,6 @@ fn runs_fixture_streaming_final_answer_with_frontend_events() {
                 "item": "turn-1:assistant:0",
                 "modelCall": "turn-1:provider:1",
                 "message": "turn-1:assistant:0",
-            }),
-            json!({
-                "event": "agent.provider.completed",
-                "phase": "planning",
-                "iteration": 0,
             }),
             json!({
                 "event": "agent.model_call.completed",
