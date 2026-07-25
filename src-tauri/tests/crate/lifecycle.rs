@@ -394,13 +394,10 @@ fn close_shutdown_stops_shell_and_interrupts_subagents_with_report() {
         .start(crate::tools::shell::ShellStartParams {
             command: lifecycle_blocking_command(),
             working_dir: Some(".".to_string()),
-            restrict_to_workspace: Some(true),
             tty: Some(false),
             yield_time_ms: Some(0),
             rows: None,
             cols: None,
-            sandbox_mode: None,
-            network_mode: None,
             owner_id: Some("turn-shell-shutdown".to_string()),
             tool_call_id: Some("tool-shell-shutdown".to_string()),
             cancellation: None,
@@ -461,13 +458,10 @@ fn close_shutdown_stops_shell_and_interrupts_subagents_with_report() {
         .start(crate::tools::shell::ShellStartParams {
             command: lifecycle_echo_command(),
             working_dir: Some(".".to_string()),
-            restrict_to_workspace: Some(true),
             tty: Some(false),
             yield_time_ms: Some(1_000),
             rows: None,
             cols: None,
-            sandbox_mode: None,
-            network_mode: None,
             owner_id: Some("turn-shell-resumed".to_string()),
             tool_call_id: Some("tool-shell-resumed".to_string()),
             cancellation: None,
@@ -840,19 +834,16 @@ lines.on("line", (line) => {
         "memory.search",
         serde_json::json!({ "query": "uv", "limit": 3 }),
     ));
-    let mcp_response = router.dispatch(
-        &crate::protocol::WorkerRequest::new(
-            "mcp-call-1",
-            "trace-mcp-call",
-            "mcp.call_tool",
-            serde_json::json!({
-                "server": "docs",
-                "tool": "search",
-                "arguments": { "query": "agent loop" }
-            }),
-        )
-        .with_trusted_internal(),
-    );
+    let mcp_response = router.dispatch(&crate::protocol::WorkerRequest::new(
+        "mcp-call-1",
+        "trace-mcp-call",
+        "mcp.call_tool",
+        serde_json::json!({
+            "server": "docs",
+            "tool": "search",
+            "arguments": { "query": "agent loop" }
+        }),
+    ));
 
     assert!(
         memory_response.error.is_none(),

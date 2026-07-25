@@ -3,7 +3,6 @@ use crate::protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource,
     WorkerRequestCancellation,
 };
-use crate::tools::permissions::{PermissionNetworkMode, ShellSandboxMode};
 use serde::{Deserialize, Serialize};
 use std::{
     fmt,
@@ -16,12 +15,10 @@ use std::{
 mod process_manager;
 #[cfg(test)]
 mod process_manager_tests;
-mod sandbox;
-#[cfg(test)]
-mod sandbox_tests;
+#[cfg(target_os = "windows")]
+mod windows_job;
 
 use self::process_manager::{ShellProcessManager, ValidatedShellStart};
-use self::sandbox::select_shell_sandbox;
 
 const MAX_TIMEOUT_SECONDS: u64 = 600;
 const MAX_OUTPUT_CHARS: usize = 10_000;
@@ -83,43 +80,15 @@ impl WorkerShellRpc {
         self
     }
 
-    pub(crate) fn validate_security_request(
-        &self,
-        sandbox_mode: ShellSandboxMode,
-        network_mode: PermissionNetworkMode,
-        tty: bool,
-    ) -> Result<(), WorkerProtocolError> {
-        select_shell_sandbox(sandbox_mode, network_mode, tty).map(|_| ())
-    }
-
-    #[cfg(test)]
     pub fn start(
         &self,
         params: ShellStartParams,
-    ) -> Result<ShellProcessOutput, WorkerProtocolError> {
-        self.start_with_approval_decision(params, "internal_direct")
-    }
-
-    pub(crate) fn start_with_approval_decision(
-        &self,
-        params: ShellStartParams,
-        approval_decision: &str,
     ) -> Result<ShellProcessOutput, WorkerProtocolError> {
         self.require(WorkerCapability::ShellExecute)?;
         let owner_id = required_process_owner(params.owner_id, "ownerId")?;
         let tool_call_id = required_process_owner(params.tool_call_id, "toolCallId")?;
         let requested_working_dir = params.working_dir.as_deref().unwrap_or(".");
-        let working_dir = self.resolve_working_dir(
-            requested_working_dir,
-            params.restrict_to_workspace.unwrap_or(true),
-        )?;
-        let sandbox = select_shell_sandbox(
-            params.sandbox_mode.unwrap_or_default(),
-            params
-                .network_mode
-                .unwrap_or(PermissionNetworkMode::Unrestricted),
-            params.tty.unwrap_or(false),
-        )?;
+        let working_dir = self.resolve_working_dir(requested_working_dir)?;
         if is_cancelled(&params.cancellation) {
             return Err(shell_error(
                 "shell process start was cancelled",
@@ -137,10 +106,6 @@ impl WorkerShellRpc {
             owner_id: Some(owner_id),
             tool_call_id: Some(tool_call_id),
             cancellation: params.cancellation,
-            sandbox_adapter: sandbox.adapter,
-            sandbox_mode: sandbox.sandbox_label.to_string(),
-            network_mode: sandbox.network_label.to_string(),
-            approval_decision: approval_decision.to_string(),
         })
     }
 
@@ -220,41 +185,16 @@ impl WorkerShellRpc {
         Ok(self.processes.list(params.owner_id.as_deref()))
     }
 
-    #[cfg(test)]
     pub fn execute(
         &self,
         params: ShellExecuteParams,
     ) -> Result<ShellExecuteResult, WorkerProtocolError> {
-        self.execute_with_approval_decision(params, "internal_direct")
-    }
-
-    pub(crate) fn execute_with_approval_decision(
-        &self,
-        params: ShellExecuteParams,
-        approval_decision: &str,
-    ) -> Result<ShellExecuteResult, WorkerProtocolError> {
         self.require(WorkerCapability::ShellExecute)?;
         let timeout = params.timeout.unwrap_or(60).clamp(1, MAX_TIMEOUT_SECONDS);
         let requested_working_dir = params.working_dir.as_deref().unwrap_or(".");
-        let working_dir = self.resolve_working_dir(
-            requested_working_dir,
-            params.restrict_to_workspace.unwrap_or(true),
-        )?;
-        let sandbox = select_shell_sandbox(
-            params.sandbox_mode.unwrap_or_default(),
-            params
-                .network_mode
-                .unwrap_or(PermissionNetworkMode::Unrestricted),
-            false,
-        )?;
+        let working_dir = self.resolve_working_dir(requested_working_dir)?;
         if is_cancelled(&params.cancellation) {
-            return Ok(cancelled_shell_result(
-                String::new(),
-                String::new(),
-                sandbox.sandbox_label,
-                sandbox.network_label,
-                approval_decision,
-            ));
+            return Ok(cancelled_shell_result(String::new(), String::new()));
         }
         let started = Instant::now();
         let timeout_duration = Duration::from_secs(timeout);
@@ -269,10 +209,6 @@ impl WorkerShellRpc {
             owner_id: None,
             tool_call_id: None,
             cancellation: params.cancellation,
-            sandbox_adapter: sandbox.adapter,
-            sandbox_mode: sandbox.sandbox_label.to_string(),
-            network_mode: sandbox.network_label.to_string(),
-            approval_decision: approval_decision.to_string(),
         })?;
         let process_id = output.process_id.clone();
         while output.running {
@@ -337,47 +273,24 @@ impl WorkerShellRpc {
             blocked: false,
             truncated: output.truncated || content_truncated,
             content,
-            sandbox_mode: output.sandbox_mode,
-            network_mode: output.network_mode,
-            approval_decision: output.approval_decision,
         })
     }
 
-    fn resolve_working_dir(
-        &self,
-        requested: &str,
-        restrict_to_workspace: bool,
-    ) -> Result<PathBuf, WorkerProtocolError> {
-        let root = self.workspace_root.canonicalize().map_err(|error| {
-            shell_error(
-                "failed to resolve workspace root",
-                serde_json::json!({ "error": error.to_string() }),
-            )
-        })?;
-        let candidate = if requested == "." {
-            root.clone()
+    fn resolve_working_dir(&self, requested: &str) -> Result<PathBuf, WorkerProtocolError> {
+        if requested.contains('\0') {
+            return Err(invalid_shell_request("working_dir contains a null byte"));
+        }
+        let requested_path = Path::new(requested);
+        let candidate = if requested_path.is_absolute() {
+            requested_path.to_path_buf()
         } else {
-            let normalized = requested.replace('\\', "/");
-            if normalized.starts_with('/') || normalized.contains(':') || normalized.contains('\0')
-            {
-                return Err(invalid_shell_request(
-                    "working_dir must be workspace-relative",
-                ));
-            }
-            if normalized
-                .split('/')
-                .any(|part| part.is_empty() || part == "." || part == "..")
-            {
-                return Err(invalid_shell_request(
-                    "working_dir must be workspace-relative",
-                ));
-            }
-            normalized
-                .split('/')
-                .fold(root.clone(), |path, part| path.join(part))
+            self.workspace_root.join(requested_path)
         };
         if !candidate.exists() {
             return Err(invalid_shell_request("working_dir does not exist"));
+        }
+        if !candidate.is_dir() {
+            return Err(invalid_shell_request("working_dir is not a directory"));
         }
         let canonical = candidate.canonicalize().map_err(|error| {
             shell_error(
@@ -385,9 +298,6 @@ impl WorkerShellRpc {
                 serde_json::json!({ "error": error.to_string() }),
             )
         })?;
-        if restrict_to_workspace && !canonical.starts_with(&root) {
-            return Err(invalid_shell_request("working_dir escapes workspace"));
-        }
         Ok(canonical)
     }
 
@@ -460,12 +370,6 @@ pub struct ShellExecuteParams {
     pub working_dir: Option<String>,
     #[serde(default)]
     pub timeout: Option<u64>,
-    #[serde(default)]
-    pub restrict_to_workspace: Option<bool>,
-    #[serde(default, alias = "sandboxMode")]
-    pub sandbox_mode: Option<ShellSandboxMode>,
-    #[serde(default, alias = "networkMode")]
-    pub network_mode: Option<PermissionNetworkMode>,
     #[serde(skip)]
     pub cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
 }
@@ -476,8 +380,6 @@ pub struct ShellStartParams {
     #[serde(default)]
     pub working_dir: Option<String>,
     #[serde(default)]
-    pub restrict_to_workspace: Option<bool>,
-    #[serde(default)]
     pub tty: Option<bool>,
     #[serde(default)]
     pub yield_time_ms: Option<u64>,
@@ -485,10 +387,6 @@ pub struct ShellStartParams {
     pub rows: Option<u16>,
     #[serde(default)]
     pub cols: Option<u16>,
-    #[serde(default, alias = "sandboxMode")]
-    pub sandbox_mode: Option<ShellSandboxMode>,
-    #[serde(default, alias = "networkMode")]
-    pub network_mode: Option<PermissionNetworkMode>,
     #[serde(default, alias = "ownerId")]
     pub owner_id: Option<String>,
     #[serde(default, alias = "toolCallId")]
@@ -503,13 +401,10 @@ impl fmt::Debug for ShellStartParams {
             .debug_struct("ShellStartParams")
             .field("command", &self.command)
             .field("working_dir", &self.working_dir)
-            .field("restrict_to_workspace", &self.restrict_to_workspace)
             .field("tty", &self.tty)
             .field("yield_time_ms", &self.yield_time_ms)
             .field("rows", &self.rows)
             .field("cols", &self.cols)
-            .field("sandbox_mode", &self.sandbox_mode)
-            .field("network_mode", &self.network_mode)
             .field("owner_id", &self.owner_id)
             .field("tool_call_id", &self.tool_call_id)
             .field("has_cancellation", &self.cancellation.is_some())
@@ -597,9 +492,6 @@ pub struct ShellProcessOutput {
     pub dropped_bytes: u64,
     pub started_at_ms: u64,
     pub last_activity_ms: u64,
-    pub sandbox_mode: String,
-    pub network_mode: String,
-    pub approval_decision: String,
     pub failure: Option<String>,
 }
 
@@ -618,9 +510,6 @@ impl fmt::Debug for ShellExecuteParams {
             .field("command", &self.command)
             .field("working_dir", &self.working_dir)
             .field("timeout", &self.timeout)
-            .field("restrict_to_workspace", &self.restrict_to_workspace)
-            .field("sandbox_mode", &self.sandbox_mode)
-            .field("network_mode", &self.network_mode)
             .field("has_cancellation", &self.cancellation.is_some())
             .finish()
     }
@@ -636,9 +525,6 @@ pub struct ShellExecuteResult {
     pub blocked: bool,
     pub truncated: bool,
     pub content: String,
-    pub sandbox_mode: String,
-    pub network_mode: String,
-    pub approval_decision: String,
 }
 
 fn normalize_working_dir_display(requested: &str) -> String {
@@ -715,13 +601,7 @@ fn is_cancelled(cancellation: &Option<Arc<dyn WorkerRequestCancellation>>) -> bo
         .is_some_and(|cancellation| cancellation.is_cancelled())
 }
 
-fn cancelled_shell_result(
-    stdout: String,
-    stderr: String,
-    sandbox_mode: &str,
-    network_mode: &str,
-    approval_decision: &str,
-) -> ShellExecuteResult {
+fn cancelled_shell_result(stdout: String, stderr: String) -> ShellExecuteResult {
     ShellExecuteResult {
         stdout,
         stderr,
@@ -731,9 +611,6 @@ fn cancelled_shell_result(
         blocked: false,
         truncated: false,
         content: "Error: Command aborted by user\n\nExit code: -1".to_string(),
-        sandbox_mode: sandbox_mode.to_string(),
-        network_mode: network_mode.to_string(),
-        approval_decision: approval_decision.to_string(),
     }
 }
 

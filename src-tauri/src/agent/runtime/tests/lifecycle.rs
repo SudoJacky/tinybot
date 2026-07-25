@@ -1570,7 +1570,7 @@ fn hanging_cleanup_tool_batch_times_out_without_hanging_the_owned_turn() {
 }
 
 #[test]
-fn trace_context_and_hook_rewrite_follow_provider_tool_and_completion() {
+fn trace_context_follows_provider_tool_and_completion_without_tool_hook_rewrite() {
     struct ToolThenFinalProvider {
         calls: AtomicUsize,
     }
@@ -1626,8 +1626,8 @@ fn trace_context_and_hook_rewrite_follow_provider_tool_and_completion() {
             _context: &AgentTurnContext,
             tool_call: &NativeAgentToolCall,
         ) -> Result<NativeAgentToolResult, String> {
-            let arguments = serde_json::from_str(&tool_call.arguments_json)
-                .expect("hook-rewritten tool input should remain JSON");
+            let arguments =
+                serde_json::from_str(&tool_call.arguments_json).expect("tool input should be JSON");
             self.arguments
                 .lock()
                 .expect("tool arguments lock should not be poisoned")
@@ -1680,7 +1680,7 @@ fn trace_context_and_hook_rewrite_follow_provider_tool_and_completion() {
             .lock()
             .expect("tool arguments lock should not be poisoned")
             .as_slice(),
-        [json!({ "path": "after.md" })]
+        [json!({ "path": "before.md" })]
     );
     let runtime_events = result["runtimeEvents"]
         .as_array()

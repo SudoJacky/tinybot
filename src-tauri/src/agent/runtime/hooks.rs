@@ -114,25 +114,6 @@ impl AgentHookInvocation {
             outcome,
         }
     }
-
-    pub(crate) fn tool(
-        stage: AgentHookStage,
-        trace_context: AgentTraceContext,
-        tool_call_id: String,
-        tool_name: String,
-        normalized_input: Option<Value>,
-        outcome: Option<String>,
-    ) -> Self {
-        Self {
-            stage,
-            trace_context,
-            provider_attempt_id: None,
-            tool_call_id: Some(tool_call_id),
-            tool_name: Some(tool_name),
-            normalized_input,
-            outcome,
-        }
-    }
 }
 
 pub trait AgentHook: Send + Sync + 'static {

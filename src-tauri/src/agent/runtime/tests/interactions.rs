@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn strict_patch_search_approval_and_real_dispatch_work_end_to_end() {
+fn strict_patch_search_and_real_dispatch_work_end_to_end_without_approval() {
     struct PatchProvider {
         calls: AtomicUsize,
     }
@@ -73,30 +73,17 @@ fn strict_patch_search_approval_and_real_dispatch_work_end_to_end() {
             &run_workspace,
         )
     });
-    let approval_id = wait_for_approval_id(&trace_sink, "turn-real-patch");
-    assert!(!workspace.root.join("notes/created.md").exists());
-    services
-        .approval_broker()
-        .resolve(
-            "session-real-patch",
-            &approval_id,
-            crate::agent::runtime_protocol::AgentApprovalDecision::Approved,
-            crate::agent::runtime_protocol::AgentApprovalScope::Once,
-            None,
-            Some("command-approve-patch".to_string()),
-        )
-        .expect("approval decision should be delivered");
     let completed = run
         .join()
         .expect("patch run thread should join")
-        .expect("approved patch should dispatch through the original tool future");
+        .expect("patch should dispatch through the original tool future");
 
     assert_eq!(completed["stopReason"], "final_response");
     assert_eq!(completed["finalContent"], "patch applied");
     assert_eq!(completed["toolsUsed"], json!(["apply_patch"]));
     assert_eq!(
         std::fs::read_to_string(workspace.root.join("notes/created.md"))
-            .expect("approved patch should create the file"),
+            .expect("patch should create the file"),
         "created by strict patch\n"
     );
 }
@@ -343,7 +330,7 @@ fn request_user_input_rejects_invalid_forms_without_waiting() {
 }
 
 #[test]
-fn discovered_mcp_tool_searches_activates_approves_and_calls_real_server() {
+fn discovered_mcp_tool_searches_activates_and_calls_real_server_without_approval() {
     struct McpDiscoveryProvider {
         calls: AtomicUsize,
     }
@@ -397,7 +384,6 @@ fn discovered_mcp_tool_searches_activates_approves_and_calls_real_server() {
     }
 
     let workspace = SystemPromptWorkspace::new();
-    let metrics = AgentRuntimeMetrics::isolated();
     let global_before = crate::runtime::observability::global_agent_runtime_metrics().snapshot();
     let script = workspace.root.join("agent-mcp-server.js");
     std::fs::write(
@@ -463,7 +449,6 @@ lines.on("line", (line) => {
             Arc::new(InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(InMemoryNativeAgentCancellation::default()),
         )
-        .with_metrics(metrics.clone())
         .with_thread_store(crate::threads::workspace_store::WorkspaceThreadStore::new(
             workspace.root.clone(),
             crate::protocol::capability::default_desktop_capability_policy(),
@@ -490,22 +475,10 @@ lines.on("line", (line) => {
             &run_workspace,
         )
     });
-    let approval_id = wait_for_approval_id(&trace_sink, "turn-real-mcp-router");
-    services
-        .approval_broker()
-        .resolve(
-            "session-real-mcp-router",
-            &approval_id,
-            crate::agent::runtime_protocol::AgentApprovalDecision::Approved,
-            crate::agent::runtime_protocol::AgentApprovalScope::Once,
-            None,
-            None,
-        )
-        .expect("MCP approval should be delivered");
     let completed = run
         .join()
         .expect("MCP run thread should join")
-        .expect("approved dynamic MCP tool should execute through real transport");
+        .expect("dynamic MCP tool should execute through real transport");
 
     assert_eq!(completed["stopReason"], "final_response");
     assert_eq!(completed["finalContent"], "real MCP complete");
@@ -515,12 +488,6 @@ lines.on("line", (line) => {
     );
     tauri::async_runtime::block_on(services.mcp_runtime().shutdown())
         .expect("agent MCP fixture should shut down");
-    let metric_snapshot = metrics.snapshot();
-    assert_eq!(
-        metric_snapshot["durations"]["approval.wait.durationMs"]["count"],
-        1
-    );
-    assert_eq!(metric_snapshot["counters"]["approval.resolved"], 1);
     let global_after = crate::runtime::observability::global_agent_runtime_metrics().snapshot();
     assert!(
         global_after["counters"]["mcp.server.start.completed"]
@@ -889,7 +856,7 @@ fn direct_calls_to_unactivated_deferred_tools_are_rejected() {
 }
 
 #[test]
-fn approval_gates_the_original_batch_and_injects_all_results_before_the_next_model_call() {
+fn tool_batch_dispatches_directly_and_injects_all_results_before_the_next_model_call() {
     struct BatchProvider {
         calls: AtomicUsize,
     }
@@ -987,26 +954,10 @@ fn approval_gates_the_original_batch_and_injects_all_results_before_the_next_mod
         )
     });
 
-    let approval_id = wait_for_approval_id(&trace_sink, "turn-approval-batch");
-    assert!(dispatched
-        .lock()
-        .expect("dispatched calls lock should not be poisoned")
-        .is_empty());
-    services
-        .approval_broker()
-        .resolve(
-            "session-approval-batch",
-            &approval_id,
-            crate::agent::runtime_protocol::AgentApprovalDecision::Approved,
-            crate::agent::runtime_protocol::AgentApprovalScope::Once,
-            None,
-            Some("command-approval-batch".to_string()),
-        )
-        .expect("batch approval should be delivered");
     let result = run
         .join()
         .expect("batch run thread should join")
-        .expect("approved batch should complete in the original run");
+        .expect("batch should complete in the original run");
 
     assert_eq!(result["stopReason"], "final_response");
     assert_eq!(result["finalContent"], "batch complete");
@@ -1020,10 +971,10 @@ fn approval_gates_the_original_batch_and_injects_all_results_before_the_next_mod
         .events
         .lock()
         .expect("trace sink lock should not be poisoned");
-    assert!(events
+    assert!(!events
         .iter()
         .any(|event| event.event_name == "agent.awaiting_approval"));
-    assert!(events
+    assert!(!events
         .iter()
         .any(|event| event.event_name == "agent.approval.decision"));
     assert!(!events.iter().any(|event| {
@@ -1032,7 +983,7 @@ fn approval_gates_the_original_batch_and_injects_all_results_before_the_next_mod
 }
 
 #[test]
-fn denied_approval_becomes_a_tool_result_and_does_not_abort_the_turn() {
+fn write_tool_dispatches_without_approval_and_does_not_abort_the_turn() {
     struct DeniedProvider {
         calls: AtomicUsize,
     }
@@ -1060,10 +1011,10 @@ fn denied_approval_becomes_a_tool_result_and_does_not_abort_the_turn() {
                     && message["tool_call_id"] == "denied-write"
                     && message["content"]
                         .as_str()
-                        .is_some_and(|content| content.contains("rejected by the user"))
+                        .is_some_and(|content| content.contains("write complete"))
             }));
             Ok(NativeAgentProviderResponse {
-                final_content: "continued after denial".to_string(),
+                final_content: "continued after execution".to_string(),
                 reasoning_delta: None,
                 usage: None,
                 tool_calls: Vec::new(),
@@ -1071,15 +1022,18 @@ fn denied_approval_becomes_a_tool_result_and_does_not_abort_the_turn() {
         }
     }
 
-    struct PanickingDispatcher;
+    struct SuccessDispatcher;
 
-    impl NativeAgentToolDispatcher for PanickingDispatcher {
+    impl NativeAgentToolDispatcher for SuccessDispatcher {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
-            _tool_call: &NativeAgentToolCall,
+            tool_call: &NativeAgentToolCall,
         ) -> Result<NativeAgentToolResult, String> {
-            panic!("denied tool must not dispatch")
+            Ok(NativeAgentToolResult::generic_success(
+                tool_call,
+                json!({ "content": "write complete" }),
+            ))
         }
     }
 
@@ -1088,7 +1042,7 @@ fn denied_approval_becomes_a_tool_result_and_does_not_abort_the_turn() {
         Arc::new(DeniedProvider {
             calls: AtomicUsize::new(0),
         }),
-        Arc::new(PanickingDispatcher),
+        Arc::new(SuccessDispatcher),
         Arc::new(InMemoryNativeAgentCheckpointStore::default()),
         Arc::new(InMemoryNativeAgentCancellation::default()),
     )
@@ -1106,24 +1060,12 @@ fn denied_approval_becomes_a_tool_result_and_does_not_abort_the_turn() {
             json!({}),
         )
     });
-    let approval_id = wait_for_approval_id(&trace_sink, "turn-denied-approval");
-    services
-        .approval_broker()
-        .resolve(
-            "session-denied-approval",
-            &approval_id,
-            crate::agent::runtime_protocol::AgentApprovalDecision::Denied,
-            crate::agent::runtime_protocol::AgentApprovalScope::Once,
-            Some("Do not change this file.".to_string()),
-            None,
-        )
-        .expect("denial should be delivered");
     let result = run
         .join()
-        .expect("denied run thread should join")
-        .expect("denied tool should remain recoverable");
+        .expect("tool run thread should join")
+        .expect("tool execution should remain recoverable");
     assert_eq!(result["stopReason"], "final_response");
-    assert_eq!(result["finalContent"], "continued after denial");
+    assert_eq!(result["finalContent"], "continued after execution");
 }
 
 #[test]
@@ -1501,7 +1443,7 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
             "messages": [{ "role": "user", "content": "use safe tools only" }]
         }),
     )
-    .expect("never approval policy should expose only no-approval tools");
+    .expect("legacy approval policy should not filter tools");
     let captured = specs
         .lock()
         .expect("tool registry provider lock should not be poisoned");
@@ -1522,10 +1464,12 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
         .iter()
         .any(|tool| tool["function"]["name"] == "apply_patch"));
     assert!(activated[1].is_empty());
-    assert!(captured[2].iter().all(|tool| !matches!(
-        tool["function"]["name"].as_str(),
-        Some("workspace_apply_patch" | "exec_command")
-    )));
+    assert!(captured[2]
+        .iter()
+        .any(|tool| tool["function"]["name"] == "apply_patch"));
+    assert!(captured[2]
+        .iter()
+        .any(|tool| tool["function"]["name"] == "exec_command"));
     assert!(activated[2].is_empty());
 }
 
@@ -1571,18 +1515,6 @@ fn invalid_turn_policy_stops_before_provider_dispatch() {
         }),
     )
     .expect_err("unsupported permission profiles must fail explicitly");
-    let impossible_selection = run_native_agent_turn_with_services(
-        &services,
-        json!({
-            "runtime": "rust",
-            "turnId": "turn-never-approval-tool",
-            "sessionId": "session-never-approval-tool",
-            "approvalPolicy": "never",
-            "selectedTools": ["apply_patch"],
-            "messages": [{ "role": "user", "content": "patch a file" }]
-        }),
-    )
-    .expect_err("approval-required selections must conflict with never policy");
     let unknown_tool = run_native_agent_turn_with_services(
         &services,
         json!({
@@ -1596,7 +1528,6 @@ fn invalid_turn_policy_stops_before_provider_dispatch() {
     .expect_err("unknown selected tools must fail explicitly");
 
     assert!(invalid_profile.contains("permission_profile"));
-    assert!(impossible_selection.contains("approval_policy"));
     assert!(unknown_tool.contains("unknown selected tool"));
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 }

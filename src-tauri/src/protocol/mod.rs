@@ -27,8 +27,6 @@ pub struct WorkerRequest {
     pub params: Value,
     #[serde(skip)]
     pub cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
-    #[serde(skip)]
-    trusted_internal: bool,
 }
 
 impl WorkerRequest {
@@ -45,7 +43,6 @@ impl WorkerRequest {
             method: method.into(),
             params,
             cancellation: None,
-            trusted_internal: false,
         }
     }
 
@@ -60,15 +57,6 @@ impl WorkerRequest {
     pub fn cancellation(&self) -> Option<Arc<dyn WorkerRequestCancellation>> {
         self.cancellation.clone()
     }
-
-    pub(crate) fn with_trusted_internal(mut self) -> Self {
-        self.trusted_internal = true;
-        self
-    }
-
-    pub(crate) fn is_trusted_internal(&self) -> bool {
-        self.trusted_internal
-    }
 }
 
 impl fmt::Debug for WorkerRequest {
@@ -81,7 +69,6 @@ impl fmt::Debug for WorkerRequest {
             .field("method", &self.method)
             .field("params", &self.params)
             .field("has_cancellation", &self.cancellation.is_some())
-            .field("trusted_internal", &self.trusted_internal)
             .finish()
     }
 }
@@ -93,7 +80,6 @@ impl PartialEq for WorkerRequest {
             && self.trace_id == other.trace_id
             && self.method == other.method
             && self.params == other.params
-            && self.trusted_internal == other.trusted_internal
     }
 }
 

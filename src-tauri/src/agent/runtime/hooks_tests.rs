@@ -25,19 +25,17 @@ fn invalid_decision_for_stage_fails_instead_of_becoming_success() {
     let pipeline = AgentHookPipeline::default().with_hook(Arc::new(InvalidAfterHook));
     let error = pipeline
         .evaluate(
-            AgentHookInvocation::tool(
-                AgentHookStage::AfterToolUse,
+            AgentHookInvocation::provider(
+                AgentHookStage::AfterProviderResponse,
                 trace_context(),
-                "tool-1".to_string(),
-                "workspace.read_file".to_string(),
-                None,
+                "provider-1".to_string(),
                 Some("completed".to_string()),
             ),
             &AgentRuntimeMetrics::isolated(),
         )
         .expect_err("after-tool denial should be rejected");
 
-    assert!(error.contains("unsupported stage after_tool_use"));
+    assert!(error.contains("unsupported stage after_provider_response"));
 }
 
 #[test]

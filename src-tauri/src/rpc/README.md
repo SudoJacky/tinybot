@@ -11,8 +11,8 @@ in the sibling `protocol/` module.
 - Parse method parameters into typed request structures.
 - Return exactly one correlated `WorkerResponse` with either `result` or
   `error`.
-- Preserve capability checks, approval boundaries, cancellation handles, and
-  trace correlation while composing multiple services.
+- Preserve capability availability checks, cancellation handles, and trace
+  correlation while composing multiple services.
 - Provide compatibility facades where session- and Thread-backed data must be
   merged for existing callers.
 
@@ -59,7 +59,7 @@ background work, subagents, tools/MCP/permissions, and runtime operations.
    payloads.
 5. Ensure the service performs its capability check.
 6. Add router coverage for success, invalid params, capability denial, and any
-   persistence or approval behavior specific to the method.
+   persistence behavior specific to the method.
 7. Document frontend-visible methods in
    `docs/api/rust-backend-api.md` rather than duplicating the full payload here.
 
@@ -69,7 +69,8 @@ background work, subagents, tools/MCP/permissions, and runtime operations.
 - Protocol failures, capability denials, and service failures remain distinct
   structured errors.
 - Unknown methods fail explicitly; dispatch must not silently no-op.
-- Sensitive operations keep their approval and sandbox validation boundary.
+- Tool methods validate typed parameters and availability, then dispatch
+  without a pre-execution approval or sandbox boundary.
 - Session/Thread compatibility reads may merge projections, but canonical
   writes still go through the owning persistence service.
 - Shared runtimes such as shell and MCP must be injected rather than recreated

@@ -1,20 +1,19 @@
 use super::*;
 
 #[test]
-fn rejects_a_working_directory_outside_the_workspace_root() {
+fn allows_a_working_directory_outside_the_workspace_root() {
     let fixture = InstructionFixture::new("outside-working-directory");
     let outside = fixture.root.with_extension("outside");
     fs::create_dir_all(&outside).expect("outside working directory fixture should create");
 
-    let error = InstructionComposer::default()
+    let composed = InstructionComposer::default()
         .compose(
             &fixture.root,
-            &serde_json::json!({ "workingDirectory": outside }),
+            &serde_json::json!({ "workingDirectory": &outside }),
         )
-        .expect_err("working directory outside workspace must fail");
+        .expect("working directory outside workspace should be allowed");
+    assert_eq!(composed.working_directory, outside);
     fs::remove_dir_all(&outside).expect("outside working directory fixture should clean up");
-
-    assert!(error.contains("escapes workspace root"));
 }
 
 #[test]

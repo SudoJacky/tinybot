@@ -9,7 +9,6 @@ use crate::protocol::request_id::{next_worker_request_correlation, WorkerRequest
 use crate::protocol::WorkerRequest;
 use crate::rpc::call_rust_state_service;
 use crate::threads::workspace_store::WorkspaceThreadStore;
-use crate::tools::permissions::{PermissionNetworkMode, ShellSandboxMode};
 use crate::tools::shell::{
     ShellProcessIdParams, ShellProcessListParams, ShellProcessOutput, ShellProcessPollParams,
     ShellStartParams, WorkerShellRpc,
@@ -616,17 +615,21 @@ async fn dispatch_tinyos_terminal_command(
             .ok_or_else(|| {
                 format!("terminal.cancel found no running process for `{operation_id}`")
             })?;
-        let outcome = shell
-            .interrupt(ShellProcessIdParams {
-                process_id: active.process_id,
-                owner_id: Some(operation_id.clone()),
-            })
-            .map_err(|error| {
-                format!(
-                    "terminal.cancel failed: {}",
-                    worker_protocol_error_message(&error)
-                )
-            })?;
+        let process = ShellProcessIdParams {
+            process_id: active.process_id,
+            owner_id: Some(operation_id.clone()),
+        };
+        let outcome = if active.tty {
+            shell.interrupt(process)
+        } else {
+            shell.terminate(process)
+        }
+        .map_err(|error| {
+            format!(
+                "terminal.cancel failed: {}",
+                worker_protocol_error_message(&error)
+            )
+        })?;
         emit_tinyos_host_operation(
             &host_operation_sink,
             &session_id,
@@ -645,13 +648,6 @@ async fn dispatch_tinyos_terminal_command(
             "unsupported TinyOS terminal command: {command_kind}"
         ));
     }
-    if transport
-        .get("confirmed")
-        .and_then(serde_json::Value::as_bool)
-        != Some(true)
-    {
-        return Err("terminal.execute requires explicit user confirmation".to_string());
-    }
     let thread_store = { lock_runtime(shared).thread_store.clone() };
     ensure_no_active_agent_turn(&thread_store, &session_id, config_snapshot.clone())?;
     let command = required_transport_string(&transport, "command")?;
@@ -667,23 +663,17 @@ async fn dispatch_tinyos_terminal_command(
     if cwd.len() > 1_024 {
         return Err("terminal.execute cwd exceeds 1024 characters".to_string());
     }
-    let initial = match shell.start_with_approval_decision(
-        ShellStartParams {
-            command: command.clone(),
-            working_dir: Some(cwd.clone()),
-            restrict_to_workspace: Some(true),
-            tty: Some(false),
-            yield_time_ms: Some(50),
-            rows: None,
-            cols: None,
-            sandbox_mode: Some(ShellSandboxMode::ReadOnly),
-            network_mode: Some(PermissionNetworkMode::Denied),
-            owner_id: Some(operation_id.clone()),
-            tool_call_id: Some(command_id.clone()),
-            cancellation: None,
-        },
-        "user_confirmed",
-    ) {
+    let initial = match shell.start(ShellStartParams {
+        command: command.clone(),
+        working_dir: Some(cwd.clone()),
+        tty: Some(false),
+        yield_time_ms: Some(50),
+        rows: None,
+        cols: None,
+        owner_id: Some(operation_id.clone()),
+        tool_call_id: Some(command_id.clone()),
+        cancellation: None,
+    }) {
         Ok(output) => output,
         Err(error) => {
             let message = worker_protocol_error_message(&error);

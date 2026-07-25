@@ -504,10 +504,9 @@ impl<'a> NativeAgentTurnExecution<'a> {
         if let Some(entries) = dependencies.test_tool_registry_entries.clone() {
             context.tool_router = super::tool_router::NativeToolRouter::new(entries);
         }
-        context.tool_router.configure_for_turn(
-            &context.settings.selected_tools,
-            context.settings.effective_approval_policy(),
-        )?;
+        context
+            .tool_router
+            .configure_for_turn(&context.settings.selected_tools)?;
         #[cfg(test)]
         context
             .tool_router

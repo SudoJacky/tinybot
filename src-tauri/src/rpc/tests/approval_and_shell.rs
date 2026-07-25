@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn workspace_write_consumes_matching_once_approval_grant() {
+fn workspace_write_executes_without_approval_grant() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -15,8 +15,8 @@ fn workspace_write_consumes_matching_once_approval_grant() {
         ]),
     );
 
-    let denied = router.dispatch(&WorkerRequest::new(
-        "req-write-denied",
+    let response = router.dispatch(&WorkerRequest::new(
+        "req-write",
         "trace-1",
         "workspace.write_file",
         json!({
@@ -25,42 +25,11 @@ fn workspace_write_consumes_matching_once_approval_grant() {
             "session_id": "session-1"
         }),
     ));
-    let error = denied.error.expect("write without approval should fail");
-    assert_eq!(
-        error.code,
-        crate::protocol::WorkerProtocolErrorCode::CapabilityDenied
-    );
-    assert_eq!(error.details["boundary"], "security");
-    assert!(!fixture.root.join("notes").join("today.md").exists());
-
-    approve_once(
-        &mut router,
-        "turn-1",
-        "session-1",
-        json!({
-            "toolName": "write_file",
-            "arguments": { "path": "notes/today.md" }
-        }),
-        "filesystem_write",
-        "medium",
-        "File write/edit/delete tools can modify workspace state.",
-    );
-
-    let allowed = router.dispatch(&WorkerRequest::new(
-        "req-write-allowed",
-        "trace-3",
-        "workspace.write_file",
-        json!({
-            "path": "notes/today.md",
-            "contents": "hello",
-            "session_id": "session-1"
-        }),
-    ));
-    assert!(allowed.error.is_none());
+    assert!(response.error.is_none());
     assert_eq!(fixture.read("notes/today.md"), "hello");
 
-    let reused = router.dispatch(&WorkerRequest::new(
-        "req-write-reused",
+    let second = router.dispatch(&WorkerRequest::new(
+        "req-write-again",
         "trace-4",
         "workspace.write_file",
         json!({
@@ -69,15 +38,12 @@ fn workspace_write_consumes_matching_once_approval_grant() {
             "session_id": "session-1"
         }),
     ));
-    assert_eq!(
-        reused.error.expect("once approval should be consumed").code,
-        crate::protocol::WorkerProtocolErrorCode::CapabilityDenied
-    );
-    assert_eq!(fixture.read("notes/today.md"), "hello");
+    assert!(second.error.is_none());
+    assert_eq!(fixture.read("notes/today.md"), "changed");
 }
 
 #[test]
-fn workspace_write_allows_trusted_internal_operations_without_approval() {
+fn workspace_write_does_not_need_an_internal_trust_marker() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -87,8 +53,8 @@ fn workspace_write_allows_trusted_internal_operations_without_approval() {
         CapabilityPolicy::new([WorkerCapability::FsWorkspaceWrite]),
     );
 
-    let denied = router.dispatch(&WorkerRequest::new(
-        "req-write-denied",
+    let response = router.dispatch(&WorkerRequest::new(
+        "req-write",
         "trace-1",
         "workspace.write_file",
         json!({
@@ -97,51 +63,12 @@ fn workspace_write_allows_trusted_internal_operations_without_approval() {
             "session_id": "session-1"
         }),
     ));
-    assert_eq!(
-        denied
-            .error
-            .expect("agent write should require approval")
-            .code,
-        crate::protocol::WorkerProtocolErrorCode::CapabilityDenied
-    );
-    assert!(!fixture.root.join("notes").join("today.md").exists());
-
-    let spoofed = router.dispatch(&WorkerRequest::new(
-        "req-write-spoofed",
-        "trace-2",
-        "workspace.write_file",
-        json!({
-            "path": "notes/today.md",
-            "contents": "spoofed write",
-            "internal_operation": true
-        }),
-    ));
-    assert_eq!(
-        spoofed
-            .error
-            .expect("serialized internal flag must not bypass approval")
-            .code,
-        crate::protocol::WorkerProtocolErrorCode::CapabilityDenied
-    );
-
-    let allowed = router.dispatch(
-        &WorkerRequest::new(
-            "req-write-internal",
-            "trace-3",
-            "workspace.write_file",
-            json!({
-                "path": "notes/today.md",
-                "contents": "webui write"
-            }),
-        )
-        .with_trusted_internal(),
-    );
-    assert!(allowed.error.is_none());
-    assert_eq!(fixture.read("notes/today.md"), "webui write");
+    assert!(response.error.is_none());
+    assert_eq!(fixture.read("notes/today.md"), "agent write");
 }
 
 #[test]
-fn shell_execute_requires_matching_approval_grant() {
+fn shell_execute_runs_without_approval_grant() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -163,19 +90,12 @@ fn shell_execute_requires_matching_approval_grant() {
         }),
     ));
 
-    let error = response.error.expect("shell without approval should fail");
-    assert_eq!(
-        error.code,
-        crate::protocol::WorkerProtocolErrorCode::CapabilityDenied
-    );
-    assert_eq!(error.details["boundary"], "security");
-    assert_eq!(error.details["category"], "shell");
-    assert!(error.details["fingerprint"]
+    assert!(response.error.is_none());
+    assert_eq!(response.result.as_ref().unwrap()["exit_code"], 0);
+    assert!(response.result.as_ref().unwrap()["content"]
         .as_str()
         .unwrap()
-        .starts_with("exec:sha256:"));
-    assert_eq!(error.details["effects"]["sandboxMode"], "unsandboxed");
-    assert_eq!(error.details["effects"]["network"]["mode"], "unrestricted");
+        .contains("tinybot"));
 }
 
 #[test]
@@ -201,18 +121,6 @@ fn dispatches_workspace_list_dir_and_delete_file_requests() {
         "workspace.list_dir",
         json!({ "path": ".", "recursive": true, "max_entries": 10 }),
     ));
-    approve_once(
-        &mut router,
-        "turn-delete",
-        "session-1",
-        json!({
-            "toolName": "delete_file",
-            "arguments": { "path": "notes" }
-        }),
-        "filesystem_write",
-        "medium",
-        "File write/edit/delete tools can modify workspace state.",
-    );
     let delete_response = router.dispatch(&WorkerRequest::new(
         "req-delete",
         "trace-1",
@@ -250,18 +158,6 @@ fn dispatches_shell_execute_request() {
             WorkerCapability::ShellExecute,
         ]),
     );
-    approve_once(
-        &mut router,
-        "turn-shell",
-        "session-1",
-        json!({
-            "toolName": "exec",
-            "arguments": { "command": "echo tinybot" }
-        }),
-        "shell",
-        "high",
-        "Shell execution can modify files, run programs, or access the network.",
-    );
 
     let response = router.dispatch(&WorkerRequest::new(
         "req-shell",
@@ -278,16 +174,12 @@ fn dispatches_shell_execute_request() {
     let result = response.result.expect("shell.execute should return result");
     assert_eq!(result["exit_code"], 0);
     assert_eq!(result["timed_out"], false);
-    assert_eq!(result["blocked"], false);
-    assert_eq!(result["sandbox_mode"], "unsandboxed_approved");
-    assert_eq!(result["network_mode"], "unrestricted");
-    assert_eq!(result["approval_decision"], "approved");
     assert!(result["content"].as_str().unwrap().contains("tinybot"));
     assert!(response.error.is_none());
 }
 
 #[test]
-fn read_only_shell_approval_cannot_authorize_unsandboxed_execution() {
+fn removed_shell_sandbox_fields_do_not_restrict_execution() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -300,26 +192,10 @@ fn read_only_shell_approval_cannot_authorize_unsandboxed_execution() {
             WorkerCapability::ShellExecute,
         ]),
     );
-    let command = "echo should-not-run";
-    approve_once(
-        &mut router,
-        "turn-shell-read-only",
-        "session-1",
-        json!({
-            "toolName": "exec",
-            "arguments": {
-                "command": command,
-                "sandboxMode": "read_only",
-                "networkMode": "unrestricted"
-            }
-        }),
-        "shell",
-        "high",
-        "Shell execution can modify files, run programs, or access the network.",
-    );
+    let command = "echo runs-with-current-user-permissions";
 
-    let unsandboxed = router.dispatch(&WorkerRequest::new(
-        "req-shell-unsandboxed",
+    let response = router.dispatch(&WorkerRequest::new(
+        "req-shell-legacy-fields",
         "trace-shell-read-only",
         "shell.execute",
         json!({
@@ -330,14 +206,8 @@ fn read_only_shell_approval_cannot_authorize_unsandboxed_execution() {
             "turnId": "turn-shell-read-only"
         }),
     ));
-    let error = unsandboxed
-        .error
-        .expect("read-only approval must not authorize unsandboxed execution");
-    assert_eq!(
-        error.code,
-        crate::protocol::WorkerProtocolErrorCode::CapabilityDenied
-    );
-    assert_eq!(error.details["effects"]["sandboxMode"], "unsandboxed");
+    assert!(response.error.is_none());
+    assert_eq!(response.result.as_ref().unwrap()["exit_code"], 0);
     assert_eq!(router.shell.active_process_count(), 0);
 }
 
@@ -356,19 +226,6 @@ fn dispatches_owned_shell_process_lifecycle() {
         ]),
     );
     let command = blocking_shell_command_with_marker();
-    approve_once(
-        &mut router,
-        "turn-shell-process",
-        "session-shell-process",
-        json!({
-            "toolName": "exec_command",
-            "arguments": { "command": command.clone() }
-        }),
-        "shell",
-        "high",
-        "Shell execution can modify files, run programs, or access the network.",
-    );
-
     let started = router.dispatch(&WorkerRequest::new(
         "req-shell-start",
         "trace-shell-process",
@@ -387,9 +244,6 @@ fn dispatches_owned_shell_process_lifecycle() {
     assert_eq!(started["running"], true, "{started:?}");
     assert_eq!(started["ownerId"], "turn-shell-process");
     assert_eq!(started["toolCallId"], "tool-shell-process");
-    assert_eq!(started["sandboxMode"], "unsandboxed_approved");
-    assert_eq!(started["networkMode"], "unrestricted");
-    assert_eq!(started["approvalDecision"], "approved");
     let process_id = started["processId"]
         .as_str()
         .expect("shell process id should be present")
@@ -449,19 +303,6 @@ fn tool_executor_injects_turn_ownership_into_exec_command() {
         ]),
     );
     let command = blocking_shell_command_with_marker();
-    approve_once(
-        &mut router,
-        "turn-exec-command",
-        "session-exec-command",
-        json!({
-            "toolName": "exec_command",
-            "arguments": { "command": command.clone() }
-        }),
-        "shell",
-        "high",
-        "Shell execution can modify files, run programs, or access the network.",
-    );
-
     let response = router.dispatch(&WorkerRequest::new(
         "req-tool-exec-command",
         "trace-tool-exec-command",
@@ -515,22 +356,19 @@ fn shared_shell_runtime_survives_router_reconstruction() {
         WorkerRpcRouter::new(fixture.root.clone(), json!({}), vec![], 20, policy.clone())
             .with_shell_runtime(shell_runtime.clone());
     let command = blocking_shell_command_with_marker();
-    let started = first_router.dispatch(
-        &WorkerRequest::new(
-            "req-shared-shell-start",
-            "trace-shared-shell",
-            "shell.start",
-            json!({
-                "command": command,
-                "workingDir": ".",
-                "yieldTimeMs": 0,
-                "sessionId": "session-shared-shell",
-                "turnId": "turn-shared-shell",
-                "toolCallId": "tool-shared-shell"
-            }),
-        )
-        .with_trusted_internal(),
-    );
+    let started = first_router.dispatch(&WorkerRequest::new(
+        "req-shared-shell-start",
+        "trace-shared-shell",
+        "shell.start",
+        json!({
+            "command": command,
+            "workingDir": ".",
+            "yieldTimeMs": 0,
+            "sessionId": "session-shared-shell",
+            "turnId": "turn-shared-shell",
+            "toolCallId": "tool-shared-shell"
+        }),
+    ));
     let process_id = started.result.as_ref().unwrap()["processId"]
         .as_str()
         .expect("shared process id should be present")
@@ -581,19 +419,6 @@ fn tool_executor_forwards_request_cancellation_to_shell_execute() {
         ]),
     );
     let command = blocking_shell_command_with_marker();
-    approve_once(
-        &mut router,
-        "turn-shell-cancel",
-        "session-1",
-        json!({
-            "toolName": "exec",
-            "arguments": { "command": command.clone() }
-        }),
-        "shell",
-        "high",
-        "Shell execution can modify files, run programs, or access the network.",
-    );
-
     let cancellation = Arc::new(TestCancellation::default());
     let request = WorkerRequest::new(
         "req-tool-shell-cancel",

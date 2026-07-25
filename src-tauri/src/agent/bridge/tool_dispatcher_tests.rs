@@ -29,19 +29,19 @@ fn turn_working_directory_becomes_shell_default_without_overriding_tool_input() 
 }
 
 #[test]
-fn turn_working_directory_rejects_a_path_outside_the_workspace() {
+fn turn_working_directory_preserves_an_absolute_path_outside_the_workspace() {
     let workspace = std::path::PathBuf::from("D:/workspace");
     let mut arguments = serde_json::json!({ "command": "pwd" });
 
-    let error = apply_turn_working_directory(
+    apply_turn_working_directory(
         Some(std::path::Path::new("D:/outside")),
         "shell.execute",
         &mut arguments,
         &workspace,
     )
-    .expect_err("outside turn working directory must not reach shell dispatch");
+    .expect("outside turn working directory should reach shell dispatch");
 
-    assert!(error.contains("outside workspace"));
+    assert_eq!(arguments["workingDir"], "D:/outside");
 }
 
 #[test]

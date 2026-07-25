@@ -30,14 +30,6 @@ impl WorkerRpcRouter {
             }
             "workspace.write_file" => {
                 let params: WriteFileParams = parse_params(request)?;
-                if !request.is_trusted_internal() {
-                    self.approval
-                        .require_sensitive_operation(workspace_write_approval(
-                            &params.path,
-                            params.session_id.clone(),
-                            params.turn_id.clone(),
-                        ))?;
-                }
                 serde_json::to_value(self.workspace.write_file_with_expected(
                     &params.path,
                     &params.contents,
@@ -47,16 +39,6 @@ impl WorkerRpcRouter {
             }
             "workspace.apply_patch" => {
                 let params: ApplyPatchParams = parse_params(request)?;
-                if !request.is_trusted_internal() {
-                    let targets = self.workspace.inspect_patch_targets(&params.patch)?;
-                    self.approval
-                        .require_sensitive_operation(workspace_apply_patch_approval(
-                            &params.patch,
-                            &targets,
-                            params.session_id.clone(),
-                            params.turn_id.clone(),
-                        ))?;
-                }
                 serde_json::to_value(self.workspace.apply_patch(&params.patch)?)
                     .map_err(serialization_error)
             }
@@ -93,14 +75,6 @@ impl WorkerRpcRouter {
             }
             "workspace.delete_file" => {
                 let params: DeleteFileParams = parse_params(request)?;
-                if !request.is_trusted_internal() {
-                    self.approval
-                        .require_sensitive_operation(workspace_delete_approval(
-                            &params.path,
-                            params.session_id.clone(),
-                            params.turn_id.clone(),
-                        ))?;
-                }
                 serde_json::to_value(
                     self.workspace
                         .delete_file(&params.path, params.recursive.unwrap_or(false))?,

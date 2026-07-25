@@ -20,7 +20,7 @@ fn tool_executor_preserves_explicit_parent_turn_context() {
 }
 
 #[test]
-fn shell_request_uses_configured_defaults_when_call_omits_them() {
+fn shell_request_uses_configured_timeout_when_call_omits_it() {
     let params: ShellExecuteRequestParams = serde_json::from_value(json!({
         "command": "echo configured"
     }))
@@ -29,14 +29,12 @@ fn shell_request_uses_configured_defaults_when_call_omits_them() {
         None,
         &json!({
             "tools": {
-                "exec": { "timeout": 17 },
-                "restrictToWorkspace": false
+                "exec": { "timeout": 17 }
             }
         }),
     );
 
     assert_eq!(params.timeout, Some(17));
-    assert_eq!(params.restrict_to_workspace, Some(false));
 }
 
 #[test]
@@ -54,8 +52,7 @@ fn disabled_exec_config_rejects_direct_shell_execution() {
         "trace-disabled-exec",
         "shell.execute",
         json!({ "command": "echo should-not-run" }),
-    )
-    .with_trusted_internal();
+    );
 
     let response = router.dispatch(&request);
 
@@ -118,18 +115,6 @@ fn dispatches_workspace_write_file_version_conflict() {
             WorkerCapability::FsWorkspaceWrite,
         ]),
     );
-    approve_once(
-        &mut router,
-        "turn-write-conflict",
-        "session-1",
-        json!({
-            "toolName": "write_file",
-            "arguments": { "path": "notes/today.md" }
-        }),
-        "filesystem_write",
-        "medium",
-        "File write/edit/delete tools can modify workspace state.",
-    );
     let request = WorkerRequest::new(
         "req-1",
         "trace-1",
@@ -172,17 +157,14 @@ fn dispatches_workspace_apply_patch_request_with_structured_change_summary() {
         CapabilityPolicy::new([WorkerCapability::FsWorkspaceWrite]),
     );
 
-    let response = router.dispatch(
-        &WorkerRequest::new(
-            "req-apply-patch",
-            "trace-1",
-            "workspace.apply_patch",
-            json!({
-                "patch": "*** Begin Patch\n*** Update File: notes/today.md\n@@\n-before\n+after\n*** Add File: notes/new.md\n+new file\n*** End Patch\n"
-            }),
-        )
-        .with_trusted_internal(),
-    );
+    let response = router.dispatch(&WorkerRequest::new(
+        "req-apply-patch",
+        "trace-1",
+        "workspace.apply_patch",
+        json!({
+            "patch": "*** Begin Patch\n*** Update File: notes/today.md\n@@\n-before\n+after\n*** Add File: notes/new.md\n+new file\n*** End Patch\n"
+        }),
+    ));
 
     assert!(response.error.is_none());
     assert_eq!(fixture.read("notes/today.md"), "after\n");
@@ -197,7 +179,7 @@ fn dispatches_workspace_apply_patch_request_with_structured_change_summary() {
 }
 
 #[test]
-fn workspace_apply_patch_requires_a_matching_approval_grant() {
+fn workspace_apply_patch_executes_without_approval_grant() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -212,57 +194,19 @@ fn workspace_apply_patch_requires_a_matching_approval_grant() {
     );
     let patch = "*** Begin Patch\n*** Add File: notes/today.md\n+approved\n*** End Patch\n";
 
-    let denied = router.dispatch(&WorkerRequest::new(
-        "req-apply-patch-denied",
+    let response = router.dispatch(&WorkerRequest::new(
+        "req-apply-patch",
         "trace-1",
         "workspace.apply_patch",
-        json!({
-            "patch": patch,
-            "session_id": "session-1",
-            "approval_fingerprint": "apply_patch:notes/today.md",
-            "approval_session_fingerprint": "apply_patch:notes/today.md"
-        }),
-    ));
-    assert_eq!(
-        denied
-            .error
-            .expect("patch without approval should fail")
-            .code,
-        crate::protocol::WorkerProtocolErrorCode::CapabilityDenied
-    );
-    assert!(!fixture.root.join("notes/today.md").exists());
-
-    approve_once(
-        &mut router,
-        "turn-apply-patch",
-        "session-1",
-        json!({
-            "toolName": "apply_patch",
-            "arguments": { "patch": patch }
-        }),
-        "filesystem_write",
-        "medium",
-        "Workspace file changes require user approval.",
-    );
-
-    let allowed = router.dispatch(&WorkerRequest::new(
-        "req-apply-patch-allowed",
-        "trace-2",
-        "workspace.apply_patch",
-        json!({
-            "patch": patch,
-            "session_id": "session-1",
-            "approval_fingerprint": "apply_patch:notes/today.md",
-            "approval_session_fingerprint": "apply_patch:notes/today.md"
-        }),
+        json!({ "patch": patch }),
     ));
 
-    assert!(allowed.error.is_none());
+    assert!(response.error.is_none());
     assert_eq!(fixture.read("notes/today.md"), "approved\n");
 }
 
 #[test]
-fn workspace_apply_patch_rejects_caller_claimed_internal_operation() {
+fn workspace_apply_patch_ignores_removed_internal_approval_marker() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -282,14 +226,8 @@ fn workspace_apply_patch_rejects_caller_claimed_internal_operation() {
         }),
     ));
 
-    assert_eq!(
-        response
-            .error
-            .expect("serialized internal flag must not bypass approval")
-            .code,
-        crate::protocol::WorkerProtocolErrorCode::CapabilityDenied
-    );
-    assert!(!fixture.root.join("notes/today.md").exists());
+    assert!(response.error.is_none());
+    assert_eq!(fixture.read("notes/today.md"), "unsafe\n");
 }
 
 #[test]

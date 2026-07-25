@@ -630,14 +630,14 @@ fn worker_transport_operation_retry_starts_new_correlated_turn() {
 }
 
 #[test]
-fn tinyos_terminal_execute_fails_closed_without_network_enforcement_and_leaks_no_process() {
+fn tinyos_terminal_execute_runs_without_sandbox_and_can_be_cancelled() {
     let fixture = WorkspaceFixture::new();
     let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let session_id = "websocket:chat-host-terminal";
     let operation_id = "tinyos-host-terminal-cancel-test";
-    let error = worker_transport_dispatch_websocket_message_with_options(
+    let started = worker_transport_dispatch_websocket_message_with_options(
         &shared,
         WorkerTransportWebSocketDispatchInput {
             client_id: "client-host-terminal".to_string(),
@@ -663,11 +663,43 @@ fn tinyos_terminal_execute_fails_closed_without_network_enforcement_and_leaks_no
         serde_json::json!({}),
         Duration::from_millis(100),
     )
-    .expect_err(
-        "terminal execution must fail before process start when network denial cannot be enforced",
+    .expect("terminal execution should start with current-user permissions");
+
+    assert_eq!(started["operation"]["status"], "running");
+    assert_eq!(
+        lock_runtime(&shared)
+            .native_agent_runtime
+            .shell_runtime()
+            .active_process_count(),
+        1
     );
 
-    assert!(error.contains("network enforcement is unavailable"));
+    let cancelled = worker_transport_dispatch_websocket_message_with_options(
+        &shared,
+        WorkerTransportWebSocketDispatchInput {
+            client_id: "client-host-terminal".to_string(),
+            frame: serde_json::json!({
+                "type": "command",
+                "chat_id": "chat-host-terminal",
+                "session_id": session_id,
+                "command_id": "command-terminal-cancel-1",
+                "command_kind": "terminal.cancel",
+                "operation_id": operation_id
+            }),
+            attached_chat_id: Some("chat-host-terminal".to_string()),
+            session_exists: Some(true),
+            editable_paths: None,
+            model: None,
+            max_iterations: None,
+            stream: None,
+        },
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(100),
+    )
+    .expect("terminal cancellation should stop the process");
+
+    assert_eq!(cancelled["operation"]["running"], false);
     assert_eq!(
         lock_runtime(&shared)
             .native_agent_runtime
@@ -675,23 +707,6 @@ fn tinyos_terminal_execute_fails_closed_without_network_enforcement_and_leaks_no
             .active_process_count(),
         0
     );
-
-    let threads = call_rust_state_service(
-        &fixture.thread_store,
-        serde_json::json!({}),
-        WorkerRequest::new(
-            "req-host-terminal-thread-list",
-            "trace-host-terminal-thread-list",
-            "thread.list",
-            serde_json::json!({}),
-        ),
-        "host terminal thread list",
-    )
-    .expect("thread list should remain readable");
-    assert!(threads["threads"]
-        .as_array()
-        .expect("threads should be an array")
-        .is_empty());
 }
 
 #[test]

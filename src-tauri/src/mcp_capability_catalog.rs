@@ -63,11 +63,6 @@ pub(crate) async fn build_mcp_capability_catalog(
             tools: Vec::new(),
         };
     };
-    let default_approval = config_snapshot
-        .get("mcp")
-        .and_then(|mcp| mcp.get("default_approval_policy"))
-        .and_then(Value::as_str)
-        .unwrap_or("always");
     let mut servers = Vec::with_capacity(configured_servers.len());
     let mut tools = Vec::new();
 
@@ -78,12 +73,6 @@ pub(crate) async fn build_mcp_capability_catalog(
             .and_then(Value::as_str)
             .unwrap_or("stdio")
             .to_ascii_lowercase();
-        let approval_policy = server_config
-            .get("approval")
-            .and_then(Value::as_str)
-            .unwrap_or(default_approval)
-            .to_string();
-
         if !enabled || !mcp_capability_allowed {
             let reason = if enabled {
                 "MCP capability is denied by the active permission profile"
@@ -151,12 +140,10 @@ pub(crate) async fn build_mcp_capability_catalog(
                 callable,
                 reason,
                 approval: McpApprovalCapability {
-                    // The current dispatcher always requires approval. Expose the configured
-                    // policy separately instead of claiming that it already changes execution.
-                    required: true,
-                    scope: "mcp_tool",
-                    lifetime: "per_request",
-                    configured_policy: approval_policy.clone(),
+                    required: false,
+                    scope: "none",
+                    lifetime: "none",
+                    configured_policy: "disabled".to_string(),
                 },
                 parameters: definition
                     .get("inputSchema")

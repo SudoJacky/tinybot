@@ -521,11 +521,8 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             ToolExposure::Deferred,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
-            vec![
-                WorkerCapability::BrowserInteract,
-                WorkerCapability::ApprovalRequest,
-            ],
-            approval(true, Some("browser"), Some("per_request")),
+            vec![WorkerCapability::BrowserInteract],
+            approval(false, None, None),
             json!({
                 "type": "object",
                 "required": ["browserSessionId", "tabId", "controlEpoch", "action"],
@@ -564,27 +561,19 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "shell.execute",
             "shell",
             "Execute shell command",
-            "Run a shell command in the workspace.",
+            "Run a shell command with the current user's permissions.",
             ToolExposure::Hidden,
             false,
             runtime_policy(false, ToolCancellationMode::TerminateProcess, true, false),
             vec![WorkerCapability::ShellExecute],
-            approval(true, Some("command"), Some("per_request")),
+            approval(false, None, None),
             json!({
                 "type": "object",
                 "required": ["command"],
                 "properties": {
                     "command": { "type": "string" },
                     "workingDir": { "type": "string" },
-                    "timeout": { "type": "integer" },
-                    "sandboxMode": {
-                        "type": "string",
-                        "enum": ["read_only", "unsandboxed"]
-                    },
-                    "networkMode": {
-                        "type": "string",
-                        "enum": ["denied", "configured", "unrestricted"]
-                    }
+                    "timeout": { "type": "integer" }
                 }
             }),
         ),
@@ -593,12 +582,12 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "shell.start",
             "shell",
             "Start shell command",
-            "Start a workspace shell command and retain it when it remains active.",
+            "Start a shell command with the current user's permissions and retain it when it remains active.",
             ToolExposure::Model,
             false,
             runtime_policy(false, ToolCancellationMode::TerminateProcess, true, false),
             vec![WorkerCapability::ShellExecute],
-            approval(true, Some("command"), Some("per_request")),
+            approval(false, None, None),
             json!({
                 "type": "object",
                 "required": ["command"],
@@ -608,15 +597,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
                     "yieldTimeMs": { "type": "integer", "minimum": 0, "maximum": 30000 },
                     "tty": { "type": "boolean" },
                     "rows": { "type": "integer", "minimum": 1 },
-                    "cols": { "type": "integer", "minimum": 1 },
-                    "sandboxMode": {
-                        "type": "string",
-                        "enum": ["read_only", "unsandboxed"]
-                    },
-                    "networkMode": {
-                        "type": "string",
-                        "enum": ["denied", "configured", "unrestricted"]
-                    }
+                    "cols": { "type": "integer", "minimum": 1 }
                 }
             }),
         ),

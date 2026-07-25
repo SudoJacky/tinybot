@@ -26,7 +26,15 @@ fn approval_request(
         .map(serde_json::from_value::<PermissionEffects>)
         .transpose()
         .expect("fixture effects should deserialize")
-        .unwrap_or_else(|| workspace_write_permission_effects(&path));
+        .unwrap_or_else(|| {
+            let mut effects = PermissionEffects::default();
+            effects.filesystem.read_roots = vec!["workspace://current".to_string()];
+            effects.filesystem.write_roots = vec![format!(
+                "workspace://current/{}",
+                normalize_approval_path(&path)
+            )];
+            effects
+        });
     operation.as_object_mut().unwrap().insert(
         "effects".to_string(),
         serde_json::to_value(&effects).unwrap(),
@@ -486,126 +494,10 @@ fn approval_session_scope_allows_matching_session_fingerprint_only_in_same_sessi
 }
 
 #[test]
-fn sensitive_operation_requires_matching_approval_grant() {
-    let mut approval = approval_rpc();
-    let requirement = workspace_write_approval(
-        "notes/today.md",
-        Some("session-1".to_string()),
-        Some("turn-write".to_string()),
-    );
-    let record = requirement.to_record();
-    let error = approval
-        .require_sensitive_operation(requirement.clone())
-        .expect_err("write without approval should fail");
-    assert_eq!(error.code, WorkerProtocolErrorCode::CapabilityDenied);
-    assert_eq!(error.details["boundary"], "security");
-
-    let request_response = approval
-        .request_from_request(&approval_request(
-            "req-request",
-            "turn-1",
-            "session-1",
-            record.operation,
-            &record.fingerprint,
-            &record.session_fingerprint,
-        ))
-        .unwrap();
-    let approval_id = request_response["approvalId"].as_str().unwrap().to_string();
-    approval
-        .resolve_from_request(&WorkerRequest::new(
-            "req-resolve",
-            "trace-1",
-            "approval.resolve",
-            json!({
-                "session_id": "session-1",
-                "approval_id": approval_id,
-                "approved": true,
-                "scope": "once"
-            }),
-        ))
-        .unwrap();
-
-    approval
-        .require_sensitive_operation(requirement)
-        .expect("matching once approval should be consumed");
-}
-
-#[test]
-fn sensitive_operation_accepts_current_turn_after_once_request_allows() {
-    let mut approval = approval_rpc();
-    let requirement = workspace_write_approval(
-        "notes/today.md",
-        Some("session-1".to_string()),
-        Some("turn-1".to_string()),
-    );
-    let record = requirement.to_record();
-    let request_response = approval
-        .request_from_request(&approval_request(
-            "req-request",
-            "turn-1",
-            "session-1",
-            record.operation.clone(),
-            &record.fingerprint,
-            &record.session_fingerprint,
-        ))
-        .unwrap();
-    let approval_id = request_response["approvalId"].as_str().unwrap().to_string();
-    approval
-        .resolve_from_request(&WorkerRequest::new(
-            "req-resolve",
-            "trace-1",
-            "approval.resolve",
-            json!({
-                "session_id": "session-1",
-                "approval_id": approval_id,
-                "approved": true,
-                "scope": "once"
-            }),
-        ))
-        .unwrap();
-
-    let allowed = approval
-        .request_from_request(&approval_request(
-            "req-allowed",
-            "turn-1",
-            "session-1",
-            record.operation,
-            &record.fingerprint,
-            &record.session_fingerprint,
-        ))
-        .unwrap();
-    assert_eq!(allowed["decision"], "allow");
-    assert_eq!(allowed["scope"], "once");
-
-    approval
-        .require_sensitive_operation(requirement.clone())
-        .expect("same-turn native operation should use the consumed once approval");
-
-    approval
-        .require_sensitive_operation(requirement)
-        .expect_err("same-turn once bridge should be consumed");
-}
-
-#[test]
-fn workspace_write_approval_derives_fingerprint_from_actual_effects() {
-    let requirement = workspace_write_approval(
-        "notes/today.md",
-        Some("session-1".to_string()),
-        Some("turn-1".to_string()),
-    );
-    let record = requirement.to_record();
-
-    assert!(record.fingerprint.starts_with("write_file:sha256:"));
-    assert_eq!(record.session_fingerprint, record.fingerprint);
-    assert_eq!(
-        record.effects.unwrap()["filesystem"]["writeRoots"],
-        json!(["workspace://current/notes/today.md"])
-    );
-}
-
-#[test]
 fn approval_request_rejects_a_fingerprint_not_bound_to_operation_effects() {
-    let effects = workspace_write_permission_effects("notes/today.md");
+    let mut effects = PermissionEffects::default();
+    effects.filesystem.read_roots = vec!["workspace://current".to_string()];
+    effects.filesystem.write_roots = vec!["workspace://current/notes/today.md".to_string()];
     let mut approval = approval_rpc();
     let error = approval
         .request_from_request(&WorkerRequest::new(
@@ -634,47 +526,4 @@ fn approval_request_rejects_a_fingerprint_not_bound_to_operation_effects() {
 
     assert_eq!(error.code, WorkerProtocolErrorCode::InvalidProtocol);
     assert!(error.message.contains("fingerprint"));
-}
-
-#[test]
-fn approval_request_normalizes_known_tool_risk_scope_and_lifetime() {
-    let effects = shell_permission_effects(
-        ShellSandboxMode::Unsandboxed,
-        PermissionNetworkMode::Unrestricted,
-        false,
-    );
-    let fingerprint = permission_fingerprint("exec", "echo hi", &effects);
-    let mut approval = approval_rpc();
-    let result = approval
-        .request_from_request(&WorkerRequest::new(
-            "req-normalized-presentation",
-            "trace-1",
-            "approval.request",
-            json!({
-                "turn_id": "turn-1",
-                "session_id": "session-1",
-                "operation": {
-                    "toolName": "exec",
-                    "arguments": { "command": "echo hi" },
-                    "effects": effects
-                },
-                "classification": {
-                    "category": "tool",
-                    "risk": "low",
-                    "reason": "Caller supplied presentation"
-                },
-                "effects": effects,
-                "fingerprint": fingerprint,
-                "session_fingerprint": fingerprint,
-                "summary": "harmless"
-            }),
-        ))
-        .expect("valid effect-bound request should be presented");
-
-    assert_eq!(result["category"], "shell");
-    assert_eq!(result["risk"], "high");
-    assert_eq!(result["reason"], "Shell execution requires user approval.");
-    assert_eq!(result["summary"], "exec command=\"echo hi\"");
-    assert_eq!(result["scope"], "command");
-    assert_eq!(result["lifetime"], "per_request");
 }

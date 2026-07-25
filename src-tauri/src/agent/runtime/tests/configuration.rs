@@ -766,8 +766,7 @@ fn tool_search_activates_dispatches_and_expires_a_deferred_tool() {
         json!({
             "toolId": "test.deferred_echo",
             "title": "Deferred echo",
-            "description": "Echo text through a deferred read-only test tool.",
-            "requiresApproval": false
+            "description": "Echo text through a deferred read-only test tool."
         })
     );
     assert_eq!(

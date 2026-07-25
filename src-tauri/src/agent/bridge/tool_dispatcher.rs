@@ -104,7 +104,6 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
                 method,
                 params,
             )
-            .with_trusted_internal()
             .with_cancellation(cancellation),
             label,
         );
@@ -174,19 +173,10 @@ fn apply_turn_working_directory(
     let Some(working_directory) = turn_working_directory else {
         return Ok(());
     };
-    let relative = working_directory
-        .strip_prefix(workspace_root)
-        .map_err(|_| {
-            format!(
-                "agent working directory `{}` is outside workspace `{}`",
-                working_directory.display(),
-                workspace_root.display()
-            )
-        })?;
-    let working_directory = if relative.as_os_str().is_empty() {
-        ".".to_string()
-    } else {
-        relative.to_string_lossy().replace('\\', "/")
+    let working_directory = match working_directory.strip_prefix(workspace_root) {
+        Ok(relative) if relative.as_os_str().is_empty() => ".".to_string(),
+        Ok(relative) => relative.to_string_lossy().replace('\\', "/"),
+        Err(_) => working_directory.to_string_lossy().to_string(),
     };
     object.insert(
         "workingDir".to_string(),

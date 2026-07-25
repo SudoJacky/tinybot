@@ -1,6 +1,3 @@
-use super::approvals::{
-    ApprovalRegistration, NativeAgentApprovalRequest, NativeAgentApprovalResolution,
-};
 use super::checkpoint::save_phase_checkpoint;
 use super::result::cancelled_turn_result;
 use super::state::AgentTurnState;
@@ -15,12 +12,10 @@ use super::tool_projection::{
     tool_error_observation_message, tool_observation_content, tool_observation_message,
 };
 use super::{
-    AgentHookInvocation, AgentHookStage, AgentTurnContext, NativeAgentRuntimeServices,
-    NativeAgentToolCall, NativeAgentToolDispatcher,
+    AgentTurnContext, NativeAgentRuntimeServices, NativeAgentToolCall, NativeAgentToolDispatcher,
 };
 use crate::agent::runtime_protocol::AgentRuntimePhase;
-use crate::agent::runtime_protocol::{AgentApprovalDecision, AgentApprovalScope};
-use crate::tools::registry::{ToolApprovalMetadata, ToolCancellationMode};
+use crate::tools::registry::ToolCancellationMode;
 use crate::tools::registry::{REQUEST_USER_INPUT_METHOD, TOOL_SEARCH_METHOD, UPDATE_PLAN_METHOD};
 use futures_util::FutureExt;
 use serde::Deserialize;
@@ -415,12 +410,6 @@ pub(super) async fn execute_tool_calls_for_iteration(
             .into_iter()
             .next()
             .expect("single tool_search call should exist");
-        let tool_call = match prepare_special_tool_call(context, state, tool_call.clone()) {
-            Ok(tool_call) => tool_call,
-            Err(error) => {
-                return tool_error_result(services, context, state, iteration, &tool_call, error);
-            }
-        };
         return execute_tool_search(services, context, state, iteration, tool_call);
     }
 
@@ -446,12 +435,6 @@ pub(super) async fn execute_tool_calls_for_iteration(
             .into_iter()
             .next()
             .expect("single update_plan call should exist");
-        let tool_call = match prepare_special_tool_call(context, state, tool_call.clone()) {
-            Ok(tool_call) => tool_call,
-            Err(error) => {
-                return tool_error_result(services, context, state, iteration, &tool_call, error);
-            }
-        };
         return execute_update_plan(services, context, state, iteration, tool_call);
     }
 
@@ -478,12 +461,6 @@ pub(super) async fn execute_tool_calls_for_iteration(
             .into_iter()
             .next()
             .expect("single request_user_input call should exist");
-        let tool_call = match prepare_special_tool_call(context, state, tool_call.clone()) {
-            Ok(tool_call) => tool_call,
-            Err(error) => {
-                return tool_error_result(services, context, state, iteration, &tool_call, error);
-            }
-        };
         return match super::user_input::awaiting_user_input_result(
             services,
             context,
@@ -496,316 +473,11 @@ pub(super) async fn execute_tool_calls_for_iteration(
         };
     }
 
-    if tool_calls.iter().any(|tool_call| {
-        context
-            .tool_router
-            .approval_metadata(&tool_call.name)
-            .is_some_and(|approval| approval.required)
-    }) {
-        return execute_approval_gated_tool_batch(services, context, state, iteration, tool_calls)
-            .await;
-    }
-
     if tool_calls.len() == 1 {
         execute_sequential_tool_batch(services, context, state, iteration, tool_calls).await
     } else {
         execute_locked_tool_batch(services, context, state, iteration, tool_calls).await
     }
-}
-
-fn prepare_special_tool_call(
-    context: &AgentTurnContext,
-    state: &mut AgentTurnState,
-    mut tool_call: NativeAgentToolCall,
-) -> Result<NativeAgentToolCall, String> {
-    let normalized_input =
-        serde_json::from_str::<Value>(&tool_call.arguments_json).map_err(|error| {
-            format!(
-                "native tool `{}` arguments are invalid JSON before hook dispatch: {error}",
-                tool_call.name
-            )
-        })?;
-    let invocation = AgentHookInvocation::tool(
-        AgentHookStage::BeforeToolUse,
-        context.trace_context.clone(),
-        tool_call.id.clone(),
-        tool_call.name.clone(),
-        Some(normalized_input),
-        None,
-    );
-    let evaluation = context.evaluate_hook(invocation.clone())?;
-    state.emit_hook_evaluation(&invocation, &evaluation);
-    if let Some(reason) = evaluation.denied_reason {
-        context.metrics().increment("tool.denied");
-        return Err(format!(
-            "native tool `{}` denied by hook: {reason}",
-            tool_call.name
-        ));
-    }
-    if evaluation.input_replaced {
-        let replacement = evaluation.normalized_input.ok_or_else(|| {
-            format!(
-                "native tool `{}` hook replacement is missing normalized input",
-                tool_call.name
-            )
-        })?;
-        if !replacement.is_object() {
-            return Err(format!(
-                "native tool `{}` hook replacement must be a JSON object",
-                tool_call.name
-            ));
-        }
-        tool_call.arguments_json = serde_json::to_string(&replacement).map_err(|error| {
-            format!(
-                "native tool `{}` hook replacement failed to serialize: {error}",
-                tool_call.name
-            )
-        })?;
-    }
-    Ok(tool_call)
-}
-
-enum AwaitToolApprovalOutcome {
-    Resolved(NativeAgentApprovalResolution),
-    Cancelled,
-    Failed(String),
-}
-
-async fn execute_approval_gated_tool_batch(
-    services: &NativeAgentRuntimeServices,
-    context: &AgentTurnContext,
-    state: &mut AgentTurnState,
-    iteration: i64,
-    tool_calls: Vec<NativeAgentToolCall>,
-) -> NativeAgentToolExecutionOutcome {
-    for mut tool_call in tool_calls {
-        if context_is_cancelled(context) {
-            return cancelled_result(services, context, state, iteration);
-        }
-        if let Some(approval) = context
-            .tool_router
-            .approval_metadata(&tool_call.name)
-            .filter(|approval| approval.required)
-        {
-            tool_call = match prepare_special_tool_call(context, state, tool_call.clone()) {
-                Ok(tool_call) => tool_call,
-                Err(error) => {
-                    return tool_error_result(
-                        services, context, state, iteration, &tool_call, error,
-                    );
-                }
-            };
-            match await_tool_approval(services, context, state, iteration, &tool_call, approval)
-                .await
-            {
-                AwaitToolApprovalOutcome::Resolved(resolution) => {
-                    emit_approval_decision(context, state, iteration, &resolution);
-                    state.clear_pending_tool_calls();
-                    if resolution.decision == AgentApprovalDecision::Denied {
-                        context.metrics().increment("approval.denied_by_user");
-                        let mut error =
-                            format!("native tool `{}` was rejected by the user", tool_call.name);
-                        if let Some(guidance) = resolution
-                            .guidance
-                            .as_deref()
-                            .map(str::trim)
-                            .filter(|guidance| !guidance.is_empty())
-                        {
-                            error.push_str(": ");
-                            error.push_str(guidance);
-                        }
-                        record_tool_failure(context, state, iteration, &tool_call, &error);
-                        state.transition_phase(
-                            AgentRuntimePhase::Planning,
-                            iteration,
-                            "agent.tool.result",
-                        );
-                        save_phase_checkpoint(
-                            services,
-                            context,
-                            state.phase.as_str(),
-                            state.active_checkpoint_payload("tool_rejected"),
-                        );
-                        continue;
-                    }
-                    context.metrics().increment("approval.approved");
-                }
-                AwaitToolApprovalOutcome::Cancelled => {
-                    return cancelled_result(services, context, state, iteration);
-                }
-                AwaitToolApprovalOutcome::Failed(error) => {
-                    return tool_error_result(
-                        services, context, state, iteration, &tool_call, error,
-                    );
-                }
-            }
-        }
-        let outcome =
-            execute_sequential_tool_batch(services, context, state, iteration, vec![tool_call])
-                .await;
-        if !matches!(outcome, NativeAgentToolExecutionOutcome::Continue) {
-            return outcome;
-        }
-    }
-    NativeAgentToolExecutionOutcome::Continue
-}
-
-async fn await_tool_approval(
-    services: &NativeAgentRuntimeServices,
-    context: &AgentTurnContext,
-    state: &mut AgentTurnState,
-    iteration: i64,
-    tool_call: &NativeAgentToolCall,
-    approval: ToolApprovalMetadata,
-) -> AwaitToolApprovalOutcome {
-    let arguments = match serde_json::from_str::<Value>(&tool_call.arguments_json) {
-        Ok(arguments) => arguments,
-        Err(error) => {
-            return AwaitToolApprovalOutcome::Failed(format!(
-                "native tool `{}` arguments are invalid JSON: {error}",
-                tool_call.name
-            ));
-        }
-    };
-    let permission_invocation = AgentHookInvocation::tool(
-        AgentHookStage::PermissionRequest,
-        context.trace_context.clone(),
-        tool_call.id.clone(),
-        tool_call.name.clone(),
-        Some(arguments.clone()),
-        None,
-    );
-    let permission_evaluation = match context.evaluate_hook(permission_invocation.clone()) {
-        Ok(evaluation) => evaluation,
-        Err(error) => {
-            return AwaitToolApprovalOutcome::Failed(error);
-        }
-    };
-    state.emit_hook_evaluation(&permission_invocation, &permission_evaluation);
-    if let Some(reason) = permission_evaluation.denied_reason {
-        context.metrics().increment("approval.denied_by_hook");
-        return AwaitToolApprovalOutcome::Failed(format!(
-            "native tool `{}` approval denied by hook: {reason}",
-            tool_call.name
-        ));
-    }
-    let approval_id = format!("approval:{}:{}", context.turn_id, tool_call.id);
-    let (scope_key, scope_label) = match context
-        .tool_router
-        .approval_session_scope(&tool_call.name, &arguments)
-    {
-        Ok(scope) => scope,
-        Err(error) => return AwaitToolApprovalOutcome::Failed(error),
-    };
-    let broker = services.approval_broker();
-    let receiver = match broker.register(NativeAgentApprovalRequest {
-        approval_id: approval_id.clone(),
-        session_id: context.session_id.clone(),
-        turn_id: context.turn_id.clone(),
-        scope_key: scope_key.clone(),
-    }) {
-        Ok(ApprovalRegistration::ApprovedForSession(resolution)) => {
-            return AwaitToolApprovalOutcome::Resolved(resolution);
-        }
-        Ok(ApprovalRegistration::Pending(receiver)) => receiver,
-        Err(error) => return AwaitToolApprovalOutcome::Failed(error),
-    };
-    context.metrics().increment("approval.requested");
-    let summary = format!("Approval required: {}", tool_call.name);
-    let risk = if matches!(
-        tool_call.name.as_str(),
-        "shell.execute" | "exec_command" | "mcp.call_tool"
-    ) {
-        "high"
-    } else {
-        "medium"
-    };
-    state.set_pending_tool_call(&tool_call);
-    state.transition_phase(
-        AgentRuntimePhase::AwaitingApproval,
-        iteration,
-        "agent.awaiting_approval",
-    );
-    let operation = serde_json::json!({
-        "toolCallId": tool_call.id,
-        "toolName": tool_call.name,
-        "arguments": arguments,
-    });
-    state.emit_event(
-        "agent.awaiting_approval",
-        serde_json::json!({
-            "turnId": context.turn_id,
-            "sessionId": context.session_id,
-            "iteration": iteration,
-            "approvalId": approval_id,
-            "toolCallId": tool_call.id,
-            "toolName": tool_call.name,
-            "detailId": format!("approval:{approval_id}"),
-            "status": "waiting",
-            "summary": summary,
-            "content": summary,
-            "risk": risk,
-            "scope": approval.scope,
-            "lifetime": approval.lifetime,
-            "scopeKey": scope_key,
-            "scopeLabel": scope_label,
-            "options": [
-                { "decision": "approved", "scope": "once" },
-                { "decision": "approved", "scope": "session" },
-                { "decision": "denied" }
-            ],
-            "operation": operation,
-        }),
-    );
-    let approval_wait_started = std::time::Instant::now();
-    tokio::select! {
-        resolution = receiver => match resolution {
-            Ok(resolution) => {
-                context
-                    .metrics()
-                    .record_duration("approval.wait.durationMs", approval_wait_started.elapsed());
-                context.metrics().increment("approval.resolved");
-                AwaitToolApprovalOutcome::Resolved(resolution)
-            },
-            Err(_) if context_is_cancelled(context) => AwaitToolApprovalOutcome::Cancelled,
-            Err(_) => AwaitToolApprovalOutcome::Failed(format!(
-                "native approval `{approval_id}` was closed before a decision was received"
-            )),
-        },
-        _ = wait_for_context_cancellation(context) => {
-            broker.cancel(&approval_id);
-            AwaitToolApprovalOutcome::Cancelled
-        }
-    }
-}
-
-fn emit_approval_decision(
-    context: &AgentTurnContext,
-    state: &mut AgentTurnState,
-    iteration: i64,
-    resolution: &NativeAgentApprovalResolution,
-) {
-    state.emit_event(
-        "agent.approval.decision",
-        serde_json::json!({
-            "turnId": context.turn_id,
-            "sessionId": context.session_id,
-            "iteration": iteration,
-            "approvalId": resolution.approval_id,
-            "detailId": format!("approval:{}", resolution.approval_id),
-            "status": "completed",
-            "decision": match resolution.decision {
-                AgentApprovalDecision::Approved => "approved",
-                AgentApprovalDecision::Denied => "denied",
-            },
-            "scope": match resolution.scope {
-                AgentApprovalScope::Once => "once",
-                AgentApprovalScope::Session => "session",
-            },
-            "guidance": resolution.guidance,
-            "commandId": resolution.command_id,
-        }),
-    );
 }
 
 fn execute_tool_search(
@@ -836,21 +508,6 @@ fn execute_tool_search(
         .record_duration("tool.durationMs", tool_started_at.elapsed());
     context.metrics().increment("tool.completed");
     let result = super::NativeAgentToolResult::generic_success(&tool_call, raw_result);
-    let after_invocation = AgentHookInvocation::tool(
-        AgentHookStage::AfterToolUse,
-        context.trace_context.clone(),
-        tool_call.id.clone(),
-        tool_call.name.clone(),
-        None,
-        Some("completed".to_string()),
-    );
-    let after_evaluation = match context.evaluate_hook(after_invocation.clone()) {
-        Ok(evaluation) => evaluation,
-        Err(error) => {
-            return tool_error_result(services, context, state, iteration, &tool_call, error);
-        }
-    };
-    state.emit_hook_evaluation(&after_invocation, &after_evaluation);
     record_tool_result(&*context, state, iteration, tool_call, result);
     state.clear_pending_tool_calls();
     state.transition_phase(AgentRuntimePhase::Planning, iteration, "agent.tool.result");
@@ -932,21 +589,6 @@ fn execute_update_plan(
         .record_duration("tool.durationMs", tool_started_at.elapsed());
     context.metrics().increment("tool.completed");
 
-    let after_invocation = AgentHookInvocation::tool(
-        AgentHookStage::AfterToolUse,
-        context.trace_context.clone(),
-        tool_call.id.clone(),
-        tool_call.name.clone(),
-        None,
-        Some("completed".to_string()),
-    );
-    let after_evaluation = match context.evaluate_hook(after_invocation.clone()) {
-        Ok(evaluation) => evaluation,
-        Err(error) => {
-            return tool_error_result(services, context, state, iteration, &tool_call, error);
-        }
-    };
-    state.emit_hook_evaluation(&after_invocation, &after_evaluation);
     record_tool_result(context, state, iteration, tool_call, result);
     state.clear_pending_tool_calls();
     state.transition_phase(AgentRuntimePhase::Planning, iteration, "agent.tool.result");
@@ -969,22 +611,7 @@ fn recoverable_update_plan_error(
 ) -> NativeAgentToolExecutionOutcome {
     state.tools_used.push(tool_call.name.clone());
     let result = super::NativeAgentToolResult::generic_error(&tool_call, error);
-    record_tool_result(context, state, iteration, tool_call.clone(), result);
-    let after_invocation = AgentHookInvocation::tool(
-        AgentHookStage::AfterToolUse,
-        context.trace_context.clone(),
-        tool_call.id.clone(),
-        tool_call.name.clone(),
-        None,
-        Some("failed".to_string()),
-    );
-    let after_evaluation = match context.evaluate_hook(after_invocation.clone()) {
-        Ok(evaluation) => evaluation,
-        Err(error) => {
-            return tool_error_result(services, context, state, iteration, &tool_call, error);
-        }
-    };
-    state.emit_hook_evaluation(&after_invocation, &after_evaluation);
+    record_tool_result(context, state, iteration, tool_call, result);
     state.clear_pending_tool_calls();
     state.transition_phase(AgentRuntimePhase::Planning, iteration, "agent.tool.result");
     save_phase_checkpoint(
@@ -1162,65 +789,28 @@ pub(super) async fn dispatch_owned_tool_call(
 async fn dispatch_tool_with_cancellation_policy(
     dispatcher: Arc<dyn NativeAgentToolDispatcher>,
     context: AgentTurnContext,
-    mut tool_call: NativeAgentToolCall,
+    tool_call: NativeAgentToolCall,
 ) -> ToolDispatchOutcome {
     let normalized_input = match serde_json::from_str::<Value>(&tool_call.arguments_json) {
         Ok(input) => input,
         Err(error) => {
             let error = format!(
-                "native tool `{}` arguments are invalid JSON before hook dispatch: {error}",
+                "native tool `{}` arguments are invalid JSON: {error}",
                 tool_call.name
             );
             return completed_tool_error(tool_call, error);
         }
     };
-    let before_invocation = AgentHookInvocation::tool(
-        AgentHookStage::BeforeToolUse,
-        context.trace_context.clone(),
-        tool_call.id.clone(),
-        tool_call.name.clone(),
-        Some(normalized_input),
-        None,
-    );
-    let before_evaluation = match context.evaluate_hook(before_invocation.clone()) {
-        Ok(evaluation) => evaluation,
-        Err(error) => return completed_tool_error(tool_call, error),
-    };
-    let denied_reason = before_evaluation.denied_reason.clone();
-    let replacement = before_evaluation
-        .input_replaced
-        .then(|| before_evaluation.normalized_input.clone())
-        .flatten();
-    context.queue_hook_evaluation(before_invocation, before_evaluation);
-    if let Some(reason) = denied_reason {
-        context.metrics().increment("tool.denied");
-        let error = format!("native tool `{}` denied by hook: {reason}", tool_call.name);
+    if !normalized_input.is_object() {
+        let error = format!(
+            "native tool `{}` arguments must be a JSON object",
+            tool_call.name
+        );
         return completed_tool_error(tool_call, error);
-    }
-    if let Some(replacement) = replacement {
-        if !replacement.is_object() {
-            let error = format!(
-                "native tool `{}` hook replacement must be a JSON object",
-                tool_call.name
-            );
-            return completed_tool_error(tool_call, error);
-        }
-        tool_call.arguments_json = match serde_json::to_string(&replacement) {
-            Ok(arguments) => arguments,
-            Err(error) => {
-                let error = format!(
-                    "native tool `{}` hook replacement failed to serialize: {error}",
-                    tool_call.name
-                );
-                return completed_tool_error(tool_call, error);
-            }
-        };
     }
     let cancellation_mode = native_tool_cancellation_mode(&context, &tool_call.name);
     let cleanup_timeout_ms = native_tool_cleanup_timeout_ms(&context, &tool_call.name).max(1);
     let dispatch_call = tool_call.clone();
-    let tool_call_id = tool_call.id.clone();
-    let tool_name = tool_call.name.clone();
     context.metrics().increment("tool.started");
     let tool_started_at = std::time::Instant::now();
     let operation = dispatcher.dispatch_async(context.clone(), dispatch_call);
@@ -1283,21 +873,6 @@ async fn dispatch_tool_with_cancellation_policy(
     context
         .metrics()
         .increment(&format!("tool.{outcome_label}"));
-    let after_invocation = AgentHookInvocation::tool(
-        AgentHookStage::AfterToolUse,
-        context.trace_context.clone(),
-        tool_call_id,
-        tool_name,
-        None,
-        Some(outcome_label.to_string()),
-    );
-    let after_evaluation = match context.evaluate_hook(after_invocation.clone()) {
-        Ok(evaluation) => evaluation,
-        Err(error) => {
-            return completed_tool_error(tool_dispatch_outcome_tool_call(&outcome).clone(), error);
-        }
-    };
-    context.queue_hook_evaluation(after_invocation, after_evaluation);
     outcome
 }
 

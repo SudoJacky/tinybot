@@ -1,4 +1,4 @@
-use super::*;
+﻿use super::*;
 use crate::protocol::WorkerRequestCancellation;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -7,7 +7,7 @@ use std::sync::{
 use std::time::Duration;
 
 #[test]
-fn start_allows_approved_absolute_path_outside_workspace() {
+fn start_allows_absolute_path_outside_workspace() {
     let workspace = ShellFixture::new();
     let mentioned_file = ShellFixture::new();
     let file_path = mentioned_file.root.join("RAG.md");
@@ -23,24 +23,18 @@ fn start_allows_approved_absolute_path_outside_workspace() {
     );
 
     let result = rpc
-        .start_with_approval_decision(
-            ShellStartParams {
-                command,
-                working_dir: Some(".".to_string()),
-                restrict_to_workspace: Some(true),
-                tty: Some(false),
-                yield_time_ms: Some(10_000),
-                rows: None,
-                cols: None,
-                sandbox_mode: Some(ShellSandboxMode::Unsandboxed),
-                network_mode: Some(PermissionNetworkMode::Unrestricted),
-                owner_id: Some("turn-external-read".to_string()),
-                tool_call_id: Some("call-external-read".to_string()),
-                cancellation: None,
-            },
-            "approved",
-        )
-        .expect("approved shell command should read an absolute mentioned-file path");
+        .start(ShellStartParams {
+            command,
+            working_dir: Some(".".to_string()),
+            tty: Some(false),
+            yield_time_ms: Some(10_000),
+            rows: None,
+            cols: None,
+            owner_id: Some("turn-external-read".to_string()),
+            tool_call_id: Some("call-external-read".to_string()),
+            cancellation: None,
+        })
+        .expect("shell command should read an absolute mentioned-file path");
 
     assert!(!result.running, "{result:?}");
     assert_eq!(result.exit_code, Some(0), "{result:?}");
@@ -60,9 +54,6 @@ fn execute_drains_large_output_while_command_is_running() {
             command: large_output_command(),
             working_dir: Some(".".to_string()),
             timeout: Some(15),
-            restrict_to_workspace: Some(true),
-            sandbox_mode: None,
-            network_mode: None,
             cancellation: None,
         })
         .expect("large output command should complete");
@@ -92,9 +83,6 @@ fn execute_kills_running_command_when_cancelled() {
             command,
             working_dir: Some(".".to_string()),
             timeout: Some(30),
-            restrict_to_workspace: Some(true),
-            sandbox_mode: None,
-            network_mode: None,
             cancellation: Some(execute_cancellation),
         })
     });
@@ -135,9 +123,6 @@ fn execute_times_out_through_the_owned_process_manager() {
             command: blocking_command_with_marker(),
             working_dir: Some(".".to_string()),
             timeout: Some(1),
-            restrict_to_workspace: Some(true),
-            sandbox_mode: None,
-            network_mode: None,
             cancellation: None,
         })
         .expect("timed out shell execute should return a structured result");
@@ -168,9 +153,6 @@ fn execute_kills_shell_process_group_when_cancelled() {
             command: child_process_command_with_marker(),
             working_dir: Some(".".to_string()),
             timeout: Some(30),
-            restrict_to_workspace: Some(true),
-            sandbox_mode: None,
-            network_mode: None,
             cancellation: Some(execute_cancellation),
         })
     });

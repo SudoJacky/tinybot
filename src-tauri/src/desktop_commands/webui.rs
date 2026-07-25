@@ -717,15 +717,12 @@ async fn worker_webui_tools_body(
         let request_id = next_worker_request_correlation();
         let mut router =
             native_request_router(thread_store, config_snapshot).with_mcp_runtime(mcp_runtime);
-        let response = router.dispatch(
-            &WorkerRequest::new(
-                request_id.id("webui-tools"),
-                request_id.trace_id("webui-tools"),
-                "tools.webui_catalog",
-                serde_json::json!({}),
-            )
-            .with_trusted_internal(),
-        );
+        let response = router.dispatch(&WorkerRequest::new(
+            request_id.id("webui-tools"),
+            request_id.trace_id("webui-tools"),
+            "tools.webui_catalog",
+            serde_json::json!({}),
+        ));
         if let Some(error) = response.error {
             return Err(format!("worker webui tools failed: {}", error.message));
         }

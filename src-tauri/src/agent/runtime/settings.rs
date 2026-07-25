@@ -44,7 +44,6 @@ pub struct AgentTurnSettings {
     pub service_tier: Option<String>,
     pub output_schema: Option<AgentOutputSchema>,
     pub working_directory: Option<PathBuf>,
-    pub approval_policy: Option<String>,
     pub permission_profile: Option<String>,
     pub selected_tools: Vec<String>,
     pub parallel_tool_calls: Option<bool>,
@@ -128,15 +127,6 @@ impl AgentTurnSettings {
             &mut validation_errors,
         )
         .map(PathBuf::from);
-        let approval_policy = optional_string_setting(
-            spec,
-            metadata,
-            defaults,
-            &["approvalPolicy", "approval_policy"],
-            "approval_policy",
-            &mut validation_errors,
-        )
-        .and_then(|policy| normalize_approval_policy(policy, &mut validation_errors));
         let permission_profile = optional_string_setting(
             spec,
             metadata,
@@ -176,7 +166,6 @@ impl AgentTurnSettings {
             service_tier,
             output_schema,
             working_directory,
-            approval_policy,
             permission_profile,
             selected_tools,
             parallel_tool_calls,
@@ -201,25 +190,6 @@ impl AgentTurnSettings {
             "local-worker" => Ok(default_desktop_capability_policy()),
             profile => Err(format!("unsupported permission profile `{profile}`")),
         }
-    }
-
-    pub(super) fn effective_approval_policy(&self) -> &str {
-        self.approval_policy.as_deref().unwrap_or("on_request")
-    }
-}
-
-fn normalize_approval_policy(
-    policy: String,
-    validation_errors: &mut Vec<String>,
-) -> Option<String> {
-    let normalized = policy.to_ascii_lowercase().replace('-', "_");
-    if matches!(normalized.as_str(), "on_request" | "never") {
-        Some(normalized)
-    } else {
-        validation_errors.push(format!(
-            "approval_policy must be `on_request` or `never`, got `{policy}`"
-        ));
-        None
     }
 }
 

@@ -169,30 +169,6 @@ impl NativeAgentTraceSink for RecordingTraceSink {
     }
 }
 
-fn wait_for_approval_id(trace_sink: &RecordingTraceSink, turn_id: &str) -> String {
-    let deadline = std::time::Instant::now() + Duration::from_secs(5);
-    loop {
-        if let Some(approval_id) = trace_sink
-            .events
-            .lock()
-            .expect("trace sink lock should not be poisoned")
-            .iter()
-            .find(|event| {
-                event.event_name == "agent.awaiting_approval" && event.payload["turnId"] == turn_id
-            })
-            .and_then(|event| event.payload["approvalId"].as_str())
-            .map(str::to_string)
-        {
-            return approval_id;
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "approval event for turn `{turn_id}` was not emitted"
-        );
-        thread::sleep(Duration::from_millis(5));
-    }
-}
-
 mod configuration;
 mod context;
 mod interactions;

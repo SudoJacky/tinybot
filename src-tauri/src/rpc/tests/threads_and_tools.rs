@@ -1348,8 +1348,8 @@ fn dispatches_tool_registry_list_with_capability_metadata() {
     assert_eq!(shell["exposure"], "hidden");
     assert_eq!(shell["available"], false);
     assert_eq!(shell["requiredCapabilities"], json!(["shell.execute"]));
-    assert_eq!(shell["approval"]["required"], true);
-    assert_eq!(shell["approval"]["scope"], "command");
+    assert_eq!(shell["approval"]["required"], false);
+    assert_eq!(shell["approval"]["scope"], Value::Null);
 
     let mcp = tools
         .iter()
@@ -1365,9 +1365,9 @@ fn dispatches_tool_registry_list_with_capability_metadata() {
         .expect("workspace.write_file should be registered");
     assert_eq!(
         write_file["requiredCapabilities"],
-        json!(["fs.workspace.write", "approval.request"])
+        json!(["fs.workspace.write"])
     );
-    assert_eq!(write_file["approval"]["required"], true);
+    assert_eq!(write_file["approval"]["required"], false);
     assert_eq!(write_file["available"], false);
 }
 
@@ -1464,8 +1464,10 @@ fn dispatches_permission_profile_current_with_tool_decisions() {
     assert_eq!(response.error, None);
     let result = response.result.as_ref().unwrap();
     assert_eq!(result["profileId"], "local-worker");
-    assert_eq!(result["approvalPolicy"], "on_request");
-    assert_eq!(result["sandbox"]["mode"], "workspace_write");
+    assert_eq!(result["approvalPolicy"], "disabled");
+    assert_eq!(result["sandbox"]["mode"], "none");
+    assert_eq!(result["sandbox"]["filesystem"], "current_user");
+    assert_eq!(result["sandbox"]["network"], "current_user");
     assert!(result["capabilities"]
         .as_array()
         .unwrap()
@@ -1492,9 +1494,9 @@ fn dispatches_permission_profile_current_with_tool_decisions() {
         .iter()
         .find(|tool| tool["toolId"] == "workspace.write_file")
         .expect("workspace.write_file decision should be present");
-    assert_eq!(write_file["decision"], "needs_approval");
-    assert_eq!(write_file["requiresApproval"], true);
-    assert_eq!(write_file["approval"]["scope"], "file");
+    assert_eq!(write_file["decision"], "allow");
+    assert_eq!(write_file["requiresApproval"], false);
+    assert_eq!(write_file["approval"]["scope"], Value::Null);
     let shell = result["tools"]
         .as_array()
         .unwrap()
@@ -1506,7 +1508,7 @@ fn dispatches_permission_profile_current_with_tool_decisions() {
 }
 
 #[test]
-fn dispatches_permission_profile_evaluate_tool_for_sensitive_request() {
+fn dispatches_permission_profile_evaluate_tool_without_approval() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -1534,33 +1536,10 @@ fn dispatches_permission_profile_evaluate_tool_for_sensitive_request() {
     assert_eq!(response.error, None);
     let result = response.result.as_ref().unwrap();
     assert_eq!(result["tool"]["toolId"], "shell.execute");
-    assert_eq!(result["decision"], "needs_approval");
-    assert_eq!(result["requiresApproval"], true);
-    assert_eq!(result["approvalRequest"]["method"], "shell.execute");
-    assert_eq!(result["approvalRequest"]["category"], "shell");
-    assert_eq!(result["approvalRequest"]["risk"], "high");
-    assert_eq!(
-        result["approvalRequest"]["operation"]["toolName"],
-        "shell.execute"
-    );
-    assert_eq!(
-        result["approvalRequest"]["operation"]["arguments"],
-        json!({ "command": "cargo test --lib" })
-    );
-    assert_eq!(
-        result["approvalRequest"]["operation"]["effects"],
-        result["approvalRequest"]["effects"]
-    );
-    assert_eq!(
-        result["approvalRequest"]["effects"]["sandboxMode"],
-        "unsandboxed"
-    );
-    assert_eq!(
-        result["approvalRequest"]["effects"]["network"]["mode"],
-        "unrestricted"
-    );
-    assert_eq!(result["approvalRequest"]["sessionId"], "session-1");
-    assert_eq!(result["approvalRequest"]["turnId"], "turn-1");
+    assert_eq!(result["decision"], "allow");
+    assert_eq!(result["requiresApproval"], false);
+    assert!(result.get("approvalRequest").is_none());
+    assert_eq!(result["effects"]["network"]["mode"], "unrestricted");
 }
 
 #[test]
@@ -1588,13 +1567,13 @@ fn dispatches_permission_profile_evaluate_tool_denies_missing_capability() {
     let result = response.result.as_ref().unwrap();
     assert_eq!(result["tool"]["toolId"], "mcp.call_tool");
     assert_eq!(result["decision"], "deny");
-    assert_eq!(result["requiresApproval"], true);
+    assert_eq!(result["requiresApproval"], false);
     assert_eq!(result["missingCapabilities"], json!(["mcp.call"]));
     assert!(result.get("approvalRequest").is_none());
 }
 
 #[test]
-fn dispatches_permission_profile_request_tool_approval_records_thread_item() {
+fn permission_profile_request_reports_allowed_without_creating_approval_item() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -1645,19 +1624,10 @@ fn dispatches_permission_profile_request_tool_approval_records_thread_item() {
 
     assert_eq!(response.error, None);
     let result = response.result.as_ref().unwrap();
-    assert_eq!(result["status"], "awaiting_approval");
-    assert_eq!(result["evaluation"]["decision"], "needs_approval");
-    assert_eq!(result["approval"]["stopReason"], "awaiting_approval");
-    assert_eq!(result["approval"]["category"], "shell");
-    assert_eq!(result["appendedItems"].as_array().unwrap().len(), 1);
-    assert_eq!(
-        result["appendedItems"][0]["kind"]["type"],
-        "approval_requested"
-    );
-    assert_eq!(
-        result["appendedItems"][0]["kind"]["payload"]["approvalId"],
-        result["approval"]["approvalId"]
-    );
+    assert_eq!(result["status"], "allowed");
+    assert_eq!(result["evaluation"]["decision"], "allow");
+    assert!(result.get("approval").is_none());
+    assert_eq!(result["appendedItems"].as_array().unwrap().len(), 0);
 
     let snapshot = router.dispatch(&WorkerRequest::new(
         "req-permission-approval-thread-snapshot",
@@ -1672,103 +1642,11 @@ fn dispatches_permission_profile_request_tool_approval_records_thread_item() {
         .iter()
         .map(|item| item["kind"]["type"].as_str().unwrap().to_string())
         .collect::<Vec<_>>();
-    assert_eq!(
-        item_kinds,
-        vec!["user_message", "turn_started", "approval_requested"]
-    );
+    assert_eq!(item_kinds, vec!["user_message", "turn_started"]);
 }
 
 #[test]
-fn dispatches_permission_profile_resolve_tool_approval_records_thread_item() {
-    let fixture = WorkspaceFixture::new();
-    let mut router = WorkerRpcRouter::new(
-        fixture.root.clone(),
-        json!({}),
-        vec![],
-        20,
-        CapabilityPolicy::new([
-            WorkerCapability::ShellExecute,
-            WorkerCapability::ApprovalRequest,
-            WorkerCapability::ApprovalResolve,
-            WorkerCapability::SessionMetadataRead,
-            WorkerCapability::SessionWrite,
-        ]),
-    );
-    let create = router.dispatch(&WorkerRequest::new(
-        "req-permission-resolve-thread-create",
-        "trace-permission-resolve",
-        "thread.create",
-        json!({
-            "threadId": "thread-permission-resolve",
-            "title": "Permission resolve thread"
-        }),
-    ));
-    assert_eq!(create.error, None);
-    let start = router.dispatch(&WorkerRequest::new(
-        "req-permission-resolve-thread-start",
-        "trace-permission-resolve",
-        "thread.start_turn",
-        json!({
-            "threadId": "thread-permission-resolve",
-            "turnId": "turn-permission-resolve",
-            "input": { "content": "run shell" }
-        }),
-    ));
-    assert_eq!(start.error, None);
-    let request_response = router.dispatch(&WorkerRequest::new(
-        "req-permission-resolve-request",
-        "trace-permission-resolve",
-        "permission_profile.request_tool_approval",
-        json!({
-            "toolId": "shell.execute",
-            "threadId": "thread-permission-resolve",
-            "turnId": "turn-permission-resolve",
-            "sessionId": "session-permission-resolve",
-            "arguments": { "command": "echo resolve approval" }
-        }),
-    ));
-    assert_eq!(request_response.error, None);
-    let approval_id = request_response.result.as_ref().unwrap()["approval"]["approvalId"]
-        .as_str()
-        .unwrap()
-        .to_string();
-
-    let response = router.dispatch(&WorkerRequest::new(
-        "req-permission-resolve-decision",
-        "trace-permission-resolve",
-        "permission_profile.resolve_tool_approval",
-        json!({
-            "threadId": "thread-permission-resolve",
-            "turnId": "turn-permission-resolve",
-            "sessionId": "session-permission-resolve",
-            "approvalId": approval_id,
-            "approved": true,
-            "scope": "once",
-            "guidance": "approved for this turn"
-        }),
-    ));
-
-    assert_eq!(response.error, None);
-    let result = response.result.as_ref().unwrap();
-    assert_eq!(result["status"], "approved");
-    assert_eq!(result["resolution"]["status"], "approved");
-    assert_eq!(result["appendedItems"].as_array().unwrap().len(), 1);
-    assert_eq!(
-        result["appendedItems"][0]["kind"]["type"],
-        "approval_resolved"
-    );
-    assert_eq!(
-        result["appendedItems"][0]["kind"]["payload"]["approved"],
-        true
-    );
-    assert_eq!(
-        result["appendedItems"][0]["parentItemId"],
-        request_response.result.as_ref().unwrap()["appendedItems"][0]["itemId"]
-    );
-}
-
-#[test]
-fn permission_profile_resolved_tool_approval_allows_matching_sensitive_tool() {
+fn shell_runs_directly_without_permission_profile_approval() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -1781,35 +1659,6 @@ fn permission_profile_resolved_tool_approval_allows_matching_sensitive_tool() {
             WorkerCapability::ApprovalResolve,
         ]),
     );
-    let request_response = router.dispatch(&WorkerRequest::new(
-        "req-permission-grant-request",
-        "trace-permission-grant",
-        "permission_profile.request_tool_approval",
-        json!({
-            "toolId": "shell.execute",
-            "turnId": "turn-permission-grant",
-            "sessionId": "session-permission-grant",
-            "arguments": { "command": "echo approval grant works" }
-        }),
-    ));
-    assert_eq!(request_response.error, None);
-    let approval_id = request_response.result.as_ref().unwrap()["approval"]["approvalId"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    let resolve_response = router.dispatch(&WorkerRequest::new(
-        "req-permission-grant-resolve",
-        "trace-permission-grant",
-        "permission_profile.resolve_tool_approval",
-        json!({
-            "sessionId": "session-permission-grant",
-            "approvalId": approval_id,
-            "approved": true,
-            "scope": "once"
-        }),
-    ));
-    assert_eq!(resolve_response.error, None);
-
     let shell_response = router.dispatch(&WorkerRequest::new(
         "req-permission-grant-shell",
         "trace-permission-grant",
@@ -1833,7 +1682,7 @@ fn permission_profile_resolved_tool_approval_allows_matching_sensitive_tool() {
 }
 
 #[test]
-fn tool_executor_forwards_top_level_context_to_sensitive_tool() {
+fn tool_executor_forwards_top_level_context_without_approval() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -1846,35 +1695,6 @@ fn tool_executor_forwards_top_level_context_to_sensitive_tool() {
             WorkerCapability::ApprovalResolve,
         ]),
     );
-    let request_response = router.dispatch(&WorkerRequest::new(
-        "req-executor-grant-request",
-        "trace-executor-grant",
-        "permission_profile.request_tool_approval",
-        json!({
-            "toolId": "shell.execute",
-            "turnId": "turn-executor-grant",
-            "sessionId": "session-executor-grant",
-            "arguments": { "command": "echo executor grant works" }
-        }),
-    ));
-    assert_eq!(request_response.error, None);
-    let approval_id = request_response.result.as_ref().unwrap()["approval"]["approvalId"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    let resolve_response = router.dispatch(&WorkerRequest::new(
-        "req-executor-grant-resolve",
-        "trace-executor-grant",
-        "permission_profile.resolve_tool_approval",
-        json!({
-            "sessionId": "session-executor-grant",
-            "approvalId": approval_id,
-            "approved": true,
-            "scope": "once"
-        }),
-    ));
-    assert_eq!(resolve_response.error, None);
-
     let executor_response = router.dispatch(&WorkerRequest::new(
         "req-executor-grant-shell",
         "trace-executor-grant",
@@ -2638,7 +2458,7 @@ fn dispatches_tool_executor_rejects_unavailable_registered_tool() {
 }
 
 #[test]
-fn dispatches_tool_executor_preserves_sensitive_tool_approval_boundary() {
+fn dispatches_tool_executor_shell_without_approval_boundary() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -2662,21 +2482,12 @@ fn dispatches_tool_executor_preserves_sensitive_tool_approval_boundary() {
         }),
     ));
 
-    let error = response
-        .error
-        .expect("sensitive registered tool should still require approval");
-    assert_eq!(
-        error.code,
-        crate::protocol::WorkerProtocolErrorCode::CapabilityDenied
-    );
-    assert_eq!(error.message, "approval required for sensitive operation");
-    assert_eq!(error.details["method"], "shell.execute");
-    assert_eq!(error.details["boundary"], "security");
-    assert_eq!(error.details["category"], "shell");
+    assert!(response.error.is_none());
+    assert_eq!(response.result.as_ref().unwrap()["result"]["exit_code"], 0);
 }
 
 #[test]
-fn mcp_tool_calls_cannot_bypass_approval_through_low_level_rpc() {
+fn mcp_tool_calls_reach_mcp_validation_without_approval_boundary() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -2704,16 +2515,12 @@ fn mcp_tool_calls_cannot_bypass_approval_through_low_level_rpc() {
         "mcp.call_tool",
         arguments.clone(),
     ));
-    let direct_error = direct
-        .error
-        .expect("direct MCP RPC should require a matching approval");
+    let direct_error = direct.error.expect("missing MCP client should fail");
     assert_eq!(
         direct_error.code,
-        crate::protocol::WorkerProtocolErrorCode::CapabilityDenied
+        crate::protocol::WorkerProtocolErrorCode::InvalidProtocol
     );
-    assert_eq!(direct_error.details["boundary"], "security");
-    assert_eq!(direct_error.details["method"], "mcp.call_tool");
-    assert_eq!(direct_error.details["category"], "mcp_tool");
+    assert_ne!(direct_error.details["boundary"], "security");
 
     let executor = router.dispatch(&WorkerRequest::new(
         "req-executor-mcp",
@@ -2724,15 +2531,12 @@ fn mcp_tool_calls_cannot_bypass_approval_through_low_level_rpc() {
             "arguments": arguments
         }),
     ));
-    let executor_error = executor
-        .error
-        .expect("tool executor MCP RPC should require the trusted approved path");
+    let executor_error = executor.error.expect("missing MCP client should fail");
     assert_eq!(
-        executor_error.message,
-        "approval-required tools must be dispatched through a trusted approved runtime path"
+        executor_error.code,
+        crate::protocol::WorkerProtocolErrorCode::InvalidProtocol
     );
-    assert_eq!(executor_error.details["boundary"], "security");
-    assert_eq!(executor_error.details["toolId"], "mcp.call_tool");
+    assert_ne!(executor_error.details["boundary"], "security");
 }
 
 #[test]

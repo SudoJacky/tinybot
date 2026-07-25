@@ -182,8 +182,7 @@ pub(crate) fn worker_workspace_put_file_with_options(
                 "contents": contents,
                 "expected_updated_at": expected_updated_at,
             }),
-        )
-        .with_trusted_internal(),
+        ),
         "worker workspace put file",
     )
 }

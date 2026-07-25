@@ -3,9 +3,8 @@ use crate::protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource, WorkerRequest,
 };
 use crate::tools::permissions::{
-    mcp_permission_effects, normalize_permission_effects, normalize_permission_path,
-    permission_fingerprint, shell_permission_effects, workspace_patch_permission_effects,
-    workspace_write_permission_effects, PermissionEffects, PermissionNetworkMode, ShellSandboxMode,
+    normalize_permission_effects, normalize_permission_path, permission_fingerprint,
+    PermissionEffects,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -23,7 +22,6 @@ pub(super) struct WorkerApprovalRpc {
     pending: HashMap<String, ApprovalRecord>,
     approved_once: Vec<ApprovalGrant>,
     approved_session: Vec<ApprovalGrant>,
-    approved_current_turn: Vec<ApprovalTurnGrant>,
     denied: Vec<Value>,
 }
 
@@ -34,7 +32,6 @@ impl WorkerApprovalRpc {
             pending: HashMap::new(),
             approved_once: Vec::new(),
             approved_session: Vec::new(),
-            approved_current_turn: Vec::new(),
             denied: Vec::new(),
         }
     }
@@ -65,8 +62,6 @@ impl WorkerApprovalRpc {
         self.require(WorkerCapability::ApprovalRequest)?;
         let record = ApprovalRecord::from_params(params)?;
         if self.consume_once_approval(&record) {
-            self.approved_current_turn
-                .push(ApprovalTurnGrant::from_record(&record));
             return Ok(approval_allowed_result(&record, "once"));
         }
         if self.has_session_approval(&record) {
@@ -177,33 +172,6 @@ impl WorkerApprovalRpc {
         }))
     }
 
-    pub(super) fn require_sensitive_operation(
-        &mut self,
-        requirement: SensitiveOperationApproval,
-    ) -> Result<(), WorkerProtocolError> {
-        let record = requirement.to_record();
-        if self.consume_current_turn_approval(&record)
-            || self.consume_once_approval(&record)
-            || self.has_session_approval(&record)
-        {
-            return Ok(());
-        }
-        Err(approval_required_error(&requirement))
-    }
-
-    fn consume_current_turn_approval(&mut self, record: &ApprovalRecord) -> bool {
-        let grant = ApprovalTurnGrant::from_record(record);
-        let Some(index) = self
-            .approved_current_turn
-            .iter()
-            .position(|item| item == &grant)
-        else {
-            return false;
-        };
-        self.approved_current_turn.remove(index);
-        true
-    }
-
     fn consume_once_approval(&mut self, record: &ApprovalRecord) -> bool {
         let grant = ApprovalGrant::once(record);
         let Some(index) = self.approved_once.iter().position(|item| item == &grant) else {
@@ -229,238 +197,6 @@ impl WorkerApprovalRpc {
             false,
             WorkerProtocolErrorSource::RustCore,
         ))
-    }
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct SensitiveOperationApproval {
-    method: &'static str,
-    turn_id: String,
-    session_id: Option<String>,
-    operation: Value,
-    category: &'static str,
-    risk: &'static str,
-    reason: &'static str,
-    summary: String,
-    scope: &'static str,
-    lifetime: &'static str,
-    effects: PermissionEffects,
-    fingerprint: String,
-    session_fingerprint: String,
-}
-
-impl SensitiveOperationApproval {
-    fn to_record(&self) -> ApprovalRecord {
-        ApprovalRecord {
-            id: approval_id_for(
-                self.session_id.as_deref(),
-                &self.turn_id,
-                &self.fingerprint,
-                &self.operation,
-            ),
-            turn_id: self.turn_id.clone(),
-            session_id: self.session_id.clone(),
-            operation: self.operation.clone(),
-            category: self.category.to_string(),
-            risk: self.risk.to_string(),
-            reason: self.reason.to_string(),
-            summary: self.summary.clone(),
-            scope: Some(self.scope.to_string()),
-            lifetime: Some(self.lifetime.to_string()),
-            effects: Some(
-                serde_json::to_value(&self.effects).expect("permission effects serialize"),
-            ),
-            fingerprint: self.fingerprint.clone(),
-            session_fingerprint: self.session_fingerprint.clone(),
-        }
-    }
-}
-
-pub(super) fn workspace_write_approval(
-    path: &str,
-    session_id: Option<String>,
-    turn_id: Option<String>,
-) -> SensitiveOperationApproval {
-    let normalized_path = normalize_approval_path(path);
-    let effects = workspace_write_permission_effects(path);
-    let fingerprint = permission_fingerprint("write_file", &normalized_path, &effects);
-    SensitiveOperationApproval {
-        method: "workspace.write_file",
-        turn_id: turn_id.unwrap_or_else(|| "workspace.write_file".to_string()),
-        session_id,
-        operation: serde_json::json!({
-            "toolName": "write_file",
-            "arguments": { "path": path },
-            "effects": &effects,
-        }),
-        category: "filesystem_write",
-        risk: "medium",
-        reason: "Workspace file writes are approval-sensitive security operations.",
-        summary: format!("write_file path=\"{path}\""),
-        scope: "file",
-        lifetime: "per_request",
-        effects,
-        fingerprint: fingerprint.clone(),
-        session_fingerprint: fingerprint,
-    }
-}
-
-pub(super) fn workspace_apply_patch_approval(
-    patch: &str,
-    paths: &[String],
-    session_id: Option<String>,
-    turn_id: Option<String>,
-) -> SensitiveOperationApproval {
-    let effects = workspace_patch_permission_effects();
-    let fingerprint = permission_fingerprint("apply_patch", patch, &effects);
-    SensitiveOperationApproval {
-        method: "workspace.apply_patch",
-        turn_id: turn_id.unwrap_or_else(|| "workspace.apply_patch".to_string()),
-        session_id,
-        operation: serde_json::json!({
-            "toolName": "apply_patch",
-            "arguments": { "paths": paths },
-            "effects": &effects,
-        }),
-        category: "filesystem_write",
-        risk: "medium",
-        reason: "Workspace patches are approval-sensitive security operations.",
-        summary: format!("apply_patch paths=[{}]", paths.join(", ")),
-        scope: "file",
-        lifetime: "per_request",
-        effects,
-        fingerprint: fingerprint.clone(),
-        session_fingerprint: fingerprint,
-    }
-}
-
-pub(super) fn mcp_tool_approval(
-    server: &str,
-    tool: &str,
-    session_id: Option<String>,
-    turn_id: Option<String>,
-) -> SensitiveOperationApproval {
-    let server = server.trim();
-    let tool = tool.trim();
-    let effects = mcp_permission_effects(server, tool);
-    let fingerprint = permission_fingerprint("mcp", &format!("{server}.{tool}"), &effects);
-    SensitiveOperationApproval {
-        method: "mcp.call_tool",
-        turn_id: turn_id.unwrap_or_else(|| "mcp.call_tool".to_string()),
-        session_id,
-        operation: serde_json::json!({
-            "toolName": "mcp.call_tool",
-            "arguments": { "server": server, "tool": tool },
-            "effects": &effects,
-        }),
-        category: "mcp_tool",
-        risk: "medium",
-        reason: "MCP tool calls require user approval.",
-        summary: format!("mcp.call_tool {server}.{tool}"),
-        scope: "mcp_tool",
-        lifetime: "per_request",
-        effects,
-        fingerprint: fingerprint.clone(),
-        session_fingerprint: fingerprint,
-    }
-}
-
-pub(super) fn workspace_delete_approval(
-    path: &str,
-    session_id: Option<String>,
-    turn_id: Option<String>,
-) -> SensitiveOperationApproval {
-    let normalized_path = normalize_approval_path(path);
-    let effects = workspace_write_permission_effects(path);
-    let fingerprint = permission_fingerprint("delete_file", &normalized_path, &effects);
-    SensitiveOperationApproval {
-        method: "workspace.delete_file",
-        turn_id: turn_id.unwrap_or_else(|| "workspace.delete_file".to_string()),
-        session_id,
-        operation: serde_json::json!({
-            "toolName": "delete_file",
-            "arguments": { "path": path },
-            "effects": &effects,
-        }),
-        category: "filesystem_write",
-        risk: "medium",
-        reason: "Workspace file deletion is an approval-sensitive security operation.",
-        summary: format!("delete_file path=\"{path}\""),
-        scope: "file",
-        lifetime: "per_request",
-        effects,
-        fingerprint: fingerprint.clone(),
-        session_fingerprint: fingerprint,
-    }
-}
-
-pub(super) fn shell_execute_approval(
-    command: &str,
-    sandbox_mode: ShellSandboxMode,
-    network_mode: PermissionNetworkMode,
-    session_id: Option<String>,
-    turn_id: Option<String>,
-) -> SensitiveOperationApproval {
-    let effects = shell_permission_effects(sandbox_mode, network_mode, false);
-    let fingerprint = permission_fingerprint("exec", command, &effects);
-    SensitiveOperationApproval {
-        method: "shell.execute",
-        turn_id: turn_id.unwrap_or_else(|| "shell.execute".to_string()),
-        session_id,
-        operation: serde_json::json!({
-            "toolName": "exec",
-            "arguments": {
-                "command": command,
-                "sandboxMode": sandbox_mode,
-                "networkMode": network_mode,
-            },
-            "effects": &effects,
-        }),
-        category: "shell",
-        risk: "high",
-        reason: "Shell execution is an approval-sensitive security operation.",
-        summary: format!("exec command=\"{}\"", normalize_approval_command(command)),
-        scope: "command",
-        lifetime: "per_request",
-        effects,
-        fingerprint: fingerprint.clone(),
-        session_fingerprint: fingerprint,
-    }
-}
-
-pub(super) fn shell_start_approval(
-    command: &str,
-    sandbox_mode: ShellSandboxMode,
-    network_mode: PermissionNetworkMode,
-    tty: bool,
-    session_id: Option<String>,
-    turn_id: Option<String>,
-) -> SensitiveOperationApproval {
-    let effects = shell_permission_effects(sandbox_mode, network_mode, tty);
-    let fingerprint = permission_fingerprint("start", command, &effects);
-    SensitiveOperationApproval {
-        method: "shell.start",
-        turn_id: turn_id.unwrap_or_else(|| "shell.start".to_string()),
-        session_id,
-        operation: serde_json::json!({
-            "toolName": "exec_command",
-            "arguments": {
-                "command": command,
-                "sandboxMode": sandbox_mode,
-                "networkMode": network_mode,
-                "tty": tty,
-            },
-            "effects": &effects,
-        }),
-        category: "shell",
-        risk: "high",
-        reason: "Shell execution is an approval-sensitive security operation.",
-        summary: format!("start command=\"{}\"", normalize_approval_command(command)),
-        scope: "command",
-        lifetime: "per_request",
-        effects,
-        fingerprint: fingerprint.clone(),
-        session_fingerprint: fingerprint,
     }
 }
 
@@ -509,29 +245,6 @@ struct ApprovalClassificationParams {
     reason: String,
 }
 
-fn approval_required_error(requirement: &SensitiveOperationApproval) -> WorkerProtocolError {
-    WorkerProtocolError::new(
-        WorkerProtocolErrorCode::CapabilityDenied,
-        "approval required for sensitive operation",
-        serde_json::json!({
-            "method": requirement.method,
-            "boundary": "security",
-            "category": requirement.category,
-            "risk": requirement.risk,
-            "reason": requirement.reason,
-            "summary": requirement.summary,
-            "scope": requirement.scope,
-            "lifetime": requirement.lifetime,
-            "effects": requirement.effects,
-            "fingerprint": requirement.fingerprint,
-            "sessionFingerprint": requirement.session_fingerprint,
-            "sessionId": requirement.session_id,
-        }),
-        false,
-        WorkerProtocolErrorSource::RustCore,
-    )
-}
-
 fn invalid_approval_request(message: impl Into<String>) -> WorkerProtocolError {
     WorkerProtocolError::new(
         WorkerProtocolErrorCode::InvalidProtocol,
@@ -554,23 +267,6 @@ fn normalize_approval_command(command: &str) -> String {
 struct ApprovalGrant {
     session_id: Option<String>,
     fingerprint: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct ApprovalTurnGrant {
-    turn_id: String,
-    session_id: Option<String>,
-    fingerprint: String,
-}
-
-impl ApprovalTurnGrant {
-    fn from_record(record: &ApprovalRecord) -> Self {
-        Self {
-            turn_id: record.turn_id.clone(),
-            session_id: canonical_session_id_option(record.session_id.as_deref()),
-            fingerprint: record.fingerprint.clone(),
-        }
-    }
 }
 
 impl ApprovalGrant {

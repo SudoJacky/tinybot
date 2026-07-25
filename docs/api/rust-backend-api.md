@@ -407,7 +407,7 @@ UI should prefer `SettingsSnapshot` once the frontend is migrated to the Rust-ow
 | `worker_cancel_agent` | `{ input: { turnId: string } }` | JSON result |
 | `worker_restore_agent_checkpoint` | `{ input: { sessionId: string } }` | JSON result |
 | `worker_submit_agent_form` | `{ input: { sessionId, formId, values?, action? } }` | JSON result |
-| `worker_resume_agent_approval` | `{ input: { sessionId, approvalId, approved, scope?, guidance? } }` | JSON result |
+| `worker_resume_agent_approval` | `{ input: { sessionId, approvalId, approved, scope?, guidance? } }` | Compatibility command; returns an explicit disabled error |
 
 Workspace-backed agent results include:
 
@@ -453,21 +453,18 @@ paths.
 
 ### Hooks, trace correlation, and runtime metrics
 
-The native runtime evaluates typed hooks at provider, tool, permission, turn, thread, and context
-compaction boundaries. Hook decisions are `continue`, `deny` with a non-empty reason,
-`replace_normalized_input` for the supported pre-tool boundary, or
-`append_diagnostic_metadata`. Returning a decision at an unsupported stage, returning malformed
-diagnostic metadata, or throwing a hook error fails the turn explicitly; hook failures are never
-converted into successful tool or provider results.
+The native runtime evaluates typed hooks at provider, turn, thread, and context-compaction
+boundaries. Tool and permission hooks are not evaluated because tool calls dispatch directly after
+format, registry, and capability validation. Returning a decision at an unsupported active stage,
+returning malformed diagnostic metadata, or throwing a hook error fails the turn explicitly; hook
+failures are never converted into successful provider results.
 
 Every native agent `runtimeEvents` entry includes the same `traceContext` object. Provider boundary events add
 `providerAttemptId`; tool events retain `itemId`/`toolCallId`. Internal tool, thread, trace, and
 persistence Worker RPC requests reuse the root `traceId` and derive operation-specific request IDs.
 Thread checkpoints/items or direct-session `AgentTurnRecord` values persist the correlation context
-so approval/form continuations and post-restart diagnostics do not create an unrelated trace.
-Approval continuation specs restore the checkpoint `traceContext`, and approved tool continuations
-return and persist traced `runtimeEvents` for the approval decision, tool result, usage, and terminal
-boundary. Persisted tool envelopes apply the same config-secret redaction used by live events.
+so form continuations and post-restart diagnostics do not create an unrelated trace. Persisted tool
+envelopes apply the same config-secret redaction used by live events.
 
 `runtime.metrics` returns a process-local, secret-safe operational snapshot:
 
@@ -479,7 +476,6 @@ boundary. Persisted tool envelopes apply the same config-secret redaction used b
     "turn.started": 1,
     "provider.attempted": 1,
     "tool.completed": 1,
-    "approval.resolved": 1,
     "cancellation.cleanup.completed": 1,
     "mcp.server.start.completed": 1,
     "mcp.server.stop.completed": 1,
@@ -497,7 +493,6 @@ boundary. Persisted tool envelopes apply the same config-secret redaction used b
     "timeline.patch.projection.durationMs": { "count": 120, "totalMs": 12, "maxMs": 1, "averageMs": 0.1 },
     "persistence.batch.durationMs": { "count": 8, "totalMs": 32, "maxMs": 6, "averageMs": 4.0 },
     "provider.durationMs": { "count": 1, "totalMs": 8, "maxMs": 8, "averageMs": 8.0 },
-    "approval.wait.durationMs": { "count": 1, "totalMs": 12, "maxMs": 12, "averageMs": 12.0 },
     "cancellation.cleanup.durationMs": { "count": 1, "totalMs": 4, "maxMs": 4, "averageMs": 4.0 },
     "mcp.server.start.durationMs": { "count": 1, "totalMs": 30, "maxMs": 30, "averageMs": 30.0 },
     "process.stop.durationMs": { "count": 1, "totalMs": 10, "maxMs": 10, "averageMs": 10.0 },
@@ -533,7 +528,7 @@ projecting the existing persisted message shape.
 Each `AgentTurnContext` also owns an immutable `AgentTurnSettings` snapshot parsed from the turn
 spec, metadata, and agent defaults. It includes model, provider, iteration and streaming limits,
 temperature, maximum completion tokens, context-window strategy, reasoning options, service tier, output schema,
-working directory, approval policy, permission profile, selected tools, and parallel-tool policy.
+working directory, permission profile, selected tools, and parallel-tool policy.
 Invalid values fail request construction rather than being reread differently by later stages.
 
 Optional provider features must be declared explicitly on the selected provider profile:
@@ -565,11 +560,12 @@ configuration to `reasoning`, and output schemas to `response_format.type = "jso
 
 Turn-level runtime controls are also typed and validated before MCP discovery or provider dispatch:
 
-- `workingDirectory`/`cwd` must resolve to an existing directory inside the workspace. The composed
-  instruction provenance and provider context use that directory, and shell tools inherit its
-  workspace-relative path when their call does not provide `workingDir`.
-- `approvalPolicy` accepts `on_request` (also `on-request`) or `never`. `never` removes
-  approval-required tools from the turn; explicitly selecting one is a validation error.
+- `workingDirectory`/`cwd` must resolve to an existing directory. Absolute paths outside the
+  workspace are accepted; relative paths are resolved from the workspace root. The composed
+  instruction provenance and provider context use that directory, and shell tools inherit it when
+  their call does not provide `workingDir`.
+- `approvalPolicy` is no longer an active runtime control. Tool calls do not pause for
+  pre-execution approval.
 - `permissionProfile` currently accepts only `local-worker`, which selects the native desktop
   capability policy. Unknown profiles fail explicitly.
 - `selectedTools` is an optional exact allowlist of tool IDs or methods. Deferred selections activate
@@ -581,7 +577,7 @@ Turn-level runtime controls are also typed and validated before MCP discovery or
 Every native turn attempt is registered under one in-process task owner before system-prompt loading,
 provider execution, or tool dispatch. The owner tracks turn/session identity, generation, current
 phase, cancellation request/reason, waiting checkpoint reference, terminal outcome, and ignored
-late-result count. A duplicate active turn ID is rejected. An approval/form continuation starts a new
+late-result count. A duplicate active turn ID is rejected. A form continuation starts a new
 generation only after the previous execution task has completed into a non-terminal waiting phase.
 
 Cancellation is idempotent and writes one owner terminal outcome. Normal async turns remain active in
@@ -627,8 +623,8 @@ reopens agent and shell start admission only after cleanup is complete.
 
 The desktop command, native bridge, context-compaction request, provider loop, and
 OpenAI-compatible HTTP/SSE implementation are async end to end. Normal execution does not nest
-`block_on`. Synchronous helpers remain only as test and compatibility adapters. Tool batches and
-approval continuations dispatch through the same async owned-tool path.
+`block_on`. Synchronous helpers remain only as test and compatibility adapters. Tool batches dispatch
+through the same async owned-tool path.
 
 Provider cancellation is checked before a request, while opening a response, between SSE chunks,
 and immediately before and after each stream observer callback. Cancelling the owning turn drops the
@@ -652,7 +648,6 @@ Every dispatched tool call runs under an owned task handle and a child cancellat
 read scheduling, exclusive write scheduling, model-order result projection, single terminal
 ownership, and late-result diagnostics remain unchanged. The parent turn retains each handle until
 the task has joined; dropping an incomplete batch cancels and aborts every remaining wrapper task.
-The approval-resume path uses the same ownership boundary instead of a nested synchronous dispatch.
 Production providers and tool dispatchers must implement their async seam. The synchronous trait
 bridge exists only in unit-test builds; it fails explicitly in production instead of creating an
 unregistered blocking task. Tinybot's provider, MCP path, subagent dispatcher, and general tool
@@ -740,7 +735,7 @@ The catalog is the deterministic projection of registered tool contributors. Wor
 generic MCP dispatch, and per-server MCP discovery all enter through this registry; feature-specific
 tool arrays are not appended directly by the provider loop.
 
-Scheduling, cancellation, mutation classification, and approval metadata are read from the same
+Scheduling, cancellation, and mutation classification are read from the same
 visible registry entry used for provider exposure and dispatch. The generic `mcp.call_tool` entry is
 serialized because it can mutate both workspace and session state. Server configuration and fixture
 annotations cannot override that policy during dispatch. Per-server discovered MCP tools may be
@@ -764,8 +759,7 @@ credentials:
     {
       "toolId": "exec_command",
       "title": "Start shell command",
-      "description": "Start a workspace shell command and retain it when it remains active.",
-      "requiresApproval": true
+      "description": "Start a shell command and retain it when it remains active."
     }
   ]
 }
@@ -775,36 +769,11 @@ Returned deferred tools become provider-visible only for the current turn. A fre
 does not inherit them. Calls to deferred tools that were not activated fail with
 `stopReason: "policy_denied"` before dispatch.
 
-Resumable checkpoints include the validated activation set:
-
-```json
-{
-  "schemaVersion": 1,
-  "phase": "awaiting_approval",
-  "activatedToolIds": ["workspace.write_file"],
-  "pendingToolCalls": [
-    {
-      "toolCallId": "call-write-1",
-      "toolName": "workspace.write_file",
-      "argumentsJson": "{\"path\":\"notes.txt\",\"contents\":\"hello\"}"
-    }
-  ]
-}
-```
-
-Approval-required tools return `stopReason: "awaiting_approval"` and persist the pending call before
-normal dispatch. Approval and form continuations revalidate every `activatedToolIds` entry against
-the current registry and capability policy; stale IDs, malformed arrays, provider-name collisions,
-and approval IDs that do not match the checkpoint return explicit errors. Cancelled and other
-terminal checkpoints expose an empty activation set.
-
-An approved continuation dispatches the persisted call through the same registry execution target,
-records the real tool result, and resumes the ordinary iterative provider loop from the next
-checkpoint iteration. Additional provider tool calls therefore pass through the same activation,
-approval, cancellation, hook, metric, and event paths instead of being rejected after the first
-approved dispatch. The continuation emits only its new runtime events while preserving event
-sequence continuity. It does not synthesize a successful approval result. Denial records the
-denied result without invoking the tool.
+Resumable form checkpoints include the validated activation set. Form continuations revalidate every
+`activatedToolIds` entry against the current registry and capability policy; stale IDs, malformed
+arrays, and provider-name collisions return explicit errors. Cancelled and other terminal
+checkpoints expose an empty activation set. Tool calls never create an approval checkpoint or an
+`awaiting_approval` stop reason.
 
 ### Model-requested user input
 
@@ -970,9 +939,9 @@ block; the stored and user-visible message content remains unchanged. Provider i
 most 16 TinyOS references and 64 KiB of serialized reference data per message. Exceeding either
 limit fails the provider request visibly rather than dropping context.
 
-Desktop chat controls call `worker_thread_interrupt`, `worker_resolve_thread_approval`, and
-`worker_submit_thread_form` directly. Their canonical Thread timeline updates are delivered through
-typed Tauri events; no Native Event to Gateway Frame projection is part of the desktop contract.
+Desktop chat controls call `worker_thread_interrupt` and `worker_submit_thread_form` directly. Their
+canonical Thread timeline updates are delivered through typed Tauri events; no Native Event to
+Gateway Frame projection is part of the desktop contract.
 
 `agent.pause` and `agent.resume` use the native `command` frame and target the same active `turn_id`.
 Pause is cooperative: the runtime records `pause_requested`, then enters canonical `paused` state at
@@ -981,12 +950,11 @@ The same owned turn remains active while paused. Resume unblocks that turn and r
 runtime phase. Correlated `agent.paused` and `agent.resumed` system notices are operation-completion
 items distinct from their command acknowledgements. Cancellation remains available while paused.
 
-Approval resolution and Agent UI form actions use the same envelope on a native `command` frame.
-`approval.resolve` carries the approval decision and scope; `form.submit` carries `form_id` and
-validated `values`; `form.cancel` carries only `form_id`. Rust validates the pending checkpoint and
-target turn before persisting acknowledgement. Form submission and cancellation complete through a
-separate correlated `agent.form.resolution` item, while the compatibility Agent UI event is emitted
-only after runtime completion.
+Agent UI form actions use the same envelope on a native `command` frame. `form.submit` carries
+`form_id` and validated `values`; `form.cancel` carries only `form_id`. Rust validates the pending
+checkpoint and target turn before persisting acknowledgement. Form submission and cancellation
+complete through a separate correlated `agent.form.resolution` item, while the compatibility Agent
+UI event is emitted only after runtime completion.
 
 `operation.retry` also uses the native `command` frame, but separates the new target `turn_id` from
 the failed source identified by `source_turn_id` and `item_id`. Rust rejects reused target IDs,
@@ -1041,8 +1009,7 @@ TinyOS controlled-host actions use the same `tinybot.command.v1` gateway and ded
   `base_revision`;
 - `file.move` carries source `path`, `target_path`, `base_revision`, and `confirmed`;
 - `file.delete` carries `path`, `base_revision`, and `confirmed`;
-- `terminal.execute` carries the exact `command`, optional workspace-relative `cwd`, and
-  `confirmed`;
+- `terminal.execute` carries the exact `command` and optional `cwd`;
 - `terminal.cancel` targets the running `tinyos-host-terminal-*` operation;
 - `browser.interact` requires the correlated `browser_session_id`, `tab_id`, control epoch,
   observation/capture identity where required, explicit confirmation, and a typed browser action.
@@ -1056,8 +1023,9 @@ path returns a visible error; Rust does not overwrite, move, or delete on confli
 failed attempts are persisted as canonical host operations with command acknowledgement, Tool
 start, and Tool result or error events.
 
-`terminal.execute` uses the shared Rust process manager with a read-only sandbox, denied network,
-and a working directory restricted to the configured workspace. Output is streamed through
+`terminal.execute` uses the shared Rust process manager with the current user's filesystem,
+network, environment, and process permissions. Its working directory may be absolute or
+workspace-relative. Output is streamed through
 canonical Tool updates, retained in a bounded tail, and sanitized against configured secrets and
 common secret-assignment markers before persistence. Cancellation interrupts the process correlated
 to the host operation and records a canonical cancelled terminal outcome. On capability evaluation after
@@ -1065,10 +1033,10 @@ a restart, a persisted active `tinyos-host-*` operation without a matching live 
 marked failed with an explicit interrupted-recovery event instead of remaining active indefinitely.
 
 The delivered Terminal contract is `retained_execution_v1`, not a persistent PTY session. Every
-reviewed command creates one non-TTY `tinyos-host-terminal-*` execution; cwd, command history, and
+command creates one non-TTY `tinyos-host-terminal-*` execution; cwd, command history, and
 foreground process state do not carry implicitly into a later execution. Canonical Tool result data
-for this contract includes the native `processId`, `executionContract`, `tty`, `sandboxMode`,
-`networkMode`, `exitCode`, `startedAtMs`, `lastActivityMs`, `durationMs`, `stdoutBytes`,
+for this contract includes the native `processId`, `executionContract`, `tty`, `exitCode`,
+`startedAtMs`, `lastActivityMs`, `durationMs`, `stdoutBytes`,
 `stderrBytes`, `truncated`, and `droppedBytes` fields alongside the bounded sanitized stdout/stderr.
 Clients may retain those canonical executions as tabs and history, but must not label them as live
 shell sessions. A future long-lived PTY requires a new versioned capability and lifecycle contract.
@@ -1200,18 +1168,18 @@ result.
 
 For direct-session native turns with a live desktop sink, runtime deltas, phase/status changes, and UI
 patches remain live-only. Stable semantic events enter a bounded ordered queue and are materialized
-through `thread.turn.append_semantic_batch` as typed Rollout records. Tool-call confirmation, approval,
-tool output, usage, error, cancellation, and terminal boundaries flush the relevant batch before the
+through `thread.turn.append_semantic_batch` as typed Rollout records. Tool-call confirmation, tool
+output, usage, error, cancellation, and terminal boundaries flush the relevant batch before the
 runtime crosses that boundary. Queue or flush failure fails the command explicitly. Reload projects
 the authoritative timeline only from typed durable records; live event sequence never advances the
 durable Rollout revision.
-Thread-owned commands such as `worker_submit_thread_turn`, `worker_resolve_thread_approval`, and
-`worker_submit_thread_form` append their runtime events, turn state, resumable checkpoint,
-approvals/forms, and final assistant or error items directly to the canonical Rollout. The native
+Thread-owned commands such as `worker_submit_thread_turn` and `worker_submit_thread_form` append
+their runtime events, turn state, resumable checkpoint, forms, and final assistant or error items
+directly to the canonical Rollout. The native
 agent result is not replayed through `thread.apply_op`, so each logical value has one canonical
 payload. The turn-start seed retains instruction provenance and diagnostics, so derived
 `thread.turn.get` projections preserve the effective working directory and instruction sources.
-Approval/form continuation restores `latestCheckpoint.restorePayload` from Rollout, including
+Form continuation restores `latestCheckpoint.restorePayload` from Rollout, including
 after a new runtime instance starts; a later terminal item makes that checkpoint inactive. Direct
 non-thread agent commands use the same start, semantic, checkpoint, and terminal batches.
 
@@ -1270,7 +1238,7 @@ Thread continuation helper commands:
 | Command | Args |
 | --- | --- |
 | `worker_submit_thread_turn` | `{ input: { threadId?: string, input: unknown, spec?: unknown } }` |
-| `worker_resolve_thread_approval` | `{ input: { threadId, approvalId, approved, scope?, guidance? } }` |
+| `worker_resolve_thread_approval` | Compatibility command; always returns an explicit disabled error |
 | `worker_submit_thread_form` | `{ input: { threadId, formId, values?, action? } }` |
 
 The renderer prepares the final user text before calling `worker_submit_thread_turn`. When the user
@@ -1481,18 +1449,12 @@ Result shape:
 ```
 
 `workspace.apply_patch`, `workspace.write_file`, `workspace.delete_file`, `shell.execute`,
-`shell.start`, and MCP tool calls enforce their final approval boundary at the concrete Worker RPC
-method. A caller cannot claim an internal operation in serialized params: the trusted marker exists
-only on an in-process request after the native runtime has passed its approval gate.
+`shell.start`, browser interaction, and MCP tool calls do not have a pre-execution approval
+boundary. After typed parameter and JSON-schema validation, an available tool dispatches directly.
+The legacy `approval.*` and `permission_profile.*approval` methods remain compatibility APIs for
+older clients, but the native tool execution path neither creates nor consumes those grants.
 
-Approval fingerprints are derived by the worker from the normalized operation and permission
-effects. Concrete workspace, shell, and MCP boundaries recompute their fingerprint from the actual
-request; caller-supplied fingerprint fields are not trusted. Low-level `approval.request` rejects a
-fingerprint, session fingerprint, or effect set that does not match the normalized request. For
-known tools it replaces caller-authored category, risk, reason, summary, scope, and lifetime with
-the authoritative tool presentation before showing the request to the user.
-
-`permission_profile.evaluate_tool` and approval payloads include normalized `effects`:
+`permission_profile.evaluate_tool` still reports normalized `effects` as descriptive metadata:
 
 ```json
 {
@@ -1511,16 +1473,15 @@ the authoritative tool presentation before showing the request to the user.
   },
   "mcp": [],
   "mutatesSession": false,
-  "mutatesBackground": false,
-  "sandboxMode": "unsandboxed"
+  "mutatesBackground": false
 }
 ```
 
 Workspace tools use exact workspace-relative write roots where possible; strict multi-file patches
 use the whole current workspace. MCP effects name both destination server and tool. Subagent tools
-mark session/background mutation. Effect lists are sorted and deduplicated before a SHA-256-bound
-approval fingerprint is created, so changing sandbox, network, filesystem, interactive-process, or
-secret scope invalidates an earlier grant.
+mark session/background mutation. Shell effects explicitly report unrestricted current-user
+filesystem, network, process, and inherited-environment access. These effects are diagnostic
+metadata, not an enforcement boundary.
 
 ## Owned Shell Processes
 
@@ -1532,17 +1493,17 @@ share the same live process store.
 
 The worker tool registry also receives the current config snapshot. An explicit
 `tools.exec.enable: false` marks `shell.execute` and `exec_command` unavailable and rejects direct
-starts. `tools.exec.timeout` supplies the default one-shot timeout, while
-`tools.restrictToWorkspace` supplies the default workspace restriction for execute/start requests;
-explicit per-request values still take precedence. Process-management tools remain available so a
-previously started process can be polled or terminated safely.
+starts. `tools.exec.timeout` supplies the default one-shot timeout. The removed
+`tools.restrictToWorkspace`, sandbox, and network-mode settings no longer constrain shell
+execution. Process-management tools remain available so a previously started process can be polled
+or terminated safely.
 
 Model-visible deferred tools map to the richer RPC surface:
 
-| Tool | Worker RPC target | Approval | Cancellation policy |
+| Tool | Worker RPC target | Pre-execution approval | Cancellation policy |
 | --- | --- | --- | --- |
-| `exec_command` | `shell.start` | per command | `terminate_process` |
-| `write_stdin` | `shell.write_stdin` | none after launch | `detach_forbidden` |
+| `exec_command` | `shell.start` | none | `terminate_process` |
+| `write_stdin` | `shell.write_stdin` | none | `detach_forbidden` |
 
 The worker overwrites tool-supplied identity fields with the active `sessionId`, `ownerId`, and
 `toolCallId` when these tools dispatch. An owned process cannot be polled, written, resized,
@@ -1572,8 +1533,6 @@ interrupted, or terminated without the matching `ownerId`.
   "yieldTimeMs": 1000,
   "rows": 24,
   "cols": 80,
-  "sandboxMode": "unsandboxed",
-  "networkMode": "unrestricted",
   "sessionId": "websocket:chat-1",
   "ownerId": "turn-1",
   "toolCallId": "call-1"
@@ -1583,17 +1542,12 @@ interrupted, or terminated without the matching `ownerId`.
 `ownerId` and `toolCallId` are required for retained processes. The one-shot `shell.execute` adapter
 uses an internal transient owner and releases its record before returning.
 
-`sandboxMode` accepts `unsandboxed` (the default) or `read_only`. `networkMode` accepts
-`unrestricted` (the default), `configured`, or `denied`. Tinybot currently has no arbitrary-shell
-network isolation adapter, so `configured` and `denied` fail before process creation instead of
-claiming enforcement. Windows supports `read_only` for pipe processes through a restricted,
-low-integrity primary token plus a kill-on-close Job Object. This blocks writes to the normal
-medium-integrity workspace even when its discretionary ACL grants Everyone write access. Windows
-objects deliberately labeled low integrity remain writable and appear in normalized effects as
-`windows://low-integrity`. Read-only PTY requests and read-only requests on platforms without an
-adapter fail closed.
+There is no shell sandbox or shell-specific network isolation. Commands inherit the Tinybot
+process's current-user permissions and environment. `workingDir` accepts an existing absolute
+directory, including one outside the workspace, or a path relative to the workspace root. Legacy
+`sandboxMode` and `networkMode` fields are ignored rather than enforced.
 
-Windows unsandboxed pipe processes also receive a dedicated kill-on-close Job Object immediately
+Windows pipe processes receive a dedicated kill-on-close Job Object immediately
 after creation. Failure to create or assign that job fails the start and terminates the direct child.
 `shell.terminate`, turn cancellation, and gateway shutdown terminate the job and verify the root
 record reaches terminal state, preventing descendants from retaining inherited pipe handles or
@@ -1622,9 +1576,6 @@ Process snapshots use camel-case fields and include:
   "droppedBytes": 0,
   "startedAtMs": 0,
   "lastActivityMs": 0,
-  "sandboxMode": "unsandboxed_approved",
-  "networkMode": "unrestricted",
-  "approvalDecision": "approved",
   "failure": null
 }
 ```
@@ -1634,10 +1585,8 @@ projected into stdout for compatibility. The retained transcript keeps a 256 KiB
 tail; `truncated` and `droppedBytes` make any omission explicit. Unknown process IDs and writes after
 exit are errors, not empty successful polls. On Windows, the manager normalizes terminal input,
 answers ConPTY cursor-position probes internally, and removes verbatim path prefixes only at the PTY
-spawn boundary after workspace validation. Windows read-only pipe processes are created suspended,
-assigned to a kill-on-close Job Object before resume, and report
-`windows_restricted_low_integrity_read_only` as their actual sandbox label. `approvalDecision` is
-`approved`, `trusted_internal`, or `internal_direct` according to the launch boundary.
+spawn boundary. Windows pipe processes are assigned to a kill-on-close Job Object so cancellation
+and shutdown terminate descendant processes as well as the root process.
 
 ## Background, Task, Subagent, and Host Commands
 
@@ -1854,9 +1803,9 @@ paths use the same normalized map.
 
 `mcp.capability_catalog` and `GET /api/tools` expose one effective snapshot containing configured
 servers, runtime status, discovered tools, allowlist state, callable state, denial reasons, input
-schemas, and approval metadata. One failed or disabled server remains visible without hiding tools
-from healthy servers. The catalog reports configured approval policy separately; MCP execution still
-requires the current per-request approval until policy enforcement is implemented at the dispatcher.
+schemas, and compatibility approval metadata. One failed or disabled server remains visible without
+hiding tools from healthy servers. Configured approval policy is reported as disabled and MCP tools
+dispatch without a per-request approval.
 
 Stdio configuration example:
 
@@ -2008,6 +1957,10 @@ The Rust backend can emit live events through Tauri. Dotted worker event names a
 - `agent.error`
 - `diagnostics.log`
 - `worker.status`
+
+Approval event names in this compatibility list are retained only for decoding historical persisted
+records and older clients. The native runtime no longer emits new approval-wait or
+approval-required events for tool calls.
 
 Semantic runtime events retain their existing compatibility fields and also include a typed
 `payload.agentItem` object. The discriminator is `type`. Current production projections cover
@@ -2187,8 +2140,8 @@ Non-Windows builds return unavailable decisions with reason code `platform_unsup
 synthetic browser state.
 
 The native Agent registry keeps both `browser.observe` and `browser.interact` deferred in supported
-feature builds; `browser.interact` additionally requires per-request approval. Both are dispatched
-directly to the `SharedBrowserRuntime` installed in Tauri state; they do not pass through a second
+feature builds. Both dispatch without per-request approval directly to the `SharedBrowserRuntime`
+installed in Tauri state; they do not pass through a second
 Worker RPC browser implementation. `browser.observe` creates or reuses the browser session owned by
 the current chat and returns its active identities. `browser.interact` rejects sessions or tabs not
 owned by that chat and requires the current control epoch plus observation/capture identity where

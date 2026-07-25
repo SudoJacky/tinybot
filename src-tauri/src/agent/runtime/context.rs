@@ -151,17 +151,6 @@ impl AgentTurnContext {
         &self.metrics
     }
 
-    pub(crate) fn queue_hook_evaluation(
-        &self,
-        invocation: AgentHookInvocation,
-        evaluation: AgentHookEvaluation,
-    ) {
-        self.pending_hook_evaluations
-            .lock()
-            .expect("pending agent hook evaluation lock should not be poisoned")
-            .push((invocation, evaluation));
-    }
-
     pub(crate) fn drain_hook_evaluations(&self) -> Vec<(AgentHookInvocation, AgentHookEvaluation)> {
         std::mem::take(
             &mut *self

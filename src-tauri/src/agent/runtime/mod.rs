@@ -16,7 +16,6 @@ use tokio_util::sync::CancellationToken;
 
 pub(crate) const DEFAULT_NATIVE_AGENT_MAX_ITERATIONS: i64 = 200;
 
-pub(crate) mod approvals;
 mod checkpoint;
 mod context;
 mod context_contributors;
@@ -534,7 +533,6 @@ pub struct NativeAgentRuntimeServices {
     hooks: hooks::AgentHookPipeline,
     context_contributors: context_contributors::AgentContextContributorRegistry,
     metrics: AgentRuntimeMetrics,
-    approvals: approvals::NativeAgentApprovalBroker,
     thread_store: Option<crate::threads::workspace_store::WorkspaceThreadStore>,
     #[cfg(test)]
     test_activated_tool_ids: Vec<String>,
@@ -566,7 +564,6 @@ impl NativeAgentRuntimeServices {
             hooks: hooks::AgentHookPipeline::default(),
             context_contributors: context_contributors::AgentContextContributorRegistry::default(),
             metrics: crate::runtime::observability::global_agent_runtime_metrics().clone(),
-            approvals: approvals::NativeAgentApprovalBroker::default(),
             thread_store: None,
             #[cfg(test)]
             test_activated_tool_ids: Vec::new(),
@@ -737,7 +734,6 @@ impl NativeAgentRuntimeServices {
         let task = self
             .task_runtime
             .request_cancel(turn_id, AgentCancelReason::UserRequested);
-        self.approvals.cancel_turn(turn_id);
         serde_json::json!({
             "runtime": "rust",
             "turnId": turn_id,
@@ -790,10 +786,6 @@ impl NativeAgentRuntimeServices {
     #[cfg(test)]
     pub fn clear_turn_checkpoint(&self, session_id: &str, turn_id: &str) {
         self.checkpoints.clear_for_turn(session_id, turn_id);
-    }
-
-    pub(crate) fn approval_broker(&self) -> approvals::NativeAgentApprovalBroker {
-        self.approvals.clone()
     }
 }
 

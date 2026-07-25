@@ -1,7 +1,7 @@
 use crate::tools::registry::UPDATE_PLAN_METHOD;
 use crate::tools::registry::{
-    ToolApprovalMetadata, ToolCancellationMode, ToolExecutionTarget, ToolExposure,
-    ToolRegistryEntry, ToolRuntimePolicy, DEFAULT_TOOL_SEARCH_LIMIT, MAX_TOOL_SEARCH_LIMIT,
+    ToolCancellationMode, ToolExecutionTarget, ToolExposure, ToolRegistryEntry, ToolRuntimePolicy,
+    DEFAULT_TOOL_SEARCH_LIMIT, MAX_TOOL_SEARCH_LIMIT,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -44,11 +44,7 @@ impl NativeToolRouter {
         Ok(specs)
     }
 
-    pub(super) fn configure_for_turn(
-        &mut self,
-        selected_tools: &[String],
-        approval_policy: &str,
-    ) -> Result<(), String> {
+    pub(super) fn configure_for_turn(&mut self, selected_tools: &[String]) -> Result<(), String> {
         let mut selected_tool_ids = BTreeSet::new();
         if !selected_tools.is_empty() {
             for selected in selected_tools {
@@ -73,18 +69,6 @@ impl NativeToolRouter {
             self.entries.retain(|entry| {
                 selected_tool_ids.contains(&entry.tool_id) || entry.method == UPDATE_PLAN_METHOD
             });
-        }
-
-        if approval_policy == "never" {
-            if let Some(entry) = self.entries.iter().find(|entry| entry.approval.required) {
-                if !selected_tools.is_empty() {
-                    return Err(format!(
-                        "selected tool `{}` requires approval but approval_policy is `never`",
-                        entry.tool_id
-                    ));
-                }
-            }
-            self.entries.retain(|entry| !entry.approval.required);
         }
 
         self.activated_tool_ids = if selected_tools.is_empty() {
@@ -169,7 +153,6 @@ impl NativeToolRouter {
                     "toolId": entry.tool_id,
                     "title": entry.title,
                     "description": entry.description,
-                    "requiresApproval": entry.approval.required,
                 }))
                 .collect::<Vec<_>>()
         }))
@@ -283,23 +266,6 @@ impl NativeToolRouter {
         self.visible_entry(method)
             .map(|entry| entry.runtime_policy.mutates_session)
             .unwrap_or(false)
-    }
-
-    pub(super) fn approval_metadata(&self, method: &str) -> Option<ToolApprovalMetadata> {
-        self.visible_entry(method)
-            .map(|entry| entry.approval.clone())
-    }
-
-    pub(super) fn approval_session_scope(
-        &self,
-        method: &str,
-        arguments: &serde_json::Value,
-    ) -> Result<(String, String), String> {
-        let entry = self
-            .visible_entry(method)
-            .ok_or_else(|| format!("native tool `{method}` is not visible"))?;
-        crate::tools::permissions::approval_session_scope(entry, arguments)
-            .map_err(|error| error.message)
     }
 
     fn runtime_policy(&self, method: &str) -> Option<ToolRuntimePolicy> {

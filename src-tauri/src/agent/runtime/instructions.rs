@@ -525,24 +525,12 @@ fn instruction_working_directory(spec: &Value, workspace_root: &Path) -> Result<
             working_directory.display()
         ));
     }
-    let canonical_workspace = fs::canonicalize(workspace_root).map_err(|error| {
-        format!(
-            "failed to resolve agent workspace root `{}`: {error}",
-            workspace_root.display()
-        )
-    })?;
-    let canonical_working_directory = fs::canonicalize(&working_directory).map_err(|error| {
+    fs::canonicalize(&working_directory).map_err(|error| {
         format!(
             "failed to resolve agent working directory `{}`: {error}",
             working_directory.display()
         )
     })?;
-    if !canonical_working_directory.starts_with(&canonical_workspace) {
-        return Err(format!(
-            "agent working directory escapes workspace root: `{}`",
-            working_directory.display()
-        ));
-    }
     Ok(working_directory)
 }
 

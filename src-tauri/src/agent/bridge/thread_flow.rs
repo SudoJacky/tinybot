@@ -7,7 +7,6 @@ use crate::agent::runtime::{
     NativeAgentTraceSink,
 };
 use crate::agent::runtime_protocol::AgentTraceContext;
-use crate::agent::runtime_protocol::{AgentApprovalDecision, AgentApprovalScope};
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
 use crate::rpc::call_rust_state_service;
@@ -201,56 +200,24 @@ pub(crate) async fn submit_thread_turn_with_services(
 }
 
 pub(crate) async fn resolve_thread_approval_with_services(
-    base_services: NativeAgentRuntimeServices,
+    _base_services: NativeAgentRuntimeServices,
     input: ResolveThreadApprovalInput,
     _workspace_root: PathBuf,
     _config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let decision = if input.approved {
-        AgentApprovalDecision::Approved
-    } else {
-        AgentApprovalDecision::Denied
-    };
-    let scope = match input.scope.as_deref().unwrap_or("once") {
-        "once" => AgentApprovalScope::Once,
-        "session" if input.approved => AgentApprovalScope::Session,
-        "session" => AgentApprovalScope::Once,
-        unsupported => {
-            return Err(format!(
-                "unsupported approval scope `{unsupported}`; expected `once` or `session`"
-            ));
-        }
-    };
-    let command_id = (!input.command_id.trim().is_empty()).then_some(input.command_id);
-    let acknowledgement = base_services.approval_broker().resolve(
-        &input.thread_id,
-        &input.approval_id,
-        decision.clone(),
-        scope.clone(),
-        input.guidance,
-        command_id.clone(),
-    )?;
-    let status = match acknowledgement.decision {
-        AgentApprovalDecision::Approved => "approved",
-        AgentApprovalDecision::Denied => "denied",
-    };
-    let scope_name = match acknowledgement.scope {
-        AgentApprovalScope::Once => "once",
-        AgentApprovalScope::Session => "session",
-    };
-    Ok(serde_json::json!({
-        "threadId": input.thread_id,
-        "sessionId": input.thread_id,
-        "approvalResult": {
-            "runtime": "rust",
-            "approvalId": acknowledgement.approval_id,
-            "status": status,
-            "decision": status,
-            "scope": scope_name,
-            "commandId": acknowledgement.command_id,
-            "delivered": true,
-        },
-    }))
+    let ResolveThreadApprovalInput {
+        thread_id,
+        approval_id,
+        approved,
+        command_id,
+        scope,
+        guidance,
+    } = input;
+    let _compatibility_payload = (approved, command_id, scope, guidance);
+    Err(format!(
+        "tool approvals are disabled; approval `{}` for thread `{}` cannot be resolved",
+        approval_id, thread_id
+    ))
 }
 
 pub(crate) async fn submit_thread_form_with_services(

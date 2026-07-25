@@ -54,7 +54,7 @@ impl ToolContributor for BuiltinMcpToolContributor {
             true,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, true, true),
             vec![WorkerCapability::McpCall],
-            approval(true, Some("mcp_tool"), Some("per_request")),
+            approval(false, None, None),
             json!({
                 "type": "object",
                 "required": ["server", "tool"],
@@ -143,11 +143,8 @@ pub(super) fn workspace_tool_entries() -> Vec<ToolRegistryEntry> {
             ToolExposure::Hidden,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, true, false),
-            vec![
-                WorkerCapability::FsWorkspaceWrite,
-                WorkerCapability::ApprovalRequest,
-            ],
-            approval(true, Some("file"), Some("per_request")),
+            vec![WorkerCapability::FsWorkspaceWrite],
+            approval(false, None, None),
             json!({
                 "type": "object",
                 "required": ["path", "contents"],
@@ -166,11 +163,8 @@ pub(super) fn workspace_tool_entries() -> Vec<ToolRegistryEntry> {
             ToolExposure::Hidden,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, true, false),
-            vec![
-                WorkerCapability::FsWorkspaceWrite,
-                WorkerCapability::ApprovalRequest,
-            ],
-            approval(true, Some("file"), Some("per_request")),
+            vec![WorkerCapability::FsWorkspaceWrite],
+            approval(false, None, None),
             json!({
                 "type": "object",
                 "required": ["patch"],
@@ -192,11 +186,8 @@ pub(super) fn workspace_tool_entries() -> Vec<ToolRegistryEntry> {
             ToolExposure::Model,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, true, false),
-            vec![
-                WorkerCapability::FsWorkspaceWrite,
-                WorkerCapability::ApprovalRequest,
-            ],
-            approval(true, Some("file"), Some("per_request")),
+            vec![WorkerCapability::FsWorkspaceWrite],
+            approval(false, None, None),
             json!({
                 "type": "object",
                 "required": ["patch"],
@@ -217,11 +208,8 @@ pub(super) fn workspace_tool_entries() -> Vec<ToolRegistryEntry> {
             ToolExposure::Hidden,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, true, false),
-            vec![
-                WorkerCapability::FsWorkspaceWrite,
-                WorkerCapability::ApprovalRequest,
-            ],
-            approval(true, Some("file"), Some("per_request")),
+            vec![WorkerCapability::FsWorkspaceWrite],
+            approval(false, None, None),
             json!({
                 "type": "object",
                 "required": ["path"],
@@ -325,7 +313,7 @@ pub(super) fn build_discovered_mcp_tool_entries(
             runtime_policy,
             required_capabilities: vec![WorkerCapability::McpCall],
             available: false,
-            approval: approval(true, Some("mcp_tool"), Some("per_request")),
+            approval: approval(false, None, None),
             input_schema,
             output_schema,
             execution_target: ToolExecutionTarget::Mcp {

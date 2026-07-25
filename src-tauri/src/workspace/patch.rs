@@ -32,27 +32,6 @@ impl WorkerWorkspaceRpc {
         })
     }
 
-    pub(crate) fn inspect_patch_targets(
-        &self,
-        patch: &str,
-    ) -> Result<Vec<String>, WorkerProtocolError> {
-        self.require(WorkerCapability::FsWorkspaceWrite)?;
-        let operations = parse_patch(patch)?;
-        let mut seen_paths = HashSet::new();
-        let mut targets = Vec::with_capacity(operations.len());
-        for operation in operations {
-            let path = normalize_workspace_path(operation.path())?;
-            if !seen_paths.insert(path.clone()) {
-                return Err(patch_error(
-                    "patch may not modify the same file more than once",
-                    serde_json::json!({ "path": path }),
-                ));
-            }
-            targets.push(path);
-        }
-        Ok(targets)
-    }
-
     fn prepare_patch_operations(
         &self,
         operations: Vec<PatchOperation>,

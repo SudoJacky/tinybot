@@ -27,7 +27,6 @@ fn snapshot_contains_only_first_version_settings_groups() {
             "skills",
             "automations",
             "gateway-runtime",
-            "security-approvals",
             "logs-diagnostics",
             "expert-config",
         ]

@@ -40,9 +40,8 @@ use crate::tools::executor::{
     ToolExecutorExecuteResult,
 };
 use crate::tools::permissions::{
-    PermissionDecision, PermissionEvaluateToolRequest, PermissionNetworkMode,
-    PermissionRequestToolApprovalRequest, PermissionResolveToolApprovalRequest, ShellSandboxMode,
-    WorkerPermissionProfileRpc,
+    PermissionDecision, PermissionEvaluateToolRequest, PermissionRequestToolApprovalRequest,
+    PermissionResolveToolApprovalRequest, WorkerPermissionProfileRpc,
 };
 use crate::tools::registry::{
     ToolExecutionTarget, ToolExposure, ToolRegistrySearchRequest, WorkerToolRegistryRpc,
@@ -76,11 +75,7 @@ mod tool_dispatch;
 mod turn_dispatch;
 mod workspace_dispatch;
 
-use self::approval::{
-    mcp_tool_approval, shell_execute_approval, shell_start_approval,
-    workspace_apply_patch_approval, workspace_delete_approval, workspace_write_approval,
-    WorkerApprovalRpc,
-};
+use self::approval::WorkerApprovalRpc;
 use self::channel::WorkerChannelConnectorRpc;
 use self::errors::unknown_method_error;
 use self::form::WorkerFormRpc;
@@ -335,16 +330,6 @@ impl WorkerRpcRouter {
             },
         )?;
 
-        if evaluation.decision == PermissionDecision::NeedsApproval {
-            if let Some(sandbox_mode) = evaluation.effects.sandbox_mode {
-                self.shell.validate_security_request(
-                    sandbox_mode,
-                    evaluation.effects.network.mode,
-                    evaluation.effects.process.interactive,
-                )?;
-            }
-        }
-
         if evaluation.decision == PermissionDecision::Allow {
             return Ok(serde_json::json!({
                 "status": "allowed",
@@ -508,24 +493,6 @@ impl WorkerRpcRouter {
                 turn_id: params.turn_id.clone(),
             },
         )?;
-        if permission.requires_approval
-            && !request.is_trusted_internal()
-            && !registered_tool_has_final_approval_boundary(&tool)
-        {
-            return Err(WorkerProtocolError::new(
-                WorkerProtocolErrorCode::CapabilityDenied,
-                "approval-required tools must be dispatched through a trusted approved runtime path",
-                serde_json::json!({
-                    "boundary": "security",
-                    "method": "tool_executor.execute",
-                    "toolId": tool.tool_id,
-                    "approval": permission.approval_request.clone(),
-                }),
-                false,
-                WorkerProtocolErrorSource::RustCore,
-            ));
-        }
-
         let tool_call_id = params.thread_id.as_ref().map(|_| {
             params
                 .tool_call_id
@@ -570,16 +537,13 @@ impl WorkerRpcRouter {
                 ));
             }
         };
-        let mut tool_request = WorkerRequest::new(
+        let tool_request = WorkerRequest::new(
             request.id.clone(),
             request.trace_id.clone(),
             target_method,
             tool_arguments,
         )
         .with_cancellation(request.cancellation());
-        if request.is_trusted_internal() {
-            tool_request = tool_request.with_trusted_internal();
-        }
         match self.dispatch_result(&tool_request) {
             Ok(result) => {
                 if let (Some(thread_id), Some(tool_call_id)) = (&params.thread_id, &tool_call_id) {
@@ -692,23 +656,6 @@ fn tool_executor_arguments_with_context(params: &ToolExecutorExecuteRequest) -> 
     arguments
 }
 
-fn registered_tool_has_final_approval_boundary(
-    tool: &crate::tools::registry::ToolRegistryEntry,
-) -> bool {
-    matches!(
-        &tool.execution_target,
-        ToolExecutionTarget::WorkerRpc { method }
-            if matches!(
-                method.as_str(),
-                "workspace.write_file"
-                    | "workspace.apply_patch"
-                    | "workspace.delete_file"
-                    | "shell.execute"
-                    | "shell.start"
-            )
-    )
-}
-
 #[derive(Deserialize)]
 struct PathParams {
     path: String,
@@ -755,10 +702,6 @@ struct DeleteFileParams {
     path: String,
     #[serde(default)]
     recursive: Option<bool>,
-    #[serde(default, alias = "sessionId")]
-    session_id: Option<String>,
-    #[serde(default, alias = "turnId")]
-    turn_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -772,29 +715,11 @@ struct WriteFileParams {
     contents: String,
     #[serde(default, alias = "expectedUpdatedAt")]
     expected_updated_at: Option<String>,
-    #[serde(default, alias = "sessionId")]
-    session_id: Option<String>,
-    #[serde(default, alias = "turnId")]
-    turn_id: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct ApplyPatchParams {
     patch: String,
-    #[serde(default, alias = "sessionId")]
-    session_id: Option<String>,
-    #[serde(default, alias = "turnId")]
-    turn_id: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct McpCallApprovalParams {
-    server: String,
-    tool: String,
-    #[serde(default, alias = "sessionId")]
-    session_id: Option<String>,
-    #[serde(default, alias = "turnId")]
-    turn_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -820,16 +745,6 @@ struct ShellExecuteRequestParams {
     working_dir: Option<String>,
     #[serde(default)]
     timeout: Option<u64>,
-    #[serde(default)]
-    restrict_to_workspace: Option<bool>,
-    #[serde(default, alias = "sandboxMode")]
-    sandbox_mode: Option<ShellSandboxMode>,
-    #[serde(default, alias = "networkMode")]
-    network_mode: Option<PermissionNetworkMode>,
-    #[serde(default, alias = "sessionId")]
-    session_id: Option<String>,
-    #[serde(default, alias = "turnId")]
-    turn_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -837,8 +752,6 @@ struct ShellStartRequestParams {
     command: String,
     #[serde(default, alias = "workingDir")]
     working_dir: Option<String>,
-    #[serde(default, alias = "restrictToWorkspace")]
-    restrict_to_workspace: Option<bool>,
     #[serde(default)]
     tty: Option<bool>,
     #[serde(default, alias = "yieldTimeMs")]
@@ -847,12 +760,6 @@ struct ShellStartRequestParams {
     rows: Option<u16>,
     #[serde(default)]
     cols: Option<u16>,
-    #[serde(default, alias = "sandboxMode")]
-    sandbox_mode: Option<ShellSandboxMode>,
-    #[serde(default, alias = "networkMode")]
-    network_mode: Option<PermissionNetworkMode>,
-    #[serde(default, alias = "sessionId")]
-    session_id: Option<String>,
     #[serde(default, alias = "turnId")]
     turn_id: Option<String>,
     #[serde(default, alias = "toolCallId")]
@@ -863,21 +770,14 @@ impl ShellStartRequestParams {
     fn into_shell_params(
         self,
         cancellation: Option<std::sync::Arc<dyn crate::protocol::WorkerRequestCancellation>>,
-        config_snapshot: &Value,
     ) -> ShellStartParams {
         ShellStartParams {
             command: self.command,
             working_dir: self.working_dir,
-            restrict_to_workspace: self.restrict_to_workspace.or_else(|| {
-                configured_bool(config_snapshot, "/tools/restrictToWorkspace")
-                    .or_else(|| configured_bool(config_snapshot, "/tools/restrict_to_workspace"))
-            }),
             tty: self.tty,
             yield_time_ms: self.yield_time_ms,
             rows: self.rows,
             cols: self.cols,
-            sandbox_mode: self.sandbox_mode,
-            network_mode: self.network_mode,
             owner_id: self.turn_id,
             tool_call_id: self.tool_call_id,
             cancellation,
@@ -905,19 +805,9 @@ impl ShellExecuteRequestParams {
                     .pointer("/tools/exec/timeout")
                     .and_then(Value::as_u64)
             }),
-            restrict_to_workspace: self.restrict_to_workspace.or_else(|| {
-                configured_bool(config_snapshot, "/tools/restrictToWorkspace")
-                    .or_else(|| configured_bool(config_snapshot, "/tools/restrict_to_workspace"))
-            }),
-            sandbox_mode: self.sandbox_mode,
-            network_mode: self.network_mode,
             cancellation,
         }
     }
-}
-
-fn configured_bool(config_snapshot: &Value, pointer: &str) -> Option<bool> {
-    config_snapshot.pointer(pointer).and_then(Value::as_bool)
 }
 
 #[derive(Deserialize)]

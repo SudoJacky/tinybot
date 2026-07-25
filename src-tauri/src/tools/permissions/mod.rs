@@ -10,11 +10,11 @@ mod effects;
 #[cfg(test)]
 mod effects_tests;
 
+#[cfg(test)]
+pub use effects::PermissionNetworkMode;
 pub use effects::{
-    mcp_permission_effects, normalize_permission_effects, normalize_permission_path,
-    normalize_tool_effects, permission_fingerprint, shell_permission_effects,
-    workspace_patch_permission_effects, workspace_write_permission_effects, PermissionEffects,
-    PermissionNetworkMode, ShellSandboxMode,
+    normalize_permission_effects, normalize_permission_path, normalize_tool_effects,
+    permission_fingerprint, PermissionEffects,
 };
 
 #[derive(Clone, Debug)]
@@ -171,12 +171,12 @@ impl WorkerPermissionProfileRpc {
     pub fn current_profile(&self, tools: Vec<ToolRegistryEntry>) -> PermissionProfileSnapshot {
         PermissionProfileSnapshot {
             profile_id: "local-worker",
-            approval_policy: "on_request",
+            approval_policy: "disabled",
             sandbox: PermissionSandboxSummary {
-                mode: sandbox_mode(&self.policy),
-                filesystem: filesystem_scope(&self.policy),
-                network: network_scope(&self.policy),
-                process: process_scope(&self.policy),
+                mode: "none",
+                filesystem: "current_user",
+                network: "current_user",
+                process: "current_user",
             },
             capabilities: self.capability_states(),
             tools: tools.iter().map(|tool| self.tool_decision(tool)).collect(),
@@ -303,7 +303,7 @@ fn approval_request_for_tool(
         session_id,
         turn_id,
         fingerprint: approval_fingerprint(tool, &arguments, &effects),
-        session_fingerprint: approval_session_fingerprint(tool, &arguments, &effects),
+        session_fingerprint: approval_fingerprint(tool, &arguments, &effects),
         effects: effects.clone(),
         operation: serde_json::json!({
             "toolName": tool.tool_id,
@@ -435,25 +435,6 @@ fn approval_fingerprint(
     }
 }
 
-fn approval_session_fingerprint(
-    tool: &ToolRegistryEntry,
-    arguments: &Value,
-    effects: &PermissionEffects,
-) -> String {
-    approval_fingerprint(tool, arguments, effects)
-}
-
-pub(crate) fn approval_session_scope(
-    tool: &ToolRegistryEntry,
-    arguments: &Value,
-) -> Result<(String, String), WorkerProtocolError> {
-    let effects = normalize_tool_effects(tool, arguments)?;
-    Ok((
-        approval_session_fingerprint(tool, arguments, &effects),
-        approval_summary(tool, arguments),
-    ))
-}
-
 fn normalize_path(path: &str) -> String {
     normalize_permission_path(path)
 }
@@ -478,7 +459,7 @@ fn capability_scope(capability: &WorkerCapability) -> &'static str {
             "background://registry"
         }
         WorkerCapability::McpCall => "mcp://configured",
-        WorkerCapability::ShellExecute => "process://workspace-shell",
+        WorkerCapability::ShellExecute => "process://current-user",
         WorkerCapability::ConfigRead | WorkerCapability::ConfigWrite => "config://workspace",
         WorkerCapability::SessionMetadataRead | WorkerCapability::SessionWrite => {
             "session://workspace"
@@ -488,42 +469,5 @@ fn capability_scope(capability: &WorkerCapability) -> &'static str {
         WorkerCapability::BrowserObserve | WorkerCapability::BrowserInteract => {
             "browser://tinyos-session"
         }
-    }
-}
-
-fn sandbox_mode(policy: &CapabilityPolicy) -> &'static str {
-    if policy.allows(&WorkerCapability::FsWorkspaceWrite) {
-        "workspace_write"
-    } else if policy.allows(&WorkerCapability::FsWorkspaceRead) {
-        "read_only"
-    } else {
-        "restricted"
-    }
-}
-
-fn filesystem_scope(policy: &CapabilityPolicy) -> &'static str {
-    if policy.allows(&WorkerCapability::FsWorkspaceWrite) {
-        "workspace_write"
-    } else if policy.allows(&WorkerCapability::FsWorkspaceRead) {
-        "workspace_read"
-    } else {
-        "none"
-    }
-}
-
-fn network_scope(policy: &CapabilityPolicy) -> &'static str {
-    if policy.allows(&WorkerCapability::NetworkOpenAi) || policy.allows(&WorkerCapability::McpCall)
-    {
-        "configured"
-    } else {
-        "none"
-    }
-}
-
-fn process_scope(policy: &CapabilityPolicy) -> &'static str {
-    if policy.allows(&WorkerCapability::ShellExecute) {
-        "workspace_shell"
-    } else {
-        "none"
     }
 }

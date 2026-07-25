@@ -1,5 +1,5 @@
 use crate::protocol::capability::WorkerCapability;
-use crate::protocol::{WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource};
+use crate::protocol::WorkerProtocolError;
 use crate::tools::registry::{ToolExecutionTarget, ToolRegistryEntry};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -18,8 +18,6 @@ pub struct PermissionEffects {
     pub mcp: Vec<String>,
     pub mutates_session: bool,
     pub mutates_background: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sandbox_mode: Option<ShellSandboxMode>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -68,14 +66,6 @@ pub struct PermissionEnvironmentEffects {
     pub secret_scopes: Vec<String>,
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ShellSandboxMode {
-    ReadOnly,
-    #[default]
-    Unsandboxed,
-}
-
 pub fn normalize_tool_effects(
     tool: &ToolRegistryEntry,
     arguments: &Value,
@@ -85,13 +75,8 @@ pub fn normalize_tool_effects(
 
     match tool.method.as_str() {
         "shell.execute" | "exec_command" => {
-            let sandbox_mode = parse_shell_sandbox_mode(arguments)?;
-            let network_mode = parse_network_mode(arguments)?;
-            effects = shell_permission_effects(
-                sandbox_mode,
-                network_mode,
-                bool_argument(arguments, "tty", "tty").unwrap_or(false),
-            );
+            effects =
+                shell_permission_effects(bool_argument(arguments, "tty", "tty").unwrap_or(false));
         }
         "write_stdin" => {
             effects.filesystem.read_roots = vec!["filesystem://unrestricted".to_string()];
@@ -140,29 +125,12 @@ pub fn normalize_tool_effects(
     Ok(effects)
 }
 
-pub fn shell_permission_effects(
-    sandbox_mode: ShellSandboxMode,
-    network_mode: PermissionNetworkMode,
-    interactive: bool,
-) -> PermissionEffects {
-    let mut effects = PermissionEffects {
-        sandbox_mode: Some(sandbox_mode),
-        ..PermissionEffects::default()
-    };
+fn shell_permission_effects(interactive: bool) -> PermissionEffects {
+    let mut effects = PermissionEffects::default();
     effects.filesystem.read_roots = vec!["filesystem://unrestricted".to_string()];
-    effects.filesystem.write_roots = match sandbox_mode {
-        #[cfg(target_os = "windows")]
-        ShellSandboxMode::ReadOnly => vec!["windows://low-integrity".to_string()],
-        #[cfg(not(target_os = "windows"))]
-        ShellSandboxMode::ReadOnly => Vec::new(),
-        ShellSandboxMode::Unsandboxed => vec!["filesystem://unrestricted".to_string()],
-    };
-    effects.network.mode = network_mode;
-    effects.network.destinations = match network_mode {
-        PermissionNetworkMode::Denied => Vec::new(),
-        PermissionNetworkMode::Configured => vec!["network://configured".to_string()],
-        PermissionNetworkMode::Unrestricted => vec!["network://unrestricted".to_string()],
-    };
+    effects.filesystem.write_roots = vec!["filesystem://unrestricted".to_string()];
+    effects.network.mode = PermissionNetworkMode::Unrestricted;
+    effects.network.destinations = vec!["network://unrestricted".to_string()];
     effects.process.execute = true;
     effects.process.interactive = interactive;
     effects.environment.inherit = true;
@@ -269,29 +237,6 @@ fn effects_from_capabilities(tool: &ToolRegistryEntry) -> PermissionEffects {
     effects
 }
 
-fn parse_shell_sandbox_mode(arguments: &Value) -> Result<ShellSandboxMode, WorkerProtocolError> {
-    match string_argument(arguments, "sandboxMode", "sandbox_mode").as_deref() {
-        None | Some("unsandboxed") => Ok(ShellSandboxMode::Unsandboxed),
-        Some("read_only") => Ok(ShellSandboxMode::ReadOnly),
-        Some(value) => Err(invalid_effect_request(
-            "sandboxMode must be read_only or unsandboxed",
-            serde_json::json!({ "sandboxMode": value }),
-        )),
-    }
-}
-
-fn parse_network_mode(arguments: &Value) -> Result<PermissionNetworkMode, WorkerProtocolError> {
-    match string_argument(arguments, "networkMode", "network_mode").as_deref() {
-        None | Some("unrestricted") => Ok(PermissionNetworkMode::Unrestricted),
-        Some("denied") => Ok(PermissionNetworkMode::Denied),
-        Some("configured") => Ok(PermissionNetworkMode::Configured),
-        Some(value) => Err(invalid_effect_request(
-            "networkMode must be denied, configured, or unrestricted",
-            serde_json::json!({ "networkMode": value }),
-        )),
-    }
-}
-
 fn workspace_path(arguments: &Value, key: &str) -> String {
     let Some(path) = arguments.get(key).and_then(Value::as_str) else {
         return CURRENT_WORKSPACE.to_string();
@@ -351,14 +296,4 @@ fn sha256_hex(bytes: &[u8]) -> String {
         write!(&mut encoded, "{byte:02x}").expect("writing to a String should not fail");
     }
     encoded
-}
-
-fn invalid_effect_request(message: &str, details: Value) -> WorkerProtocolError {
-    WorkerProtocolError::new(
-        WorkerProtocolErrorCode::InvalidProtocol,
-        message,
-        details,
-        false,
-        WorkerProtocolErrorSource::RustCore,
-    )
 }

@@ -76,7 +76,7 @@ fn canonical_apply_patch_is_model_visible_and_legacy_name_is_hidden() {
 
     assert_eq!(tool.exposure, ToolExposure::Model);
     assert!(tool.available);
-    assert!(tool.approval.required);
+    assert!(!tool.approval.required);
     assert!(tool.runtime_policy.mutates_workspace);
     assert_eq!(
         tool.execution_target,
@@ -88,7 +88,7 @@ fn canonical_apply_patch_is_model_visible_and_legacy_name_is_hidden() {
 }
 
 #[test]
-fn browser_tools_are_deferred_and_interaction_requires_approval() {
+fn browser_tools_are_deferred_without_approval() {
     let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
         WorkerCapability::BrowserObserve,
         WorkerCapability::BrowserInteract,
@@ -107,8 +107,8 @@ fn browser_tools_are_deferred_and_interaction_requires_approval() {
     assert!(observe.runtime_policy.mutates_session);
     assert_eq!(interact.exposure, ToolExposure::Deferred);
     assert!(interact.available);
-    assert!(interact.approval.required);
-    assert_eq!(interact.approval.scope, Some("browser"));
+    assert!(!interact.approval.required);
+    assert_eq!(interact.approval.scope, None);
     assert_eq!(
         interact.runtime_policy.cancellation_mode,
         ToolCancellationMode::DetachForbidden
@@ -134,7 +134,7 @@ fn retained_shell_tools_use_owned_process_rpc_targets() {
 
     assert_eq!(start.exposure, ToolExposure::Model);
     assert!(start.available);
-    assert!(start.approval.required);
+    assert!(!start.approval.required);
     assert_eq!(
         start.runtime_policy.cancellation_mode,
         ToolCancellationMode::TerminateProcess
@@ -310,7 +310,7 @@ fn discovered_mcp_tool_becomes_deferred_registry_entry() {
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].exposure, ToolExposure::Deferred);
     assert!(entries[0].dynamic);
-    assert!(entries[0].approval.required);
+    assert!(!entries[0].approval.required);
     assert!(entries[0].supports_parallel_tool_calls);
     assert_eq!(entries[0].input_schema["type"], "object");
     assert_eq!(

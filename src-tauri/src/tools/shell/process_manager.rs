@@ -1,10 +1,7 @@
 #[cfg(target_os = "windows")]
-use super::sandbox::windows::{
-    spawn_read_only_pipe_process, WindowsProcessJob, WindowsReadOnlyChild,
-};
+use super::windows_job::WindowsProcessJob;
 use super::{
-    sandbox::ShellSandboxAdapter, shell_command, shell_error, ShellOutputChunk,
-    ShellProcessCleanupReport, ShellProcessOutput,
+    shell_command, shell_error, ShellOutputChunk, ShellProcessCleanupReport, ShellProcessOutput,
 };
 use crate::protocol::{WorkerProtocolError, WorkerRequestCancellation};
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
@@ -39,10 +36,6 @@ pub(super) struct ValidatedShellStart {
     pub(super) owner_id: Option<String>,
     pub(super) tool_call_id: Option<String>,
     pub(super) cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
-    pub(super) sandbox_adapter: ShellSandboxAdapter,
-    pub(super) sandbox_mode: String,
-    pub(super) network_mode: String,
-    pub(super) approval_decision: String,
 }
 
 #[derive(Clone)]
@@ -93,17 +86,7 @@ impl ShellProcessManager {
         let yield_time_ms = clamp_yield_time(request.yield_time_ms);
         self.reserve_process_slot()?;
         let spawned = if request.tty {
-            if request.sandbox_adapter != ShellSandboxAdapter::Unsandboxed {
-                Err(shell_error(
-                    "selected shell sandbox adapter does not support PTY execution",
-                    serde_json::json!({
-                        "processStarted": false,
-                        "sandboxMode": request.sandbox_mode,
-                    }),
-                ))
-            } else {
-                spawn_pty_process(process_id, request)
-            }
+            spawn_pty_process(process_id, request)
         } else {
             spawn_pipe_process(process_id, request)
         };
@@ -503,24 +486,6 @@ fn spawn_pipe_process(
     process_id: String,
     request: ValidatedShellStart,
 ) -> Result<Arc<ShellProcessRecord>, WorkerProtocolError> {
-    match request.sandbox_adapter {
-        ShellSandboxAdapter::Unsandboxed => spawn_unsandboxed_pipe_process(process_id, request),
-        #[cfg(target_os = "windows")]
-        ShellSandboxAdapter::WindowsReadOnly => {
-            spawn_windows_read_only_pipe_process(process_id, request)
-        }
-        #[cfg(not(target_os = "windows"))]
-        ShellSandboxAdapter::WindowsReadOnly => Err(shell_error(
-            "Windows read-only shell adapter is unavailable on this platform",
-            serde_json::json!({ "processStarted": false }),
-        )),
-    }
-}
-
-fn spawn_unsandboxed_pipe_process(
-    process_id: String,
-    request: ValidatedShellStart,
-) -> Result<Arc<ShellProcessRecord>, WorkerProtocolError> {
     let mut command = shell_command(&request.command);
     command
         .current_dir(&request.working_dir)
@@ -589,58 +554,6 @@ fn spawn_unsandboxed_pipe_process(
                 Ok(Some(status)) => break Ok(exit_code_from_status(status)),
                 Ok(None) => thread::sleep(Duration::from_millis(10)),
                 Err(error) => break Err(format!("failed to wait for shell process: {error}")),
-            }
-        };
-        wait_record.close_io();
-        let reader_failure = join_output_readers([stdout_reader, stderr_reader]);
-        match wait_result {
-            Ok(exit_code) => wait_record.finish(Some(exit_code), reader_failure),
-            Err(error) => wait_record.finish(None, Some(error)),
-        }
-    }));
-    Ok(record)
-}
-
-#[cfg(target_os = "windows")]
-fn spawn_windows_read_only_pipe_process(
-    process_id: String,
-    request: ValidatedShellStart,
-) -> Result<Arc<ShellProcessRecord>, WorkerProtocolError> {
-    let spawned =
-        spawn_read_only_pipe_process(&request.command, &request.working_dir).map_err(|error| {
-            shell_error(
-                "failed to start read-only shell process",
-                serde_json::json!({
-                    "adapter": "windows_restricted_low_integrity_read_only",
-                    "error": error.to_string(),
-                    "processStarted": false,
-                }),
-            )
-        })?;
-    let system_process_id = spawned.process_id;
-    let child = Arc::new(Mutex::new(spawned.child));
-    let record = ShellProcessRecord::new(process_id, Some(system_process_id), &request);
-    record.set_stdin(Box::new(spawned.stdin));
-    record.set_terminator(ProcessTerminator::WindowsReadOnly {
-        child: child.clone(),
-    });
-    let stdout_reader = spawn_output_reader(record.clone(), "stdout", Box::new(spawned.stdout));
-    let stderr_reader = spawn_output_reader(record.clone(), "stderr", Box::new(spawned.stderr));
-    let wait_record = record.clone();
-    record.add_thread(thread::spawn(move || {
-        let wait_result = loop {
-            let result = child
-                .lock()
-                .map_err(|_| "read-only shell child process lock was poisoned".to_string())
-                .and_then(|mut child| child.try_wait().map_err(|error| error.to_string()));
-            match result {
-                Ok(Some(exit_code)) => break Ok(exit_code),
-                Ok(None) => thread::sleep(Duration::from_millis(10)),
-                Err(error) => {
-                    break Err(format!(
-                        "failed to wait for read-only shell process: {error}"
-                    ))
-                }
             }
         };
         wait_record.close_io();
@@ -897,10 +810,6 @@ enum ProcessTerminator {
         killer: Box<dyn ChildKiller + Send + Sync>,
         system_process_id: Option<u32>,
     },
-    #[cfg(target_os = "windows")]
-    WindowsReadOnly {
-        child: Arc<Mutex<WindowsReadOnlyChild>>,
-    },
 }
 
 impl ProcessTerminator {
@@ -938,13 +847,6 @@ impl ProcessTerminator {
                 let child_result = killer.kill();
                 combine_termination_results(tree_result, child_result)
             }
-            #[cfg(target_os = "windows")]
-            Self::WindowsReadOnly { child } => child
-                .lock()
-                .map_err(|_| {
-                    std::io::Error::other("read-only shell child process lock was poisoned")
-                })?
-                .terminate(),
         }
     }
 }
@@ -1010,9 +912,6 @@ struct ShellProcessRecord {
     working_dir: String,
     tty: bool,
     started_at_ms: u64,
-    sandbox_mode: String,
-    network_mode: String,
-    approval_decision: String,
     state: Mutex<ShellProcessState>,
     changed: Condvar,
     stdin: Mutex<Option<Box<dyn Write + Send>>>,
@@ -1041,9 +940,6 @@ impl ShellProcessRecord {
             working_dir: request.working_dir_display.clone(),
             tty: request.tty,
             started_at_ms,
-            sandbox_mode: request.sandbox_mode.clone(),
-            network_mode: request.network_mode.clone(),
-            approval_decision: request.approval_decision.clone(),
             state: Mutex::new(ShellProcessState {
                 status: ProcessStatus::Running,
                 exit_code: None,
@@ -1479,9 +1375,6 @@ impl ShellProcessRecord {
             dropped_bytes: snapshot.dropped_bytes,
             started_at_ms: self.started_at_ms,
             last_activity_ms: state.last_activity_ms,
-            sandbox_mode: self.sandbox_mode.clone(),
-            network_mode: self.network_mode.clone(),
-            approval_decision: self.approval_decision.clone(),
             failure: state.failure.clone(),
         }
     }

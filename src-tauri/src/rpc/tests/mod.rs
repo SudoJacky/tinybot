@@ -6,7 +6,6 @@ use crate::protocol::capability::{CapabilityPolicy, WorkerCapability};
 use crate::protocol::{WorkerRequest, WorkerRequestCancellation};
 use crate::rpc::WorkerRpcRouter;
 use crate::tools::executor::ToolExecutorExecuteRequest;
-use crate::tools::permissions::PermissionEvaluateToolRequest;
 use crate::tools::shell::WorkerShellRuntime;
 use serde_json::{json, Value};
 use std::{
@@ -25,82 +24,6 @@ mod approval_and_shell;
 mod automation_and_collaboration;
 mod request_boundary;
 mod threads_and_tools;
-
-fn approve_once(
-    router: &mut WorkerRpcRouter,
-    turn_id: &str,
-    session_id: &str,
-    operation: Value,
-    category: &str,
-    risk: &str,
-    reason: &str,
-) {
-    let requested_tool_name = operation["toolName"]
-        .as_str()
-        .expect("approval helper operation should identify a tool");
-    let tool_id = match requested_tool_name {
-        "write_file" => "workspace.write_file",
-        "apply_patch" => "workspace.apply_patch",
-        "delete_file" => "workspace.delete_file",
-        "exec" => "shell.execute",
-        other => other,
-    };
-    let tool = router
-        .tool_registry
-        .get_tool(tool_id)
-        .unwrap_or_else(|| panic!("approval helper tool should be registered: {tool_id}"));
-    let evaluation = router
-        .permission_profile
-        .evaluate_tool(
-            &tool,
-            PermissionEvaluateToolRequest {
-                tool_id: tool_id.to_string(),
-                arguments: operation["arguments"].clone(),
-                session_id: Some(session_id.to_string()),
-                turn_id: Some(turn_id.to_string()),
-            },
-        )
-        .expect("approval helper effects should normalize");
-    let approval = evaluation
-        .approval_request
-        .expect("approval helper tool should require approval");
-    let request_response = router.dispatch(&WorkerRequest::new(
-        "req-approval-helper",
-        "trace-approval",
-        "approval.request",
-        json!({
-            "turn_id": turn_id,
-            "session_id": session_id,
-            "operation": approval.operation,
-            "classification": {
-                "category": category,
-                "risk": risk,
-                "reason": reason
-            },
-            "fingerprint": approval.fingerprint,
-            "session_fingerprint": approval.session_fingerprint,
-            "scope": approval.scope,
-            "lifetime": approval.lifetime,
-            "effects": approval.effects
-        }),
-    ));
-    let approval_id = request_response.result.as_ref().unwrap()["approvalId"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    let resolve_response = router.dispatch(&WorkerRequest::new(
-        "req-approval-resolve-helper",
-        "trace-approval",
-        "approval.resolve",
-        json!({
-            "session_id": session_id,
-            "approval_id": approval_id,
-            "approved": true,
-            "scope": "once"
-        }),
-    ));
-    assert!(resolve_response.error.is_none());
-}
 
 #[cfg(target_os = "windows")]
 fn blocking_shell_command_with_marker() -> String {
