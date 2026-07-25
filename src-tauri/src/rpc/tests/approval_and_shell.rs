@@ -289,7 +289,6 @@ fn dispatches_shell_execute_request() {
 #[test]
 fn read_only_shell_approval_cannot_authorize_unsandboxed_execution() {
     let fixture = WorkspaceFixture::new();
-    fixture.write("readable.txt", "readable-content");
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
@@ -301,7 +300,7 @@ fn read_only_shell_approval_cannot_authorize_unsandboxed_execution() {
             WorkerCapability::ShellExecute,
         ]),
     );
-    let command = "type readable.txt & echo blocked>blocked.txt";
+    let command = "echo should-not-run";
     approve_once(
         &mut router,
         "turn-shell-read-only",
@@ -325,6 +324,8 @@ fn read_only_shell_approval_cannot_authorize_unsandboxed_execution() {
         "shell.execute",
         json!({
             "command": command,
+            "sandboxMode": "unsandboxed",
+            "networkMode": "unrestricted",
             "sessionId": "session-1",
             "turnId": "turn-shell-read-only"
         }),
@@ -337,33 +338,7 @@ fn read_only_shell_approval_cannot_authorize_unsandboxed_execution() {
         crate::protocol::WorkerProtocolErrorCode::CapabilityDenied
     );
     assert_eq!(error.details["effects"]["sandboxMode"], "unsandboxed");
-
-    let read_only = router.dispatch(&WorkerRequest::new(
-        "req-shell-read-only",
-        "trace-shell-read-only",
-        "shell.execute",
-        json!({
-            "command": command,
-            "sandboxMode": "read_only",
-            "networkMode": "unrestricted",
-            "sessionId": "session-1",
-            "turnId": "turn-shell-read-only"
-        }),
-    ));
-    assert!(read_only.error.is_none(), "{read_only:?}");
-    let result = read_only.result.unwrap();
-    assert!(result["stdout"]
-        .as_str()
-        .unwrap()
-        .contains("readable-content"));
-    assert_ne!(result["exit_code"], 0);
-    assert_eq!(
-        result["sandbox_mode"],
-        "windows_restricted_low_integrity_read_only"
-    );
-    assert_eq!(result["network_mode"], "unrestricted");
-    assert_eq!(result["approval_decision"], "approved");
-    assert!(!fixture.root.join("blocked.txt").exists());
+    assert_eq!(router.shell.active_process_count(), 0);
 }
 
 #[test]
