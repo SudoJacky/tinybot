@@ -6,17 +6,14 @@ use std::{
 
 use tauri::State;
 
-use crate::desktop_logging::{gateway_runtime_logs, read_native_backend_log_tail};
-use crate::native_backend_contract::{
-    native_route_owner_summary, native_webui_route_inventory,
-    NativeCompatibilityFallbackDiagnostic, NativeRouteInventoryEntry, NativeRouteOwnerSummary,
+use crate::config::application::{native_backend_workspace_root, repo_root};
+use crate::desktop::logging::{gateway_runtime_logs, read_native_backend_log_tail};
+use crate::desktop::{
+    state::{append_log, lock_runtime, push_log, NATIVE_BACKEND_LOG_TAIL_LINES},
+    SharedGateway,
 };
 use crate::runtime::lifecycle::{RuntimeLifecycle, RuntimeLifecycleStatus};
-use crate::worker_manager::WorkerManagerState;
-use crate::worker_runtime::WorkerRuntimeStatus;
-use crate::{
-    append_log, lock_runtime, push_log, repo_root, SharedGateway, NATIVE_BACKEND_LOG_TAIL_LINES,
-};
+use crate::transport::stdio_worker::status::WorkerRuntimeStatus;
 
 const RUST_BACKEND_COMMAND: &str = "Tauri Rust backend";
 
@@ -39,10 +36,7 @@ pub(crate) struct GatewayRuntimeStatus {
     pub(crate) response_class: Option<String>,
     pub(crate) recovery_hint: Option<String>,
     pub(crate) worker_runtime: WorkerRuntimeStatus,
-    pub(crate) agent_tasks: AgentTaskRuntimeStatus,
-    pub(crate) route_owner_summary: NativeRouteOwnerSummary,
-    pub(crate) webui_route_inventory: Vec<NativeRouteInventoryEntry>,
-    pub(crate) compatibility_fallback_diagnostics: Vec<NativeCompatibilityFallbackDiagnostic>,
+    pub(crate) agent_tasks: TurnExecutionRuntimeStatus,
     pub(crate) lifecycle: RuntimeLifecycleStatus,
 }
 
@@ -66,24 +60,36 @@ pub(crate) fn start_gateway(
 pub(crate) fn start_gateway_with_options(
     shared: &SharedGateway,
 ) -> Result<GatewayRuntimeStatus, String> {
-    start_gateway_with_workspace_root(shared, crate::native_backend_workspace_root())
+    start_gateway_with_workspace_root(shared, native_backend_workspace_root())
 }
 
 pub(crate) fn start_gateway_with_workspace_root(
     shared: &SharedGateway,
     workspace_root: PathBuf,
 ) -> Result<GatewayRuntimeStatus, String> {
-    let (agent_task_runtime, shell_runtime, startup_reconciled) = {
-        let runtime = lock_runtime(shared);
+    let (agent_task_runtime, shell_runtime, thread_store, startup_reconciled) = {
+        let mut runtime = lock_runtime(shared);
+        if runtime.thread_store.workspace_root() != workspace_root {
+            let thread_store = crate::threads::workspace_store::WorkspaceThreadStore::new(
+                workspace_root.clone(),
+                crate::protocol::capability::default_desktop_capability_policy(),
+            );
+            runtime.thread_store = thread_store.clone();
+            runtime.native_agent_runtime = runtime
+                .native_agent_runtime
+                .clone()
+                .with_thread_store(thread_store);
+        }
         (
             runtime.native_agent_runtime.task_runtime(),
             runtime.native_agent_runtime.shell_runtime(),
+            runtime.thread_store.clone(),
             runtime.lifecycle_status.startup_reconciled,
         )
     };
     if !startup_reconciled {
         agent_task_runtime.pause_accepting();
-        match RuntimeLifecycle::reconcile_startup(&workspace_root) {
+        match RuntimeLifecycle::reconcile_startup(&thread_store) {
             Ok(report) => {
                 let report_line = serde_json::to_string(&report)
                     .expect("startup recovery report should serialize");
@@ -127,10 +133,10 @@ pub(crate) fn start_gateway_with_workspace_root(
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct AgentTaskRuntimeStatus {
+pub(crate) struct TurnExecutionRuntimeStatus {
     pub(crate) accepting: bool,
-    pub(crate) active_runs: usize,
-    pub(crate) draining_runs: usize,
+    pub(crate) active_turns: usize,
+    pub(crate) draining_turns: usize,
 }
 
 #[tauri::command]
@@ -207,15 +213,16 @@ pub(crate) fn persist_gateway_exit_policy(path: &Path, keep_running: bool) -> Re
 
 pub(crate) fn current_status(shared: &SharedGateway) -> GatewayRuntimeStatus {
     let runtime = lock_runtime(shared);
-    let worker_status = runtime.experimental_worker.status();
     let agent_task_runtime = runtime.native_agent_runtime.task_runtime();
+    let accepting = agent_task_runtime.is_accepting();
 
     let owner = "shell";
-    let state = if runtime.last_error.is_some() || worker_status.state == WorkerManagerState::Failed
-    {
+    let state = if runtime.last_error.is_some() {
         "failed"
-    } else {
+    } else if accepting {
         "running"
+    } else {
+        "offline"
     };
     let exit_policy = if runtime.keep_background {
         "keep_running"
@@ -237,54 +244,29 @@ pub(crate) fn current_status(shared: &SharedGateway) -> GatewayRuntimeStatus {
             &runtime.persistent_log_path,
             NATIVE_BACKEND_LOG_TAIL_LINES,
         ),
-        logs: gateway_runtime_logs(&runtime.logs, &worker_status.diagnostics),
-        last_error: runtime
-            .last_error
-            .clone()
-            .or_else(|| worker_status.last_error.clone()),
+        logs: gateway_runtime_logs(&runtime.logs),
+        last_error: runtime.last_error.clone(),
         exit_policy,
         bootstrap_status: "not_required".to_string(),
         response_class: Some("tauri-native".to_string()),
         recovery_hint: None,
-        worker_runtime: gateway_worker_runtime_status(&worker_status),
-        agent_tasks: AgentTaskRuntimeStatus {
-            accepting: agent_task_runtime.is_accepting(),
-            active_runs: agent_task_runtime.active_count(),
-            draining_runs: agent_task_runtime.draining_count(),
+        worker_runtime: gateway_worker_runtime_status(runtime.last_error.as_deref(), accepting),
+        agent_tasks: TurnExecutionRuntimeStatus {
+            accepting,
+            active_turns: agent_task_runtime.active_count(),
+            draining_turns: agent_task_runtime.draining_count(),
         },
-        route_owner_summary: native_route_owner_summary(),
-        webui_route_inventory: native_webui_route_inventory(),
-        compatibility_fallback_diagnostics: runtime
-            .compatibility_fallbacks
-            .iter()
-            .cloned()
-            .collect(),
         lifecycle: runtime.lifecycle_status.clone(),
     }
 }
 
-fn gateway_worker_runtime_status(
-    worker_status: &crate::worker_manager::WorkerManagerStatus,
-) -> WorkerRuntimeStatus {
-    match worker_status.state {
-        WorkerManagerState::Running => WorkerRuntimeStatus::running(
-            crate::worker_protocol::WorkerTransportMode::Stdio,
-            worker_status.diagnostics.clone(),
-        ),
-        WorkerManagerState::Failed => WorkerRuntimeStatus::startup_failed(
-            worker_status
-                .last_error
-                .clone()
-                .unwrap_or_else(|| "worker manager failed".to_string()),
-        ),
-        WorkerManagerState::Stopped
-        | WorkerManagerState::Starting
-        | WorkerManagerState::Stopping => WorkerRuntimeStatus::rust_backend_active(vec![
-            crate::worker_protocol::WorkerDiagnosticLine::new(
-                "stdout",
-                "Rust backend services active",
-            ),
+fn gateway_worker_runtime_status(last_error: Option<&str>, accepting: bool) -> WorkerRuntimeStatus {
+    match last_error {
+        Some(error) => WorkerRuntimeStatus::startup_failed(error),
+        None if accepting => WorkerRuntimeStatus::rust_backend_active(vec![
+            crate::protocol::WorkerDiagnosticLine::new("stdout", "Rust backend services active"),
         ]),
+        None => WorkerRuntimeStatus::rust_backend_stopped(),
     }
 }
 
@@ -314,25 +296,22 @@ async fn stop_owned_gateway_async_with_timeout(
     explicit: bool,
     timeout: Duration,
 ) -> Result<(), String> {
-    let (lifecycle, worker_was_running) = {
+    let lifecycle = {
         let runtime = lock_runtime(shared);
         if !explicit && runtime.keep_background {
             drop(runtime);
             push_log(shared, "leaving native backend running in background");
             return Ok(());
         }
-        (
-            RuntimeLifecycle::new(
-                runtime.native_agent_runtime.task_runtime(),
-                runtime.native_agent_runtime.shell_runtime(),
-                runtime.mcp_runtime.clone(),
-                runtime.subagent_manager.clone(),
-                runtime.experimental_worker.clone(),
-            ),
-            runtime.experimental_worker.status().state == WorkerManagerState::Running,
+        RuntimeLifecycle::new(
+            runtime.native_agent_runtime.task_runtime(),
+            runtime.native_agent_runtime.shell_runtime(),
+            runtime.mcp_runtime.clone(),
+            runtime.subagent_manager.clone(),
+            runtime.thread_store.clone(),
         )
     };
-    let report = lifecycle.shutdown(timeout).await;
+    let report = lifecycle.shutdown(timeout, !explicit).await;
     let report_line =
         serde_json::to_string(&report).expect("runtime shutdown report should serialize");
     let failures = report
@@ -346,9 +325,6 @@ async fn stop_owned_gateway_async_with_timeout(
         runtime.lifecycle_status.record_shutdown(report);
     }
     push_log(shared, &format!("runtime shutdown {report_line}"));
-    if worker_was_running {
-        push_log(shared, "stopped background worker");
-    }
     if failures.is_empty() {
         Ok(())
     } else {
@@ -357,18 +333,5 @@ async fn stop_owned_gateway_async_with_timeout(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::GatewayRuntime;
-    use std::sync::{Arc, Mutex};
-
-    #[test]
-    fn window_close_shutdown_does_not_nest_async_runtime() {
-        let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
-
-        let result =
-            tauri::async_runtime::block_on(stop_owned_gateway_for_window_close(shared, false));
-
-        assert!(result.is_ok(), "{result:?}");
-    }
-}
+#[path = "gateway_tests.rs"]
+mod tests;

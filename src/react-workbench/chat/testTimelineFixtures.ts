@@ -1,5 +1,5 @@
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
-import type { ChatStep, ChatTurn } from "../../app-core/chat/chatRunModel";
+import type { ChatStep, ChatTurn } from "../../app-core/chat/chatTurnModel";
 import type { ReactChatMessage } from "./messageActions";
 
 export function timelineFromReactMessages(
@@ -111,7 +111,7 @@ export function timelineFromReactMessages(
     schemaVersion: "tinybot.chat_timeline.v1",
     sessionId,
     source: "canonical",
-    runRevisions: Object.fromEntries(turns.map((item, index) => [item.id, index + 1])),
+    turnRevisions: Object.fromEntries(turns.map((item, index) => [item.id, index + 1])),
     turns,
     diagnostics: [],
   };

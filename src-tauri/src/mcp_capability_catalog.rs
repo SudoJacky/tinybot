@@ -63,11 +63,6 @@ pub(crate) async fn build_mcp_capability_catalog(
             tools: Vec::new(),
         };
     };
-    let default_approval = config_snapshot
-        .get("mcp")
-        .and_then(|mcp| mcp.get("default_approval_policy"))
-        .and_then(Value::as_str)
-        .unwrap_or("always");
     let mut servers = Vec::with_capacity(configured_servers.len());
     let mut tools = Vec::new();
 
@@ -78,12 +73,6 @@ pub(crate) async fn build_mcp_capability_catalog(
             .and_then(Value::as_str)
             .unwrap_or("stdio")
             .to_ascii_lowercase();
-        let approval_policy = server_config
-            .get("approval")
-            .and_then(Value::as_str)
-            .unwrap_or(default_approval)
-            .to_string();
-
         if !enabled || !mcp_capability_allowed {
             let reason = if enabled {
                 "MCP capability is denied by the active permission profile"
@@ -151,12 +140,10 @@ pub(crate) async fn build_mcp_capability_catalog(
                 callable,
                 reason,
                 approval: McpApprovalCapability {
-                    // The current dispatcher always requires approval. Expose the configured
-                    // policy separately instead of claiming that it already changes execution.
-                    required: true,
-                    scope: "mcp_tool",
-                    lifetime: "per_request",
-                    configured_policy: approval_policy.clone(),
+                    required: false,
+                    scope: "none",
+                    lifetime: "none",
+                    configured_policy: "disabled".to_string(),
                 },
                 parameters: definition
                     .get("inputSchema")
@@ -180,26 +167,5 @@ pub(crate) async fn build_mcp_capability_catalog(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn disabled_servers_are_visible_without_starting_a_transport() {
-        let catalog = tauri::async_runtime::block_on(build_mcp_capability_catalog(
-            &McpRuntime::new(),
-            Path::new("."),
-            &serde_json::json!({
-                "tools": { "mcp_servers": { "docs": {
-                    "enabled": false,
-                    "transport": "stdio",
-                    "command": "does-not-run"
-                }}}
-            }),
-            true,
-        ));
-
-        assert_eq!(catalog.servers.len(), 1);
-        assert_eq!(catalog.servers[0].status["state"], "disabled");
-        assert!(catalog.tools.is_empty());
-    }
-}
+#[path = "mcp_capability_catalog_tests.rs"]
+mod tests;

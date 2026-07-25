@@ -1,19 +1,16 @@
-use crate::runtime::agent_task::{AgentTaskRuntime, ShutdownReport};
+use crate::collaboration::subagents::{SubagentThreadManager, SubagentThreadStatus};
+use crate::protocol::WorkerProtocolError;
 use crate::runtime::mcp::McpRuntime;
-use crate::worker_capability::default_desktop_capability_policy;
-use crate::worker_manager::{WorkerManager, WorkerManagerState};
-use crate::worker_protocol::WorkerProtocolError;
-use crate::worker_shell::{ShellProcessCleanupReport, WorkerShellRuntime};
-use crate::worker_subagent_manager::{SubagentThreadManager, SubagentThreadStatus};
-use crate::worker_thread::{
+use crate::runtime::turn_execution::{ShutdownReport, TurnExecutionRuntime};
+use crate::threads::domain::{
     InterruptThreadRequest, ListThreadsRequest, ThreadIdParams, WorkerThreadRpc,
 };
-use crate::worker_thread_log::{
-    AgentRunRecoveryEntry, ThreadLogIndexConsistencyReport, ThreadLogIndexRepairReport,
-    WorkerThreadLogRpc,
+use crate::threads::rollout::store::{
+    AgentTurnRecoveryEntry, ThreadLogIndexConsistencyReport, ThreadLogIndexRepairReport,
 };
+use crate::threads::workspace_store::WorkspaceThreadStore;
+use crate::tools::shell::{ShellProcessCleanupReport, WorkerShellRuntime};
 use serde::Serialize;
-use std::path::Path;
 use std::time::{Duration, Instant};
 
 const MAX_LIFECYCLE_DIAGNOSTICS: usize = 50;
@@ -21,9 +18,9 @@ const THREAD_RECOVERY_PAGE_SIZE: usize = 500;
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct LifecycleRunRef {
+pub(crate) struct LifecycleTurnRef {
     pub(crate) session_id: String,
-    pub(crate) run_id: String,
+    pub(crate) turn_id: String,
     pub(crate) thread_id: Option<String>,
 }
 
@@ -32,7 +29,7 @@ pub(crate) struct LifecycleRunRef {
 pub(crate) struct LifecycleSubagentRef {
     pub(crate) session_key: String,
     pub(crate) subagent_id: String,
-    pub(crate) child_run_id: String,
+    pub(crate) child_turn_id: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -67,7 +64,6 @@ pub(crate) struct RuntimeShutdownReport {
     pub(crate) shell: ShellProcessCleanupReport,
     pub(crate) mcp: LifecycleStageReport,
     pub(crate) subagents: SubagentShutdownReport,
-    pub(crate) background_worker: LifecycleStageReport,
     pub(crate) state_persistence: LifecycleStageReport,
     pub(crate) failures: Vec<LifecycleFailure>,
 }
@@ -78,10 +74,10 @@ pub(crate) struct RuntimeStartupRecoveryReport {
     pub(crate) session_log_index: Option<ThreadLogIndexConsistencyReport>,
     pub(crate) session_log_index_migration: Option<ThreadLogIndexRepairReport>,
     pub(crate) scanned_threads: usize,
-    pub(crate) scanned_run_records: usize,
-    pub(crate) interrupted_runs: Vec<LifecycleRunRef>,
-    pub(crate) awaiting_interaction_runs: Vec<LifecycleRunRef>,
-    pub(crate) resumable_runs: Vec<LifecycleRunRef>,
+    pub(crate) scanned_turn_records: usize,
+    pub(crate) interrupted_turns: Vec<LifecycleTurnRef>,
+    pub(crate) awaiting_interaction_turns: Vec<LifecycleTurnRef>,
+    pub(crate) resumable_turns: Vec<LifecycleTurnRef>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
@@ -132,31 +128,35 @@ impl RuntimeLifecycleStatus {
 
 #[derive(Clone)]
 pub(crate) struct RuntimeLifecycle {
-    agent_tasks: AgentTaskRuntime,
+    agent_tasks: TurnExecutionRuntime,
     shell: WorkerShellRuntime,
     mcp: McpRuntime,
     subagents: SubagentThreadManager,
-    background_worker: WorkerManager,
+    threads: WorkspaceThreadStore,
 }
 
 impl RuntimeLifecycle {
     pub(crate) fn new(
-        agent_tasks: AgentTaskRuntime,
+        agent_tasks: TurnExecutionRuntime,
         shell: WorkerShellRuntime,
         mcp: McpRuntime,
         subagents: SubagentThreadManager,
-        background_worker: WorkerManager,
+        threads: WorkspaceThreadStore,
     ) -> Self {
         Self {
             agent_tasks,
             shell,
             mcp,
             subagents,
-            background_worker,
+            threads,
         }
     }
 
-    pub(crate) async fn shutdown(&self, timeout: Duration) -> RuntimeShutdownReport {
+    pub(crate) async fn shutdown(
+        &self,
+        timeout: Duration,
+        final_shutdown: bool,
+    ) -> RuntimeShutdownReport {
         let started = Instant::now();
         let mut failures = Vec::new();
 
@@ -166,8 +166,8 @@ impl RuntimeLifecycle {
                 stage: "agent_tasks".to_string(),
                 code: "cleanup_timeout".to_string(),
                 message: format!(
-                    "agent task cleanup timed out for runs: {}",
-                    agent_tasks.cleanup_pending_runs.join(", ")
+                    "agent task cleanup timed out for turns: {}",
+                    agent_tasks.cleanup_pending_turns.join(", ")
                 ),
             });
         }
@@ -225,7 +225,7 @@ impl RuntimeLifecycle {
                         subagents.interrupted.push(LifecycleSubagentRef {
                             session_key: summary.session_key,
                             subagent_id: summary.subagent_id,
-                            child_run_id: summary.child_run_id,
+                            child_turn_id: summary.child_turn_id,
                         });
                     }
                 }
@@ -244,42 +244,43 @@ impl RuntimeLifecycle {
         }
         subagents.interrupted.sort();
 
-        let worker_was_running =
-            self.background_worker.status().state == WorkerManagerState::Running;
-        let background_worker = match self.background_worker.stop() {
-            Ok(()) => LifecycleStageReport {
-                completed: true,
-                detail: if worker_was_running {
-                    "Background worker stopped.".to_string()
-                } else {
-                    "Background worker was not running.".to_string()
-                },
-            },
-            Err(error) => {
-                let message = format!("failed to stop background worker: {error:?}");
-                failures.push(LifecycleFailure {
-                    stage: "background_worker".to_string(),
-                    code: "shutdown_failed".to_string(),
-                    message: message.clone(),
-                });
-                LifecycleStageReport {
-                    completed: false,
-                    detail: message,
-                }
-            }
-        };
-
         let state_persistence = if agent_tasks.timed_out {
             LifecycleStageReport {
                 completed: false,
-                detail: "Owned run cleanup is still pending, so persistence completion cannot be confirmed."
+                detail: "Owned turn cleanup is still pending, so persistence completion cannot be confirmed."
                     .to_string(),
             }
         } else {
-            LifecycleStageReport {
-                completed: true,
-                detail: "Runtime stores are write-through and each owned rollout writer drains on release."
-                    .to_string(),
+            let result = if final_shutdown {
+                self.threads.shutdown()
+            } else {
+                self.threads.flush()
+            };
+            match result {
+                Ok(()) => LifecycleStageReport {
+                    completed: true,
+                    detail: if final_shutdown {
+                        "Workspace thread store flushed and all rollout writers stopped."
+                            .to_string()
+                    } else {
+                        "Workspace thread store and all active rollout writers flushed.".to_string()
+                    },
+                },
+                Err(error) => {
+                    failures.push(LifecycleFailure {
+                        stage: "state_persistence".to_string(),
+                        code: if final_shutdown {
+                            "shutdown_failed".to_string()
+                        } else {
+                            "flush_failed".to_string()
+                        },
+                        message: error.message.clone(),
+                    });
+                    LifecycleStageReport {
+                        completed: false,
+                        detail: error.message,
+                    }
+                }
             }
         };
 
@@ -290,21 +291,20 @@ impl RuntimeLifecycle {
             shell,
             mcp,
             subagents,
-            background_worker,
             state_persistence,
             failures,
         }
     }
 
     pub(crate) fn reconcile_startup(
-        workspace_root: &Path,
+        thread_store: &WorkspaceThreadStore,
     ) -> Result<RuntimeStartupRecoveryReport, WorkerProtocolError> {
         let recovery_started = Instant::now();
         let metrics = crate::runtime::observability::global_agent_runtime_metrics();
-        metrics.increment("recovery.orphaned_runs.requested");
-        let policy = default_desktop_capability_policy();
-        let thread = WorkerThreadRpc::new(workspace_root.to_path_buf(), policy.clone());
-        let thread_log = WorkerThreadLogRpc::new(workspace_root.to_path_buf(), policy);
+        metrics.increment("recovery.orphaned_turns.requested");
+        let mut operation = thread_store.begin_operation()?;
+        let thread = operation.thread();
+        let thread_log = operation.thread_log();
         let mut report = RuntimeStartupRecoveryReport::default();
 
         report.session_log_index_migration = thread_log.prepare_state_index_for_startup()?;
@@ -317,43 +317,42 @@ impl RuntimeLifecycle {
             let status = thread.get_thread_status(ThreadIdParams {
                 thread_id: thread_record.thread_id.clone(),
             })?;
-            let Some(active_run) = status.active_run else {
+            let Some(active_turn) = status.active_turn else {
                 continue;
             };
-            let run_ref = LifecycleRunRef {
+            let turn_ref = LifecycleTurnRef {
                 session_id: status
                     .thread
                     .session_key
                     .clone()
                     .unwrap_or_else(|| status.thread.thread_id.clone()),
-                run_id: active_run.run_id.clone(),
+                turn_id: active_turn.turn_id.clone(),
                 thread_id: Some(status.thread.thread_id.clone()),
             };
-            match active_run.status {
-                crate::worker_thread::ThreadStatus::WaitingForApproval
-                | crate::worker_thread::ThreadStatus::WaitingForInput => {
-                    if status.latest_checkpoint.as_ref().is_some_and(|checkpoint| {
-                        checkpoint
-                            .run_id
-                            .as_deref()
-                            .is_none_or(|run_id| run_id == active_run.run_id)
-                    }) {
-                        report.resumable_runs.push(run_ref);
+            match active_turn.status {
+                crate::threads::domain::ThreadStatus::WaitingForApproval
+                | crate::threads::domain::ThreadStatus::WaitingForInput => {
+                    if status
+                        .latest_checkpoint
+                        .as_ref()
+                        .is_some_and(|checkpoint| checkpoint.turn_id == active_turn.turn_id)
+                    {
+                        report.resumable_turns.push(turn_ref);
                     } else {
-                        report.awaiting_interaction_runs.push(run_ref);
+                        report.awaiting_interaction_turns.push(turn_ref);
                     }
                 }
-                _ if active_run.active => {
+                _ if active_turn.active => {
                     let interrupted = thread.interrupt(InterruptThreadRequest {
                         thread_id: status.thread.thread_id,
                         client_event_id: Some(format!(
                             "startup-recovery:{}:{}",
-                            run_ref.thread_id.as_deref().unwrap_or("thread"),
-                            run_ref.run_id
+                            turn_ref.thread_id.as_deref().unwrap_or("thread"),
+                            turn_ref.turn_id
                         )),
-                        run_id: Some(run_ref.run_id.clone()),
+                        turn_id: Some(turn_ref.turn_id.clone()),
                         reason: Some(
-                            "Runtime restarted before the run reached a terminal state."
+                            "Runtime restarted before the turn reached a terminal state."
                                 .to_string(),
                         ),
                     })?;
@@ -362,70 +361,71 @@ impl RuntimeLifecycle {
                         &interrupted.snapshot.thread.thread_id,
                         &interrupted.appended_items,
                     )?;
-                    report.interrupted_runs.push(run_ref);
+                    report.interrupted_turns.push(turn_ref);
                 }
                 _ => {}
             }
         }
 
-        let run_report = thread_log.reconcile_orphaned_agent_runs()?;
-        report.scanned_run_records = run_report.scanned_runs;
-        report.interrupted_runs.extend(
-            run_report
-                .interrupted_runs
+        let turn_report = thread_log.reconcile_orphaned_turns()?;
+        report.scanned_turn_records = turn_report.scanned_turns;
+        report.interrupted_turns.extend(
+            turn_report
+                .interrupted_turns
                 .into_iter()
-                .map(LifecycleRunRef::from),
+                .map(LifecycleTurnRef::from),
         );
-        report.awaiting_interaction_runs.extend(
-            run_report
-                .awaiting_interaction_runs
+        report.awaiting_interaction_turns.extend(
+            turn_report
+                .awaiting_interaction_turns
                 .into_iter()
-                .map(LifecycleRunRef::from),
+                .map(LifecycleTurnRef::from),
         );
-        report.resumable_runs.extend(
-            run_report
-                .resumable_runs
+        report.resumable_turns.extend(
+            turn_report
+                .resumable_turns
                 .into_iter()
-                .map(LifecycleRunRef::from),
+                .map(LifecycleTurnRef::from),
         );
-        normalize_run_refs(&mut report.interrupted_runs);
-        normalize_run_refs(&mut report.awaiting_interaction_runs);
-        normalize_run_refs(&mut report.resumable_runs);
-        let interrupted_keys = run_keys(&report.interrupted_runs);
-        report.resumable_runs.retain(|run| {
-            !interrupted_keys.contains(&(run.session_id.clone(), run.run_id.clone()))
+        normalize_turn_refs(&mut report.interrupted_turns);
+        normalize_turn_refs(&mut report.awaiting_interaction_turns);
+        normalize_turn_refs(&mut report.resumable_turns);
+        let interrupted_keys = turn_keys(&report.interrupted_turns);
+        report.resumable_turns.retain(|turn| {
+            !interrupted_keys.contains(&(turn.session_id.clone(), turn.turn_id.clone()))
         });
-        let resumable_keys = run_keys(&report.resumable_runs);
-        report.awaiting_interaction_runs.retain(|run| {
-            let key = (run.session_id.clone(), run.run_id.clone());
+        let resumable_keys = turn_keys(&report.resumable_turns);
+        report.awaiting_interaction_turns.retain(|turn| {
+            let key = (turn.session_id.clone(), turn.turn_id.clone());
             !interrupted_keys.contains(&key) && !resumable_keys.contains(&key)
         });
         metrics.increment_by(
-            "recovery.orphaned_runs.interrupted",
-            report.interrupted_runs.len() as u64,
+            "recovery.orphaned_turns.interrupted",
+            report.interrupted_turns.len() as u64,
         );
         metrics.increment_by(
-            "recovery.orphaned_runs.resumable",
-            report.resumable_runs.len() as u64,
+            "recovery.orphaned_turns.resumable",
+            report.resumable_turns.len() as u64,
         );
         metrics.increment_by(
-            "recovery.orphaned_runs.awaiting_interaction",
-            report.awaiting_interaction_runs.len() as u64,
+            "recovery.orphaned_turns.awaiting_interaction",
+            report.awaiting_interaction_turns.len() as u64,
         );
         metrics.record_duration(
-            "recovery.orphaned_runs.durationMs",
+            "recovery.orphaned_turns.durationMs",
             recovery_started.elapsed(),
         );
-        metrics.increment("recovery.orphaned_runs.completed");
+        metrics.increment("recovery.orphaned_turns.completed");
+        operation.reload_projection()?;
         Ok(report)
     }
 }
 
-impl From<AgentRunRecoveryEntry> for LifecycleRunRef {
-    fn from(entry: AgentRunRecoveryEntry) -> Self {
+impl From<AgentTurnRecoveryEntry> for LifecycleTurnRef {
+    fn from(entry: AgentTurnRecoveryEntry) -> Self {
         Self {
             session_id: entry.session_id,
-            run_id: entry.run_id,
+            turn_id: entry.turn_id,
             thread_id: entry.thread_id,
         }
     }
@@ -433,7 +433,7 @@ impl From<AgentRunRecoveryEntry> for LifecycleRunRef {
 
 fn list_all_threads(
     thread: &WorkerThreadRpc,
-) -> Result<Vec<crate::worker_thread::ThreadRecord>, WorkerProtocolError> {
+) -> Result<Vec<crate::threads::domain::ThreadRecord>, WorkerProtocolError> {
     let mut offset = 0;
     let mut threads = Vec::new();
     loop {
@@ -454,29 +454,30 @@ fn list_all_threads(
     Ok(threads)
 }
 
-fn normalize_run_refs(runs: &mut Vec<LifecycleRunRef>) {
-    runs.sort_by(|left, right| {
+fn normalize_turn_refs(turns: &mut Vec<LifecycleTurnRef>) {
+    turns.sort_by(|left, right| {
         left.session_id
             .cmp(&right.session_id)
-            .then_with(|| left.run_id.cmp(&right.run_id))
+            .then_with(|| left.turn_id.cmp(&right.turn_id))
     });
-    let mut normalized = Vec::<LifecycleRunRef>::with_capacity(runs.len());
-    for run in runs.drain(..) {
+    let mut normalized = Vec::<LifecycleTurnRef>::with_capacity(turns.len());
+    for turn in turns.drain(..) {
         if let Some(existing) = normalized.last_mut().filter(|existing| {
-            existing.session_id == run.session_id && existing.run_id == run.run_id
+            existing.session_id == turn.session_id && existing.turn_id == turn.turn_id
         }) {
             if existing.thread_id.is_none() {
-                existing.thread_id = run.thread_id;
+                existing.thread_id = turn.thread_id;
             }
         } else {
-            normalized.push(run);
+            normalized.push(turn);
         }
     }
-    *runs = normalized;
+    *turns = normalized;
 }
 
-fn run_keys(runs: &[LifecycleRunRef]) -> std::collections::BTreeSet<(String, String)> {
-    runs.iter()
-        .map(|run| (run.session_id.clone(), run.run_id.clone()))
+fn turn_keys(turns: &[LifecycleTurnRef]) -> std::collections::BTreeSet<(String, String)> {
+    turns
+        .iter()
+        .map(|turn| (turn.session_id.clone(), turn.turn_id.clone()))
         .collect()
 }

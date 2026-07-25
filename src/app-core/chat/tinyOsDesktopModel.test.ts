@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { BackendAgentTurnItem, ChatStep } from "./chatRunModel";
+import type { BackendAgentTurnItem, ChatStep } from "./chatTurnModel";
 import { filterTinyOsDesktopByAgent, projectKernelBackedTinyOsDesktop, projectTinyOsDesktop, tinyOsAppForStep, type TinyOsTimelineEntry } from "./tinyOsDesktopModel";
 import type { TinyOsKernelSnapshot } from "./tinyOsKernelModel";
 
@@ -106,7 +106,6 @@ describe("TinyOS desktop projector", () => {
       itemId: "read-1",
       kind: "tool_call",
       revision: 1,
-      runId: "turn-1",
       sequence: 1,
       sessionId: "session-1",
       status: "running",
@@ -147,8 +146,8 @@ describe("TinyOS desktop projector", () => {
       notifications: [{ id: "main-note", kind: "info", message: "main", processId: "process-main", provenance, title: "Main" }, {
         id: "child-note", kind: "error", message: "child", processId: "process-child", provenance, resourceId: "resource-child", title: "Child" },
       ],
-      processes: [{ correlation: { itemId: "main-read", runId: "run-1", sessionId: "session-1", turnId: "turn-1" }, id: "process-main", kind: "tool_operation", ownerAgentId: "agent-main", provenance, state: "completed", title: "Main read" }, {
-        applicationId: "terminal", correlation: { itemId: "child-shell", runId: "run-1", sessionId: "session-1", turnId: "turn-1" }, id: "process-child", kind: "tool_operation", ownerAgentId: "agent-child", provenance, state: "failed", title: "Child shell" },
+      processes: [{ correlation: { itemId: "main-read", sessionId: "session-1", turnId: "turn-1" }, id: "process-main", kind: "tool_operation", ownerAgentId: "agent-main", provenance, state: "completed", title: "Main read" }, {
+        applicationId: "terminal", correlation: { itemId: "child-shell", sessionId: "session-1", turnId: "turn-1" }, id: "process-child", kind: "tool_operation", ownerAgentId: "agent-child", provenance, state: "failed", title: "Child shell" },
       ],
       resources: [{ access: "read_only", id: "resource-main", kind: "file", provenance, relatedProcessIds: ["process-main"], title: "Main file" }, {
         access: "execute", id: "resource-child", kind: "terminal_execution", provenance, relatedProcessIds: ["process-child"], title: "Child terminal" },

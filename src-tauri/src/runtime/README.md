@@ -1,7 +1,7 @@
 # Native Runtime Services
 
 `runtime` owns process-local services that must outlive an individual backend
-request: agent task ownership, shared MCP connections, startup/shutdown
+request: turn execution ownership, shared MCP connections, startup/shutdown
 lifecycle, and bounded operational metrics.
 
 These modules are crate-internal. Public commands reach them through the
@@ -9,8 +9,8 @@ desktop or Worker RPC boundaries.
 
 ## Components
 
-- `agent_task.rs`: ownership and state for active, paused, draining, cancelled,
-  and terminal agent runs.
+- `turn_execution.rs`: ownership and state for active, paused, draining,
+  cancelled, and terminal agent turns.
 - `mcp.rs`: shared MCP server connections, discovered tools, status, and
   reconciliation.
 - `lifecycle.rs`: startup consistency checks/recovery and coordinated shutdown.
@@ -18,7 +18,7 @@ desktop or Worker RPC boundaries.
 
 ## Agent task ownership
 
-`AgentTaskRuntime` is the authority for live run execution. A run has a
+`TurnExecutionRuntime` is the authority for live turn execution. A turn has a
 generation, cancellation token, pause control, completion state, and a single
 owned execution handle. Replacing or terminating a generation moves old work
 to draining state so late results cannot become the current terminal result.
@@ -34,8 +34,8 @@ Startup reconciliation runs before the runtime accepts new agent work. It:
    named legacy migration when applicable.
 2. Checks the session-compatible log index and performs its named missing-index
    migration when applicable.
-3. Reconciles persisted run records, marking orphaned active runs interrupted
-   while preserving resumable waiting runs.
+3. Reconciles persisted turn records, marking orphaned active turns interrupted
+   while preserving resumable waiting turns.
 4. Records a queryable recovery report or a visible startup failure.
 
 Shutdown stops accepting new work, requests cancellation, drains owned agent
@@ -46,11 +46,11 @@ workers, and records all stage failures in the lifecycle report.
 
 - New work is not accepted before startup reconciliation succeeds or while
   shutdown is in progress.
-- At most one current generation owns the terminal result for a run ID.
+- At most one current generation owns the terminal result for a turn ID.
 - Cancellation and pause are cooperative; state changes remain observable
   while the task reaches a safe boundary.
 - Late results from replaced or cancelled generations cannot overwrite the
-  current run outcome.
+  current turn outcome.
 - MCP state is shared across requests and agent turns; do not create a new MCP
   runtime per operation.
 - Lifecycle failures are accumulated as bounded diagnostics, not swallowed.

@@ -9,8 +9,7 @@ describe("desktop native host command API", () => {
     const request = {
       clientId: "desktop-native",
       attachedChatId: "thread-1",
-      runId: "run-1",
-      frame: { type: "command", command_kind: "file.save" },
+      frame: { type: "command", command_kind: "file.save", operation_id: "operation-1" },
     };
 
     await expect(api.dispatch(request)).resolves.toEqual({ ok: true });

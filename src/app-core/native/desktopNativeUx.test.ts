@@ -193,7 +193,7 @@ describe("desktop native UX projections", () => {
     expect(performance.lazy).toContain("cowork-cockpit");
     expect(performance.routeHydration.skeleton).toBe("Chat skeleton");
     expect(performance.virtualization.sessions.enabled).toBe(true);
-    expect(performance.memoizedProjections).toEqual(["run-chain-items", "task-center-items", "command-palette-data"]);
+    expect(performance.memoizedProjections).toEqual(["turn-chain-items", "task-center-items", "command-palette-data"]);
     expect(performance.measurements.map((metric) => metric.id)).toEqual([
       "first-usable-composer",
       "first-session-list",

@@ -264,7 +264,7 @@ export function buildDesktopLoadingPerformanceUx(input: {
       taskRows: { enabled: (counts.taskRows ?? 0) > 60 },
       coworkTraces: { enabled: (counts.coworkTraces ?? 0) > 80 },
     },
-    memoizedProjections: ["run-chain-items", "task-center-items", "command-palette-data"],
+    memoizedProjections: ["turn-chain-items", "task-center-items", "command-palette-data"],
     refreshPolicy: { commandPaletteDebounceMs: 180, idlePrefetch: true },
     measurements: [
       "first-usable-composer",

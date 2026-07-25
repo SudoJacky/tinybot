@@ -1,0 +1,180 @@
+use crate::protocol::{WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource};
+use crate::threads::rollout::format::TokenUsageInfo;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentTurnStatus {
+    Running,
+    Waiting,
+    Completed,
+    Failed,
+    Cancelled,
+    Interrupted,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentTurnRecord {
+    pub session_id: String,
+    pub turn_id: String,
+    #[serde(default)]
+    pub thread_id: Option<String>,
+    #[serde(default)]
+    pub parent_thread_id: Option<String>,
+    #[serde(default)]
+    pub child_thread_ids: Vec<String>,
+    pub status: AgentTurnStatus,
+    pub phase: String,
+    pub started_at: String,
+    pub updated_at: String,
+    pub completed_at: Option<String>,
+    pub stop_reason: Option<String>,
+    pub model: String,
+    pub provider: Option<String>,
+    pub max_iterations: i64,
+    pub current_iteration: i64,
+    #[serde(default)]
+    pub conversation_message_ids: Vec<String>,
+    #[serde(default)]
+    pub trace_messages: Vec<Value>,
+    #[serde(default)]
+    pub completed_tool_results: Vec<Value>,
+    #[serde(default)]
+    pub pending_tool_calls: Vec<Value>,
+    pub checkpoint: Option<Value>,
+    #[serde(default)]
+    pub artifacts: Vec<Value>,
+    #[serde(default)]
+    pub usage: Vec<Value>,
+    #[serde(default)]
+    pub token_usage_info: Option<TokenUsageInfo>,
+    #[serde(default)]
+    pub instruction_provenance: Option<Value>,
+    #[serde(default)]
+    pub instruction_diagnostics: Vec<Value>,
+    #[serde(default)]
+    pub trace_context: Option<crate::agent::runtime_protocol::AgentTraceContext>,
+    pub error: Option<Value>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentTurnSummary {
+    pub session_id: String,
+    pub turn_id: String,
+    pub thread_id: Option<String>,
+    pub parent_thread_id: Option<String>,
+    pub child_thread_ids: Vec<String>,
+    pub status: AgentTurnStatus,
+    pub phase: String,
+    pub started_at: String,
+    pub updated_at: String,
+    pub completed_at: Option<String>,
+    pub stop_reason: Option<String>,
+    pub model: String,
+    pub provider: Option<String>,
+    pub tools_used: Vec<String>,
+    pub tool_call_count: usize,
+    pub has_checkpoint: bool,
+    pub final_content_preview: Option<String>,
+    pub artifact_count: usize,
+}
+
+impl AgentTurnSummary {
+    pub fn from_record(record: &AgentTurnRecord) -> Self {
+        let tools_used = record
+            .completed_tool_results
+            .iter()
+            .filter_map(|result| {
+                result
+                    .get("toolName")
+                    .or_else(|| result.get("tool_name"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+            .collect::<Vec<_>>();
+        Self {
+            session_id: record.session_id.clone(),
+            turn_id: record.turn_id.clone(),
+            thread_id: record.thread_id.clone(),
+            parent_thread_id: record.parent_thread_id.clone(),
+            child_thread_ids: record.child_thread_ids.clone(),
+            status: record.status.clone(),
+            phase: record.phase.clone(),
+            started_at: record.started_at.clone(),
+            updated_at: record.updated_at.clone(),
+            completed_at: record.completed_at.clone(),
+            stop_reason: record.stop_reason.clone(),
+            model: record.model.clone(),
+            provider: record.provider.clone(),
+            tool_call_count: record.completed_tool_results.len(),
+            has_checkpoint: record.checkpoint.is_some(),
+            final_content_preview: final_content_preview(record),
+            artifact_count: record.artifacts.len(),
+            tools_used,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentTurnCheckpoint {
+    pub session_id: String,
+    pub turn_id: String,
+    pub checkpoint: Value,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentTurnRuntimeState {
+    pub runtime_events: Vec<crate::agent::runtime_protocol::AgentRuntimeEventEnvelope>,
+    pub timeline: crate::agent::runtime_protocol::AgentTimelineSnapshot,
+}
+
+impl AgentTurnRuntimeState {
+    pub fn from_runtime_events(
+        session_id: &str,
+        turn_id: &str,
+        runtime_events: Vec<crate::agent::runtime_protocol::AgentRuntimeEventEnvelope>,
+    ) -> Result<Self, WorkerProtocolError> {
+        let timeline = crate::agent::runtime_protocol::project_timeline_snapshot(
+            session_id,
+            turn_id,
+            &runtime_events,
+        )
+        .map_err(|reason| {
+            WorkerProtocolError::new(
+                WorkerProtocolErrorCode::InvalidProtocol,
+                "failed to project canonical agent timeline",
+                serde_json::json!({
+                    "sessionId": session_id,
+                    "turnId": turn_id,
+                    "reason": reason,
+                }),
+                false,
+                WorkerProtocolErrorSource::RustCore,
+            )
+        })?;
+        Ok(Self {
+            runtime_events,
+            timeline,
+        })
+    }
+}
+
+fn final_content_preview(record: &AgentTurnRecord) -> Option<String> {
+    record.trace_messages.iter().rev().find_map(|message| {
+        let role = message.get("role").and_then(Value::as_str)?;
+        if role != "assistant" {
+            return None;
+        }
+        let content = message.get("content").and_then(Value::as_str)?.trim();
+        if content.is_empty() {
+            None
+        } else {
+            Some(content.chars().take(160).collect())
+        }
+    })
+}

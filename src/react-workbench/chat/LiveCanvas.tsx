@@ -3,7 +3,7 @@ import { Maximize2, Minimize2, MonitorDot, Play, X } from "lucide-react";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import { projectKernelBackedTinyOsDesktop, projectTinyOsDesktop, type TinyOsTimelineEntry } from "../../app-core/chat/tinyOsDesktopModel";
 import { tinyOsLayoutModeForWidth, type TinyOsAgentRequestIntent, type TinyOsAgentRequestReference, type TinyOsContextReference } from "../../app-core/chat/tinyOsUiState";
-import type { ArtifactRef, BackendAgentTurnItem, ChatStep } from "../../app-core/chat/chatRunModel";
+import type { ArtifactRef, BackendAgentTurnItem, ChatStep } from "../../app-core/chat/chatTurnModel";
 import type { TinyOsBrowserAction } from "../../app-core/chat/tinyOsCommandGateway";
 import type { TinyOsNativeSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
 import type { ApprovalAction } from "../services";
@@ -24,17 +24,17 @@ const TINYOS_BOOT_DURATION_MS = 1_000;
 let tinyOsBootedInRuntime = false;
 
 export function LiveCanvas({
-  activeRunId,
+  activeTurnId,
   agentUiForms,
   canCancelTerminal = false,
   canDirectEdit = false,
   canExecuteTerminal = false,
   canInteractBrowser = false,
-  canCancelRun,
-  canPauseRun,
+  canCancelTurn,
+  canPauseTurn,
   canRequestChange,
-  canResumeRun,
-  canRetryRun,
+  canResumeTurn,
+  canRetryTurn,
   canSaveFile = false,
   cancelUnavailableReason,
   canonicalItems = [],
@@ -47,8 +47,8 @@ export function LiveCanvas({
   headingRef,
   mode,
   onCancelForm,
-  onCancelRun,
-  onPauseRun,
+  onCancelTurn,
+  onPauseTurn,
   onAttachContext,
   onClose,
   onExpandedChange,
@@ -62,7 +62,7 @@ export function LiveCanvas({
   onResolveApproval,
   onRetryOperation,
   onReturnToLive,
-  onResumeRun,
+  onResumeTurn,
   onSelectEntry,
   onSubmitForm,
   onSaveFile = async () => undefined,
@@ -70,10 +70,10 @@ export function LiveCanvas({
   resolvingApprovalId,
   requestChangeUnavailableReason,
   directEditUnavailableReason,
-  retryRunId,
+  retryTurnId,
   retryUnavailableReason,
   resumeUnavailableReason,
-  runningTerminalRunId,
+  runningTerminalOperationId,
   saveFileUnavailableReason,
   terminalCancelUnavailableReason,
   terminalExecuteUnavailableReason,
@@ -85,17 +85,17 @@ export function LiveCanvas({
   widthPx,
   workspaceKey = "desktop-workspace",
 }: {
-  activeRunId?: string;
+  activeTurnId?: string;
   agentUiForms: AgentUiForm[];
   canCancelTerminal?: boolean;
   canDirectEdit?: boolean;
   canExecuteTerminal?: boolean;
   canInteractBrowser?: boolean;
-  canCancelRun: boolean;
-  canPauseRun: boolean;
+  canCancelTurn: boolean;
+  canPauseTurn: boolean;
   canRequestChange: boolean;
-  canResumeRun: boolean;
-  canRetryRun: boolean;
+  canResumeTurn: boolean;
+  canRetryTurn: boolean;
   canSaveFile?: boolean;
   cancelUnavailableReason?: string;
   canonicalItems?: BackendAgentTurnItem[];
@@ -108,8 +108,8 @@ export function LiveCanvas({
   headingRef: RefObject<HTMLHeadingElement | null>;
   mode: LiveCanvasMode;
   onCancelForm: (form: AgentUiForm) => void;
-  onCancelRun: () => void;
-  onPauseRun: () => void;
+  onCancelTurn: () => void;
+  onPauseTurn: () => void;
   onAttachContext: (reference: TinyOsContextReference) => void;
   onClose: () => void;
   onExpandedChange?: () => void;
@@ -123,7 +123,7 @@ export function LiveCanvas({
   onResolveApproval: (approvalId: string, action: ApprovalAction) => void;
   onRetryOperation: (entry: LiveCanvasEntry) => void;
   onReturnToLive: () => void;
-  onResumeRun: () => void;
+  onResumeTurn: () => void;
   onSelectEntry: (entry: LiveCanvasEntry) => void;
   onSubmitForm: (form: AgentUiForm, values: Record<string, unknown>) => void;
   onSaveFile?: (input: { baseRevision?: string; content: string; createOnly: boolean; path: string }) => Promise<void>;
@@ -131,10 +131,10 @@ export function LiveCanvas({
   resolvingApprovalId: string;
   requestChangeUnavailableReason?: string;
   directEditUnavailableReason?: string;
-  retryRunId?: string;
+  retryTurnId?: string;
   retryUnavailableReason?: string;
   resumeUnavailableReason?: string;
-  runningTerminalRunId?: string;
+  runningTerminalOperationId?: string;
   saveFileUnavailableReason?: string;
   terminalCancelUnavailableReason?: string;
   terminalExecuteUnavailableReason?: string;
@@ -157,7 +157,6 @@ export function LiveCanvas({
           eventIndex: historyBoundary.eventIndex,
           itemId: historyBoundary.itemId,
           mode,
-          runId: historyBoundary.runId,
           turnId: historyBoundary.turnId,
         } as const
       : {
@@ -172,7 +171,7 @@ export function LiveCanvas({
   const actionableDialog = Boolean(snapshot.dialog && mode === "live_follow");
   const commandPending = isTinyOsCommandInFlight(commandLifecycle);
   const runtimeCommandRegistry = useMemo(() => {
-    const target = { kind: "run", runId: activeRunId || "unavailable" } as const;
+    const target = { kind: "turn", turnId: activeTurnId || "unavailable" } as const;
     const availability = (available: boolean, reason?: string): TinyOsShellCommandAvailability => available
       ? { available: true }
       : {
@@ -185,40 +184,40 @@ export function LiveCanvas({
         };
     return createTinyOsShellCommandRegistry([
       defineTinyOsShellCommand({
-        availability: availability(mode === "live_follow" && canPauseRun && !commandPending, pauseUnavailableReason),
+        availability: availability(mode === "live_follow" && canPauseTurn && !commandPending, pauseUnavailableReason),
         category: "process",
-        dispatch: onPauseRun,
+        dispatch: onPauseTurn,
         id: "agent.pause",
         input: { kind: "none" },
-        keywords: ["pause", "agent", "run"],
-        label: "Pause active Agent run",
+        keywords: ["pause", "agent", "turn"],
+        label: "Pause active Agent turn",
         scope: "runtime",
         target,
       }),
       defineTinyOsShellCommand({
-        availability: availability(mode === "live_follow" && canResumeRun && !commandPending, resumeUnavailableReason),
+        availability: availability(mode === "live_follow" && canResumeTurn && !commandPending, resumeUnavailableReason),
         category: "process",
-        dispatch: onResumeRun,
+        dispatch: onResumeTurn,
         id: "agent.resume",
         input: { kind: "none" },
-        keywords: ["resume", "agent", "run"],
-        label: "Resume paused Agent run",
+        keywords: ["resume", "agent", "turn"],
+        label: "Resume paused Agent turn",
         scope: "runtime",
         target,
       }),
       defineTinyOsShellCommand({
-        availability: availability(mode === "live_follow" && canCancelRun && !commandPending, cancelUnavailableReason),
+        availability: availability(mode === "live_follow" && canCancelTurn && !commandPending, cancelUnavailableReason),
         category: "process",
-        dispatch: onCancelRun,
+        dispatch: onCancelTurn,
         id: "agent.cancel",
         input: { kind: "none" },
-        keywords: ["cancel", "stop", "agent", "run"],
-        label: "Cancel active Agent run",
+        keywords: ["cancel", "stop", "agent", "turn"],
+        label: "Cancel active Agent turn",
         scope: "runtime",
         target,
       }),
     ], { simulationMode: mode === "history" ? "history" : "live" });
-  }, [activeRunId, canCancelRun, canPauseRun, canResumeRun, cancelUnavailableReason, commandPending, mode, onCancelRun, onPauseRun, onResumeRun, pauseUnavailableReason, resumeUnavailableReason]);
+  }, [activeTurnId, canCancelTurn, canPauseTurn, canResumeTurn, cancelUnavailableReason, commandPending, mode, onCancelTurn, onPauseTurn, onResumeTurn, pauseUnavailableReason, resumeUnavailableReason]);
   const submittingFormId = commandLifecycle.stage !== "idle"
     && (commandLifecycle.command.kind === "form.submit" || commandLifecycle.command.kind === "form.cancel")
     && isTinyOsCommandInFlight(commandLifecycle)
@@ -356,7 +355,7 @@ export function LiveCanvas({
         canExecuteTerminal={canExecuteTerminal}
         canInteractBrowser={canInteractBrowser}
         canRequestChange={canRequestChange}
-        canRetryRun={canRetryRun}
+        canRetryTurn={canRetryTurn}
         canSaveFile={canSaveFile}
         commandLifecycle={commandLifecycle}
         directEditUnavailableReason={directEditUnavailableReason}
@@ -386,9 +385,9 @@ export function LiveCanvas({
         onSaveFile={onSaveFile}
         requestChangeUnavailableReason={requestChangeUnavailableReason}
         runtimeCommandRegistry={canvasCommandRegistry}
-        retryRunId={retryRunId}
+        retryTurnId={retryTurnId}
         retryUnavailableReason={retryUnavailableReason}
-        runningTerminalRunId={runningTerminalRunId}
+        runningTerminalOperationId={runningTerminalOperationId}
         saveFileUnavailableReason={saveFileUnavailableReason}
         terminalCancelUnavailableReason={terminalCancelUnavailableReason}
         terminalExecuteUnavailableReason={terminalExecuteUnavailableReason}

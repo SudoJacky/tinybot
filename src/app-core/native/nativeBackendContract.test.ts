@@ -69,10 +69,10 @@ describe("native backend contract", () => {
   });
 
   test("normalizes Rust event envelopes while preserving payloads", () => {
-    const payload = { runId: "run-1", delta: "hello" };
+    const payload = { turnId: "turn-1", delta: "hello" };
     const envelope = {
       sessionId: "WebSocket:chat-1",
-      runId: "run-1",
+      turnId: "turn-1",
       traceId: "trace-1",
       eventName: "agent.delta",
       timestamp: "2026-06-29T14:30:00.000Z",

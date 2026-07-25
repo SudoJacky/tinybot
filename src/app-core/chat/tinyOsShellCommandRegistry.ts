@@ -36,10 +36,10 @@ export type TinyOsShellCommandTarget =
   | { appId: TinyOsAppId; kind: "window" }
   | { itemId: string; kind: "evidence"; turnId?: string }
   | { itemId: string; kind: "history"; turnId: string }
-  | { itemId: string; kind: "operation"; runId: string; turnId: string }
-  | { kind: "process"; processId: string; runId: string }
+  | { itemId: string; kind: "operation"; turnId: string }
+  | { kind: "process"; processId: string }
   | { kind: "resource"; resourceId: string }
-  | { kind: "run"; runId: string }
+  | { kind: "turn"; turnId: string }
   | { kind: "shell" };
 
 export type TinyOsShellCommandInputSchema =

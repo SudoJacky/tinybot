@@ -24,7 +24,7 @@ export const TINYOS_CAPABILITY_IDS = [
 export type TinyOsEffectiveCapabilities = {
   schemaVersion: "tinybot.effective_capabilities.v1";
   sessionId: string;
-  evaluatedRunId?: string;
+  evaluatedTurnId?: string;
   capabilities: {
     agent: {
       pause: TinyOsCapabilityDecision;
@@ -77,7 +77,7 @@ export function normalizeTinyOsEffectiveCapabilities(
   return {
     schemaVersion: "tinybot.effective_capabilities.v1",
     sessionId,
-    ...(optionalString(root.evaluatedRunId) ? { evaluatedRunId: optionalString(root.evaluatedRunId) } : {}),
+    ...(optionalString(root.evaluatedTurnId) ? { evaluatedTurnId: optionalString(root.evaluatedTurnId) } : {}),
     capabilities: {
       agent: {
         pause: normalizeDecision(agent.pause, "agent.pause"),

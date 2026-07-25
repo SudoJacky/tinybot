@@ -21,7 +21,7 @@ describe("desktop command", () => {
     });
   });
 
-  test("creates a stop intent without leaking active-run lookup to the caller", () => {
+  test("creates a stop intent without leaking active-turn lookup to the caller", () => {
     expect(createDesktopStopCommand({
       commandId: "command-2",
       issuedAt: "2026-07-15T00:00:00.000Z",

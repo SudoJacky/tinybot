@@ -57,6 +57,7 @@ import {
   createTinyOsAgentCancelCommand,
   toNativeTinyOsHostCommandFrame,
   type TinyOsCommand,
+  type TinyOsDirectHostCommand,
   type TinyOsHostCommand,
 } from "../app-core/chat/tinyOsCommandGateway";
 import { normalizeTinyOsEffectiveCapabilities } from "../app-core/chat/tinyOsCapabilities";
@@ -76,14 +77,14 @@ export function createDesktopAppServices(): AppServices {
   const nativeWorkspace = nativeMode ? createDesktopNativeWorkspaceApi({ invoke }) : undefined;
   let initialized: Promise<void> | null = null;
   const listeners = new Map<string, Set<Listener>>();
-  const notifiedTerminalRuns = new Set<string>();
+  const notifiedTerminalTurns = new Set<string>();
   const agentUiState = createAgentUiEventState();
 
   const controller = createDesktopChatSessionController({
     api: {
       listSessions: listConversationThreads,
-      listAgentRuns: (sessionKey) => requireNative(nativeSessions, "Session").agentRuns?.(sessionKey) ?? Promise.resolve({ runs: [] }),
-      getAgentRunRuntimeState: (sessionKey, runId) => requireNative(nativeSessions, "Session").agentRunRuntimeState?.(sessionKey, runId) ?? Promise.resolve(null),
+      listTurns: (sessionKey) => requireNative(nativeSessions, "Session").turns?.(sessionKey) ?? Promise.resolve({ turns: [] }),
+      getAgentTurnRuntimeState: (sessionKey, turnId) => requireNative(nativeSessions, "Session").agentTurnRuntimeState?.(sessionKey, turnId) ?? Promise.resolve(null),
       deleteSession: (threadId) => requireNative(nativeThreads, "Thread").delete({
         threadId,
         deleteChildren: true,
@@ -174,6 +175,17 @@ export function createDesktopAppServices(): AppServices {
           });
         }
       }),
+      listen("tinyos:host-operation", (event) => {
+        const update = normalizeTinyOsHostOperationUpdate(event.payload);
+        if (!update) return;
+        notifySession(update.sessionId, {
+          commandId: update.commandId,
+          error: update.error,
+          operationId: update.operationId,
+          operationStatus: update.status,
+          type: "host.operation",
+        });
+      }),
     ]);
   }
 
@@ -181,8 +193,8 @@ export function createDesktopAppServices(): AppServices {
     const turn = timeline?.turns[timeline.turns.length - 1];
     if (!turn || !["completed", "failed", "interrupted"].includes(turn.status)) return;
     const key = `${sessionId}:${turn.id}:${turn.status}`;
-    if (notifiedTerminalRuns.has(key)) return;
-    notifiedTerminalRuns.add(key);
+    if (notifiedTerminalTurns.has(key)) return;
+    notifiedTerminalTurns.add(key);
     const eventType = turn.status === "completed"
       ? "agent.turn.completed"
       : turn.status === "failed" ? "agent.turn.failed" : "agent.turn.interrupted";
@@ -195,21 +207,21 @@ export function createDesktopAppServices(): AppServices {
     const traceContext = isRecord(payload.traceContext) ? payload.traceContext : {};
     const formId = stringValue(payload.formId ?? payload.form_id ?? form.formId ?? form.form_id);
     const threadId = stringValue(traceContext.threadId ?? traceContext.thread_id);
-    const runId = stringValue(traceContext.runId ?? traceContext.run_id);
+    const turnId = stringValue(traceContext.turnId ?? traceContext.turn_id);
     if (!formId || !threadId) return;
     const correlation = isRecord(form.correlation) ? form.correlation : {};
     for (const agentUiEvent of normalizeAgentUiEvents({
       event: "agent_ui_event",
       agent_ui_event: {
         event_type: "ui.form.requested",
-        run_id: runId,
+        turn_id: turnId,
         payload: {
           ...form,
           form_id: formId,
           correlation: {
             ...correlation,
             form_id: formId,
-            run_id: runId,
+            turn_id: turnId,
             session_key: threadId,
             thread_id: threadId,
           },
@@ -263,7 +275,7 @@ export function createDesktopAppServices(): AppServices {
     if (command.kind === "agent.cancel") {
       await requireNative(nativeThreads, "Thread").interrupt({
         threadId,
-        runId: command.target.runId,
+        turnId: command.target.turnId,
         clientEventId: command.commandId,
         reason: "user_requested",
       });
@@ -287,12 +299,23 @@ export function createDesktopAppServices(): AppServices {
         action: command.kind === "form.submit" ? "submit" : "cancel",
       });
     } else {
-      await requireNative(nativeHostCommands, "Host command").dispatch({
+      const hostCommand = command as TinyOsHostCommand;
+      const result = await requireNative(nativeHostCommands, "Host command").dispatch({
         clientId: "desktop-native",
         attachedChatId: command.target.sessionId,
-        runId: command.target.runId,
-        frame: toNativeTinyOsHostCommandFrame(command.target.sessionId, command as TinyOsHostCommand),
+        frame: toNativeTinyOsHostCommandFrame(command.target.sessionId, hostCommand),
       });
+      if ("operationId" in hostCommand.target) {
+        const directHostCommand = hostCommand as TinyOsDirectHostCommand;
+        const update = tinyOsHostOperationUpdateFromDispatch(directHostCommand, result);
+        notifySession(command.target.sessionId, {
+          commandId: command.commandId,
+          error: update.error,
+          operationId: directHostCommand.target.operationId,
+          operationStatus: update.status,
+          type: "host.operation",
+        });
+      }
     }
     if (!transportAccepted) {
       notifySession(command.target.sessionId, { commandId: command.commandId, type: "command.accepted" });
@@ -356,11 +379,10 @@ export function createDesktopAppServices(): AppServices {
         || candidate.status === "awaiting_approval"
         || candidate.status === "awaiting_user"
       ));
-      if (!turn) throw new Error("Cannot cancel: the session has no active run");
+      if (!turn) throw new Error("Cannot cancel: the session has no active turn");
       const cancelCommand = createTinyOsAgentCancelCommand({
         commandId: command.commandId,
         issuedAt: command.issuedAt,
-        runId: turn.id,
         sessionId,
         source: command.source,
         threadId: turn.canonicalItems?.find((item) => item.threadId)?.threadId,
@@ -1030,6 +1052,57 @@ function payloadItems(payload: unknown, keys: string[]): Record<string, unknown>
     }
   }
   return [];
+}
+
+type TinyOsHostOperationUpdate = {
+  commandId: string;
+  error?: string;
+  operationId: string;
+  sessionId: string;
+  status: "running" | "completed" | "failed" | "cancelled";
+};
+
+function normalizeTinyOsHostOperationUpdate(value: unknown): TinyOsHostOperationUpdate | undefined {
+  if (!isRecord(value)) return undefined;
+  const commandId = stringValue(value.commandId);
+  const operationId = stringValue(value.operationId);
+  const sessionId = stringValue(value.sessionId);
+  const status = normalizeTinyOsHostOperationStatus(value.status);
+  if (!commandId || !operationId || !sessionId || !status) return undefined;
+  const error = stringValue(value.error);
+  return {
+    commandId,
+    operationId,
+    sessionId,
+    status,
+    ...(error ? { error } : {}),
+  };
+}
+
+function tinyOsHostOperationUpdateFromDispatch(
+  command: TinyOsDirectHostCommand,
+  value: unknown,
+): Pick<TinyOsHostOperationUpdate, "error" | "status"> {
+  const root = isRecord(value) ? value : {};
+  const operation = isRecord(root.operation) ? root.operation : {};
+  if (command.kind === "terminal.cancel") return { status: "cancelled" };
+  const status = normalizeTinyOsHostOperationStatus(operation.status);
+  if (status) {
+    const error = stringValue(operation.error ?? operation.reason);
+    return { status, ...(error ? { error } : {}) };
+  }
+  return { status: "completed" };
+}
+
+function normalizeTinyOsHostOperationStatus(
+  value: unknown,
+): TinyOsHostOperationUpdate["status"] | undefined {
+  const status = stringValue(value);
+  if (status === "running" || status === "completed" || status === "failed" || status === "cancelled") {
+    return status;
+  }
+  if (status === "user_required") return "completed";
+  return undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

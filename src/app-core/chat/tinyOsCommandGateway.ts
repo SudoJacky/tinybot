@@ -1,4 +1,4 @@
-import type { ChatTurn } from "./chatRunModel";
+import type { ChatTurn } from "./chatTurnModel";
 import type { NativeChatReference } from "./nativeChat";
 
 export const TINYOS_COMMAND_ACK_TIMEOUT_MS = 5_000;
@@ -32,10 +32,9 @@ export type TinyOsAgentCancelCommand = {
   kind: "agent.cancel";
   source: TinyOsCommandSource;
   target: {
-    runId: string;
+    turnId: string;
     sessionId: string;
     threadId?: string;
-    turnId?: string;
   };
 };
 
@@ -46,10 +45,9 @@ export type TinyOsApprovalResolveCommand = {
   kind: "approval.resolve";
   source: TinyOsCommandSource;
   target: {
-    runId: string;
+    turnId: string;
     sessionId: string;
     threadId?: string;
-    turnId?: string;
   };
   approval: {
     approvalId: string;
@@ -66,10 +64,9 @@ export type TinyOsFormSubmitCommand = {
   kind: "form.submit";
   source: TinyOsCommandSource;
   target: {
-    runId: string;
+    turnId: string;
     sessionId: string;
     threadId?: string;
-    turnId?: string;
   };
   form: {
     formId: string;
@@ -77,17 +74,16 @@ export type TinyOsFormSubmitCommand = {
   };
 };
 
-export type TinyOsAgentRunControlCommand = {
+export type TinyOsAgentTurnControlCommand = {
   schemaVersion: "tinybot.command.v1";
   commandId: string;
   issuedAt: string;
   kind: "agent.pause" | "agent.resume";
   source: TinyOsCommandSource;
   target: {
-    runId: string;
+    turnId: string;
     sessionId: string;
     threadId?: string;
-    turnId?: string;
   };
 };
 
@@ -98,10 +94,9 @@ export type TinyOsFormCancelCommand = {
   kind: "form.cancel";
   source: TinyOsCommandSource;
   target: {
-    runId: string;
+    turnId: string;
     sessionId: string;
     threadId?: string;
-    turnId?: string;
   };
   form: {
     formId: string;
@@ -115,10 +110,9 @@ export type TinyOsOperationRetryCommand = {
   kind: "operation.retry";
   source: TinyOsCommandSource;
   target: {
-    runId: string;
+    turnId: string;
     sessionId: string;
     threadId?: string;
-    turnId?: string;
   };
   operation: {
     itemId: string;
@@ -133,14 +127,13 @@ export type TinyOsAgentRequestChangeCommand = {
   kind: "agent.request_change";
   source: TinyOsCommandSource;
   target: {
-    runId: string;
+    turnId: string;
     sessionId: string;
     threadId?: string;
-    turnId?: string;
   };
   request: {
     instruction: string;
-    observedRunId?: string;
+    observedTurnId?: string;
     references: NativeChatReference[];
   };
 };
@@ -151,7 +144,7 @@ export type TinyOsFileSaveCommand = {
   issuedAt: string;
   kind: "file.save";
   source: TinyOsCommandSource;
-  target: { runId: string; sessionId: string; threadId?: string };
+  target: { operationId: string; sessionId: string; threadId?: string };
   file: {
     baseRevision?: string;
     confirmed: true;
@@ -167,7 +160,7 @@ export type TinyOsFileMoveCommand = {
   issuedAt: string;
   kind: "file.move";
   source: TinyOsCommandSource;
-  target: { runId: string; sessionId: string; threadId?: string };
+  target: { operationId: string; sessionId: string; threadId?: string };
   file: { baseRevision: string; confirmed: true; path: string; targetPath: string };
 };
 
@@ -177,7 +170,7 @@ export type TinyOsFileDeleteCommand = {
   issuedAt: string;
   kind: "file.delete";
   source: TinyOsCommandSource;
-  target: { runId: string; sessionId: string; threadId?: string };
+  target: { operationId: string; sessionId: string; threadId?: string };
   file: { baseRevision: string; confirmed: true; path: string };
 };
 
@@ -187,7 +180,7 @@ export type TinyOsTerminalExecuteCommand = {
   issuedAt: string;
   kind: "terminal.execute";
   source: TinyOsCommandSource;
-  target: { runId: string; sessionId: string; threadId?: string };
+  target: { operationId: string; sessionId: string; threadId?: string };
   terminal: { command: string; confirmed: true; cwd?: string };
 };
 
@@ -197,7 +190,7 @@ export type TinyOsTerminalCancelCommand = {
   issuedAt: string;
   kind: "terminal.cancel";
   source: TinyOsCommandSource;
-  target: { runId: string; sessionId: string; threadId?: string };
+  target: { operationId: string; sessionId: string; threadId?: string };
 };
 
 export type TinyOsBrowserAction =
@@ -218,7 +211,7 @@ export type TinyOsBrowserInteractCommand = {
   issuedAt: string;
   kind: "browser.interact";
   source: TinyOsCommandSource;
-  target: { runId: string; sessionId: string; threadId?: string };
+  target: { operationId: string; sessionId: string; threadId?: string };
   browser: {
     action: TinyOsBrowserAction;
     browserSessionId: string;
@@ -231,7 +224,7 @@ export type TinyOsBrowserInteractCommand = {
 };
 
 export type TinyOsCommand = TinyOsAgentCancelCommand
-  | TinyOsAgentRunControlCommand
+  | TinyOsAgentTurnControlCommand
   | TinyOsApprovalResolveCommand
   | TinyOsFormSubmitCommand
   | TinyOsFormCancelCommand
@@ -249,16 +242,26 @@ export type TinyOsHostCommand = Exclude<
   TinyOsAgentCancelCommand | TinyOsApprovalResolveCommand | TinyOsFormSubmitCommand | TinyOsFormCancelCommand
 >;
 
+export type TinyOsDirectHostCommand =
+  | TinyOsFileSaveCommand
+  | TinyOsFileMoveCommand
+  | TinyOsFileDeleteCommand
+  | TinyOsTerminalExecuteCommand
+  | TinyOsTerminalCancelCommand
+  | TinyOsBrowserInteractCommand;
+
 export function toNativeTinyOsHostCommandFrame(sessionId: string, command: TinyOsHostCommand) {
+  const targetIdentity = "operationId" in command.target
+    ? { operation_id: command.target.operationId }
+    : { turn_id: command.target.turnId };
   const envelope = {
     type: "command" as const,
     chat_id: sessionId,
     command_id: command.commandId,
     command_kind: command.kind,
-    run_id: command.target.runId,
+    ...targetIdentity,
     session_id: command.target.sessionId,
     ...(command.target.threadId ? { thread_id: command.target.threadId } : {}),
-    ...("turnId" in command.target && command.target.turnId ? { turn_id: command.target.turnId } : {}),
     source: command.source,
   };
   if (command.kind === "operation.retry") return {
@@ -270,7 +273,7 @@ export function toNativeTinyOsHostCommandFrame(sessionId: string, command: TinyO
   if (command.kind === "agent.request_change") return {
     ...envelope,
     instruction: command.request.instruction,
-    ...(command.request.observedRunId ? { observed_run_id: command.request.observedRunId } : {}),
+    ...(command.request.observedTurnId ? { observed_turn_id: command.request.observedTurnId } : {}),
     references: command.request.references,
   };
   if (command.kind === "file.save") return {
@@ -337,6 +340,7 @@ export type TinyOsCommandLifecycleAction =
   | { commandId: string; nowMs: number; type: "transport_accepted" }
   | { acknowledgement: TinyOsCommandAcknowledgement; commandId: string; nowMs: number; type: "canonical_acknowledged" }
   | { commandId: string; completion: TinyOsCommandCompletion; nowMs: number; type: "operation_completed" }
+  | { commandId: string; error?: string; nowMs: number; operationId: string; status: "running" | "completed" | "failed" | "cancelled"; type: "host_operation_updated" }
   | { commandId: string; error: string; type: "rejected" }
   | { commandId: string; type: "ack_timeout" }
   | { type: "reset" };
@@ -344,11 +348,10 @@ export type TinyOsCommandLifecycleAction =
 export function createTinyOsAgentCancelCommand(input: {
   commandId?: string;
   issuedAt?: string;
-  runId: string;
+  turnId: string;
   sessionId: string;
   source: TinyOsCommandSource;
   threadId?: string;
-  turnId?: string;
 }): TinyOsAgentCancelCommand {
   const issuedAt = input.issuedAt ?? new Date().toISOString();
   return {
@@ -358,10 +361,9 @@ export function createTinyOsAgentCancelCommand(input: {
     kind: "agent.cancel",
     source: input.source,
     target: {
-      runId: input.runId,
+      turnId: input.turnId,
       sessionId: input.sessionId,
       ...(input.threadId ? { threadId: input.threadId } : {}),
-      ...(input.turnId ? { turnId: input.turnId } : {}),
     },
   };
 }
@@ -372,11 +374,10 @@ export function createTinyOsApprovalResolveCommand(input: {
   commandId?: string;
   guidance?: string;
   issuedAt?: string;
-  runId: string;
+  turnId: string;
   sessionId: string;
   source: TinyOsCommandSource;
   threadId?: string;
-  turnId?: string;
 }): TinyOsApprovalResolveCommand {
   const guidance = input.guidance?.trim();
   return {
@@ -386,10 +387,9 @@ export function createTinyOsApprovalResolveCommand(input: {
     kind: "approval.resolve",
     source: input.source,
     target: {
-      runId: input.runId,
+      turnId: input.turnId,
       sessionId: input.sessionId,
       ...(input.threadId ? { threadId: input.threadId } : {}),
-      ...(input.turnId ? { turnId: input.turnId } : {}),
     },
     approval: {
       approvalId: input.approvalId,
@@ -404,11 +404,10 @@ export function createTinyOsFormSubmitCommand(input: {
   commandId?: string;
   formId: string;
   issuedAt?: string;
-  runId: string;
+  turnId: string;
   sessionId: string;
   source: TinyOsCommandSource;
   threadId?: string;
-  turnId?: string;
   values: Record<string, unknown>;
 }): TinyOsFormSubmitCommand {
   return {
@@ -418,10 +417,9 @@ export function createTinyOsFormSubmitCommand(input: {
     kind: "form.submit",
     source: input.source,
     target: {
-      runId: input.runId,
+      turnId: input.turnId,
       sessionId: input.sessionId,
       ...(input.threadId ? { threadId: input.threadId } : {}),
-      ...(input.turnId ? { turnId: input.turnId } : {}),
     },
     form: {
       formId: input.formId,
@@ -430,16 +428,15 @@ export function createTinyOsFormSubmitCommand(input: {
   };
 }
 
-export function createTinyOsAgentRunControlCommand(input: {
+export function createTinyOsAgentTurnControlCommand(input: {
   commandId?: string;
   issuedAt?: string;
   kind: "agent.pause" | "agent.resume";
-  runId: string;
+  turnId: string;
   sessionId: string;
   source: TinyOsCommandSource;
   threadId?: string;
-  turnId?: string;
-}): TinyOsAgentRunControlCommand {
+}): TinyOsAgentTurnControlCommand {
   return {
     schemaVersion: "tinybot.command.v1",
     commandId: input.commandId ?? createTinyOsCommandId(),
@@ -447,10 +444,9 @@ export function createTinyOsAgentRunControlCommand(input: {
     kind: input.kind,
     source: input.source,
     target: {
-      runId: input.runId,
+      turnId: input.turnId,
       sessionId: input.sessionId,
       ...(input.threadId ? { threadId: input.threadId } : {}),
-      ...(input.turnId ? { turnId: input.turnId } : {}),
     },
   };
 }
@@ -459,11 +455,10 @@ export function createTinyOsFormCancelCommand(input: {
   commandId?: string;
   formId: string;
   issuedAt?: string;
-  runId: string;
+  turnId: string;
   sessionId: string;
   source: TinyOsCommandSource;
   threadId?: string;
-  turnId?: string;
 }): TinyOsFormCancelCommand {
   return {
     schemaVersion: "tinybot.command.v1",
@@ -472,10 +467,9 @@ export function createTinyOsFormCancelCommand(input: {
     kind: "form.cancel",
     source: input.source,
     target: {
-      runId: input.runId,
+      turnId: input.turnId,
       sessionId: input.sessionId,
       ...(input.threadId ? { threadId: input.threadId } : {}),
-      ...(input.turnId ? { turnId: input.turnId } : {}),
     },
     form: {
       formId: input.formId,
@@ -487,7 +481,7 @@ export function createTinyOsOperationRetryCommand(input: {
   commandId?: string;
   issuedAt?: string;
   itemId: string;
-  retryRunId?: string;
+  retryTurnId?: string;
   sessionId: string;
   source: TinyOsCommandSource;
   threadId?: string;
@@ -500,7 +494,7 @@ export function createTinyOsOperationRetryCommand(input: {
     kind: "operation.retry",
     source: input.source,
     target: {
-      runId: input.retryRunId ?? createTinyOsRetryRunId(),
+      turnId: input.retryTurnId ?? createTinyOsRetryTurnId(),
       sessionId: input.sessionId,
       ...(input.threadId ? { threadId: input.threadId } : {}),
     },
@@ -515,9 +509,9 @@ export function createTinyOsAgentRequestChangeCommand(input: {
   commandId?: string;
   instruction: string;
   issuedAt?: string;
-  observedRunId?: string;
+  observedTurnId?: string;
   references: NativeChatReference[];
-  requestRunId?: string;
+  requestTurnId?: string;
   sessionId: string;
   source: TinyOsCommandSource;
   threadId?: string;
@@ -532,13 +526,13 @@ export function createTinyOsAgentRequestChangeCommand(input: {
     kind: "agent.request_change",
     source: input.source,
     target: {
-      runId: input.requestRunId ?? createTinyOsFollowupRunId("request"),
+      turnId: input.requestTurnId ?? createTinyOsFollowupTurnId("request"),
       sessionId: input.sessionId,
       ...(input.threadId ? { threadId: input.threadId } : {}),
     },
     request: {
       instruction,
-      ...(input.observedRunId ? { observedRunId: input.observedRunId } : {}),
+      ...(input.observedTurnId ? { observedTurnId: input.observedTurnId } : {}),
       references: input.references.map((reference) => ({ ...reference })),
     },
   };
@@ -652,7 +646,7 @@ export function createTinyOsTerminalExecuteCommand(input: {
 export function createTinyOsTerminalCancelCommand(input: {
   commandId?: string;
   issuedAt?: string;
-  runId: string;
+  operationId: string;
   sessionId: string;
   source: TinyOsCommandSource;
   threadId?: string;
@@ -664,7 +658,7 @@ export function createTinyOsTerminalCancelCommand(input: {
     kind: "terminal.cancel",
     source: input.source,
     target: {
-      runId: requiredHostText(input.runId, "Terminal run id"),
+      operationId: requiredHostText(input.operationId, "Terminal operation id"),
       sessionId: input.sessionId,
       ...(input.threadId ? { threadId: input.threadId } : {}),
     },
@@ -713,6 +707,29 @@ export function reduceTinyOsCommandLifecycle(
   }
   if (state.stage === "idle" || state.command.commandId !== action.commandId) return state;
   if (state.stage === "completed" || state.stage === "rejected" || state.stage === "timed_out") return state;
+  if (action.type === "host_operation_updated") {
+    const acknowledgement = { itemId: action.operationId, revision: 0 };
+    if (action.status === "running") {
+      return {
+        acknowledgement,
+        acknowledgedAtMs: action.nowMs,
+        command: state.command,
+        dispatchedAtMs: state.dispatchedAtMs,
+        stage: "acknowledged",
+      };
+    }
+    return {
+      acknowledgement,
+      command: state.command,
+      completedAtMs: action.nowMs,
+      completion: {
+        ...acknowledgement,
+        status: action.status,
+      },
+      dispatchedAtMs: state.dispatchedAtMs,
+      stage: "completed",
+    };
+  }
   if (action.type === "operation_completed") {
     if (state.stage !== "acknowledged") return state;
     return {
@@ -787,7 +804,7 @@ export function canonicalTinyOsCommandCompletion(
   command: TinyOsCommand | string,
 ): TinyOsCommandCompletion | undefined {
   if (typeof command !== "string" && (command.kind === "operation.retry" || command.kind === "agent.request_change")) {
-    const turn = turns.find((candidate) => candidate.id === command.target.runId);
+    const turn = turns.find((candidate) => candidate.id === command.target.turnId);
     if (!turn || !["completed", "failed", "interrupted"].includes(turn.status)) return undefined;
     const item = [...(turn.canonicalItems ?? [])].reverse().find((candidate) => {
       const detail = recordValue(candidate.data.detail);
@@ -802,7 +819,7 @@ export function canonicalTinyOsCommandCompletion(
     };
   }
   if (typeof command !== "string" && (command.kind === "agent.pause" || command.kind === "agent.resume")) {
-    const turn = turns.find((candidate) => candidate.id === command.target.runId);
+    const turn = turns.find((candidate) => candidate.id === command.target.turnId);
     const item = [...(turn?.canonicalItems ?? [])].reverse().find((candidate) => {
       if (candidate.kind !== "system_notice" || candidate.status !== "completed") return false;
       const data = recordValue(candidate.data);
@@ -839,17 +856,17 @@ function createTinyOsCommandId(): string {
   return `tinyos-command-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function createTinyOsRetryRunId(): string {
-  return createTinyOsFollowupRunId("retry");
+function createTinyOsRetryTurnId(): string {
+  return createTinyOsFollowupTurnId("retry");
 }
 
-function createTinyOsFollowupRunId(kind: string): string {
+function createTinyOsFollowupTurnId(kind: string): string {
   return `tinyos-${kind}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function hostCommandTarget(kind: "browser" | "file" | "terminal", sessionId: string, threadId?: string) {
   return {
-    runId: `tinyos-host-${kind}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
+    operationId: `tinyos-host-${kind}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
     sessionId,
     ...(threadId ? { threadId } : {}),
   };

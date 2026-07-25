@@ -1,0 +1,241 @@
+use serde_json::{json, Value};
+use std::fmt;
+
+const WINDOW_NUMBER: &str = "windowNumber";
+const FIRST_WINDOW_ID: &str = "firstWindowId";
+const PREVIOUS_WINDOW_ID: &str = "previousWindowId";
+const WINDOW_ID: &str = "windowId";
+const SOURCE_CONTEXT_ID: &str = "sourceContextId";
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ContextWindowLineage {
+    pub(crate) source_context_id: Option<String>,
+    pub(crate) window_number: u64,
+    pub(crate) first_window_id: String,
+    pub(crate) previous_window_id: String,
+    pub(crate) window_id: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ContextCheckpointLineageError {
+    pub(crate) field: &'static str,
+    pub(crate) expected: Value,
+    pub(crate) actual: Value,
+}
+
+impl fmt::Display for ContextCheckpointLineageError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "stale context compaction checkpoint has invalid {}: expected {}, actual {}",
+            self.field, self.expected, self.actual
+        )
+    }
+}
+
+pub(crate) fn next_context_window(
+    session_id: &str,
+    context_id: &str,
+    parent_checkpoint: Option<&Value>,
+) -> ContextWindowLineage {
+    let initial_window_id = initial_context_window_id(session_id);
+    let source_context_id =
+        parent_checkpoint.and_then(|checkpoint| string_field(checkpoint, "contextId"));
+    let parent_window_number = parent_checkpoint
+        .and_then(|checkpoint| u64_field(checkpoint, WINDOW_NUMBER, "window_number"))
+        .unwrap_or(0);
+    let parent_window_id = parent_checkpoint
+        .and_then(|checkpoint| string_field(checkpoint, WINDOW_ID))
+        .or_else(|| source_context_id.clone())
+        .unwrap_or_else(|| initial_window_id.clone());
+    let first_window_id = parent_checkpoint
+        .and_then(|checkpoint| string_field(checkpoint, FIRST_WINDOW_ID))
+        .unwrap_or_else(|| {
+            if source_context_id.is_some() {
+                parent_window_id.clone()
+            } else {
+                initial_window_id
+            }
+        });
+
+    ContextWindowLineage {
+        source_context_id,
+        window_number: parent_window_number.saturating_add(1),
+        first_window_id,
+        previous_window_id: parent_window_id,
+        window_id: context_id.to_string(),
+    }
+}
+
+pub(crate) fn checkpoint_lineage_metadata(checkpoint: &Value) -> Option<Value> {
+    let context_id = string_field(checkpoint, "contextId")?;
+    let mut metadata = json!({ "contextId": context_id });
+    for (camel, snake) in [
+        (WINDOW_NUMBER, "window_number"),
+        (FIRST_WINDOW_ID, "first_window_id"),
+        (PREVIOUS_WINDOW_ID, "previous_window_id"),
+        (WINDOW_ID, "window_id"),
+    ] {
+        if let Some(value) = checkpoint.get(camel).or_else(|| checkpoint.get(snake)) {
+            metadata[camel] = value.clone();
+        }
+    }
+    Some(metadata)
+}
+
+pub(crate) fn validate_context_checkpoint_successor(
+    session_id: &str,
+    current_checkpoint: Option<&Value>,
+    candidate: &Value,
+) -> Result<(), ContextCheckpointLineageError> {
+    if candidate.get(SOURCE_CONTEXT_ID).is_none() && candidate.get("source_context_id").is_none() {
+        let expected_source_context_id =
+            current_checkpoint.and_then(|checkpoint| string_field(checkpoint, "contextId"));
+        if expected_source_context_id.is_none() {
+            return Ok(());
+        }
+        return Err(ContextCheckpointLineageError {
+            field: SOURCE_CONTEXT_ID,
+            expected: expected_source_context_id.map_or(Value::Null, |value| json!(value)),
+            actual: Value::Null,
+        });
+    }
+    let context_id = string_field(candidate, "contextId").unwrap_or_default();
+    let expected = next_context_window(session_id, &context_id, current_checkpoint);
+    let actual_source_value = candidate
+        .get(SOURCE_CONTEXT_ID)
+        .or_else(|| candidate.get("source_context_id"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    let actual_source_context_id = match &actual_source_value {
+        Value::Null => None,
+        Value::String(value) if !value.trim().is_empty() => Some(value.as_str()),
+        _ => {
+            return Err(ContextCheckpointLineageError {
+                field: SOURCE_CONTEXT_ID,
+                expected: expected
+                    .source_context_id
+                    .as_deref()
+                    .map_or(Value::Null, |value| json!(value)),
+                actual: actual_source_value,
+            });
+        }
+    };
+    compare_optional_string(
+        SOURCE_CONTEXT_ID,
+        expected.source_context_id.as_deref(),
+        actual_source_context_id,
+    )?;
+
+    let window_lineage_fields = [
+        (WINDOW_NUMBER, "window_number"),
+        (FIRST_WINDOW_ID, "first_window_id"),
+        (PREVIOUS_WINDOW_ID, "previous_window_id"),
+        (WINDOW_ID, "window_id"),
+    ];
+    let carries_window_lineage = window_lineage_fields
+        .iter()
+        .any(|(camel, snake)| aliased_value(candidate, camel, snake).is_some());
+    if !carries_window_lineage {
+        return Ok(());
+    }
+
+    compare_value(
+        WINDOW_NUMBER,
+        json!(expected.window_number),
+        aliased_value(candidate, WINDOW_NUMBER, "window_number")
+            .cloned()
+            .unwrap_or(Value::Null),
+    )?;
+    compare_value(
+        FIRST_WINDOW_ID,
+        json!(expected.first_window_id),
+        aliased_value(candidate, FIRST_WINDOW_ID, "first_window_id")
+            .cloned()
+            .unwrap_or(Value::Null),
+    )?;
+    compare_value(
+        PREVIOUS_WINDOW_ID,
+        json!(expected.previous_window_id),
+        aliased_value(candidate, PREVIOUS_WINDOW_ID, "previous_window_id")
+            .cloned()
+            .unwrap_or(Value::Null),
+    )?;
+    compare_value(
+        WINDOW_ID,
+        json!(expected.window_id),
+        aliased_value(candidate, WINDOW_ID, "window_id")
+            .cloned()
+            .unwrap_or(Value::Null),
+    )
+}
+
+fn initial_context_window_id(session_id: &str) -> String {
+    format!("{session_id}:context-window:0")
+}
+
+fn compare_optional_string(
+    field: &'static str,
+    expected: Option<&str>,
+    actual: Option<&str>,
+) -> Result<(), ContextCheckpointLineageError> {
+    compare_value(
+        field,
+        expected.map_or(Value::Null, |value| json!(value)),
+        actual.map_or(Value::Null, |value| json!(value)),
+    )
+}
+
+fn compare_value(
+    field: &'static str,
+    expected: Value,
+    actual: Value,
+) -> Result<(), ContextCheckpointLineageError> {
+    if expected == actual {
+        return Ok(());
+    }
+    Err(ContextCheckpointLineageError {
+        field,
+        expected,
+        actual,
+    })
+}
+
+fn string_field(value: &Value, camel: &str) -> Option<String> {
+    let snake = camel_to_snake(camel);
+    optional_string_field(value, camel, &snake).map(str::to_string)
+}
+
+fn optional_string_field<'a>(value: &'a Value, camel: &str, snake: &str) -> Option<&'a str> {
+    aliased_value(value, camel, snake)
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn aliased_value<'a>(value: &'a Value, camel: &str, snake: &str) -> Option<&'a Value> {
+    value.get(camel).or_else(|| value.get(snake))
+}
+
+fn u64_field(value: &Value, camel: &str, snake: &str) -> Option<u64> {
+    value
+        .get(camel)
+        .or_else(|| value.get(snake))
+        .and_then(Value::as_u64)
+}
+
+fn camel_to_snake(value: &str) -> String {
+    let mut result = String::with_capacity(value.len() + 4);
+    for character in value.chars() {
+        if character.is_ascii_uppercase() {
+            result.push('_');
+            result.push(character.to_ascii_lowercase());
+        } else {
+            result.push(character);
+        }
+    }
+    result
+}
+
+#[cfg(test)]
+#[path = "checkpoint_lineage_tests.rs"]
+mod tests;

@@ -10,7 +10,7 @@ function payload() {
   return {
     schemaVersion: "tinybot.effective_capabilities.v1",
     sessionId: "websocket:chat-1",
-    evaluatedRunId: "run-1",
+    evaluatedTurnId: "turn-1",
     capabilities: {
       agent: { pause: unavailable, resume: unavailable, cancel: available, retry: unavailable },
       files: { read: available, requestChange: unavailable, directEdit: unavailable, save: unavailable },
@@ -37,7 +37,7 @@ function payload() {
 describe("TinyOS effective capabilities", () => {
   test("normalizes a backend-authored per-session decision", () => {
     expect(normalizeTinyOsEffectiveCapabilities(payload(), "websocket:chat-1")).toMatchObject({
-      evaluatedRunId: "run-1",
+      evaluatedTurnId: "turn-1",
       capabilities: {
         agent: { cancel: { available: true } },
         terminal: { contract: "retained_execution_v1", persistentPty: false },

@@ -1,22 +1,22 @@
 import {
   backendRuntimeStatesToTurns,
-  normalizeAgentRunRuntimeStatePayload,
+  normalizeAgentTurnRuntimeStatePayload,
   normalizeAgentTimelinePatchPayload,
-} from "./chatRunModel";
+} from "./chatTurnModel";
 import type {
-  BackendAgentRunRuntimeState,
+  BackendAgentTurnRuntimeState,
   BackendAgentTimelinePatch,
   BackendAgentTimelineSnapshot,
   BackendAgentTurnItem,
   ChatTurn,
-} from "./chatRunModel";
+} from "./chatTurnModel";
 
 export type TimelineDiagnostic = {
   code: "lower_item_revision";
   itemId: string;
   message: string;
   receivedRevision: number;
-  runId: string;
+  turnId: string;
   sessionId: string;
 };
 
@@ -24,7 +24,7 @@ export type ChatTimelineSnapshot = {
   schemaVersion: "tinybot.chat_timeline.v1";
   sessionId: string;
   source: "canonical";
-  runRevisions: Record<string, number>;
+  turnRevisions: Record<string, number>;
   turns: ChatTurn[];
   diagnostics: TimelineDiagnostic[];
 };
@@ -38,7 +38,7 @@ export interface AgentTimelineModel {
 export class TimelineRevisionGapError extends Error {
   constructor(
     message: string,
-    readonly runId: string,
+    readonly turnId: string,
     readonly expectedRevision: number,
     readonly receivedRevision: number,
   ) {
@@ -49,7 +49,7 @@ export class TimelineRevisionGapError extends Error {
 
 type SessionTimelineState = {
   diagnostics: TimelineDiagnostic[];
-  runs: Map<string, BackendAgentTimelineSnapshot>;
+  turns: Map<string, BackendAgentTimelineSnapshot>;
 };
 
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled"]);
@@ -59,19 +59,19 @@ export function createAgentTimelineModel(): AgentTimelineModel {
 
   return {
     load(sessionId, runtimeStatePayloads) {
-      const runs = new Map<string, BackendAgentTimelineSnapshot>();
+      const turns = new Map<string, BackendAgentTimelineSnapshot>();
       for (const payload of runtimeStatePayloads) {
-        const runtimeState = normalizeAgentRunRuntimeStatePayload(payload);
+        const runtimeState = normalizeAgentTurnRuntimeStatePayload(payload);
         const timeline = runtimeState.timeline;
         if (timeline.sessionId !== sessionId) {
           throw new Error(`Canonical timeline session mismatch: ${timeline.sessionId}, expected ${sessionId}`);
         }
-        if (runs.has(timeline.runId)) {
-          throw new Error(`Canonical timeline contains duplicate run ${timeline.runId}`);
+        if (turns.has(timeline.turnId)) {
+          throw new Error(`Canonical timeline contains duplicate turn ${timeline.turnId}`);
         }
-        runs.set(timeline.runId, timeline);
+        turns.set(timeline.turnId, timeline);
       }
-      sessions.set(sessionId, { diagnostics: [], runs });
+      sessions.set(sessionId, { diagnostics: [], turns });
       return projectSessionSnapshot(sessionId, sessions.get(sessionId)!);
     },
 
@@ -99,33 +99,33 @@ export function createAgentTimelineModel(): AgentTimelineModel {
 }
 
 function applyPatchToSession(session: SessionTimelineState, patch: BackendAgentTimelinePatch): void {
-  const run = session.runs.get(patch.runId);
-  if (!run) {
+  const turn = session.turns.get(patch.turnId);
+  if (!turn) {
     if (patch.snapshotRevision > 1) {
       throw new TimelineRevisionGapError(
-        `Canonical timeline patch gap for new run ${patch.runId}: expected 0 or 1, received ${patch.snapshotRevision}`,
-        patch.runId,
+        `Canonical timeline patch gap for new turn ${patch.turnId}: expected 0 or 1, received ${patch.snapshotRevision}`,
+        patch.turnId,
         0,
         patch.snapshotRevision,
       );
     }
-    session.runs.set(patch.runId, {
+    session.turns.set(patch.turnId, {
       schemaVersion: "tinybot.timeline.v2",
       sessionId: patch.sessionId,
-      runId: patch.runId,
+      turnId: patch.turnId,
       snapshotRevision: patch.snapshotRevision,
       items: [patch.item],
     });
     return;
   }
 
-  if (patch.snapshotRevision < run.snapshotRevision) {
+  if (patch.snapshotRevision < turn.snapshotRevision) {
     return;
   }
-  if (patch.snapshotRevision === run.snapshotRevision) {
-    const current = run.items.find((item) => item.itemId === patch.item.itemId);
+  if (patch.snapshotRevision === turn.snapshotRevision) {
+    const current = turn.items.find((item) => item.itemId === patch.item.itemId);
     if (!current) {
-      run.items = [...run.items, patch.item].sort(compareCanonicalItems);
+      turn.items = [...turn.items, patch.item].sort(compareCanonicalItems);
       return;
     }
     if (patch.item.revision < current.revision) {
@@ -142,26 +142,26 @@ function applyPatchToSession(session: SessionTimelineState, patch: BackendAgentT
     }
     assertMonotonicStatus(current, patch.item);
     assertMonotonicAssistantPhase(current, patch.item);
-    run.items = run.items.map((item) => item.itemId === patch.item.itemId ? patch.item : item);
+    turn.items = turn.items.map((item) => item.itemId === patch.item.itemId ? patch.item : item);
     return;
   }
-  if (patch.snapshotRevision !== run.snapshotRevision + 1) {
+  if (patch.snapshotRevision !== turn.snapshotRevision + 1) {
     throw new TimelineRevisionGapError(
-      `Canonical timeline patch gap for run ${patch.runId}: expected ${run.snapshotRevision + 1}, received ${patch.snapshotRevision}`,
-      patch.runId,
-      run.snapshotRevision + 1,
+      `Canonical timeline patch gap for turn ${patch.turnId}: expected ${turn.snapshotRevision + 1}, received ${patch.snapshotRevision}`,
+      patch.turnId,
+      turn.snapshotRevision + 1,
       patch.snapshotRevision,
     );
   }
 
-  const index = run.items.findIndex((item) => item.itemId === patch.item.itemId);
+  const index = turn.items.findIndex((item) => item.itemId === patch.item.itemId);
   if (index < 0) {
-    run.items = [...run.items, patch.item].sort(compareCanonicalItems);
-    run.snapshotRevision = patch.snapshotRevision;
+    turn.items = [...turn.items, patch.item].sort(compareCanonicalItems);
+    turn.snapshotRevision = patch.snapshotRevision;
     return;
   }
 
-  const current = run.items[index];
+  const current = turn.items[index];
   if (patch.item.sequence !== current.sequence) {
     throw new Error(`Canonical timeline item ${patch.item.itemId} changed sequence from ${current.sequence} to ${patch.item.sequence}`);
   }
@@ -171,10 +171,10 @@ function applyPatchToSession(session: SessionTimelineState, patch: BackendAgentT
       itemId: patch.item.itemId,
       message: `Ignored item revision ${patch.item.revision}; current revision is ${current.revision}`,
       receivedRevision: patch.item.revision,
-      runId: patch.runId,
+      turnId: patch.turnId,
       sessionId: patch.sessionId,
     });
-    run.snapshotRevision = patch.snapshotRevision;
+    turn.snapshotRevision = patch.snapshotRevision;
     return;
   }
   if (patch.item.revision === current.revision) {
@@ -182,8 +182,8 @@ function applyPatchToSession(session: SessionTimelineState, patch: BackendAgentT
   }
   assertMonotonicStatus(current, patch.item);
   assertMonotonicAssistantPhase(current, patch.item);
-  run.items = run.items.map((item, itemIndex) => itemIndex === index ? patch.item : item);
-  run.snapshotRevision = patch.snapshotRevision;
+  turn.items = turn.items.map((item, itemIndex) => itemIndex === index ? patch.item : item);
+  turn.snapshotRevision = patch.snapshotRevision;
 }
 
 function assertMonotonicAssistantPhase(current: BackendAgentTurnItem, incoming: BackendAgentTurnItem): void {
@@ -204,7 +204,7 @@ function assertMonotonicStatus(current: BackendAgentTurnItem, incoming: BackendA
 }
 
 function projectSessionSnapshot(sessionId: string, state: SessionTimelineState): ChatTimelineSnapshot {
-  const runtimeStates: BackendAgentRunRuntimeState[] = [...state.runs.values()].map((timeline) => ({
+  const runtimeStates: BackendAgentTurnRuntimeState[] = [...state.turns.values()].map((timeline) => ({
     runtimeEvents: [],
     timeline,
   }));
@@ -212,7 +212,7 @@ function projectSessionSnapshot(sessionId: string, state: SessionTimelineState):
     schemaVersion: "tinybot.chat_timeline.v1",
     sessionId,
     source: "canonical",
-    runRevisions: Object.fromEntries([...state.runs].map(([runId, run]) => [runId, run.snapshotRevision])),
+    turnRevisions: Object.fromEntries([...state.turns].map(([turnId, turn]) => [turnId, turn.snapshotRevision])),
     turns: backendRuntimeStatesToTurns(sessionId, runtimeStates),
     diagnostics: [...state.diagnostics],
   };
@@ -223,7 +223,7 @@ function emptyTimelineSnapshot(sessionId: string): ChatTimelineSnapshot {
     schemaVersion: "tinybot.chat_timeline.v1",
     sessionId,
     source: "canonical",
-    runRevisions: {},
+    turnRevisions: {},
     turns: [],
     diagnostics: [],
   };

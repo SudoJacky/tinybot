@@ -1,10 +1,10 @@
-import type { TokenUsage } from "../../app-core/chat/chatRunModel";
+import type { TokenUsage } from "../../app-core/chat/chatTurnModel";
 
 export type ToolCallSummary = {
   approvalId?: string;
   approvalStatus?: string;
   argsText?: string;
-  childRunId?: string;
+  childTurnId?: string;
   delegateId?: string;
   delegateTask?: string;
   delegateTitle?: string;
@@ -12,7 +12,6 @@ export type ToolCallSummary = {
   finalOutput?: string;
   id: string;
   name: string;
-  parentRunId?: string;
   parentTurnId?: string;
   responseText?: string;
   sessionKey?: string;

@@ -12,8 +12,8 @@ import type {
 type TinyOsSystemMonitorFilters = {
   agentId: string;
   applicationId: string;
+  operationId: string;
   query: string;
-  runId: string;
   state: string;
   turnId: string;
 };
@@ -24,26 +24,26 @@ export type TinyOsProcessRow = {
 };
 
 export type TinyOsSystemMonitorControls = {
-  activeRunId?: string;
-  canCancelRun: boolean;
-  canPauseRun: boolean;
-  canResumeRun: boolean;
-  canRetryRun: boolean;
+  activeTurnId?: string;
+  canCancelTurn: boolean;
+  canPauseTurn: boolean;
+  canResumeTurn: boolean;
+  canRetryTurn: boolean;
   cancelUnavailableReason?: string;
   commandLifecycle: TinyOsCommandLifecycle;
   history: boolean;
   inspectableItemIds: readonly string[];
-  onCancelRun: () => void;
+  onCancelTurn: () => void;
   onInspect: (process: TinyOsProcess) => void;
   onOpenProcessMenu?: (process: TinyOsProcess, clientX: number, clientY: number) => void;
   onOpenResourceMenu?: (resource: TinyOsResource, clientX: number, clientY: number) => void;
-  onPauseRun: () => void;
-  onResumeRun: () => void;
+  onPauseTurn: () => void;
+  onResumeTurn: () => void;
   onRetry: (process: TinyOsProcess) => void;
   onReveal: (process: TinyOsProcess) => void;
   pauseUnavailableReason?: string;
   resumeUnavailableReason?: string;
-  retryRunId?: string;
+  retryTurnId?: string;
   retryUnavailableReason?: string;
   revealableApplicationIds: readonly string[];
 };
@@ -51,8 +51,8 @@ export type TinyOsSystemMonitorControls = {
 const EMPTY_FILTERS: TinyOsSystemMonitorFilters = {
   agentId: "",
   applicationId: "",
+  operationId: "",
   query: "",
-  runId: "",
   state: "",
   turnId: "",
 };
@@ -81,12 +81,10 @@ export function TinyOsSystemMonitor({ controls, snapshot }: { controls?: TinyOsS
     ? snapshot.discrepancies.filter((entry) => entry.canonical.entityId === selected.id || entry.native.entityId === selected.id)
     : [];
   const commandLifecycle = controls?.commandLifecycle;
-  const commandTargetsSelectedRun = Boolean(
-    selected
+  const commandTargetsSelected = Boolean(selected
     && commandLifecycle
     && commandLifecycle.stage !== "idle"
-    && commandLifecycle.command.target.runId === selected.correlation.runId,
-  );
+    && targetIdentity(commandLifecycle.command.target) === processIdentity(selected));
   const activeCount = snapshot.processes.filter((process) => ["queued", "running", "waiting_for_user", "blocked", "paused"].includes(process.state)).length;
   const attentionCount = snapshot.processes.filter((process) => ATTENTION_STATES.has(process.state)).length + snapshot.discrepancies.length;
   const sourceCount = new Set(snapshot.processes.map((process) => `${process.provenance.kind}:${process.provenance.sourceId}`)).size;
@@ -99,7 +97,7 @@ export function TinyOsSystemMonitor({ controls, snapshot }: { controls?: TinyOsS
   const options = useMemo(() => ({
     agents: uniqueValues(snapshot.processes.map((process) => process.ownerAgentId || "__unattributed__")),
     applications: uniqueValues(snapshot.processes.map((process) => process.applicationId || "__unattributed__")),
-    runs: uniqueValues(snapshot.processes.map((process) => process.correlation.runId)),
+    operations: uniqueValues(snapshot.processes.map((process) => process.correlation.operationId).filter(Boolean) as string[]),
     states: uniqueValues(snapshot.processes.map((process) => process.state)),
     turns: uniqueValues(snapshot.processes.map((process) => process.correlation.turnId).filter(Boolean) as string[]),
   }), [snapshot.processes]);
@@ -135,8 +133,8 @@ export function TinyOsSystemMonitor({ controls, snapshot }: { controls?: TinyOsS
         </div>
         <MonitorSelect ariaLabel="Filter by state" value={filters.state} values={options.states} onChange={(value) => updateFilter("state", value)} />
         <MonitorSelect ariaLabel="Filter by Agent" format={formatAgent} value={filters.agentId} values={options.agents} onChange={(value) => updateFilter("agentId", value)} />
-        <MonitorSelect ariaLabel="Filter by run" value={filters.runId} values={options.runs} onChange={(value) => updateFilter("runId", value)} />
         <MonitorSelect ariaLabel="Filter by turn" value={filters.turnId} values={options.turns} onChange={(value) => updateFilter("turnId", value)} />
+        <MonitorSelect ariaLabel="Filter by operation" value={filters.operationId} values={options.operations} onChange={(value) => updateFilter("operationId", value)} />
         <MonitorSelect ariaLabel="Filter by application" format={formatApplication} value={filters.applicationId} values={options.applications} onChange={(value) => updateFilter("applicationId", value)} />
       </div>
 
@@ -182,8 +180,8 @@ export function TinyOsSystemMonitor({ controls, snapshot }: { controls?: TinyOsS
                 <Detail label="Process ID" value={selected.id} code />
                 <Detail label="Kind" value={formatLabel(selected.kind)} />
                 <Detail label="Agent" value={selected.ownerAgentId || "Unavailable in canonical data"} />
-                <Detail label="Run" value={selected.correlation.runId} code />
                 <Detail label="Turn" value={selected.correlation.turnId || "Unavailable"} code={Boolean(selected.correlation.turnId)} />
+                <Detail label="Operation" value={selected.correlation.operationId || "Unavailable"} code={Boolean(selected.correlation.operationId)} />
                 <Detail label="Item" value={selected.correlation.itemId || "Unavailable"} code={Boolean(selected.correlation.itemId)} />
                 <Detail label="Tool call" value={selected.correlation.toolCallId || "Unavailable"} code={Boolean(selected.correlation.toolCallId)} />
                 <Detail label="Related window" value={selected.applicationId ? formatApplication(selected.applicationId) : "Unavailable"} />
@@ -191,11 +189,11 @@ export function TinyOsSystemMonitor({ controls, snapshot }: { controls?: TinyOsS
               {controls ? (
                 <ProcessActions
                   controls={controls}
-                  pending={Boolean(commandTargetsSelectedRun && commandLifecycle && isTinyOsCommandInFlight(commandLifecycle))}
+                  pending={Boolean(commandTargetsSelected && commandLifecycle && isTinyOsCommandInFlight(commandLifecycle))}
                   process={selected}
                 />
               ) : null}
-              {commandTargetsSelectedRun && commandLifecycle && commandLifecycle.stage !== "idle" ? <CommandState lifecycle={commandLifecycle} /> : null}
+              {commandTargetsSelected && commandLifecycle && commandLifecycle.stage !== "idle" ? <CommandState lifecycle={commandLifecycle} /> : null}
               <DetailSection title="Provenance">
                 <p><ShieldCheck aria-hidden="true" size={13} /><span><strong>{formatLabel(selected.provenance.kind)}</strong><code>{selected.provenance.sourceId}</code></span></p>
                 <small>Revision {selected.provenance.revision ?? "unavailable"} · Observed {selected.provenance.observedAt || "time unavailable"}</small>
@@ -223,23 +221,23 @@ export function TinyOsSystemMonitor({ controls, snapshot }: { controls?: TinyOsS
 }
 
 function ProcessActions({ controls, pending, process }: { controls: TinyOsSystemMonitorControls; pending: boolean; process: TinyOsProcess }) {
-  const targetsActiveRun = process.correlation.runId === controls.activeRunId;
-  const targetsRetryRun = process.correlation.runId === controls.retryRunId;
+  const targetsActiveTurn = process.correlation.turnId === controls.activeTurnId;
+  const targetsRetryTurn = process.correlation.turnId === controls.retryTurnId;
   const inspectable = Boolean(process.correlation.itemId && controls.inspectableItemIds.includes(process.correlation.itemId));
   const revealable = Boolean(process.applicationId && controls.revealableApplicationIds.includes(process.applicationId));
   const historyReason = controls.history ? "History snapshots are read-only." : undefined;
-  const targetReason = targetsActiveRun ? undefined : "This process is not part of the backend-selected active run.";
-  const retryTargetReason = targetsRetryRun
+  const targetReason = targetsActiveTurn ? undefined : "This process is not part of the backend-selected active turn.";
+  const retryTargetReason = targetsRetryTurn
     ? process.correlation.itemId ? undefined : "Retry requires a correlated canonical item."
-    : "This process is not part of the backend-selected retry run.";
+    : "This process is not part of the backend-selected retry turn.";
   return (
     <section aria-label="Process controls" className="tinyos-process-actions">
       <h4>Controls</h4>
       <div>
-        <ProcessAction available={!pending && !historyReason && !targetReason && controls.canPauseRun} icon={<Pause aria-hidden="true" size={12} />} label="Pause run" reason={pending ? "A command is awaiting runtime confirmation." : historyReason || targetReason || controls.pauseUnavailableReason} onClick={controls.onPauseRun} />
-        <ProcessAction available={!pending && !historyReason && !targetReason && controls.canResumeRun} icon={<Play aria-hidden="true" size={12} />} label="Resume run" reason={pending ? "A command is awaiting runtime confirmation." : historyReason || targetReason || controls.resumeUnavailableReason} onClick={controls.onResumeRun} />
-        <ProcessAction available={!pending && !historyReason && !targetReason && controls.canCancelRun} icon={<StopCircle aria-hidden="true" size={12} />} label="Cancel run" reason={pending ? "A command is awaiting runtime confirmation." : historyReason || targetReason || controls.cancelUnavailableReason} onClick={controls.onCancelRun} />
-        <ProcessAction available={!pending && !historyReason && !retryTargetReason && inspectable && controls.canRetryRun} icon={<RotateCcw aria-hidden="true" size={12} />} label="Retry operation" reason={pending ? "A command is awaiting runtime confirmation." : historyReason || retryTargetReason || (!inspectable ? "The canonical operation is unavailable in this view." : controls.retryUnavailableReason)} onClick={() => controls.onRetry(process)} />
+        <ProcessAction available={!pending && !historyReason && !targetReason && controls.canPauseTurn} icon={<Pause aria-hidden="true" size={12} />} label="Pause turn" reason={pending ? "A command is awaiting runtime confirmation." : historyReason || targetReason || controls.pauseUnavailableReason} onClick={controls.onPauseTurn} />
+        <ProcessAction available={!pending && !historyReason && !targetReason && controls.canResumeTurn} icon={<Play aria-hidden="true" size={12} />} label="Resume turn" reason={pending ? "A command is awaiting runtime confirmation." : historyReason || targetReason || controls.resumeUnavailableReason} onClick={controls.onResumeTurn} />
+        <ProcessAction available={!pending && !historyReason && !targetReason && controls.canCancelTurn} icon={<StopCircle aria-hidden="true" size={12} />} label="Cancel turn" reason={pending ? "A command is awaiting runtime confirmation." : historyReason || targetReason || controls.cancelUnavailableReason} onClick={controls.onCancelTurn} />
+        <ProcessAction available={!pending && !historyReason && !retryTargetReason && inspectable && controls.canRetryTurn} icon={<RotateCcw aria-hidden="true" size={12} />} label="Retry operation" reason={pending ? "A command is awaiting runtime confirmation." : historyReason || retryTargetReason || (!inspectable ? "The canonical operation is unavailable in this view." : controls.retryUnavailableReason)} onClick={() => controls.onRetry(process)} />
         <ProcessAction available={revealable} icon={<Eye aria-hidden="true" size={12} />} label="Reveal app" reason={revealable ? undefined : "No related TinyOS application is available."} onClick={() => controls.onReveal(process)} />
         <ProcessAction available={inspectable} icon={<Info aria-hidden="true" size={12} />} label="Inspect evidence" reason={inspectable ? undefined : "No correlated canonical item is available to inspect."} onClick={() => controls.onInspect(process)} />
       </div>
@@ -304,8 +302,8 @@ function processMatches(process: TinyOsProcess, filters: TinyOsSystemMonitorFilt
   return (!filters.state || process.state === filters.state)
     && (!filters.agentId || (process.ownerAgentId || "__unattributed__") === filters.agentId)
     && (!filters.applicationId || (process.applicationId || "__unattributed__") === filters.applicationId)
-    && (!filters.runId || process.correlation.runId === filters.runId)
     && (!filters.turnId || process.correlation.turnId === filters.turnId)
+    && (!filters.operationId || process.correlation.operationId === filters.operationId)
     && (!query || [
       process.id,
       process.title,
@@ -313,11 +311,21 @@ function processMatches(process: TinyOsProcess, filters: TinyOsSystemMonitorFilt
       process.state,
       process.ownerAgentId,
       process.applicationId,
-      process.correlation.runId,
       process.correlation.turnId,
+      process.correlation.operationId,
       process.correlation.itemId,
       process.correlation.toolCallId,
     ].some((value) => value?.toLowerCase().includes(query)));
+}
+
+function targetIdentity(target: Exclude<TinyOsCommandLifecycle, { stage: "idle" }>["command"]["target"]): string | undefined {
+  if ("turnId" in target) return target.turnId;
+  if ("operationId" in target) return target.operationId;
+  return undefined;
+}
+
+function processIdentity(process: TinyOsProcess): string | undefined {
+  return process.correlation.turnId ?? process.correlation.operationId;
 }
 
 function SummaryStat({ attention = false, label, value }: { attention?: boolean; label: string; value: number }) {

@@ -1,4 +1,4 @@
-import type { BackendAgentTurnItem } from "./chatRunModel";
+import type { BackendAgentTurnItem } from "./chatTurnModel";
 import {
   projectTinyOsKernel,
   type TinyOsKernelProjectionOptions,
@@ -15,11 +15,10 @@ export type TinyOsTimeMachineBoundary = {
   itemId: string;
   kind: BackendAgentTurnItem["kind"];
   revision: number;
-  runId: string;
+  turnId: string;
   sequence: number;
   status: string;
   title: string;
-  turnId: string;
   wallClockTime?: string;
 };
 
@@ -29,7 +28,6 @@ export type TinyOsTimeMachineGroup = {
   id: string;
   label: string;
   lastEventIndex: number;
-  runId: string;
   turnId: string;
 };
 
@@ -66,11 +64,10 @@ export function createTinyOsTimeMachineIndex(
     const wallClockTime = reliableTimestamp(item.updatedAt || item.createdAt);
     return {
       eventIndex,
-      groupId: `${item.runId}:${item.turnId}`,
+      groupId: item.turnId,
       itemId: item.itemId,
       kind: item.kind,
       revision: item.revision,
-      runId: item.runId,
       sequence: item.sequence,
       status: item.status,
       title: item.title?.trim() || humanizeKind(item.kind),
@@ -92,7 +89,6 @@ export function createTinyOsTimeMachineIndex(
       id: boundary.groupId,
       label: `Turn ${shortIdentity(boundary.turnId)}`,
       lastEventIndex: boundary.eventIndex,
-      runId: boundary.runId,
       turnId: boundary.turnId,
     });
   }
@@ -113,7 +109,6 @@ export function tinyOsSimulationCursorAt(
   return {
     boundary: {
       itemId: boundary.itemId,
-      runId: boundary.runId,
       sequence: boundary.sequence,
       turnId: boundary.turnId,
     },
@@ -141,7 +136,6 @@ export function reconstructTinyOsKernelAt(
       eventIndex: cursor.eventIndex,
       itemId: boundary.itemId,
       mode: "history",
-      runId: boundary.runId,
       turnId: boundary.turnId,
     }, options),
   };

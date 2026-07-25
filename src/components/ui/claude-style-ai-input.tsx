@@ -2,7 +2,7 @@
 
 import type { ClipboardEvent, FormEvent, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { TokenUsage } from "../../app-core/chat/chatRunModel";
+import type { TokenUsage } from "../../app-core/chat/chatTurnModel";
 import {
   AlertCircle,
   Archive,

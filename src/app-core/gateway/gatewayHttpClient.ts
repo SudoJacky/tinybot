@@ -74,11 +74,8 @@ export type NativeSessionsApi = {
   list: () => Promise<unknown>;
   messages: (key: string) => Promise<unknown>;
   effectiveCapabilities?: (key: string) => Promise<unknown>;
-  agentRuns?: (key: string) => Promise<unknown>;
-  agentRunRuntimeState?: (key: string, runId: string) => Promise<unknown>;
-  temporaryFiles?: (key: string) => Promise<unknown>;
-  uploadTemporaryFile?: (key: string, body: unknown) => Promise<unknown>;
-  clearTemporaryFiles?: (key: string) => Promise<unknown>;
+  turns?: (key: string) => Promise<unknown>;
+  agentTurnRuntimeState?: (key: string, turnId: string) => Promise<unknown>;
   delete?: (key: string) => Promise<unknown>;
   patch?: (key: string, body: unknown) => Promise<unknown>;
   branch?: (body: unknown) => Promise<unknown>;
@@ -386,61 +383,22 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         "webui.sessions.effectiveCapabilities",
         !options.nativeSessions?.effectiveCapabilities,
       ),
-      agentRuns: (key: string) => nativeOrGateway(
-        () => options.nativeSessions?.agentRuns?.(key),
-        () => Promise.resolve({ sessionId: key, runs: [] }),
-        "webui.sessions.agentRuns",
-        !options.nativeSessions?.agentRuns,
+      turns: (key: string) => nativeOrGateway(
+        () => options.nativeSessions?.turns?.(key),
+        () => Promise.resolve({ sessionId: key, turns: [] }),
+        "webui.sessions.turns",
+        !options.nativeSessions?.turns,
       ),
-      agentRunRuntimeState: (key: string, runId: string) => nativeOrGateway(
-        () => options.nativeSessions?.agentRunRuntimeState?.(key, runId),
+      agentTurnRuntimeState: (key: string, turnId: string) => nativeOrGateway(
+        () => options.nativeSessions?.agentTurnRuntimeState?.(key, turnId),
         () => Promise.resolve(null),
-        "webui.sessions.agentRunRuntimeState",
-        !options.nativeSessions?.agentRunRuntimeState,
+        "webui.sessions.agentTurnRuntimeState",
+        !options.nativeSessions?.agentTurnRuntimeState,
       ),
       profile: (key: string) => nativeOrGateway(
         () => options.nativeWebui?.route({ method: "GET", path: `/api/sessions/${encodePathSegment(key)}/profile` }),
         () => request(`/api/sessions/${encodePathSegment(key)}/profile`),
         "webui.sessions.profile",
-      ),
-      temporaryFiles: (key: string) => nativeOrGateway(
-        () => options.nativeSessions?.temporaryFiles?.(key) ?? options.nativeWebui?.route({
-          method: "GET",
-          path: `/api/sessions/${encodePathSegment(key)}/temporary-files`,
-        }),
-        () => request(`/api/sessions/${encodePathSegment(key)}/temporary-files`),
-        "webui.sessions.temporaryFiles",
-        !options.nativeSessions?.temporaryFiles,
-      ),
-      uploadTemporaryFile: (key: string, body: FormData) => nativeOrGateway(
-        () => {
-          const uploadBody = nativeTemporaryFileUploadBody(body);
-          if (!uploadBody) {
-            return undefined;
-          }
-          if (options.nativeSessions?.uploadTemporaryFile) {
-            return uploadBody.then((payload) => options.nativeSessions?.uploadTemporaryFile?.(key, payload));
-          }
-          return options.nativeWebui
-            ? uploadBody.then((payload) => options.nativeWebui?.route({
-              method: "POST",
-              path: `/api/sessions/${encodePathSegment(key)}/temporary-files`,
-              body: payload,
-            }))
-            : undefined;
-        },
-        () => request(`/api/sessions/${encodePathSegment(key)}/temporary-files`, formRequest("POST", body)),
-        "webui.sessions.uploadTemporaryFile",
-        !options.nativeSessions?.uploadTemporaryFile,
-      ),
-      clearTemporaryFiles: (key: string) => nativeOrGateway(
-        () => options.nativeSessions?.clearTemporaryFiles?.(key) ?? options.nativeWebui?.route({
-          method: "DELETE",
-          path: `/api/sessions/${encodePathSegment(key)}/temporary-files`,
-        }),
-        () => request(`/api/sessions/${encodePathSegment(key)}/temporary-files`, { method: "DELETE" }),
-        "webui.sessions.clearTemporaryFiles",
-        !options.nativeSessions?.clearTemporaryFiles,
       ),
       delete: (key: string) => nativeOrGateway(
         () => options.nativeSessions?.delete?.(key) ?? options.nativeWebui?.route({ method: "DELETE", path: `/api/sessions/${encodePathSegment(key)}` }),
@@ -1279,45 +1237,6 @@ function jsonRequest(method: string, body: unknown): RequestInit {
     },
     body: JSON.stringify(body),
   };
-}
-
-function formRequest(method: string, body: FormData): RequestInit {
-  return {
-    method,
-    body,
-  };
-}
-
-function nativeTemporaryFileUploadBody(body: FormData): Promise<Record<string, unknown>> | undefined {
-  const file = body.get("file");
-  if (!(file instanceof File)) {
-    return undefined;
-  }
-  const fileType = canonicalNativeTextFileType(extensionFromName(file.name));
-  if (!fileType || !["txt", "md"].includes(fileType)) {
-    return undefined;
-  }
-  return file.text().then((content) => ({
-    name: file.name,
-    file_type: fileType,
-    content,
-    size_bytes: file.size,
-  }));
-}
-
-function canonicalNativeTextFileType(fileType: string): string | undefined {
-  if (fileType === "markdown") {
-    return "md";
-  }
-  if (["txt", "md", "json", "csv"].includes(fileType)) {
-    return fileType;
-  }
-  return undefined;
-}
-
-function extensionFromName(name: string): string {
-  const match = /\.([^.\\/]+)$/.exec(name);
-  return match?.[1]?.toLowerCase() ?? "";
 }
 
 function encodePathSegment(value: string): string {

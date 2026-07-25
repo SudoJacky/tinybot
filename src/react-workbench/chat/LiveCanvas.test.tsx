@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
-import type { BackendAgentTurnItem, ChatStep } from "../../app-core/chat/chatRunModel";
+import type { BackendAgentTurnItem, ChatStep } from "../../app-core/chat/chatTurnModel";
 import { createTinyOsBrowserSessionSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
 import type { NativeBrowserRuntimeApi } from "../../app-core/native/desktopNativeBrowser";
 import { clampTinyOsWidth, LiveCanvas, type LiveCanvasEntry } from "./LiveCanvas";
@@ -52,7 +52,6 @@ function canonicalItemForEntry(
     itemId: canvasStep.id,
     kind: "tool_call",
     revision: 1,
-    runId: "run-1",
     sequence: eventIndex,
     sessionId: "session-1",
     status: canvasStep.status,
@@ -65,18 +64,18 @@ function canonicalItemForEntry(
 function canvasProps(entries: LiveCanvasEntry[], overrides: Record<string, unknown> = {}) {
   return {
     agentUiForms: [] as AgentUiForm[],
-    canCancelRun: false,
-    canPauseRun: false,
+    canCancelTurn: false,
+    canPauseTurn: false,
     canRequestChange: false,
-    canResumeRun: false,
-    canRetryRun: false,
+    canResumeTurn: false,
+    canRetryTurn: false,
     commandLifecycle: { stage: "idle" } as const,
     entries,
     headingRef: createRef<HTMLHeadingElement>(),
     mode: "live_follow" as const,
     onCancelForm: vi.fn(),
-    onCancelRun: vi.fn(),
-    onPauseRun: vi.fn(),
+    onCancelTurn: vi.fn(),
+    onPauseTurn: vi.fn(),
     onAgentRequest: vi.fn(),
     onAttachContext: vi.fn(),
     onClose: vi.fn(),
@@ -84,7 +83,7 @@ function canvasProps(entries: LiveCanvasEntry[], overrides: Record<string, unkno
     onResolveApproval: vi.fn(),
     onRetryOperation: vi.fn(),
     onReturnToLive: vi.fn(),
-    onResumeRun: vi.fn(),
+    onResumeTurn: vi.fn(),
     onSelectEntry: vi.fn(),
     onSubmitForm: vi.fn(),
     onWidthChange: vi.fn(),
@@ -114,7 +113,7 @@ function browserSessionSnapshot() {
     kind: "browser_session",
     profileId: "profile-session-1",
     profilePersistence: "persistent",
-    runId: "run-browser-1",
+    operationId: "operation-browser-1",
     runtimeKind: "windows_webview2",
     runtimeVersion: "test-webview2",
     sessionId: "session-1",
@@ -191,11 +190,11 @@ function browserRuntimeMock() {
 }
 
 describe("LiveCanvas TinyOS", () => {
-  it("keeps run state out of the system bar while retaining commands in the palette", async () => {
+  it("keeps turn state out of the system bar while retaining commands in the palette", async () => {
     const user = userEvent.setup();
-    const onCancelRun = vi.fn();
-    const onPauseRun = vi.fn();
-    const onResumeRun = vi.fn();
+    const onCancelTurn = vi.fn();
+    const onPauseTurn = vi.fn();
+    const onResumeTurn = vi.fn();
     const planEntry = entry(step({
       id: "system-bar-plan",
       kind: "plan",
@@ -203,38 +202,38 @@ describe("LiveCanvas TinyOS", () => {
       title: "Execution plan",
     }));
     render(<LiveCanvas {...canvasProps([planEntry], {
-      canCancelRun: true,
-      canPauseRun: true,
-      canResumeRun: true,
-      onCancelRun,
-      onPauseRun,
-      onResumeRun,
+      canCancelTurn: true,
+      canPauseTurn: true,
+      canResumeTurn: true,
+      onCancelTurn,
+      onPauseTurn,
+      onResumeTurn,
     })} />);
 
     const systemBar = document.querySelector<HTMLElement>(".tinyos-system-bar")!;
     expect(within(systemBar).queryByText("Live workspace")).toBeNull();
     expect(within(systemBar).queryByText("Plan updated")).toBeNull();
-    expect(within(systemBar).queryByRole("button", { name: "Pause active Agent run" })).toBeNull();
-    expect(within(systemBar).queryByRole("button", { name: "Resume paused Agent run" })).toBeNull();
-    expect(within(systemBar).queryByRole("button", { name: "Cancel active Agent run" })).toBeNull();
+    expect(within(systemBar).queryByRole("button", { name: "Pause active Agent turn" })).toBeNull();
+    expect(within(systemBar).queryByRole("button", { name: "Resume paused Agent turn" })).toBeNull();
+    expect(within(systemBar).queryByRole("button", { name: "Cancel active Agent turn" })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Open command palette" }));
     let palette = screen.getByRole("dialog", { name: "command palette" });
     await user.type(within(palette).getByRole("searchbox", { name: "Search TinyOS commands" }), "pause active");
-    await user.click(within(palette).getByRole("option", { name: /Pause active Agent run/ }));
-    expect(onPauseRun).toHaveBeenCalledTimes(1);
+    await user.click(within(palette).getByRole("option", { name: /Pause active Agent turn/ }));
+    expect(onPauseTurn).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole("button", { name: "Open command palette" }));
     palette = screen.getByRole("dialog", { name: "command palette" });
     await user.type(within(palette).getByRole("searchbox", { name: "Search TinyOS commands" }), "resume paused");
-    await user.click(within(palette).getByRole("option", { name: /Resume paused Agent run/ }));
-    expect(onResumeRun).toHaveBeenCalledTimes(1);
+    await user.click(within(palette).getByRole("option", { name: /Resume paused Agent turn/ }));
+    expect(onResumeTurn).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole("button", { name: "Open command palette" }));
     palette = screen.getByRole("dialog", { name: "command palette" });
     await user.type(within(palette).getByRole("searchbox", { name: "Search TinyOS commands" }), "cancel active");
-    await user.click(within(palette).getByRole("option", { name: /Cancel active Agent run/ }));
-    expect(onCancelRun).toHaveBeenCalledTimes(1);
+    await user.click(within(palette).getByRole("option", { name: /Cancel active Agent turn/ }));
+    expect(onCancelTurn).toHaveBeenCalledTimes(1);
   });
 
   it("marks Agent requests from History as new live operations", async () => {
@@ -265,8 +264,8 @@ describe("LiveCanvas TinyOS", () => {
 
   it("routes retry for the failed canonical operation through the shared callback", async () => {
     const onRetryOperation = vi.fn();
-    const failed = entry(step({ id: "error-failed", kind: "error", status: "failed", title: "Operation failed" }), "run-failed");
-    render(<LiveCanvas {...canvasProps([failed], { canRetryRun: true, onRetryOperation })} />);
+    const failed = entry(step({ id: "error-failed", kind: "error", status: "failed", title: "Operation failed" }), "turn-failed");
+    render(<LiveCanvas {...canvasProps([failed], { canRetryTurn: true, onRetryOperation })} />);
 
     await userEvent.click(screen.getByRole("button", { name: "Retry" }));
 
@@ -275,13 +274,13 @@ describe("LiveCanvas TinyOS", () => {
 
   it("explains backend-authored cancellation denial", () => {
     render(<LiveCanvas {...canvasProps([], {
-      cancelUnavailableReason: "The run is waiting for user input.",
+      cancelUnavailableReason: "The turn is waiting for user input.",
     })} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Open command palette" }));
-    const cancel = within(screen.getByRole("dialog", { name: "command palette" })).getByRole("option", { name: /Cancel active Agent run/ });
+    const cancel = within(screen.getByRole("dialog", { name: "command palette" })).getByRole("option", { name: /Cancel active Agent turn/ });
     expect((cancel as HTMLButtonElement).disabled).toBe(true);
-    expect(cancel.getAttribute("title")).toBe("The run is waiting for user input.");
+    expect(cancel.getAttribute("title")).toBe("The turn is waiting for user input.");
   });
 
   it("renders stable Files and Terminal applications from canonical entries", () => {
@@ -345,7 +344,7 @@ describe("LiveCanvas TinyOS", () => {
     render(<LiveCanvas {...canvasProps([], {
       canCancelTerminal: true,
       onCancelTerminal,
-      runningTerminalRunId: "tinyos-host-terminal-1",
+      runningTerminalOperationId: "tinyos-host-terminal-1",
       sessionKey: "websocket:chat-1",
     })} />);
 
@@ -613,11 +612,11 @@ describe("LiveCanvas TinyOS", () => {
       data: {
         action: "started",
         agentId: "agent-child",
-        childRunId: "run-child",
+        childTurnId: "turn-child",
         message: "Child started",
         name: "Reviewer",
         parentAgentId: "agent-main",
-        parentRunId: "run-1",
+        parentTurnId: "turn-1",
         status: "running",
         task: "Run tests",
         traceRef: "trace-child",
@@ -626,7 +625,6 @@ describe("LiveCanvas TinyOS", () => {
       itemId: "child-lifecycle",
       kind: "subagent_lifecycle",
       revision: 1,
-      runId: "run-child",
       sequence: 2,
       sessionId: "session-1",
       status: "running",
@@ -759,7 +757,7 @@ describe("LiveCanvas TinyOS", () => {
       issuedAt: "2026-07-14T00:00:00Z",
       kind: "terminal.execute" as const,
       source: { control: "terminal-execute", surface: "tinyos" as const },
-      target: { runId: "tinyos-host-terminal-1", sessionId: "session-1" },
+      target: { turnId: "tinyos-host-terminal-1", sessionId: "session-1" },
       terminal: { command: "npm test", confirmed: true as const, cwd: "src" },
     };
     render(<LiveCanvas {...canvasProps([terminalEntry], {
@@ -990,7 +988,7 @@ describe("LiveCanvas TinyOS", () => {
 
     await user.clear(search);
     await user.type(search, "pause active");
-    const pause = within(palette).getByRole("option", { name: /Pause active Agent run/ });
+    const pause = within(palette).getByRole("option", { name: /Pause active Agent turn/ });
     expect((pause as HTMLButtonElement).disabled).toBe(true);
     expect(pause.getAttribute("title")).toBe("The backend did not advertise pause.");
   });

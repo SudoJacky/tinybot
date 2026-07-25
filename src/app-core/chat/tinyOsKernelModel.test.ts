@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { BackendAgentTurnItem, CanonicalTurnItemKind } from "./chatRunModel";
+import type { BackendAgentTurnItem, CanonicalTurnItemKind } from "./chatTurnModel";
 import {
   assertTinyOsMetricSupported,
   assertTinyOsResourceMutationReady,
@@ -33,7 +33,6 @@ function item(
     itemId,
     kind,
     revision: 1,
-    runId: "run-1",
     sequence: 0,
     sessionId: "session-1",
     status,
@@ -64,10 +63,10 @@ function timeline(): BackendAgentTurnItem[] {
     item("subagent-1", "subagent_lifecycle", "completed", {
       action: "completed",
       agentId: "agent-child",
-      childRunId: "run-child",
+      childTurnId: "turn-child",
       name: "Reviewer",
       parentAgentId: "agent-main",
-      parentRunId: "run-1",
+      parentTurnId: "turn-1",
       status: "completed",
       task: "Review the implementation",
       type: "subagent_lifecycle",
@@ -87,7 +86,6 @@ describe("TinyOS simulation kernel", () => {
     const input = {
       itemId: "tool/1",
       kind: "tool_operation" as const,
-      runId: "run:1",
       sessionId: "session 1",
       turnId: "turn-1",
     };
@@ -95,13 +93,12 @@ describe("TinyOS simulation kernel", () => {
     const afterReload = createTinyOsProcessId(JSON.parse(JSON.stringify(input)));
 
     expect(afterReload).toBe(first);
-    expect(first).toBe("tinyos:process:tool_operation:session%201:run%3A1:turn-1:tool%2F1");
-    expect(() => createTinyOsProcessId({ kind: "agent_run", runId: " ", sessionId: "session-1" })).toThrow(/non-empty/i);
+    expect(first).toBe("tinyos:process:tool_operation:session%201:turn-1:tool%2F1");
+    expect(() => createTinyOsProcessId({ kind: "agent_turn", turnId: " ", sessionId: "session-1" })).toThrow(/non-empty/i);
   });
 
-  it("projects canonical run, turn, work lifecycle, and source-backed parents", () => {
+  it("projects canonical turn, work lifecycle, and source-backed parents", () => {
     const snapshot = projectTinyOsKernel(timeline());
-    const run = snapshot.processes.find((process) => process.kind === "agent_run");
     const turn = snapshot.processes.find((process) => process.kind === "agent_turn");
     const tool = snapshot.processes.find((process) => process.kind === "tool_operation");
     const approval = snapshot.processes.find((process) => process.kind === "user_input_wait");
@@ -113,8 +110,7 @@ describe("TinyOS simulation kernel", () => {
       cursor: { eventCount: 5, eventIndex: 4, mode: "live" },
       truth: "derived",
     });
-    expect(run).toMatchObject({ state: "completed", provenance: { kind: "canonical_event", sourceId: "answer-1" } });
-    expect(turn).toMatchObject({ parentProcessId: run?.id, state: "completed" });
+    expect(turn).toMatchObject({ state: "completed", provenance: { kind: "canonical_event", sourceId: "answer-1" } });
     expect(tool).toMatchObject({ parentProcessId: turn?.id, state: "running" });
     expect(tool?.parentProcessId).not.toBe(tool?.id);
     expect(approval).toMatchObject({ parentProcessId: tool?.id, state: "waiting_for_user" });
@@ -124,11 +120,11 @@ describe("TinyOS simulation kernel", () => {
       id: createTinyOsAgentGroupId("session-1", "agent-main"),
       state: "completed",
     });
-    expect(mainGroup?.processIds).toEqual(expect.arrayContaining([run?.id, turn?.id, tool?.id]));
+    expect(mainGroup?.processIds).toEqual(expect.arrayContaining([turn?.id, tool?.id]));
     expect(subagentGroup).toMatchObject({
       agentId: "agent-child",
       assignedWork: "Review the implementation",
-      childRunId: "run-child",
+      childTurnId: "turn-child",
       id: createTinyOsAgentGroupId("session-1", "agent-child"),
       parentAgentId: "agent-main",
       parentProcessId: turn?.id,
@@ -155,7 +151,7 @@ describe("TinyOS simulation kernel", () => {
       mode: "history",
     });
     expect(history.processes.some((process) => process.kind === "subagent")).toBe(false);
-    expect(history.processes.find((process) => process.kind === "agent_run")?.state).toBe("waiting_for_user");
+    expect(history.processes.find((process) => process.kind === "agent_turn")?.state).toBe("waiting_for_user");
     expect(() => projectTinyOsKernel(source, { itemId: "missing", mode: "history" })).toThrow(/boundary is unavailable/i);
     expect(() => projectTinyOsKernel(source, { eventIndex: 2, itemId: "wrong", mode: "history" })).toThrow(/identity does not match/i);
   });
@@ -166,7 +162,6 @@ describe("TinyOS simulation kernel", () => {
       eventIndex: 1,
       itemId: source[1].itemId,
       mode: "history",
-      runId: source[1].runId,
       turnId: source[1].turnId,
     }, {
       nativeSnapshots: [createTinyOsBrowserCaptureSnapshot({
@@ -286,7 +281,7 @@ describe("TinyOS simulation kernel", () => {
           command: "npm test",
           kind: "terminal_process",
           nativeProcessId: "process-1",
-          runId: "run-1",
+          operationId: "operation-1",
           sessionId: "session-1",
           state: "completed",
           toolCallId: "call-1",
@@ -358,7 +353,7 @@ describe("TinyOS simulation kernel", () => {
         contract: "browser_session_v1",
         interaction: { click: true, navigate: true, type: false },
         kind: "browser_session",
-        runId: "run-browser-1",
+        operationId: "operation-browser-1",
         sessionId: "session-1",
         state: "running",
         tabs: [{
@@ -405,7 +400,7 @@ describe("TinyOS simulation kernel", () => {
 
   it("rejects terminal process-state regression", () => {
     const process: TinyOsProcess = {
-      correlation: { runId: "run-1", sessionId: "session-1" },
+      correlation: { turnId: "turn-1", sessionId: "session-1" },
       id: "process-1",
       kind: "terminal_process",
       provenance: { kind: "native_query", sourceId: "shell.list" },
@@ -478,7 +473,9 @@ describe("TinyOS simulation kernel", () => {
     const first = projectTinyOsKernel(items);
     const second = projectTinyOsKernel(JSON.parse(JSON.stringify(items)) as BackendAgentTurnItem[]);
 
-    expect(first.processes).toHaveLength(2_002);
+    expect(first.processes).toHaveLength(2_001);
+    expect(first.processes.filter((process) => process.kind === "agent_turn")).toHaveLength(1);
+    expect(first.processes.filter((process) => process.kind === "tool_operation")).toHaveLength(2_000);
     expect(second.processes.map((process) => process.id)).toEqual(first.processes.map((process) => process.id));
     expect(first.cursor).toMatchObject({ eventCount: 2_000, eventIndex: 1_999 });
   });

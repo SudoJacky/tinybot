@@ -4,7 +4,7 @@ import {
   applyChatEvent,
   appendUserMessage,
   createNativeChatState,
-  hydrateDelegatedRunsFromTraceEvents,
+  hydrateDelegatedTurnsFromTraceEvents,
   normalizeMessagesPayload,
   normalizeSessionsPayload,
   resolveNativeChatApproval,
@@ -1084,7 +1084,7 @@ describe("native chat state", () => {
     expect(messages[0].toolActivities?.[0]?.argsText).toContain("tool:call-1:completed");
   });
 
-  test("hydrates delegated trace snapshots into chat run state when messages reload", () => {
+  test("hydrates delegated trace snapshots into chat turn state when messages reload", () => {
     const state = createNativeChatState();
     const messages = normalizeMessagesPayload({
       messages: [
@@ -1108,8 +1108,8 @@ describe("native chat state", () => {
           _delegate_result: { summary: "hello", status: "completed" },
           _delegate_trace: {
             delegateId: "delegate-1",
-            childRunId: "delegate-1",
-            parentRunId: "run-1",
+            childTurnId: "delegate-1",
+            parentTurnId: "turn-1",
             parentSessionKey: "websocket:chat-1",
             status: "completed",
             steps: [{
@@ -1133,7 +1133,7 @@ describe("native chat state", () => {
 
     setMessages(state, "websocket:chat-1", messages);
 
-    const delegate = state.chatRuns.delegatedRunsBySession.get("websocket:chat-1")?.get("delegate-1");
+    const delegate = state.chatTurns.delegatedTurnsBySession.get("websocket:chat-1")?.get("delegate-1");
     expect(delegate).toMatchObject({
       id: "delegate-1",
       title: "Greeter",
@@ -1149,7 +1149,7 @@ describe("native chat state", () => {
     });
   });
 
-  test("hydrates child trace journal events into delegated run traces", () => {
+  test("hydrates child trace journal events into delegated turn traces", () => {
     const state = createNativeChatState();
     const sessionKey = "websocket:chat-1";
     setMessages(state, sessionKey, normalizeMessagesPayload({
@@ -1163,7 +1163,7 @@ describe("native chat state", () => {
       ],
     }));
 
-    hydrateDelegatedRunsFromTraceEvents(state, sessionKey, [
+    hydrateDelegatedTurnsFromTraceEvents(state, sessionKey, [
       {
         eventId: "delegate-1:1:agent.delegate.started",
         eventType: "agent.delegate.started",
@@ -1174,7 +1174,7 @@ describe("native chat state", () => {
         sequence: 1,
         createdAt: "2026-06-27T04:00:01Z",
         payload: {
-          child_run_id: "delegate-1",
+          child_turn_id: "delegate-1",
           delegate_id: "delegate-1",
           status: "running",
           task: "Say hello",
@@ -1192,7 +1192,7 @@ describe("native chat state", () => {
         sequence: 2,
         createdAt: "2026-06-27T04:00:02Z",
         payload: {
-          child_run_id: "delegate-1",
+          child_turn_id: "delegate-1",
           child_step_id: "final:delegate-1",
           delegate_id: "delegate-1",
           status: "completed",
@@ -1212,7 +1212,7 @@ describe("native chat state", () => {
       },
     ]);
 
-    const delegate = state.chatRuns.delegatedRunsBySession.get(sessionKey)?.get("delegate-1");
+    const delegate = state.chatTurns.delegatedTurnsBySession.get(sessionKey)?.get("delegate-1");
     expect(delegate).toMatchObject({
       id: "delegate-1",
       trace: {

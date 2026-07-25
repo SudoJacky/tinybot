@@ -22,25 +22,13 @@ describe("desktop native sessions API", () => {
       command: "worker_session_effective_capabilities",
       args: { input: { key: "websocket:chat-1" } },
     });
-    await expect(api.agentRuns!("websocket:chat-1")).resolves.toEqual({
-      command: "worker_agent_runs_list",
+    await expect(api.turns!("websocket:chat-1")).resolves.toEqual({
+      command: "worker_turns_list",
       args: { input: { key: "websocket:chat-1" } },
     });
-    await expect(api.agentRunRuntimeState!("websocket:chat-1", "run-1")).resolves.toEqual({
-      command: "worker_agent_run_runtime_state",
-      args: { input: { sessionKey: "websocket:chat-1", runId: "run-1" } },
-    });
-    await expect(api.temporaryFiles!("websocket:chat-1")).resolves.toEqual({
-      command: "worker_session_temporary_files",
-      args: { input: { key: "websocket:chat-1" } },
-    });
-    await expect(api.uploadTemporaryFile!("websocket:chat-1", { name: "context.md" })).resolves.toEqual({
-      command: "worker_session_upload_temporary_file",
-      args: { input: { key: "websocket:chat-1", body: { name: "context.md" } } },
-    });
-    await expect(api.clearTemporaryFiles!("websocket:chat-1")).resolves.toEqual({
-      command: "worker_session_clear_temporary_files",
-      args: { input: { key: "websocket:chat-1" } },
+    await expect(api.agentTurnRuntimeState!("websocket:chat-1", "turn-1")).resolves.toEqual({
+      command: "worker_turn_runtime_state",
+      args: { input: { sessionKey: "websocket:chat-1", turnId: "turn-1" } },
     });
     await expect(api.delete!("websocket:chat-1")).resolves.toEqual({
       command: "worker_session_delete",

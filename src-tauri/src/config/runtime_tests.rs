@@ -1,0 +1,433 @@
+use super::*;
+use crate::protocol::capability::{CapabilityPolicy, WorkerCapability};
+use crate::protocol::{WorkerProtocolErrorCode, WorkerProtocolErrorSource};
+use serde_json::json;
+
+#[test]
+fn default_policy_denies_config_get() {
+    let rpc = WorkerConfigRpc::new(config_fixture(), CapabilityPolicy::default());
+
+    let error = rpc
+        .get("agents.defaults.model")
+        .expect_err("config.get should require capability");
+
+    assert_eq!(error.code, WorkerProtocolErrorCode::CapabilityDenied);
+    assert_eq!(error.source, WorkerProtocolErrorSource::RustCore);
+    assert_eq!(error.details["capability"], "config.read");
+}
+
+#[test]
+fn config_get_returns_nested_value_with_read_capability() {
+    let rpc = WorkerConfigRpc::new(config_fixture(), read_policy());
+
+    let result = rpc
+        .get("agents.defaults.model")
+        .expect("config.get should read public value");
+
+    assert_eq!(result.path, "agents.defaults.model");
+    assert_eq!(result.value, json!("gpt-5"));
+}
+
+#[test]
+fn config_get_returns_null_for_missing_public_path() {
+    let rpc = WorkerConfigRpc::new(config_fixture(), read_policy());
+
+    let result = rpc
+        .get("agents.defaults.missing")
+        .expect("missing public path should return null");
+
+    assert_eq!(result.value, serde_json::Value::Null);
+}
+
+#[test]
+fn config_get_rejects_sensitive_path_segments() {
+    let rpc = WorkerConfigRpc::new(config_fixture(), read_policy());
+
+    let error = rpc
+        .get("providers.openai.api_key")
+        .expect_err("api_key should be protected");
+    let camel_case_error = rpc
+        .get("providers.openai.apiKey")
+        .expect_err("apiKey should be protected");
+
+    assert_eq!(error.code, WorkerProtocolErrorCode::CapabilityDenied);
+    assert_eq!(error.details["path"], "providers.openai.api_key");
+    assert_eq!(
+        camel_case_error.code,
+        WorkerProtocolErrorCode::CapabilityDenied
+    );
+    assert_eq!(camel_case_error.details["path"], "providers.openai.apiKey");
+}
+
+#[test]
+fn config_get_rejects_common_sensitive_field_names() {
+    let rpc = WorkerConfigRpc::new(config_fixture(), read_policy());
+
+    for path in [
+        "providers.openai.access_token",
+        "providers.openai.refreshToken",
+        "providers.openai.client_secret",
+        "providers.openai.privateKey",
+        "providers.openai.password",
+        "providers.openai.credentials",
+    ] {
+        let error = match rpc.get(path) {
+            Ok(_) => panic!("{path} should be protected"),
+            Err(error) => error,
+        };
+        assert_eq!(error.code, WorkerProtocolErrorCode::CapabilityDenied);
+        assert_eq!(error.details["path"], path);
+    }
+}
+
+#[test]
+fn config_get_omits_sensitive_descendants_from_public_objects() {
+    let rpc = WorkerConfigRpc::new(config_fixture(), read_policy());
+
+    let result = rpc
+        .get("providers.openai")
+        .expect("public parent object should read from public projection");
+
+    assert_eq!(result.value["provider"], "openai");
+    let provider = result
+        .value
+        .as_object()
+        .expect("provider config should be an object");
+    assert!(!provider.contains_key("api_key"));
+    assert!(!provider.contains_key("apiKey"));
+}
+
+#[test]
+fn config_snapshot_public_omits_sensitive_descendants() {
+    let rpc = WorkerConfigRpc::new(config_fixture(), read_policy());
+
+    let result = rpc
+        .snapshot_public()
+        .expect("public snapshot should read public projection");
+
+    assert_eq!(result.value["providers"]["openai"]["provider"], "openai");
+    let provider = result.value["providers"]["openai"]
+        .as_object()
+        .expect("provider config should be an object");
+    assert!(!provider.contains_key("api_key"));
+    assert!(!provider.contains_key("apiKey"));
+}
+
+#[test]
+fn config_snapshot_public_keeps_provider_secret_presence_metadata() {
+    let rpc = WorkerConfigRpc::new(config_fixture(), read_policy());
+
+    let result = rpc
+        .snapshot_public()
+        .expect("public snapshot should read public projection");
+
+    assert_eq!(
+        result.value["providers"]["openai"]["api_key_configured"],
+        json!(true)
+    );
+    assert!(result.value["providers"]["openai"].get("api_key").is_none());
+    assert!(result.value["providers"]["openai"].get("apiKey").is_none());
+}
+
+#[test]
+fn config_snapshot_public_uses_explicit_public_contract() {
+    let rpc = WorkerConfigRpc::new(config_fixture(), read_policy());
+
+    let result = rpc
+        .snapshot_public()
+        .expect("public snapshot should read with explicit public fields");
+
+    assert_eq!(result.value["agents"]["defaults"]["model"], "gpt-5");
+    assert_eq!(result.value["agents"]["defaults"]["provider"], "openai");
+    assert_eq!(
+        result.value["providers"]["openai"]["api_base"],
+        "https://api.openai.com/v1"
+    );
+    let provider = result.value["providers"]["openai"]
+        .as_object()
+        .expect("provider public config should be an object");
+    for key in [
+        "api_key",
+        "apiKey",
+        "access_token",
+        "refreshToken",
+        "client_secret",
+        "privateKey",
+        "password",
+        "credentials",
+    ] {
+        assert!(
+            !provider.contains_key(key),
+            "{key} should not be part of the public config contract"
+        );
+    }
+}
+
+#[test]
+fn config_snapshot_public_keeps_allowlisted_provider_fixture_data_without_nested_secrets() {
+    let rpc = WorkerConfigRpc::new(
+        json!({
+            "providers": {
+                "fixture": {
+                    "provider": "fixture",
+                    "responses": [
+                        {
+                            "content": "fixture response",
+                            "apiKey": "nested-secret"
+                        }
+                    ]
+                }
+            }
+        }),
+        read_policy(),
+    );
+
+    let result = rpc
+        .snapshot_public()
+        .expect("public snapshot should include allowlisted fixture data");
+
+    assert_eq!(
+        result.value["providers"]["fixture"]["responses"][0]["content"],
+        "fixture response"
+    );
+    assert!(result.value["providers"]["fixture"]["responses"][0]
+        .as_object()
+        .unwrap()
+        .get("apiKey")
+        .is_none());
+}
+
+#[test]
+fn config_snapshot_public_preserves_non_secret_runtime_sections() {
+    let rpc = WorkerConfigRpc::new(
+        json!({
+            "agents": {
+                "defaults": {
+                    "model": "gpt-5",
+                    "provider": "openai",
+                    "maxToolIterations": 12,
+                    "reasoningEffort": "medium",
+                    "apiKey": "agent-secret"
+                }
+            },
+            "channels": {
+                "sendProgress": true,
+                "token": "channel-secret"
+            },
+            "gateway": {
+                "port": 18790,
+                "accessToken": "gateway-secret"
+            },
+            "tools": {
+                "mcpServers": {
+                    "docs": {
+                        "command": "docs-mcp",
+                        "env": {
+                            "DOCS_TOKEN": "mcp-secret",
+                            "DOCS_URL": "https://docs.example.test"
+                        }
+                    }
+                }
+            },
+            "skills": {
+                "enabled": ["planner"]
+            }
+        }),
+        read_policy(),
+    );
+
+    let result = rpc
+        .snapshot_public()
+        .expect("public snapshot should preserve non-secret runtime config");
+
+    assert_eq!(result.value["agents"]["defaults"]["maxToolIterations"], 12);
+    assert_eq!(
+        result.value["agents"]["defaults"]["reasoningEffort"],
+        "medium"
+    );
+    assert_eq!(result.value["channels"]["sendProgress"], true);
+    assert_eq!(result.value["gateway"]["port"], 18790);
+    assert_eq!(
+        result.value["tools"]["mcpServers"]["docs"]["command"],
+        "docs-mcp"
+    );
+    assert_eq!(
+        result.value["tools"]["mcpServers"]["docs"]["env"]["DOCS_URL"],
+        "https://docs.example.test"
+    );
+    assert_eq!(result.value["skills"]["enabled"][0], "planner");
+    assert!(result.value["agents"]["defaults"].get("apiKey").is_none());
+    assert!(result.value["channels"].get("token").is_none());
+    assert!(result.value["gateway"].get("accessToken").is_none());
+    assert!(result.value["tools"]["mcpServers"]["docs"]["env"]
+        .get("DOCS_TOKEN")
+        .is_none());
+}
+
+#[test]
+fn config_get_rejects_invalid_paths() {
+    let rpc = WorkerConfigRpc::new(config_fixture(), read_policy());
+
+    assert!(rpc.get("").is_err());
+    assert!(rpc.get(".agents").is_err());
+    assert!(rpc.get("agents..defaults").is_err());
+    assert!(rpc.get("agents.defaults.\0model").is_err());
+}
+
+#[test]
+fn config_patch_result_requires_write_capability() {
+    let mut rpc = WorkerConfigRpc::new(config_fixture(), read_policy());
+
+    let error = rpc
+        .apply_patch_result(valid_patch_result())
+        .expect_err("config patch should require write capability");
+
+    assert_eq!(error.code, WorkerProtocolErrorCode::CapabilityDenied);
+    assert_eq!(error.details["capability"], "config.write");
+}
+
+#[test]
+fn config_patch_result_updates_snapshot_and_returns_redacted_config() {
+    let mut rpc = WorkerConfigRpc::new(config_fixture(), write_policy());
+
+    let result = rpc
+        .apply_patch_result(valid_patch_result())
+        .expect("config patch result should apply");
+
+    assert!(result.ok);
+    assert_eq!(result.updated_fields, vec!["agents.defaults.model"]);
+    assert_eq!(result.side_effects.applied, vec!["providerRuntimeChanged"]);
+    assert_eq!(result.config["agents"]["defaults"]["model"], "gpt-5.1");
+    assert!(result
+        .config
+        .get("providers")
+        .and_then(|providers| providers.get("openai"))
+        .and_then(|provider| provider.get("apiKey"))
+        .is_none());
+    assert_eq!(
+        rpc.get("agents.defaults.model")
+            .expect("updated config should be readable")
+            .value,
+        json!("gpt-5.1")
+    );
+}
+
+#[test]
+fn config_patch_result_to_store_saves_and_returns_redacted_config() {
+    let fixture = ConfigStoreFixture::new();
+    let config_path = fixture.path("config.json");
+    let mut store = ConfigStore::from_snapshot(config_path.clone(), config_fixture());
+    let mut rpc = WorkerConfigRpc::new(store.snapshot().clone(), write_policy());
+
+    let result = rpc
+        .apply_patch_result_to_store(&mut store, valid_patch_result())
+        .expect("config patch result should apply to store");
+
+    assert!(result.ok);
+    assert_eq!(result.config["agents"]["defaults"]["model"], "gpt-5.1");
+    assert!(result
+        .config
+        .get("providers")
+        .and_then(|providers| providers.get("openai"))
+        .and_then(|provider| provider.get("apiKey"))
+        .is_none());
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(
+            &std::fs::read_to_string(config_path).expect("patched config should save")
+        )
+        .expect("saved config should be JSON")["agents"]["defaults"]["model"],
+        json!("gpt-5.1")
+    );
+    assert_eq!(
+        rpc.get("agents.defaults.model")
+            .expect("updated config should be readable")
+            .value,
+        json!("gpt-5.1")
+    );
+}
+
+fn read_policy() -> CapabilityPolicy {
+    CapabilityPolicy::new([WorkerCapability::ConfigRead])
+}
+
+fn write_policy() -> CapabilityPolicy {
+    CapabilityPolicy::new([WorkerCapability::ConfigRead, WorkerCapability::ConfigWrite])
+}
+
+fn valid_patch_result() -> ConfigPatchBridgeResult {
+    ConfigPatchBridgeResult {
+        ok: true,
+        config: json!({
+            "agents": {
+                "defaults": {
+                    "model": "gpt-5.1",
+                    "provider": "openai"
+                }
+            },
+            "providers": {
+                "openai": {
+                    "apiKey": "sk-new-secret"
+                }
+            }
+        }),
+        updated_fields: vec!["agents.defaults.model".to_string()],
+        side_effects: crate::config::store::ConfigPatchSideEffects {
+            applied: vec!["providerRuntimeChanged".to_string()],
+            restart_required: vec![],
+            warnings: vec![],
+        },
+        error: None,
+    }
+}
+
+fn config_fixture() -> serde_json::Value {
+    json!({
+        "agents": {
+            "defaults": {
+                "model": "gpt-5",
+                "provider": "openai",
+                "workspace": "~/.tinybot/workspace"
+            }
+        },
+        "providers": {
+            "openai": {
+                "provider": "openai",
+                "api_key": "sk-secret",
+                "apiKey": "sk-camel-secret",
+                "access_token": "access-secret",
+                "refreshToken": "refresh-secret",
+                "client_secret": "client-secret",
+                "privateKey": "private-secret",
+                "password": "password-secret",
+                "credentials": { "token": "nested-secret" },
+                "api_base": "https://api.openai.com/v1"
+            }
+        }
+    })
+}
+
+struct ConfigStoreFixture {
+    root: std::path::PathBuf,
+}
+
+impl ConfigStoreFixture {
+    fn new() -> Self {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time should be monotonic")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("tinybot-worker-config-store-test-{nonce}"));
+        std::fs::create_dir_all(&root).expect("fixture root should create");
+        Self { root }
+    }
+
+    fn path(&self, relative: &str) -> std::path::PathBuf {
+        self.root.join(relative)
+    }
+}
+
+impl Drop for ConfigStoreFixture {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.root);
+    }
+}

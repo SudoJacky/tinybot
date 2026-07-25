@@ -1,4 +1,4 @@
-import type { BackendAgentTurnItem, ChatStep, ChatStepStatus } from "./chatRunModel";
+import type { BackendAgentTurnItem, ChatStep, ChatStepStatus } from "./chatTurnModel";
 import { projectTinyOsKernel, type TinyOsKernelProjectionOptions, type TinyOsKernelSnapshot } from "./tinyOsKernelModel";
 
 export type TinyOsAppId =
@@ -21,7 +21,6 @@ export type TinyOsCursor = {
   eventIndex?: number;
   itemId?: string;
   mode: "live_follow" | "history";
-  runId?: string;
   turnId?: string;
 };
 
@@ -169,7 +168,7 @@ export function projectKernelBackedTinyOsDesktop(
         ...(cursor.eventIndex !== undefined ? { eventIndex: cursor.eventIndex } : {}),
         itemId: cursor.itemId,
         mode: "history",
-        ...(cursor.runId ? { runId: cursor.runId } : {}),
+        ...(cursor.turnId ? { turnId: cursor.turnId } : {}),
         ...(cursor.turnId ? { turnId: cursor.turnId } : {}),
       }
     : { mode: "live" }, options);
@@ -208,7 +207,7 @@ export function filterTinyOsDesktopByAgent(
       && (!process.correlation.turnId || process.correlation.turnId === turnId)
     );
     const correlated = kernel?.processes.find((process) => (
-      process.kind !== "agent_run" && process.kind !== "agent_turn" && matchesEntry(process)
+      process.kind !== "agent_turn" && matchesEntry(process)
     )) ?? kernel?.processes.find(matchesEntry);
     return correlated ? correlated.ownerAgentId === agentId : step.agentContext.id === agentId;
   };

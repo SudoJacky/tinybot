@@ -1,9 +1,8 @@
-use crate::worker_protocol::WorkerRequest;
-use crate::worker_request_id::{next_worker_request_correlation, WorkerRequestCorrelation};
-use crate::{
-    call_rust_state_service, experimental_worker_config_snapshot, native_backend_workspace_root,
-    SharedGateway,
-};
+use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
+use crate::desktop::{lock_runtime, SharedGateway};
+use crate::protocol::request_id::{next_worker_request_correlation, WorkerRequestCorrelation};
+use crate::protocol::WorkerRequest;
+use crate::rpc::call_rust_state_service;
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, time::Duration};
 use tauri::State;
@@ -34,7 +33,7 @@ pub(crate) fn worker_skills_list(
     worker_skills_list_with_options(
         state.inner(),
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -48,7 +47,7 @@ pub(crate) fn worker_skills_detail(
         state.inner(),
         input.name,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -62,7 +61,7 @@ pub(crate) fn worker_skills_create(
         state.inner(),
         input.body,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -77,7 +76,7 @@ pub(crate) fn worker_skills_update(
         input.name,
         input.body,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -91,7 +90,7 @@ pub(crate) fn worker_skills_delete(
         state.inner(),
         input.name,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -105,19 +104,20 @@ pub(crate) fn worker_skills_validate(
         state.inner(),
         input.name,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
 
 pub(crate) fn worker_skills_list_with_options(
-    _shared: &SharedGateway,
-    workspace_root: PathBuf,
+    shared: &SharedGateway,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     call_rust_state_service(
-        workspace_root,
+        &thread_store,
         config_snapshot,
         build_worker_skills_list_request(next_worker_request_correlation()),
         "worker skills list",
@@ -136,14 +136,15 @@ pub(crate) fn build_worker_skills_list_request(
 }
 
 pub(crate) fn worker_skills_detail_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     name: String,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     call_rust_state_service(
-        workspace_root,
+        &thread_store,
         config_snapshot,
         build_worker_skills_detail_request(next_worker_request_correlation(), name),
         "worker skills detail",
@@ -163,14 +164,15 @@ pub(crate) fn build_worker_skills_detail_request(
 }
 
 pub(crate) fn worker_skills_create_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     body: serde_json::Value,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     call_rust_state_service(
-        workspace_root,
+        &thread_store,
         config_snapshot,
         build_worker_skills_create_request(next_worker_request_correlation(), body),
         "worker skills create",
@@ -190,15 +192,16 @@ pub(crate) fn build_worker_skills_create_request(
 }
 
 pub(crate) fn worker_skills_update_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     name: String,
     body: serde_json::Value,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     call_rust_state_service(
-        workspace_root,
+        &thread_store,
         config_snapshot,
         build_worker_skills_update_request(next_worker_request_correlation(), name, body),
         "worker skills update",
@@ -219,14 +222,15 @@ pub(crate) fn build_worker_skills_update_request(
 }
 
 pub(crate) fn worker_skills_delete_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     name: String,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     call_rust_state_service(
-        workspace_root,
+        &thread_store,
         config_snapshot,
         build_worker_skills_delete_request(next_worker_request_correlation(), name),
         "worker skills delete",
@@ -246,14 +250,15 @@ pub(crate) fn build_worker_skills_delete_request(
 }
 
 pub(crate) fn worker_skills_validate_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     name: String,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     call_rust_state_service(
-        workspace_root,
+        &thread_store,
         config_snapshot,
         build_worker_skills_validate_request(next_worker_request_correlation(), name),
         "worker skills validate",

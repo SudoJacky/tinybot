@@ -1,14 +1,13 @@
+use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
+use crate::desktop::{lock_runtime, SharedGateway};
 use crate::native_browser::SharedBrowserRuntime;
-use crate::worker_capability::{
+use crate::protocol::capability::{
     default_desktop_capability_policy, CapabilityPolicy, WorkerCapability,
 };
-use crate::worker_protocol::WorkerRequest;
-use crate::worker_request_id::next_worker_request_correlation;
-use crate::worker_shell::{ShellProcessListParams, WorkerShellRpc};
-use crate::{
-    call_rust_state_service, experimental_worker_config_snapshot, lock_runtime,
-    native_backend_workspace_root, SharedGateway,
-};
+use crate::protocol::request_id::next_worker_request_correlation;
+use crate::protocol::WorkerRequest;
+use crate::rpc::call_rust_state_service;
+use crate::threads::workspace_store::WorkspaceThreadStore;
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, time::Duration};
 use tauri::State;
@@ -21,9 +20,9 @@ pub(crate) struct WorkerSessionInput {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct WorkerAgentRunInput {
+pub(crate) struct WorkerAgentTurnInput {
     session_key: String,
-    run_id: String,
+    turn_id: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -41,13 +40,6 @@ pub(crate) struct WorkerSessionBranchInput {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct WorkerSessionTemporaryFileUploadInput {
-    key: String,
-    body: serde_json::Value,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub(crate) struct WorkerSessionTaskProgressInput {
     key: String,
     body: serde_json::Value,
@@ -60,7 +52,7 @@ pub(crate) fn worker_sessions_list(
     worker_sessions_list_with_options(
         state.inner(),
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -74,36 +66,36 @@ pub(crate) fn worker_session_messages(
         state.inner(),
         input.key,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
 
 #[tauri::command]
-pub(crate) fn worker_agent_runs_list(
+pub(crate) fn worker_turns_list(
     input: WorkerSessionInput,
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
-    worker_agent_runs_list_with_options(
+    worker_turns_list_with_options(
         state.inner(),
         input.key,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
 
 #[tauri::command]
-pub(crate) fn worker_agent_run_runtime_state(
-    input: WorkerAgentRunInput,
+pub(crate) fn worker_turn_runtime_state(
+    input: WorkerAgentTurnInput,
     state: State<'_, SharedGateway>,
 ) -> Result<serde_json::Value, String> {
-    worker_agent_run_runtime_state_with_options(
+    worker_turn_runtime_state_with_options(
         state.inner(),
         input.session_key,
-        input.run_id,
+        input.turn_id,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -118,7 +110,7 @@ pub(crate) fn worker_session_effective_capabilities(
         state.inner(),
         input.key,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )?;
     let browser = browser_runtime.capabilities();
@@ -147,49 +139,6 @@ pub(crate) fn worker_session_effective_capabilities(
 }
 
 #[tauri::command]
-pub(crate) fn worker_session_temporary_files(
-    input: WorkerSessionInput,
-    state: State<'_, SharedGateway>,
-) -> Result<serde_json::Value, String> {
-    worker_session_temporary_files_with_options(
-        state.inner(),
-        input.key,
-        native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
-        Duration::from_secs(10),
-    )
-}
-
-#[tauri::command]
-pub(crate) fn worker_session_upload_temporary_file(
-    input: WorkerSessionTemporaryFileUploadInput,
-    state: State<'_, SharedGateway>,
-) -> Result<serde_json::Value, String> {
-    worker_session_upload_temporary_file_with_options(
-        state.inner(),
-        input.key,
-        input.body,
-        native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
-        Duration::from_secs(10),
-    )
-}
-
-#[tauri::command]
-pub(crate) fn worker_session_clear_temporary_files(
-    input: WorkerSessionInput,
-    state: State<'_, SharedGateway>,
-) -> Result<serde_json::Value, String> {
-    worker_session_clear_temporary_files_with_options(
-        state.inner(),
-        input.key,
-        native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
-        Duration::from_secs(10),
-    )
-}
-
-#[tauri::command]
 pub(crate) fn worker_session_delete(
     input: WorkerSessionInput,
     state: State<'_, SharedGateway>,
@@ -198,7 +147,7 @@ pub(crate) fn worker_session_delete(
         state.inner(),
         input.key,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -213,7 +162,7 @@ pub(crate) fn worker_session_patch(
         input.key,
         input.body,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -227,7 +176,7 @@ pub(crate) fn worker_session_branch(
         state.inner(),
         input.body,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -241,7 +190,7 @@ pub(crate) fn worker_session_clear(
         state.inner(),
         input.key,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -256,121 +205,149 @@ pub(crate) fn worker_session_task_progress(
         input.key,
         input.body,
         native_backend_workspace_root(),
-        experimental_worker_config_snapshot(),
+        native_config_snapshot(),
         Duration::from_secs(10),
     )
 }
 
 pub(crate) fn worker_sessions_list_with_options(
-    _shared: &SharedGateway,
-    workspace_root: PathBuf,
+    shared: &SharedGateway,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     let request_id = next_worker_request_correlation();
-    let sessions = call_rust_state_service(
-        workspace_root,
+    let result = call_rust_state_service(
+        &thread_store,
         config_snapshot,
         WorkerRequest::new(
-            request_id.id("sessions-list"),
-            request_id.trace_id("sessions-list"),
-            "session.list_metadata",
-            serde_json::json!({}),
+            request_id.id("threads-list"),
+            request_id.trace_id("threads-list"),
+            "thread.list",
+            serde_json::json!({
+                "includeArchived": false,
+                "includeChildThreads": true,
+            }),
         ),
-        "worker sessions list",
+        "worker threads list",
     )?;
-    let items = sessions
-        .as_array()
-        .ok_or_else(|| "worker sessions list failed: response was not an array".to_string())?
+    let items = result
+        .get("threads")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| "worker threads list failed: response did not contain threads".to_string())?
         .iter()
-        .map(webui_session_item)
+        .map(webui_thread_item)
         .collect::<Result<Vec<_>, _>>()?;
     Ok(serde_json::json!({ "items": items }))
 }
 
 pub(crate) fn worker_session_messages_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     key: String,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
+    let thread_id = resolve_thread_id(&thread_store, &key, config_snapshot.clone())?;
     let request_id = next_worker_request_correlation();
     let mut history = call_rust_state_service(
-        workspace_root.clone(),
+        &thread_store,
         config_snapshot.clone(),
         WorkerRequest::new(
-            request_id.id("session-messages"),
-            request_id.trace_id("session-messages"),
-            "session.get_history",
-            serde_json::json!({ "session_id": key, "limit": 500 }),
+            request_id.id("thread-messages"),
+            request_id.trace_id("thread-messages"),
+            "thread.history",
+            serde_json::json!({ "threadId": thread_id, "limit": 500 }),
         ),
-        "worker session messages",
+        "worker thread messages",
     )?;
     let object = history
         .as_object_mut()
         .ok_or_else(|| "worker session messages failed: response was not an object".to_string())?;
-    let session_id = object
-        .get("session_id")
+    let canonical_thread_id = object
+        .get("threadId")
         .and_then(serde_json::Value::as_str)
         .unwrap_or_default()
         .to_string();
     object.insert(
-        "key".to_string(),
-        serde_json::Value::String(session_id.clone()),
+        "session_id".to_string(),
+        serde_json::Value::String(key.clone()),
     );
+    object.insert("key".to_string(), serde_json::Value::String(key.clone()));
     object.insert(
         "chat_id".to_string(),
-        serde_json::Value::String(session_chat_id_from_key(&session_id)),
+        serde_json::Value::String(session_chat_id_from_key(&key)),
     );
-    enrich_session_history_metadata(object, &session_id, workspace_root, config_snapshot);
+    if let Some(user_profile) = object.get("userProfile").cloned() {
+        object.insert("user_profile".to_string(), user_profile);
+    }
+    if let Some(updated_at) = object.get("updatedAt").cloned() {
+        object.insert("updated_at".to_string(), updated_at);
+    }
+    enrich_thread_history_metadata(&thread_store, object, &canonical_thread_id, config_snapshot)?;
     Ok(history)
 }
 
-pub(crate) fn worker_agent_runs_list_with_options(
-    _shared: &SharedGateway,
+pub(crate) fn worker_turns_list_with_options(
+    shared: &SharedGateway,
     session_key: String,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
+    let thread_id = resolve_thread_id(&thread_store, &session_key, config_snapshot.clone())?;
     let request_id = next_worker_request_correlation();
     call_rust_state_service(
-        workspace_root,
+        &thread_store,
         config_snapshot,
         WorkerRequest::new(
-            request_id.id("agent-run-list"),
-            request_id.trace_id("agent-run-list"),
-            "agent_run.list",
-            serde_json::json!({ "session_id": session_key }),
+            request_id.id("agent-turn-list"),
+            request_id.trace_id("agent-turn-list"),
+            "thread.turn.list",
+            serde_json::json!({ "threadId": thread_id }),
         ),
-        "worker agent run list",
+        "worker agent turn list",
     )
 }
 
-pub(crate) fn worker_agent_run_runtime_state_with_options(
-    _shared: &SharedGateway,
+pub(crate) fn worker_turn_runtime_state_with_options(
+    shared: &SharedGateway,
     session_key: String,
-    run_id: String,
-    workspace_root: PathBuf,
+    turn_id: String,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
+    let thread_id = resolve_thread_id(&thread_store, &session_key, config_snapshot.clone())?;
     let request_id = next_worker_request_correlation();
-    call_rust_state_service(
-        workspace_root,
+    let mut runtime_state = call_rust_state_service(
+        &thread_store,
         config_snapshot,
         WorkerRequest::new(
-            request_id.id("agent-run-runtime-state"),
-            request_id.trace_id("agent-run-runtime-state"),
-            "agent_run.runtime_state",
+            request_id.id("agent-turn-runtime-state"),
+            request_id.trace_id("agent-turn-runtime-state"),
+            "thread.turn.runtime_state",
             serde_json::json!({
-                "session_id": session_key,
-                "run_id": run_id,
+                "threadId": thread_id,
+                "turnId": turn_id,
             }),
         ),
-        "worker agent run runtime state",
-    )
+        "worker agent turn runtime state",
+    )?;
+    if let Some(timeline) = runtime_state
+        .get_mut("timeline")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        timeline.insert(
+            "sessionId".to_string(),
+            serde_json::Value::String(session_key),
+        );
+    }
+    Ok(runtime_state)
 }
 
 pub(crate) fn worker_session_effective_capabilities_with_options(
@@ -381,206 +358,81 @@ pub(crate) fn worker_session_effective_capabilities_with_options(
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
     let workspace_available = workspace_root.is_dir();
-    let mut runs = worker_agent_runs_list_with_options(
+    let turns = worker_turns_list_with_options(
         shared,
         session_key.clone(),
-        workspace_root.clone(),
-        config_snapshot.clone(),
+        workspace_root,
+        config_snapshot,
         timeout,
     )?;
-    if recover_interrupted_tinyos_host_operations(
-        shared,
-        &session_key,
-        &runs,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-    )? {
-        runs = worker_agent_runs_list_with_options(
-            shared,
-            session_key.clone(),
-            workspace_root,
-            config_snapshot,
-            timeout,
-        )?;
-    }
     Ok(build_worker_session_effective_capabilities(
         &session_key,
-        &runs,
+        &turns,
         workspace_available,
         &default_desktop_capability_policy(),
     ))
 }
 
-fn recover_interrupted_tinyos_host_operations(
-    shared: &SharedGateway,
-    session_id: &str,
-    runs: &serde_json::Value,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-) -> Result<bool, String> {
-    let shell_runtime = {
-        let runtime = lock_runtime(shared);
-        runtime.native_agent_runtime.shell_runtime()
-    };
-    let shell = WorkerShellRpc::with_runtime(
-        workspace_root.clone(),
-        default_desktop_capability_policy(),
-        shell_runtime,
-    );
-    let live_process_runs = shell
-        .list(ShellProcessListParams::default())
-        .map_err(|error| {
-            format!(
-                "TinyOS host recovery failed to inspect shell processes: {}",
-                error.message
-            )
-        })?
-        .into_iter()
-        .filter(|process| process.running)
-        .filter_map(|process| process.run_id)
-        .collect::<std::collections::HashSet<_>>();
-    let interrupted = interrupted_tinyos_host_run_ids(runs, &live_process_runs);
-    for run_id in &interrupted {
-        let request_id = next_worker_request_correlation();
-        call_rust_state_service(
-            workspace_root.clone(),
-            config_snapshot.clone(),
-            WorkerRequest::new(
-                request_id.id("tinyos-host-recovery-event"),
-                request_id.trace_id("tinyos-host-recovery-event"),
-                "agent_run.append_semantic_batch",
-                serde_json::json!({
-                    "session_id": session_id,
-                    "run_id": run_id,
-                    "events": [{
-                        "eventId": format!("{run_id}:interrupted-recovery"),
-                        "itemId": format!("{run_id}:interrupted-recovery"),
-                        "eventName": "agent.error",
-                        "payload": {
-                            "message": "TinyOS host operation was interrupted before completion and cannot be resumed.",
-                            "recovery": "marked_failed",
-                        }
-                    }]
-                }),
-            ),
-            "TinyOS host recovery event append",
-        )?;
-        let request_id = next_worker_request_correlation();
-        call_rust_state_service(
-            workspace_root.clone(),
-            config_snapshot.clone(),
-            WorkerRequest::new(
-                request_id.id("tinyos-host-recovery-failed"),
-                request_id.trace_id("tinyos-host-recovery-failed"),
-                "agent_run.mark_failed",
-                serde_json::json!({
-                    "session_id": session_id,
-                    "run_id": run_id,
-                    "stop_reason": "host_operation_interrupted",
-                    "error": "TinyOS host operation was interrupted before completion.",
-                }),
-            ),
-            "TinyOS host recovery terminal update",
-        )?;
-    }
-    Ok(!interrupted.is_empty())
-}
-
-pub(crate) fn interrupted_tinyos_host_run_ids(
-    runs: &serde_json::Value,
-    live_process_runs: &std::collections::HashSet<String>,
-) -> Vec<String> {
-    runs.get("runs")
-        .and_then(serde_json::Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|run| {
-            let run_id = run.get("runId").and_then(serde_json::Value::as_str)?;
-            let active = matches!(
-                run.get("status").and_then(serde_json::Value::as_str),
-                Some("running" | "waiting")
-            );
-            let host_run = run_id.starts_with("tinyos-host-");
-            let terminal_live =
-                run_id.starts_with("tinyos-host-terminal-") && live_process_runs.contains(run_id);
-            (active && host_run && !terminal_live).then(|| run_id.to_string())
-        })
-        .collect()
-}
-
 pub(crate) fn build_worker_session_effective_capabilities(
     session_key: &str,
-    runs: &serde_json::Value,
+    turns: &serde_json::Value,
     workspace_available: bool,
     policy: &CapabilityPolicy,
 ) -> serde_json::Value {
-    let evaluated_run = runs
-        .get("runs")
+    let evaluated_turn = turns
+        .get("turns")
         .and_then(serde_json::Value::as_array)
         .and_then(|items| {
             items
                 .iter()
-                .find(|run| {
+                .find(|turn| {
                     matches!(
-                        run.get("status").and_then(serde_json::Value::as_str),
+                        turn.get("status").and_then(serde_json::Value::as_str),
                         Some("running" | "waiting")
                     )
                 })
                 .or_else(|| items.first())
         });
-    let evaluated_run_id = evaluated_run
-        .and_then(|run| run.get("runId"))
+    let evaluated_turn_id = evaluated_turn
+        .and_then(|turn| turn.get("turnId"))
         .and_then(serde_json::Value::as_str);
-    let evaluated_run_status = evaluated_run
-        .and_then(|run| run.get("status"))
+    let evaluated_turn_status = evaluated_turn
+        .and_then(|turn| turn.get("status"))
         .and_then(serde_json::Value::as_str);
-    let evaluated_run_phase = evaluated_run
-        .and_then(|run| run.get("phase"))
+    let evaluated_turn_phase = evaluated_turn
+        .and_then(|turn| turn.get("phase"))
         .and_then(serde_json::Value::as_str);
-    let evaluated_is_host_run =
-        evaluated_run_id.is_some_and(|run_id| run_id.starts_with("tinyos-host-"));
-    let evaluated_is_terminal_run =
-        evaluated_run_id.is_some_and(|run_id| run_id.starts_with("tinyos-host-terminal-"));
-    let cancel = match (
-        evaluated_run_status,
-        evaluated_run_phase,
-        evaluated_is_host_run,
-    ) {
-        (_, _, true) => unavailable_capability(
-            "host_operation_active",
-            "The active operation is controlled from its TinyOS application.",
+    let cancel = match (evaluated_turn_status, evaluated_turn_phase) {
+        (Some("running"), _) | (Some("waiting"), Some("paused")) => available_capability(),
+        (Some("waiting"), _) => unavailable_capability(
+            "turn_waiting",
+            "Cancellation of a turn waiting for user input is not supported yet.",
         ),
-        (Some("running"), _, false) | (Some("waiting"), Some("paused"), false) => {
+        _ => unavailable_capability("no_active_turn", "The session has no active Agent turn."),
+    };
+    let pause = if evaluated_turn_status == Some("running") {
+        available_capability()
+    } else {
+        unavailable_capability(
+            "turn_not_running",
+            "Only a running Agent turn can be paused.",
+        )
+    };
+    let resume =
+        if evaluated_turn_status == Some("waiting") && evaluated_turn_phase == Some("paused") {
             available_capability()
-        }
-        (Some("waiting"), _, false) => unavailable_capability(
-            "run_waiting",
-            "Cancellation of a run waiting for user input is not supported yet.",
-        ),
-        _ => unavailable_capability("no_active_run", "The session has no active Agent run."),
-    };
-    let pause = if evaluated_run_status == Some("running") && !evaluated_is_host_run {
-        available_capability()
-    } else {
-        unavailable_capability("run_not_running", "Only a running Agent run can be paused.")
-    };
-    let resume = if !evaluated_is_host_run
-        && evaluated_run_status == Some("waiting")
-        && evaluated_run_phase == Some("paused")
-    {
-        available_capability()
-    } else {
-        unavailable_capability("run_not_paused", "The Agent run is not paused.")
-    };
-    let retry = match evaluated_run_status {
+        } else {
+            unavailable_capability("turn_not_paused", "The Agent turn is not paused.")
+        };
+    let retry = match evaluated_turn_status {
         Some("failed") => available_capability(),
         Some("running" | "waiting") => unavailable_capability(
-            "run_active",
-            "Retry is unavailable while an Agent run is active.",
+            "turn_active",
+            "Retry is unavailable while an Agent turn is active.",
         ),
         _ => unavailable_capability(
-            "no_failed_run",
-            "The session has no latest failed Agent run to retry.",
+            "no_failed_turn",
+            "The session has no latest failed Agent turn to retry.",
         ),
     };
     let files_read = if policy.allows(&WorkerCapability::FsWorkspaceRead) && workspace_available {
@@ -596,10 +448,10 @@ pub(crate) fn build_worker_session_effective_capabilities(
             "Workspace read permission is not granted.",
         )
     };
-    let request_change = if matches!(evaluated_run_status, Some("running" | "waiting")) {
+    let request_change = if matches!(evaluated_turn_status, Some("running" | "waiting")) {
         unavailable_capability(
-            "run_active",
-            "Agent requests are unavailable while a run is active.",
+            "turn_active",
+            "Agent requests are unavailable while a turn is active.",
         )
     } else if policy.allows(&WorkerCapability::FsWorkspaceRead) && workspace_available {
         available_capability()
@@ -614,11 +466,11 @@ pub(crate) fn build_worker_session_effective_capabilities(
             "Workspace read permission is not granted.",
         )
     };
-    let host_operation_active = matches!(evaluated_run_status, Some("running" | "waiting"));
-    let workspace_write = if host_operation_active {
+    let turn_active = matches!(evaluated_turn_status, Some("running" | "waiting"));
+    let workspace_write = if turn_active {
         unavailable_capability(
-            "run_active",
-            "Direct file operations are unavailable while another run is active.",
+            "turn_active",
+            "Direct file operations are unavailable while another turn is active.",
         )
     } else if policy.allows(&WorkerCapability::FsWorkspaceWrite) && workspace_available {
         available_capability()
@@ -633,10 +485,10 @@ pub(crate) fn build_worker_session_effective_capabilities(
             "Workspace write permission is not granted.",
         )
     };
-    let terminal_execute = if host_operation_active {
+    let terminal_execute = if turn_active {
         unavailable_capability(
-            "run_active",
-            "Terminal execution is unavailable while another run is active.",
+            "turn_active",
+            "Terminal execution is unavailable while another turn is active.",
         )
     } else if !workspace_available {
         unavailable_capability(
@@ -654,19 +506,15 @@ pub(crate) fn build_worker_session_effective_capabilities(
             "Terminal execution requires denied-network enforcement, which is unavailable in the current native shell backend.",
         )
     };
-    let terminal_cancel = if evaluated_is_terminal_run && evaluated_run_status == Some("running") {
-        available_capability()
-    } else {
-        unavailable_capability(
-            "no_active_terminal",
-            "There is no running TinyOS terminal process to cancel.",
-        )
-    };
+    let terminal_cancel = unavailable_capability(
+        "no_active_terminal",
+        "There is no running TinyOS terminal process to cancel.",
+    );
 
     serde_json::json!({
         "schemaVersion": "tinybot.effective_capabilities.v1",
         "sessionId": session_key,
-        "evaluatedRunId": evaluated_run_id,
+        "evaluatedTurnId": evaluated_turn_id,
         "capabilities": {
             "agent": {
                 "pause": pause,
@@ -712,145 +560,77 @@ fn unavailable_capability(reason_code: &str, reason: &str) -> serde_json::Value 
     })
 }
 
-pub(crate) fn worker_session_temporary_files_with_options(
-    _shared: &SharedGateway,
-    key: String,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    _timeout: Duration,
-) -> Result<serde_json::Value, String> {
-    let request_id = next_worker_request_correlation();
-    let mut result = call_rust_state_service(
-        workspace_root,
-        config_snapshot,
-        WorkerRequest::new(
-            request_id.id("session-temporary-files"),
-            request_id.trace_id("session-temporary-files"),
-            "session.temporary_file.list",
-            serde_json::json!({ "session_id": key }),
-        ),
-        "worker session temporary files",
-    )?;
-    add_session_key_fields(&mut result)?;
-    Ok(result)
-}
-
-pub(crate) fn worker_session_upload_temporary_file_with_options(
-    _shared: &SharedGateway,
-    key: String,
-    body: serde_json::Value,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    _timeout: Duration,
-) -> Result<serde_json::Value, String> {
-    let request_id = next_worker_request_correlation();
-    call_rust_state_service(
-        workspace_root,
-        config_snapshot,
-        WorkerRequest::new(
-            request_id.id("session-upload-temporary-file"),
-            request_id.trace_id("session-upload-temporary-file"),
-            "session.temporary_file.upload",
-            serde_json::json!({
-                "session_id": key,
-                "name": body.get("name").and_then(serde_json::Value::as_str).unwrap_or_default(),
-                "file_type": body.get("file_type")
-                    .or_else(|| body.get("fileType"))
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or_default(),
-                "content": body.get("content").and_then(serde_json::Value::as_str).unwrap_or_default(),
-                "size_bytes": body.get("size_bytes")
-                    .or_else(|| body.get("sizeBytes"))
-                    .and_then(serde_json::Value::as_u64)
-                    .unwrap_or_default(),
-            }),
-        ),
-        "worker session temporary file upload",
-    )
-}
-
-pub(crate) fn worker_session_clear_temporary_files_with_options(
-    _shared: &SharedGateway,
-    key: String,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    _timeout: Duration,
-) -> Result<serde_json::Value, String> {
-    let request_id = next_worker_request_correlation();
-    let mut result = call_rust_state_service(
-        workspace_root,
-        config_snapshot,
-        WorkerRequest::new(
-            request_id.id("session-clear-temporary-files"),
-            request_id.trace_id("session-clear-temporary-files"),
-            "session.temporary_file.clear",
-            serde_json::json!({ "session_id": key }),
-        ),
-        "worker session temporary files clear",
-    )?;
-    add_session_key_fields(&mut result)?;
-    Ok(result)
-}
-
 pub(crate) fn worker_session_delete_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     key: String,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
+    let thread_id = resolve_thread_id(&thread_store, &key, config_snapshot.clone())?;
     let request_id = next_worker_request_correlation();
     let mut result = call_rust_state_service(
-        workspace_root,
+        &thread_store,
         config_snapshot,
         WorkerRequest::new(
-            request_id.id("session-delete"),
-            request_id.trace_id("session-delete"),
-            "session.delete",
-            serde_json::json!({ "session_id": key }),
+            request_id.id("thread-delete"),
+            request_id.trace_id("thread-delete"),
+            "thread.delete",
+            serde_json::json!({ "threadId": thread_id, "deleteChildren": false }),
         ),
-        "worker session delete",
+        "worker thread delete",
     )?;
-    add_session_key_fields(&mut result)?;
+    add_session_key_fields(&mut result, &key)?;
+    result["deleted"] = serde_json::Value::Bool(true);
     Ok(result)
 }
 
 pub(crate) fn worker_session_patch_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     key: String,
     body: serde_json::Value,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     let metadata = body
         .get("metadata")
         .cloned()
         .unwrap_or_else(|| body.clone());
+    let metadata_patch = thread_metadata_patch(&metadata)?;
+    let thread_id = resolve_thread_id(&thread_store, &key, config_snapshot.clone())?;
     let request_id = next_worker_request_correlation();
-    let session = call_rust_state_service(
-        workspace_root,
+    let thread = call_rust_state_service(
+        &thread_store,
         config_snapshot,
         WorkerRequest::new(
-            request_id.id("session-patch"),
-            request_id.trace_id("session-patch"),
-            "session.patch_metadata",
-            serde_json::json!({ "session_id": key, "metadata": metadata }),
+            request_id.id("thread-patch"),
+            request_id.trace_id("thread-patch"),
+            "thread.update_metadata",
+            serde_json::json!({ "threadId": thread_id, "metadata": metadata_patch }),
         ),
-        "worker session patch",
+        "worker thread patch",
     )?;
-    webui_session_item(&session)
+    let mut item = webui_thread_item(&thread)?;
+    item["metadata"] = metadata;
+    Ok(item)
 }
 
 pub(crate) fn worker_session_branch_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     body: serde_json::Value,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
     let request_id = next_worker_request_correlation();
     let branch_key = branch_session_key(&body, request_id.suffix());
+    let branch_turn_id = branch_string(&body, "turnId")
+        .or_else(|| branch_string(&body, "turn_id"))
+        .unwrap_or_else(|| format!("turn-branch-{}", request_id.suffix()));
     let messages = branch_messages(&body);
     if messages.is_empty() {
         return Err("worker session branch failed: branch messages are required".to_string());
@@ -859,6 +639,8 @@ pub(crate) fn worker_session_branch_with_options(
     let source_session = branch_string(&body, "branchedFromSessionId")
         .or_else(|| branch_string(&body, "branched_from_session_id"))
         .unwrap_or_default();
+    let source_thread_id =
+        resolve_thread_id(&thread_store, &source_session, config_snapshot.clone())?;
     let source_message = branch_string(&body, "branchedFromMessageId")
         .or_else(|| branch_string(&body, "branched_from_message_id"))
         .unwrap_or_default();
@@ -867,75 +649,104 @@ pub(crate) fn worker_session_branch_with_options(
         .or_else(|| body.get("portable_context"))
         .cloned()
         .unwrap_or_else(|| serde_json::json!({}));
-    call_rust_state_service(
-        workspace_root.clone(),
+    let created = call_rust_state_service(
+        &thread_store,
         config_snapshot.clone(),
         WorkerRequest::new(
-            request_id.id("session-branch-append"),
-            request_id.trace_id("session-branch-append"),
-            "session.append_messages",
+            request_id.id("thread-branch-create"),
+            request_id.trace_id("thread-branch-create"),
+            "thread.create",
             serde_json::json!({
-                "session_id": branch_key.clone(),
-                "messages": messages,
-            }),
-        ),
-        "worker session branch append",
-    )?;
-    let session = call_rust_state_service(
-        workspace_root,
-        config_snapshot,
-        WorkerRequest::new(
-            request_id.id("session-branch-metadata"),
-            request_id.trace_id("session-branch-metadata"),
-            "session.patch_metadata",
-            serde_json::json!({
-                "session_id": branch_key,
+                "title": title,
+                "sessionKey": branch_key.clone(),
+                "rootTurnId": branch_turn_id,
+                "source": "desktop",
                 "metadata": {
-                    "title": title,
-                    "branch": {
-                        "branchedFromSessionId": source_session,
-                        "branchedFromMessageId": source_message,
-                        "portableContext": portable_context,
+                    "extra": {
+                        "branch": {
+                            "branchedFromThreadId": source_thread_id,
+                            "branchedFromSessionId": source_session,
+                            "branchedFromMessageId": source_message,
+                            "portableContext": portable_context,
+                        },
                     },
                 },
             }),
         ),
-        "worker session branch metadata",
+        "worker thread branch create",
     )?;
-    webui_session_item(&session)
+    let thread_id = created
+        .get("threadId")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "worker thread branch create failed: missing threadId".to_string())?
+        .to_string();
+    let thread = call_rust_state_service(
+        &thread_store,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("thread-branch-append"),
+            request_id.trace_id("thread-branch-append"),
+            "thread.append_messages",
+            serde_json::json!({
+                "threadId": thread_id,
+                "turnId": branch_turn_id,
+                "messages": messages,
+            }),
+        ),
+        "worker thread branch append",
+    )?;
+    webui_thread_item(&thread)
 }
 
 pub(crate) fn worker_session_clear_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     key: String,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
+    let thread_id = resolve_thread_id(&thread_store, &key, config_snapshot.clone())?;
     let request_id = next_worker_request_correlation();
     let mut result = call_rust_state_service(
-        workspace_root,
+        &thread_store,
         config_snapshot,
         WorkerRequest::new(
-            request_id.id("session-clear"),
-            request_id.trace_id("session-clear"),
-            "session.clear",
-            serde_json::json!({ "session_id": key }),
+            request_id.id("thread-clear"),
+            request_id.trace_id("thread-clear"),
+            "thread.clear",
+            serde_json::json!({ "threadId": thread_id }),
         ),
-        "worker session clear",
+        "worker thread clear",
     )?;
-    add_session_key_fields(&mut result)?;
+    add_session_key_fields(&mut result, &key)?;
+    for (camel, snake) in [
+        ("messagesBefore", "messages_before"),
+        ("messagesAfter", "messages_after"),
+        ("checkpointCleared", "checkpoint_cleared"),
+    ] {
+        if let Some(value) = result.get(camel).cloned() {
+            result[snake] = value;
+        }
+    }
     Ok(result)
 }
 
 pub(crate) fn worker_session_task_progress_with_options(
-    _shared: &SharedGateway,
+    shared: &SharedGateway,
     key: String,
     body: serde_json::Value,
-    workspace_root: PathBuf,
+    _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
+    let turn_id = body
+        .get("turnId")
+        .or_else(|| body.get("turn_id"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|turn_id| !turn_id.trim().is_empty())
+        .ok_or_else(|| "worker session task progress requires turnId".to_string())?;
     let plan_id = body
         .get("planId")
         .or_else(|| body.get("plan_id"))
@@ -950,88 +761,142 @@ pub(crate) fn worker_session_task_progress_with_options(
         .or_else(|| body.get("message"))
         .and_then(serde_json::Value::as_str)
         .unwrap_or("Task progress updated.");
+    let thread_id = resolve_thread_id(&thread_store, &key, config_snapshot.clone())?;
     let request_id = next_worker_request_correlation();
-    let session = call_rust_state_service(
-        workspace_root,
+    let thread = call_rust_state_service(
+        &thread_store,
         config_snapshot,
         WorkerRequest::new(
-            request_id.id("session-task-progress"),
-            request_id.trace_id("session-task-progress"),
-            "session.task_progress.upsert",
+            request_id.id("thread-task-progress"),
+            request_id.trace_id("thread-task-progress"),
+            "thread.task_progress.upsert",
             serde_json::json!({
-                "session_id": key,
-                "plan_id": plan_id,
-                "progress": progress,
+                "threadId": thread_id,
+                "turnId": turn_id,
+                "planId": plan_id,
+                "progress": progress.clone(),
                 "content": content,
             }),
         ),
-        "worker session task progress",
+        "worker thread task progress",
     )?;
-    webui_session_item(&session)
+    let mut item = webui_thread_item(&thread)?;
+    let extra = item
+        .get_mut("extra")
+        .and_then(serde_json::Value::as_object_mut)
+        .ok_or_else(|| "worker thread task progress failed: missing extra object".to_string())?;
+    extra.insert(
+        "messages".to_string(),
+        serde_json::json!([{
+            "role": "progress",
+            "content": content,
+            "turnId": turn_id,
+            "_progress": true,
+            "_task_plan_id": plan_id,
+            "_task_progress": progress,
+        }]),
+    );
+    Ok(item)
 }
 
-fn webui_session_item(session: &serde_json::Value) -> Result<serde_json::Value, String> {
-    let mut item = session
+fn webui_thread_item(thread: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let mut item = thread
         .as_object()
         .cloned()
-        .ok_or_else(|| "worker sessions list failed: session item was not an object".to_string())?;
-    let session_id = item
-        .get("session_id")
+        .ok_or_else(|| "worker threads list failed: thread item was not an object".to_string())?;
+    let thread_id = item
+        .get("threadId")
         .and_then(serde_json::Value::as_str)
         .unwrap_or_default()
         .to_string();
+    let session_key = item
+        .get("sessionKey")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(&thread_id)
+        .to_string();
+    item.insert(
+        "session_id".to_string(),
+        serde_json::Value::String(session_key.clone()),
+    );
     item.insert(
         "key".to_string(),
-        serde_json::Value::String(session_id.clone()),
+        serde_json::Value::String(session_key.clone()),
     );
     item.insert(
         "chat_id".to_string(),
-        serde_json::Value::String(session_chat_id_from_key(&session_id)),
+        serde_json::Value::String(session_chat_id_from_key(&session_key)),
     );
-    if let Some(metadata) = item
-        .get("extra")
-        .and_then(|extra| extra.get("metadata"))
-        .cloned()
-    {
-        if let Some(title) = metadata.get("title").and_then(serde_json::Value::as_str) {
-            item.insert(
-                "title".to_string(),
-                serde_json::Value::String(title.to_string()),
-            );
-        }
-        item.insert("metadata".to_string(), metadata);
+    if let Some(created_at) = item.get("createdAt").cloned() {
+        item.insert("created_at".to_string(), created_at);
+    }
+    if let Some(updated_at) = item.get("updatedAt").cloned() {
+        item.insert("updated_at".to_string(), updated_at);
+    }
+    if let Some(metadata) = item.get("metadata").cloned() {
+        item.insert(
+            "extra".to_string(),
+            serde_json::json!({
+                "threadId": thread_id,
+                "metadata": metadata.get("extra").cloned().unwrap_or_else(|| serde_json::json!({})),
+            }),
+        );
     }
     Ok(serde_json::Value::Object(item))
 }
 
-fn enrich_session_history_metadata(
+fn enrich_thread_history_metadata(
+    thread_store: &WorkspaceThreadStore,
     object: &mut serde_json::Map<String, serde_json::Value>,
-    session_id: &str,
-    workspace_root: PathBuf,
+    thread_id: &str,
     config_snapshot: serde_json::Value,
-) {
+) -> Result<(), String> {
     let request_id = next_worker_request_correlation();
-    let Ok(metadata) = call_rust_state_service(
-        workspace_root,
+    let snapshot = call_rust_state_service(
+        thread_store,
         config_snapshot,
         WorkerRequest::new(
-            request_id.id("session-history-metadata"),
-            request_id.trace_id("session-history-metadata"),
-            "session.get_metadata",
-            serde_json::json!({ "session_id": session_id }),
+            request_id.id("thread-history-metadata"),
+            request_id.trace_id("thread-history-metadata"),
+            "thread.read",
+            serde_json::json!({ "threadId": thread_id, "limit": 1 }),
         ),
-        "worker session history metadata",
-    ) else {
-        return;
-    };
-    if let Some(branch) = metadata
-        .get("extra")
-        .and_then(|extra| extra.get("metadata"))
-        .and_then(|metadata| metadata.get("branch"))
+        "worker thread history metadata",
+    )?;
+    if let Some(branch) = snapshot
+        .get("thread")
+        .and_then(|thread| thread.get("metadata"))
+        .and_then(|metadata| metadata.get("extra"))
+        .and_then(|extra| extra.get("branch"))
         .cloned()
     {
         object.insert("branch".to_string(), branch);
     }
+    Ok(())
+}
+
+fn thread_metadata_patch(metadata: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let source = metadata
+        .as_object()
+        .ok_or_else(|| "worker thread metadata patch must be an object".to_string())?;
+    let mut patch = serde_json::Map::new();
+    for key in [
+        "title",
+        "summary",
+        "preview",
+        "tags",
+        "model",
+        "workingDirectory",
+        "lastUserMessageAt",
+        "lastAssistantMessageAt",
+        "lastActivityAt",
+        "hasActiveTurn",
+    ] {
+        if let Some(value) = source.get(key) {
+            patch.insert(key.to_string(), value.clone());
+        }
+    }
+    patch.insert("extra".to_string(), metadata.clone());
+    Ok(serde_json::Value::Object(patch))
 }
 
 fn branch_session_key(body: &serde_json::Value, fallback_suffix: &str) -> String {
@@ -1069,22 +934,47 @@ fn branch_string(value: &serde_json::Value, key: &str) -> Option<String> {
         .map(ToString::to_string)
 }
 
-fn add_session_key_fields(value: &mut serde_json::Value) -> Result<(), String> {
+fn resolve_thread_id(
+    thread_store: &WorkspaceThreadStore,
+    session_key: &str,
+    config_snapshot: serde_json::Value,
+) -> Result<String, String> {
+    let request_id = next_worker_request_correlation();
+    let result = call_rust_state_service(
+        thread_store,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("thread-resolve-session-key"),
+            request_id.trace_id("thread-resolve-session-key"),
+            "thread.resolve",
+            serde_json::json!({ "identity": session_key }),
+        ),
+        "worker thread resolve session key",
+    )?;
+    result
+        .get("threadId")
+        .and_then(serde_json::Value::as_str)
+        .map(ToString::to_string)
+        .ok_or_else(|| {
+            "worker thread resolve failed: response did not contain threadId".to_string()
+        })
+}
+
+fn add_session_key_fields(value: &mut serde_json::Value, session_key: &str) -> Result<(), String> {
     let object = value
         .as_object_mut()
         .ok_or_else(|| "worker session operation failed: response was not an object".to_string())?;
-    let session_id = object
-        .get("session_id")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default()
-        .to_string();
+    object.insert(
+        "session_id".to_string(),
+        serde_json::Value::String(session_key.to_string()),
+    );
     object.insert(
         "key".to_string(),
-        serde_json::Value::String(session_id.clone()),
+        serde_json::Value::String(session_key.to_string()),
     );
     object.insert(
         "chat_id".to_string(),
-        serde_json::Value::String(session_chat_id_from_key(&session_id)),
+        serde_json::Value::String(session_chat_id_from_key(session_key)),
     );
     Ok(())
 }
