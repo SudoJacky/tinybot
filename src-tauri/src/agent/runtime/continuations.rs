@@ -1,5 +1,5 @@
 use super::events::{event, runtime_event_item_id, runtime_event_timestamp};
-use super::result::{append_runtime_events_to_sink, cancelled_result};
+use super::result::cancelled_result;
 use super::state::AgentTurnState;
 use super::tool_projection::{
     append_continuation_tool_error_observation, append_continuation_tool_observation,
@@ -7,6 +7,7 @@ use super::tool_projection::{
     prepare_continuation_tool_observation, tool_observation_content,
 };
 use super::tool_runtime::{dispatch_owned_tool_call, OwnedToolCallResult};
+use super::trace_commit::TraceCommitter;
 use super::usage::{enrich_usage_with_context_window, estimate_context_tokens_for_request};
 use super::{
     string_field, AgentTurnContext, NativeAgentEvent, NativeAgentProviderFailureKind,
@@ -200,7 +201,6 @@ pub(super) async fn maybe_approval_resume_result(
         ),
     ];
     let runtime_events = continuation_runtime_events(services, context, &events)?;
-    append_runtime_events_to_sink(context, services.trace_sink.as_ref(), &runtime_events);
     Ok(Some(ApprovalContinuationOutcome::Finished(
         serde_json::json!({
             "runtime": "rust",
@@ -319,12 +319,12 @@ fn continuation_runtime_events(
     context: &AgentTurnContext,
     events: &[NativeAgentEvent],
 ) -> Result<Vec<AgentRuntimeEventEnvelope>, String> {
-    let existing = services
-        .trace_sink
-        .as_ref()
-        .map(|sink| sink.load_runtime_events(&context.session_id, &context.turn_id))
-        .transpose()?
-        .unwrap_or_default();
+    let (mut committer, existing) = TraceCommitter::resume(
+        &context.session_id,
+        &context.turn_id,
+        services.trace_sink.clone(),
+    )
+    .map_err(|error| error.to_string())?;
     let mut appender = if existing.is_empty() {
         AgentRuntimeEventAppender::new_with_trace_context(
             &context.session_id,
@@ -338,7 +338,7 @@ fn continuation_runtime_events(
             &existing,
         )
     };
-    Ok(events
+    let events = events
         .iter()
         .map(|event| {
             appender.append_legacy_native_event(
@@ -348,7 +348,11 @@ fn continuation_runtime_events(
                 event.payload.clone(),
             )
         })
-        .collect())
+        .collect::<Vec<_>>();
+    committer
+        .commit_batch(&events)
+        .map_err(|error| error.to_string())?;
+    Ok(events)
 }
 
 fn approved_tool_cleanup_timeout_result(
@@ -595,7 +599,6 @@ async fn approval_denied_guidance_result(
         }
     };
     let runtime_events = continuation_runtime_events(services, context, &events)?;
-    append_runtime_events_to_sink(context, services.trace_sink.as_ref(), &runtime_events);
     result["runtimeEvents"] = serde_json::to_value(runtime_events)
         .map_err(|error| format!("failed to serialize denied approval runtime events: {error}"))?;
     Ok(result)
@@ -679,14 +682,18 @@ pub(super) struct ApprovalResume {
 }
 
 impl ApprovalResume {
-    pub(super) fn apply(self, context: &AgentTurnContext, state: &mut AgentTurnState) -> i64 {
+    pub(super) fn apply(
+        self,
+        context: &AgentTurnContext,
+        state: &mut AgentTurnState,
+    ) -> Result<i64, String> {
         state
             .completed_tool_results
             .extend(self.restored_completed_results);
         state.tools_used.push(self.tool_call.name.clone());
         state.completed_tool_results.push(self.completed_result);
         state.clear_pending_tool_calls();
-        state.emit_native_event(approval_decision_event(context, &self.continuation));
+        state.emit_native_event(approval_decision_event(context, &self.continuation))?;
         state.emit_event(
             "agent.tool.result",
             serde_json::json!({
@@ -707,8 +714,8 @@ impl ApprovalResume {
                 "content": self.observation_content,
                 "envelope": self.envelope,
             }),
-        );
-        self.iteration.saturating_add(1)
+        )?;
+        Ok(self.iteration.saturating_add(1))
     }
 }
 

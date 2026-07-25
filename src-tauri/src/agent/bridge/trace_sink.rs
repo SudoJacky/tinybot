@@ -119,10 +119,12 @@ impl NativeAgentTraceSink for AgentTurnSemanticSink {
             "native agent semantic batch append",
         );
         metrics.record_duration("persistence.batch.durationMs", started_at.elapsed());
-        metrics.increment_by(
-            "persistence.events.written",
-            events.as_array().map_or(0, Vec::len) as u64,
-        );
+        let event_count = events.as_array().map_or(0, Vec::len) as u64;
+        if result.is_ok() {
+            metrics.increment_by("persistence.events.written", event_count);
+        } else {
+            metrics.increment_by("persistence.events.failed", event_count);
+        }
         metrics.increment(if result.is_ok() {
             "persistence.batch.completed"
         } else {
@@ -143,25 +145,65 @@ enum TracePersistenceCommand {
         event: AgentRuntimeEventEnvelope,
     },
     Flush(mpsc::SyncSender<Result<(), String>>),
-    Shutdown,
+    Shutdown(mpsc::SyncSender<Result<(), String>>),
 }
 
 struct TracePersistenceWorker {
     sender: mpsc::SyncSender<TracePersistenceCommand>,
     queued_events: Arc<AtomicUsize>,
+    queue_high_watermark: Arc<AtomicUsize>,
+    terminal_error: Arc<Mutex<Option<String>>>,
     join_handle: Mutex<Option<JoinHandle<()>>>,
+}
+
+impl TracePersistenceWorker {
+    fn terminal_result(&self) -> Result<(), String> {
+        self.terminal_error
+            .lock()
+            .expect("trace persistence terminal error lock should not be poisoned")
+            .clone()
+            .map_or(Ok(()), Err)
+    }
+
+    fn shutdown(&self) -> Result<(), String> {
+        let mut join_handle = self
+            .join_handle
+            .lock()
+            .expect("trace persistence worker lock should not be poisoned");
+        let Some(worker_thread) = join_handle.take() else {
+            return self.terminal_result();
+        };
+        let (reply_sender, reply_receiver) = mpsc::sync_channel(0);
+        let worker_result = self
+            .sender
+            .send(TracePersistenceCommand::Shutdown(reply_sender))
+            .map_err(|_| "trace persistence worker stopped before shutdown".to_string())
+            .and_then(|_| {
+                reply_receiver
+                    .recv()
+                    .map_err(|_| "trace persistence worker stopped during shutdown".to_string())?
+            });
+        let join_result = worker_thread
+            .join()
+            .map_err(|_| "trace persistence worker panicked during shutdown".to_string());
+        worker_result.and(join_result)
+    }
 }
 
 impl Drop for TracePersistenceWorker {
     fn drop(&mut self) {
-        let _ = self.sender.send(TracePersistenceCommand::Shutdown);
-        if let Some(join_handle) = self
+        if self
             .join_handle
             .lock()
             .expect("trace persistence worker lock should not be poisoned")
-            .take()
+            .is_none()
         {
-            let _ = join_handle.join();
+            return;
+        }
+        if let Err(error) = self.shutdown() {
+            crate::runtime::observability::global_agent_runtime_metrics()
+                .increment("persistence.worker.shutdown.failed");
+            eprintln!("trace persistence worker shutdown failed: {error}");
         }
     }
 }
@@ -194,20 +236,34 @@ impl BufferedNativeAgentTraceSink {
     ) -> Self {
         let (sender, receiver) = mpsc::sync_channel(TRACE_PERSISTENCE_QUEUE_CAPACITY);
         let queued_events = Arc::new(AtomicUsize::new(0));
+        let queue_high_watermark = Arc::new(AtomicUsize::new(0));
+        let terminal_error = Arc::new(Mutex::new(None));
         let worker_queued_events = Arc::clone(&queued_events);
+        let worker_terminal_error = Arc::clone(&terminal_error);
         let worker_durable_sink = Arc::clone(&durable_sink);
         let join_handle = std::thread::Builder::new()
             .name("tinybot-trace-persistence".to_string())
             .spawn(move || {
-                run_trace_persistence_worker(worker_durable_sink, receiver, worker_queued_events)
+                run_trace_persistence_worker(
+                    worker_durable_sink,
+                    receiver,
+                    worker_queued_events,
+                    worker_terminal_error,
+                )
             })
             .expect("trace persistence worker should start");
+        crate::runtime::observability::global_agent_runtime_metrics().set_gauge(
+            "persistence.queue.capacity",
+            TRACE_PERSISTENCE_QUEUE_CAPACITY as i64,
+        );
         Self {
             durable_sink,
             live_sink,
             worker: Arc::new(TracePersistenceWorker {
                 sender,
                 queued_events,
+                queue_high_watermark,
+                terminal_error,
                 join_handle: Mutex::new(Some(join_handle)),
             }),
         }
@@ -219,19 +275,34 @@ impl BufferedNativeAgentTraceSink {
         turn_id: &str,
         event: &AgentRuntimeEventEnvelope,
     ) -> Result<(), String> {
-        self.worker.queued_events.fetch_add(1, Ordering::Relaxed);
-        update_persistence_queue_gauge(&self.worker.queued_events);
+        self.worker.terminal_result()?;
+        let depth = self.worker.queued_events.fetch_add(1, Ordering::Relaxed) + 1;
+        update_persistence_queue_gauges(
+            &self.worker.queued_events,
+            &self.worker.queue_high_watermark,
+            depth,
+        );
         let command = TracePersistenceCommand::Append {
             session_id: session_id.to_string(),
             turn_id: turn_id.to_string(),
             event: event.clone(),
         };
+        let enqueue_started_at = Instant::now();
         if self.worker.sender.send(command).is_err() {
             self.worker.queued_events.fetch_sub(1, Ordering::Relaxed);
             update_persistence_queue_gauge(&self.worker.queued_events);
             return Err("trace persistence worker stopped before accepting event".to_string());
         }
+        crate::runtime::observability::global_agent_runtime_metrics().record_duration(
+            "persistence.queue.backpressure.durationMs",
+            enqueue_started_at.elapsed(),
+        );
         Ok(())
+    }
+
+    #[cfg(test)]
+    fn shutdown(&self) -> Result<(), String> {
+        self.worker.shutdown()
     }
 }
 
@@ -251,6 +322,7 @@ impl NativeAgentTraceSink for BufferedNativeAgentTraceSink {
         turn_id: &str,
         event: &AgentRuntimeEventEnvelope,
     ) -> Result<(), String> {
+        self.worker.terminal_result()?;
         let live_result = self
             .live_sink
             .append_trace_event(session_id, turn_id, event);
@@ -278,6 +350,7 @@ impl NativeAgentTraceSink for BufferedNativeAgentTraceSink {
     }
 
     fn flush(&self) -> Result<(), String> {
+        self.worker.terminal_result()?;
         let (reply_sender, reply_receiver) = mpsc::sync_channel(0);
         self.worker
             .sender
@@ -293,12 +366,12 @@ fn run_trace_persistence_worker(
     durable_sink: Arc<dyn NativeAgentTraceSink>,
     receiver: mpsc::Receiver<TracePersistenceCommand>,
     queued_events: Arc<AtomicUsize>,
+    terminal_error: Arc<Mutex<Option<String>>>,
 ) {
     let mut pending_session_id = String::new();
     let mut pending_turn_id = String::new();
     let mut pending_events = Vec::new();
     let mut pending_started_at = None;
-    let mut first_error = None;
     loop {
         let command = if pending_events.is_empty() {
             match receiver.recv() {
@@ -319,7 +392,7 @@ fn run_trace_persistence_worker(
                     &mut pending_events,
                     &mut pending_started_at,
                     &queued_events,
-                    &mut first_error,
+                    &terminal_error,
                 );
                 continue;
             }
@@ -333,11 +406,22 @@ fn run_trace_persistence_worker(
                         &mut pending_events,
                         &mut pending_started_at,
                         &queued_events,
-                        &mut first_error,
+                        &terminal_error,
                     );
                     continue;
                 }
-                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    persist_pending_trace_events(
+                        durable_sink.as_ref(),
+                        &pending_session_id,
+                        &pending_turn_id,
+                        &mut pending_events,
+                        &mut pending_started_at,
+                        &queued_events,
+                        &terminal_error,
+                    );
+                    break;
+                }
             }
         };
         match command {
@@ -346,6 +430,10 @@ fn run_trace_persistence_worker(
                 turn_id,
                 event,
             } => {
+                if trace_persistence_terminal_error(&terminal_error).is_some() {
+                    reject_queued_trace_events(&queued_events, 1);
+                    continue;
+                }
                 if !pending_events.is_empty()
                     && (pending_session_id != session_id || pending_turn_id != turn_id)
                 {
@@ -356,8 +444,12 @@ fn run_trace_persistence_worker(
                         &mut pending_events,
                         &mut pending_started_at,
                         &queued_events,
-                        &mut first_error,
+                        &terminal_error,
                     );
+                }
+                if trace_persistence_terminal_error(&terminal_error).is_some() {
+                    reject_queued_trace_events(&queued_events, 1);
+                    continue;
                 }
                 if pending_events.is_empty() {
                     pending_session_id = session_id;
@@ -373,7 +465,7 @@ fn run_trace_persistence_worker(
                         &mut pending_events,
                         &mut pending_started_at,
                         &queued_events,
-                        &mut first_error,
+                        &terminal_error,
                     );
                 }
             }
@@ -385,11 +477,15 @@ fn run_trace_persistence_worker(
                     &mut pending_events,
                     &mut pending_started_at,
                     &queued_events,
-                    &mut first_error,
+                    &terminal_error,
                 );
-                let _ = reply.send(first_error.clone().map_or(Ok(()), Err));
+                send_trace_worker_reply(
+                    reply,
+                    trace_persistence_terminal_result(&terminal_error),
+                    "flush",
+                );
             }
-            TracePersistenceCommand::Shutdown => {
+            TracePersistenceCommand::Shutdown(reply) => {
                 persist_pending_trace_events(
                     durable_sink.as_ref(),
                     &pending_session_id,
@@ -397,7 +493,12 @@ fn run_trace_persistence_worker(
                     &mut pending_events,
                     &mut pending_started_at,
                     &queued_events,
-                    &mut first_error,
+                    &terminal_error,
+                );
+                send_trace_worker_reply(
+                    reply,
+                    trace_persistence_terminal_result(&terminal_error),
+                    "shutdown",
                 );
                 break;
             }
@@ -425,7 +526,7 @@ fn persist_pending_trace_events(
     pending_events: &mut Vec<AgentRuntimeEventEnvelope>,
     pending_started_at: &mut Option<Instant>,
     queued_events: &AtomicUsize,
-    first_error: &mut Option<String>,
+    terminal_error: &Mutex<Option<String>>,
 ) {
     if pending_events.is_empty() {
         return;
@@ -433,11 +534,84 @@ fn persist_pending_trace_events(
     let count = pending_events.len();
     let events = std::mem::take(pending_events);
     *pending_started_at = None;
-    if let Err(error) = durable_sink.append_trace_events(session_id, turn_id, &events) {
-        first_error.get_or_insert(error);
+    if trace_persistence_terminal_error(terminal_error).is_some() {
+        crate::runtime::observability::global_agent_runtime_metrics()
+            .increment_by("persistence.events.lost", count as u64);
+    } else if let Err(error) = durable_sink.append_trace_events(session_id, turn_id, &events) {
+        let first_event = events.first();
+        let last_event = events.last();
+        let mut terminal = terminal_error
+            .lock()
+            .expect("trace persistence terminal error lock should not be poisoned");
+        if terminal.is_none() {
+            eprintln!(
+                "trace persistence entered terminal failure: {}",
+                serde_json::json!({
+                    "sessionId": session_id,
+                    "turnId": turn_id,
+                    "batchSize": count,
+                    "firstEventId": first_event.map(|event| event.event_id.as_str()),
+                    "firstSequence": first_event.map(|event| event.sequence),
+                    "lastEventId": last_event.map(|event| event.event_id.as_str()),
+                    "lastSequence": last_event.map(|event| event.sequence),
+                    "queueDepth": queued_events.load(Ordering::Relaxed),
+                    "error": error,
+                })
+            );
+            crate::runtime::observability::global_agent_runtime_metrics()
+                .increment("persistence.worker.terminal_failure");
+            *terminal = Some(error);
+        }
+        crate::runtime::observability::global_agent_runtime_metrics()
+            .increment_by("persistence.events.lost", count as u64);
     }
     queued_events.fetch_sub(count, Ordering::Relaxed);
     update_persistence_queue_gauge(queued_events);
+}
+
+fn reject_queued_trace_events(queued_events: &AtomicUsize, count: usize) {
+    queued_events.fetch_sub(count, Ordering::Relaxed);
+    update_persistence_queue_gauge(queued_events);
+    crate::runtime::observability::global_agent_runtime_metrics()
+        .increment_by("persistence.events.rejected", count as u64);
+}
+
+fn trace_persistence_terminal_error(terminal_error: &Mutex<Option<String>>) -> Option<String> {
+    terminal_error
+        .lock()
+        .expect("trace persistence terminal error lock should not be poisoned")
+        .clone()
+}
+
+fn trace_persistence_terminal_result(terminal_error: &Mutex<Option<String>>) -> Result<(), String> {
+    trace_persistence_terminal_error(terminal_error).map_or(Ok(()), Err)
+}
+
+fn send_trace_worker_reply(
+    reply: mpsc::SyncSender<Result<(), String>>,
+    result: Result<(), String>,
+    operation: &str,
+) {
+    if reply.send(result).is_err() {
+        crate::runtime::observability::global_agent_runtime_metrics()
+            .increment("persistence.worker.reply.failed");
+        eprintln!("trace persistence worker {operation} reply receiver was dropped");
+    }
+}
+
+fn update_persistence_queue_gauges(
+    queued_events: &AtomicUsize,
+    high_watermark: &AtomicUsize,
+    depth: usize,
+) {
+    high_watermark.fetch_max(depth, Ordering::Relaxed);
+    update_persistence_queue_gauge(queued_events);
+    crate::runtime::observability::global_agent_runtime_metrics().set_gauge(
+        "persistence.queue.high_watermark",
+        high_watermark
+            .load(Ordering::Relaxed)
+            .min(i64::MAX as usize) as i64,
+    );
 }
 
 fn update_persistence_queue_gauge(queued_events: &AtomicUsize) {

@@ -34,7 +34,11 @@ pub(super) struct UserInputResume {
 }
 
 impl UserInputResume {
-    pub(super) fn apply(self, context: &AgentTurnContext, state: &mut AgentTurnState) -> i64 {
+    pub(super) fn apply(
+        self,
+        context: &AgentTurnContext,
+        state: &mut AgentTurnState,
+    ) -> Result<i64, String> {
         state.tools_used.push(self.tool_call.name.clone());
         state.completed_tool_results.push(self.completed_result);
         state.emit_event(
@@ -49,7 +53,7 @@ impl UserInputResume {
                 "action": "submit",
                 "values": self.values,
             }),
-        );
+        )?;
         state.emit_event(
             "agent.tool.result",
             serde_json::json!({
@@ -70,8 +74,8 @@ impl UserInputResume {
                 "content": self.observation_content,
                 "envelope": self.envelope,
             }),
-        );
-        self.iteration.saturating_add(1)
+        )?;
+        Ok(self.iteration.saturating_add(1))
     }
 }
 
@@ -100,7 +104,7 @@ pub(super) fn awaiting_user_input_result(
         AgentRuntimePhase::AwaitingForm,
         iteration,
         "agent.awaiting_form",
-    );
+    )?;
     let checkpoint = save_phase_checkpoint(
         services,
         context,
@@ -124,7 +128,7 @@ pub(super) fn awaiting_user_input_result(
             "phase": "awaiting_form",
             "checkpoint": checkpoint.clone(),
         }),
-    );
+    )?;
     state.emit_event(
         "agent.awaiting_form",
         serde_json::json!({
@@ -139,8 +143,8 @@ pub(super) fn awaiting_user_input_result(
             "summary": form["title"],
             "form": form,
         }),
-    );
-    state.set_stop_reason("awaiting_form", iteration, "agent.done");
+    )?;
+    state.set_stop_reason("awaiting_form", iteration, "agent.done")?;
     state.emit_event(
         "agent.done",
         serde_json::json!({
@@ -149,7 +153,7 @@ pub(super) fn awaiting_user_input_result(
             "iteration": iteration,
             "stopReason": "awaiting_form",
         }),
-    );
+    )?;
     let runtime_events = state.runtime_events();
     let events = state.legacy_events();
     Ok(serde_json::json!({
@@ -206,7 +210,7 @@ pub(super) fn prepare_user_input_continuation(
             .checkpoints
             .clear_for_turn(&context.session_id, &context.turn_id);
         return Ok(Some(UserInputContinuationOutcome::Finished(
-            cancelled_user_input_result(services, context, checkpoint, form_id, iteration),
+            cancelled_user_input_result(services, context, checkpoint, form_id, iteration)?,
         )));
     }
 
@@ -256,16 +260,15 @@ fn cancelled_user_input_result(
     checkpoint: Value,
     form_id: String,
     iteration: i64,
-) -> Value {
+) -> Result<Value, String> {
     let message = "User input request was cancelled.";
-    let mut state = AgentTurnState::new_for_continuation(context, services.trace_sink.clone())
-        .expect("form cancellation must restore persisted runtime events");
+    let mut state = AgentTurnState::new_for_continuation(context, services.trace_sink.clone())?;
     state.tools_used.push(REQUEST_USER_INPUT_METHOD.to_string());
     state.transition_phase(
         AgentRuntimePhase::AwaitingForm,
         iteration,
         "agent.form.resolution",
-    );
+    )?;
     state.emit_event(
         "agent.form.resolution",
         serde_json::json!({
@@ -277,8 +280,8 @@ fn cancelled_user_input_result(
             "status": "completed",
             "action": "cancel",
         }),
-    );
-    state.set_stop_reason("form_cancelled", iteration, "agent.error");
+    )?;
+    state.set_stop_reason("form_cancelled", iteration, "agent.error")?;
     state.emit_event(
         "agent.error",
         serde_json::json!({
@@ -289,10 +292,10 @@ fn cancelled_user_input_result(
             "message": message,
             "error": message,
         }),
-    );
+    )?;
     let runtime_events = state.runtime_events();
     let events = state.legacy_events();
-    serde_json::json!({
+    Ok(serde_json::json!({
         "runtime": "rust",
         "turnId": context.turn_id,
         "sessionId": context.session_id,
@@ -309,7 +312,7 @@ fn cancelled_user_input_result(
         },
         "events": events,
         "runtimeEvents": runtime_events,
-    })
+    }))
 }
 
 fn validate_user_input_checkpoint(checkpoint: &Value, form_id: &str) -> Result<(), String> {

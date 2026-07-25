@@ -38,6 +38,7 @@ mod tool_projection;
 mod tool_result;
 mod tool_router;
 mod tool_runtime;
+mod trace_commit;
 mod usage;
 mod user_input;
 

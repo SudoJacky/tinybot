@@ -1,10 +1,9 @@
 use super::checkpoint::save_phase_checkpoint;
 use super::events::{event, legacy_result_events_from_runtime_events, runtime_event_timestamp};
 use super::item_event_projection::attach_agent_item;
-use super::{AgentTurnContext, NativeAgentRuntimeServices, NativeAgentTraceSink};
+use super::{AgentTurnContext, NativeAgentRuntimeServices};
 use crate::agent::runtime_protocol::{AgentRuntimeEventEnvelope, AgentTurnEmitter};
 use serde_json::Value;
-use std::sync::Arc;
 
 pub(super) fn error_result(
     turn_id: &str,
@@ -122,92 +121,6 @@ pub(super) fn cancelled_turn_result(
         "events": events,
         "runtimeEvents": runtime_events,
     })
-}
-
-pub(super) fn append_runtime_events_to_sink(
-    context: &AgentTurnContext,
-    trace_sink: Option<&Arc<dyn NativeAgentTraceSink>>,
-    events: &[AgentRuntimeEventEnvelope],
-) {
-    if let Some(trace_sink) = trace_sink {
-        let existing = match trace_sink.load_runtime_events(&context.session_id, &context.turn_id) {
-            Ok(existing) => existing,
-            Err(error) => {
-                eprintln!(
-                    "canonical timeline history load failed for turn {}: {}",
-                    context.turn_id, error
-                );
-                Vec::new()
-            }
-        };
-        let mut projector =
-            match crate::agent::runtime_protocol::AgentTimelineProjector::from_events(
-                &context.session_id,
-                &context.turn_id,
-                &existing,
-            ) {
-                Ok(projector) => projector,
-                Err(error) => {
-                    eprintln!(
-                        "canonical timeline history projection failed for turn {}: {}",
-                        context.turn_id, error
-                    );
-                    return;
-                }
-            };
-        for event in events {
-            let _ = trace_sink.append_trace_event(&context.session_id, &context.turn_id, event);
-            match projector.apply_event(event) {
-                Ok(Some(patch)) => {
-                    if let crate::agent::runtime_protocol::AgentTurnItemData::AssistantMessage {
-                        model_call_id,
-                        phase,
-                        ..
-                    } = &patch.item.data
-                    {
-                        if *phase
-                            != crate::agent::runtime_protocol::AgentAssistantMessagePhase::Unknown
-                        {
-                            let classification_source = event
-                                .payload
-                                .get("classificationSource")
-                                .and_then(Value::as_str)
-                                .unwrap_or_else(|| {
-                                    if event.event_name == "agent.message.phase" {
-                                        "provider"
-                                    } else {
-                                        "runtime_projection"
-                                    }
-                                });
-                            eprintln!(
-                                "agent assistant phase classified: {}",
-                                serde_json::json!({
-                                    "sessionId": context.session_id,
-                                    "turnId": context.turn_id,
-                                    "modelCallId": model_call_id,
-                                    "itemId": patch.item.item_id,
-                                    "phase": phase,
-                                    "source": classification_source,
-                                    "sequence": patch.item.sequence,
-                                    "revision": patch.item.revision,
-                                })
-                            );
-                        }
-                    }
-                    let _ = trace_sink.append_timeline_patch(
-                        &context.session_id,
-                        &context.turn_id,
-                        &patch,
-                    );
-                }
-                Ok(None) => {}
-                Err(error) => eprintln!(
-                    "canonical timeline patch projection failed for turn {} event {}: {}",
-                    context.turn_id, event.event_id, error
-                ),
-            }
-        }
-    }
 }
 
 pub(super) fn event_value(event_name: &str, payload: Value) -> Value {

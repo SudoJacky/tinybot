@@ -6,6 +6,7 @@ use super::events::{
 };
 use super::hooks::AgentHookEvaluation;
 use super::item_event_projection::attach_agent_item;
+use super::trace_commit::TraceCommitter;
 use super::usage::{
     enrich_usage_with_context_window, latest_cumulative_usage_tokens, usage_context_used_tokens,
 };
@@ -15,12 +16,11 @@ use super::{
 };
 use crate::agent::runtime_protocol::{
     AgentRuntimeEventAppendInput, AgentRuntimeEventEnvelope, AgentRuntimeEventSource,
-    AgentRuntimeEventVisibility, AgentRuntimePhase, AgentTimelineProjector, AgentTurnEmitter,
+    AgentRuntimeEventVisibility, AgentRuntimePhase, AgentTurnEmitter,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
-use std::time::Instant;
 
 #[derive(Clone)]
 pub(super) struct AgentTurnState {
@@ -33,14 +33,13 @@ pub(super) struct AgentTurnState {
     pub(super) completed_tool_results: Vec<Value>,
     pub(super) history: ContextManager,
     emitter: AgentTurnEmitter,
-    timeline_projector: AgentTimelineProjector,
+    trace_committer: TraceCommitter,
     usage: Vec<Value>,
     pub(super) tools_used: Vec<String>,
     stop_reason: Option<String>,
     context_checkpoint: Option<Value>,
     source_context_checkpoint: Option<Value>,
     pending_guidance_message: Option<Value>,
-    trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 }
 
 impl AgentTurnState {
@@ -61,7 +60,7 @@ impl AgentTurnState {
                 &context.session_id,
                 context.trace_context.clone(),
             ),
-            timeline_projector: AgentTimelineProjector::new(&context.session_id, &context.turn_id),
+            trace_committer: TraceCommitter::new(&context.session_id, &context.turn_id, trace_sink),
             usage: Vec::new(),
             tools_used: Vec::new(),
             stop_reason: None,
@@ -78,64 +77,24 @@ impl AgentTurnState {
                         .map(|context_id| serde_json::json!({ "contextId": context_id }))
                 }),
             pending_guidance_message: guidance_continuation_message(&context.metadata),
-            trace_sink,
         })
     }
 
-    fn append_trace_event(&mut self, event: &AgentRuntimeEventEnvelope) {
-        if let Some(trace_sink) = self.trace_sink.as_ref() {
-            if let Err(error) =
-                trace_sink.append_trace_event(&self.session_id, &self.turn_id, event)
-            {
-                crate::runtime::observability::global_agent_runtime_metrics()
-                    .increment("trace.sink.failed");
-                eprintln!(
-                    "native agent trace sink failed for turn {} event {}: {}",
-                    self.turn_id, event.event_id, error
-                );
-            }
-            let projection_started_at = Instant::now();
-            let projection = self.timeline_projector.apply_event(event);
-            crate::runtime::observability::global_agent_runtime_metrics().record_duration(
-                "timeline.patch.projection.durationMs",
-                projection_started_at.elapsed(),
-            );
-            match projection {
-                Ok(Some(patch)) => {
-                    if let Err(error) =
-                        trace_sink.append_timeline_patch(&self.session_id, &self.turn_id, &patch)
-                    {
-                        crate::runtime::observability::global_agent_runtime_metrics()
-                            .increment("timeline.patch.sink.failed");
-                        eprintln!(
-                            "canonical timeline patch sink failed for turn {} item {} revision {}: {}",
-                            self.turn_id, patch.item.item_id, patch.item.revision, error
-                        );
-                    }
-                }
-                Ok(None) => {}
-                Err(error) => {
-                    crate::runtime::observability::global_agent_runtime_metrics()
-                        .increment("timeline.patch.projection.failed");
-                    eprintln!(
-                        "canonical timeline patch projection failed for turn {} event {}: {}",
-                        self.turn_id, event.event_id, error
-                    );
-                }
-            }
-        }
+    fn append_trace_event(&mut self, event: &AgentRuntimeEventEnvelope) -> Result<(), String> {
+        self.trace_committer
+            .commit(event)
+            .map_err(|error| error.to_string())
     }
 
     pub(super) fn new_for_continuation(
         context: &AgentTurnContext,
         trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
     ) -> Result<Self, String> {
-        let existing = trace_sink
-            .as_ref()
-            .map(|sink| sink.load_runtime_events(&context.session_id, &context.turn_id))
-            .transpose()?
-            .unwrap_or_default();
-        let mut state = Self::new(context, trace_sink)?;
+        let (trace_committer, existing) =
+            TraceCommitter::resume(&context.session_id, &context.turn_id, trace_sink)
+                .map_err(|error| error.to_string())?;
+        let mut state = Self::new(context, None)?;
+        state.trace_committer = trace_committer;
         if !existing.is_empty() {
             state.emitter = AgentTurnEmitter::from_existing_events_with_thread_id(
                 &context.session_id,
@@ -143,11 +102,6 @@ impl AgentTurnState {
                 context.thread_id.clone(),
                 &existing,
             );
-            state.timeline_projector = AgentTimelineProjector::from_events(
-                &context.session_id,
-                &context.turn_id,
-                &existing,
-            )?;
         }
         Ok(state)
     }
@@ -157,12 +111,12 @@ impl AgentTurnState {
         phase: AgentRuntimePhase,
         iteration: i64,
         trigger_event_name: &str,
-    ) {
+    ) -> Result<(), String> {
         let previous_phase = self.phase.clone();
         self.iteration = iteration;
         if previous_phase == phase {
             self.phase = phase;
-            return;
+            return Ok(());
         }
         self.phase = phase.clone();
         let event = self.emitter.emit(AgentRuntimeEventAppendInput {
@@ -182,13 +136,17 @@ impl AgentTurnState {
                 "triggerEventName": trigger_event_name,
             }),
         });
-        self.append_trace_event(&event);
-        self.emit_status_for_phase(iteration, trigger_event_name);
+        self.append_trace_event(&event)?;
+        self.emit_status_for_phase(iteration, trigger_event_name)
     }
 
-    fn emit_status_for_phase(&mut self, iteration: i64, trigger_event_name: &str) {
+    fn emit_status_for_phase(
+        &mut self,
+        iteration: i64,
+        trigger_event_name: &str,
+    ) -> Result<(), String> {
         let Some(label) = runtime_status_label(&self.phase) else {
-            return;
+            return Ok(());
         };
         let is_blocking = matches!(
             self.phase,
@@ -215,7 +173,7 @@ impl AgentTurnState {
                 "isBlocking": is_blocking,
             }),
         });
-        self.append_trace_event(&event);
+        self.append_trace_event(&event)
     }
 
     pub(super) fn set_stop_reason(
@@ -223,7 +181,7 @@ impl AgentTurnState {
         stop_reason: &str,
         iteration: i64,
         trigger_event_name: &str,
-    ) {
+    ) -> Result<(), String> {
         self.stop_reason = Some(stop_reason.to_string());
         let phase = match stop_reason {
             "final_response" => AgentRuntimePhase::Completed,
@@ -232,7 +190,7 @@ impl AgentTurnState {
             "awaiting_form" => AgentRuntimePhase::AwaitingForm,
             _ => AgentRuntimePhase::Failed,
         };
-        self.transition_phase(phase, iteration, trigger_event_name);
+        self.transition_phase(phase, iteration, trigger_event_name)
     }
 
     pub(super) fn active_checkpoint_payload(&self, status: &str) -> Value {
@@ -365,7 +323,7 @@ impl AgentTurnState {
         self.pending_tool_calls.clear();
     }
 
-    pub(super) fn emit_event(&mut self, event_name: &str, payload: Value) {
+    pub(super) fn emit_event(&mut self, event_name: &str, payload: Value) -> Result<(), String> {
         let payload = attach_agent_item(event_name, payload);
         let event = self.emitter.emit(AgentRuntimeEventAppendInput {
             parent_turn_id: None,
@@ -377,25 +335,25 @@ impl AgentTurnState {
             visibility: runtime_event_visibility(event_name),
             payload,
         });
-        self.append_trace_event(&event);
+        self.append_trace_event(&event)
     }
 
-    pub(super) fn emit_native_event(&mut self, event: NativeAgentEvent) {
-        self.emit_event(&event.event_name, event.payload);
+    pub(super) fn emit_native_event(&mut self, event: NativeAgentEvent) -> Result<(), String> {
+        self.emit_event(&event.event_name, event.payload)
     }
 
     pub(super) fn emit_hook_evaluation(
         &mut self,
         invocation: &AgentHookInvocation,
         evaluation: &AgentHookEvaluation,
-    ) {
+    ) -> Result<(), String> {
         if evaluation.decisions.is_empty() {
-            return;
+            return Ok(());
         }
-        self.emit_event("agent.hook.decision", evaluation.event_payload(invocation));
+        self.emit_event("agent.hook.decision", evaluation.event_payload(invocation))
     }
 
-    pub(super) fn emit_turn_started(&mut self, context: &AgentTurnContext) {
+    pub(super) fn emit_turn_started(&mut self, context: &AgentTurnContext) -> Result<(), String> {
         let current = current_user_message(&context.messages);
         let message_id = current
             .as_ref()
@@ -439,10 +397,11 @@ impl AgentTurnState {
             content,
             references,
         );
-        self.append_trace_event(&event);
+        self.append_trace_event(&event)?;
         for payload in reference_payloads {
-            self.emit_event("agent.file.reference", payload);
+            self.emit_event("agent.file.reference", payload)?;
         }
+        Ok(())
     }
 
     pub(super) fn emit_tinyos_command_acknowledgement(
@@ -476,8 +435,7 @@ impl AgentTurnState {
                 "target": command.get("target").cloned().unwrap_or(Value::Null),
             }),
         });
-        self.append_trace_event(&event);
-        Ok(())
+        self.append_trace_event(&event)
     }
 
     pub(super) fn runtime_events(&self) -> Vec<AgentRuntimeEventEnvelope> {
@@ -507,7 +465,7 @@ impl AgentTurnState {
         model_call_id: &str,
         usage: Value,
         estimated_context_tokens: i64,
-    ) {
+    ) -> Result<(), String> {
         let provider_usage = usage.clone();
         let cumulative_before = latest_cumulative_usage_tokens(&self.usage).unwrap_or_else(|| {
             self.usage
@@ -538,7 +496,7 @@ impl AgentTurnState {
                 "modelCallId": model_call_id,
                 "tokenUsage": provider_usage,
             }),
-        );
+        )?;
         self.emit_event(
             "agent.token_count",
             serde_json::json!({
@@ -549,7 +507,7 @@ impl AgentTurnState {
                 "modelCallId": model_call_id,
                 "info": token_info,
             }),
-        );
+        )?;
         self.emit_event(
             "agent.usage",
             serde_json::json!({
@@ -560,7 +518,7 @@ impl AgentTurnState {
                 "modelCallId": model_call_id,
                 "usage": usage,
             }),
-        );
+        )
     }
 }
 
