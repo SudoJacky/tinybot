@@ -20,6 +20,7 @@ export type NativeChatSession = {
   pinned?: boolean;
   archived?: boolean;
   status?: string;
+  workingDirectory?: string;
 };
 
 export type NativeChatMessage = {
@@ -142,6 +143,7 @@ export function normalizeSessionsPayload(payload: unknown): NativeChatSession[] 
     const key = isThreadList && threadId ? threadId : canonicalSessionKey(sourceKey, chatId) || chatId;
     const metadata = isRecord(item.metadata) ? item.metadata : {};
     const extra = isRecord(metadata.extra) ? metadata.extra : isRecord(item.extra) && isRecord(item.extra.metadata) ? item.extra.metadata : {};
+    const workingDirectory = stringValue(metadata.workingDirectory ?? metadata.working_directory);
     return {
       key,
       chatId,
@@ -150,6 +152,7 @@ export function normalizeSessionsPayload(payload: unknown): NativeChatSession[] 
       createdAt: stringValue(item.createdAt ?? item.created_at),
       updatedAt: stringValue(item.updatedAt ?? item.updated_at),
       ...(booleanValue(extra.pinned) ? { pinned: true } : {}),
+      ...(workingDirectory ? { workingDirectory } : {}),
       ...(stringValue(item.status) ? { status: stringValue(item.status) } : {}),
       ...(Boolean(item.archivedAt ?? item.archived_at) || stringValue(item.status) === "archived" ? { archived: true } : {}),
     };

@@ -242,6 +242,7 @@ pub(crate) fn run() {
             crate::desktop_commands::config::apply_config_patch_result,
             crate::desktop_commands::config::apply_config_operations,
             crate::desktop::files::pick_chat_files,
+            crate::desktop::files::pick_workspace_directory,
             crate::desktop::files::pick_upload_file,
             crate::desktop::files::reveal_workspace_file,
             crate::desktop::files::save_export_file,

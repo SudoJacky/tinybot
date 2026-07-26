@@ -508,30 +508,10 @@ fn instruction_working_directory(spec: &Value, workspace_root: &Path) -> Result<
         })
         .map(PathBuf::from)
         .unwrap_or_else(|| workspace_root.to_path_buf());
-    let working_directory = if candidate.is_absolute() {
-        candidate
-    } else {
-        workspace_root.join(candidate)
-    };
-    let metadata = fs::metadata(&working_directory).map_err(|error| {
-        format!(
-            "failed to inspect agent working directory `{}`: {error}",
-            working_directory.display()
-        )
-    })?;
-    if !metadata.is_dir() {
-        return Err(format!(
-            "agent working directory is not a directory: `{}`",
-            working_directory.display()
-        ));
-    }
-    fs::canonicalize(&working_directory).map_err(|error| {
-        format!(
-            "failed to resolve agent working directory `{}`: {error}",
-            working_directory.display()
-        )
-    })?;
-    Ok(working_directory)
+    crate::runtime::working_directory::resolve_existing_working_directory(
+        workspace_root,
+        &candidate,
+    )
 }
 
 fn project_instruction_paths(

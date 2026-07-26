@@ -39,6 +39,7 @@ export type SessionSummary = {
   pinned?: boolean;
   archived?: boolean;
   status?: "idle" | "running" | "waiting_approval" | "failed";
+  workingDirectory?: string;
 };
 
 export type ChatInput = DesktopChatInput;
@@ -60,7 +61,7 @@ export type ApprovalAction = "approveOnce" | "approveSession" | "deny";
 
 export type SessionStore = {
   list(): Promise<SessionSummary[]>;
-  create(input?: { title?: string }): Promise<SessionSummary>;
+  create(input?: { title?: string; workingDirectory?: string }): Promise<SessionSummary>;
   rename(id: string, title: string): Promise<void>;
   delete(id: string): Promise<void>;
   pin(id: string, pinned: boolean): Promise<void>;

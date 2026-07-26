@@ -430,6 +430,11 @@ export function createDesktopAppServices(): AppServices {
         const thread = await requireNative(nativeThreads, "Thread").create({
           title: input?.title || "New session",
           source: "desktop",
+          ...(input?.workingDirectory ? {
+            metadata: {
+              workingDirectory: input.workingDirectory,
+            },
+          } : {}),
         });
         await controller.loadSessions();
         const sessionId = thread.threadId;
@@ -718,6 +723,7 @@ function mapSession(session: NativeChatSession, responding: boolean, fallbackPay
     updatedAtMs: timestampMs(session.updatedAt) ?? timestampFromPayload(fallbackPayload) ?? Date.now(),
     ...(session.pinned ? { pinned: true } : {}),
     ...(session.archived ? { archived: true } : {}),
+    ...(session.workingDirectory ? { workingDirectory: session.workingDirectory } : {}),
     status: responding || threadStatus === "running" || threadStatus === "cancelling"
       ? "running"
       : threadStatus === "waiting_for_approval"

@@ -127,6 +127,25 @@ describe("native chat state", () => {
     ]);
   });
 
+  test("preserves canonical Thread working directories for workspace grouping", () => {
+    expect(
+      normalizeSessionsPayload({
+        threads: [
+          {
+            threadId: "thread-workspace",
+            title: "Workspace session",
+            metadata: {
+              workingDirectory: "D:\\Code\\py\\tinybot",
+            },
+          },
+        ],
+      })[0],
+    ).toMatchObject({
+      key: "thread-workspace",
+      workingDirectory: "D:\\Code\\py\\tinybot",
+    });
+  });
+
   test("canonicalizes legacy WebSocket session keys to the native backend key", () => {
     expect(
       normalizeSessionsPayload({

@@ -103,6 +103,23 @@ pub(crate) fn pick_chat_files(
 }
 
 #[tauri::command]
+pub(crate) fn pick_workspace_directory(
+    options: UploadFilePickerOptions,
+) -> Result<Option<String>, String> {
+    let mut dialog = rfd::FileDialog::new();
+    if let Some(title) = options.title {
+        dialog = dialog.set_title(&title);
+    }
+    let Some(path) = dialog.pick_folder() else {
+        return Ok(None);
+    };
+    path.into_os_string()
+        .into_string()
+        .map(Some)
+        .map_err(|_| "selected workspace directory path is not valid UTF-8".to_string())
+}
+
+#[tauri::command]
 pub(crate) fn reveal_workspace_file(path: String) -> Result<(), String> {
     let target_path = reveal_workspace_file_path(&path)?;
     reveal_file_in_folder(&target_path)

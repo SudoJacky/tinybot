@@ -541,6 +541,145 @@ fn worker_submit_thread_turn_uses_thread_id_as_rollout_id() {
 }
 
 #[test]
+fn thread_create_resolves_relative_working_directory_before_persistence() {
+    let fixture = WorkspaceFixture::new();
+    let working_directory = fixture.root.join("relative-thread-project");
+    std::fs::create_dir_all(&working_directory)
+        .expect("relative thread working directory should create");
+    let create_request = next_worker_request_correlation();
+
+    let created = call_rust_state_service(
+        &fixture.thread_store,
+        serde_json::json!({}),
+        WorkerRequest::new(
+            create_request.id("relative-thread-working-directory-create"),
+            create_request.trace_id("relative-thread-working-directory-create"),
+            "thread.create",
+            serde_json::json!({
+                "threadId": "thread-relative-working-directory",
+                "metadata": {
+                    "workingDirectory": "relative-thread-project"
+                }
+            }),
+        ),
+        "relative thread working directory create",
+    )
+    .expect("relative thread working directory should resolve");
+
+    assert_eq!(
+        created["metadata"]["workingDirectory"],
+        working_directory.display().to_string()
+    );
+    let read_request = next_worker_request_correlation();
+    let persisted = call_rust_state_service(
+        &fixture.thread_store,
+        serde_json::json!({}),
+        WorkerRequest::new(
+            read_request.id("relative-thread-working-directory-read"),
+            read_request.trace_id("relative-thread-working-directory-read"),
+            "thread.read",
+            serde_json::json!({
+                "threadId": "thread-relative-working-directory"
+            }),
+        ),
+        "relative thread working directory read",
+    )
+    .expect("resolved thread working directory should persist");
+    assert_eq!(
+        persisted["thread"]["metadata"]["workingDirectory"],
+        working_directory.display().to_string()
+    );
+}
+
+#[test]
+fn thread_working_directory_mutations_fail_before_persisting_invalid_paths() {
+    let fixture = WorkspaceFixture::new();
+    let valid_working_directory = fixture.root.join("valid-thread-project");
+    std::fs::create_dir_all(&valid_working_directory)
+        .expect("valid thread working directory should create");
+    let missing_working_directory = fixture.root.join("missing-thread-project");
+    let invalid_create_request = next_worker_request_correlation();
+
+    let create_error = call_rust_state_service(
+        &fixture.thread_store,
+        serde_json::json!({}),
+        WorkerRequest::new(
+            invalid_create_request.id("invalid-thread-working-directory-create"),
+            invalid_create_request.trace_id("invalid-thread-working-directory-create"),
+            "thread.create",
+            serde_json::json!({
+                "threadId": "thread-invalid-working-directory",
+                "metadata": {
+                    "workingDirectory": missing_working_directory
+                }
+            }),
+        ),
+        "invalid thread working directory create",
+    )
+    .expect_err("missing thread working directory must fail during create");
+    assert!(create_error.contains("failed to inspect working directory"));
+
+    let valid_create_request = next_worker_request_correlation();
+    call_rust_state_service(
+        &fixture.thread_store,
+        serde_json::json!({}),
+        WorkerRequest::new(
+            valid_create_request.id("valid-thread-working-directory-create"),
+            valid_create_request.trace_id("valid-thread-working-directory-create"),
+            "thread.create",
+            serde_json::json!({
+                "threadId": "thread-valid-working-directory",
+                "metadata": {
+                    "workingDirectory": valid_working_directory
+                }
+            }),
+        ),
+        "valid thread working directory create",
+    )
+    .expect("valid thread working directory should create");
+
+    let invalid_update_request = next_worker_request_correlation();
+    let update_error = call_rust_state_service(
+        &fixture.thread_store,
+        serde_json::json!({}),
+        WorkerRequest::new(
+            invalid_update_request.id("invalid-thread-working-directory-update"),
+            invalid_update_request.trace_id("invalid-thread-working-directory-update"),
+            "thread.update_metadata",
+            serde_json::json!({
+                "threadId": "thread-valid-working-directory",
+                "metadata": {
+                    "workingDirectory": missing_working_directory
+                }
+            }),
+        ),
+        "invalid thread working directory update",
+    )
+    .expect_err("missing thread working directory must fail during metadata update");
+    assert!(update_error.contains("failed to inspect working directory"));
+
+    let read_request = next_worker_request_correlation();
+    let persisted = call_rust_state_service(
+        &fixture.thread_store,
+        serde_json::json!({}),
+        WorkerRequest::new(
+            read_request.id("valid-thread-working-directory-read"),
+            read_request.trace_id("valid-thread-working-directory-read"),
+            "thread.read",
+            serde_json::json!({
+                "threadId": "thread-valid-working-directory"
+            }),
+        ),
+        "valid thread working directory read",
+    )
+    .expect("valid thread should remain readable after rejected update");
+    assert_eq!(
+        persisted["thread"]["metadata"]["workingDirectory"],
+        valid_working_directory.display().to_string()
+    );
+}
+
+#[test]
 fn worker_submit_thread_turn_does_not_require_a_session_key() {
     let fixture = WorkspaceFixture::new();
     let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(

@@ -7,7 +7,9 @@ import {
   ChevronRight,
   Circle,
   Copy,
+  Folder,
   FolderOpen,
+  FolderPlus,
   GitBranch,
   Loader2,
   Play,
@@ -45,12 +47,25 @@ import { formatRelativeUpdatedTime } from "../lib/relativeTime";
 import type { ApprovalAction, ChatEvent, ChatInput, ChatModelOption, ChatStore, SessionStore, SessionSummary, SettingsStore, WorkspaceStore } from "../services";
 import { createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
 import { pickDesktopChatFiles } from "../../app-core/native/desktopNativeFilePicker";
+import { pickDesktopWorkspaceDirectory } from "../../app-core/native/desktopNativeWorkspacePicker";
 import { reduceSessionDeleteState } from "../sessions/sessionDeleteState";
 import { canBranchFromMessage, canCopyMessage, type ContextReferenceSummary, type ReactChatMessage, type ToolCallSummary } from "./messageActions";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import { AgentUiFormCard } from "./AgentUiFormCard";
 import { AssistantMarkdown } from "./AssistantMarkdown";
 import { clampTinyOsWidth, LiveCanvas, type LiveCanvasEntry, type LiveCanvasMode } from "./LiveCanvas";
+import { SessionTabStrip, type SessionTabItem } from "./SessionTabStrip";
+import {
+  INITIAL_SESSION_TAB_WORKSPACE,
+  readPersistedSessionTabWorkspace,
+  reduceSessionTabWorkspace,
+  sessionTabDraft,
+  writePersistedSessionTabWorkspace,
+} from "./sessionTabWorkspace";
+import {
+  groupSessionsByWorkspace,
+  sessionWorkspaceName,
+} from "./sessionWorkspaces";
 import {
   applyLoadedDelegatedAgentTrace,
   projectLoadedArtifactDetail,
@@ -117,6 +132,11 @@ type DrawerState =
   | { kind: "artifact"; title: string; artifact: ArtifactRef; detail?: LoadedArtifactDetail; loading: boolean; error?: string }
   | { kind: "error"; title: string; step: ChatStep; turn: ChatTurn }
   | null;
+
+type ConversationViewState = {
+  scrollTop: number;
+  stickToLatest: boolean;
+};
 
 type LiveCanvasState = {
   mode: LiveCanvasMode;
@@ -200,6 +220,7 @@ const EMPTY_CHAT_PROMPTS = [
 const SESSION_DELETE_DISSOLVE_MS = 760;
 const SESSION_DELETE_PARTICLE_COUNT = 220;
 const TINYOS_WIDTH_STORAGE_KEY = "tinybot.ui.tinyos.width";
+const EMPTY_OPTIMISTIC_MESSAGES: ReactChatMessage[] = [];
 
 type SessionDeleteParticle = {
   id: number;
@@ -245,9 +266,14 @@ export function ChatPage({
   const tinyOsUiScope = useId();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
-  const [activeSessionId, setActiveSessionId] = useState("");
+  const [sessionTabs, dispatchSessionTabs] = useReducer(
+    reduceSessionTabWorkspace,
+    INITIAL_SESSION_TAB_WORKSPACE,
+  );
   const [timeline, setTimeline] = useState<ChatTimelineSnapshot | null>(null);
-  const [optimisticMessages, setOptimisticMessages] = useState<ReactChatMessage[]>([]);
+  const [optimisticMessagesBySession, setOptimisticMessagesBySession] = useState<Map<string, ReactChatMessage[]>>(
+    () => new Map(),
+  );
   const [timelineError, setTimelineError] = useState("");
   const [browserSnapshot, setBrowserSnapshot] = useState<TinyOsNativeSnapshot<TinyOsNativeBrowserSession>>();
   const [browserRuntimeError, setBrowserRuntimeError] = useState("");
@@ -258,6 +284,9 @@ export function ChatPage({
   const [defaultComposerModel, setDefaultComposerModel] = useState("");
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
+  const [sessionWorkspaceError, setSessionWorkspaceError] = useState("");
+  const [sessionCreatePending, setSessionCreatePending] = useState(false);
+  const [workspacePickerPending, setWorkspacePickerPending] = useState(false);
   const [localSessionSidebarCollapsed, setLocalSessionSidebarCollapsed] = useState(false);
   const [drawer, setDrawer] = useState<DrawerState>(null);
   const [liveCanvas, dispatchLiveCanvas] = useReducer(reduceLiveCanvasState, INITIAL_LIVE_CANVAS_STATE);
@@ -270,7 +299,6 @@ export function ChatPage({
   const [agentUiForms, setAgentUiForms] = useState<AgentUiForm[]>([]);
   const [queuedInputsBySession, setQueuedInputsBySession] = useState<Map<string, QueuedComposerInput[]>>(() => new Map());
   const [queueMessage, setQueueMessage] = useState("");
-  const [composerDraft, setComposerDraft] = useState("");
   const [tinyOsContextReferences, setTinyOsContextReferences] = useState<TinyOsContextReference[]>([]);
   const [tinyOsDropError, setTinyOsDropError] = useState("");
   const [recoveringTurnId, setRecoveringTurnId] = useState("");
@@ -286,10 +314,16 @@ export function ChatPage({
   const optimisticSessionTitlesRef = useRef<Map<string, string>>(new Map());
   const conversationRef = useRef<HTMLDivElement | null>(null);
   const conversationEndRef = useRef<HTMLDivElement | null>(null);
+  const conversationViewBySessionRef = useRef<Map<string, ConversationViewState>>(new Map());
+  const pendingConversationRestoreRef = useRef("");
+  const hasActivatedSessionRef = useRef(false);
   const liveCanvasHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const liveCanvasToggleRef = useRef<HTMLButtonElement | null>(null);
   const liveCanvasWasOpenRef = useRef(false);
   const stickToLatestRef = useRef(true);
+  const activeSessionId = sessionTabs.activeSessionId;
+  const composerDraft = sessionTabDraft(sessionTabs, activeSessionId);
+  const optimisticMessages = optimisticMessagesBySession.get(activeSessionId) ?? EMPTY_OPTIMISTIC_MESSAGES;
 
   useEffect(() => {
     const clampWidthToViewport = () => setTinyOsWidth((current) => clampTinyOsWidth(current));
@@ -299,13 +333,25 @@ export function ChatPage({
 
   const resolvedSessionSidebarCollapsed = sessionSidebarCollapsed ?? localSessionSidebarCollapsed;
   const activeSession = useMemo(
-    () => sessions.find((session) => session.id === activeSessionId) ?? sessions[0],
+    () => sessions.find((session) => session.id === activeSessionId),
     [activeSessionId, sessions],
   );
+  const openSessionTabs = useMemo<SessionTabItem[]>(() => (
+    sessionTabs.openSessionIds.flatMap((sessionId) => {
+      const session = sessions.find((candidate) => candidate.id === sessionId);
+      return session ? [{
+        id: session.id,
+        status: session.status,
+        title: displaySessionTitle(session.title),
+        unread: sessionTabs.unreadSessionIds.includes(session.id),
+      }] : [];
+    })
+  ), [sessionTabs.openSessionIds, sessionTabs.unreadSessionIds, sessions]);
+  const sessionWorkspaces = useMemo(() => groupSessionsByWorkspace(sessions), [sessions]);
   const tinyOsFiles = useTinyOsFilesController(activeSession?.id ?? "draft", workspaceStore, liveCanvas.visibility === "open");
   const draftNewSession = sessionsLoaded && !activeSession;
   const timelineLoaded = Boolean(activeSession) && timeline?.sessionId === activeSession?.id;
-  const emptyActiveSession = draftNewSession || (timelineLoaded && timeline.turns.length === 0 && optimisticMessages.length === 0);
+  const emptyActiveSession = draftNewSession || (timelineLoaded && timeline?.turns.length === 0 && optimisticMessages.length === 0);
   const sessionRunning = activeSession?.status === "running" || activeSession?.status === "waiting_approval";
   const sessionResponding = sessionRunning && !emptyActiveSession;
   const activeTurn = useMemo(() => [...(timeline?.turns ?? [])].reverse().find((turn) => (
@@ -730,12 +776,26 @@ export function ChatPage({
       sessionsRef.current = nextSessions;
       setSessions(nextSessions);
       setSessionsLoaded(true);
-      setActiveSessionId((current) => current || nextSessions[0]?.id || "");
+      dispatchSessionTabs({
+        type: "hydrate",
+        availableSessionIds: nextSessions.map((session) => session.id),
+        persisted: readPersistedSessionTabWorkspace(window.localStorage),
+      });
     });
     return () => {
       cancelled = true;
     };
   }, [sessionStore]);
+
+  useEffect(() => {
+    if (!sessionsLoaded) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      writePersistedSessionTabWorkspace(window.localStorage, sessionTabs);
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [sessionTabs, sessionsLoaded]);
 
   useEffect(() => {
     if (createSessionSignal === lastCreateSessionSignal.current) {
@@ -748,12 +808,10 @@ export function ChatPage({
   useEffect(() => {
     if (!activeSessionId) {
       setTimeline(null);
-      setOptimisticMessages([]);
       setTimelineError("");
       return;
     }
     setTimeline(null);
-    setOptimisticMessages([]);
     setTimelineError("");
     setAgentUiForms([]);
     setBrowserSnapshot(undefined);
@@ -778,9 +836,13 @@ export function ChatPage({
     const applyTimeline = (nextTimeline: ChatTimelineSnapshot) => {
       setTimeline(nextTimeline);
       setTimelineError("");
-      setOptimisticMessages((current) => current.filter((message) => !nextTimeline.turns.some((turn) => (
-        turn.userMessage.clientEventId === message.id
-      ))));
+      setOptimisticMessagesBySession((current) => updateSessionMessages(
+        current,
+        activeSessionId,
+        (messages) => messages.filter((message) => !nextTimeline.turns.some((turn) => (
+          turn.userMessage.clientEventId === message.id
+        ))),
+      ));
     };
     const scheduleStreamingTimeline = (nextTimeline: ChatTimelineSnapshot) => {
       pendingStreamingTimeline = nextTimeline;
@@ -851,12 +913,16 @@ export function ChatPage({
       }
       if (event.message) {
         const nextMessage = event.message;
-        setOptimisticMessages((current) => (
-          current.some((message) => message.id === nextMessage.id)
-            ? current.map((message) => (
-              message.id === nextMessage.id ? { ...message, ...nextMessage } : message
-            ))
-            : [...current, nextMessage]
+        setOptimisticMessagesBySession((current) => updateSessionMessages(
+          current,
+          activeSessionId,
+          (messages) => (
+            messages.some((message) => message.id === nextMessage.id)
+              ? messages.map((message) => (
+                message.id === nextMessage.id ? { ...message, ...nextMessage } : message
+              ))
+              : [...messages, nextMessage]
+          ),
         ));
         return;
       }
@@ -878,6 +944,33 @@ export function ChatPage({
       unsubscribe();
     };
   }, [activeSessionId, chatStore, now]);
+
+  useEffect(() => {
+    const unsubscribes = sessionTabs.openSessionIds
+      .filter((sessionId) => sessionId !== activeSessionId)
+      .map((sessionId) => chatStore.subscribe(sessionId, (event) => {
+        if (event.timeline) {
+          const status = sessionStatusFromTimeline(event.timeline);
+          if (status) {
+            setSessions((current) => {
+              const next = current.map((session) => (
+                session.id === sessionId ? { ...session, status } : session
+              ));
+              sessionsRef.current = next;
+              return next;
+            });
+          }
+          dispatchSessionTabs({ type: "activity", sessionId });
+        }
+        if (isBackgroundTabActivityEvent(event)) {
+          dispatchSessionTabs({ type: "activity", sessionId });
+        }
+        if (shouldReloadSessionsForChatEvent(event)) {
+          void handleQueueStateAfterChatEvent(sessionId, event);
+        }
+      }));
+    return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
+  }, [activeSessionId, chatStore, sessionTabs.openSessionIds]);
 
   useEffect(() => {
     if (!settingsStore?.loadChatModels) {
@@ -909,19 +1002,89 @@ export function ChatPage({
   }, [activeSession?.id, onStopGenerationTargetChange, sessionResponding]);
 
   useEffect(() => {
+    const view = conversationViewBySessionRef.current.get(activeSessionId);
+    if (activeSessionId && !hasActivatedSessionRef.current) {
+      hasActivatedSessionRef.current = true;
+      pendingConversationRestoreRef.current = "";
+    } else {
+      pendingConversationRestoreRef.current = activeSessionId;
+    }
+    stickToLatestRef.current = view?.stickToLatest ?? true;
+    setShowBackToLatest(view ? !view.stickToLatest : false);
+  }, [activeSessionId]);
+
+  useEffect(() => {
+    const element = conversationRef.current;
+    const view = conversationViewBySessionRef.current.get(activeSessionId);
+    const shouldRestore = Boolean(
+      activeSessionId
+      && pendingConversationRestoreRef.current === activeSessionId
+      && timeline?.sessionId === activeSessionId,
+    );
+    if (element && view && !view.stickToLatest && shouldRestore) {
+      element.scrollTo?.({
+        behavior: "instant",
+        top: Math.min(view.scrollTop, Math.max(0, element.scrollHeight - element.clientHeight)),
+      });
+      pendingConversationRestoreRef.current = "";
+      return;
+    }
+    if (shouldRestore) {
+      pendingConversationRestoreRef.current = "";
+    }
     if (stickToLatestRef.current) {
       conversationEndRef.current?.scrollIntoView({ block: "end" });
     }
-  }, [timeline, optimisticMessages, agentUiForms.length]);
+  }, [activeSessionId, timeline, optimisticMessages, agentUiForms.length]);
 
-  async function handleCreateSession() {
-    const created = await sessionStore.create();
-    activateCreatedSession(created);
+  async function handleCreateSession(workingDirectory = activeSession?.workingDirectory): Promise<SessionSummary | null> {
+    if (sessionCreatePending) {
+      return null;
+    }
+    setSessionCreatePending(true);
+    setSessionWorkspaceError("");
+    try {
+      const created = await sessionStore.create(workingDirectory ? { workingDirectory } : undefined);
+      activateCreatedSession(created);
+      return created;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSessionWorkspaceError(message);
+      console.error("[session-workspaces] session.create.failed", {
+        error: message,
+        workingDirectory: workingDirectory ?? "",
+      });
+      return null;
+    } finally {
+      setSessionCreatePending(false);
+    }
   }
 
   async function handleCreateSessionFromSearch() {
-    await handleCreateSession();
-    setSessionSearchOpen(false);
+    const created = await handleCreateSession();
+    if (created) {
+      setSessionSearchOpen(false);
+    }
+  }
+
+  async function handleAddWorkspace() {
+    if (workspacePickerPending || sessionCreatePending) {
+      return;
+    }
+    setWorkspacePickerPending(true);
+    setSessionWorkspaceError("");
+    try {
+      const workingDirectory = await pickDesktopWorkspaceDirectory();
+      if (workingDirectory) {
+        await handleCreateSession(workingDirectory);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSessionWorkspaceError(message);
+      console.error("[session-workspaces] workspace.pick.failed", { error: message });
+    } finally {
+      setWorkspacePickerPending(false);
+    }
   }
 
   async function handleDeleteSession(session: SessionSummary) {
@@ -935,7 +1098,14 @@ export function ChatPage({
         const remaining = sessionsRef.current.filter((item) => item.id !== session.id);
         sessionsRef.current = remaining;
         setSessions(remaining);
-        setActiveSessionId((current) => current === session.id ? remaining[0]?.id ?? "" : current);
+        dispatchSessionTabs({ type: "remove", sessionId: session.id });
+        conversationViewBySessionRef.current.delete(session.id);
+        setOptimisticMessagesBySession((current) => {
+          if (!current.has(session.id)) return current;
+          const next = new Map(current);
+          next.delete(session.id);
+          return next;
+        });
         setDissolvingSessionIds((current) => {
           const nextIds = new Set(current);
           nextIds.delete(session.id);
@@ -962,9 +1132,14 @@ export function ChatPage({
       optimisticSessionTitlesRef.current.has(session.id) && !listedSessionIdsBeforeReconciliation.has(session.id)
     ));
     const replacementCandidates = titledSessions.filter((session) => !knownSessionIds.has(session.id));
+    let sessionIdReplacement: { previousSessionId: string; sessionId: string } | undefined;
     if (missingOptimisticSessions.length === 1 && replacementCandidates.length === 1) {
       const pendingSession = missingOptimisticSessions[0];
       const replacementSession = replacementCandidates[0];
+      sessionIdReplacement = {
+        previousSessionId: pendingSession.id,
+        sessionId: replacementSession.id,
+      };
       const optimisticTitle = optimisticSessionTitlesRef.current.get(pendingSession.id);
       optimisticSessionTitlesRef.current.delete(pendingSession.id);
       if (optimisticTitle && isDefaultSessionTitle(replacementSession.title)) {
@@ -992,14 +1167,27 @@ export function ChatPage({
       ));
     sessionsRef.current = nextSessions;
     setSessions(nextSessions);
-    setActiveSessionId((current) => {
-      if (preserveSession && current === preserveSession.id) {
-        return preserveSession.id;
-      }
-      if (!nextSessions.length) {
-        return "";
-      }
-      return nextSessions.some((session) => session.id === current) ? current : nextSessions[0]?.id ?? "";
+    if (sessionIdReplacement) {
+      dispatchSessionTabs({ type: "replace", ...sessionIdReplacement });
+      moveMapValue(
+        conversationViewBySessionRef.current,
+        sessionIdReplacement.previousSessionId,
+        sessionIdReplacement.sessionId,
+      );
+      setOptimisticMessagesBySession((current) => replaceMapKey(
+        current,
+        sessionIdReplacement.previousSessionId,
+        sessionIdReplacement.sessionId,
+      ));
+      updateQueuedInputsBySession((current) => replaceMapKey(
+        current,
+        sessionIdReplacement.previousSessionId,
+        sessionIdReplacement.sessionId,
+      ));
+    }
+    dispatchSessionTabs({
+      type: "reconcile",
+      availableSessionIds: nextSessions.map((session) => session.id),
     });
     return nextSessions;
   }
@@ -1036,17 +1224,19 @@ export function ChatPage({
   async function handleArchiveConversation(session: SessionSummary) {
     await sessionStore.archive(session.id);
     const remaining = sessions.filter((item) => item.id !== session.id);
+    sessionsRef.current = remaining;
     setSessions(remaining);
-    if (activeSessionId === session.id) {
-      setActiveSessionId(remaining[0]?.id ?? "");
-    }
+    dispatchSessionTabs({ type: "remove", sessionId: session.id });
+    conversationViewBySessionRef.current.delete(session.id);
     setHeaderMenuOpen(false);
   }
 
   async function handleBranchFromMessage(session: SessionSummary, messageId: string) {
     const branched = await chatStore.branchFromMessage(session.id, messageId);
-    setSessions((current) => [branched, ...current.filter((item) => item.id !== branched.id)]);
-    setActiveSessionId(branched.id);
+    const nextSessions = [branched, ...sessionsRef.current.filter((item) => item.id !== branched.id)];
+    sessionsRef.current = nextSessions;
+    setSessions(nextSessions);
+    dispatchSessionTabs({ type: "open", sessionId: branched.id });
   }
 
   function dispatchTurn(sessionId: string, input: ChatInput, control: string): Promise<void> {
@@ -1166,12 +1356,22 @@ export function ChatPage({
       return;
     }
     const nearBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 96;
+    pendingConversationRestoreRef.current = "";
     stickToLatestRef.current = nearBottom;
+    conversationViewBySessionRef.current.set(activeSessionId, {
+      scrollTop: element.scrollTop,
+      stickToLatest: nearBottom,
+    });
     setShowBackToLatest(!nearBottom);
   }
 
   function handleBackToLatest(): void {
     stickToLatestRef.current = true;
+    const element = conversationRef.current;
+    conversationViewBySessionRef.current.set(activeSessionId, {
+      scrollTop: element ? Math.max(0, element.scrollHeight - element.clientHeight) : 0,
+      stickToLatest: true,
+    });
     setShowBackToLatest(false);
     conversationEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }
@@ -1221,7 +1421,7 @@ export function ChatPage({
   function activateCreatedSession(created: SessionSummary): void {
     sessionsRef.current = [created, ...sessionsRef.current.filter((session) => session.id !== created.id)];
     setSessions((current) => [created, ...current.filter((session) => session.id !== created.id)]);
-    setActiveSessionId(created.id);
+    dispatchSessionTabs({ type: "open", sessionId: created.id });
   }
 
   function handleDeleteQueuedInput(sessionId: string, inputId: string) {
@@ -1532,8 +1732,24 @@ export function ChatPage({
 
   function handleSessionSearchSelect(session: SessionSummary) {
     dispatchDelete({ type: "session-selected", sessionId: session.id });
-    setActiveSessionId(session.id);
+    dispatchSessionTabs({ type: "open", sessionId: session.id });
     setSessionSearchOpen(false);
+  }
+
+  function handleActivateSessionTab(sessionId: string) {
+    dispatchDelete({ type: "session-selected", sessionId });
+    dispatchSessionTabs({ type: "activate", sessionId });
+  }
+
+  function handleCloseSessionTab(sessionId: string) {
+    dispatchSessionTabs({ type: "close", sessionId });
+    if (sessionId === activeSessionId) {
+      setHeaderMenuOpen(false);
+    }
+  }
+
+  function handleComposerDraftChange(value: string) {
+    dispatchSessionTabs({ type: "draft.changed", sessionId: activeSessionId, value });
   }
 
   const visibleAgentUiForms = agentUiForms.filter(isVisibleAgentUiForm);
@@ -1555,6 +1771,16 @@ export function ChatPage({
             <h2>会话</h2>
             <div className="react-session-list__title-actions">
               <button
+                aria-label="Add workspace folder"
+                className="react-session-list__add-workspace"
+                disabled={workspacePickerPending || sessionCreatePending}
+                title="Add workspace folder"
+                type="button"
+                onClick={() => void handleAddWorkspace()}
+              >
+                <FolderPlus aria-hidden="true" size={15} />
+              </button>
+              <button
                 aria-label="Search chats"
                 className="react-session-list__search"
                 title="Search chats"
@@ -1574,76 +1800,123 @@ export function ChatPage({
               </button>
             </div>
           </div>
-          <button aria-label="New Chat" className="react-session-list__new" type="button" onClick={handleCreateSession}>
-            <Plus aria-hidden="true" size={15} />
+          <button
+            aria-label="New Chat"
+            className="react-session-list__new"
+            disabled={sessionCreatePending}
+            type="button"
+            onClick={() => void handleCreateSession()}
+          >
+            {sessionCreatePending ? <Loader2 aria-hidden="true" className="react-session-list__pending" size={15} /> : <Plus aria-hidden="true" size={15} />}
             <span>新会话</span>
           </button>
+          {sessionWorkspaceError ? (
+            <p className="react-session-list__error" role="alert">{sessionWorkspaceError}</p>
+          ) : null}
         </div>
         <div className="react-session-list__rows" aria-label="Session list rows" data-motion="animated-list">
-          {sessions.length ? sessions.map((session, index) => {
-            const confirming = deleteState.confirmingSessionId === session.id;
-            const dissolving = dissolvingSessionIds.has(session.id);
-            return (
-              <div
-                className="react-session-row"
-                data-active={session.id === activeSession?.id}
-                data-confirming={confirming}
-                data-dissolving={dissolving ? "true" : undefined}
-                data-motion-role="item"
-                key={session.id}
-                onMouseLeave={() => dispatchDelete({ type: "row-left", sessionId: session.id })}
-                style={{ "--react-session-row-index": String(index) } as CSSProperties}
+          {sessionWorkspaces.length ? sessionWorkspaces.map((workspace) => (
+            <details
+              aria-label={`Workspace ${workspace.label}`}
+              className="react-session-workspace"
+              data-active={workspace.sessions.some((session) => session.id === activeSession?.id) ? "true" : undefined}
+              key={workspace.key}
+              open
+              role="group"
+            >
+              <summary title={workspace.workingDirectory ?? workspace.label}>
+                <ChevronRight aria-hidden="true" className="react-session-workspace__chevron" size={14} />
+                <Folder aria-hidden="true" className="react-session-workspace__folder" size={15} />
+                <span className="react-session-workspace__copy">
+                  <strong>{workspace.label}</strong>
+                  {workspace.workingDirectory ? <small>{workspace.workingDirectory}</small> : null}
+                </span>
+              </summary>
+              <button
+                aria-label={`New session in ${workspace.label}`}
+                className="react-session-workspace__new"
+                disabled={sessionCreatePending}
+                title={`New session in ${workspace.label}`}
+                type="button"
+                onClick={() => void handleCreateSession(workspace.workingDirectory)}
               >
-                <button
-                  aria-label={session.title}
-                  className="react-session-row__select"
-                  type="button"
-                  disabled={dissolving}
-                  onClick={() => {
-                    dispatchDelete({ type: "session-selected", sessionId: session.id });
-                    setActiveSessionId(session.id);
-                  }}
-                >
-                  <span className="react-session-row__title">{displaySessionTitle(session.title)}</span>
-                  <small>{formatRelativeUpdatedTime(session.updatedAtMs, now())}</small>
-                </button>
-                <button
-                  aria-label={`${confirming ? "Confirm delete" : "Delete"} ${session.title}`}
-                  className="react-session-row__delete"
-                  data-confirming={confirming}
-                  type="button"
-                  disabled={dissolving}
-                  onClick={() => void handleDeleteSession(session)}
-                >
-                  <Trash2 aria-hidden="true" size={15} />
-                </button>
-                {dissolving ? (
-                  <span className="react-session-row__particles" aria-hidden="true">
-                    {SESSION_DELETE_PARTICLES.map((particle) => (
-                      <span
-                        className="react-session-row__particle"
-                        key={particle.id}
-                        style={{
-                          "--particle-delay": `${particle.delay}ms`,
-                          "--particle-origin-x": `${particle.originX}%`,
-                          "--particle-origin-y": `${particle.originY}%`,
-                          "--particle-size": `${particle.size}px`,
-                          "--particle-x": `${particle.x}px`,
-                          "--particle-y": `${particle.y}px`,
-                        } as CSSProperties}
-                      />
-                    ))}
-                  </span>
-                ) : null}
+                <Plus aria-hidden="true" size={15} />
+              </button>
+              <div className="react-session-workspace__sessions">
+                {workspace.sessions.map((session, index) => {
+                  const confirming = deleteState.confirmingSessionId === session.id;
+                  const dissolving = dissolvingSessionIds.has(session.id);
+                  return (
+                    <div
+                      className="react-session-row"
+                      data-active={session.id === activeSession?.id}
+                      data-confirming={confirming}
+                      data-dissolving={dissolving ? "true" : undefined}
+                      data-motion-role="item"
+                      key={session.id}
+                      onMouseLeave={() => dispatchDelete({ type: "row-left", sessionId: session.id })}
+                      style={{ "--react-session-row-index": String(index) } as CSSProperties}
+                    >
+                      <button
+                        aria-label={session.title}
+                        className="react-session-row__select"
+                        type="button"
+                        disabled={dissolving}
+                        onClick={() => {
+                          dispatchDelete({ type: "session-selected", sessionId: session.id });
+                          dispatchSessionTabs({ type: "open", sessionId: session.id });
+                        }}
+                      >
+                        <span className="react-session-row__title">{displaySessionTitle(session.title)}</span>
+                        <small>{formatRelativeUpdatedTime(session.updatedAtMs, now())}</small>
+                      </button>
+                      <button
+                        aria-label={`${confirming ? "Confirm delete" : "Delete"} ${session.title}`}
+                        className="react-session-row__delete"
+                        data-confirming={confirming}
+                        type="button"
+                        disabled={dissolving}
+                        onClick={() => void handleDeleteSession(session)}
+                      >
+                        <Trash2 aria-hidden="true" size={15} />
+                      </button>
+                      {dissolving ? (
+                        <span className="react-session-row__particles" aria-hidden="true">
+                          {SESSION_DELETE_PARTICLES.map((particle) => (
+                            <span
+                              className="react-session-row__particle"
+                              key={particle.id}
+                              style={{
+                                "--particle-delay": `${particle.delay}ms`,
+                                "--particle-origin-x": `${particle.originX}%`,
+                                "--particle-origin-y": `${particle.originY}%`,
+                                "--particle-size": `${particle.size}px`,
+                                "--particle-x": `${particle.x}px`,
+                                "--particle-y": `${particle.y}px`,
+                              } as CSSProperties}
+                            />
+                          ))}
+                        </span>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
-            );
-          }) : resolvedSessionSidebarCollapsed ? null : <EmptyStateText text="No sessions yet." />}
+            </details>
+          )) : resolvedSessionSidebarCollapsed ? null : <EmptyStateText text="No sessions yet." />}
         </div>
       </aside>
 
       <main className="react-chat-surface" data-empty-session={emptyActiveSession ? "true" : undefined}>
         <header className="react-chat-header">
-          <h1>{headerTitle}</h1>
+          <h1 className="react-chat-header__title">{headerTitle}</h1>
+          <SessionTabStrip
+            activeSessionId={activeSessionId}
+            tabs={openSessionTabs}
+            onActivate={handleActivateSessionTab}
+            onClose={handleCloseSessionTab}
+            onCreate={() => void handleCreateSession()}
+          />
           <div className="react-chat-header__actions">
             <button
               ref={liveCanvasToggleRef}
@@ -1692,7 +1965,15 @@ export function ChatPage({
           </div>
         </header>
 
-        <div ref={conversationRef} className="react-conversation-view" aria-label="Conversation" aria-live="polite" onScroll={handleConversationScroll}>
+        <div
+          ref={conversationRef}
+          aria-label="Conversation"
+          aria-live="polite"
+          className="react-conversation-view"
+          id="tinybot-chat-conversation"
+          role="tabpanel"
+          onScroll={handleConversationScroll}
+        >
           {timelineError ? <p aria-live="assertive" className="react-timeline-error">{timelineError}</p> : null}
           {activeSession && timeline?.turns.length ? timeline.turns.map((turn) => (
             <CanonicalChatTurn
@@ -1709,7 +1990,7 @@ export function ChatPage({
               onOpenError={(step) => setDrawer({ kind: "error", title: "错误详情", step, turn })}
               onRecover={(action) => void handleRecoverTurn(turn, action)}
             />
-          )) : emptyActiveSession ? <EmptyChatStart onSelectPrompt={setComposerDraft} /> : activeSession ? null : <EmptyStateText text="Select or create a session." />}
+          )) : emptyActiveSession ? <EmptyChatStart onSelectPrompt={handleComposerDraftChange} /> : activeSession ? null : <EmptyStateText text="Select or create a session." />}
           {optimisticMessages.map((message) => (
             <MessageBubble
               key={message.id}
@@ -1783,7 +2064,7 @@ export function ChatPage({
           onClearContextReferences={() => setTinyOsContextReferences([])}
           onRemoveContextReference={(id) => setTinyOsContextReferences((current) => current.filter((reference) => tinyOsContextReferenceId(reference) !== id))}
           onSelectFiles={pickDesktopChatFiles}
-          onValueChange={setComposerDraft}
+          onValueChange={handleComposerDraftChange}
           onSendMessage={(message, files, pastedContent, options) => handleComposerSend(message, files, pastedContent, options)}
             onStopResponding={() => activeSession && handleStopGeneration(activeSession, "chat")}
           />
@@ -1923,7 +2204,7 @@ function SessionSearchDialog({
   const [query, setQuery] = useState("");
   const normalizedQuery = query.trim().toLowerCase();
   const filteredSessions = normalizedQuery
-    ? sessions.filter((session) => [session.title, session.chatId ?? "", session.id]
+    ? sessions.filter((session) => [session.title, session.chatId ?? "", session.id, session.workingDirectory ?? ""]
       .some((value) => value.toLowerCase().includes(normalizedQuery)))
     : sessions;
   const recommendations = [
@@ -2000,7 +2281,9 @@ function SessionSearchDialog({
               >
                 <span className="react-session-search__rank">{index + 1}</span>
                 <span className="react-session-search__title">{session.title}</span>
-                <span className="react-session-search__meta">tinybot</span>
+                <span className="react-session-search__meta">
+                  {session.workingDirectory ? sessionWorkspaceName(session.workingDirectory) : "常规会话"}
+                </span>
                 <kbd>{`Ctrl+${index + 1}`}</kbd>
                 <small>{formatRelativeUpdatedTime(session.updatedAtMs, now())}</small>
               </button>
@@ -2075,6 +2358,31 @@ function shouldReloadSessionsForChatEvent(event: ChatEvent): boolean {
 
 function shouldReloadAgentUiFormsForChatEvent(type: string): boolean {
   return type === "agent-ui.form" || type === "agent-ui.event";
+}
+
+function isBackgroundTabActivityEvent(event: ChatEvent): boolean {
+  return Boolean(
+    event.error
+    || event.timeline
+    || (event.type === "agent.event" && event.eventType && TERMINAL_AGENT_EVENT_TYPES.has(event.eventType)),
+  );
+}
+
+function sessionStatusFromTimeline(timeline: ChatTimelineSnapshot): SessionSummary["status"] | undefined {
+  const status = timeline.turns[timeline.turns.length - 1]?.status;
+  if (status === "pending" || status === "running" || status === "awaiting_user") {
+    return "running";
+  }
+  if (status === "awaiting_approval") {
+    return "waiting_approval";
+  }
+  if (status === "failed" || status === "interrupted") {
+    return "failed";
+  }
+  if (status === "completed") {
+    return "idle";
+  }
+  return undefined;
 }
 
 function shouldDispatchQueuedInputForChatEvent(event: ChatEvent): boolean {
@@ -2237,6 +2545,49 @@ function isVisibleAgentUiForm(form: AgentUiForm): boolean {
 
 async function writeClipboardText(value: string): Promise<void> {
   await navigator.clipboard?.writeText(value);
+}
+
+function updateSessionMessages(
+  current: Map<string, ReactChatMessage[]>,
+  sessionId: string,
+  update: (messages: ReactChatMessage[]) => ReactChatMessage[],
+): Map<string, ReactChatMessage[]> {
+  const nextMessages = update(current.get(sessionId) ?? EMPTY_OPTIMISTIC_MESSAGES);
+  const next = new Map(current);
+  if (nextMessages.length) {
+    next.set(sessionId, nextMessages);
+  } else {
+    next.delete(sessionId);
+  }
+  return next;
+}
+
+function replaceMapKey<T>(
+  current: Map<string, T>,
+  previousSessionId: string,
+  sessionId: string,
+): Map<string, T> {
+  if (!current.has(previousSessionId) || previousSessionId === sessionId) {
+    return current;
+  }
+  const next = new Map(current);
+  const value = next.get(previousSessionId) as T;
+  next.delete(previousSessionId);
+  next.set(sessionId, value);
+  return next;
+}
+
+function moveMapValue<T>(
+  map: Map<string, T>,
+  previousSessionId: string,
+  sessionId: string,
+): void {
+  if (!map.has(previousSessionId) || previousSessionId === sessionId) {
+    return;
+  }
+  const value = map.get(previousSessionId) as T;
+  map.delete(previousSessionId);
+  map.set(sessionId, value);
 }
 
 function formatComposerMessage(message: string, pastedContent: PastedContent[]): string {

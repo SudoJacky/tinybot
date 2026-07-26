@@ -27,7 +27,10 @@ const thread = {
   status: "idle",
   createdAt: "2026-07-14T00:00:00.000Z",
   updatedAt: "2026-07-14T00:00:00.000Z",
-  metadata: { extra: {} },
+  metadata: {
+    workingDirectory: "D:\\Code\\py\\tinybot",
+    extra: {},
+  },
 };
 
 function canonicalRuntimeState(turnId: string, status = "running") {
@@ -100,14 +103,29 @@ describe("desktop native app services", () => {
     const services = createDesktopAppServices();
 
     await expect(services.sessionStore.list()).resolves.toEqual([
-      expect.objectContaining({ id: "thread-1", title: "Native thread" }),
+      expect.objectContaining({
+        id: "thread-1",
+        title: "Native thread",
+        workingDirectory: "D:\\Code\\py\\tinybot",
+      }),
     ]);
-    await expect(services.sessionStore.create({ title: "New Thread" })).resolves.toEqual(
+    await expect(services.sessionStore.create({
+      title: "New Thread",
+      workingDirectory: "D:\\Code\\py\\tinybot",
+    })).resolves.toEqual(
       expect.objectContaining({ id: "thread-1" }),
     );
 
     expect(mocks.invoke).toHaveBeenCalledWith("worker_thread_create", {
-      input: { body: { title: "New Thread", source: "desktop" } },
+      input: {
+        body: {
+          title: "New Thread",
+          source: "desktop",
+          metadata: {
+            workingDirectory: "D:\\Code\\py\\tinybot",
+          },
+        },
+      },
     });
   });
 
