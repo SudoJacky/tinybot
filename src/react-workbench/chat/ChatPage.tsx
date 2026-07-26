@@ -218,7 +218,7 @@ const EMPTY_CHAT_PROMPTS = [
 ] as const;
 
 const SESSION_DELETE_DISSOLVE_MS = 760;
-const SESSION_DELETE_PARTICLE_COUNT = 220;
+const SESSION_DELETE_PARTICLE_COUNT = 96;
 const TINYOS_WIDTH_STORAGE_KEY = "tinybot.ui.tinyos.width";
 const EMPTY_OPTIMISTIC_MESSAGES: ReactChatMessage[] = [];
 
