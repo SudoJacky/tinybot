@@ -712,11 +712,8 @@ fn deferred_tool_activation_round_trips_through_checkpoint_validation() {
                 .expect("tool_search test arguments should be an object"),
         )
         .expect("memory search should activate for the current turn");
-    let checkpoint = super::checkpoint::checkpoint_value(
-        &context,
-        "awaiting_approval",
-        json!({ "iteration": 1 }),
-    );
+    let checkpoint =
+        super::checkpoint::checkpoint_value(&context, "awaiting_form", json!({ "iteration": 1 }));
 
     assert_eq!(checkpoint["activatedToolIds"], json!(["memory.search"]));
     let cancelled_checkpoint = super::checkpoint::checkpoint_value(
@@ -960,7 +957,6 @@ fn tool_batch_dispatches_directly_and_injects_all_results_before_the_next_model_
     }
 
     let dispatched = Arc::new(Mutex::new(Vec::new()));
-    let trace_sink = Arc::new(RecordingTraceSink::default());
     let services = NativeAgentRuntimeServices::new(
         Arc::new(BatchProvider {
             calls: AtomicUsize::new(0),
@@ -971,8 +967,7 @@ fn tool_batch_dispatches_directly_and_injects_all_results_before_the_next_model_
         Arc::new(InMemoryNativeAgentCheckpointStore::default()),
         Arc::new(InMemoryNativeAgentCancellation::default()),
     )
-    .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"]))
-    .with_trace_sink(trace_sink.clone());
+    .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"]));
     let run_services = services.clone();
     let run = thread::spawn(move || {
         run_native_agent_turn_with_config(
@@ -1000,19 +995,6 @@ fn tool_batch_dispatches_directly_and_injects_all_results_before_the_next_model_
             .expect("dispatched calls lock should not be poisoned"),
         vec!["batch-write".to_string(), "batch-read".to_string()]
     );
-    let events = trace_sink
-        .events
-        .lock()
-        .expect("trace sink lock should not be poisoned");
-    assert!(!events
-        .iter()
-        .any(|event| event.event_name == "agent.awaiting_approval"));
-    assert!(!events
-        .iter()
-        .any(|event| event.event_name == "agent.approval.decision"));
-    assert!(!events.iter().any(|event| {
-        event.event_name == "agent.done" && event.payload["stopReason"] == "awaiting_approval"
-    }));
 }
 
 #[test]

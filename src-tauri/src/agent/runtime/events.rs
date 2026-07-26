@@ -49,7 +49,6 @@ pub(super) fn runtime_status_label(phase: &AgentRuntimePhase) -> Option<&'static
         AgentRuntimePhase::StreamingModel => Some("Streaming response"),
         AgentRuntimePhase::ToolCalling => Some("Preparing tool call"),
         AgentRuntimePhase::ToolRunning => Some("Running tool"),
-        AgentRuntimePhase::AwaitingApproval => Some("Waiting for approval"),
         AgentRuntimePhase::AwaitingForm => Some("Waiting for form input"),
         AgentRuntimePhase::AwaitingSubagent => Some("Waiting for subagent"),
         AgentRuntimePhase::Paused => Some("Paused"),
@@ -110,9 +109,6 @@ pub(super) fn runtime_event_item_id(kind: AgentEventKind, payload: &Value) -> Op
         ItemIdentityRule::Tool => string_field(payload, "toolCallId")
             .or_else(|| string_field(payload, "tool_call_id"))
             .or_else(|| string_field(payload, "id")),
-        ItemIdentityRule::Approval => {
-            string_field(payload, "approvalId").or_else(|| string_field(payload, "approval_id"))
-        }
         ItemIdentityRule::Form => {
             string_field(payload, "formId").or_else(|| string_field(payload, "form_id"))
         }

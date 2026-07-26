@@ -1,7 +1,6 @@
 #[cfg(test)]
 use super::{
-    AgentApprovalDecision, AgentApprovalScope, AgentEventKind, AgentRuntimePhase,
-    LegacyNativeAgentEventEnvelopeInput, PendingAgentEvent,
+    AgentEventKind, AgentRuntimePhase, LegacyNativeAgentEventEnvelopeInput, PendingAgentEvent,
 };
 use super::{
     AgentRuntimeEventAppendInput, AgentRuntimeEventEnvelope, AgentTraceContext,
@@ -402,55 +401,6 @@ impl AgentTurnEmitter {
                 }),
             )
             .with_item_id(Some(tool_call_id)),
-        )
-    }
-
-    #[cfg(test)]
-    pub fn awaiting_approval(
-        &mut self,
-        timestamp: impl Into<String>,
-        approval_id: impl Into<String>,
-        payload: Value,
-    ) -> AgentRuntimeEventEnvelope {
-        let approval_id = approval_id.into();
-        let mut payload = object_payload(payload);
-        payload
-            .entry("approvalId".to_string())
-            .or_insert_with(|| Value::String(approval_id.clone()));
-        self.emit_pending(
-            timestamp,
-            PendingAgentEvent::new(AgentEventKind::AwaitingApproval, Value::Object(payload))
-                .with_item_id(Some(approval_id)),
-        )
-    }
-
-    #[cfg(test)]
-    pub fn approval_decision(
-        &mut self,
-        timestamp: impl Into<String>,
-        approval_id: impl Into<String>,
-        decision: AgentApprovalDecision,
-        scope: AgentApprovalScope,
-        guidance: Option<String>,
-    ) -> AgentRuntimeEventEnvelope {
-        let approval_id = approval_id.into();
-        let mut payload = serde_json::Map::new();
-        payload.insert("approvalId".to_string(), Value::String(approval_id.clone()));
-        payload.insert(
-            "decision".to_string(),
-            serde_json::to_value(decision).unwrap_or(Value::Null),
-        );
-        payload.insert(
-            "scope".to_string(),
-            serde_json::to_value(scope).unwrap_or(Value::Null),
-        );
-        if let Some(guidance) = guidance {
-            payload.insert("guidance".to_string(), Value::String(guidance));
-        }
-        self.emit_pending(
-            timestamp,
-            PendingAgentEvent::new(AgentEventKind::ApprovalDecision, Value::Object(payload))
-                .with_item_id(Some(approval_id)),
         )
     }
 

@@ -428,7 +428,7 @@ describe("desktop native app services", () => {
     expect(events).toContainEqual({ type: "agent.event", eventType: "agent.turn.completed" });
   });
 
-  test("uses typed Thread commands for interrupt and approval", async () => {
+  test("uses the typed Thread command for interrupt", async () => {
     mocks.invoke.mockImplementation(async (command: string) => {
       if (command === "worker_threads_list") return { threads: [thread], total: 1 };
       if (command === "worker_turns_list") return { turns: [{ turnId: "turn-live" }] };
@@ -443,16 +443,6 @@ describe("desktop native app services", () => {
       sessionId: "thread-1",
       source: { control: "test", surface: "chat" },
     }));
-    await services.chatStore.dispatch(createTinyOsApprovalResolveCommand({
-      action: "approveSession",
-      approvalId: "approval-1",
-      commandId: "command-approval-1",
-      sessionId: "thread-1",
-      source: { control: "test", surface: "chat" },
-      threadId: "thread-1",
-      turnId: "turn-live",
-    }));
-
     expect(mocks.invoke).toHaveBeenCalledWith("worker_thread_interrupt", {
       input: { body: expect.objectContaining({
         threadId: "thread-1",
@@ -460,39 +450,19 @@ describe("desktop native app services", () => {
         clientEventId: "command-stop-1",
       }) },
     });
-    expect(mocks.invoke).toHaveBeenCalledWith("worker_resolve_thread_approval", {
-      input: {
-        threadId: "thread-1",
-        approvalId: "approval-1",
-        approved: true,
-        commandId: "command-approval-1",
-        scope: "session",
-      },
-    });
   });
 
-  test("reloads the canonical timeline after resolving an approval", async () => {
-    let approved = false;
+  test("rejects native approval continuation commands", async () => {
     mocks.invoke.mockImplementation(async (command: string) => {
       if (command === "worker_threads_list") return { threads: [thread], total: 1 };
       if (command === "worker_turns_list") return { turns: [{ turnId: "turn-live" }] };
-      if (command === "worker_turn_runtime_state") {
-        return canonicalRuntimeState("turn-live", approved ? "completed" : "running");
-      }
-      if (command === "worker_resolve_thread_approval") {
-        approved = true;
-        return { approvalResult: { approved: true, status: "approved" } };
-      }
+      if (command === "worker_turn_runtime_state") return canonicalRuntimeState("turn-live");
       return {};
     });
     const services = createDesktopAppServices();
     await services.sessionStore.list();
 
-    await expect(services.chatStore.load("thread-1")).resolves.toMatchObject({
-      turns: [expect.objectContaining({ status: "running" })],
-    });
-
-    await services.chatStore.dispatch(createTinyOsApprovalResolveCommand({
+    await expect(services.chatStore.dispatch(createTinyOsApprovalResolveCommand({
       action: "approveOnce",
       approvalId: "approval-1",
       commandId: "command-approval-1",
@@ -500,11 +470,7 @@ describe("desktop native app services", () => {
       source: { control: "test", surface: "chat" },
       threadId: "thread-1",
       turnId: "turn-live",
-    }));
-
-    await expect(services.chatStore.load("thread-1")).resolves.toMatchObject({
-      turns: [expect.objectContaining({ status: "completed" })],
-    });
+    }))).rejects.toThrow("Native agent approval continuation is not supported");
   });
 
   test("forks a completed canonical turn into a registered Thread at the selected message boundary", async () => {

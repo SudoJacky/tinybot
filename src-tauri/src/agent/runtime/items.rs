@@ -10,7 +10,6 @@ pub enum AgentItem {
     AssistantMessage(AgentAssistantMessage),
     Reasoning(AgentReasoningItem),
     ToolResult(AgentToolResultItem),
-    Approval(AgentApprovalItem),
     UserInput(AgentUserInputItem),
     PlanProgress(AgentPlanProgressItem),
     Subagent(AgentSubagentItem),
@@ -87,17 +86,6 @@ pub struct AgentToolResultItem {
 pub struct AgentReasoningItem {
     pub id: Option<String>,
     pub summary: String,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentApprovalItem {
-    pub id: String,
-    pub tool_call_id: Option<String>,
-    pub status: String,
-    pub reason: Option<String>,
-    pub decision: Option<String>,
-    pub scope: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -471,7 +459,6 @@ impl AgentItem {
             Self::AssistantMessage(_) => "assistant_message",
             Self::Reasoning(_) => "reasoning",
             Self::ToolResult(_) => "tool_result",
-            Self::Approval(_) => "approval",
             Self::UserInput(_) => "user_input",
             Self::PlanProgress(_) => "plan_progress",
             Self::Subagent(_) => "subagent",

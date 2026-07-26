@@ -1,7 +1,6 @@
 use crate::agent::bridge::{
-    cancel_agent_with_services, desktop_agent_event_sink, resolve_thread_approval_with_services,
-    restore_agent_checkpoint_with_services, run_agent_with_services,
-    submit_thread_form_with_services, submit_thread_turn_with_services, ResolveThreadApprovalInput,
+    cancel_agent_with_services, desktop_agent_event_sink, restore_agent_checkpoint_with_services,
+    run_agent_with_services, submit_thread_form_with_services, submit_thread_turn_with_services,
     SubmitThreadFormInput, SubmitThreadTurnInput,
 };
 use crate::agent::runtime::NativeAgentTraceSink;
@@ -10,9 +9,7 @@ use crate::collaboration::subagents::{
 };
 use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
 use crate::desktop::{state::lock_runtime, SharedGateway};
-use crate::desktop_commands::webui::{
-    native_webui_agent_ui_form_resolution_body_async, native_webui_approval_resolution_body_async,
-};
+use crate::desktop_commands::webui::native_webui_agent_ui_form_resolution_body_async;
 use crate::protocol::request_id::{next_worker_request_correlation, WorkerRequestCorrelation};
 use crate::protocol::WorkerRequest;
 use crate::rpc::native_request_router;
@@ -64,31 +61,6 @@ pub(crate) struct WorkerSubmitAgentFormInput {
     pub(crate) values: serde_json::Value,
     #[serde(default)]
     pub(crate) action: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct WorkerResumeAgentApprovalInput {
-    pub(crate) session_id: String,
-    pub(crate) approval_id: String,
-    pub(crate) approved: bool,
-    #[serde(default)]
-    pub(crate) scope: Option<String>,
-    #[serde(default)]
-    pub(crate) guidance: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct WorkerResolveThreadApprovalInput {
-    pub(crate) thread_id: String,
-    pub(crate) approval_id: String,
-    pub(crate) approved: bool,
-    pub(crate) command_id: String,
-    #[serde(default)]
-    pub(crate) scope: Option<String>,
-    #[serde(default)]
-    pub(crate) guidance: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -264,44 +236,6 @@ pub(crate) async fn worker_submit_agent_form(
         native_backend_workspace_root(),
         native_config_snapshot(),
         Duration::from_secs(120),
-    )
-    .await
-}
-
-#[tauri::command]
-pub(crate) async fn worker_resume_agent_approval(
-    input: WorkerResumeAgentApprovalInput,
-    state: State<'_, SharedGateway>,
-) -> Result<serde_json::Value, String> {
-    let shared = state.inner().clone();
-    worker_resume_agent_approval_with_options_async(
-        &shared,
-        input.session_id,
-        input.approval_id,
-        input.approved,
-        input.scope,
-        input.guidance,
-        native_backend_workspace_root(),
-        native_config_snapshot(),
-        Duration::from_secs(120),
-    )
-    .await
-}
-
-#[tauri::command]
-pub(crate) async fn worker_resolve_thread_approval<R: Runtime + 'static>(
-    input: WorkerResolveThreadApprovalInput,
-    state: State<'_, SharedGateway>,
-    app: AppHandle<R>,
-) -> Result<serde_json::Value, String> {
-    let shared = state.inner().clone();
-    worker_resolve_thread_approval_with_live_trace_sink_async(
-        &shared,
-        input,
-        native_backend_workspace_root(),
-        native_config_snapshot(),
-        Duration::from_secs(120),
-        Some(desktop_agent_event_sink(app)),
     )
     .await
 }
@@ -958,64 +892,6 @@ pub(crate) async fn worker_submit_agent_form_with_options_async(
     .await?;
     body["statusCode"] = serde_json::Value::Number(status_code.into());
     Ok(body)
-}
-
-pub(crate) async fn worker_resume_agent_approval_with_options_async(
-    shared: &SharedGateway,
-    session_id: String,
-    approval_id: String,
-    approved: bool,
-    scope: Option<String>,
-    guidance: Option<String>,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    _timeout: Duration,
-) -> Result<serde_json::Value, String> {
-    native_webui_approval_resolution_body_async(
-        shared,
-        approval_id,
-        &serde_json::json!({
-            "session_key": session_id,
-            "scope": scope,
-            "guidance": guidance,
-        }),
-        approved,
-        workspace_root,
-        config_snapshot,
-    )
-    .await
-}
-
-pub(crate) async fn worker_resolve_thread_approval_with_live_trace_sink_async(
-    shared: &SharedGateway,
-    input: WorkerResolveThreadApprovalInput,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-    timeout: Duration,
-    live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
-) -> Result<serde_json::Value, String> {
-    let _ = timeout;
-    let mut base_services = {
-        let runtime = lock_runtime(shared);
-        runtime.native_agent_services()
-    };
-    if let Some(live_trace_sink) = live_trace_sink {
-        base_services = base_services.with_trace_sink(live_trace_sink);
-    }
-    resolve_thread_approval_with_services(
-        base_services,
-        ResolveThreadApprovalInput {
-            thread_id: input.thread_id,
-            approval_id: input.approval_id,
-            approved: input.approved,
-            command_id: input.command_id,
-            scope: input.scope,
-            guidance: input.guidance,
-        },
-        workspace_root,
-        config_snapshot,
-    )
-    .await
 }
 
 pub(crate) async fn worker_submit_thread_form_with_live_trace_sink_async(

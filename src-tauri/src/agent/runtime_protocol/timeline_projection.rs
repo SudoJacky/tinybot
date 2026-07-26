@@ -379,7 +379,6 @@ fn projected_item_kind(
             "assistant_message" => AgentTurnItemKind::AssistantMessage,
             "reasoning" => AgentTurnItemKind::Reasoning,
             "tool_result" => AgentTurnItemKind::ToolCall,
-            "approval" => AgentTurnItemKind::Approval,
             "user_input" => AgentTurnItemKind::Form,
             "plan_progress" => AgentTurnItemKind::PlanProgress,
             "subagent" => AgentTurnItemKind::SubagentLifecycle,
@@ -536,7 +535,6 @@ fn item_is_disallowed_after_final(item: &AgentTurnItem) -> bool {
         AgentTurnItemKind::AssistantMessage
             | AgentTurnItemKind::Reasoning
             | AgentTurnItemKind::ToolCall
-            | AgentTurnItemKind::Approval
             | AgentTurnItemKind::Form
             | AgentTurnItemKind::SubagentLifecycle
             | AgentTurnItemKind::SubagentMessage
@@ -587,25 +585,6 @@ fn projected_item_data(
                 });
             }
             legacy_item_data(kind, payload, event, event_kind)
-        }
-        AgentTurnItemKind::Approval => {
-            let source = typed_item.unwrap_or(payload);
-            AgentTurnItemData::Approval {
-                approval_id: required_item_string(
-                    source,
-                    &["id", "approvalId", "approval_id"],
-                    kind,
-                ),
-                command_id: item_string(payload, &["commandId", "command_id"]),
-                tool_call_id: item_string(source, &["toolCallId", "tool_call_id"]),
-                status: item_string(source, &["status"]).unwrap_or_else(|| "waiting".to_string()),
-                reason: item_string(source, &["reason"])
-                    .or_else(|| item_string(payload, &["summary", "content"])),
-                decision: item_string(source, &["decision"]),
-                scope: item_string(source, &["scope"]),
-                guidance: item_string(payload, &["guidance"]),
-                detail_id: item_string(payload, &["detailId", "detail_id"]),
-            }
         }
         AgentTurnItemKind::Form => {
             let source = typed_item.unwrap_or(payload);
@@ -763,17 +742,6 @@ fn legacy_item_data(
             detail_id: item_string(payload, &["detailId", "detail_id"]),
             timing: payload.get("timing").cloned().unwrap_or(Value::Null),
         },
-        AgentTurnItemKind::Approval => AgentTurnItemData::Approval {
-            approval_id: required_item_string(payload, &["approvalId", "approval_id", "id"], kind),
-            command_id: item_string(payload, &["commandId", "command_id"]),
-            tool_call_id: item_string(payload, &["toolCallId", "tool_call_id"]),
-            status: item_string(payload, &["status"]).unwrap_or_else(|| "waiting".to_string()),
-            reason: item_string(payload, &["reason", "summary", "content"]),
-            decision: item_string(payload, &["decision"]),
-            scope: item_string(payload, &["scope"]),
-            guidance: item_string(payload, &["guidance"]),
-            detail_id: item_string(payload, &["detailId", "detail_id"]),
-        },
         AgentTurnItemKind::SystemNotice => AgentTurnItemData::SystemNotice {
             message: item_string(payload, &["message", "content", "summary"])
                 .unwrap_or_else(|| event.event_name.clone()),
@@ -921,19 +889,15 @@ fn projected_item_status(
         | AgentEventKind::Paused
         | AgentEventKind::Resumed
         | AgentEventKind::ToolResult
-        | AgentEventKind::ApprovalDecision
         | AgentEventKind::FormResolution => AgentTurnItemStatus::Completed,
         AgentEventKind::Error | AgentEventKind::CleanupTimeout => AgentTurnItemStatus::Failed,
         AgentEventKind::Cancelled => AgentTurnItemStatus::Cancelled,
-        AgentEventKind::AwaitingApproval | AgentEventKind::AwaitingForm => {
-            AgentTurnItemStatus::Waiting
-        }
+        AgentEventKind::AwaitingForm => AgentTurnItemStatus::Waiting,
         _ => match &event.phase {
             AgentRuntimePhase::Completed => AgentTurnItemStatus::Completed,
             AgentRuntimePhase::Failed => AgentTurnItemStatus::Failed,
             AgentRuntimePhase::Cancelled => AgentTurnItemStatus::Cancelled,
-            AgentRuntimePhase::AwaitingApproval
-            | AgentRuntimePhase::AwaitingForm
+            AgentRuntimePhase::AwaitingForm
             | AgentRuntimePhase::AwaitingSubagent
             | AgentRuntimePhase::Paused => AgentTurnItemStatus::Waiting,
             _ => AgentTurnItemStatus::Running,
@@ -995,9 +959,6 @@ fn projected_item_payload(
         AgentEventKind::Done => projected_legacy_done_payload(event),
         AgentEventKind::ToolStarted | AgentEventKind::ToolResult => {
             projected_tool_payload(existing_payload, event, event_kind)
-        }
-        AgentEventKind::AwaitingApproval | AgentEventKind::ApprovalDecision => {
-            projected_approval_payload(existing_payload, event, event_kind)
         }
         AgentEventKind::AwaitingForm | AgentEventKind::FormResolution => {
             projected_form_payload(existing_payload, event, event_kind)
@@ -1224,10 +1185,6 @@ fn projected_item_title(
         return string_field_any(payload, &["toolName", "name", "tool_name"])
             .or_else(|| existing_item.and_then(|item| item.title.clone()));
     }
-    if *kind == AgentTurnItemKind::Approval {
-        return string_field_any(payload, &["summary", "content", "reason"])
-            .or_else(|| existing_item.and_then(|item| item.title.clone()));
-    }
     if *kind == AgentTurnItemKind::Form {
         return string_field_any(payload, &["title", "summary", "content"])
             .or_else(|| existing_item.and_then(|item| item.title.clone()));
@@ -1242,10 +1199,6 @@ fn projected_item_summary(
 ) -> Option<String> {
     if *kind == AgentTurnItemKind::ToolCall {
         return string_field_any(payload, &["summary", "content"])
-            .or_else(|| existing_item.and_then(|item| item.summary.clone()));
-    }
-    if *kind == AgentTurnItemKind::Approval {
-        return string_field_any(payload, &["summary", "content", "reason"])
             .or_else(|| existing_item.and_then(|item| item.summary.clone()));
     }
     if *kind == AgentTurnItemKind::Form {
@@ -1265,51 +1218,6 @@ fn string_field_any(payload: &Value, keys: &[&str]) -> Option<String> {
     keys.iter()
         .find_map(|key| payload.get(*key).and_then(Value::as_str))
         .map(ToString::to_string)
-}
-
-fn projected_approval_payload(
-    existing_payload: Option<&Value>,
-    event: &AgentRuntimeEventEnvelope,
-    event_kind: AgentEventKind,
-) -> Value {
-    let mut payload = existing_payload
-        .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default();
-    if let Some(event_payload) = event.payload.as_object() {
-        for (key, value) in event_payload {
-            payload.insert(key.clone(), value.clone());
-        }
-    }
-
-    let approval_id =
-        string_from_map(&payload, &["approvalId", "approval_id"]).or_else(|| event.item_id.clone());
-    if let Some(approval_id) = approval_id.clone() {
-        payload
-            .entry("approvalId".to_string())
-            .or_insert_with(|| Value::String(approval_id.clone()));
-        payload
-            .entry("detailId".to_string())
-            .or_insert_with(|| Value::String(format!("approval:{approval_id}")));
-    }
-
-    if event_kind == AgentEventKind::ApprovalDecision {
-        payload.insert("status".to_string(), Value::String("completed".to_string()));
-        payload
-            .entry("decidedAt".to_string())
-            .or_insert_with(|| Value::String(event.timestamp.clone()));
-    } else {
-        payload.insert("status".to_string(), Value::String("waiting".to_string()));
-        payload
-            .entry("requestedAt".to_string())
-            .or_insert_with(|| Value::String(event.timestamp.clone()));
-    }
-
-    if let Some(summary) = string_from_map(&payload, &["summary", "content", "reason"]) {
-        payload.insert("summary".to_string(), Value::String(summary));
-    }
-
-    Value::Object(payload)
 }
 
 fn projected_form_payload(

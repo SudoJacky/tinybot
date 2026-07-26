@@ -29,8 +29,6 @@ pub(crate) enum AgentEventKind {
     ToolCleanupTimeout,
     PlanProgress,
     TaskProgress,
-    AwaitingApproval,
-    ApprovalDecision,
     AwaitingForm,
     FormResolution,
     Checkpoint,
@@ -92,7 +90,6 @@ pub(crate) enum ItemIdentityRule {
     Message,
     Reasoning,
     Tool,
-    Approval,
     Form,
     Delegate,
 }
@@ -304,8 +301,6 @@ impl AgentEventKind {
         Self::ToolCleanupTimeout,
         Self::PlanProgress,
         Self::TaskProgress,
-        Self::AwaitingApproval,
-        Self::ApprovalDecision,
         Self::AwaitingForm,
         Self::FormResolution,
         Self::Checkpoint,
@@ -344,18 +339,18 @@ impl AgentEventKind {
         use AgentRuntimeEventSource::{Provider, RustBackend, Tool, User};
         use AgentRuntimeEventVisibility::{Debug, User as UserVisibility};
         use AgentRuntimePhase::{
-            AwaitingApproval, AwaitingForm, CallingModel, Cancelled, Completed, Failed, Paused,
-            Planning, StreamingModel, ToolCalling, ToolRunning,
+            AwaitingForm, CallingModel, Cancelled, Completed, Failed, Paused, Planning,
+            StreamingModel, ToolCalling, ToolRunning,
         };
         use AgentTurnItemKind::{
-            Approval, AssistantMessage, ContextCompaction, Error, FileReference, Form,
-            PlanProgress, Reasoning, SubagentLifecycle, SubagentMessage, SystemNotice, ToolCall,
-            Usage, UserMessage,
+            AssistantMessage, ContextCompaction, Error, FileReference, Form, PlanProgress,
+            Reasoning, SubagentLifecycle, SubagentMessage, SystemNotice, ToolCall, Usage,
+            UserMessage,
         };
         use EventDurability::{Durable, Ephemeral};
         use ItemIdentityRule::{
-            AgentItem, Approval as ApprovalIdentity, Form as FormIdentity, Message,
-            None as NoIdentity, Reasoning as ReasoningIdentity, Tool as ToolIdentity,
+            AgentItem, Form as FormIdentity, Message, None as NoIdentity,
+            Reasoning as ReasoningIdentity, Tool as ToolIdentity,
         };
         use LegacyPolicy::{Exclude, Include};
 
@@ -598,26 +593,6 @@ impl AgentEventKind {
                 Some(PlanProgress),
                 AgentItem,
                 Ephemeral,
-                Include,
-            ),
-            Self::AwaitingApproval => definition(
-                "agent.awaiting_approval",
-                PhaseRule::Fixed(AwaitingApproval),
-                RustBackend,
-                UserVisibility,
-                Some(Approval),
-                ApprovalIdentity,
-                Durable,
-                Include,
-            ),
-            Self::ApprovalDecision => definition(
-                "agent.approval.decision",
-                PhaseRule::Fixed(AwaitingApproval),
-                User,
-                UserVisibility,
-                Some(Approval),
-                ApprovalIdentity,
-                Durable,
                 Include,
             ),
             Self::AwaitingForm => definition(
@@ -893,7 +868,6 @@ fn phase_from_str(value: &str) -> Option<AgentRuntimePhase> {
         "streaming_model" => Some(AgentRuntimePhase::StreamingModel),
         "tool_calling" => Some(AgentRuntimePhase::ToolCalling),
         "tool_running" => Some(AgentRuntimePhase::ToolRunning),
-        "awaiting_approval" => Some(AgentRuntimePhase::AwaitingApproval),
         "awaiting_form" => Some(AgentRuntimePhase::AwaitingForm),
         "awaiting_subagent" => Some(AgentRuntimePhase::AwaitingSubagent),
         "paused" => Some(AgentRuntimePhase::Paused),

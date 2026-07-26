@@ -104,7 +104,6 @@ export type NativeThreadsApi = {
   events: (body: unknown) => Promise<unknown>;
   restoreCheckpoint: (body: unknown) => Promise<unknown>;
   submitTurn: (body: unknown) => Promise<unknown>;
-  resolveApproval: (body: unknown) => Promise<unknown>;
   submitForm: (body: unknown) => Promise<unknown>;
 };
 
@@ -461,8 +460,6 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
       restoreCheckpoint: (body: unknown) =>
         nativeThreadRequest(options.nativeThreads?.restoreCheckpoint(body), "threads.restoreCheckpoint"),
       submitTurn: (body: unknown) => nativeThreadRequest(options.nativeThreads?.submitTurn(body), "threads.submitTurn"),
-      resolveApproval: (body: unknown) =>
-        nativeThreadRequest(options.nativeThreads?.resolveApproval(body), "threads.resolveApproval"),
       submitForm: (body: unknown) => nativeThreadRequest(options.nativeThreads?.submitForm(body), "threads.submitForm"),
     },
     config: {
@@ -495,27 +492,15 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
       ),
       approvals: (approvalOptions?: WebuiApprovalsListOptions) => {
         const path = approvalsListPath(approvalOptions);
-        return nativeOrGateway(
-          () => options.nativeWebui?.route({ method: "GET", path }),
-          () => request(path),
-          "webui.approvals.list",
-        );
+        return request(path);
       },
       approveApproval: (approvalId: string, body: unknown) => {
         const path = `/api/approvals/${encodePathSegment(approvalId)}/approve`;
-        return nativeOrGateway(
-          () => options.nativeWebui?.route({ method: "POST", path, body: nativeWebuiApprovalBody(body) }),
-          () => request(path, jsonRequest("POST", body)),
-          "webui.approvals.approve",
-        );
+        return request(path, jsonRequest("POST", body));
       },
       denyApproval: (approvalId: string, body: unknown) => {
         const path = `/api/approvals/${encodePathSegment(approvalId)}/deny`;
-        return nativeOrGateway(
-          () => options.nativeWebui?.route({ method: "POST", path, body: nativeWebuiApprovalBody(body) }),
-          () => request(path, jsonRequest("POST", body)),
-          "webui.approvals.deny",
-        );
+        return request(path, jsonRequest("POST", body));
       },
     },
     skills: {
@@ -1243,10 +1228,6 @@ function encodePathSegment(value: string): string {
   return encodeURIComponent(value);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function approvalsListPath(options: WebuiApprovalsListOptions | undefined): string {
   const params = new URLSearchParams();
   if (options?.sessionKey) {
@@ -1260,22 +1241,6 @@ function approvalsListPath(options: WebuiApprovalsListOptions | undefined): stri
   }
   const query = params.toString();
   return query ? `/api/approvals?${query}` : "/api/approvals";
-}
-
-function nativeWebuiApprovalBody(body: unknown): unknown {
-  if (!isRecord(body) || typeof body.session_key !== "string") {
-    return body;
-  }
-  return {
-    ...body,
-    session_key: normalizeNativeWebuiSessionKey(body.session_key),
-  };
-}
-
-function normalizeNativeWebuiSessionKey(sessionKey: string): string {
-  return sessionKey.startsWith("WebSocket:")
-    ? `websocket:${sessionKey.slice("WebSocket:".length)}`
-    : sessionKey;
 }
 
 function stringifyError(error: unknown): string {

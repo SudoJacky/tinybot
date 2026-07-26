@@ -2034,7 +2034,7 @@ fn dispatches_thread_agent_registry_for_parent_and_child_threads() {
         .as_array()
         .unwrap()
         .iter()
-        .any(|item| item["kind"] == "approval"));
+        .all(|item| item["kind"] != "approval"));
     assert_eq!(
         result["agents"][1]["pendingApproval"]["approvalId"],
         "approval-child-1"
@@ -4334,7 +4334,6 @@ fn agent_turn_requests_ignore_thread_only_items() {
                     "type": "approval_requested",
                     "payload": {
                         "eventId": "approval-1",
-                        "eventName": "agent.awaiting_approval",
                         "sessionId": "session-1",
                         "turnId": "turn-thread-only",
                         "sequence": 1,
@@ -4401,10 +4400,10 @@ fn agent_turn_requests_ignore_thread_only_items() {
         status.result.as_ref().unwrap()["activeTurn"]["turnId"],
         "turn-thread-only"
     );
-    assert_eq!(
-        status.result.as_ref().unwrap()["turnItems"][0]["kind"],
-        "approval"
-    );
+    assert!(status.result.as_ref().unwrap()["turnItems"]
+        .as_array()
+        .unwrap()
+        .is_empty());
 
     let read = router.dispatch(&WorkerRequest::new(
         "req-thread-backed-turn-read",
@@ -4417,10 +4416,10 @@ fn agent_turn_requests_ignore_thread_only_items() {
         read.result.as_ref().unwrap()["activeTurn"]["turnId"],
         "turn-thread-only"
     );
-    assert_eq!(
-        read.result.as_ref().unwrap()["turnItems"][0]["kind"],
-        "approval"
-    );
+    assert!(read.result.as_ref().unwrap()["turnItems"]
+        .as_array()
+        .unwrap()
+        .is_empty());
 }
 
 #[test]
@@ -4540,7 +4539,6 @@ fn dispatches_thread_status_includes_active_child_activity() {
                     "type": "approval_requested",
                     "payload": {
                         "eventId": "approval-child",
-                        "eventName": "agent.awaiting_approval",
                         "sessionId": "session-activity",
                         "turnId": "turn-child-active",
                         "sequence": 1,
@@ -4571,9 +4569,11 @@ fn dispatches_thread_status_includes_active_child_activity() {
         status.result.as_ref().unwrap()["childActivities"][0]["activeTurn"]["turnId"],
         "turn-child-active"
     );
-    assert_eq!(
-        status.result.as_ref().unwrap()["childActivities"][0]["turnItems"][0]["kind"],
-        "approval"
+    assert!(
+        status.result.as_ref().unwrap()["childActivities"][0]["turnItems"]
+            .as_array()
+            .unwrap()
+            .is_empty()
     );
 
     let read = router.dispatch(&WorkerRequest::new(
@@ -4591,9 +4591,11 @@ fn dispatches_thread_status_includes_active_child_activity() {
         read.result.as_ref().unwrap()["childActivities"][0]["activeTurn"]["turnId"],
         "turn-child-active"
     );
-    assert_eq!(
-        read.result.as_ref().unwrap()["childActivities"][0]["turnItems"][0]["kind"],
-        "approval"
+    assert!(
+        read.result.as_ref().unwrap()["childActivities"][0]["turnItems"]
+            .as_array()
+            .unwrap()
+            .is_empty()
     );
 
     let events = router.dispatch(&WorkerRequest::new(
@@ -4611,9 +4613,12 @@ fn dispatches_thread_status_includes_active_child_activity() {
         events.result.as_ref().unwrap()["childActivities"][0]["activeTurn"]["turnId"],
         "turn-child-active"
     );
-    assert_eq!(
-        events.result.as_ref().unwrap()["childActivities"][0]["turnItems"][0]["kind"],
-        "approval"
+    assert!(
+        events.result.as_ref().unwrap()["childActivities"][0]["turnItems"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| item["kind"] != "approval")
     );
     assert_eq!(
         events.result.as_ref().unwrap()["events"][2]["type"],
@@ -4623,9 +4628,12 @@ fn dispatches_thread_status_includes_active_child_activity() {
         events.result.as_ref().unwrap()["events"][2]["childActivity"]["child"]["threadId"],
         "thread-child-activity"
     );
-    assert_eq!(
-        events.result.as_ref().unwrap()["events"][2]["childActivity"]["turnItems"][0]["kind"],
-        "approval"
+    assert!(
+        events.result.as_ref().unwrap()["events"][2]["childActivity"]["turnItems"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| item["kind"] != "approval")
     );
 }
 

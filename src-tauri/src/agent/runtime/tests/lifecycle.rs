@@ -381,7 +381,7 @@ fn runtime_checkpoint_store_isolates_same_session_turns() {
         json!({
             "sessionId": "websocket:chat-1",
             "turnId": "turn-2",
-            "phase": "awaiting_approval"
+            "phase": "awaiting_form"
         }),
     );
 
@@ -749,24 +749,8 @@ fn invalid_update_plan_returns_a_tool_error_that_the_model_can_correct() {
 }
 
 #[test]
-fn approval_and_form_continuations_fail_without_matching_checkpoints() {
+fn form_continuations_fail_without_matching_checkpoints() {
     let services = NativeAgentRuntimeServices::default();
-    let approval_error = run_native_agent_turn_with_services(
-        &services,
-        json!({
-            "turnId": "turn-missing-approval-checkpoint",
-            "sessionId": "session-missing-approval-checkpoint",
-            "metadata": {
-                "agentContinuation": {
-                    "kind": "approval",
-                    "approvalId": "approval-missing",
-                    "decision": "approved",
-                    "scope": "once"
-                }
-            }
-        }),
-    )
-    .expect_err("approval continuation must not synthesize success without a checkpoint");
     let form_error = run_native_agent_turn_with_services(
         &services,
         json!({
@@ -784,7 +768,6 @@ fn approval_and_form_continuations_fail_without_matching_checkpoints() {
     )
     .expect_err("form continuation must not synthesize success without a checkpoint");
 
-    assert!(approval_error.contains("matching turn checkpoint"));
     assert!(form_error.contains("matching turn checkpoint"));
 }
 

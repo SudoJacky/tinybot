@@ -143,7 +143,7 @@ async fn worker_transport_dispatch_websocket_message_with_live_trace_sink_async(
 pub(crate) fn validate_tinyos_host_command_frame(frame: &serde_json::Value) -> Result<(), String> {
     if frame.get("type").and_then(serde_json::Value::as_str) != Some("command") {
         return Err(
-            "worker_dispatch_tinyos_host_command accepts only TinyOS host commands; use worker_submit_thread_turn, worker_thread_interrupt, worker_resolve_thread_approval, or worker_submit_thread_form for chat"
+            "worker_dispatch_tinyos_host_command accepts only TinyOS host commands; use worker_submit_thread_turn, worker_thread_interrupt, or worker_submit_thread_form for chat"
                 .to_string(),
         );
     }

@@ -516,8 +516,6 @@ fn agent_runtime_event_requires_durable_boundary(event: &AgentRuntimeEventEnvelo
             AgentEventKind::ToolCallDelta
                 | AgentEventKind::ToolResult
                 | AgentEventKind::TokenCount
-                | AgentEventKind::AwaitingApproval
-                | AgentEventKind::ApprovalDecision
                 | AgentEventKind::Error
                 | AgentEventKind::Cancelled
         ),

@@ -407,7 +407,6 @@ UI should prefer `SettingsSnapshot` once the frontend is migrated to the Rust-ow
 | `worker_cancel_agent` | `{ input: { turnId: string } }` | JSON result |
 | `worker_restore_agent_checkpoint` | `{ input: { sessionId: string } }` | JSON result |
 | `worker_submit_agent_form` | `{ input: { sessionId, formId, values?, action? } }` | JSON result |
-| `worker_resume_agent_approval` | `{ input: { sessionId, approvalId, approved, scope?, guidance? } }` | Compatibility command; returns an explicit disabled error |
 
 Workspace-backed agent results include:
 
@@ -506,24 +505,23 @@ envelopes apply the same config-secret redaction used by live events.
 ```
 
 Metric names and outcomes come from bounded runtime enums. Prompts, tool output, secrets, and memory
-content are not used as metric names or labels.
-Approval wait time is restored from the durable checkpoint timestamp. Cancellation cleanup, MCP
-server lifecycle, owned shell-process lifecycle, and orphaned-turn reconciliation use fixed metric
-names; server names, process IDs, turn IDs, and trace IDs are never metric keys.
+content are not used as metric names or labels. Cancellation cleanup, MCP server lifecycle, owned
+shell-process lifecycle, and orphaned-turn reconciliation use fixed metric names; server names,
+process IDs, turn IDs, and trace IDs are never metric keys.
 
 ### Typed agent items and provider capabilities
 
 The native runtime converts legacy message JSON into a typed `AgentItem` history before building a
 provider request. The internal vocabulary covers instructions, user and assistant messages,
-reasoning, tool results and calls, approvals, user-input forms, plan progress, subagent lifecycle,
-context compaction, errors, usage, and file references. Chat Completions message objects remain a
+reasoning, tool results and calls, user-input forms, plan progress, subagent lifecycle, context
+compaction, errors, usage, and file references. Chat Completions message objects remain a
 compatibility projection owned by `ChatCompletionsAdapter`; they are not the runtime domain model.
 
 History encoding and provider response decoding are strict. Unknown roles, unsupported content
 parts, missing tool-call IDs or names, malformed tool-call arrays, invalid usage numbers, and
 non-string assistant content return an error before the runtime can persist or dispatch a partial
-turn. Tool, approval, and form continuations construct typed assistant/tool-result items before
-projecting the existing persisted message shape.
+turn. Form continuations construct typed assistant/tool-result items before projecting the existing
+persisted message shape.
 
 Each `AgentTurnContext` also owns an immutable `AgentTurnSettings` snapshot parsed from the turn
 spec, metadata, and agent defaults. It includes model, provider, iteration and streaming limits,
@@ -1238,8 +1236,10 @@ Thread continuation helper commands:
 | Command | Args |
 | --- | --- |
 | `worker_submit_thread_turn` | `{ input: { threadId?: string, input: unknown, spec?: unknown } }` |
-| `worker_resolve_thread_approval` | Compatibility command; always returns an explicit disabled error |
 | `worker_submit_thread_form` | `{ input: { threadId, formId, values?, action? } }` |
+
+Agent checkpoint continuation supports structured forms only. Tool permission approvals remain
+available through the worker approval RPC and are not projected into the agent runtime timeline.
 
 The renderer prepares the final user text before calling `worker_submit_thread_turn`. When the user
 mentions files, it prepends their absolute paths to that text; the backend persists and forwards the
@@ -1692,9 +1692,6 @@ Use `routeResponse()` if the status and headers are needed.
 | `POST` | `/api/provider-models` | providers | Provider model resolution |
 | `GET` | `/v1/models` | openai | OpenAI-compatible model list |
 | `POST` | `/v1/chat/completions` | openai | OpenAI-compatible chat completion route |
-| `GET` | `/api/approvals` | approvals | Optional query: `session_key`, `chat_id`, `channel` |
-| `POST` | `/api/approvals/{approval_id}/approve` | approvals | Approval continuation |
-| `POST` | `/api/approvals/{approval_id}/deny` | approvals | Approval continuation |
 | `POST` | `/api/agent-ui/forms/{form_id}/submit` | agent-ui | Form continuation |
 | `POST` | `/api/agent-ui/forms/{form_id}/cancel` | agent-ui | Form cancellation |
 | `GET` | `/api/sessions` | sessions | List sessions |
@@ -1932,7 +1929,6 @@ The Rust backend can emit live events through Tauri. Dotted worker event names a
 - `agent.status`
 - `agent.awaiting_form`
 - `agent.form.resolution`
-- `agent.awaiting_approval`
 - `agent.context.compacted`
 - `agent.context.trimmed`
 - `agent.file.reference`

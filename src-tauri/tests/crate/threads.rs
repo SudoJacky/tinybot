@@ -906,13 +906,10 @@ fn native_agent_semantic_sink_updates_runtime_state_before_final_persistence() {
     persist_native_agent_turn_start(spec, &fixture.thread_store, config.clone())
         .expect("run start should persist");
     let mut emitter = crate::agent::runtime_protocol::AgentTurnEmitter::new(session_id, turn_id);
-    let event = emitter.awaiting_approval(
+    let event = emitter.message_completed(
         "unix-ms:1",
-        "approval-trace-sink",
-        serde_json::json!({
-            "toolName": "workspace.write_file",
-            "summary": "Approval required: workspace.write_file",
-        }),
+        Some("assistant-trace-sink".to_string()),
+        "Semantic trace",
     );
     let sink = crate::agent::bridge::AgentTurnSemanticSink::new(
         fixture.thread_store.clone(),
@@ -935,15 +932,15 @@ fn native_agent_semantic_sink_updates_runtime_state_before_final_persistence() {
         .as_array()
         .expect("runtime events should be an array")
         .iter()
-        .any(|event| event["eventName"] == "agent.awaiting_approval"));
-    let approval_item = runtime_state["timeline"]["items"]
+        .any(|event| event["eventName"] == "agent.message.completed"));
+    let message_item = runtime_state["timeline"]["items"]
         .as_array()
         .expect("timeline items should be an array")
         .iter()
-        .find(|item| item["kind"] == "approval")
-        .expect("approval item should be restored");
-    assert_eq!(approval_item["status"], "waiting");
-    assert_eq!(approval_item["data"]["approvalId"], "approval-trace-sink");
+        .find(|item| item["kind"] == "assistant_message")
+        .expect("assistant message should be restored");
+    assert_eq!(message_item["status"], "completed");
+    assert_eq!(message_item["data"]["content"], "Semantic trace");
 }
 
 #[test]

@@ -3,8 +3,7 @@ pub(crate) fn native_agent_turn_status(stop_reason: Option<&str>) -> &'static st
         Some("final_response") => "completed",
         Some("cancelled") => "cancelled",
         Some("interrupted") | Some("runtime_restarted") => "interrupted",
-        Some("awaiting_approval")
-        | Some("awaiting_form")
+        Some("awaiting_form")
         | Some("awaiting_tool")
         | Some("tool_running")
         | Some("awaiting_subagent") => "waiting",
@@ -20,7 +19,6 @@ pub(crate) fn native_agent_turn_phase_from_stop_reason(
         Some("final_response") => Some("completed"),
         Some("cancelled") => Some("cancelled"),
         Some("interrupted") | Some("runtime_restarted") => Some("interrupted"),
-        Some("awaiting_approval") => Some("awaiting_approval"),
         Some("awaiting_form") => Some("awaiting_form"),
         Some("awaiting_tool") => Some("tool_running"),
         Some(_) => Some("failed"),

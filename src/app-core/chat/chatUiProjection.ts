@@ -33,11 +33,6 @@ export const CHAT_RUNTIME_CAPABILITY_AUDIT = {
     source: "worker_submit_thread_turn / worker_dispatch_tinyos_host_command",
     notes: "Native websocket dispatch builds agent.turn_input requests for Rust runtime.",
   },
-  approvalResume: {
-    status: "route",
-    source: "worker_webui_route /api/approvals",
-    notes: "Standalone worker_resume_agent_approval is unsupported, but Rust-owned WebUI approval routes restore and resolve checkpoints.",
-  },
   subagentTranscript: {
     status: "partial",
     source: "worker_background_trace_get_delegate_trace",

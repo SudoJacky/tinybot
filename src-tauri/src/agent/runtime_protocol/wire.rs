@@ -29,7 +29,6 @@ pub enum AgentRuntimePhase {
     StreamingModel,
     ToolCalling,
     ToolRunning,
-    AwaitingApproval,
     AwaitingForm,
     AwaitingSubagent,
     Paused,
@@ -50,7 +49,6 @@ impl AgentRuntimePhase {
             Self::StreamingModel => "streaming_model",
             Self::ToolCalling => "tool_calling",
             Self::ToolRunning => "tool_running",
-            Self::AwaitingApproval => "awaiting_approval",
             Self::AwaitingForm => "awaiting_form",
             Self::AwaitingSubagent => "awaiting_subagent",
             Self::Paused => "paused",
@@ -83,8 +81,6 @@ pub enum AgentTurnItemKind {
     AssistantMessage,
     Reasoning,
     ToolCall,
-    #[serde(alias = "approval_request")]
-    Approval,
     #[serde(alias = "form_request")]
     Form,
     #[serde(alias = "subagent_activity")]
@@ -151,20 +147,6 @@ pub enum AgentRuntimeEventVisibility {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum AgentApprovalDecision {
-    Approved,
-    Denied,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AgentApprovalScope {
-    Once,
-    Session,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
 pub enum AgentFormAction {
     Submit,
     Cancel,
@@ -173,14 +155,6 @@ pub enum AgentFormAction {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AgentContinuationInput {
-    Approval {
-        #[serde(rename = "approvalId")]
-        approval_id: String,
-        decision: AgentApprovalDecision,
-        scope: AgentApprovalScope,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        guidance: Option<String>,
-    },
     Form {
         #[serde(rename = "formId")]
         form_id: String,
@@ -257,18 +231,6 @@ pub enum AgentTurnItemData {
         result: Value,
         detail_id: Option<String>,
         timing: Value,
-    },
-    Approval {
-        approval_id: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        command_id: Option<String>,
-        tool_call_id: Option<String>,
-        status: String,
-        reason: Option<String>,
-        decision: Option<String>,
-        scope: Option<String>,
-        guidance: Option<String>,
-        detail_id: Option<String>,
     },
     Form {
         form_id: String,

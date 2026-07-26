@@ -1053,12 +1053,6 @@ fn semantic_thread_item_from_runtime_event(
 ) -> Option<crate::threads::domain::ThreadItem> {
     let payload = event.get("payload").cloned().unwrap_or(Value::Null);
     let kind = match runtime_event_kind(event)? {
-        AgentEventKind::AwaitingApproval => {
-            crate::threads::domain::ThreadItemKind::ApprovalRequested(payload)
-        }
-        AgentEventKind::ApprovalDecision => {
-            crate::threads::domain::ThreadItemKind::ApprovalResolved(payload)
-        }
         AgentEventKind::Error => crate::threads::domain::ThreadItemKind::Error(payload),
         AgentEventKind::Cancelled => crate::threads::domain::ThreadItemKind::Cancelled(payload),
         AgentEventKind::DelegateSpawned => {

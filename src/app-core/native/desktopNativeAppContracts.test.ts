@@ -70,7 +70,6 @@ describe("native app cross-surface contracts", () => {
       "first-start-provider-setup",
       "upload-scope-selection",
       "provider-model-toolbar-update",
-      "approval-continuation",
     ]);
     expect(contract.flows.every((flow) => flow.routeTransitions.length > 0 && flow.events.length > 0)).toBe(true);
     expect(contract.endToEndVerification).toEqual(["route-transition", "event-update", "state-continuity"]);

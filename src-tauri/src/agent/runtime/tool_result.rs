@@ -47,31 +47,6 @@ impl NativeToolResultEnvelope {
         )
     }
 
-    pub fn approval_denied(
-        tool_call: &NativeAgentToolCall,
-        summary: String,
-        guidance: String,
-    ) -> Self {
-        Self::from_parts(
-            "denied",
-            summary.clone(),
-            summary.clone(),
-            "approval_denied",
-            tool_call.name.clone(),
-            serde_json::json!({
-                "kind": "approval_denied",
-                "guidance": guidance,
-            }),
-            serde_json::json!([]),
-            serde_json::json!([]),
-            serde_json::json!([]),
-            tool_call,
-            serde_json::json!({
-                "guidance": guidance,
-            }),
-        )
-    }
-
     fn from_parts(
         status: &str,
         summary: String,

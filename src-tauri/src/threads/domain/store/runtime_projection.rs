@@ -42,12 +42,7 @@ fn semantic_event_from_thread_item(item: &ThreadItem) -> Option<(AgentEventKind,
                 "content": value.get("output").cloned().unwrap_or(Value::Null),
             }),
         )),
-        ThreadItemKind::ApprovalRequested(value) => {
-            Some((AgentEventKind::AwaitingApproval, value.clone()))
-        }
-        ThreadItemKind::ApprovalResolved(value) => {
-            Some((AgentEventKind::ApprovalDecision, value.clone()))
-        }
+        ThreadItemKind::ApprovalRequested(_) | ThreadItemKind::ApprovalResolved(_) => None,
         ThreadItemKind::SubagentSpawned(value) => {
             Some((AgentEventKind::DelegateSpawned, value.clone()))
         }
@@ -118,17 +113,6 @@ fn runtime_event_from_thread_item(
 }
 
 fn semantic_item_id(item: &ThreadItem) -> String {
-    if let ThreadItemKind::ApprovalRequested(value) | ThreadItemKind::ApprovalResolved(value) =
-        &item.kind
-    {
-        return value
-            .get("approvalId")
-            .or_else(|| value.get("approval_id"))
-            .or_else(|| value.get("id"))
-            .and_then(Value::as_str)
-            .unwrap_or(&item.item_id)
-            .to_string();
-    }
     if let ThreadItemKind::SubagentMessage(value) = &item.kind {
         return value
             .get("messageId")
@@ -154,7 +138,6 @@ fn semantic_item_id(item: &ThreadItem) -> String {
         "toolCallId",
         "messageId",
         "reasoningId",
-        "approvalId",
         "delegateId",
         "subagentId",
         "id",

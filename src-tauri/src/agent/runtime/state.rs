@@ -157,8 +157,7 @@ impl AgentTurnState {
         };
         let is_blocking = matches!(
             self.phase,
-            AgentRuntimePhase::AwaitingApproval
-                | AgentRuntimePhase::AwaitingForm
+            AgentRuntimePhase::AwaitingForm
                 | AgentRuntimePhase::AwaitingSubagent
                 | AgentRuntimePhase::Paused
         );
@@ -184,7 +183,6 @@ impl AgentTurnState {
         let phase = match stop_reason {
             "final_response" => AgentRuntimePhase::Completed,
             "cancelled" => AgentRuntimePhase::Cancelled,
-            "awaiting_approval" => AgentRuntimePhase::AwaitingApproval,
             "awaiting_form" => AgentRuntimePhase::AwaitingForm,
             _ => AgentRuntimePhase::Failed,
         };

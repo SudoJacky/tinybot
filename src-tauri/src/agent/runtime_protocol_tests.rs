@@ -8,8 +8,8 @@ fn runtime_phase_serializes_as_snake_case() {
         json!("hydrating_history")
     );
     assert_eq!(
-        serde_json::to_value(AgentRuntimePhase::AwaitingApproval).unwrap(),
-        json!("awaiting_approval")
+        serde_json::to_value(AgentRuntimePhase::AwaitingForm).unwrap(),
+        json!("awaiting_form")
     );
     assert_eq!(
         serde_json::to_value(AgentRuntimePhase::Cancelled).unwrap(),
@@ -19,24 +19,6 @@ fn runtime_phase_serializes_as_snake_case() {
 
 #[test]
 fn continuation_input_serializes_stable_shape() {
-    let approval = AgentContinuationInput::Approval {
-        approval_id: "approval-1".to_string(),
-        decision: AgentApprovalDecision::Denied,
-        scope: AgentApprovalScope::Session,
-        guidance: Some("Use a read-only command instead.".to_string()),
-    };
-
-    assert_eq!(
-        serde_json::to_value(approval).unwrap(),
-        json!({
-            "kind": "approval",
-            "approvalId": "approval-1",
-            "decision": "denied",
-            "scope": "session",
-            "guidance": "Use a read-only command instead."
-        })
-    );
-
     let form = AgentContinuationInput::Form {
         form_id: "form-1".to_string(),
         action: AgentFormAction::Submit,
@@ -149,10 +131,6 @@ fn legacy_native_event_name_maps_to_turn_item_kind() {
     assert_eq!(
         AgentTurnItemKind::for_legacy_event("agent.tool.result"),
         Some(AgentTurnItemKind::ToolCall)
-    );
-    assert_eq!(
-        AgentTurnItemKind::for_legacy_event("agent.awaiting_approval"),
-        Some(AgentTurnItemKind::Approval)
     );
     assert_eq!(
         AgentTurnItemKind::for_legacy_event("agent.delegate.completed"),
@@ -340,28 +318,12 @@ fn turn_emitter_helpers_emit_canonical_payloads() {
         "workspace.read_file",
         json!({ "status": "ok", "summary": "read README" }),
     );
-    emitter.awaiting_approval(
-        "2026-07-03T00:00:03Z",
-        "approval-1",
-        json!({ "summary": "Allow write?" }),
-    );
-    emitter.approval_decision(
-        "2026-07-03T00:00:04Z",
-        "approval-1",
-        AgentApprovalDecision::Denied,
-        AgentApprovalScope::Once,
-        Some("Do not write.".to_string()),
-    );
-
     let events = emitter.take_events();
     assert_eq!(events[0].event_name, "agent.turn.started");
     assert_eq!(events[0].payload["userMessage"]["content"], "Start");
     assert_eq!(events[1].item_id.as_deref(), Some("call-1"));
     assert_eq!(events[1].payload["args"]["path"], "README.md");
     assert_eq!(events[2].payload["envelope"]["summary"], "read README");
-    assert_eq!(events[3].phase, AgentRuntimePhase::AwaitingApproval);
-    assert_eq!(events[4].payload["decision"], "denied");
-    assert_eq!(events[4].payload["guidance"], "Do not write.");
 }
 
 #[test]
@@ -466,23 +428,23 @@ fn trace_projection_ignores_waiting_done_without_final_content() {
     let mut appender = AgentRuntimeEventAppender::new("session-1", "turn-1");
     let events = vec![
         appender.append_legacy_native_event(
-            "agent.awaiting_approval",
-            Some("approval-1".to_string()),
+            "agent.awaiting_form",
+            Some("form-1".to_string()),
             "2026-07-03T00:00:01Z",
-            json!({ "approvalId": "approval-1", "reason": "Needs write approval" }),
+            json!({ "formId": "form-1", "title": "Configure turn" }),
         ),
         appender.append_legacy_native_event(
             "agent.done",
             None,
             "2026-07-03T00:00:02Z",
-            json!({ "stopReason": "awaiting_approval" }),
+            json!({ "stopReason": "awaiting_user" }),
         ),
     ];
 
     let items = project_turn_items_from_trace_events(&events);
 
     assert_eq!(items.len(), 1);
-    assert_eq!(items[0].kind, AgentTurnItemKind::Approval);
+    assert_eq!(items[0].kind, AgentTurnItemKind::Form);
     assert_eq!(items[0].status, AgentTurnItemStatus::Waiting);
 }
 
@@ -605,64 +567,6 @@ fn trace_projection_combines_tool_lifecycle_into_one_item() {
 }
 
 #[test]
-fn trace_projection_combines_approval_request_and_decision() {
-    let mut appender = AgentRuntimeEventAppender::new("session-1", "turn-1");
-    let events = vec![
-        appender.append_legacy_native_event(
-            "agent.awaiting_approval",
-            Some("approval-1".to_string()),
-            "2026-07-03T00:00:01Z",
-            json!({
-                "approvalId": "approval-1",
-                "summary": "Allow workspace.write_file?",
-                "options": [
-                    { "decision": "approved", "scope": "once" },
-                    { "decision": "approved", "scope": "session" },
-                    { "decision": "denied" }
-                ]
-            }),
-        ),
-        appender.append_legacy_native_event(
-            "agent.approval.decision",
-            Some("approval-1".to_string()),
-            "2026-07-03T00:00:02Z",
-            json!({
-                "approvalId": "approval-1",
-                "decision": "denied",
-                "scope": "once",
-                "guidance": "Do not write files."
-            }),
-        ),
-    ];
-
-    let items = project_turn_items_from_trace_events(&events);
-
-    assert_eq!(items.len(), 1);
-    assert_eq!(items[0].item_id, "approval-1");
-    assert_eq!(items[0].kind, AgentTurnItemKind::Approval);
-    assert_eq!(items[0].status, AgentTurnItemStatus::Completed);
-    assert_eq!(
-        items[0].title.as_deref(),
-        Some("Allow workspace.write_file?")
-    );
-    assert_eq!(
-        items[0].summary.as_deref(),
-        Some("Allow workspace.write_file?")
-    );
-    assert_eq!(items[0].payload["status"], "completed");
-    assert_eq!(items[0].payload["decision"], "denied");
-    assert_eq!(items[0].payload["scope"], "once");
-    assert_eq!(items[0].payload["guidance"], "Do not write files.");
-    assert_eq!(items[0].payload["detailId"], "approval:approval-1");
-    assert_eq!(
-        items[0].payload["options"].as_array().map(Vec::len),
-        Some(3)
-    );
-    assert_eq!(items[0].created_at, "2026-07-03T00:00:01Z");
-    assert_eq!(items[0].updated_at.as_deref(), Some("2026-07-03T00:00:02Z"));
-}
-
-#[test]
 fn trace_projection_combines_form_request_and_resolution() {
     let mut appender = AgentRuntimeEventAppender::new("session-1", "turn-1");
     let events = vec![
@@ -747,14 +651,6 @@ fn trace_projection_restores_active_terminal_and_waiting_items() {
             json!({ "message": "cancelled" }),
         ),
         runtime_event(
-            "turn-5",
-            "agent.awaiting_approval",
-            AgentRuntimePhase::AwaitingApproval,
-            Some("approval-1"),
-            1,
-            json!({ "approvalId": "approval-1" }),
-        ),
-        runtime_event(
             "turn-6",
             "agent.awaiting_form",
             AgentRuntimePhase::AwaitingForm,
@@ -774,17 +670,15 @@ fn trace_projection_restores_active_terminal_and_waiting_items() {
 
     let items = project_turn_items_from_trace_events(&events);
 
-    assert_eq!(items.len(), 7);
+    assert_eq!(items.len(), 6);
     assert_eq!(items[0].status, AgentTurnItemStatus::Running);
     assert_eq!(items[1].status, AgentTurnItemStatus::Completed);
     assert_eq!(items[2].status, AgentTurnItemStatus::Failed);
     assert_eq!(items[3].status, AgentTurnItemStatus::Cancelled);
-    assert_eq!(items[4].kind, AgentTurnItemKind::Approval);
+    assert_eq!(items[4].kind, AgentTurnItemKind::Form);
     assert_eq!(items[4].status, AgentTurnItemStatus::Waiting);
-    assert_eq!(items[5].kind, AgentTurnItemKind::Form);
+    assert_eq!(items[5].kind, AgentTurnItemKind::SubagentLifecycle);
     assert_eq!(items[5].status, AgentTurnItemStatus::Waiting);
-    assert_eq!(items[6].kind, AgentTurnItemKind::SubagentLifecycle);
-    assert_eq!(items[6].status, AgentTurnItemStatus::Waiting);
 }
 
 #[test]

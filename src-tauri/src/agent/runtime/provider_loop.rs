@@ -1,8 +1,5 @@
 use super::checkpoint::save_phase_checkpoint;
-use super::continuations::{
-    maybe_approval_resume_result, restore_activated_tools_for_continuation,
-    ApprovalContinuationOutcome, ApprovalResume,
-};
+use super::continuations::restore_activated_tools_for_continuation;
 use super::hooks::AgentHookEvaluation;
 use super::result::{cancelled_result, cancelled_turn_result, error_result};
 use super::state::AgentTurnState;
@@ -200,7 +197,7 @@ async fn run_owned_native_agent_turn_async(
         .unwrap_or("unknown");
     let completed = matches!(
         stop_reason,
-        "final_response" | "awaiting_approval" | "awaiting_form" | "awaiting_subagent"
+        "final_response" | "awaiting_form" | "awaiting_subagent"
     );
     let stage = if completed {
         identity.metrics().increment("turn.completed");
@@ -567,8 +564,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             AgentEventKind::TurnStarted.wire_name(),
         )?;
         let start_iteration = match continuation_resume {
-            Some(PreparedTurnResume::Approval(resume)) => resume.apply(&context, &mut state),
-            Some(PreparedTurnResume::UserInput(resume)) => resume.apply(&context, &mut state),
+            Some(resume) => resume.apply(&context, &mut state),
             None => {
                 state.emit_turn_started(&context)?;
                 state.emit_tinyos_command_acknowledgement(&context)?;
@@ -1409,13 +1405,8 @@ enum PreparedContinuation {
     Finished(Value),
     Continue {
         context: AgentTurnContext,
-        resume: Option<PreparedTurnResume>,
+        resume: Option<UserInputResume>,
     },
-}
-
-enum PreparedTurnResume {
-    Approval(ApprovalResume),
-    UserInput(UserInputResume),
 }
 
 async fn prepare_continuation(
@@ -1423,22 +1414,11 @@ async fn prepare_continuation(
     mut context: AgentTurnContext,
 ) -> Result<PreparedContinuation, String> {
     restore_activated_tools_for_continuation(&services, &mut context)?;
-    if let Some(outcome) = maybe_approval_resume_result(&services, &mut context).await? {
-        return Ok(match outcome {
-            ApprovalContinuationOutcome::Resume(resume) => PreparedContinuation::Continue {
-                context,
-                resume: Some(PreparedTurnResume::Approval(resume)),
-            },
-            ApprovalContinuationOutcome::Finished(result) => PreparedContinuation::Finished(result),
-        });
-    }
     let resume = match prepare_user_input_continuation(&services, &mut context)? {
         Some(UserInputContinuationOutcome::Finished(result)) => {
             return Ok(PreparedContinuation::Finished(result));
         }
-        Some(UserInputContinuationOutcome::Resume(resume)) => {
-            Some(PreparedTurnResume::UserInput(resume))
-        }
+        Some(UserInputContinuationOutcome::Resume(resume)) => Some(resume),
         None => None,
     };
     Ok(PreparedContinuation::Continue { context, resume })

@@ -1,6 +1,6 @@
 use super::items::{
-    AgentApprovalItem, AgentContextCompactionItem, AgentErrorItem, AgentFileReferenceItem,
-    AgentSubagentItem, AgentSubagentMessageItem, AgentUserInputItem,
+    AgentContextCompactionItem, AgentErrorItem, AgentFileReferenceItem, AgentSubagentItem,
+    AgentSubagentMessageItem, AgentUserInputItem,
 };
 use super::{AgentItem, AgentUsageItem};
 use crate::agent::runtime_protocol::AgentEventKind;
@@ -25,17 +25,6 @@ pub(super) fn attach_agent_item(kind: AgentEventKind, mut payload: Value) -> Val
 
 fn agent_item_for_runtime_event(kind: AgentEventKind, payload: &Value) -> Option<AgentItem> {
     match kind {
-        AgentEventKind::AwaitingApproval | AgentEventKind::ApprovalDecision => {
-            Some(AgentItem::Approval(AgentApprovalItem {
-                id: required_string(payload, &["approvalId", "approval_id"], kind),
-                tool_call_id: optional_string(payload, &["toolCallId", "tool_call_id"]),
-                status: optional_string(payload, &["status"])
-                    .unwrap_or_else(|| "completed".to_string()),
-                reason: optional_string(payload, &["guidance", "reason", "summary", "content"]),
-                decision: optional_string(payload, &["decision"]),
-                scope: optional_string(payload, &["scope"]),
-            }))
-        }
         AgentEventKind::AwaitingForm | AgentEventKind::FormResolution => {
             Some(AgentItem::UserInput(AgentUserInputItem {
                 id: required_string(payload, &["formId", "form_id"], kind),

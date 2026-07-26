@@ -26,15 +26,6 @@ pub(crate) struct SubmitThreadTurnInput {
     pub(crate) spec: serde_json::Value,
 }
 
-pub(crate) struct ResolveThreadApprovalInput {
-    pub(crate) thread_id: String,
-    pub(crate) approval_id: String,
-    pub(crate) approved: bool,
-    pub(crate) command_id: String,
-    pub(crate) scope: Option<String>,
-    pub(crate) guidance: Option<String>,
-}
-
 pub(crate) struct SubmitThreadFormInput {
     pub(crate) thread_id: String,
     pub(crate) form_id: String,
@@ -197,27 +188,6 @@ pub(crate) async fn submit_thread_turn_with_services(
         "agentResult": agent_result,
         "snapshot": snapshot,
     }))
-}
-
-pub(crate) async fn resolve_thread_approval_with_services(
-    _base_services: NativeAgentRuntimeServices,
-    input: ResolveThreadApprovalInput,
-    _workspace_root: PathBuf,
-    _config_snapshot: serde_json::Value,
-) -> Result<serde_json::Value, String> {
-    let ResolveThreadApprovalInput {
-        thread_id,
-        approval_id,
-        approved,
-        command_id,
-        scope,
-        guidance,
-    } = input;
-    let _compatibility_payload = (approved, command_id, scope, guidance);
-    Err(format!(
-        "tool approvals are disabled; approval `{}` for thread `{}` cannot be resolved",
-        approval_id, thread_id
-    ))
 }
 
 pub(crate) async fn submit_thread_form_with_services(
@@ -467,7 +437,3 @@ fn start_native_agent_thread_turn(
         "native agent thread turn start",
     )
 }
-
-#[cfg(test)]
-#[path = "thread_flow_approval_tests.rs"]
-mod approval_tests;
