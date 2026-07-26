@@ -10,20 +10,6 @@ export type SubmitDesktopApprovalActionOptions = {
   approvalId: string;
   gatewayTools: DesktopApprovalGatewayTools;
   guidance?: string;
-  invoke?: (command: string, args?: DesktopApprovalResumeArgs) => Promise<unknown> | unknown;
-  onGatewayFallback?: (context: DesktopApprovalActionContext) => void;
-  onNativeResumeAttempt?: (context: DesktopApprovalActionContext) => void;
-  onNativeResumeFailed?: (error: unknown) => void;
-  onNativeResumeSucceeded?: (context: DesktopApprovalActionContext, result: unknown) => void;
-  preferNativeWorkerResume?: boolean;
-  sessionKey: string;
-};
-
-export type DesktopApprovalActionContext = {
-  action: DesktopApprovalAction;
-  approvalId: string;
-  approved: boolean;
-  scope: "once" | "session";
   sessionKey: string;
 };
 
@@ -38,16 +24,6 @@ export type DesktopApprovalRefreshContext = {
   activeSessionKey?: string;
 };
 
-type DesktopApprovalResumeArgs = {
-  input: {
-    approvalId: string;
-    approved: boolean;
-    scope: "once" | "session";
-    sessionId: string;
-    guidance?: string;
-  };
-};
-
 export function nativeApprovalRefreshOptions(context: DesktopApprovalRefreshContext): DesktopApprovalRefreshOptions | undefined {
   if (context.activeSessionKey) {
     return { sessionKey: gatewayCompatibleApprovalSessionKey(context.activeSessionKey) };
@@ -58,69 +34,10 @@ export function nativeApprovalRefreshOptions(context: DesktopApprovalRefreshCont
   return undefined;
 }
 
-export type DesktopApprovalResumeResultSummary = {
-  hasApproval: boolean;
-  hasCheckpoint: boolean;
-  hasResult: boolean;
-  resultPreview: string;
-  resultStopReason: string;
-  sessionId: string;
-};
-
-export function summarizeDesktopApprovalResumeResult(result: unknown): DesktopApprovalResumeResultSummary {
-  const record = isRecord(result) ? result : {};
-  const nestedResult = record.result;
-  const nestedRecord = isRecord(nestedResult) ? nestedResult : {};
-  return {
-    hasApproval: Boolean(record.approval),
-    hasCheckpoint: Boolean(record.checkpoint),
-    hasResult: nestedResult !== undefined && nestedResult !== null,
-    resultPreview: summarizeResumeText(resultPreviewValue(nestedResult)),
-    resultStopReason: stringValue(nestedRecord.stopReason ?? nestedRecord.stop_reason ?? nestedRecord.status),
-    sessionId: stringValue(record.sessionId ?? record.session_id),
-  };
-}
-
 export async function submitDesktopApprovalAction(options: SubmitDesktopApprovalActionOptions): Promise<unknown> {
   const approved = options.action !== "deny";
   const scope = options.action === "approveSession" ? "session" : "once";
-  const compatibleSessionKey = gatewayCompatibleApprovalSessionKey(options.sessionKey);
-  const context: DesktopApprovalActionContext = {
-    action: options.action,
-    approvalId: options.approvalId,
-    approved,
-    scope,
-    sessionKey: compatibleSessionKey,
-  };
-  if (options.preferNativeWorkerResume && options.invoke) {
-    try {
-      options.onNativeResumeAttempt?.(context);
-      const guidance = guidanceValue(options.guidance);
-      const result = await options.invoke("worker_resume_agent_approval", {
-        input: {
-          sessionId: compatibleSessionKey,
-          approvalId: options.approvalId,
-          approved,
-          scope,
-          ...(guidance ? { guidance } : {}),
-        },
-      });
-      const resumeError = nativeResumeError(result);
-      if (resumeError) {
-        throw resumeError;
-      }
-      options.onNativeResumeSucceeded?.(context, result);
-      return result;
-    } catch (error) {
-      options.onNativeResumeFailed?.(error);
-      // Fall through to WebUI/gateway approval routes for non-native approvals.
-    }
-  }
-  const gatewaySessionKey = compatibleSessionKey;
-  const gatewayContext = gatewaySessionKey === options.sessionKey
-    ? context
-    : { ...context, sessionKey: gatewaySessionKey };
-  options.onGatewayFallback?.(gatewayContext);
+  const gatewaySessionKey = gatewayCompatibleApprovalSessionKey(options.sessionKey);
   if (!approved) {
     const guidance = guidanceValue(options.guidance);
     await options.gatewayTools.denyApproval(options.approvalId, {
@@ -143,44 +60,6 @@ export function gatewayCompatibleApprovalSessionKey(sessionKey: string): string 
     : sessionKey;
 }
 
-function resultPreviewValue(result: unknown): unknown {
-  if (typeof result === "string") {
-    return result;
-  }
-  if (!isRecord(result)) {
-    return "";
-  }
-  return result.finalOutput
-    ?? result.final_output
-    ?? result.content
-    ?? result.message
-    ?? result.output
-    ?? result.text
-    ?? "";
-}
-
-function summarizeResumeText(value: unknown): string {
-  const text = stringValue(value).trim().replace(/\s+/g, " ");
-  return text.length > 160 ? `${text.slice(0, 157)}...` : text;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function stringValue(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
 function guidanceValue(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
-}
-
-function nativeResumeError(result: unknown): Error | null {
-  if (!isRecord(result) || result.ok !== false) {
-    return null;
-  }
-  const error = isRecord(result.error) ? result.error : {};
-  const message = stringValue(error.message) || stringValue(result.status) || "Native approval resume failed";
-  return new Error(message);
 }

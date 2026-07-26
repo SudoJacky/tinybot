@@ -1,10 +1,10 @@
-use super::events::event;
-use super::tool_dispatcher::is_subagent_tool;
+use super::state::AgentTurnState;
+use super::subagent_projection::project_subagent_tool_result;
 use super::{
-    string_field, AgentAssistantMessage, AgentItem, AgentMessageContent, AgentToolCallItem,
-    AgentToolResultItem, AgentTurnContext, NativeAgentEvent, NativeAgentToolCall,
-    NativeAgentToolResult,
+    AgentAssistantMessage, AgentItem, AgentMessageContent, AgentToolCallItem, AgentToolResultItem,
+    AgentTurnContext, NativeAgentToolCall, NativeAgentToolResult, NativeToolResultEnvelope,
 };
+use crate::agent::runtime_protocol::{AgentEventKind, AgentRuntimePhase, ToolLifecycleEvent};
 use serde_json::Value;
 
 pub(super) fn assistant_tool_calls_message(
@@ -28,17 +28,6 @@ pub(super) fn assistant_tool_calls_message(
     .expect("constructed assistant tool-call item must serialize")
 }
 
-pub(super) fn tool_observation_message(tool_call: &NativeAgentToolCall, content: &str) -> Value {
-    tool_observation_message_with_error(tool_call, content, false)
-}
-
-pub(super) fn tool_error_observation_message(
-    tool_call: &NativeAgentToolCall,
-    content: &str,
-) -> Value {
-    tool_observation_message_with_error(tool_call, content, true)
-}
-
 fn tool_observation_message_with_error(
     tool_call: &NativeAgentToolCall,
     content: &str,
@@ -53,28 +42,6 @@ fn tool_observation_message_with_error(
     })
     .to_legacy_message()
     .expect("constructed tool-result item must serialize")
-}
-
-pub(super) fn append_continuation_tool_observation(
-    messages: &mut Vec<Value>,
-    tool_call: &NativeAgentToolCall,
-    content: &str,
-    synthesize_missing_call: bool,
-) -> Result<(), String> {
-    prepare_continuation_tool_observation(messages, tool_call, synthesize_missing_call)?;
-    messages.push(tool_observation_message(tool_call, content));
-    Ok(())
-}
-
-pub(super) fn append_continuation_tool_error_observation(
-    messages: &mut Vec<Value>,
-    tool_call: &NativeAgentToolCall,
-    content: &str,
-    synthesize_missing_call: bool,
-) -> Result<(), String> {
-    prepare_continuation_tool_observation(messages, tool_call, synthesize_missing_call)?;
-    messages.push(tool_error_observation_message(tool_call, content));
-    Ok(())
 }
 
 pub(super) fn prepare_continuation_tool_observation(
@@ -128,226 +95,91 @@ pub(super) fn prepare_continuation_tool_observation(
     Ok(())
 }
 
-pub(super) fn tool_observation_content(result: &NativeAgentToolResult) -> String {
-    if let Some(content) = result.envelope.get("modelContent").and_then(Value::as_str) {
-        return content.to_string();
-    }
-    legacy_tool_content(&result.content)
-}
-
-pub(super) fn subagent_link_event_from_tool_result(
+pub(super) fn commit_tool_observation(
     context: &AgentTurnContext,
-    tool_call: &NativeAgentToolCall,
-    result: &NativeAgentToolResult,
-) -> Option<NativeAgentEvent> {
-    if !matches!(tool_call.name.as_str(), "subagent.spawn" | "spawn_agent") {
-        return None;
-    }
-    let raw = result.envelope.get("raw")?;
-    if raw.get("accepted").and_then(Value::as_bool) != Some(true) {
-        return None;
-    }
-    let subagent = raw.get("subagent")?;
-    let subagent_id = string_field(subagent, "subagentId").or_else(|| {
-        raw.get("event")
-            .and_then(|event| string_field(event, "delegateId"))
+    state: &mut AgentTurnState,
+    iteration: i64,
+    tool_call: NativeAgentToolCall,
+    result: NativeAgentToolResult,
+) -> Result<(), String> {
+    state.emit_pending_hook_evaluations(context)?;
+    let result = normalize_tool_result_for_context(result, context).map_err(|error| {
+        format!(
+            "invalid tool result for `{}` (`{}`): {error}",
+            tool_call.name, tool_call.id
+        )
     })?;
-    let child_turn_id = string_field(subagent, "childTurnId")
-        .or_else(|| {
-            raw.get("event")
-                .and_then(|event| string_field(event, "childTurnId"))
-        })
-        .unwrap_or_else(|| subagent_id.clone());
-    Some(event(
-        "agent.delegate.linked",
-        serde_json::json!({
-            "turnId": context.turn_id,
-            "sessionId": context.session_id,
-            "parentTurnId": context.turn_id,
-            "parentTurnId": context.turn_id,
-            "delegateId": subagent_id,
-            "subagentId": subagent_id,
-            "childTurnId": child_turn_id,
-            "traceRef": subagent.get("traceRef").cloned().unwrap_or(Value::Null),
-            "name": subagent.get("name").cloned().unwrap_or(Value::Null),
-            "task": subagent.get("task").cloned().unwrap_or(Value::Null),
-            "status": subagent.get("status").cloned().unwrap_or(Value::Null),
-            "linkType": "parent_child",
-            "sourceToolCallId": tool_call.id,
-        }),
-    ))
-}
-
-pub(super) fn subagent_activity_events_from_tool_result(
-    context: &AgentTurnContext,
-    tool_call: &NativeAgentToolCall,
-    result: &NativeAgentToolResult,
-) -> Vec<NativeAgentEvent> {
-    if !is_subagent_tool(&tool_call.name) {
-        return Vec::new();
-    }
-    let Some(raw) = result.envelope.get("raw") else {
-        return Vec::new();
-    };
-    let mut events = Vec::new();
-    if let Some(background_event) = raw.get("event") {
-        if background_event.get("eventType").and_then(Value::as_str)
-            != Some("agent.delegate.started")
-        {
-            if let Some(event) = subagent_background_activity_event(context, background_event) {
-                events.push(event);
-            }
+    let status = required_envelope_string(&result.envelope, "status")?.to_string();
+    let summary = required_envelope_string(&result.envelope, "summary")?.to_string();
+    let observation_content =
+        required_envelope_string(&result.envelope, "modelContent")?.to_string();
+    let observation_message =
+        tool_observation_message_with_error(&tool_call, &observation_content, status != "ok");
+    state
+        .history
+        .record_message(observation_message)
+        .map_err(|error| {
+            format!(
+                "failed to record tool observation for `{}` (`{}`): {error}",
+                tool_call.name, tool_call.id
+            )
+        })?;
+    state.emit(ToolLifecycleEvent::Result(serde_json::json!({
+        "iteration": iteration,
+        "toolCallId": tool_call.id,
+        "toolName": tool_call.name,
+        "name": tool_call.name,
+        "detailId": format!("tool:{}", tool_call.id),
+        "status": "completed",
+        "resultStatus": status,
+        "summary": summary,
+        "timing": {
+            "durationMs": result
+                .envelope
+                .get("metrics")
+                .and_then(|metrics| metrics.get("durationMs"))
+                .cloned()
+                .unwrap_or(Value::Null),
+        },
+        "content": observation_content,
+        "envelope": result.envelope.clone(),
+    })))?;
+    for event in project_subagent_tool_result(context, &tool_call, &result)? {
+        if event.kind() == crate::agent::runtime_protocol::AgentEventKind::DelegateWait {
+            state.transition_phase(
+                AgentRuntimePhase::AwaitingSubagent,
+                iteration,
+                AgentEventKind::DelegateWait.wire_name(),
+            )?;
         }
+        state.emit(event)?;
     }
-
-    match tool_call.name.as_str() {
-        "subagent.wait" | "wait_agent" => {
-            events.push(event(
-                "agent.delegate.wait",
-                serde_json::json!({
-                    "turnId": context.turn_id,
-                    "sessionId": context.session_id,
-                    "parentTurnId": context.turn_id,
-                    "parentTurnId": context.turn_id,
-                    "timedOut": raw.get("timedOut").cloned().unwrap_or(Value::Null),
-                    "statuses": raw.get("statuses").cloned().unwrap_or_else(|| serde_json::json!([])),
-                    "sourceToolCallId": tool_call.id,
-                }),
-            ));
-            if let Some(statuses) = raw.get("statuses").and_then(Value::as_array) {
-                for status in statuses {
-                    if status
-                        .get("terminalResult")
-                        .and_then(Value::as_str)
-                        .is_some()
-                    {
-                        events.push(subagent_status_activity_event(
-                            context,
-                            "agent.delegate.result",
-                            "result",
-                            status,
-                            &tool_call.id,
-                        ));
-                    }
-                    if status
-                        .get("blockerSummary")
-                        .and_then(Value::as_str)
-                        .is_some()
-                        || status
-                            .get("pendingApproval")
-                            .is_some_and(|value| !value.is_null())
-                    {
-                        events.push(subagent_status_activity_event(
-                            context,
-                            "agent.delegate.notification",
-                            "notification",
-                            status,
-                            &tool_call.id,
-                        ));
-                    }
-                }
-            }
-        }
-        "subagent.query" => {
-            if let Some(subagent) = raw.get("subagent") {
-                events.push(subagent_status_activity_event(
-                    context,
-                    "agent.delegate.queried",
-                    "query",
-                    subagent,
-                    &tool_call.id,
-                ));
-            }
-        }
-        _ => {}
-    }
-    events
+    state
+        .completed_tool_results
+        .push(completed_tool_result_entry(
+            &tool_call, &result, &status, &summary,
+        ));
+    Ok(())
 }
 
-fn subagent_background_activity_event(
-    context: &AgentTurnContext,
-    background_event: &Value,
-) -> Option<NativeAgentEvent> {
-    let event_name = string_field(background_event, "eventType")?;
-    let mut payload = background_event
-        .get("payload")
-        .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default();
-    payload.insert("turnId".to_string(), Value::String(context.turn_id.clone()));
-    payload.insert(
-        "sessionId".to_string(),
-        Value::String(context.session_id.clone()),
-    );
-    if let Some(parent_turn_id) = string_field(background_event, "turnId") {
-        payload.insert(
-            "parentTurnId".to_string(),
-            Value::String(parent_turn_id.clone()),
-        );
-        payload.insert("parentTurnId".to_string(), Value::String(parent_turn_id));
-    }
-    if let Some(delegate_id) = string_field(background_event, "delegateId") {
-        payload.insert("delegateId".to_string(), Value::String(delegate_id.clone()));
-        payload.insert("subagentId".to_string(), Value::String(delegate_id));
-    }
-    if let Some(child_turn_id) = string_field(background_event, "childTurnId") {
-        payload.insert("childTurnId".to_string(), Value::String(child_turn_id));
-    }
-    if let Some(trace_ref) = string_field(background_event, "traceRef") {
-        payload.insert("traceRef".to_string(), Value::String(trace_ref));
-    }
-    if let Some(sequence) = background_event.get("sequence").cloned() {
-        payload.insert("delegateSequence".to_string(), sequence);
-    }
-    if let Some(event_id) = string_field(background_event, "eventId") {
-        payload.insert("delegateEventId".to_string(), Value::String(event_id));
-    }
-    Some(event(&event_name, Value::Object(payload)))
-}
-
-fn subagent_status_activity_event(
-    context: &AgentTurnContext,
-    event_name: &str,
-    activity: &str,
-    subagent: &Value,
-    source_tool_call_id: &str,
-) -> NativeAgentEvent {
-    event(
-        event_name,
-        serde_json::json!({
-            "turnId": context.turn_id,
-            "sessionId": context.session_id,
-            "parentTurnId": subagent.get("parentTurnId").cloned().unwrap_or_else(|| Value::String(context.turn_id.clone())),
-            "parentTurnId": subagent.get("parentTurnId").cloned().unwrap_or_else(|| Value::String(context.turn_id.clone())),
-            "delegateId": subagent.get("subagentId").cloned().unwrap_or(Value::Null),
-            "subagentId": subagent.get("subagentId").cloned().unwrap_or(Value::Null),
-            "childTurnId": subagent.get("childTurnId").cloned().unwrap_or(Value::Null),
-            "traceRef": subagent.get("traceRef").cloned().unwrap_or(Value::Null),
-            "name": subagent.get("name").cloned().unwrap_or(Value::Null),
-            "task": subagent.get("task").cloned().unwrap_or(Value::Null),
-            "status": subagent.get("status").cloned().unwrap_or(Value::Null),
-            "terminalResult": subagent.get("terminalResult").cloned().unwrap_or(Value::Null),
-            "blockerSummary": subagent.get("blockerSummary").cloned().unwrap_or(Value::Null),
-            "pendingApproval": subagent.get("pendingApproval").cloned().unwrap_or(Value::Null),
-            "activity": activity,
-            "sourceToolCallId": source_tool_call_id,
-        }),
-    )
-}
-
-pub(super) fn normalize_tool_result_for_context(
+fn normalize_tool_result_for_context(
     mut result: NativeAgentToolResult,
     context: &AgentTurnContext,
-) -> NativeAgentToolResult {
+) -> Result<NativeAgentToolResult, String> {
+    if !result.envelope.is_object() {
+        return Err("tool result envelope must be an object".to_string());
+    }
+    let status = required_envelope_string(&result.envelope, "status")?;
+    if !matches!(status, "ok" | "error" | "denied") {
+        return Err(format!(
+            "tool result envelope has unsupported status `{status}`"
+        ));
+    }
+    let summary = required_envelope_string(&result.envelope, "summary")?.to_string();
+    let mut model_content = required_envelope_string(&result.envelope, "modelContent")?.to_string();
     let secrets = config_redaction_values(&context.config_snapshot);
     let max_model_chars = configured_max_tool_result_chars(context);
     let mut redactions = Vec::new();
-    let mut model_content = result
-        .envelope
-        .get("modelContent")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .unwrap_or_else(|| legacy_tool_content(&result.content));
     model_content = redact_sensitive_text(&model_content, &secrets, &mut redactions);
     let original_model_chars = model_content.chars().count();
     let mut truncated = false;
@@ -358,60 +190,67 @@ pub(super) fn normalize_tool_result_for_context(
         }
     }
 
-    if let Some(envelope) = result.envelope.as_object_mut() {
-        envelope.insert(
-            "modelContent".to_string(),
-            Value::String(model_content.clone()),
+    let envelope = result
+        .envelope
+        .as_object_mut()
+        .ok_or_else(|| "tool result envelope must be an object".to_string())?;
+    envelope.insert(
+        "modelContent".to_string(),
+        Value::String(model_content.clone()),
+    );
+    envelope.insert(
+        "summary".to_string(),
+        Value::String(redact_sensitive_text(&summary, &secrets, &mut redactions)),
+    );
+    if let Some(structured) = envelope.get_mut("structured") {
+        redact_sensitive_value(structured, &secrets, &mut redactions);
+    }
+    if let Some(raw) = envelope.get_mut("raw") {
+        redact_sensitive_value(raw, &secrets, &mut redactions);
+    }
+    if let Some(metrics) = envelope.get_mut("metrics").and_then(Value::as_object_mut) {
+        metrics.insert(
+            "modelChars".to_string(),
+            serde_json::json!(model_content.chars().count()),
         );
-        let summary = envelope
-            .get("summary")
-            .and_then(Value::as_str)
-            .map(str::to_string)
-            .unwrap_or_else(|| model_content.clone());
-        envelope.insert(
-            "summary".to_string(),
-            Value::String(redact_sensitive_text(&summary, &secrets, &mut redactions)),
+        metrics.insert(
+            "originalModelChars".to_string(),
+            serde_json::json!(original_model_chars),
         );
-        if let Some(structured) = envelope.get_mut("structured") {
-            redact_sensitive_value(structured, &secrets, &mut redactions);
-        }
-        if let Some(raw) = envelope.get_mut("raw") {
-            redact_sensitive_value(raw, &secrets, &mut redactions);
-        }
-        if let Some(metrics) = envelope.get_mut("metrics").and_then(Value::as_object_mut) {
-            metrics.insert(
-                "modelChars".to_string(),
-                serde_json::json!(model_content.chars().count()),
-            );
-            metrics.insert(
-                "originalModelChars".to_string(),
-                serde_json::json!(original_model_chars),
-            );
-        }
+    }
+    envelope.insert(
+        "redactions".to_string(),
+        Value::Array(redactions.into_iter().map(Value::String).collect()),
+    );
+    envelope.insert(
+        "truncation".to_string(),
+        serde_json::json!({
+            "truncated": truncated,
+            "maxModelChars": max_model_chars,
+            "originalModelChars": original_model_chars,
+        }),
+    );
+    if truncated {
         envelope.insert(
-            "redactions".to_string(),
-            Value::Array(redactions.into_iter().map(Value::String).collect()),
-        );
-        envelope.insert(
-            "truncation".to_string(),
+            "continuation".to_string(),
             serde_json::json!({
-                "truncated": truncated,
-                "maxModelChars": max_model_chars,
-                "originalModelChars": original_model_chars,
+                "cursor": format!("modelContent:{original_model_chars}"),
+                "nextOffset": model_content.chars().count(),
             }),
         );
-        if truncated {
-            envelope.insert(
-                "continuation".to_string(),
-                serde_json::json!({
-                    "cursor": format!("modelContent:{original_model_chars}"),
-                    "nextOffset": model_content.chars().count(),
-                }),
-            );
-        }
     }
     result.content = Value::String(model_content);
-    result
+    Ok(result)
+}
+
+fn required_envelope_string<'a>(
+    envelope: &'a NativeToolResultEnvelope,
+    field: &str,
+) -> Result<&'a str, String> {
+    envelope
+        .get(field)
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("tool result envelope field `{field}` must be a string"))
 }
 
 fn configured_max_tool_result_chars(context: &AgentTurnContext) -> Option<usize> {
@@ -505,23 +344,17 @@ fn redact_sensitive_value(value: &mut Value, secrets: &[String], redactions: &mu
     }
 }
 
-pub(super) fn completed_tool_result_entry(
+fn completed_tool_result_entry(
     tool_call: &NativeAgentToolCall,
     result: &NativeAgentToolResult,
+    status: &str,
+    summary: &str,
 ) -> Value {
     serde_json::json!({
         "toolCallId": tool_call.id,
         "toolName": tool_call.name,
-        "status": result
-            .envelope
-            .get("status")
-            .cloned()
-            .unwrap_or_else(|| serde_json::json!("ok")),
-        "summary": result
-            .envelope
-            .get("summary")
-            .cloned()
-            .unwrap_or_else(|| result.content.clone()),
+        "status": status,
+        "summary": summary,
         "envelope": result.envelope,
     })
 }
@@ -534,4 +367,44 @@ pub(super) fn legacy_tool_content(value: &Value) -> String {
         return content.to_string();
     }
     value.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn commit_tool_observation_rejects_a_malformed_envelope_without_partial_projection() {
+        let context = AgentTurnContext::from_spec(
+            json!({
+                "turnId": "turn-malformed-tool-result",
+                "sessionId": "session-malformed-tool-result",
+                "messages": [{ "role": "user", "content": "run a tool" }]
+            }),
+            json!({}),
+        );
+        let mut state = AgentTurnState::new(&context, None).expect("state should initialize");
+        let tool_call = NativeAgentToolCall {
+            id: "call-malformed".to_string(),
+            name: "workspace.read_file".to_string(),
+            arguments_json: r#"{"path":"README.md"}"#.to_string(),
+            result: Value::Null,
+        };
+        let mut result =
+            NativeAgentToolResult::generic_success(&tool_call, json!({ "content": "README" }));
+        result
+            .envelope
+            .as_object_mut()
+            .expect("test envelope should be an object")
+            .remove("status");
+
+        let error = commit_tool_observation(&context, &mut state, 0, tool_call, result)
+            .expect_err("malformed tool result must fail fast");
+
+        assert!(error.contains("field `status` must be a string"));
+        assert_eq!(state.history.messages().len(), 1);
+        assert!(state.completed_tool_results.is_empty());
+        assert!(state.runtime_events().is_empty());
+    }
 }

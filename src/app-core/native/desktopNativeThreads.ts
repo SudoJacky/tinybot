@@ -59,15 +59,6 @@ export type NativeThreadTurnResult = {
   snapshot: unknown;
 };
 
-export type NativeThreadApprovalInput = {
-  threadId: string;
-  approvalId: string;
-  approved: boolean;
-  commandId: string;
-  scope?: "once" | "session";
-  guidance?: string;
-};
-
 export type NativeThreadFormInput = {
   threadId: string;
   formId: string;
@@ -96,7 +87,6 @@ export type NativeThreadsApi = {
   events(body: Record<string, unknown>): Promise<unknown>;
   restoreCheckpoint(body: Record<string, unknown>): Promise<unknown>;
   submitTurn(body: NativeThreadTurnInput): Promise<NativeThreadTurnResult>;
-  resolveApproval(body: NativeThreadApprovalInput): Promise<unknown>;
   submitForm(body: NativeThreadFormInput): Promise<unknown>;
 };
 
@@ -124,7 +114,6 @@ export function createDesktopNativeThreadsApi(options: { invoke?: TauriInvoke } 
     events: (body) => thread("worker_thread_events", body),
     restoreCheckpoint: (body) => thread("worker_thread_restore_checkpoint", body),
     submitTurn: (body) => invoke("worker_submit_thread_turn", { input: body }) as Promise<NativeThreadTurnResult>,
-    resolveApproval: (body) => invoke("worker_resolve_thread_approval", { input: body }),
     submitForm: (body) => invoke("worker_submit_thread_form", { input: body }),
   };
 }

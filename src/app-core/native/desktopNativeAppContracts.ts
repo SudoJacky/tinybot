@@ -60,7 +60,6 @@ export function buildNativeAppUserFlowContract() {
       flow("first-start-provider-setup", ["/settings/provider-models", "/chat"], ["provider.validated", "toolbar.model.updated"]),
       flow("upload-scope-selection", ["/chat/:chatId", "/files"], ["upload.started", "upload.completed"]),
       flow("provider-model-toolbar-update", ["/settings/provider-models", "/chat"], ["settings.saved", "toolbar.model.updated"]),
-      flow("approval-continuation", ["/chat/:chatId", "/approvals"], ["approval.pending", "approval.resolved"]),
     ],
     endToEndVerification: ["route-transition", "event-update", "state-continuity"],
   };

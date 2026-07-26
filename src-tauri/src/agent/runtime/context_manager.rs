@@ -162,7 +162,6 @@ fn validate_tool_pairs(items: &[AgentItem]) -> Result<(), String> {
             AgentItem::Instruction(_)
             | AgentItem::UserMessage(_)
             | AgentItem::Reasoning(_)
-            | AgentItem::Approval(_)
             | AgentItem::UserInput(_)
             | AgentItem::PlanProgress(_)
             | AgentItem::Subagent(_)

@@ -16,11 +16,11 @@ to [`agent::bridge`](../bridge/README.md).
 - Call the configured provider and adapt provider-specific responses.
 - Maintain the typed `AgentItem` history used inside the runtime.
 - Route model-requested tools through injected dispatch services.
-- Evaluate hooks around provider, tool, permission, turn, and context stages.
+- Evaluate hooks around provider, tool, turn, and context stages.
 - Emit correlated runtime events and project typed items for compatibility
   consumers.
-- Track token usage, cancellation, pause/resume continuations, live approval
-  waiters, and resumable checkpoints.
+- Track token usage, cancellation, pause/resume continuations, and resumable
+  form checkpoints.
 
 This module does **not** choose the desktop transport, mutate Tauri state, or
 decide which durable conversation store a caller uses.
@@ -36,9 +36,9 @@ decide which durable conversation store a caller uses.
    provider events into runtime concepts.
 5. Assistant items are appended. Tool calls are routed through
    `tool_router.rs`, `tool_dispatcher.rs`, and `tool_runtime.rs`.
-6. Approval registers an in-memory responder and suspends the original tool
-   future. Forms and pause boundaries still use their dedicated resumable
-   mechanisms. A tool batch is fully recorded before the next provider call.
+6. Tools dispatch directly after validation. Forms and pause boundaries use
+   their dedicated resumable mechanisms. A tool batch is fully recorded before
+   the next provider call.
 7. Usage and runtime events are emitted through the injected trace sink, and
    `result.rs` builds the terminal response.
 
@@ -70,9 +70,8 @@ conditionals to the provider loop.
   routing, execution, cleanup, and deferred tools.
 - `tool_projection.rs`, `tool_result.rs`: normalized tool lifecycle output.
 - `hooks.rs`, `events.rs`: runtime hooks and event construction.
-- `approvals.rs`: live approval responders and exact per-session grants.
-- `checkpoint.rs`, `continuations.rs`, `stores.rs`: other resumable boundaries
-  and default in-memory services.
+- `checkpoint.rs`, `continuations.rs`, `stores.rs`: resumable form and pause
+  boundaries plus default in-memory services.
 - `settings.rs`, `state.rs`, `usage.rs`, `user_input.rs`, `result.rs`: validated
   turn state and result construction.
 
@@ -81,11 +80,11 @@ conditionals to the provider loop.
 - `AgentItem` is the runtime domain history. Legacy message JSON is a boundary
   representation, not the internal source of truth.
 - Model-visible additions must be bounded and should retain provenance.
-- A turn that is awaiting approval, form input, or resume is not terminal.
+- A turn that is awaiting form input or resume is not terminal.
 - Cancellation is cooperative and must be checked at provider and tool
   boundaries; late work must not overwrite a terminal outcome.
-- Tool execution goes through the dispatcher so capability, approval,
-  ownership, trace, and cleanup behavior remain consistent.
+- Tool execution goes through the dispatcher so capability, ownership, trace,
+  and cleanup behavior remain consistent.
 - Runtime events for one turn retain the same trace context and stable identity
   fields across provider, tool, checkpoint, and terminal stages.
 - Errors should preserve the failing stage; do not convert provider, tool, or

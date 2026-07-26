@@ -47,7 +47,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 #[test]
-fn worker_webui_approval_and_form_routes_report_missing_checkpoints_with_rust_metadata() {
+fn worker_webui_form_route_reports_missing_checkpoint_with_rust_metadata() {
     let fixture = WorkspaceFixture::new();
     let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
         fixture.thread_store.clone(),
@@ -56,21 +56,6 @@ fn worker_webui_approval_and_form_routes_report_missing_checkpoints_with_rust_me
         "desktop": { "nativeAgentRuntime": "rust" }
     });
 
-    let approval = worker_webui_route_with_options(
-        &shared,
-        WorkerWebuiRouteInput {
-            method: "POST".to_string(),
-            path: "/api/approvals/missing-approval/approve".to_string(),
-            headers: None,
-            body: Some(serde_json::json!({
-                "session_key": "websocket:missing-approval"
-            })),
-        },
-        fixture.root.clone(),
-        config.clone(),
-        Duration::from_millis(10),
-    )
-    .expect("missing approval route should return Rust diagnostic");
     let form = worker_webui_route_with_options(
         &shared,
         WorkerWebuiRouteInput {
@@ -88,14 +73,6 @@ fn worker_webui_approval_and_form_routes_report_missing_checkpoints_with_rust_me
     )
     .expect("missing form route should return Rust diagnostic");
 
-    assert_eq!(approval["headers"]["x-tinybot-route-owner"], "rust");
-    assert_eq!(approval["headers"]["x-tinybot-route-group"], "approvals");
-    assert_eq!(approval["body"]["ok"], false);
-    assert_eq!(approval["body"]["status"], "not_found");
-    assert_eq!(
-        approval["body"]["error"]["message"],
-        "pending approval not found"
-    );
     assert_eq!(form["status"], 404);
     assert_eq!(form["headers"]["x-tinybot-route-owner"], "rust");
     assert_eq!(form["headers"]["x-tinybot-route-group"], "agent-ui");
@@ -798,19 +775,6 @@ fn worker_webui_route_serves_rust_owned_state_routes_on_rust_backend() {
         Duration::from_millis(10),
     )
     .expect("workspace route should be Rust-owned");
-    let approvals = worker_webui_route_with_options(
-        &shared,
-        WorkerWebuiRouteInput {
-            method: "GET".to_string(),
-            path: "/api/approvals?session_key=websocket%3Achat-1".to_string(),
-            headers: None,
-            body: None,
-        },
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("approvals list route should be Rust-owned");
     let providers = worker_webui_route_with_options(
         &shared,
         WorkerWebuiRouteInput {
@@ -871,23 +835,6 @@ fn worker_webui_route_serves_rust_owned_state_routes_on_rust_backend() {
         Duration::from_millis(10),
     )
     .expect("OpenAI models route should be Rust-owned");
-    let approval_resolution = worker_webui_route_with_options(
-        &shared,
-        WorkerWebuiRouteInput {
-            method: "POST".to_string(),
-            path: "/api/approvals/approval%2F1/approve".to_string(),
-            headers: None,
-            body: Some(serde_json::json!({
-                "session_key": "websocket:chat-1",
-                "scope": "session"
-            })),
-        },
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("approval resolution route should be Rust-owned");
-
     assert_eq!(bootstrap["status"], 200);
     assert_eq!(bootstrap["headers"]["x-tinybot-route-owner"], "rust");
     assert!(bootstrap["body"]["token"]
@@ -909,9 +856,6 @@ fn worker_webui_route_serves_rust_owned_state_routes_on_rust_backend() {
     assert_eq!(branch["headers"]["x-tinybot-route-owner"], "rust");
     assert_eq!(branch["body"]["title"], "Route session · 分叉");
     assert_eq!(workspace_file["body"]["content"], "hello route");
-    assert_eq!(approvals["headers"]["x-tinybot-route-owner"], "rust");
-    assert_eq!(approvals["headers"]["x-tinybot-route-group"], "approvals");
-    assert_eq!(approvals["body"]["session_key"], "websocket:chat-1");
     assert_eq!(providers["headers"]["x-tinybot-route-owner"], "rust");
     assert_eq!(providers["headers"]["x-tinybot-route-group"], "providers");
     assert_eq!(providers["body"]["source"], "rust");
@@ -929,13 +873,6 @@ fn worker_webui_route_serves_rust_owned_state_routes_on_rust_backend() {
         .any(|model| model == "live-model"));
     assert_eq!(openai_models["headers"]["x-tinybot-route-owner"], "rust");
     assert_eq!(openai_models["body"]["data"][0]["id"], "gpt-4.1-mini");
-    assert_eq!(
-        approval_resolution["headers"]["x-tinybot-route-owner"],
-        "rust"
-    );
-    assert_eq!(approval_resolution["body"]["approvalId"], "approval/1");
-    assert_eq!(approval_resolution["body"]["approved"], true);
-    assert_eq!(approval_resolution["body"]["status"], "not_found");
 }
 
 #[test]

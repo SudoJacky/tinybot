@@ -28,8 +28,7 @@ pub(crate) use result_projection::{
     native_agent_turn_phase_from_stop_reason, native_agent_turn_status, native_agent_usage,
 };
 pub(crate) use thread_flow::{
-    resolve_thread_approval_with_services, submit_thread_form_with_services,
-    submit_thread_turn_with_services, ResolveThreadApprovalInput, SubmitThreadFormInput,
+    submit_thread_form_with_services, submit_thread_turn_with_services, SubmitThreadFormInput,
     SubmitThreadTurnInput,
 };
 pub(crate) use tool_dispatcher::native_agent_services_with_tool_executor;
@@ -38,7 +37,4 @@ pub(crate) use tool_dispatcher::{dispatch_agent_browser_interact, dispatch_agent
 #[cfg(test)]
 pub(crate) use trace_sink::AgentTurnSemanticSink;
 pub(crate) use trace_sink::{desktop_agent_event_sink, native_agent_trace_sink};
-pub(crate) use webui_continuation::{
-    native_session_checkpoint, pending_approvals_from_checkpoint,
-    resolve_agent_ui_form_body_with_services, resolve_approval_body_with_services,
-};
+pub(crate) use webui_continuation::resolve_agent_ui_form_body_with_services;

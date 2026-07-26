@@ -352,12 +352,16 @@ fn fixture_agent_tool_calls(response: &Value) -> Result<Vec<NativeAgentToolCall>
             let id = string_field(tool, "id").unwrap_or_else(|| format!("fixture-call-{index}"));
             let name = string_field(tool, "name")
                 .ok_or_else(|| format!("fixture tool call `{id}` requires name"))?;
+            let arguments_json = tool
+                .get("argumentsJson")
+                .or_else(|| tool.get("arguments_json"))
+                .and_then(Value::as_str)
+                .ok_or_else(|| format!("fixture tool call `{id}` requires argumentsJson"))?
+                .to_string();
             Ok(NativeAgentToolCall {
                 id,
                 name,
-                arguments_json: string_field(tool, "argumentsJson")
-                    .or_else(|| string_field(tool, "arguments_json"))
-                    .unwrap_or_else(|| "{}".to_string()),
+                arguments_json,
                 result: tool.get("result").cloned().unwrap_or(Value::Null),
             })
         })

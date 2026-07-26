@@ -16,8 +16,6 @@ describe("native backend contract", () => {
       "worker_cancel_agent",
       "worker_restore_agent_checkpoint",
       "worker_submit_agent_form",
-      "worker_resume_agent_approval",
-      "worker_resolve_thread_approval",
       "worker_submit_thread_form",
       "worker_thread_read",
       "worker_thread_resume",
@@ -38,7 +36,6 @@ describe("native backend contract", () => {
     expect(NATIVE_BACKEND_AGENT_EVENT_NAMES).toEqual(expect.arrayContaining([
       "agent.delta",
       "agent.awaiting_form",
-      "agent.awaiting_approval",
       "agent.delegate.trace.updated",
       "agent.browser_frame",
       "heartbeat.delivery",
@@ -53,7 +50,6 @@ describe("native backend contract", () => {
       "agent.status",
       "agent.phase.changed",
       "agent.guidance",
-      "agent.approval.decision",
       "agent.form.resolution",
       "agent.message.completed",
     ]));
@@ -62,7 +58,6 @@ describe("native backend contract", () => {
       "agent.status": "user-visible",
       "agent.phase.changed": "debug",
       "agent.guidance": "status",
-      "agent.approval.decision": "websocket-visible",
       "agent.form.resolution": "websocket-visible",
       "agent.message.completed": "user-visible",
     });

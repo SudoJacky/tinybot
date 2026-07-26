@@ -236,8 +236,6 @@ pub(crate) fn run() {
             crate::desktop_commands::agent::worker_task_plan_save,
             crate::desktop_commands::agent::worker_task_plan_delete,
             crate::desktop_commands::agent::worker_submit_agent_form,
-            crate::desktop_commands::agent::worker_resume_agent_approval,
-            crate::desktop_commands::agent::worker_resolve_thread_approval,
             crate::desktop_commands::agent::worker_submit_thread_form,
             crate::desktop_commands::config::get_settings_snapshot,
             crate::desktop_commands::config::get_config_editor_snapshot,

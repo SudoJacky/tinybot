@@ -2,6 +2,7 @@ use super::{
     agent_provider_config, bool_field, chat_completion_content, AgentTurnContext,
     NativeAgentProviderFailure,
 };
+use crate::agent::runtime_protocol::AgentEventKind;
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -24,7 +25,7 @@ pub(super) struct ContextWindowProjection {
 
 #[derive(Clone, Debug)]
 pub(super) struct ContextWindowAction {
-    pub(super) event_name: &'static str,
+    pub(super) event_kind: AgentEventKind,
     strategy: &'static str,
     dropped_message_count: usize,
     retained_message_count: usize,
@@ -100,7 +101,7 @@ pub(super) async fn context_window_projection_async(
             return Ok(ContextWindowProjection {
                 messages: compacted.messages,
                 action: Some(ContextWindowAction {
-                    event_name: "agent.context.compacted",
+                    event_kind: AgentEventKind::ContextCompacted,
                     strategy: "compact",
                     dropped_message_count: compacted.old_count,
                     retained_message_count: compacted.recent_count,
@@ -134,7 +135,7 @@ pub(super) async fn context_window_projection_async(
     Ok(ContextWindowProjection {
         messages,
         action: (dropped_message_count > 0).then_some(ContextWindowAction {
-            event_name: "agent.context.trimmed",
+            event_kind: AgentEventKind::ContextTrimmed,
             strategy: "discard",
             dropped_message_count,
             retained_message_count,
@@ -153,10 +154,8 @@ pub(super) fn context_window_action_payload(
     iteration: i64,
     action: &ContextWindowAction,
 ) -> Value {
-    let compacted = action.event_name == "agent.context.compacted";
+    let compacted = action.event_kind == AgentEventKind::ContextCompacted;
     serde_json::json!({
-        "turnId": context.turn_id,
-        "sessionId": context.session_id,
         "iteration": iteration,
         "contextId": compacted.then(|| format!("{}:context:{}", context.turn_id, iteration + 1)),
         "trigger": compacted.then_some("auto"),

@@ -12,7 +12,6 @@ pub enum AgentHookStage {
     AfterProviderResponse,
     BeforeToolUse,
     AfterToolUse,
-    PermissionRequest,
     TurnStart,
     TurnComplete,
     TurnAbort,
@@ -28,7 +27,6 @@ impl AgentHookStage {
             Self::AfterProviderResponse => "after_provider_response",
             Self::BeforeToolUse => "before_tool_use",
             Self::AfterToolUse => "after_tool_use",
-            Self::PermissionRequest => "permission_request",
             Self::TurnStart => "turn_start",
             Self::TurnComplete => "turn_complete",
             Self::TurnAbort => "turn_abort",
@@ -41,11 +39,7 @@ impl AgentHookStage {
     fn supports_denial(self) -> bool {
         matches!(
             self,
-            Self::BeforeProviderRequest
-                | Self::BeforeToolUse
-                | Self::PermissionRequest
-                | Self::TurnStart
-                | Self::ThreadStart
+            Self::BeforeProviderRequest | Self::BeforeToolUse | Self::TurnStart | Self::ThreadStart
         )
     }
 

@@ -32,24 +32,25 @@ impl WorkerRpcRouter {
                 let manager = self.restore_subagent_session(&operation, &params.session_key)?;
                 let result = manager.spawn(params);
                 if result.accepted {
-                    if let Some(subagent) = &result.subagent {
-                        let persisted = operation.thread().record_subagent_spawn(
-                            subagent,
-                            result
-                                .event
-                                .as_ref()
-                                .map(serde_json::to_value)
-                                .transpose()
-                                .map_err(serialization_error)?,
-                        )?;
-                        for result in persisted {
-                            persist_thread_append_result(
-                                &operation,
-                                &result.thread,
-                                &result.items,
-                            )?;
-                        }
-                    }
+                    let subagent = result.subagent.as_ref().ok_or_else(|| {
+                        WorkerProtocolError::new(
+                            WorkerProtocolErrorCode::InvalidProtocol,
+                            "accepted subagent spawn is missing its subagent summary",
+                            serde_json::json!({ "method": request.method }),
+                            false,
+                            WorkerProtocolErrorSource::RustCore,
+                        )
+                    })?;
+                    let persisted = operation.thread().record_subagent_spawn(
+                        subagent,
+                        result
+                            .event
+                            .as_ref()
+                            .map(serde_json::to_value)
+                            .transpose()
+                            .map_err(serialization_error)?,
+                    )?;
+                    persist_subagent_append_results(&operation, persisted)?;
                 }
                 serde_json::to_value(result).map_err(serialization_error)
             }
@@ -68,109 +69,73 @@ impl WorkerRpcRouter {
                 let manager = self.restore_subagent_session(&operation, &params.session_key)?;
                 let result = manager.enqueue_input(params);
                 if result.accepted {
-                    if let (Some(subagent), Some(input)) = (&result.subagent, &result.input) {
-                        let persisted = operation.thread().record_subagent_input(
-                            subagent,
-                            input,
-                            result
-                                .event
-                                .as_ref()
-                                .map(serde_json::to_value)
-                                .transpose()
-                                .map_err(serialization_error)?,
-                        )?;
-                        for result in persisted {
-                            persist_thread_append_result(
-                                &operation,
-                                &result.thread,
-                                &result.items,
+                    match (&result.subagent, &result.input) {
+                        (Some(subagent), Some(input)) => {
+                            let persisted = operation.thread().record_subagent_input(
+                                subagent,
+                                input,
+                                result
+                                    .event
+                                    .as_ref()
+                                    .map(serde_json::to_value)
+                                    .transpose()
+                                    .map_err(serialization_error)?,
                             )?;
+                            persist_subagent_append_results(&operation, persisted)?;
+                        }
+                        (None, None) => {}
+                        _ => {
+                            return Err(WorkerProtocolError::new(
+                                WorkerProtocolErrorCode::InvalidProtocol,
+                                "accepted subagent input must include both subagent and input",
+                                serde_json::json!({ "method": request.method }),
+                                false,
+                                WorkerProtocolErrorSource::RustCore,
+                            ));
                         }
                     }
                 }
                 serde_json::to_value(result).map_err(serialization_error)
             }
-            "subagent.cancel" => {
+            "subagent.cancel" | "subagent.close" | "subagent.resume" => {
                 let params: SubagentTargetParams = parse_params(request)?;
                 let manager = self.restore_subagent_session(&operation, &params.session_key)?;
-                let result = manager.cancel(params);
+                let result = match request.method.as_str() {
+                    "subagent.cancel" => manager.cancel(params),
+                    "subagent.close" => manager.close(params),
+                    "subagent.resume" => manager.resume(params),
+                    _ => unreachable!("grouped subagent lifecycle dispatch must be exhaustive"),
+                };
                 if result.accepted {
-                    if let Some(subagent) = &result.subagent {
-                        let persisted = operation.thread().record_subagent_status(
-                            subagent,
-                            result
-                                .event
-                                .as_ref()
-                                .map(serde_json::to_value)
-                                .transpose()
-                                .map_err(serialization_error)?,
-                        )?;
-                        for result in persisted {
-                            persist_thread_append_result(
-                                &operation,
-                                &result.thread,
-                                &result.items,
-                            )?;
-                        }
-                    }
-                }
-                serde_json::to_value(result).map_err(serialization_error)
-            }
-            "subagent.close" => {
-                let params: SubagentTargetParams = parse_params(request)?;
-                let manager = self.restore_subagent_session(&operation, &params.session_key)?;
-                let result = manager.close(params);
-                if result.accepted {
-                    if let Some(subagent) = &result.subagent {
-                        let persisted = operation.thread().record_subagent_status(
-                            subagent,
-                            result
-                                .event
-                                .as_ref()
-                                .map(serde_json::to_value)
-                                .transpose()
-                                .map_err(serialization_error)?,
-                        )?;
-                        for result in persisted {
-                            persist_thread_append_result(
-                                &operation,
-                                &result.thread,
-                                &result.items,
-                            )?;
-                        }
-                    }
-                }
-                serde_json::to_value(result).map_err(serialization_error)
-            }
-            "subagent.resume" => {
-                let params: SubagentTargetParams = parse_params(request)?;
-                let manager = self.restore_subagent_session(&operation, &params.session_key)?;
-                let result = manager.resume(params);
-                if result.accepted {
-                    if let Some(subagent) = &result.subagent {
-                        let persisted = operation.thread().record_subagent_status(
-                            subagent,
-                            result
-                                .event
-                                .as_ref()
-                                .map(serde_json::to_value)
-                                .transpose()
-                                .map_err(serialization_error)?,
-                        )?;
-                        for result in persisted {
-                            persist_thread_append_result(
-                                &operation,
-                                &result.thread,
-                                &result.items,
-                            )?;
-                        }
-                    }
+                    let subagent = result.subagent.as_ref().ok_or_else(|| {
+                        WorkerProtocolError::new(
+                            WorkerProtocolErrorCode::InvalidProtocol,
+                            "accepted subagent lifecycle change is missing its subagent summary",
+                            serde_json::json!({ "method": request.method }),
+                            false,
+                            WorkerProtocolErrorSource::RustCore,
+                        )
+                    })?;
+                    let persisted = operation.thread().record_subagent_status(
+                        subagent,
+                        result
+                            .event
+                            .as_ref()
+                            .map(serde_json::to_value)
+                            .transpose()
+                            .map_err(serialization_error)?,
+                    )?;
+                    persist_subagent_append_results(&operation, persisted)?;
                 }
                 serde_json::to_value(result).map_err(serialization_error)
             }
             _ => Err(unknown_method_error(request)),
         })();
-        if result.is_err() {
+        if let Err(error) = &result {
+            eprintln!(
+                "subagent_dispatch_failed method={} request_id={} trace_id={} error={}",
+                request.method, request.id, request.trace_id, error.message
+            );
             operation.reload_projection()?;
         }
         result
@@ -222,12 +187,20 @@ impl WorkerRpcRouter {
             .filter(|summary| active_ids.contains(&summary.subagent_id))
         {
             let persisted = operation.thread().record_subagent_status(summary, None)?;
-            for result in persisted {
-                persist_thread_append_result(operation, &result.thread, &result.items)?;
-            }
+            persist_subagent_append_results(operation, persisted)?;
         }
         Ok(manager)
     }
+}
+
+fn persist_subagent_append_results(
+    operation: &crate::threads::workspace_store::WorkspaceThreadOperation<'_>,
+    results: Vec<crate::threads::domain::AppendThreadItemsResult>,
+) -> Result<(), WorkerProtocolError> {
+    for result in results {
+        persist_thread_append_result(operation, &result.thread, &result.items)?;
+    }
+    Ok(())
 }
 
 fn durable_subagent_summary(entry: &ThreadAgentRegistryEntry) -> Option<SubagentThreadSummary> {

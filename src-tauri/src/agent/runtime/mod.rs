@@ -1,5 +1,5 @@
 use crate::agent::runtime_protocol::{
-    AgentRuntimeEventEnvelope, AgentTraceContext, LegacyNativeAgentEventProjection,
+    AgentEventKind, AgentRuntimeEventEnvelope, AgentTraceContext, LegacyNativeAgentEventProjection,
 };
 use crate::collaboration::subagents::SubagentThreadManager;
 #[cfg(test)]
@@ -33,11 +33,13 @@ mod result;
 mod settings;
 mod state;
 mod stores;
+mod subagent_projection;
 mod tool_dispatcher;
 mod tool_projection;
 mod tool_result;
 mod tool_router;
 mod tool_runtime;
+mod trace_commit;
 mod usage;
 mod user_input;
 
@@ -289,6 +291,58 @@ pub struct NativeAgentToolCall {
 }
 
 #[derive(Clone, Debug)]
+pub struct PreparedToolCall {
+    original: NativeAgentToolCall,
+    arguments: serde_json::Map<String, Value>,
+}
+
+impl PreparedToolCall {
+    pub fn prepare(original: NativeAgentToolCall) -> Result<Self, String> {
+        let arguments =
+            serde_json::from_str::<Value>(&original.arguments_json).map_err(|error| {
+                format!(
+                    "native tool `{}` arguments are invalid JSON: {error}",
+                    original.name
+                )
+            })?;
+        let Value::Object(arguments) = arguments else {
+            return Err(format!(
+                "native tool `{}` arguments must be a JSON object",
+                original.name
+            ));
+        };
+        Ok(Self {
+            original,
+            arguments,
+        })
+    }
+
+    pub fn arguments(&self) -> &serde_json::Map<String, Value> {
+        &self.arguments
+    }
+
+    pub fn arguments_value(&self) -> Value {
+        Value::Object(self.arguments.clone())
+    }
+
+    pub fn original(&self) -> &NativeAgentToolCall {
+        &self.original
+    }
+
+    pub fn into_original(self) -> NativeAgentToolCall {
+        self.original
+    }
+}
+
+impl std::ops::Deref for PreparedToolCall {
+    type Target = NativeAgentToolCall;
+
+    fn deref(&self) -> &Self::Target {
+        &self.original
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct NativeAgentToolResult {
     pub content: Value,
     pub envelope: NativeToolResultEnvelope,
@@ -361,13 +415,13 @@ pub trait NativeAgentToolDispatcher: Send + Sync + 'static {
     fn dispatch(
         &self,
         context: &AgentTurnContext,
-        tool_call: &NativeAgentToolCall,
+        tool_call: &PreparedToolCall,
     ) -> Result<NativeAgentToolResult, String>;
 
     fn dispatch_async(
         self: Arc<Self>,
         context: AgentTurnContext,
-        tool_call: NativeAgentToolCall,
+        tool_call: PreparedToolCall,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send>,
     > {
@@ -745,7 +799,7 @@ impl NativeAgentRuntimeServices {
             "messages": [],
             "toolsUsed": [],
             "task": task,
-            "events": [event_value("agent.cancelled", serde_json::json!({
+            "events": [event_value(AgentEventKind::Cancelled, serde_json::json!({
                 "turnId": turn_id,
                 "cancelled": true,
                 "commandId": command_id,

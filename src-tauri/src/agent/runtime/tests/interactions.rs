@@ -191,6 +191,18 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
         .expect("checkpoint messages should be an array")
         .iter()
         .any(|message| message["tool_calls"][0]["id"] == "clarify-1"));
+    let mut checkpoint_with_prior_result = waiting["checkpoint"].clone();
+    checkpoint_with_prior_result["completedToolResults"] = json!([{
+        "toolCallId": "call-before-form",
+        "toolName": "workspace.read_file",
+        "status": "ok",
+        "summary": "completed before form"
+    }]);
+    services.save_turn_checkpoint(
+        "session-user-input",
+        "turn-user-input",
+        checkpoint_with_prior_result,
+    );
 
     let resumed = run_native_agent_turn_with_config(
         &services,
@@ -216,6 +228,15 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
     assert_eq!(
         resumed["toolsUsed"],
         json!(["request_user_input", "workspace.read_file"])
+    );
+    assert_eq!(
+        resumed["completedToolResults"]
+            .as_array()
+            .expect("completed tool results should be an array")
+            .iter()
+            .map(|result| result["toolCallId"].as_str().unwrap_or_default())
+            .collect::<Vec<_>>(),
+        vec!["call-before-form", "clarify-1", "read-after-input"]
     );
     assert!(resumed["runtimeEvents"]
         .as_array()
@@ -632,7 +653,11 @@ fn tool_search_excludes_deferred_tools_denied_by_capability_policy() {
 
     let result = context
         .tool_router
-        .search_and_activate(r#"{"query":"file","limit":5}"#)
+        .search_and_activate(
+            json!({"query":"file","limit":5})
+                .as_object()
+                .expect("tool_search test arguments should be an object"),
+        )
         .expect("search should succeed even when no deferred tool is available");
 
     assert_eq!(result, json!({ "tools": [] }));
@@ -652,7 +677,11 @@ fn tool_search_does_not_reexpose_hidden_legacy_file_or_shell_tools() {
 
     let result = context
         .tool_router
-        .search_and_activate(r#"{"query":"shell or file editing capability","limit":5}"#)
+        .search_and_activate(
+            json!({"query":"shell or file editing capability","limit":5})
+                .as_object()
+                .expect("tool_search test arguments should be an object"),
+        )
         .expect("descriptive deferred tool search should succeed");
     let tool_ids = result["tools"]
         .as_array()
@@ -677,13 +706,14 @@ fn deferred_tool_activation_round_trips_through_checkpoint_validation() {
     );
     context
         .tool_router
-        .search_and_activate(r#"{"query":"memory search","limit":1}"#)
+        .search_and_activate(
+            json!({"query":"memory search","limit":1})
+                .as_object()
+                .expect("tool_search test arguments should be an object"),
+        )
         .expect("memory search should activate for the current turn");
-    let checkpoint = super::checkpoint::checkpoint_value(
-        &context,
-        "awaiting_approval",
-        json!({ "iteration": 1 }),
-    );
+    let checkpoint =
+        super::checkpoint::checkpoint_value(&context, "awaiting_form", json!({ "iteration": 1 }));
 
     assert_eq!(checkpoint["activatedToolIds"], json!(["memory.search"]));
     let cancelled_checkpoint = super::checkpoint::checkpoint_value(
@@ -825,7 +855,7 @@ fn direct_calls_to_unactivated_deferred_tools_are_rejected() {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
-            _tool_call: &NativeAgentToolCall,
+            _tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             panic!("unactivated deferred tool must not reach dispatcher");
         }
@@ -913,7 +943,7 @@ fn tool_batch_dispatches_directly_and_injects_all_results_before_the_next_model_
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
-            tool_call: &NativeAgentToolCall,
+            tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             self.dispatched
                 .lock()
@@ -927,7 +957,6 @@ fn tool_batch_dispatches_directly_and_injects_all_results_before_the_next_model_
     }
 
     let dispatched = Arc::new(Mutex::new(Vec::new()));
-    let trace_sink = Arc::new(RecordingTraceSink::default());
     let services = NativeAgentRuntimeServices::new(
         Arc::new(BatchProvider {
             calls: AtomicUsize::new(0),
@@ -938,8 +967,7 @@ fn tool_batch_dispatches_directly_and_injects_all_results_before_the_next_model_
         Arc::new(InMemoryNativeAgentCheckpointStore::default()),
         Arc::new(InMemoryNativeAgentCancellation::default()),
     )
-    .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"]))
-    .with_trace_sink(trace_sink.clone());
+    .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"]));
     let run_services = services.clone();
     let run = thread::spawn(move || {
         run_native_agent_turn_with_config(
@@ -967,19 +995,6 @@ fn tool_batch_dispatches_directly_and_injects_all_results_before_the_next_model_
             .expect("dispatched calls lock should not be poisoned"),
         vec!["batch-write".to_string(), "batch-read".to_string()]
     );
-    let events = trace_sink
-        .events
-        .lock()
-        .expect("trace sink lock should not be poisoned");
-    assert!(!events
-        .iter()
-        .any(|event| event.event_name == "agent.awaiting_approval"));
-    assert!(!events
-        .iter()
-        .any(|event| event.event_name == "agent.approval.decision"));
-    assert!(!events.iter().any(|event| {
-        event.event_name == "agent.done" && event.payload["stopReason"] == "awaiting_approval"
-    }));
 }
 
 #[test]
@@ -1028,7 +1043,7 @@ fn write_tool_dispatches_without_approval_and_does_not_abort_the_turn() {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
-            tool_call: &NativeAgentToolCall,
+            tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             Ok(NativeAgentToolResult::generic_success(
                 tool_call,

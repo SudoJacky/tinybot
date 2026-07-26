@@ -270,8 +270,6 @@ export function createDesktopAppServices(): AppServices {
       await controller.selectSession(session.key, session.chatId);
     }
     const threadId = session?.threadId || command.target.threadId || command.target.sessionId;
-    let canonicalTimeline: Awaited<ReturnType<typeof controller.reloadTimeline>> | null = null;
-    let transportAccepted = false;
     if (command.kind === "agent.cancel") {
       await requireNative(nativeThreads, "Thread").interrupt({
         threadId,
@@ -280,17 +278,7 @@ export function createDesktopAppServices(): AppServices {
         reason: "user_requested",
       });
     } else if (command.kind === "approval.resolve") {
-      await requireNative(nativeThreads, "Thread").resolveApproval({
-        threadId,
-        approvalId: command.approval.approvalId,
-        approved: command.approval.approved,
-        commandId: command.commandId,
-        scope: command.approval.scope,
-        ...(command.approval.guidance ? { guidance: command.approval.guidance } : {}),
-      });
-      notifySession(command.target.sessionId, { commandId: command.commandId, type: "command.accepted" });
-      transportAccepted = true;
-      canonicalTimeline = await controller.reloadTimeline(command.target.sessionId);
+      throw new Error("Native agent approval continuation is not supported");
     } else if (command.kind === "form.submit" || command.kind === "form.cancel") {
       await requireNative(nativeThreads, "Thread").submitForm({
         threadId,
@@ -317,13 +305,7 @@ export function createDesktopAppServices(): AppServices {
         });
       }
     }
-    if (!transportAccepted) {
-      notifySession(command.target.sessionId, { commandId: command.commandId, type: "command.accepted" });
-    }
-    if (canonicalTimeline) {
-      notifySession(command.target.sessionId, { type: "timeline.patch", timeline: canonicalTimeline });
-      notifyTerminalTimelineState(command.target.sessionId, canonicalTimeline);
-    }
+    notifySession(command.target.sessionId, { commandId: command.commandId, type: "command.accepted" });
     notifySession(command.target.sessionId, { commandId: command.commandId, type: "command.canonical-updated" });
   }
 

@@ -1,5 +1,6 @@
 use crate::agent::bridge::desktop_agent_event_sink;
 use crate::agent::runtime::NativeAgentTraceSink;
+use crate::agent::runtime_protocol::AgentEventKind;
 use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
 use crate::desktop::{state::lock_runtime, SharedGateway};
 use crate::desktop_commands::agent::worker_run_agent_with_live_trace_sink_async;
@@ -142,7 +143,7 @@ async fn worker_transport_dispatch_websocket_message_with_live_trace_sink_async(
 pub(crate) fn validate_tinyos_host_command_frame(frame: &serde_json::Value) -> Result<(), String> {
     if frame.get("type").and_then(serde_json::Value::as_str) != Some("command") {
         return Err(
-            "worker_dispatch_tinyos_host_command accepts only TinyOS host commands; use worker_submit_thread_turn, worker_thread_interrupt, worker_resolve_thread_approval, or worker_submit_thread_form for chat"
+            "worker_dispatch_tinyos_host_command accepts only TinyOS host commands; use worker_submit_thread_turn, worker_thread_interrupt, or worker_submit_thread_form for chat"
                 .to_string(),
         );
     }
@@ -1331,7 +1332,7 @@ fn persist_tinyos_command_acknowledgement(
                 "events": [{
                     "eventId": format!("{turn_id}:command-ack:{command_id}"),
                     "itemId": format!("{turn_id}:command-ack:{command_id}"),
-                    "eventName": "agent.command.acknowledged",
+                    "eventName": AgentEventKind::CommandAcknowledged.wire_name(),
                     "payload": {
                         "commandId": command_id,
                         "commandKind": transport.get("commandKind").cloned().unwrap_or(serde_json::Value::Null),

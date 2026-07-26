@@ -3,53 +3,6 @@ use crate::agent::runtime_protocol::{AgentTurnItemData, AgentTurnItemKind};
 use crate::threads::domain::types::{ThreadItem, ThreadItemKind};
 use serde_json::json;
 
-fn approval_item(item_id: &str, sequence: u64, event_name: &str, approval_id: &str) -> ThreadItem {
-    ThreadItem {
-        item_id: item_id.to_string(),
-        thread_id: "thread-1".to_string(),
-        turn_id: "turn-1".to_string(),
-        parent_item_id: None,
-        sequence,
-        created_at: sequence.to_string(),
-        kind: if event_name == "agent.approval.decision" {
-            ThreadItemKind::ApprovalResolved(json!({
-                "approvalId": approval_id,
-                "status": "completed",
-            }))
-        } else {
-            ThreadItemKind::ApprovalRequested(json!({
-                "approvalId": approval_id,
-                "status": "waiting",
-            }))
-        },
-    }
-}
-
-#[test]
-fn persisted_approval_order_follows_rollout_order() {
-    let approval_id = "approval:turn-1:call-1";
-    let items = vec![
-        approval_item(
-            "thread-runtime:thread-1:turn-1:event:1",
-            1,
-            "agent.approval.decision",
-            approval_id,
-        ),
-        approval_item(
-            "thread-runtime:thread-1:turn-1:event:209",
-            209,
-            "agent.awaiting_approval",
-            approval_id,
-        ),
-    ];
-
-    let events = runtime_events_from_thread_items(&items, "thread-1", "turn-1");
-    assert_eq!(events[0].event_name, "agent.approval.decision");
-    assert_eq!(events[1].event_name, "agent.awaiting_approval");
-    assert_eq!(events[0].sequence, 1);
-    assert_eq!(events[1].sequence, 209);
-}
-
 #[test]
 fn typed_record_uses_rollout_identity_sequence_and_timestamp() {
     let items = vec![ThreadItem {
@@ -185,5 +138,67 @@ fn typed_completed_records_replay_without_stream_deltas() {
         &projected[1],
         item if item.kind == AgentTurnItemKind::AssistantMessage
             && matches!(&item.data, AgentTurnItemData::AssistantMessage { content, .. } if content == "Hello world.")
+    ));
+}
+
+#[test]
+fn legacy_subagent_messages_receive_canonical_identity_without_merging_lifecycle_items() {
+    let item = |item_id: &str, sequence: u64, kind: ThreadItemKind| ThreadItem {
+        item_id: item_id.to_string(),
+        thread_id: "thread-1".to_string(),
+        turn_id: "turn-1".to_string(),
+        parent_item_id: None,
+        sequence,
+        created_at: sequence.to_string(),
+        kind,
+    };
+    let items = vec![
+        item(
+            "subagent-spawned-1",
+            1,
+            ThreadItemKind::SubagentSpawned(json!({
+                "subagentId": "delegate-1",
+                "status": "running",
+            })),
+        ),
+        item(
+            "subagent-message-1",
+            2,
+            ThreadItemKind::SubagentMessage(json!({
+                "subagentId": "delegate-1",
+                "content": "Research complete.",
+            })),
+        ),
+        item(
+            "subagent-completed-1",
+            3,
+            ThreadItemKind::SubagentCompleted(json!({
+                "subagentId": "delegate-1",
+                "status": "completed",
+            })),
+        ),
+    ];
+
+    let events = runtime_events_from_thread_items(&items, "thread-1", "turn-1");
+    assert_eq!(events[1].item_id.as_deref(), Some("subagent-message-1"));
+    assert_eq!(events[1].payload["agentId"], "delegate-1");
+    assert_eq!(events[1].payload["messageId"], "subagent-message-1");
+
+    let projected = turn_items_from_thread_items(&items, "thread-1", "turn-1");
+    assert_eq!(projected.len(), 2);
+    assert!(matches!(
+        &projected[0].data,
+        AgentTurnItemData::SubagentLifecycle { agent_id, .. } if agent_id == "delegate-1"
+    ));
+    assert!(matches!(
+        &projected[1].data,
+        AgentTurnItemData::SubagentMessage {
+            agent_id,
+            message_id,
+            content,
+            ..
+        } if agent_id == "delegate-1"
+            && message_id == "subagent-message-1"
+            && content == "Research complete."
     ));
 }

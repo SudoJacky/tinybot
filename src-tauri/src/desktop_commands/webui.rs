@@ -1,7 +1,4 @@
-use crate::agent::bridge::{
-    native_session_checkpoint, pending_approvals_from_checkpoint,
-    resolve_agent_ui_form_body_with_services, resolve_approval_body_with_services,
-};
+use crate::agent::bridge::resolve_agent_ui_form_body_with_services;
 use crate::collaboration::cowork::WorkerCoworkRuntime;
 use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
 use crate::desktop::{state::lock_runtime, SharedGateway};
@@ -385,11 +382,6 @@ async fn worker_webui_rust_route_with_options(
             config_snapshot.clone(),
             timeout,
         )),
-        ("GET", "/api/approvals") => Some(native_webui_approvals_body(
-            shared,
-            &query,
-            config_snapshot.clone(),
-        )),
         ("POST", "/api/skills") => Some(worker_skills_create_with_options(
             shared,
             body,
@@ -605,36 +597,6 @@ async fn worker_webui_rust_dynamic_route(
             _ => None,
         };
     }
-    if let Some(approval_id) = webui_approval_route_id(path, "/approve") {
-        if method == "POST" {
-            return Some(
-                native_webui_approval_resolution_body_async(
-                    shared,
-                    approval_id,
-                    body,
-                    true,
-                    workspace_root,
-                    config_snapshot,
-                )
-                .await,
-            );
-        }
-    }
-    if let Some(approval_id) = webui_approval_route_id(path, "/deny") {
-        if method == "POST" {
-            return Some(
-                native_webui_approval_resolution_body_async(
-                    shared,
-                    approval_id,
-                    body,
-                    false,
-                    workspace_root,
-                    config_snapshot,
-                )
-                .await,
-            );
-        }
-    }
     None
 }
 
@@ -732,60 +694,6 @@ async fn worker_webui_tools_body(
     })
     .await
     .map_err(|error| format!("worker webui tools task failed: {error}"))?
-}
-
-fn native_webui_approvals_body(
-    shared: &SharedGateway,
-    query: &HashMap<String, String>,
-    config_snapshot: serde_json::Value,
-) -> Result<serde_json::Value, String> {
-    let session_key = query
-        .get("session_key")
-        .or_else(|| query.get("chat_id"))
-        .cloned()
-        .unwrap_or_default();
-    let checkpoint = if session_key.is_empty() {
-        None
-    } else {
-        let thread_store = {
-            let runtime = lock_runtime(shared);
-            runtime.thread_store.clone()
-        };
-        native_session_checkpoint(
-            &session_key,
-            &thread_store,
-            config_snapshot,
-            "native approvals checkpoint lookup",
-        )?
-    };
-    Ok(serde_json::json!({
-        "session_key": session_key,
-        "approvals": pending_approvals_from_checkpoint(checkpoint.as_ref()),
-        "source": "rust",
-    }))
-}
-
-pub(crate) async fn native_webui_approval_resolution_body_async(
-    shared: &SharedGateway,
-    approval_id: String,
-    body: &serde_json::Value,
-    approved: bool,
-    workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-) -> Result<serde_json::Value, String> {
-    let base_services = {
-        let runtime = lock_runtime(shared);
-        runtime.native_agent_services()
-    };
-    resolve_approval_body_with_services(
-        base_services,
-        approval_id,
-        body,
-        approved,
-        workspace_root,
-        config_snapshot,
-    )
-    .await
 }
 
 pub(crate) async fn native_webui_agent_ui_form_resolution_body_async(
@@ -908,15 +816,6 @@ fn webui_skill_item_name(path: &str) -> Option<String> {
     Some(percent_decode(rest))
 }
 
-fn webui_approval_route_id(path: &str, suffix: &str) -> Option<String> {
-    let rest = path.strip_prefix("/api/approvals/")?;
-    let approval_id = rest.strip_suffix(suffix)?;
-    if approval_id.is_empty() || approval_id.contains('/') {
-        return None;
-    }
-    Some(percent_decode(approval_id))
-}
-
 fn webui_agent_ui_form_route(path: &str) -> Option<(String, bool)> {
     webui_agent_ui_form_route_id(path, "/submit")
         .map(|form_id| (form_id, false))
@@ -953,8 +852,6 @@ fn webui_route_group(path: &str) -> &'static str {
         "providers"
     } else if path.starts_with("/api/cowork") {
         "cowork"
-    } else if path.starts_with("/api/approvals") {
-        "approvals"
     } else if path.starts_with("/api/agent-ui") {
         "agent-ui"
     } else if path.starts_with("/v1/") {

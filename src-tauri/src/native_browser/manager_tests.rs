@@ -423,6 +423,60 @@ async fn stale_control_epoch_is_rejected_and_user_input_advances_epoch() {
 }
 
 #[tokio::test]
+async fn resume_returns_interrupted_control_to_idle_without_platform_dispatch() {
+    let adapter = Arc::new(FakeAdapter::default());
+    let diagnostics = Arc::new(Mutex::new(Vec::new()));
+    let manager = manager_with_diagnostics(adapter.clone(), diagnostics.clone());
+    let snapshot = manager
+        .create_session(BrowserCreateSessionInput {
+            owner_session_id: "thread-resume".to_string(),
+            profile_id: None,
+            persistence: BrowserProfilePersistence::Persistent,
+            initial_url: None,
+        })
+        .await
+        .unwrap();
+    let session_id = snapshot.data.browser_session_id;
+    let tab_id = snapshot.data.active_tab_id;
+    adapter.sink.read().unwrap().as_ref().unwrap()(BrowserPlatformEvent::UserInput {
+        tab_id: tab_id.clone(),
+    });
+    let interrupted = manager.snapshot(&session_id).unwrap();
+    let interrupted_epoch = interrupted.data.control.control_epoch;
+    assert_eq!(
+        interrupted.data.control.state,
+        BrowserControlState::Interrupted
+    );
+
+    let command_id = BrowserCommandId::new("resume-command").unwrap();
+    let result = manager
+        .interact(BrowserInteractionInput {
+            browser_session_id: session_id.clone(),
+            tab_id,
+            command_id: command_id.clone(),
+            control_epoch: interrupted_epoch,
+            capture_id: None,
+            observation_revision: None,
+            action: BrowserAction::Resume,
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(result.status, BrowserCommandStatus::Completed);
+    assert_eq!(result.control_epoch, interrupted_epoch + 1);
+    let resumed = manager.snapshot(&session_id).unwrap();
+    assert_eq!(resumed.data.control.state, BrowserControlState::Idle);
+    assert_eq!(resumed.data.control.reason, None);
+    assert_eq!(resumed.data.control.active_command_id, None);
+    assert!(adapter.interactions.lock().unwrap().is_empty());
+    assert!(diagnostics.lock().unwrap().iter().any(|diagnostic| {
+        diagnostic.event == "browser.command.completed"
+            && diagnostic.command_id.as_ref() == Some(&command_id)
+            && diagnostic.reason_code.is_none()
+    }));
+}
+
+#[tokio::test]
 async fn incognito_session_closes_every_tab() {
     let adapter = Arc::new(FakeAdapter::default());
     let manager = manager(adapter.clone());
@@ -733,6 +787,7 @@ async fn semantic_action_is_normalized_and_post_action_observed() {
         .target_ref
         .clone();
     let before_revision = observed.semantic.unwrap().observation_revision;
+    let session_id = snapshot.data.browser_session_id.clone();
     let result = manager
         .interact(BrowserInteractionInput {
             browser_session_id: snapshot.data.browser_session_id,
@@ -747,6 +802,9 @@ async fn semantic_action_is_normalized_and_post_action_observed() {
         .unwrap();
     assert_eq!(result.status, BrowserCommandStatus::Completed);
     assert!(result.observation_revision > before_revision);
+    let completed = manager.snapshot(&session_id).unwrap();
+    assert_eq!(completed.data.control.state, BrowserControlState::Idle);
+    assert_eq!(completed.data.control.active_command_id, None);
     assert!(matches!(
         adapter.interactions.lock().unwrap().first(),
         Some(BrowserPlatformAction::ClickSelector { selector }) if selector == "#submit"
@@ -759,7 +817,8 @@ async fn direct_user_input_cancels_an_in_flight_agent_wait() {
     adapter
         .interaction_delay_ms
         .store(5_000, std::sync::atomic::Ordering::Relaxed);
-    let manager = manager(adapter.clone());
+    let diagnostics = Arc::new(Mutex::new(Vec::new()));
+    let manager = manager_with_diagnostics(adapter.clone(), diagnostics.clone());
     let snapshot = manager
         .create_session(BrowserCreateSessionInput {
             owner_session_id: "thread-preemption".to_string(),
@@ -779,10 +838,12 @@ async fn direct_user_input_cancels_an_in_flight_agent_wait() {
         .await
         .unwrap();
     let tab = &observed.snapshot.data.tabs[0];
+    let session_id = snapshot.data.browser_session_id.clone();
+    let command_id = BrowserCommandId::new("preempted-wait").unwrap();
     let input = BrowserInteractionInput {
         browser_session_id: snapshot.data.browser_session_id,
         tab_id: tab.tab_id.clone(),
-        command_id: BrowserCommandId::new("preempted-wait").unwrap(),
+        command_id: command_id.clone(),
         control_epoch: observed.snapshot.data.control.control_epoch,
         capture_id: tab.current_capture_id.clone(),
         observation_revision: Some(tab.observation_revision),
@@ -807,6 +868,22 @@ async fn direct_user_input_cancels_an_in_flight_agent_wait() {
         .unwrap();
     assert_eq!(result.status, BrowserCommandStatus::Cancelled);
     assert_eq!(result.reason_code.as_deref(), Some("user_interrupted"));
+    assert_eq!(
+        result.reason.as_deref(),
+        Some("Direct user input interrupted the Agent browser action")
+    );
+    let cancelled = manager.snapshot(&session_id).unwrap();
+    assert_eq!(
+        cancelled.data.control.state,
+        BrowserControlState::Interrupted
+    );
+    assert_eq!(cancelled.data.control.reason, result.reason);
+    assert_eq!(cancelled.data.control.active_command_id, None);
+    assert!(diagnostics.lock().unwrap().iter().any(|diagnostic| {
+        diagnostic.event == "browser.command.cancelled"
+            && diagnostic.command_id.as_ref() == Some(&command_id)
+            && diagnostic.reason_code.as_deref() == Some("user_interrupted")
+    }));
 }
 
 #[tokio::test]
@@ -815,7 +892,8 @@ async fn protected_semantic_target_requires_user_without_platform_dispatch() {
     adapter
         .protected_semantic
         .store(true, std::sync::atomic::Ordering::Relaxed);
-    let manager = manager(adapter.clone());
+    let diagnostics = Arc::new(Mutex::new(Vec::new()));
+    let manager = manager_with_diagnostics(adapter.clone(), diagnostics.clone());
     let snapshot = manager
         .create_session(BrowserCreateSessionInput {
             owner_session_id: "thread-file-picker".to_string(),
@@ -838,11 +916,13 @@ async fn protected_semantic_target_requires_user_without_platform_dispatch() {
     let observation_revision = semantic.observation_revision;
     let node = &semantic.nodes[0];
     assert_eq!(node.protected_reason.as_deref(), Some("native_file_picker"));
+    let session_id = snapshot.data.browser_session_id.clone();
+    let command_id = BrowserCommandId::new("file-picker-click").unwrap();
     let result = manager
         .interact(BrowserInteractionInput {
             browser_session_id: snapshot.data.browser_session_id,
             tab_id: snapshot.data.active_tab_id,
-            command_id: BrowserCommandId::new("file-picker-click").unwrap(),
+            command_id: command_id.clone(),
             control_epoch: observed.snapshot.data.control.control_epoch,
             capture_id: observed.capture.map(|capture| capture.capture_id),
             observation_revision: Some(observation_revision),
@@ -854,7 +934,22 @@ async fn protected_semantic_target_requires_user_without_platform_dispatch() {
         .unwrap();
     assert_eq!(result.status, BrowserCommandStatus::UserRequired);
     assert_eq!(result.reason_code.as_deref(), Some("native_file_picker"));
+    assert_eq!(
+        result.reason.as_deref(),
+        Some("A native file picker requires direct user selection before Agent work can resume")
+    );
+    let user_required = manager.snapshot(&session_id).unwrap();
+    assert_eq!(
+        user_required.data.control.state,
+        BrowserControlState::UserRequired
+    );
+    assert_eq!(user_required.data.control.reason, result.reason);
     assert!(adapter.interactions.lock().unwrap().is_empty());
+    assert!(diagnostics.lock().unwrap().iter().any(|diagnostic| {
+        diagnostic.event == "browser.command.user_required"
+            && diagnostic.command_id.as_ref() == Some(&command_id)
+            && diagnostic.reason_code.as_deref() == Some("native_file_picker")
+    }));
 }
 
 #[tokio::test]

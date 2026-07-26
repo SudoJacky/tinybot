@@ -18,7 +18,6 @@ describe("chat UI projection", () => {
     expect(CHAT_RUNTIME_CAPABILITY_AUDIT.sessions.status).toBe("available");
     expect(CHAT_RUNTIME_CAPABILITY_AUDIT.messages.status).toBe("available");
     expect(CHAT_RUNTIME_CAPABILITY_AUDIT.runInput.status).toBe("available");
-    expect(CHAT_RUNTIME_CAPABILITY_AUDIT.approvalResume.status).toBe("route");
     expect(CHAT_RUNTIME_CAPABILITY_AUDIT.subagentTranscript.status).toBe("partial");
     expect(CHAT_RUNTIME_CAPABILITY_AUDIT.branchSession.status).toBe("available");
     expect(CHAT_RUNTIME_CAPABILITY_AUDIT.legacyConversationThread.status).toBe("frozen");

@@ -320,6 +320,81 @@ fn dispatches_thread_lifecycle_requests() {
 }
 
 #[test]
+fn thread_create_persistence_failure_restores_projection_and_allows_retry() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        20,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionMetadataRead,
+            WorkerCapability::SessionWrite,
+        ]),
+    );
+    let preload = router.dispatch(&WorkerRequest::new(
+        "req-thread-create-persistence-preload",
+        "trace-thread-create-persistence",
+        "thread.list",
+        json!({ "includeArchived": true, "includeChildThreads": true }),
+    ));
+    assert_eq!(preload.error, None);
+
+    let thread_root = fixture.root.join(".tinybot").join("threads");
+    if thread_root.exists() {
+        std::fs::remove_dir_all(&thread_root).expect("empty thread root should remove");
+    }
+    std::fs::create_dir_all(thread_root.parent().unwrap())
+        .expect("thread storage parent should create");
+    std::fs::write(&thread_root, "block thread persistence")
+        .expect("thread persistence blocker should write");
+
+    let failed = router.dispatch(&WorkerRequest::new(
+        "req-thread-create-persistence-failure",
+        "trace-thread-create-persistence",
+        "thread.create",
+        json!({
+            "threadId": "thread-create-persistence",
+            "title": "Persistence recovery"
+        }),
+    ));
+    assert!(
+        failed.error.is_some(),
+        "thread.create must expose Rollout persistence failures"
+    );
+
+    std::fs::remove_file(&thread_root).expect("thread persistence blocker should remove");
+
+    let recovered = router.dispatch(&WorkerRequest::new(
+        "req-thread-create-persistence-recovered",
+        "trace-thread-create-persistence",
+        "thread.list",
+        json!({ "includeArchived": true, "includeChildThreads": true }),
+    ));
+    assert_eq!(recovered.error, None);
+    assert_eq!(
+        recovered.result.as_ref().unwrap()["threads"],
+        json!([]),
+        "failed creation must not remain in the in-memory projection"
+    );
+
+    let retry = router.dispatch(&WorkerRequest::new(
+        "req-thread-create-persistence-retry",
+        "trace-thread-create-persistence",
+        "thread.create",
+        json!({
+            "threadId": "thread-create-persistence",
+            "title": "Persistence recovery"
+        }),
+    ));
+    assert_eq!(retry.error, None);
+    assert_eq!(
+        retry.result.as_ref().unwrap()["threadId"],
+        "thread-create-persistence"
+    );
+}
+
+#[test]
 fn dispatches_thread_resume_from_checkpoint_id() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
@@ -2034,7 +2109,7 @@ fn dispatches_thread_agent_registry_for_parent_and_child_threads() {
         .as_array()
         .unwrap()
         .iter()
-        .any(|item| item["kind"] == "approval"));
+        .all(|item| item["kind"] != "approval"));
     assert_eq!(
         result["agents"][1]["pendingApproval"]["approvalId"],
         "approval-child-1"
@@ -4334,7 +4409,6 @@ fn agent_turn_requests_ignore_thread_only_items() {
                     "type": "approval_requested",
                     "payload": {
                         "eventId": "approval-1",
-                        "eventName": "agent.awaiting_approval",
                         "sessionId": "session-1",
                         "turnId": "turn-thread-only",
                         "sequence": 1,
@@ -4401,10 +4475,10 @@ fn agent_turn_requests_ignore_thread_only_items() {
         status.result.as_ref().unwrap()["activeTurn"]["turnId"],
         "turn-thread-only"
     );
-    assert_eq!(
-        status.result.as_ref().unwrap()["turnItems"][0]["kind"],
-        "approval"
-    );
+    assert!(status.result.as_ref().unwrap()["turnItems"]
+        .as_array()
+        .unwrap()
+        .is_empty());
 
     let read = router.dispatch(&WorkerRequest::new(
         "req-thread-backed-turn-read",
@@ -4417,10 +4491,10 @@ fn agent_turn_requests_ignore_thread_only_items() {
         read.result.as_ref().unwrap()["activeTurn"]["turnId"],
         "turn-thread-only"
     );
-    assert_eq!(
-        read.result.as_ref().unwrap()["turnItems"][0]["kind"],
-        "approval"
-    );
+    assert!(read.result.as_ref().unwrap()["turnItems"]
+        .as_array()
+        .unwrap()
+        .is_empty());
 }
 
 #[test]
@@ -4540,7 +4614,6 @@ fn dispatches_thread_status_includes_active_child_activity() {
                     "type": "approval_requested",
                     "payload": {
                         "eventId": "approval-child",
-                        "eventName": "agent.awaiting_approval",
                         "sessionId": "session-activity",
                         "turnId": "turn-child-active",
                         "sequence": 1,
@@ -4571,9 +4644,11 @@ fn dispatches_thread_status_includes_active_child_activity() {
         status.result.as_ref().unwrap()["childActivities"][0]["activeTurn"]["turnId"],
         "turn-child-active"
     );
-    assert_eq!(
-        status.result.as_ref().unwrap()["childActivities"][0]["turnItems"][0]["kind"],
-        "approval"
+    assert!(
+        status.result.as_ref().unwrap()["childActivities"][0]["turnItems"]
+            .as_array()
+            .unwrap()
+            .is_empty()
     );
 
     let read = router.dispatch(&WorkerRequest::new(
@@ -4591,9 +4666,11 @@ fn dispatches_thread_status_includes_active_child_activity() {
         read.result.as_ref().unwrap()["childActivities"][0]["activeTurn"]["turnId"],
         "turn-child-active"
     );
-    assert_eq!(
-        read.result.as_ref().unwrap()["childActivities"][0]["turnItems"][0]["kind"],
-        "approval"
+    assert!(
+        read.result.as_ref().unwrap()["childActivities"][0]["turnItems"]
+            .as_array()
+            .unwrap()
+            .is_empty()
     );
 
     let events = router.dispatch(&WorkerRequest::new(
@@ -4611,9 +4688,12 @@ fn dispatches_thread_status_includes_active_child_activity() {
         events.result.as_ref().unwrap()["childActivities"][0]["activeTurn"]["turnId"],
         "turn-child-active"
     );
-    assert_eq!(
-        events.result.as_ref().unwrap()["childActivities"][0]["turnItems"][0]["kind"],
-        "approval"
+    assert!(
+        events.result.as_ref().unwrap()["childActivities"][0]["turnItems"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| item["kind"] != "approval")
     );
     assert_eq!(
         events.result.as_ref().unwrap()["events"][2]["type"],
@@ -4623,9 +4703,12 @@ fn dispatches_thread_status_includes_active_child_activity() {
         events.result.as_ref().unwrap()["events"][2]["childActivity"]["child"]["threadId"],
         "thread-child-activity"
     );
-    assert_eq!(
-        events.result.as_ref().unwrap()["events"][2]["childActivity"]["turnItems"][0]["kind"],
-        "approval"
+    assert!(
+        events.result.as_ref().unwrap()["events"][2]["childActivity"]["turnItems"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| item["kind"] != "approval")
     );
 }
 

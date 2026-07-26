@@ -803,6 +803,104 @@ fn background_subagent_enqueue_input_writes_user_message_trace_event() {
 }
 
 #[test]
+fn subagent_persistence_failure_is_observable_and_projection_recovers_on_retry() {
+    let fixture = WorkspaceFixture::new();
+    let manager = SubagentThreadManager::default();
+    let mut router = WorkerRpcRouter::new(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        20,
+        CapabilityPolicy::new([
+            WorkerCapability::BackgroundRead,
+            WorkerCapability::BackgroundWrite,
+            WorkerCapability::SessionMetadataRead,
+            WorkerCapability::SessionWrite,
+        ]),
+    )
+    .with_subagent_manager(manager);
+
+    let preload = router.dispatch(&WorkerRequest::new(
+        "req-subagent-preload",
+        "trace-subagent-persistence",
+        "thread.list",
+        json!({ "includeArchived": true, "includeChildThreads": true }),
+    ));
+    assert_eq!(preload.error, None);
+
+    let thread_root = fixture.root.join(".tinybot").join("threads");
+    if thread_root.exists() {
+        std::fs::remove_dir_all(&thread_root).expect("empty thread root should remove");
+    }
+    std::fs::create_dir_all(thread_root.parent().unwrap())
+        .expect("thread storage parent should create");
+    std::fs::write(&thread_root, "block thread persistence")
+        .expect("thread persistence blocker should write");
+
+    let failed = router.dispatch(&WorkerRequest::new(
+        "req-subagent-persistence-failure",
+        "trace-subagent-persistence",
+        "subagent.spawn",
+        json!({
+            "sessionKey": "desktop:persistence-failure",
+            "parentTurnId": "parent-turn",
+            "subagentId": "delegate-persistence",
+            "childTurnId": "child-persistence",
+            "task": "Verify persistence recovery"
+        }),
+    ));
+    assert!(
+        failed.error.is_some(),
+        "subagent mutation must expose persistence failures"
+    );
+
+    std::fs::remove_file(&thread_root).expect("thread persistence blocker should remove");
+
+    let recovered = router.dispatch(&WorkerRequest::new(
+        "req-subagent-projection-recovered",
+        "trace-subagent-persistence",
+        "thread.list",
+        json!({ "includeArchived": true, "includeChildThreads": true }),
+    ));
+    assert_eq!(recovered.error, None);
+    assert_eq!(
+        recovered.result.as_ref().unwrap()["threads"],
+        json!([]),
+        "the next operation must reload the projection from durable state"
+    );
+
+    let retry = router.dispatch(&WorkerRequest::new(
+        "req-subagent-persistence-retry",
+        "trace-subagent-persistence",
+        "subagent.spawn",
+        json!({
+            "sessionKey": "desktop:persistence-failure",
+            "parentTurnId": "parent-turn",
+            "subagentId": "delegate-persistence",
+            "childTurnId": "child-persistence",
+            "task": "Verify persistence recovery"
+        }),
+    ));
+    assert_eq!(retry.error, None);
+    assert_eq!(retry.result.as_ref().unwrap()["accepted"], true);
+
+    let durable = router.dispatch(&WorkerRequest::new(
+        "req-subagent-persistence-durable",
+        "trace-subagent-persistence",
+        "thread.list",
+        json!({ "includeArchived": true, "includeChildThreads": true }),
+    ));
+    assert_eq!(durable.error, None);
+    assert_eq!(
+        durable.result.as_ref().unwrap()["threads"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+}
+
+#[test]
 fn dispatches_subagent_control_requests() {
     let fixture = WorkspaceFixture::new();
     let manager = SubagentThreadManager::default();
@@ -870,6 +968,22 @@ fn dispatches_subagent_control_requests() {
     ));
     assert_eq!(wait.error, None);
     assert_eq!(wait.result.as_ref().unwrap()["timedOut"], true);
+
+    let cancel = router.dispatch(&WorkerRequest::new(
+        "req-subagent-cancel",
+        "trace-subagent",
+        "subagent.cancel",
+        json!({
+            "sessionKey": "desktop:chat-1",
+            "subagentId": "delegate-1"
+        }),
+    ));
+    assert_eq!(cancel.error, None);
+    assert_eq!(cancel.result.as_ref().unwrap()["accepted"], true);
+    assert_eq!(
+        cancel.result.as_ref().unwrap()["subagent"]["status"],
+        "cancelled"
+    );
 
     let close = router.dispatch(&WorkerRequest::new(
         "req-subagent-close",
@@ -1021,7 +1135,7 @@ fn dispatches_subagent_control_requests() {
     );
     assert_eq!(
         parent_read.result.as_ref().unwrap()["pagination"]["itemCount"],
-        2
+        3
     );
     let parent_kinds = parent_read.result.as_ref().unwrap()["items"]
         .as_array()
@@ -1029,7 +1143,14 @@ fn dispatches_subagent_control_requests() {
         .iter()
         .map(|item| item["kind"]["type"].as_str().unwrap().to_string())
         .collect::<Vec<_>>();
-    assert_eq!(parent_kinds, vec!["subagent_spawned", "subagent_completed"]);
+    assert_eq!(
+        parent_kinds,
+        vec![
+            "subagent_spawned",
+            "subagent_completed",
+            "subagent_completed",
+        ]
+    );
 
     let child_read = router.dispatch(&WorkerRequest::new(
         "req-subagent-child-thread-read",
@@ -1048,7 +1169,7 @@ fn dispatches_subagent_control_requests() {
     );
     assert_eq!(
         child_read.result.as_ref().unwrap()["pagination"]["itemCount"],
-        4
+        5
     );
     let child_kinds = child_read.result.as_ref().unwrap()["items"]
         .as_array()
@@ -1062,6 +1183,7 @@ fn dispatches_subagent_control_requests() {
             "user_message",
             "turn_started",
             "user_message",
+            "cancelled",
             "turn_completed",
         ]
     );

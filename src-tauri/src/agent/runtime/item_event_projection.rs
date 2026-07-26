@@ -1,15 +1,16 @@
 use super::items::{
-    AgentApprovalItem, AgentContextCompactionItem, AgentErrorItem, AgentFileReferenceItem,
-    AgentSubagentItem, AgentSubagentMessageItem, AgentUserInputItem,
+    AgentContextCompactionItem, AgentErrorItem, AgentFileReferenceItem, AgentSubagentItem,
+    AgentSubagentMessageItem, AgentUserInputItem,
 };
 use super::{AgentItem, AgentUsageItem};
+use crate::agent::runtime_protocol::AgentEventKind;
 use serde_json::Value;
 
-pub(super) fn attach_agent_item(event_name: &str, mut payload: Value) -> Value {
+pub(super) fn attach_agent_item(kind: AgentEventKind, mut payload: Value) -> Value {
     if payload.get("agentItem").is_some() {
         return payload;
     }
-    let Some(item) = agent_item_for_runtime_event(event_name, &payload) else {
+    let Some(item) = agent_item_for_runtime_event(kind, &payload) else {
         return payload;
     };
     let object = payload
@@ -22,22 +23,11 @@ pub(super) fn attach_agent_item(event_name: &str, mut payload: Value) -> Value {
     payload
 }
 
-fn agent_item_for_runtime_event(event_name: &str, payload: &Value) -> Option<AgentItem> {
-    match event_name {
-        "agent.awaiting_approval" | "agent.approval.decision" => {
-            Some(AgentItem::Approval(AgentApprovalItem {
-                id: required_string(payload, &["approvalId", "approval_id"], event_name),
-                tool_call_id: optional_string(payload, &["toolCallId", "tool_call_id"]),
-                status: optional_string(payload, &["status"])
-                    .unwrap_or_else(|| "completed".to_string()),
-                reason: optional_string(payload, &["guidance", "reason", "summary", "content"]),
-                decision: optional_string(payload, &["decision"]),
-                scope: optional_string(payload, &["scope"]),
-            }))
-        }
-        "agent.awaiting_form" | "agent.form.resolution" => {
+fn agent_item_for_runtime_event(kind: AgentEventKind, payload: &Value) -> Option<AgentItem> {
+    match kind {
+        AgentEventKind::AwaitingForm | AgentEventKind::FormResolution => {
             Some(AgentItem::UserInput(AgentUserInputItem {
-                id: required_string(payload, &["formId", "form_id"], event_name),
+                id: required_string(payload, &["formId", "form_id"], kind),
                 command_id: optional_string(payload, &["commandId", "command_id"]),
                 status: optional_string(payload, &["status"])
                     .unwrap_or_else(|| "completed".to_string()),
@@ -47,7 +37,7 @@ fn agent_item_for_runtime_event(event_name: &str, payload: &Value) -> Option<Age
                 errors: payload.get("errors").cloned(),
             }))
         }
-        "agent.plan.progress" | "agent.task_progress" => {
+        AgentEventKind::PlanProgress | AgentEventKind::TaskProgress => {
             let mut steps = payload
                 .get("steps")
                 .or_else(|| payload.get("plan"))
@@ -69,7 +59,7 @@ fn agent_item_for_runtime_event(event_name: &str, payload: &Value) -> Option<Age
                 panic!("runtime plan progress derived fields do not match its steps");
             }
             Some(AgentItem::PlanProgress(super::AgentPlanProgressItem {
-                id: required_string(payload, &["planId", "plan_id"], event_name),
+                id: required_string(payload, &["planId", "plan_id"], kind),
                 explanation: optional_string(payload, &["explanation"]),
                 steps,
                 summary: optional_string(payload, &["summary", "content"]).unwrap_or_default(),
@@ -78,17 +68,27 @@ fn agent_item_for_runtime_event(event_name: &str, payload: &Value) -> Option<Age
                 current_step: derived.current_step,
             }))
         }
-        name if name.starts_with("agent.delegate.") => {
-            if name == "agent.delegate.user_message" || name == "agent.delegate.notification" {
+        kind if kind.delegate_action().is_some() => {
+            if matches!(
+                kind,
+                AgentEventKind::DelegateUserMessage | AgentEventKind::DelegateMessage
+            ) {
                 return Some(AgentItem::SubagentMessage(AgentSubagentMessageItem {
-                    id: required_string(payload, &["messageId", "eventId"], event_name),
-                    agent_id: required_string(payload, &["delegateId", "subagentId"], event_name),
-                    content: required_string(payload, &["content", "message"], event_name),
+                    id: required_string(
+                        payload,
+                        &["messageId", "eventId", "delegateEventId"],
+                        kind,
+                    ),
+                    agent_id: required_string(payload, &["delegateId", "subagentId"], kind),
+                    content: required_string(payload, &["content", "message"], kind),
                     visibility: optional_string(payload, &["visibility"])
                         .unwrap_or_else(|| "user".to_string()),
                 }));
             }
-            let action = name.trim_start_matches("agent.delegate.").to_string();
+            let action = kind
+                .delegate_action()
+                .expect("delegate event must have an action")
+                .to_string();
             let agent_id = optional_string(payload, &["delegateId", "subagentId"])
                 .unwrap_or_else(|| "multiple".to_string());
             let id = agent_id.clone();
@@ -97,15 +97,15 @@ fn agent_item_for_runtime_event(event_name: &str, payload: &Value) -> Option<Age
                 agent_id,
                 action,
                 status: optional_string(payload, &["status"])
-                    .unwrap_or_else(|| subagent_default_status(name).to_string()),
+                    .unwrap_or_else(|| subagent_default_status(kind).to_string()),
                 message: optional_string(
                     payload,
                     &["terminalResult", "blockerSummary", "task", "content"],
                 ),
             }))
         }
-        "agent.context.compacted" | "agent.context.trimmed" => {
-            let turn_id = required_string(payload, &["turnId", "turn_id"], event_name);
+        AgentEventKind::ContextCompacted | AgentEventKind::ContextTrimmed => {
+            let turn_id = required_string(payload, &["turnId", "turn_id"], kind);
             let iteration = payload
                 .get("iteration")
                 .and_then(Value::as_i64)
@@ -129,13 +129,14 @@ fn agent_item_for_runtime_event(event_name: &str, payload: &Value) -> Option<Age
                 ),
             }))
         }
-        "agent.error"
-        | "agent.cancelled"
-        | "agent.tool.cleanup_timeout"
-        | "agent.context.compaction_failed" => {
-            let turn_id = required_string(payload, &["turnId", "turn_id"], event_name);
+        AgentEventKind::Error
+        | AgentEventKind::Cancelled
+        | AgentEventKind::CleanupTimeout
+        | AgentEventKind::ToolCleanupTimeout
+        | AgentEventKind::ContextCompactionFailed => {
+            let turn_id = required_string(payload, &["turnId", "turn_id"], kind);
             let code = optional_string(payload, &["stopReason", "code"])
-                .unwrap_or_else(|| event_name.trim_start_matches("agent.").to_string());
+                .unwrap_or_else(|| kind.wire_name().trim_start_matches("agent.").to_string());
             let message =
                 optional_string(payload, &["message", "error"]).unwrap_or_else(|| code.clone());
             Some(AgentItem::Error(AgentErrorItem {
@@ -143,15 +144,15 @@ fn agent_item_for_runtime_event(event_name: &str, payload: &Value) -> Option<Age
                 code,
                 message,
                 command_id: optional_string(payload, &["commandId", "command_id"]),
-                cancelled: event_name == "agent.cancelled"
+                cancelled: kind == AgentEventKind::Cancelled
                     || payload
                         .get("cancelled")
                         .and_then(Value::as_bool)
                         .unwrap_or(false),
             }))
         }
-        "agent.usage" => {
-            let turn_id = required_string(payload, &["turnId", "turn_id"], event_name);
+        AgentEventKind::Usage => {
+            let turn_id = required_string(payload, &["turnId", "turn_id"], kind);
             let mut usage = AgentUsageItem::from_provider_payload(
                 payload
                     .get("usage")
@@ -168,9 +169,9 @@ fn agent_item_for_runtime_event(event_name: &str, payload: &Value) -> Option<Age
             ));
             Some(AgentItem::Usage(usage))
         }
-        "agent.file.reference" => Some(AgentItem::FileReference(AgentFileReferenceItem {
-            id: required_string(payload, &["referenceId", "reference_id"], event_name),
-            path: required_string(payload, &["path", "url"], event_name),
+        AgentEventKind::FileReference => Some(AgentItem::FileReference(AgentFileReferenceItem {
+            id: required_string(payload, &["referenceId", "reference_id"], kind),
+            path: required_string(payload, &["path", "url"], kind),
             mime_type: optional_string(payload, &["mimeType", "mime_type"]),
             reference_kind: optional_string(payload, &["referenceKind", "reference_kind"])
                 .unwrap_or_else(|| "file".to_string()),
@@ -179,10 +180,11 @@ fn agent_item_for_runtime_event(event_name: &str, payload: &Value) -> Option<Age
     }
 }
 
-fn required_string(payload: &Value, keys: &[&str], event_name: &str) -> String {
+fn required_string(payload: &Value, keys: &[&str], kind: AgentEventKind) -> String {
     optional_string(payload, keys).unwrap_or_else(|| {
         panic!(
-            "runtime event `{event_name}` requires one of: {}",
+            "runtime event `{}` requires one of: {}",
+            kind.wire_name(),
             keys.join(", ")
         )
     })
@@ -214,12 +216,12 @@ fn form_field_ids(form: Option<&Value>) -> Vec<String> {
         .collect()
 }
 
-fn subagent_default_status(event_name: &str) -> &'static str {
-    match event_name {
-        "agent.delegate.cancelled" => "cancelled",
-        "agent.delegate.closed" => "closed",
-        "agent.delegate.result" => "completed",
-        "agent.delegate.wait" | "agent.delegate.notification" => "waiting",
+fn subagent_default_status(kind: AgentEventKind) -> &'static str {
+    match kind {
+        AgentEventKind::DelegateCancelled => "cancelled",
+        AgentEventKind::DelegateClosed => "closed",
+        AgentEventKind::DelegateResult => "completed",
+        AgentEventKind::DelegateWait | AgentEventKind::DelegateNotification => "waiting",
         _ => "running",
     }
 }

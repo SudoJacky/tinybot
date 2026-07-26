@@ -1,6 +1,6 @@
 use super::*;
 use crate::protocol::WorkerRequestCancellation;
-use serde_json::json;
+use serde_json::{json, Value};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -431,6 +431,111 @@ fn aggregates_streaming_tool_call_chunks_for_agent_completion() {
     assert_eq!(
         completion["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"],
         "{\"path\":\"README.md\"}"
+    );
+}
+
+#[test]
+fn interleaved_streaming_tool_indexes_preserve_model_order() {
+    let completion = aggregate_chat_completion_sse(concat!(
+        "data: {\"model\":\"gpt-test\",\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":1,\"id\":\"call-2\",\"type\":\"function\",\"function\":{\"name\":\"workspace.read_file\",\"arguments\":\"{\\\"path\\\":\\\"second\"}},{\"index\":0,\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"workspace.read_file\",\"arguments\":\"{\\\"path\\\":\\\"first\"}}]}}]}\n\n",
+        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\".md\\\"}\"}},{\"index\":1,\"function\":{\"arguments\":\".md\\\"}\"}}]}}]}\n\n",
+        "data: [DONE]\n\n"
+    ))
+    .expect("interleaved tool call chunks should aggregate");
+
+    let tool_calls = completion["choices"][0]["message"]["tool_calls"]
+        .as_array()
+        .expect("tool calls should be an array");
+    assert_eq!(tool_calls[0]["id"], "call-1");
+    assert_eq!(
+        tool_calls[0]["function"]["arguments"],
+        "{\"path\":\"first.md\"}"
+    );
+    assert_eq!(tool_calls[1]["id"], "call-2");
+    assert_eq!(
+        tool_calls[1]["function"]["arguments"],
+        "{\"path\":\"second.md\"}"
+    );
+}
+
+#[test]
+fn streaming_tool_calls_without_indexes_fall_back_to_chunk_positions() {
+    let completion = aggregate_chat_completion_sse(concat!(
+        "data: {\"model\":\"gpt-test\",\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"first_tool\",\"arguments\":\"{\\\"value\\\":\\\"a\"}},{\"id\":\"call-2\",\"type\":\"function\",\"function\":{\"name\":\"second_tool\",\"arguments\":\"{\\\"value\\\":\\\"b\"}}]}}]}\n\n",
+        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\"arguments\":\"1\\\"}\"}},{\"function\":{\"arguments\":\"2\\\"}\"}}]}}]}\n\n",
+        "data: [DONE]\n\n"
+    ))
+    .expect("tool call chunks without indexes should use stable positions");
+
+    let tool_calls = completion["choices"][0]["message"]["tool_calls"]
+        .as_array()
+        .expect("tool calls should be an array");
+    assert_eq!(tool_calls[0]["id"], "call-1");
+    assert_eq!(tool_calls[0]["function"]["arguments"], "{\"value\":\"a1\"}");
+    assert_eq!(tool_calls[1]["id"], "call-2");
+    assert_eq!(tool_calls[1]["function"]["arguments"], "{\"value\":\"b2\"}");
+}
+
+#[test]
+fn streaming_done_stops_before_trailing_data() {
+    let completion = aggregate_chat_completion_sse(concat!(
+        "data: {\"model\":\"gpt-test\",\"choices\":[{\"delta\":{\"content\":\"kept\"}}]}\n\n",
+        "data: [DONE]\n\n",
+        "data: not-json\n\n"
+    ))
+    .expect("data after DONE should not be reduced");
+
+    assert_eq!(completion["choices"][0]["message"]["content"], "kept");
+}
+
+#[test]
+fn streaming_invalid_json_fails_explicitly() {
+    let error = aggregate_chat_completion_sse("data: {not-json}\n\n")
+        .expect_err("invalid JSON must not produce a completion");
+
+    assert!(error.contains("streaming chat completion chunk was invalid JSON"));
+}
+
+#[test]
+fn streaming_provider_error_chunk_fails_explicitly() {
+    let error = aggregate_chat_completion_sse(
+        "data: {\"error\":{\"message\":\"quota exceeded\",\"code\":\"rate_limit\"}}\n\n",
+    )
+    .expect_err("provider error chunks must not produce a completion");
+
+    assert!(error.contains("streaming chat completion returned error"));
+    assert!(error.contains("quota exceeded"));
+}
+
+#[test]
+fn streaming_observer_does_not_change_completion_reduction() {
+    let transcript = concat!(
+        "data: {\"model\":\"gpt-test\",\"phase\":\"commentary\",\"choices\":[{\"delta\":{\"content\":\"answer \",\"reasoning_content\":\"think \"}}]}\n\n",
+        "data: {\"choices\":[{\"delta\":{\"content\":\"done\",\"reasoningContent\":\"again\"}}],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":2,\"total_tokens\":5}}\n\n",
+        "data: [DONE]\n\n"
+    );
+    let mut observed = Vec::new();
+    let mut observer = |event| observed.push(event);
+    let mut with_observer =
+        aggregate_chat_completion_sse_with_observer(transcript, Some(&mut observer))
+            .expect("stream should aggregate with an observer");
+    let mut without_observer = aggregate_chat_completion_sse(transcript)
+        .expect("stream should aggregate without observer");
+
+    for completion in [&mut with_observer, &mut without_observer] {
+        completion["id"] = Value::String("normalized-id".to_string());
+        completion["created"] = Value::Number(0.into());
+    }
+    assert_eq!(with_observer, without_observer);
+    assert_eq!(
+        observed,
+        vec![
+            NativeProviderStreamEvent::MessagePhase("commentary".to_string()),
+            NativeProviderStreamEvent::ContentDelta("answer ".to_string()),
+            NativeProviderStreamEvent::ReasoningDelta("think ".to_string()),
+            NativeProviderStreamEvent::ContentDelta("done".to_string()),
+            NativeProviderStreamEvent::ReasoningDelta("again".to_string()),
+        ]
     );
 }
 

@@ -57,22 +57,6 @@ describe("desktop native threads API", () => {
         },
       },
     });
-    await expect(api.resolveApproval({
-      threadId: "thread-1",
-      approvalId: "approval-1",
-      approved: true,
-      commandId: "command-approval-1",
-    })).resolves.toEqual({
-      command: "worker_resolve_thread_approval",
-      args: {
-        input: {
-          threadId: "thread-1",
-          approvalId: "approval-1",
-          approved: true,
-          commandId: "command-approval-1",
-        },
-      },
-    });
     await expect(api.submitForm({ threadId: "thread-1", formId: "form-1", values: {}, action: "submit" })).resolves.toEqual({
       command: "worker_submit_thread_form",
       args: { input: { threadId: "thread-1", formId: "form-1", values: {}, action: "submit" } },

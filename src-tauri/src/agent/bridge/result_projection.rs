@@ -3,8 +3,7 @@ pub(crate) fn native_agent_turn_status(stop_reason: Option<&str>) -> &'static st
         Some("final_response") => "completed",
         Some("cancelled") => "cancelled",
         Some("interrupted") | Some("runtime_restarted") => "interrupted",
-        Some("awaiting_approval")
-        | Some("awaiting_form")
+        Some("awaiting_form")
         | Some("awaiting_tool")
         | Some("tool_running")
         | Some("awaiting_subagent") => "waiting",
@@ -20,7 +19,6 @@ pub(crate) fn native_agent_turn_phase_from_stop_reason(
         Some("final_response") => Some("completed"),
         Some("cancelled") => Some("cancelled"),
         Some("interrupted") | Some("runtime_restarted") => Some("interrupted"),
-        Some("awaiting_approval") => Some("awaiting_approval"),
         Some("awaiting_form") => Some("awaiting_form"),
         Some("awaiting_tool") => Some("tool_running"),
         Some(_) => Some("failed"),
@@ -139,7 +137,7 @@ pub(crate) fn native_agent_usage(result: &serde_json::Value) -> Vec<serde_json::
                 .iter()
                 .filter(|event| {
                     event.get("eventName").and_then(serde_json::Value::as_str)
-                        == Some("agent.usage")
+                        == Some(AgentEventKind::Usage.wire_name())
                 })
                 .filter_map(|event| event.get("payload"))
                 .filter_map(|payload| payload.get("usage"))
@@ -159,7 +157,8 @@ pub(crate) fn native_agent_token_usage_info(
         .flatten()
         .rev()
         .find(|event| {
-            event.get("eventName").and_then(serde_json::Value::as_str) == Some("agent.token_count")
+            event.get("eventName").and_then(serde_json::Value::as_str)
+                == Some(AgentEventKind::TokenCount.wire_name())
         })
         .and_then(|event| event.get("payload"))
         .and_then(|payload| payload.get("info"))
@@ -242,3 +241,4 @@ fn usage_i64_field(value: &serde_json::Value, keys: &[&str]) -> Option<i64> {
         })
     })
 }
+use crate::agent::runtime_protocol::AgentEventKind;

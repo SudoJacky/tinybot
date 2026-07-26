@@ -1,3 +1,4 @@
+use crate::agent::runtime_protocol::AgentEventKind;
 use futures_util::FutureExt;
 use serde::Serialize;
 use serde_json::Value;
@@ -1123,7 +1124,7 @@ fn cancelled_task_result(request: &StartAgentTurn, reason: &str) -> Value {
         "messages": [],
         "toolsUsed": [],
         "events": [{
-            "eventName": "agent.cancelled",
+            "eventName": AgentEventKind::Cancelled.wire_name(),
             "payload": {
                 "turnId": request.turn_id,
                 "sessionId": request.session_id,
@@ -1149,7 +1150,7 @@ fn cancellation_cleanup_timeout_result(request: &StartAgentTurn, grace: Duration
         "messages": [],
         "toolsUsed": [],
         "events": [{
-            "eventName": "agent.cleanup_timeout",
+            "eventName": AgentEventKind::CleanupTimeout.wire_name(),
             "payload": {
                 "turnId": request.turn_id,
                 "sessionId": request.session_id,

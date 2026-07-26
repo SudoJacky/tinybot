@@ -1,6 +1,6 @@
 use crate::agent::runtime::{
-    AgentTurnContext, NativeAgentRuntimeServices, NativeAgentToolCall, NativeAgentToolDispatcher,
-    NativeAgentToolResult,
+    AgentTurnContext, NativeAgentRuntimeServices, NativeAgentToolDispatcher, NativeAgentToolResult,
+    PreparedToolCall,
 };
 use crate::collaboration::subagents::SubagentThreadManager;
 use crate::protocol::{WorkerRequest, WorkerRequestCancellation};
@@ -28,7 +28,7 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
     fn dispatch(
         &self,
         context: &AgentTurnContext,
-        tool_call: &NativeAgentToolCall,
+        tool_call: &PreparedToolCall,
     ) -> Result<NativeAgentToolResult, String> {
         if matches!(
             tool_call.name.as_str(),
@@ -42,13 +42,7 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
         if native_agent_tool_executor_should_fallback(&tool_call.name) {
             return self.fallback.dispatch(context, tool_call);
         }
-        let mut arguments: serde_json::Value = serde_json::from_str(&tool_call.arguments_json)
-            .map_err(|error| {
-                format!(
-                    "native tool `{}` arguments are invalid JSON: {error}",
-                    tool_call.name
-                )
-            })?;
+        let mut arguments = tool_call.arguments_value();
         apply_turn_working_directory(
             context.settings.working_directory.as_deref(),
             &tool_call.name,
@@ -136,7 +130,7 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
     fn dispatch_async(
         self: Arc<Self>,
         context: AgentTurnContext,
-        tool_call: NativeAgentToolCall,
+        tool_call: PreparedToolCall,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send>,
     > {
@@ -193,7 +187,7 @@ impl NativeAgentToolExecutorDispatcher {
     async fn dispatch_browser_if_needed(
         &self,
         context: &AgentTurnContext,
-        tool_call: &NativeAgentToolCall,
+        tool_call: &PreparedToolCall,
     ) -> Option<Result<NativeAgentToolResult, String>> {
         if !matches!(
             tool_call.name.as_str(),
@@ -210,22 +204,7 @@ impl NativeAgentToolExecutorDispatcher {
                 ));
             }
         };
-        let mut arguments =
-            match serde_json::from_str::<serde_json::Value>(&tool_call.arguments_json) {
-                Ok(arguments) if arguments.is_object() => arguments,
-                Ok(_) => {
-                    return Some(Err(format!(
-                        "native tool `{}` arguments must be a JSON object",
-                        tool_call.name
-                    )));
-                }
-                Err(error) => {
-                    return Some(Err(format!(
-                        "native tool `{}` arguments are invalid JSON: {error}",
-                        tool_call.name
-                    )));
-                }
-            };
+        let mut arguments = tool_call.arguments_value();
         let result = match tool_call.name.as_str() {
             "browser.observe" => {
                 dispatch_agent_browser_observe(&runtime, &context.session_id, arguments).await
@@ -254,17 +233,9 @@ impl NativeAgentToolExecutorDispatcher {
     async fn dispatch_mcp_if_needed(
         &self,
         context: &AgentTurnContext,
-        tool_call: &NativeAgentToolCall,
+        tool_call: &PreparedToolCall,
     ) -> Option<Result<NativeAgentToolResult, String>> {
-        let arguments = match serde_json::from_str::<serde_json::Value>(&tool_call.arguments_json) {
-            Ok(arguments) => arguments,
-            Err(error) => {
-                return Some(Err(format!(
-                    "native tool `{}` arguments are invalid JSON: {error}",
-                    tool_call.name
-                )));
-            }
-        };
+        let arguments = tool_call.arguments_value();
         let target = context.tool_execution_target(&tool_call.name);
         let (server_name, tool_name, tool_arguments) = match target {
             Some(ToolExecutionTarget::Mcp { server, tool }) => (server, tool, arguments),

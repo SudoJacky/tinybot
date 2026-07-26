@@ -13,7 +13,7 @@ loop.
 - Build tool-dispatch and trace-sink services for the turn owner.
 - Persist turn start, runtime trace, checkpoints, and terminal turn state.
 - Project runtime results into session- and Thread-compatible response shapes.
-- Continue turns after approvals, forms, or additional Thread input.
+- Continue turns after forms or additional Thread input.
 
 The bridge does **not** implement provider iteration or define the canonical
 Thread data model. Those belong to `agent::runtime` and `threads::domain`.
@@ -38,13 +38,13 @@ when it failed.
 ## Internal layout
 
 - `agent_flow.rs`: complete turn orchestration.
-- `thread_flow.rs`: submit/continue turns and resolve Thread approvals/forms.
+- `thread_flow.rs`: submit/continue turns and resolve Thread forms.
 - `history.rs`: select and normalize persisted history for the runtime.
 - `persistence.rs`: turn/checkpoint persistence and cancellation/restore.
 - `trace_sink.rs`: live desktop and durable trace sinks.
 - `tool_dispatcher.rs`: construct runtime services backed by registered tools.
 - `result_projection.rs`: stable result, usage, artifact, and status accessors.
-- `webui_continuation.rs`: compatibility continuations for WebUI callers.
+- `webui_continuation.rs`: form continuations for WebUI callers.
 
 ## Invariants
 
@@ -59,8 +59,7 @@ when it failed.
 - Persist each completed assistant message and model-call reasoning item once.
   Final turn persistence closes the Turn and clears checkpoints; it does not
   append the same user or assistant messages again.
-- Approval and form resolution must preserve turn, request, and trace
-  correlation.
+- Form resolution must preserve turn, request, and trace correlation.
 - Persistence errors remain visible to callers; a partial durable write is not
   a successful turn.
 

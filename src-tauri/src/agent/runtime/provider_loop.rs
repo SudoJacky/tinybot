@@ -1,9 +1,5 @@
 use super::checkpoint::save_phase_checkpoint;
-use super::continuations::{
-    maybe_approval_resume_result, restore_activated_tools_for_continuation,
-    ApprovalContinuationOutcome, ApprovalResume,
-};
-use super::events::runtime_event_timestamp;
+use super::continuations::restore_activated_tools_for_continuation;
 use super::hooks::AgentHookEvaluation;
 use super::result::{cancelled_result, cancelled_turn_result, error_result};
 use super::state::AgentTurnState;
@@ -22,8 +18,8 @@ use super::{
     NativeAgentProviderStreamEvent, NativeAgentRuntimeServices,
 };
 use crate::agent::runtime_protocol::{
-    AgentAssistantMessagePhase, AgentRuntimeEventAppendInput, AgentRuntimeEventEnvelope,
-    AgentRuntimeEventSource, AgentRuntimeEventVisibility, AgentRuntimePhase, AgentTurnEmitter,
+    AgentAssistantMessagePhase, AgentEventKind, AgentRuntimeEventEnvelope, AgentRuntimePhase,
+    ModelOutputEvent, PendingAgentEvent, TerminalEvent,
 };
 use crate::runtime::turn_execution::StartAgentTurn;
 use crate::tools::registry::{McpToolContributor, WorkerToolRegistryRpc};
@@ -201,7 +197,7 @@ async fn run_owned_native_agent_turn_async(
         .unwrap_or("unknown");
     let completed = matches!(
         stop_reason,
-        "final_response" | "awaiting_approval" | "awaiting_form" | "awaiting_subagent"
+        "final_response" | "awaiting_form" | "awaiting_subagent"
     );
     let stage = if completed {
         identity.metrics().increment("turn.completed");
@@ -216,7 +212,7 @@ async fn run_owned_native_agent_turn_async(
         .record_duration("turn.durationMs", duration);
     let invocation = AgentHookInvocation::lifecycle(stage, identity.trace_context.clone());
     let evaluation = identity.evaluate_hook(invocation.clone())?;
-    append_hook_evaluation_to_result(&mut result, &identity, &invocation, &evaluation)?;
+    append_hook_evaluation_to_result(&mut result, services, &identity, &invocation, &evaluation)?;
     result["traceContext"] = serde_json::to_value(&identity.trace_context)
         .map_err(|error| format!("failed to serialize agent trace context: {error}"))?;
     result["turnMetrics"] = serde_json::json!({
@@ -235,6 +231,7 @@ struct ProviderStreamState {
     reasoning_content: String,
     message_phase: AgentAssistantMessagePhase,
     observer_cancelled: bool,
+    trace_error: Option<String>,
 }
 
 impl ProviderStreamState {
@@ -245,6 +242,7 @@ impl ProviderStreamState {
             reasoning_content: String::new(),
             message_phase: AgentAssistantMessagePhase::Unknown,
             observer_cancelled: false,
+            trace_error: None,
         }
     }
 
@@ -258,6 +256,9 @@ impl ProviderStreamState {
         reasoning_item_id: &str,
         event: NativeAgentProviderStreamEvent,
     ) {
+        if self.trace_error.is_some() {
+            return;
+        }
         if turn_context_is_cancelled(context) {
             self.observer_cancelled = true;
             return;
@@ -265,36 +266,37 @@ impl ProviderStreamState {
         match event {
             NativeAgentProviderStreamEvent::MessagePhase(phase) => {
                 self.message_phase = phase;
-                state.emit_event(
-                    "agent.message.phase",
-                    serde_json::json!({
-                        "turnId": context.turn_id,
-                        "sessionId": context.session_id,
-                        "iteration": iteration,
-                        "modelCallId": provider_attempt_id,
-                        "messageId": assistant_message_id,
-                        "messagePhase": phase,
-                    }),
-                );
+                if let Err(error) = state.emit(ModelOutputEvent::MessagePhase(serde_json::json!({
+                    "iteration": iteration,
+                    "modelCallId": provider_attempt_id,
+                    "messageId": assistant_message_id,
+                    "messagePhase": phase,
+                }))) {
+                    self.trace_error = Some(error);
+                }
             }
             NativeAgentProviderStreamEvent::ContentDelta(delta) => {
                 if delta.is_empty() {
                     return;
                 }
                 self.streamed_content = true;
-                state.transition_phase(AgentRuntimePhase::StreamingModel, iteration, "agent.delta");
-                state.emit_event(
-                    "agent.delta",
-                    serde_json::json!({
-                        "turnId": context.turn_id,
-                        "sessionId": context.session_id,
-                        "iteration": iteration,
-                        "modelCallId": provider_attempt_id,
-                        "messageId": assistant_message_id,
-                        "messagePhase": self.message_phase,
-                        "delta": delta,
-                    }),
-                );
+                if let Err(error) = state.transition_phase(
+                    AgentRuntimePhase::StreamingModel,
+                    iteration,
+                    AgentEventKind::MessageDelta.wire_name(),
+                ) {
+                    self.trace_error = Some(error);
+                    return;
+                }
+                if let Err(error) = state.emit(ModelOutputEvent::MessageDelta(serde_json::json!({
+                    "iteration": iteration,
+                    "modelCallId": provider_attempt_id,
+                    "messageId": assistant_message_id,
+                    "messagePhase": self.message_phase,
+                    "delta": delta,
+                }))) {
+                    self.trace_error = Some(error);
+                }
             }
             NativeAgentProviderStreamEvent::ReasoningDelta(delta) => {
                 if delta.is_empty() {
@@ -302,22 +304,24 @@ impl ProviderStreamState {
                 }
                 self.streamed_reasoning = true;
                 self.reasoning_content.push_str(&delta);
-                state.transition_phase(
+                if let Err(error) = state.transition_phase(
                     AgentRuntimePhase::StreamingModel,
                     iteration,
-                    "agent.reasoning_delta",
-                );
-                state.emit_event(
-                    "agent.reasoning_delta",
-                    serde_json::json!({
-                        "turnId": context.turn_id,
-                        "sessionId": context.session_id,
+                    AgentEventKind::ReasoningDelta.wire_name(),
+                ) {
+                    self.trace_error = Some(error);
+                    return;
+                }
+                if let Err(error) =
+                    state.emit(ModelOutputEvent::ReasoningDelta(serde_json::json!({
                         "iteration": iteration,
                         "modelCallId": provider_attempt_id,
                         "reasoningId": reasoning_item_id,
                         "delta": delta,
-                    }),
-                );
+                    })))
+                {
+                    self.trace_error = Some(error);
+                }
             }
         }
     }
@@ -544,37 +548,38 @@ impl<'a> NativeAgentTurnExecution<'a> {
         state.transition_phase(
             AgentRuntimePhase::HydratingHistory,
             0,
-            "agent.history.hydrated",
-        );
+            AgentEventKind::ContextHydrated.wire_name(),
+        )?;
         if !context.context_contribution_diagnostics().is_empty() {
-            state.emit_event(
-                "agent.context.hydrated",
+            state.emit(PendingAgentEvent::new(
+                AgentEventKind::ContextHydrated,
                 serde_json::json!({
-                    "turnId": context.turn_id,
-                    "sessionId": context.session_id,
                     "contributors": context.context_contribution_diagnostics(),
                 }),
-            );
+            ))?;
         }
-        state.transition_phase(AgentRuntimePhase::Planning, 0, "agent.turn.started");
+        state.transition_phase(
+            AgentRuntimePhase::Planning,
+            0,
+            AgentEventKind::TurnStarted.wire_name(),
+        )?;
         let start_iteration = match continuation_resume {
-            Some(PreparedTurnResume::Approval(resume)) => resume.apply(&context, &mut state),
-            Some(PreparedTurnResume::UserInput(resume)) => resume.apply(&context, &mut state),
+            Some(resume) => resume.apply(&context, &mut state),
             None => {
-                state.emit_turn_started(&context);
+                state.emit_turn_started(&context)?;
                 state.emit_tinyos_command_acknowledgement(&context)?;
-                0
+                Ok(0)
             }
-        };
+        }?;
         let turn_start_invocation = AgentHookInvocation::lifecycle(
             AgentHookStage::TurnStart,
             context.trace_context.clone(),
         );
         let turn_start_evaluation = context.evaluate_hook(turn_start_invocation.clone())?;
-        state.emit_hook_evaluation(&turn_start_invocation, &turn_start_evaluation);
+        state.emit_hook_evaluation(&turn_start_invocation, &turn_start_evaluation)?;
         if let Some(reason) = turn_start_evaluation.denied_reason {
             return Ok(PreparedNativeAgentTurnExecution::Finished(
-                hook_denied_result(dependencies, &context, &mut state, start_iteration, reason),
+                hook_denied_result(dependencies, &context, &mut state, start_iteration, reason)?,
             ));
         }
 
@@ -595,7 +600,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
                 IterationOutcome::Finished(result) => return Ok(result),
             }
         }
-        Ok(self.finish_max_iterations())
+        self.finish_max_iterations()
     }
 
     async fn advance_iteration(&mut self, iteration: i64) -> Result<IterationOutcome, String> {
@@ -615,13 +620,13 @@ impl<'a> NativeAgentTurnExecution<'a> {
         iteration: i64,
     ) -> Result<ExecutionStage<PreparedProviderIteration>, String> {
         self.state
-            .transition_phase(AgentRuntimePhase::CallingModel, iteration, "provider_call");
+            .transition_phase(AgentRuntimePhase::CallingModel, iteration, "provider_call")?;
         if turn_context_is_cancelled(&self.context) {
-            return Ok(ExecutionStage::Finished(self.finish_cancelled(iteration)));
+            return Ok(ExecutionStage::Finished(self.finish_cancelled(iteration)?));
         }
         honor_pause_request(self.dependencies, &self.context, &mut self.state, iteration).await?;
         if turn_context_is_cancelled(&self.context) {
-            return Ok(ExecutionStage::Finished(self.finish_cancelled(iteration)));
+            return Ok(ExecutionStage::Finished(self.finish_cancelled(iteration)?));
         }
         save_phase_checkpoint(
             self.dependencies,
@@ -635,7 +640,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
         let projection = match context_window_projection_async(&self.context).await {
             Ok(projection) => projection,
             Err(error) if error.kind() == NativeAgentProviderFailureKind::Cancelled => {
-                return Ok(ExecutionStage::Finished(self.finish_cancelled(iteration)));
+                return Ok(ExecutionStage::Finished(self.finish_cancelled(iteration)?));
             }
             Err(error) => {
                 emit_context_compaction_failure(
@@ -644,14 +649,14 @@ impl<'a> NativeAgentTurnExecution<'a> {
                     iteration,
                     error.stop_reason(),
                     error.message(),
-                );
+                )?;
                 return Ok(ExecutionStage::Finished(provider_failure_result(
                     self.dependencies,
                     &self.context,
                     &mut self.state,
                     iteration,
                     error,
-                )));
+                )?));
             }
         };
         if let Some(action) = projection.action.as_ref() {
@@ -666,7 +671,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
                     .metrics()
                     .set_gauge("context.tokens.after", tokens);
             }
-            if action.event_name == "agent.context.compacted" {
+            if action.event_kind == AgentEventKind::ContextCompacted {
                 let checkpoint = self
                     .state
                     .compacted_context_checkpoint(&projection.messages, &payload);
@@ -693,7 +698,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
                         iteration,
                         "context_compaction_commit_failed",
                         &message,
-                    );
+                    )?;
                     return Ok(ExecutionStage::Finished(agent_failure_result(
                         self.dependencies,
                         &self.context,
@@ -701,7 +706,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
                         iteration,
                         "context_compaction_commit_failed",
                         message,
-                    )));
+                    )?));
                 }
                 self.state
                     .install_compacted_context(projection.messages.clone(), checkpoint)?;
@@ -710,14 +715,15 @@ impl<'a> NativeAgentTurnExecution<'a> {
                 self.context.spec["messages"] = Value::Array(prompt_messages);
                 self.context.metrics().increment("compaction.completed");
             }
-            self.state.emit_event(action.event_name, payload);
-            if action.event_name == "agent.context.compacted" {
+            self.state
+                .emit(PendingAgentEvent::new(action.event_kind, payload))?;
+            if action.event_kind == AgentEventKind::ContextCompacted {
                 let invocation = AgentHookInvocation::lifecycle(
                     AgentHookStage::CompactionComplete,
                     self.context.trace_context.clone(),
                 );
                 let evaluation = self.context.evaluate_hook(invocation.clone())?;
-                self.state.emit_hook_evaluation(&invocation, &evaluation);
+                self.state.emit_hook_evaluation(&invocation, &evaluation)?;
             }
         }
 
@@ -734,7 +740,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             .context
             .evaluate_hook(before_provider_invocation.clone())?;
         self.state
-            .emit_hook_evaluation(&before_provider_invocation, &before_provider_evaluation);
+            .emit_hook_evaluation(&before_provider_invocation, &before_provider_evaluation)?;
         if let Some(reason) = before_provider_evaluation.denied_reason {
             return Ok(ExecutionStage::Finished(hook_denied_result(
                 self.dependencies,
@@ -742,18 +748,9 @@ impl<'a> NativeAgentTurnExecution<'a> {
                 &mut self.state,
                 iteration,
                 reason,
-            )));
+            )?));
         }
         self.context.metrics().increment("provider.attempted");
-        self.state.emit_event(
-            "agent.provider.requested",
-            serde_json::json!({
-                "turnId": self.context.turn_id,
-                "sessionId": self.context.session_id,
-                "iteration": iteration,
-                "providerAttemptId": attempt.id,
-            }),
-        );
         Ok(ExecutionStage::Ready(PreparedProviderIteration {
             provider_context,
             attempt,
@@ -800,6 +797,9 @@ impl<'a> NativeAgentTurnExecution<'a> {
                 provider_call.await
             }
         };
+        if let Some(error) = attempt.stream.trace_error.take() {
+            return Err(error);
+        }
         let provider_duration = provider_started_at.elapsed();
         self.context
             .metrics()
@@ -818,17 +818,6 @@ impl<'a> NativeAgentTurnExecution<'a> {
         self.context
             .metrics()
             .increment(&format!("provider.{provider_outcome}"));
-        self.state.emit_event(
-            "agent.provider.completed",
-            serde_json::json!({
-                "turnId": self.context.turn_id,
-                "sessionId": self.context.session_id,
-                "iteration": attempt.iteration,
-                "providerAttemptId": attempt.id,
-                "outcome": provider_outcome,
-                "durationMs": provider_duration.as_millis().min(u128::from(u64::MAX)) as u64,
-            }),
-        );
         let after_provider_invocation = AgentHookInvocation::provider(
             AgentHookStage::AfterProviderResponse,
             self.context.trace_context.clone(),
@@ -839,17 +828,17 @@ impl<'a> NativeAgentTurnExecution<'a> {
             .context
             .evaluate_hook(after_provider_invocation.clone())?;
         self.state
-            .emit_hook_evaluation(&after_provider_invocation, &after_provider_evaluation);
+            .emit_hook_evaluation(&after_provider_invocation, &after_provider_evaluation)?;
         if attempt.stream.observer_cancelled {
             return Ok(ExecutionStage::Finished(
-                self.finish_cancelled(attempt.iteration),
+                self.finish_cancelled(attempt.iteration)?,
             ));
         }
         let response = match provider_response {
             Ok(response) => response,
             Err(error) if error.kind() == NativeAgentProviderFailureKind::Cancelled => {
                 return Ok(ExecutionStage::Finished(
-                    self.finish_cancelled(attempt.iteration),
+                    self.finish_cancelled(attempt.iteration)?,
                 ));
             }
             Err(error) => {
@@ -859,7 +848,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
                     &mut self.state,
                     attempt.iteration,
                     error,
-                )));
+                )?));
             }
         };
         Ok(ExecutionStage::Ready(CompletedProviderIteration {
@@ -892,23 +881,28 @@ impl<'a> NativeAgentTurnExecution<'a> {
                 &mut self.state,
                 iteration,
                 NativeAgentProviderFailure::provider(message),
-            )));
+            )?));
         }
         if turn_context_is_cancelled(&self.context) && completed.response.tool_calls.is_empty() {
-            return Ok(IterationOutcome::Finished(self.finish_cancelled(iteration)));
+            return Ok(IterationOutcome::Finished(
+                self.finish_cancelled(iteration)?,
+            ));
         }
 
-        self.project_provider_fallbacks(&mut completed);
+        self.project_provider_fallbacks(&mut completed)?;
         if completed.response.tool_calls.is_empty() {
             Ok(IterationOutcome::Finished(
-                self.finish_final_response(completed),
+                self.finish_final_response(completed)?,
             ))
         } else {
             self.complete_tool_iteration(completed).await
         }
     }
 
-    fn project_provider_fallbacks(&mut self, completed: &mut CompletedProviderIteration) {
+    fn project_provider_fallbacks(
+        &mut self,
+        completed: &mut CompletedProviderIteration,
+    ) -> Result<(), String> {
         let iteration = completed.attempt.iteration;
         if let Some(reasoning_delta) = completed
             .response
@@ -924,32 +918,24 @@ impl<'a> NativeAgentTurnExecution<'a> {
             self.state.transition_phase(
                 AgentRuntimePhase::StreamingModel,
                 iteration,
-                "agent.reasoning_delta",
-            );
-            self.state.emit_event(
-                "agent.reasoning_delta",
-                serde_json::json!({
-                    "turnId": self.context.turn_id,
-                    "sessionId": self.context.session_id,
+                AgentEventKind::ReasoningDelta.wire_name(),
+            )?;
+            self.state
+                .emit(ModelOutputEvent::ReasoningDelta(serde_json::json!({
                     "iteration": iteration,
                     "modelCallId": completed.attempt.id,
                     "reasoningId": completed.attempt.reasoning_item_id,
                     "delta": reasoning_delta,
-                }),
-            );
+                })))?;
         }
         if !completed.attempt.stream.reasoning_content.is_empty() {
-            self.state.emit_event(
-                "agent.reasoning.completed",
-                serde_json::json!({
-                    "turnId": self.context.turn_id,
-                    "sessionId": self.context.session_id,
+            self.state
+                .emit(ModelOutputEvent::ReasoningCompleted(serde_json::json!({
                     "iteration": iteration,
                     "modelCallId": completed.attempt.id,
                     "reasoningId": completed.attempt.reasoning_item_id,
                     "summary": completed.attempt.stream.reasoning_content,
-                }),
-            );
+                })))?;
         }
         if self.context.stream
             && !completed.response.final_content.is_empty()
@@ -958,21 +944,18 @@ impl<'a> NativeAgentTurnExecution<'a> {
             self.state.transition_phase(
                 AgentRuntimePhase::StreamingModel,
                 iteration,
-                "agent.delta",
-            );
-            self.state.emit_event(
-                "agent.delta",
-                serde_json::json!({
-                    "turnId": self.context.turn_id,
-                    "sessionId": self.context.session_id,
+                AgentEventKind::MessageDelta.wire_name(),
+            )?;
+            self.state
+                .emit(ModelOutputEvent::MessageDelta(serde_json::json!({
                     "iteration": iteration,
                     "modelCallId": completed.attempt.id,
                     "messageId": completed.attempt.assistant_message_id,
                     "messagePhase": completed.attempt.stream.message_phase,
                     "delta": completed.response.final_content,
-                }),
-            );
+                })))?;
         }
+        Ok(())
     }
 
     async fn complete_tool_iteration(
@@ -981,11 +964,8 @@ impl<'a> NativeAgentTurnExecution<'a> {
     ) -> Result<IterationOutcome, String> {
         let CompletedProviderIteration { response, attempt } = completed;
         if attempt.stream.streamed_content || !response.final_content.is_empty() {
-            self.state.emit_event(
-                "agent.message.classified",
+            self.state.emit(ModelOutputEvent::MessageClassified(
                 serde_json::json!({
-                    "turnId": self.context.turn_id,
-                    "sessionId": self.context.session_id,
                     "iteration": attempt.iteration,
                     "modelCallId": attempt.id,
                     "messageId": attempt.assistant_message_id,
@@ -997,7 +977,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
                     },
                     "content": response.final_content,
                 }),
-            );
+            ))?;
         }
         let outcome = execute_tool_calls_for_iteration(
             self.dependencies,
@@ -1007,22 +987,20 @@ impl<'a> NativeAgentTurnExecution<'a> {
             response.final_content.clone(),
             response.tool_calls,
         )
-        .await;
+        .await?;
         if let NativeAgentToolExecutionOutcome::Finished(mut result) = outcome {
             self.state.attach_context_checkpoint(&mut result, None);
             return Ok(IterationOutcome::Finished(result));
         }
 
         if let Some(message) = self.state.drain_pending_guidance()? {
-            self.state.emit_event(
-                "agent.guidance",
+            self.state.emit(PendingAgentEvent::new(
+                AgentEventKind::Guidance,
                 serde_json::json!({
-                    "turnId": self.context.turn_id,
-                    "sessionId": self.context.session_id,
                     "iteration": attempt.iteration,
                     "content": message.get("content").cloned().unwrap_or(Value::Null),
                 }),
-            );
+            ))?;
         }
         self.state.record_usage(
             &self.context,
@@ -1030,11 +1008,14 @@ impl<'a> NativeAgentTurnExecution<'a> {
             &attempt.id,
             response.usage.unwrap_or_else(|| serde_json::json!({})),
             attempt.estimated_context_tokens,
-        );
+        )?;
         Ok(IterationOutcome::Continue)
     }
 
-    fn finish_final_response(&mut self, completed: CompletedProviderIteration) -> Value {
+    fn finish_final_response(
+        &mut self,
+        completed: CompletedProviderIteration,
+    ) -> Result<Value, String> {
         let CompletedProviderIteration { response, attempt } = completed;
         let final_content = response.final_content;
         self.state.record_usage(
@@ -1043,20 +1024,17 @@ impl<'a> NativeAgentTurnExecution<'a> {
             &attempt.id,
             response.usage.unwrap_or_else(|| serde_json::json!({})),
             attempt.estimated_context_tokens,
-        );
+        )?;
         self.state.transition_phase(
             AgentRuntimePhase::Finalizing,
             attempt.iteration,
-            "agent.message.completed",
-        );
+            AgentEventKind::MessageCompleted.wire_name(),
+        )?;
         self.dependencies
             .checkpoints
             .clear_for_turn(&self.context.session_id, &self.context.turn_id);
-        self.state.emit_event(
-            "agent.message.completed",
+        self.state.emit(ModelOutputEvent::MessageCompleted(
             serde_json::json!({
-                "turnId": self.context.turn_id,
-                "sessionId": self.context.session_id,
                 "iteration": attempt.iteration,
                 "modelCallId": attempt.id,
                 "messageId": attempt.assistant_message_id,
@@ -1068,18 +1046,16 @@ impl<'a> NativeAgentTurnExecution<'a> {
                 },
                 "content": final_content.clone(),
             }),
-        );
-        self.state
-            .set_stop_reason("final_response", attempt.iteration, "agent.done");
-        self.state.emit_event(
-            "agent.done",
-            serde_json::json!({
-                "turnId": self.context.turn_id,
-                "sessionId": self.context.session_id,
-                "iteration": attempt.iteration,
-                "stopReason": "final_response",
-            }),
-        );
+        ))?;
+        self.state.set_stop_reason(
+            "final_response",
+            attempt.iteration,
+            AgentEventKind::Done.wire_name(),
+        )?;
+        self.state.emit(TerminalEvent::Done(serde_json::json!({
+            "iteration": attempt.iteration,
+            "stopReason": "final_response",
+        })))?;
         let runtime_events = self.state.runtime_events();
         let events = self.state.legacy_events();
         let final_message = serde_json::json!({
@@ -1104,35 +1080,29 @@ impl<'a> NativeAgentTurnExecution<'a> {
         if let Some(context_checkpoint) = context_checkpoint {
             result["contextCheckpoint"] = context_checkpoint;
         }
-        result
+        Ok(result)
     }
 
-    fn finish_cancelled(&mut self, iteration: i64) -> Value {
-        self.state
-            .transition_phase(AgentRuntimePhase::Cancelled, iteration, "agent.cancelled");
-        cancelled_turn_result(
-            self.dependencies,
-            &self.context,
-            self.state.take_runtime_events(),
-            std::mem::take(&mut self.state.tools_used),
-            std::mem::take(&mut self.state.completed_tool_results),
+    fn finish_cancelled(&mut self, iteration: i64) -> Result<Value, String> {
+        self.state.transition_phase(
+            AgentRuntimePhase::Cancelled,
             iteration,
-        )
+            AgentEventKind::Cancelled.wire_name(),
+        )?;
+        cancelled_turn_result(self.dependencies, &self.context, &mut self.state, iteration)
     }
 
-    fn finish_max_iterations(&mut self) -> Value {
+    fn finish_max_iterations(&mut self) -> Result<Value, String> {
         let error = "Rust agent runtime reached max iterations before final response.";
-        self.state
-            .set_stop_reason("max_iterations", self.state.iteration, "agent.error");
-        self.state.emit_event(
-            "agent.error",
-            serde_json::json!({
-                "turnId": self.context.turn_id,
-                "sessionId": self.context.session_id,
-                "stopReason": "max_iterations",
-                "error": error,
-            }),
-        );
+        self.state.set_stop_reason(
+            "max_iterations",
+            self.state.iteration,
+            AgentEventKind::Error.wire_name(),
+        )?;
+        self.state.emit(TerminalEvent::Error(serde_json::json!({
+            "stopReason": "max_iterations",
+            "error": error,
+        })))?;
         self.dependencies
             .checkpoints
             .clear_for_turn(&self.context.session_id, &self.context.turn_id);
@@ -1155,7 +1125,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
         if let Some(context_checkpoint) = context_checkpoint {
             result["contextCheckpoint"] = context_checkpoint;
         }
-        result
+        Ok(result)
     }
 }
 
@@ -1189,44 +1159,48 @@ async fn honor_pause_request(
         return Ok(());
     };
     let previous_phase = state.phase.clone();
-    state.transition_phase(AgentRuntimePhase::Paused, iteration, "agent.paused");
+    state.transition_phase(
+        AgentRuntimePhase::Paused,
+        iteration,
+        AgentEventKind::Paused.wire_name(),
+    )?;
     save_phase_checkpoint(
         services,
         context,
         "paused",
         state.active_checkpoint_payload("waiting"),
     );
-    state.emit_event(
-        "agent.paused",
+    state.emit(PendingAgentEvent::new(
+        AgentEventKind::Paused,
         serde_json::json!({
-            "turnId": context.turn_id,
-            "sessionId": context.session_id,
             "commandId": pause_command_id,
             "status": "completed",
             "message": "Agent turn paused at a safe boundary",
         }),
-    );
+    ))?;
     let resume_command_id = tokio::select! {
         result = cancellation.wait_for_resume() => result?,
         _ = cancellation.cancelled() => return Ok(()),
     };
-    state.transition_phase(previous_phase, iteration, "agent.resumed");
+    state.transition_phase(
+        previous_phase,
+        iteration,
+        AgentEventKind::Resumed.wire_name(),
+    )?;
     save_phase_checkpoint(
         services,
         context,
         state.phase.as_str(),
         state.active_checkpoint_payload("running"),
     );
-    state.emit_event(
-        "agent.resumed",
+    state.emit(PendingAgentEvent::new(
+        AgentEventKind::Resumed,
         serde_json::json!({
-            "turnId": context.turn_id,
-            "sessionId": context.session_id,
             "commandId": resume_command_id,
             "status": "completed",
             "message": "Agent turn resumed",
         }),
-    );
+    ))?;
     Ok(())
 }
 
@@ -1243,7 +1217,7 @@ fn provider_failure_result(
     state: &mut AgentTurnState,
     iteration: i64,
     error: NativeAgentProviderFailure,
-) -> Value {
+) -> Result<Value, String> {
     agent_failure_result(
         services,
         context,
@@ -1261,19 +1235,14 @@ fn agent_failure_result(
     iteration: i64,
     stop_reason: &str,
     message: String,
-) -> Value {
-    state.set_stop_reason(stop_reason, iteration, "agent.error");
-    state.emit_event(
-        "agent.error",
-        serde_json::json!({
-            "turnId": context.turn_id,
-            "sessionId": context.session_id,
-            "iteration": iteration,
-            "stopReason": stop_reason,
-            "message": message,
-            "error": message,
-        }),
-    );
+) -> Result<Value, String> {
+    state.set_stop_reason(stop_reason, iteration, AgentEventKind::Error.wire_name())?;
+    state.emit(TerminalEvent::Error(serde_json::json!({
+        "iteration": iteration,
+        "stopReason": stop_reason,
+        "message": message,
+        "error": message,
+    })))?;
     services
         .checkpoints
         .clear_for_turn(&context.session_id, &context.turn_id);
@@ -1293,7 +1262,7 @@ fn agent_failure_result(
         "runtimeEvents": runtime_events,
     });
     state.attach_context_checkpoint(&mut result, None);
-    result
+    Ok(result)
 }
 
 fn emit_context_compaction_failure(
@@ -1302,13 +1271,11 @@ fn emit_context_compaction_failure(
     iteration: i64,
     failure_stop_reason: &str,
     message: &str,
-) {
+) -> Result<(), String> {
     context.metrics().increment("compaction.failed");
-    state.emit_event(
-        "agent.context.compaction_failed",
+    state.emit(PendingAgentEvent::new(
+        AgentEventKind::ContextCompactionFailed,
         serde_json::json!({
-            "turnId": context.turn_id,
-            "sessionId": context.session_id,
             "iteration": iteration,
             "contextId": format!("{}:context:{}", context.turn_id, iteration + 1),
             "trigger": "auto",
@@ -1325,7 +1292,7 @@ fn emit_context_compaction_failure(
             "estimatedTokensBefore": estimate_context_tokens_for_request(context),
             "canonicalContextChanged": false,
         }),
-    );
+    ))
 }
 
 fn hook_denied_result(
@@ -1334,19 +1301,14 @@ fn hook_denied_result(
     state: &mut AgentTurnState,
     iteration: i64,
     reason: String,
-) -> Value {
-    state.set_stop_reason("hook_denied", iteration, "agent.error");
-    state.emit_event(
-        "agent.error",
-        serde_json::json!({
-            "turnId": context.turn_id,
-            "sessionId": context.session_id,
-            "iteration": iteration,
-            "stopReason": "hook_denied",
-            "message": reason,
-            "error": reason,
-        }),
-    );
+) -> Result<Value, String> {
+    state.set_stop_reason("hook_denied", iteration, AgentEventKind::Error.wire_name())?;
+    state.emit(TerminalEvent::Error(serde_json::json!({
+        "iteration": iteration,
+        "stopReason": "hook_denied",
+        "message": reason,
+        "error": reason,
+    })))?;
     services
         .checkpoints
         .clear_for_turn(&context.session_id, &context.turn_id);
@@ -1366,11 +1328,12 @@ fn hook_denied_result(
         "runtimeEvents": runtime_events,
     });
     state.attach_context_checkpoint(&mut result, None);
-    result
+    Ok(result)
 }
 
 fn append_hook_evaluation_to_result(
     result: &mut Value,
+    services: &NativeAgentRuntimeServices,
     context: &AgentTurnContext,
     invocation: &AgentHookInvocation,
     evaluation: &AgentHookEvaluation,
@@ -1385,31 +1348,16 @@ fn append_hook_evaluation_to_result(
         .unwrap_or_else(|| serde_json::json!([]));
     let existing: Vec<AgentRuntimeEventEnvelope> = serde_json::from_value(existing)
         .map_err(|error| format!("failed to read runtime events for lifecycle hook: {error}"))?;
-    let mut emitter = if existing.is_empty() {
-        AgentTurnEmitter::new_with_trace_context(&context.session_id, context.trace_context.clone())
-    } else {
-        AgentTurnEmitter::from_existing_events_with_thread_id(
-            &context.session_id,
-            &context.trace_context.turn_id,
-            context.trace_context.thread_id.clone(),
-            &existing,
-        )
-    };
     let phase = match invocation.stage {
         AgentHookStage::TurnComplete => AgentRuntimePhase::Completed,
         AgentHookStage::TurnAbort => AgentRuntimePhase::Failed,
         _ => AgentRuntimePhase::Planning,
     };
-    let event = emitter.emit(AgentRuntimeEventAppendInput {
-        parent_turn_id: context.trace_context.parent_turn_id.clone(),
-        item_id: None,
-        event_name: "agent.hook.decision".to_string(),
-        phase,
-        timestamp: runtime_event_timestamp(),
-        source: AgentRuntimeEventSource::RustBackend,
-        visibility: AgentRuntimeEventVisibility::Debug,
-        payload: evaluation.event_payload(invocation),
-    });
+    let mut state =
+        AgentTurnState::new_for_result_append(context, services.trace_sink.clone(), &existing)?;
+    state.phase = phase;
+    state.emit_hook_evaluation(invocation, evaluation)?;
+    let appended = state.take_runtime_events();
     let events = result
         .as_object_mut()
         .ok_or_else(|| "agent result must be a JSON object".to_string())?
@@ -1417,8 +1365,11 @@ fn append_hook_evaluation_to_result(
         .or_insert_with(|| serde_json::json!([]))
         .as_array_mut()
         .ok_or_else(|| "agent result runtimeEvents must be an array".to_string())?;
-    events.push(
-        serde_json::to_value(event)
+    events.extend(
+        appended
+            .into_iter()
+            .map(serde_json::to_value)
+            .collect::<Result<Vec<_>, _>>()
             .map_err(|error| format!("failed to serialize lifecycle hook event: {error}"))?,
     );
     Ok(())
@@ -1430,7 +1381,8 @@ fn attach_context_contributions_to_result(result: &mut Value) -> Result<(), Stri
         .and_then(Value::as_array)
         .and_then(|events| {
             events.iter().rev().find(|event| {
-                event.get("eventName").and_then(Value::as_str) == Some("agent.context.hydrated")
+                event.get("eventName").and_then(Value::as_str)
+                    == Some(AgentEventKind::ContextHydrated.wire_name())
             })
         })
         .and_then(|event| event.get("payload"))
@@ -1453,13 +1405,8 @@ enum PreparedContinuation {
     Finished(Value),
     Continue {
         context: AgentTurnContext,
-        resume: Option<PreparedTurnResume>,
+        resume: Option<UserInputResume>,
     },
-}
-
-enum PreparedTurnResume {
-    Approval(ApprovalResume),
-    UserInput(UserInputResume),
 }
 
 async fn prepare_continuation(
@@ -1467,22 +1414,11 @@ async fn prepare_continuation(
     mut context: AgentTurnContext,
 ) -> Result<PreparedContinuation, String> {
     restore_activated_tools_for_continuation(&services, &mut context)?;
-    if let Some(outcome) = maybe_approval_resume_result(&services, &mut context).await? {
-        return Ok(match outcome {
-            ApprovalContinuationOutcome::Resume(resume) => PreparedContinuation::Continue {
-                context,
-                resume: Some(PreparedTurnResume::Approval(resume)),
-            },
-            ApprovalContinuationOutcome::Finished(result) => PreparedContinuation::Finished(result),
-        });
-    }
     let resume = match prepare_user_input_continuation(&services, &mut context)? {
         Some(UserInputContinuationOutcome::Finished(result)) => {
             return Ok(PreparedContinuation::Finished(result));
         }
-        Some(UserInputContinuationOutcome::Resume(resume)) => {
-            Some(PreparedTurnResume::UserInput(resume))
-        }
+        Some(UserInputContinuationOutcome::Resume(resume)) => Some(resume),
         None => None,
     };
     Ok(PreparedContinuation::Continue { context, resume })
