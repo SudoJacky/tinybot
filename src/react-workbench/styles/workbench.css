@@ -122,10 +122,41 @@ button:disabled {
   -webkit-user-select: none;
 }
 
-.react-window-frame__brand {
+.react-window-frame__history {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.react-window-frame__history button {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-muted);
+}
+
+.react-window-frame__history button:hover:not(:disabled),
+.react-window-frame__history button:focus-visible {
+  background: var(--color-surface-soft);
   color: var(--color-ink);
-  font-size: 13px;
-  font-weight: 650;
+}
+
+.react-window-frame__history button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 55%, transparent);
+  outline-offset: -2px;
+}
+
+.react-window-frame__history button:disabled {
+  color: var(--color-muted-soft);
+  cursor: default;
+  opacity: 0.48;
 }
 
 .react-top-menu {
@@ -928,7 +959,7 @@ button:disabled {
 .react-chat-surface {
   position: relative;
   display: grid;
-  grid-template-rows: 56px minmax(0, 1fr) auto;
+  grid-template-rows: 45px minmax(0, 1fr) auto;
   min-width: 0;
   min-height: 0;
   background: var(--color-canvas);

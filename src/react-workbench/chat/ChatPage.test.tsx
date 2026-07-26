@@ -649,7 +649,7 @@ describe("ChatPage", () => {
     await user.click(screen.getByRole("button", { name: "Expand session sidebar" }));
 
     expect(sidebar.getAttribute("data-collapsed")).toBe("false");
-    expect(screen.getByRole("heading", { name: "会话" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Tinybot" })).toBeTruthy();
   });
 
   it("groups sessions by workspace and creates another session in that directory", async () => {

@@ -1768,7 +1768,7 @@ export function ChatPage({
       <aside className="react-session-list" aria-label="Sessions" data-collapsed={resolvedSessionSidebarCollapsed}>
         <div className="react-session-list__header">
           <div className="react-session-list__title-row">
-            <h2>会话</h2>
+            <h2>Tinybot</h2>
             <div className="react-session-list__title-actions">
               <button
                 aria-label="Add workspace folder"

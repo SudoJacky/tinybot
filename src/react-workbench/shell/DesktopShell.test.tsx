@@ -114,6 +114,9 @@ describe("DesktopShell", () => {
     const appMenuButton = screen.getByRole("button", { name: "App" });
     expect(appMenuButton.querySelector(".react-top-menu__icon")).toBeTruthy();
     expect(appMenuButton.querySelector(".react-top-menu__label")?.textContent).toBe("App");
+    expect(screen.getByRole("button", { name: "Go back" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Go forward" }).hasAttribute("disabled")).toBe(true);
+    expect(document.querySelector(".react-window-frame__brand")).toBeNull();
 
     fireEvent.pointerDown(appMenuButton);
 
@@ -148,10 +151,11 @@ describe("DesktopShell", () => {
   it("keeps shell navigation typography compact", () => {
     const css = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
 
-    expect(css).toMatch(/\.react-window-frame__brand\s*{[^}]*font-size:\s*13px;/s);
+    expect(css).toMatch(/\.react-window-frame__history button\s*{[^}]*width:\s*32px;[^}]*height:\s*32px;/s);
     expect(css).toMatch(/\.react-top-menu__trigger\s*{[^}]*font-size:\s*12px;/s);
     expect(css).toMatch(/\.react-top-menu__menu-item\s*{[^}]*font-size:\s*13px;/s);
     expect(css).toMatch(/\.react-workbench-layout\s*{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/s);
+    expect(css).toMatch(/\.react-chat-surface\s*{[^}]*grid-template-rows:\s*45px minmax\(0,\s*1fr\) auto;/s);
     expect(css).toMatch(/\.react-top-menu__menu-item\[aria-current="page"\]\s*{[^}]*background:/s);
     expect(css).not.toMatch(/\.react-activity-rail/);
     expect(css).toMatch(/\.react-session-list\s*{[^}]*transition:\s*width 260ms var\(--motion-ease-standard\);/s);
@@ -233,8 +237,38 @@ describe("DesktopShell", () => {
     fireEvent.pointerDown(appMenu);
     expect(screen.getByRole("menu", { name: "Application menu" })).toBeTruthy();
 
-    await user.click(screen.getByText("Tinybot", { selector: ".react-window-frame__brand" }));
+    fireEvent.pointerDown(screen.getByRole("banner", { name: "Tinybot desktop window frame" }));
     expect(screen.queryByRole("menu", { name: "Application menu" })).toBeNull();
+  });
+
+  it("navigates backward and forward through shell routes", async () => {
+    const user = userEvent.setup();
+    render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={createServices()} />);
+
+    const backButton = screen.getByRole("button", { name: "Go back" });
+    const forwardButton = screen.getByRole("button", { name: "Go forward" });
+    expect(backButton.hasAttribute("disabled")).toBe(true);
+    expect(forwardButton.hasAttribute("disabled")).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "Resources" }));
+    await user.click(within(screen.getByRole("menu", { name: "Resources menu" })).getByRole("menuitem", { name: "Workspace Files" }));
+    expect(await screen.findByRole("heading", { name: "Workspace Files" })).toBeTruthy();
+    expect(backButton.hasAttribute("disabled")).toBe(false);
+    expect(forwardButton.hasAttribute("disabled")).toBe(true);
+
+    await user.click(backButton);
+    expect(await screen.findByRole("heading", { name: "Tinybot" })).toBeTruthy();
+    expect(backButton.hasAttribute("disabled")).toBe(true);
+    expect(forwardButton.hasAttribute("disabled")).toBe(false);
+
+    await user.click(forwardButton);
+    expect(await screen.findByRole("heading", { name: "Workspace Files" })).toBeTruthy();
+
+    await user.click(backButton);
+    await user.click(screen.getByRole("button", { name: "System" }));
+    await user.click(within(screen.getByRole("menu", { name: "System menu" })).getByRole("menuitem", { name: "Settings (Ctrl+,)" }));
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeTruthy();
+    expect(forwardButton.hasAttribute("disabled")).toBe(true);
   });
 
   it("renders native-style top menus and functional secondary pages", async () => {

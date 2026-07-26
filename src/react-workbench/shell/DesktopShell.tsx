@@ -9,7 +9,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { BookOpen, Check, ChevronRight, Command, Folder, Minus, Settings, Square, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpen, Check, ChevronRight, Command, Folder, Minus, Settings, Square, X } from "lucide-react";
 import { createDesktopStopCommand } from "../../app-core/chat/desktopCommand";
 import { ChatPage } from "../chat/ChatPage";
 import { AgentDefaultsSettingsPage } from "../settings/AgentDefaultsSettingsPage";
@@ -18,6 +18,12 @@ import { ProviderModelsSettingsPage } from "../settings/ProviderModelsSettingsPa
 import type { AppServices, ToolCatalogSummary, WorkspaceFileSummary } from "../services";
 
 type AppRoute = "chat" | "files" | "cowork" | "github" | "docs" | "tools" | "settings";
+
+type RouteHistory = {
+  back: AppRoute[];
+  current: AppRoute;
+  forward: AppRoute[];
+};
 
 export type DesktopShellProps = {
   services: AppServices;
@@ -148,7 +154,12 @@ const topMenuItems: TopMenuItem[] = [
 ];
 
 export function DesktopShell({ now, services, windowControls }: DesktopShellProps) {
-  const [route, setRoute] = useState<AppRoute>("chat");
+  const [routeHistory, setRouteHistory] = useState<RouteHistory>({
+    back: [],
+    current: "chat",
+    forward: [],
+  });
+  const route = routeHistory.current;
   const [activeTopMenu, setActiveTopMenu] = useState<TopMenuLabel | null>(null);
   const [activeTopSubmenu, setActiveTopSubmenu] = useState<string | null>(null);
   const [sessionSidebarCollapsed, setSessionSidebarCollapsed] = useState(false);
@@ -224,6 +235,47 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
     setActiveTopMenu((current) => current === label ? null : label);
   }
 
+  function navigateToRoute(nextRoute: AppRoute) {
+    setRouteHistory((current) => {
+      if (nextRoute === current.current) {
+        return current;
+      }
+      return {
+        back: [...current.back, current.current],
+        current: nextRoute,
+        forward: [],
+      };
+    });
+  }
+
+  function goBack() {
+    setRouteHistory((current) => {
+      const previous = current.back[current.back.length - 1];
+      if (!previous) {
+        return current;
+      }
+      return {
+        back: current.back.slice(0, -1),
+        current: previous,
+        forward: [current.current, ...current.forward],
+      };
+    });
+  }
+
+  function goForward() {
+    setRouteHistory((current) => {
+      const [next, ...remaining] = current.forward;
+      if (!next) {
+        return current;
+      }
+      return {
+        back: [...current.back, current.current],
+        current: next,
+        forward: remaining,
+      };
+    });
+  }
+
   function runTopMenuCommand(command: TopMenuCommand) {
     if (command.enabled === false) {
       return;
@@ -231,12 +283,12 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
     setActiveTopMenu(null);
     setActiveTopSubmenu(null);
     if (command.route) {
-      setRoute(command.route);
+      navigateToRoute(command.route);
       return;
     }
     switch (command.id) {
       case "new-chat":
-        setRoute("chat");
+        navigateToRoute("chat");
         setCreateChatSignal((current) => current + 1);
         return;
       case "stop-generation":
@@ -336,7 +388,26 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
         role="banner"
         onDoubleClick={handleFrameDoubleClick}
       >
-        <div className="react-window-frame__brand" data-tauri-drag-region="">Tinybot</div>
+        <nav aria-label="Page history" className="react-window-frame__history" data-no-window-drag="">
+          <button
+            aria-label="Go back"
+            disabled={routeHistory.back.length === 0}
+            title="Back"
+            type="button"
+            onClick={goBack}
+          >
+            <ArrowLeft aria-hidden="true" size={17} />
+          </button>
+          <button
+            aria-label="Go forward"
+            disabled={routeHistory.forward.length === 0}
+            title="Forward"
+            type="button"
+            onClick={goForward}
+          >
+            <ArrowRight aria-hidden="true" size={17} />
+          </button>
+        </nav>
         <nav className="react-top-menu" aria-label="Application menu">
           {topMenuItems.map(({ entries, icon: Icon, label, menuLabel }) => (
             <div className="react-top-menu__group" key={label}>
@@ -417,7 +488,7 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
           route={route}
           services={services}
           sessionSidebarCollapsed={sessionSidebarCollapsed}
-          onNavigate={setRoute}
+          onNavigate={navigateToRoute}
           onSessionSidebarCollapsedChange={setSessionSidebarCollapsed}
           onStopGenerationTargetChange={handleStopGenerationTargetChange}
         />
