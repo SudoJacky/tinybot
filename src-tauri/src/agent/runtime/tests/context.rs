@@ -900,7 +900,7 @@ fn compacted_context_becomes_the_next_tool_iteration_baseline() {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
-            tool_call: &NativeAgentToolCall,
+            tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             Ok(NativeAgentToolResult::generic_success(
                 tool_call,

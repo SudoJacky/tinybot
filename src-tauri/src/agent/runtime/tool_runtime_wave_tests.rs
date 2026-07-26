@@ -1,12 +1,13 @@
 use super::*;
 
-fn test_call(index: usize) -> NativeAgentToolCall {
-    NativeAgentToolCall {
+fn test_call(index: usize) -> PreparedToolCall {
+    PreparedToolCall::prepare(NativeAgentToolCall {
         id: format!("call-{index}"),
         name: format!("tool-{index}"),
         arguments_json: "{}".to_string(),
         result: Value::Null,
-    }
+    })
+    .expect("test tool call should prepare")
 }
 
 fn planned(index: usize, mode: ToolExecutionMode) -> PlannedToolCall {

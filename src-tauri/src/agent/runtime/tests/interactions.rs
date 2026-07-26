@@ -653,7 +653,11 @@ fn tool_search_excludes_deferred_tools_denied_by_capability_policy() {
 
     let result = context
         .tool_router
-        .search_and_activate(r#"{"query":"file","limit":5}"#)
+        .search_and_activate(
+            json!({"query":"file","limit":5})
+                .as_object()
+                .expect("tool_search test arguments should be an object"),
+        )
         .expect("search should succeed even when no deferred tool is available");
 
     assert_eq!(result, json!({ "tools": [] }));
@@ -673,7 +677,11 @@ fn tool_search_does_not_reexpose_hidden_legacy_file_or_shell_tools() {
 
     let result = context
         .tool_router
-        .search_and_activate(r#"{"query":"shell or file editing capability","limit":5}"#)
+        .search_and_activate(
+            json!({"query":"shell or file editing capability","limit":5})
+                .as_object()
+                .expect("tool_search test arguments should be an object"),
+        )
         .expect("descriptive deferred tool search should succeed");
     let tool_ids = result["tools"]
         .as_array()
@@ -698,7 +706,11 @@ fn deferred_tool_activation_round_trips_through_checkpoint_validation() {
     );
     context
         .tool_router
-        .search_and_activate(r#"{"query":"memory search","limit":1}"#)
+        .search_and_activate(
+            json!({"query":"memory search","limit":1})
+                .as_object()
+                .expect("tool_search test arguments should be an object"),
+        )
         .expect("memory search should activate for the current turn");
     let checkpoint = super::checkpoint::checkpoint_value(
         &context,
@@ -846,7 +858,7 @@ fn direct_calls_to_unactivated_deferred_tools_are_rejected() {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
-            _tool_call: &NativeAgentToolCall,
+            _tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             panic!("unactivated deferred tool must not reach dispatcher");
         }
@@ -934,7 +946,7 @@ fn tool_batch_dispatches_directly_and_injects_all_results_before_the_next_model_
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
-            tool_call: &NativeAgentToolCall,
+            tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             self.dispatched
                 .lock()
@@ -1049,7 +1061,7 @@ fn write_tool_dispatches_without_approval_and_does_not_abort_the_turn() {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
-            tool_call: &NativeAgentToolCall,
+            tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             Ok(NativeAgentToolResult::generic_success(
                 tool_call,

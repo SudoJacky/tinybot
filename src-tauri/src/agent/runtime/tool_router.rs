@@ -99,8 +99,11 @@ impl NativeToolRouter {
             .to_string())
     }
 
-    pub(super) fn search_and_activate(&mut self, arguments_json: &str) -> Result<Value, String> {
-        let request = serde_json::from_str::<ToolSearchRequest>(arguments_json)
+    pub(super) fn search_and_activate(
+        &mut self,
+        arguments: &serde_json::Map<String, Value>,
+    ) -> Result<Value, String> {
+        let request = serde_json::from_value::<ToolSearchRequest>(Value::Object(arguments.clone()))
             .map_err(|error| format!("invalid tool_search arguments: {error}"))?;
         let query = request.query.trim();
         if query.is_empty() {

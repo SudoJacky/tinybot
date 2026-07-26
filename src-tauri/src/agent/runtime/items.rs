@@ -659,10 +659,12 @@ pub(super) fn parse_tool_call(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| format!("tool call `{id}` requires function name"))?;
-    let arguments_json = function
+    let arguments = function
         .get("arguments")
-        .and_then(Value::as_str)
-        .unwrap_or("{}")
+        .ok_or_else(|| format!("tool call `{id}` requires function arguments"))?;
+    let arguments_json = arguments
+        .as_str()
+        .ok_or_else(|| format!("tool call `{id}` function arguments must be a string"))?
         .to_string();
     Ok(AgentToolCallItem {
         id,
@@ -711,4 +713,59 @@ fn optional_string_field(
         .map(str::to_string)
         .map(Some)
         .ok_or_else(|| format!("{label} must be a string"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn provider_tool_call_requires_string_arguments() {
+        for (arguments, expected) in [
+            (None, "requires function arguments"),
+            (
+                Some(serde_json::json!({})),
+                "function arguments must be a string",
+            ),
+        ] {
+            let mut function = serde_json::json!({ "name": "workspace.read_file" });
+            if let Some(arguments) = arguments {
+                function["arguments"] = arguments;
+            }
+            let error = parse_tool_call(
+                &serde_json::json!({
+                    "id": "call-invalid-arguments",
+                    "type": "function",
+                    "function": function,
+                }),
+                0,
+                |name| Ok(name.to_string()),
+            )
+            .expect_err("invalid provider arguments should fail");
+            assert!(
+                error.contains(expected),
+                "expected `{expected}` in `{error}`"
+            );
+        }
+    }
+
+    #[test]
+    fn provider_tool_call_preserves_original_arguments_json() {
+        let arguments_json = " { \"path\" : \"README.md\" } ";
+        let call = parse_tool_call(
+            &serde_json::json!({
+                "id": "call-preserve-arguments",
+                "type": "function",
+                "function": {
+                    "name": "workspace.read_file",
+                    "arguments": arguments_json,
+                },
+            }),
+            0,
+            |name| Ok(name.to_string()),
+        )
+        .expect("provider tool call should parse");
+
+        assert_eq!(call.arguments_json, arguments_json);
+    }
 }

@@ -969,7 +969,7 @@ fn worker_run_agent_persists_recovered_tool_error_with_typed_results() {
                             {
                                 "id": "call-tool-error",
                                 "name": "memory.search",
-                                "argumentsJson": "{not json",
+                                "argumentsJson": "{\"note_type\":\"invalid\"}",
                                 "result": { "content": "unused" }
                             }
                         ]
@@ -1016,7 +1016,7 @@ fn worker_run_agent_persists_recovered_tool_error_with_typed_results() {
     assert!(run["completedToolResults"][1].get("status").is_none());
     assert!(run["completedToolResults"][1]["summary"]
         .as_str()
-        .is_some_and(|summary| summary.contains("invalid JSON")));
+        .is_some_and(|summary| summary.contains("note_type")));
     assert!(run.get("traceEvents").is_none());
 }
 

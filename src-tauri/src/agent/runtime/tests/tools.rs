@@ -432,7 +432,7 @@ fn tool_runtime_dispatches_through_async_dispatch_seam() {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
-            _tool_call: &NativeAgentToolCall,
+            _tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             panic!("tool runtime should use dispatch_async, not sync dispatch");
         }
@@ -440,7 +440,7 @@ fn tool_runtime_dispatches_through_async_dispatch_seam() {
         fn dispatch_async(
             self: Arc<Self>,
             _context: AgentTurnContext,
-            tool_call: NativeAgentToolCall,
+            tool_call: PreparedToolCall,
         ) -> std::pin::Pin<
             Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send>,
         > {
@@ -645,7 +645,7 @@ fn read_only_tool_batch_runs_concurrently_and_preserves_model_ordered_observatio
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
-            tool_call: &NativeAgentToolCall,
+            tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             let running = self.running.fetch_add(1, Ordering::SeqCst) + 1;
             self.max_running.fetch_max(running, Ordering::SeqCst);
@@ -769,7 +769,7 @@ fn mcp_call_scheduling_uses_registry_runtime_policy() {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
-            tool_call: &NativeAgentToolCall,
+            tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             let running = self.running.fetch_add(1, Ordering::SeqCst) + 1;
             self.max_running.fetch_max(running, Ordering::SeqCst);
@@ -894,7 +894,7 @@ fn shell_read_only_allowlist_uses_read_lock_only_when_explicitly_enabled() {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
-            tool_call: &NativeAgentToolCall,
+            tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             let running = self.running.fetch_add(1, Ordering::SeqCst) + 1;
             self.max_running.fetch_max(running, Ordering::SeqCst);
@@ -1013,7 +1013,7 @@ fn parallel_tool_failures_are_returned_to_the_model_in_call_order() {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
-            tool_call: &NativeAgentToolCall,
+            tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             if tool_call.id == "call-first-fails" {
                 thread::sleep(Duration::from_millis(20));
@@ -1148,7 +1148,7 @@ fn mixed_parallel_and_non_parallel_tool_batch_uses_read_write_lock_scheduling() 
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
-            tool_call: &NativeAgentToolCall,
+            tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             let is_write = tool_call.name == "exec_command";
             if is_write {
@@ -1386,7 +1386,7 @@ fn cancellation_before_queued_write_lock_dispatch_skips_waiting_tool() {
         fn dispatch(
             &self,
             context: &AgentTurnContext,
-            tool_call: &NativeAgentToolCall,
+            tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             if tool_call.name == "workspace.read_file" {
                 self.cancellations.cancel(&context.turn_id);
@@ -1501,7 +1501,7 @@ fn returned_failure_before_queued_write_does_not_skip_waiting_tool() {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
-            tool_call: &NativeAgentToolCall,
+            tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             if tool_call.id == "call-first-write-fails" {
                 return Err("first write failed".to_string());
@@ -1593,7 +1593,7 @@ fn cancellation_during_non_cleanup_parallel_tool_returns_without_waiting_for_lat
         fn dispatch(
             &self,
             context: &AgentTurnContext,
-            tool_call: &NativeAgentToolCall,
+            tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             self.cancellations.cancel(&context.turn_id);
             let _ = self.cancelled_tx.send(());
@@ -2037,7 +2037,7 @@ fn private_user_subagent_input_is_not_added_to_main_model_context() {
         fn dispatch(
             &self,
             context: &AgentTurnContext,
-            tool_call: &NativeAgentToolCall,
+            tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             let result = self.fallback.dispatch(context, tool_call)?;
             if matches!(tool_call.name.as_str(), "subagent.spawn" | "spawn_agent") {
@@ -2300,7 +2300,7 @@ fn later_tool_error_and_earlier_success_are_both_returned_to_the_model() {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
-            tool_call: &NativeAgentToolCall,
+            tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             if tool_call.id == "call-second-fails" {
                 return Err("missing path".to_string());
@@ -2404,7 +2404,7 @@ fn single_tool_dispatch_error_is_returned_to_the_model() {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
-            _tool_call: &NativeAgentToolCall,
+            _tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             Err("single tool failed".to_string())
         }
@@ -2636,7 +2636,7 @@ fn tool_task_panic_remains_terminal() {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
-            _tool_call: &NativeAgentToolCall,
+            _tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             panic!("tool task panic");
         }
@@ -2702,7 +2702,7 @@ fn cancellation_before_tool_dispatch_stops_without_dispatching_tool() {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
-            _tool_call: &NativeAgentToolCall,
+            _tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             panic!("tool dispatch should be skipped after cancellation");
         }
@@ -2817,7 +2817,7 @@ fn cancellation_context_is_available_to_provider_and_tool_dispatch() {
         fn dispatch(
             &self,
             context: &AgentTurnContext,
-            tool_call: &NativeAgentToolCall,
+            tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             self.cancellations.cancel(&context.turn_id);
             *self
@@ -2912,7 +2912,7 @@ fn cancellation_after_tool_result_preserves_completed_tool_state() {
         fn dispatch(
             &self,
             context: &AgentTurnContext,
-            tool_call: &NativeAgentToolCall,
+            tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             self.cancellations.cancel(&context.turn_id);
             Ok(NativeAgentToolResult::generic_success(
@@ -2984,4 +2984,62 @@ fn cancellation_after_tool_result_preserves_completed_tool_state() {
         result["checkpoint"]["completedToolResults"][0]["toolCallId"],
         "call-cancel-after-result"
     );
+}
+
+#[test]
+fn malformed_tool_arguments_fail_before_dispatch() {
+    struct InvalidArgumentsProvider;
+
+    impl NativeAgentProvider for InvalidArgumentsProvider {
+        fn complete(
+            &self,
+            _context: &AgentTurnContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            Ok(NativeAgentProviderResponse {
+                final_content: String::new(),
+                reasoning_delta: None,
+                usage: None,
+                tool_calls: vec![NativeAgentToolCall {
+                    id: "call-invalid-json".to_string(),
+                    name: "workspace.read_file".to_string(),
+                    arguments_json: "{".to_string(),
+                    result: Value::Null,
+                }],
+            })
+        }
+    }
+
+    struct PanickingDispatcher;
+
+    impl NativeAgentToolDispatcher for PanickingDispatcher {
+        fn dispatch(
+            &self,
+            _context: &AgentTurnContext,
+            _tool_call: &PreparedToolCall,
+        ) -> Result<NativeAgentToolResult, String> {
+            panic!("malformed arguments must fail before dispatch");
+        }
+    }
+
+    let services = NativeAgentRuntimeServices::new(
+        Arc::new(InvalidArgumentsProvider),
+        Arc::new(PanickingDispatcher),
+        Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(InMemoryNativeAgentCancellation::default()),
+    )
+    .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"]));
+
+    let error = run_native_agent_turn_with_services(
+        &services,
+        json!({
+            "runtime": "rust",
+            "turnId": "turn-invalid-tool-json",
+            "sessionId": "websocket:chat-invalid-tool-json",
+            "messages": [{ "role": "user", "content": "read" }]
+        }),
+    )
+    .expect_err("malformed tool arguments should fail the turn");
+
+    assert!(error.contains("workspace.read_file"));
+    assert!(error.contains("arguments are invalid JSON"));
 }

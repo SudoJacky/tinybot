@@ -138,7 +138,7 @@ fn cancellation_during_subagent_wait_prevents_followup_model_call() {
         fn dispatch(
             &self,
             context: &AgentTurnContext,
-            tool_call: &NativeAgentToolCall,
+            tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             let result = self.fallback.dispatch(context, tool_call)?;
             if matches!(tool_call.name.as_str(), "subagent.wait" | "wait_agent") {
@@ -150,7 +150,7 @@ fn cancellation_during_subagent_wait_prevents_followup_model_call() {
         fn dispatch_async(
             self: Arc<Self>,
             context: AgentTurnContext,
-            tool_call: NativeAgentToolCall,
+            tool_call: PreparedToolCall,
         ) -> std::pin::Pin<
             Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send>,
         > {
@@ -282,7 +282,7 @@ fn stores_active_turn_tool_wait_and_cancellation_checkpoints() {
         fn dispatch(
             &self,
             context: &AgentTurnContext,
-            tool_call: &NativeAgentToolCall,
+            tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             let checkpoint = self
                 .checkpoints
@@ -1459,7 +1459,7 @@ fn hanging_cleanup_tool_batch_times_out_without_hanging_the_owned_turn() {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
-            _tool_call: &NativeAgentToolCall,
+            _tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             panic!("hanging cleanup test must use async dispatch");
         }
@@ -1467,7 +1467,7 @@ fn hanging_cleanup_tool_batch_times_out_without_hanging_the_owned_turn() {
         fn dispatch_async(
             self: Arc<Self>,
             _context: AgentTurnContext,
-            _tool_call: NativeAgentToolCall,
+            _tool_call: PreparedToolCall,
         ) -> std::pin::Pin<
             Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send>,
         > {
@@ -1624,14 +1624,12 @@ fn trace_context_follows_provider_tool_and_completion_without_tool_hook_rewrite(
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
-            tool_call: &NativeAgentToolCall,
+            tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
-            let arguments =
-                serde_json::from_str(&tool_call.arguments_json).expect("tool input should be JSON");
             self.arguments
                 .lock()
                 .expect("tool arguments lock should not be poisoned")
-                .push(arguments);
+                .push(tool_call.arguments_value());
             Ok(NativeAgentToolResult::generic_success(
                 tool_call,
                 json!({ "content": "after" }),

@@ -1,6 +1,4 @@
-use super::{
-    AgentTurnContext, NativeAgentToolCall, NativeAgentToolDispatcher, NativeAgentToolResult,
-};
+use super::{AgentTurnContext, NativeAgentToolDispatcher, NativeAgentToolResult, PreparedToolCall};
 use crate::collaboration::subagents::{
     SubagentHistoryMode, SubagentInputSender, SubagentSendInputParams, SubagentSpawnParams,
     SubagentTargetParams, SubagentThreadManager, SubagentThreadStatus, SubagentWaitParams,
@@ -14,7 +12,7 @@ impl NativeAgentToolDispatcher for FakeNativeAgentToolDispatcher {
     fn dispatch(
         &self,
         _context: &AgentTurnContext,
-        tool_call: &NativeAgentToolCall,
+        tool_call: &PreparedToolCall,
     ) -> Result<NativeAgentToolResult, String> {
         if !native_tool_is_permitted(_context, &tool_call.name) {
             return Err(format!(
@@ -22,12 +20,6 @@ impl NativeAgentToolDispatcher for FakeNativeAgentToolDispatcher {
                 tool_call.name
             ));
         }
-        let _: Value = serde_json::from_str(&tool_call.arguments_json).map_err(|error| {
-            format!(
-                "native tool `{}` arguments are invalid JSON: {error}",
-                tool_call.name
-            )
-        })?;
         Ok(NativeAgentToolResult::generic_success(
             tool_call,
             tool_call.result.clone(),
@@ -53,7 +45,7 @@ impl NativeAgentToolDispatcher for SubagentNativeAgentToolDispatcher {
     fn dispatch(
         &self,
         context: &AgentTurnContext,
-        tool_call: &NativeAgentToolCall,
+        tool_call: &PreparedToolCall,
     ) -> Result<NativeAgentToolResult, String> {
         if !is_subagent_tool(&tool_call.name) {
             return self.fallback.dispatch(context, tool_call);
@@ -64,12 +56,7 @@ impl NativeAgentToolDispatcher for SubagentNativeAgentToolDispatcher {
                 tool_call.name
             ));
         }
-        let args: Value = serde_json::from_str(&tool_call.arguments_json).map_err(|error| {
-            format!(
-                "native tool `{}` arguments are invalid JSON: {error}",
-                tool_call.name
-            )
-        })?;
+        let args = tool_call.arguments_value();
         let raw = match tool_call.name.as_str() {
             "subagent.spawn" | "spawn_agent" => serde_json::to_value(
                 self.subagents.spawn(SubagentSpawnParams {
@@ -230,7 +217,7 @@ impl NativeAgentToolDispatcher for SubagentNativeAgentToolDispatcher {
     fn dispatch_async(
         self: std::sync::Arc<Self>,
         context: AgentTurnContext,
-        tool_call: NativeAgentToolCall,
+        tool_call: PreparedToolCall,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send>,
     > {
@@ -248,7 +235,7 @@ pub(super) fn native_tool_supports_parallel(context: &AgentTurnContext, name: &s
 
 pub(super) fn native_tool_call_supports_parallel(
     context: &AgentTurnContext,
-    tool_call: &NativeAgentToolCall,
+    tool_call: &PreparedToolCall,
 ) -> bool {
     if matches!(tool_call.name.as_str(), "shell.execute" | "exec_command") {
         return shell_call_supports_parallel(context, tool_call);
@@ -376,17 +363,11 @@ fn legacy_native_tool_alias_policy_method(name: &str) -> Option<&'static str> {
     }
 }
 
-fn shell_call_supports_parallel(
-    context: &AgentTurnContext,
-    tool_call: &NativeAgentToolCall,
-) -> bool {
+fn shell_call_supports_parallel(context: &AgentTurnContext, tool_call: &PreparedToolCall) -> bool {
     if shell_parallel_policy(context) != Some("readOnlyCommandAllowlist") {
         return false;
     }
-    let Ok(arguments) = serde_json::from_str::<Value>(&tool_call.arguments_json) else {
-        return false;
-    };
-    let Some(command) = arguments.get("command").and_then(Value::as_str) else {
+    let Some(command) = tool_call.arguments().get("command").and_then(Value::as_str) else {
         return false;
     };
     shell_command_is_read_only_allowlisted(command)

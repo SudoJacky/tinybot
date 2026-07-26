@@ -9,6 +9,7 @@ use super::tool_dispatcher::{
 use super::tool_projection::{assistant_tool_calls_message, commit_tool_observation};
 use super::{
     AgentTurnContext, NativeAgentRuntimeServices, NativeAgentToolCall, NativeAgentToolDispatcher,
+    PreparedToolCall,
 };
 use crate::agent::runtime_protocol::{
     AgentEventKind, AgentRuntimePhase, PendingAgentEvent, TerminalEvent, ToolLifecycleEvent,
@@ -46,27 +47,27 @@ pub(super) enum OwnedToolCallResult {
 }
 
 struct ToolDispatchCompleted {
-    tool_call: NativeAgentToolCall,
+    tool_call: PreparedToolCall,
     result: super::NativeAgentToolResult,
 }
 
 enum ToolDispatchOutcome {
     Completed(ToolDispatchCompleted),
     RuntimeFailure {
-        tool_call: NativeAgentToolCall,
+        tool_call: PreparedToolCall,
         error: String,
     },
     Cancelled {
-        tool_call: NativeAgentToolCall,
+        tool_call: PreparedToolCall,
     },
     CleanupTimedOut {
-        tool_call: NativeAgentToolCall,
+        tool_call: PreparedToolCall,
         cancellation_mode: ToolCancellationMode,
         timeout_ms: u64,
     },
 }
 
-fn completed_tool_error(tool_call: NativeAgentToolCall, error: String) -> ToolDispatchOutcome {
+fn completed_tool_error(tool_call: PreparedToolCall, error: String) -> ToolDispatchOutcome {
     let result = super::NativeAgentToolResult::generic_error(&tool_call, error);
     ToolDispatchOutcome::Completed(ToolDispatchCompleted { tool_call, result })
 }
@@ -88,7 +89,7 @@ impl ToolExecutionMode {
 
 struct PlannedToolCall {
     index: usize,
-    tool_call: NativeAgentToolCall,
+    tool_call: PreparedToolCall,
     mode: ToolExecutionMode,
 }
 
@@ -214,6 +215,11 @@ pub(super) async fn execute_tool_calls_for_iteration(
         return cancelled_result(services, context, state, iteration);
     }
 
+    let tool_calls = tool_calls
+        .into_iter()
+        .map(PreparedToolCall::prepare)
+        .collect::<Result<Vec<_>, _>>()?;
+
     if tool_calls
         .iter()
         .any(|tool_call| tool_call.name == TOOL_SEARCH_METHOD)
@@ -307,14 +313,14 @@ fn execute_tool_search(
     context: &mut AgentTurnContext,
     state: &mut AgentTurnState,
     iteration: i64,
-    tool_call: NativeAgentToolCall,
+    tool_call: PreparedToolCall,
 ) -> Result<NativeAgentToolExecutionOutcome, String> {
     start_tool_call(services, context, state, iteration, &tool_call)?;
     context.metrics().increment("tool.started");
     let tool_started_at = std::time::Instant::now();
     let raw_result = match context
         .tool_router
-        .search_and_activate(&tool_call.arguments_json)
+        .search_and_activate(tool_call.arguments())
     {
         Ok(result) => result,
         Err(error) => {
@@ -330,7 +336,13 @@ fn execute_tool_search(
         .record_duration("tool.durationMs", tool_started_at.elapsed());
     context.metrics().increment("tool.completed");
     let result = super::NativeAgentToolResult::generic_success(&tool_call, raw_result);
-    commit_tool_observation(&*context, state, iteration, tool_call, result)?;
+    commit_tool_observation(
+        &*context,
+        state,
+        iteration,
+        tool_call.into_original(),
+        result,
+    )?;
     state.clear_pending_tool_calls();
     state.transition_phase(
         AgentRuntimePhase::Planning,
@@ -356,11 +368,11 @@ fn execute_update_plan(
     context: &AgentTurnContext,
     state: &mut AgentTurnState,
     iteration: i64,
-    tool_call: NativeAgentToolCall,
+    tool_call: PreparedToolCall,
 ) -> Result<NativeAgentToolExecutionOutcome, String> {
     context.metrics().increment("tool.started");
     let tool_started_at = std::time::Instant::now();
-    let mut plan = match parse_update_plan_args(&tool_call.arguments_json) {
+    let mut plan = match parse_update_plan_args(tool_call.arguments()) {
         Ok(plan) => plan,
         Err(error) => {
             context
@@ -413,7 +425,7 @@ fn execute_update_plan(
         .record_duration("tool.durationMs", tool_started_at.elapsed());
     context.metrics().increment("tool.completed");
 
-    commit_tool_observation(context, state, iteration, tool_call, result)?;
+    commit_tool_observation(context, state, iteration, tool_call.into_original(), result)?;
     state.clear_pending_tool_calls();
     state.transition_phase(
         AgentRuntimePhase::Planning,
@@ -434,12 +446,12 @@ fn recoverable_update_plan_error(
     context: &AgentTurnContext,
     state: &mut AgentTurnState,
     iteration: i64,
-    tool_call: NativeAgentToolCall,
+    tool_call: PreparedToolCall,
     error: String,
 ) -> Result<NativeAgentToolExecutionOutcome, String> {
     state.tools_used.push(tool_call.name.clone());
     let result = super::NativeAgentToolResult::generic_error(&tool_call, error);
-    commit_tool_observation(context, state, iteration, tool_call, result)?;
+    commit_tool_observation(context, state, iteration, tool_call.into_original(), result)?;
     state.clear_pending_tool_calls();
     state.transition_phase(
         AgentRuntimePhase::Planning,
@@ -455,8 +467,10 @@ fn recoverable_update_plan_error(
     Ok(NativeAgentToolExecutionOutcome::Continue)
 }
 
-fn parse_update_plan_args(arguments_json: &str) -> Result<UpdatePlanArgs, String> {
-    let mut args = serde_json::from_str::<UpdatePlanArgs>(arguments_json)
+fn parse_update_plan_args(
+    arguments: &serde_json::Map<String, Value>,
+) -> Result<UpdatePlanArgs, String> {
+    let mut args = serde_json::from_value::<UpdatePlanArgs>(Value::Object(arguments.clone()))
         .map_err(|error| format!("invalid update_plan arguments: {error}"))?;
     if let Some(explanation) = args.explanation.as_mut() {
         *explanation = explanation.trim().to_string();
@@ -479,7 +493,7 @@ fn parse_update_plan_args(arguments_json: &str) -> Result<UpdatePlanArgs, String
 async fn dispatch_owned_tool(
     dispatcher: Arc<dyn NativeAgentToolDispatcher>,
     context: AgentTurnContext,
-    tool_call: NativeAgentToolCall,
+    tool_call: PreparedToolCall,
 ) -> ToolDispatchOutcome {
     let child_cancellation = CancellationToken::new();
     let child_context = context.with_child_cancellation(child_cancellation.clone());
@@ -520,6 +534,7 @@ pub(super) async fn dispatch_owned_tool_call(
     context: AgentTurnContext,
     tool_call: NativeAgentToolCall,
 ) -> Result<OwnedToolCallResult, String> {
+    let tool_call = PreparedToolCall::prepare(tool_call)?;
     match dispatch_owned_tool(dispatcher, context, tool_call).await {
         ToolDispatchOutcome::Completed(completed) => {
             Ok(OwnedToolCallResult::Completed(completed.result))
@@ -540,25 +555,8 @@ pub(super) async fn dispatch_owned_tool_call(
 async fn dispatch_tool_with_cancellation_policy(
     dispatcher: Arc<dyn NativeAgentToolDispatcher>,
     context: AgentTurnContext,
-    tool_call: NativeAgentToolCall,
+    tool_call: PreparedToolCall,
 ) -> ToolDispatchOutcome {
-    let normalized_input = match serde_json::from_str::<Value>(&tool_call.arguments_json) {
-        Ok(input) => input,
-        Err(error) => {
-            let error = format!(
-                "native tool `{}` arguments are invalid JSON: {error}",
-                tool_call.name
-            );
-            return completed_tool_error(tool_call, error);
-        }
-    };
-    if !normalized_input.is_object() {
-        let error = format!(
-            "native tool `{}` arguments must be a JSON object",
-            tool_call.name
-        );
-        return completed_tool_error(tool_call, error);
-    }
     let cancellation_mode = native_tool_cancellation_mode(&context, &tool_call.name);
     let cleanup_timeout_ms = native_tool_cleanup_timeout_ms(&context, &tool_call.name).max(1);
     let dispatch_call = tool_call.clone();
@@ -656,7 +654,7 @@ async fn execute_tool_batch(
     context: &AgentTurnContext,
     state: &mut AgentTurnState,
     iteration: i64,
-    tool_calls: Vec<NativeAgentToolCall>,
+    tool_calls: Vec<PreparedToolCall>,
 ) -> Result<NativeAgentToolExecutionOutcome, String> {
     let is_multi_call = tool_calls.len() > 1;
     if !is_multi_call && context_is_cancelled(context) {
@@ -698,7 +696,7 @@ async fn execute_tool_batch(
                 context,
                 state,
                 iteration,
-                completed.tool_call,
+                completed.tool_call.into_original(),
                 completed.result,
             )?;
         }
@@ -751,7 +749,7 @@ fn queue_tool_batch(
     )?;
     let queued_tool_calls = calls
         .iter()
-        .map(|call| (call.tool_call.clone(), call.mode.as_str()))
+        .map(|call| (call.tool_call.original().clone(), call.mode.as_str()))
         .collect::<Vec<_>>();
     for call in calls {
         let tool_call = &call.tool_call;

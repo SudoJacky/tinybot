@@ -1385,7 +1385,7 @@ fn worker_run_agent_returns_executor_error_to_agent_without_fixture_fallback() {
                         "toolCalls": [{
                             "id": "call-native-executor-missing",
                             "name": "memory.search",
-                            "argumentsJson": "{not json",
+                            "argumentsJson": "{\"note_type\":\"invalid\"}",
                             "result": { "content": "fixture success must not be used" }
                         }]
                     },

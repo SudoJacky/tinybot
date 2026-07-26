@@ -674,7 +674,7 @@ fn tool_search_activates_dispatches_and_expires_a_deferred_tool() {
         fn dispatch(
             &self,
             _context: &AgentTurnContext,
-            tool_call: &NativeAgentToolCall,
+            tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             if tool_call.name == "tool_search" {
                 return Err("tool_search must not reach the normal dispatcher".to_string());

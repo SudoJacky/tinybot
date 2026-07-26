@@ -4,6 +4,7 @@ use super::state::AgentTurnState;
 use super::tool_projection::{commit_tool_observation, prepare_continuation_tool_observation};
 use super::{
     AgentTurnContext, NativeAgentRuntimeServices, NativeAgentToolCall, NativeAgentToolResult,
+    PreparedToolCall,
 };
 use crate::agent::runtime_protocol::{
     AgentContinuationInput, AgentEventKind, AgentFormAction, AgentRuntimePhase, PendingAgentEvent,
@@ -64,10 +65,10 @@ pub(super) fn awaiting_user_input_result(
     context: &AgentTurnContext,
     state: &mut AgentTurnState,
     iteration: i64,
-    tool_call: NativeAgentToolCall,
+    tool_call: PreparedToolCall,
 ) -> Result<Value, String> {
     let form_id = form_id_for_tool_call(&tool_call.id)?;
-    let request = parse_user_input_request(&tool_call.arguments_json)?;
+    let request = parse_user_input_request(tool_call.arguments())?;
     let mut form = serde_json::to_value(request)
         .map_err(|error| format!("failed to serialize request_user_input form: {error}"))?;
     form["form_id"] = Value::String(form_id.clone());
@@ -379,8 +380,8 @@ struct UserInputOption {
     value: String,
 }
 
-fn parse_user_input_request(arguments_json: &str) -> Result<UserInputRequest, String> {
-    let mut request = serde_json::from_str::<UserInputRequest>(arguments_json)
+fn parse_user_input_request(arguments: &Map<String, Value>) -> Result<UserInputRequest, String> {
+    let mut request = serde_json::from_value::<UserInputRequest>(Value::Object(arguments.clone()))
         .map_err(|error| format!("invalid request_user_input arguments: {error}"))?;
     normalize_required_string(&mut request.title, "title", 256)?;
     normalize_optional_string(&mut request.description, "description", 1_024)?;
