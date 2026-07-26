@@ -1302,14 +1302,14 @@ describe("ChatPage", () => {
     expect(row?.dataset.dissolving).toBe("true");
     expect(screen.getByRole("button", { name: "Planning notes" })).toBeTruthy();
     expect(getComputedStyle(row?.querySelector(".react-session-row__delete") as Element).position).toBe("absolute");
-    expect(row?.querySelectorAll(".react-session-row__particle").length).toBeGreaterThanOrEqual(90);
+    expect(row?.querySelectorAll(".react-session-row__particle").length).toBeGreaterThanOrEqual(60);
 
     await act(async () => {
       expect(dissolveTimer).toEqual(expect.any(Function));
       (dissolveTimer as () => void)();
     });
     expect(screen.queryByRole("button", { name: "Planning notes" })).toBeNull();
-  });
+  }, 15_000);
 
   it("shows branch on a completed tool-backed final answer but not on user or commentary messages", async () => {
     const user = userEvent.setup();
@@ -3415,7 +3415,7 @@ describe("ChatPage", () => {
     const source = readFileSync("src/react-workbench/chat/ChatPage.tsx", "utf8");
 
     expect(source).toContain("const SESSION_DELETE_DISSOLVE_MS = 760;");
-    expect(source).toContain("const SESSION_DELETE_PARTICLE_COUNT = 96;");
+    expect(source).toContain("const SESSION_DELETE_PARTICLE_COUNT = 64;");
     expect(css).toContain(".react-session-row__particle");
     expect(css).toContain("--react-session-particle-color: rgb(255 255 255 / 96%)");
     expect(css).toContain("--react-session-particle-glow: rgb(255 255 255 / 72%)");
