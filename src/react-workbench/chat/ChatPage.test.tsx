@@ -1283,7 +1283,7 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     const sessionButton = await screen.findByRole("button", { name: "Planning notes" });
-    vi.useFakeTimers();
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout");
     const row = sessionButton.closest(".react-session-row") as HTMLElement | null;
     fireEvent.mouseEnter(sessionButton);
     fireEvent.click(screen.getByRole("button", { name: /delete Planning notes/i }));
@@ -1291,6 +1291,11 @@ describe("ChatPage", () => {
     await act(async () => {
       await Promise.resolve();
     });
+    const dissolveTimerIndex = setTimeoutSpy.mock.calls.findIndex(([, delay]) => delay === 760);
+    expect(dissolveTimerIndex).toBeGreaterThanOrEqual(0);
+    const dissolveTimer = setTimeoutSpy.mock.calls[dissolveTimerIndex]?.[0];
+    window.clearTimeout(setTimeoutSpy.mock.results[dissolveTimerIndex]?.value);
+    setTimeoutSpy.mockRestore();
     mountWorkbenchCss();
 
     expect(stores.sessionStore.delete).toHaveBeenCalledWith("s1");
@@ -1300,7 +1305,8 @@ describe("ChatPage", () => {
     expect(row?.querySelectorAll(".react-session-row__particle").length).toBeGreaterThanOrEqual(90);
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(760);
+      expect(dissolveTimer).toEqual(expect.any(Function));
+      (dissolveTimer as () => void)();
     });
     expect(screen.queryByRole("button", { name: "Planning notes" })).toBeNull();
   });
@@ -1671,8 +1677,14 @@ describe("ChatPage", () => {
     expect(within(card).getByRole("alert").textContent).toBe("Required");
     expect(within(card).getByLabelText("Destination").getAttribute("aria-invalid")).toBe("true");
 
-    fireEvent.change(within(card).getByLabelText("Destination"), { target: { value: "Singapore" } });
-    fireEvent.change(within(card).getByLabelText("Nights"), { target: { value: "4" } });
+    const destination = within(card).getByLabelText("Destination") as HTMLInputElement;
+    const nights = within(card).getByLabelText("Nights") as HTMLInputElement;
+    await user.clear(destination);
+    await user.type(destination, "Singapore");
+    await user.clear(nights);
+    await user.type(nights, "4");
+    expect(destination.value).toBe("Singapore");
+    expect(nights.value).toBe("4");
     await user.click(within(card).getByRole("button", { name: "Save preferences" }));
 
     expect(stores.chatStore.dispatch).toHaveBeenCalledWith(expect.objectContaining({
