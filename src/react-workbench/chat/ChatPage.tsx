@@ -1826,7 +1826,10 @@ export function ChatPage({
             >
               <summary title={workspace.workingDirectory ?? workspace.label}>
                 <ChevronRight aria-hidden="true" className="react-session-workspace__chevron" size={14} />
-                <Folder aria-hidden="true" className="react-session-workspace__folder" size={15} />
+                <span aria-hidden="true" className="react-session-workspace__folder">
+                  <Folder className="react-session-workspace__folder-icon--collapsed" size={15} />
+                  <FolderOpen className="react-session-workspace__folder-icon--expanded" size={15} />
+                </span>
                 <span className="react-session-workspace__copy">
                   <strong>{workspace.label}</strong>
                   {workspace.workingDirectory ? <small>{workspace.workingDirectory}</small> : null}

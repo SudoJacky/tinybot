@@ -655,6 +655,7 @@ describe("ChatPage", () => {
   it("groups sessions by workspace and creates another session in that directory", async () => {
     const user = userEvent.setup();
     const workingDirectory = "D:\\Code\\py\\tinybot";
+    mountWorkbenchCss();
     const stores = createStores({
       sessions: [
         {
@@ -687,10 +688,23 @@ describe("ChatPage", () => {
 
     const sidebar = await screen.findByLabelText("Sessions");
     const workspace = within(sidebar).getByRole("group", { name: "Workspace tinybot" });
+    const workspaceSummary = workspace.querySelector("summary");
+    const collapsedFolder = workspaceSummary?.querySelector(".react-session-workspace__folder-icon--collapsed");
+    const expandedFolder = workspaceSummary?.querySelector(".react-session-workspace__folder-icon--expanded");
+    expect(collapsedFolder).toBeTruthy();
+    expect(expandedFolder).toBeTruthy();
+    expect(getComputedStyle(collapsedFolder as Element).display).toBe("none");
+    expect(getComputedStyle(expandedFolder as Element).display).not.toBe("none");
     expect(within(workspace).getByRole("button", { name: "Planning notes" })).toBeTruthy();
     expect(within(workspace).getByRole("button", { name: "Knowledge review" })).toBeTruthy();
     expect(within(sidebar).getByRole("group", { name: "Workspace 常规会话" })).toBeTruthy();
 
+    await user.click(workspaceSummary as HTMLElement);
+    expect(workspace.hasAttribute("open")).toBe(false);
+    expect(getComputedStyle(collapsedFolder as Element).display).not.toBe("none");
+    expect(getComputedStyle(expandedFolder as Element).display).toBe("none");
+
+    await user.click(workspaceSummary as HTMLElement);
     await user.click(within(workspace).getByRole("button", { name: "New session in tinybot" }));
 
     expect(stores.sessionStore.create).toHaveBeenCalledWith({ workingDirectory });

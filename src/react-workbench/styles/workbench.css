@@ -658,7 +658,22 @@ button:disabled {
 }
 
 .react-session-workspace__folder {
+  display: grid;
+  place-items: center;
   color: var(--color-primary);
+}
+
+.react-session-workspace__folder > svg {
+  grid-area: 1 / 1;
+}
+
+.react-session-workspace__folder-icon--expanded,
+.react-session-workspace[open] > summary .react-session-workspace__folder-icon--collapsed {
+  display: none;
+}
+
+.react-session-workspace[open] > summary .react-session-workspace__folder-icon--expanded {
+  display: block;
 }
 
 .react-session-workspace__copy {
