@@ -17,12 +17,22 @@ const nativeFilePickerMocks = vi.hoisted(() => ({
   pickDesktopChatFiles: vi.fn(),
 }));
 
+const nativeWorkspacePickerMocks = vi.hoisted(() => ({
+  pickDesktopWorkspaceDirectory: vi.fn(),
+}));
+
 vi.mock("../../app-core/native/desktopNativeFilePicker", () => ({
   pickDesktopChatFiles: nativeFilePickerMocks.pickDesktopChatFiles,
 }));
 
+vi.mock("../../app-core/native/desktopNativeWorkspacePicker", () => ({
+  pickDesktopWorkspaceDirectory: nativeWorkspacePickerMocks.pickDesktopWorkspaceDirectory,
+}));
+
 afterEach(() => {
   cleanup();
+  nativeWorkspacePickerMocks.pickDesktopWorkspaceDirectory.mockReset();
+  window.localStorage.clear();
   document.head.querySelectorAll("[data-test-style='workbench']").forEach((element) => element.remove());
   vi.useRealTimers();
 });
@@ -639,7 +649,249 @@ describe("ChatPage", () => {
     await user.click(screen.getByRole("button", { name: "Expand session sidebar" }));
 
     expect(sidebar.getAttribute("data-collapsed")).toBe("false");
-    expect(screen.getByRole("heading", { name: "会话" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Tinybot" })).toBeTruthy();
+  });
+
+  it("groups sessions by workspace and creates another session in that directory", async () => {
+    const user = userEvent.setup();
+    const workingDirectory = "D:\\Code\\py\\tinybot";
+    mountWorkbenchCss();
+    const stores = createStores({
+      sessions: [
+        {
+          id: "s1",
+          chatId: "chat-1",
+          title: "Planning notes",
+          updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+          status: "idle",
+          workingDirectory,
+        },
+        {
+          id: "s2",
+          chatId: "chat-2",
+          title: "Knowledge review",
+          updatedAtMs: Date.UTC(2026, 6, 4, 11, 50, 0),
+          status: "idle",
+          workingDirectory: "d:/code/py/tinybot/",
+        },
+        {
+          id: "s3",
+          chatId: "chat-3",
+          title: "General question",
+          updatedAtMs: Date.UTC(2026, 6, 4, 11, 40, 0),
+          status: "idle",
+        },
+      ],
+    });
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const sidebar = await screen.findByLabelText("Sessions");
+    const workspace = within(sidebar).getByRole("group", { name: "Workspace tinybot" });
+    const workspaceSummary = workspace.querySelector("summary");
+    const collapsedFolder = workspaceSummary?.querySelector(".react-session-workspace__folder-icon--collapsed");
+    const expandedFolder = workspaceSummary?.querySelector(".react-session-workspace__folder-icon--expanded");
+    expect(collapsedFolder).toBeTruthy();
+    expect(expandedFolder).toBeTruthy();
+    expect(getComputedStyle(collapsedFolder as Element).display).toBe("none");
+    expect(getComputedStyle(expandedFolder as Element).display).not.toBe("none");
+    expect(within(workspace).getByRole("button", { name: "Planning notes" })).toBeTruthy();
+    expect(within(workspace).getByRole("button", { name: "Knowledge review" })).toBeTruthy();
+    expect(within(sidebar).getByRole("group", { name: "Workspace 常规会话" })).toBeTruthy();
+
+    await user.click(workspaceSummary as HTMLElement);
+    expect(workspace.hasAttribute("open")).toBe(false);
+    expect(getComputedStyle(collapsedFolder as Element).display).not.toBe("none");
+    expect(getComputedStyle(expandedFolder as Element).display).toBe("none");
+
+    await user.click(workspaceSummary as HTMLElement);
+    await user.click(within(workspace).getByRole("button", { name: "New session in tinybot" }));
+
+    expect(stores.sessionStore.create).toHaveBeenCalledWith({ workingDirectory });
+  });
+
+  it("inherits the active workspace when creating a session from the global action", async () => {
+    const user = userEvent.setup();
+    const workingDirectory = "D:\\Code\\py\\tinybot";
+    const stores = createStores({
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Planning notes",
+        updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+        status: "idle",
+        workingDirectory,
+      }],
+    });
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const sidebar = await screen.findByLabelText("Sessions");
+    await user.click(within(sidebar).getByRole("button", { name: "New Chat" }));
+
+    expect(stores.sessionStore.create).toHaveBeenCalledWith({ workingDirectory });
+  });
+
+  it("creates and opens the first session for a selected workspace folder", async () => {
+    const user = userEvent.setup();
+    const workingDirectory = "D:\\Code\\VirtualHome";
+    const stores = createStores();
+    nativeWorkspacePickerMocks.pickDesktopWorkspaceDirectory.mockResolvedValueOnce(workingDirectory);
+    vi.mocked(stores.sessionStore.create).mockResolvedValueOnce({
+      id: "workspace-session",
+      title: "New session",
+      updatedAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+      workingDirectory,
+    });
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const sidebar = await screen.findByLabelText("Sessions");
+    await user.click(within(sidebar).getByRole("button", { name: "Add workspace folder" }));
+
+    expect(await within(sidebar).findByRole("group", { name: "Workspace VirtualHome" })).toBeTruthy();
+    expect(stores.sessionStore.create).toHaveBeenCalledWith({ workingDirectory });
+    await waitFor(() => expect(stores.chatStore.load).toHaveBeenLastCalledWith("workspace-session"));
+  });
+
+  it("selects a workspace folder and exposes native creation failures", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    nativeWorkspacePickerMocks.pickDesktopWorkspaceDirectory.mockResolvedValueOnce("Z:\\missing");
+    vi.mocked(stores.sessionStore.create).mockRejectedValueOnce(
+      new Error("failed to inspect working directory `Z:\\missing`"),
+    );
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const sidebar = await screen.findByLabelText("Sessions");
+    await user.click(within(sidebar).getByRole("button", { name: "Add workspace folder" }));
+
+    expect(nativeWorkspacePickerMocks.pickDesktopWorkspaceDirectory).toHaveBeenCalledTimes(1);
+    expect(stores.sessionStore.create).toHaveBeenCalledWith({ workingDirectory: "Z:\\missing" });
+    expect((await within(sidebar).findByRole("alert")).textContent).toContain(
+      "failed to inspect working directory `Z:\\missing`",
+    );
+    expect(consoleError).toHaveBeenCalledWith(
+      "[session-workspaces] session.create.failed",
+      expect.objectContaining({
+        error: "failed to inspect working directory `Z:\\missing`",
+        workingDirectory: "Z:\\missing",
+      }),
+    );
+    consoleError.mockRestore();
+  });
+
+  it("opens sidebar sessions as an accessible multi-session tab set", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({
+      sessions: [
+        {
+          id: "s1",
+          chatId: "chat-1",
+          title: "Planning notes",
+          updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+          status: "idle",
+        },
+        {
+          id: "s2",
+          chatId: "chat-2",
+          title: "Knowledge review",
+          updatedAtMs: Date.UTC(2026, 6, 4, 11, 50, 0),
+          status: "running",
+        },
+      ],
+    });
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const sidebar = await screen.findByLabelText("Sessions");
+    const tablist = screen.getByRole("tablist", { name: "Open conversations" });
+    expect(within(tablist).getAllByRole("tab")).toHaveLength(1);
+
+    await user.click(within(sidebar).getByRole("button", { name: "Knowledge review" }));
+
+    expect(within(tablist).getAllByRole("tab")).toHaveLength(2);
+    expect(within(tablist).getByRole("tab", { name: "Knowledge review, running" }).getAttribute("aria-selected")).toBe("true");
+    await waitFor(() => expect(stores.chatStore.load).toHaveBeenLastCalledWith("s2"));
+  });
+
+  it("preserves per-session drafts and closing a tab does not delete the session", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({
+      sessions: [
+        {
+          id: "s1",
+          chatId: "chat-1",
+          title: "Planning notes",
+          updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+          status: "idle",
+        },
+        {
+          id: "s2",
+          chatId: "chat-2",
+          title: "Knowledge review",
+          updatedAtMs: Date.UTC(2026, 6, 4, 11, 50, 0),
+          status: "idle",
+        },
+      ],
+    });
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const sidebar = await screen.findByLabelText("Sessions");
+    const tablist = screen.getByRole("tablist", { name: "Open conversations" });
+    const input = screen.getByRole("textbox", { name: /message/i }) as HTMLTextAreaElement;
+    await user.type(input, "draft for planning");
+    await user.click(within(sidebar).getByRole("button", { name: "Knowledge review" }));
+    await user.type(input, "draft for knowledge");
+
+    await user.click(within(tablist).getByRole("tab", { name: "Planning notes" }));
+    expect(input.value).toBe("draft for planning");
+    await user.click(screen.getByRole("button", { name: "Close Planning notes tab" }));
+
+    expect(stores.sessionStore.delete).not.toHaveBeenCalled();
+    expect(within(tablist).queryByRole("tab", { name: "Planning notes" })).toBeNull();
+    expect(input.value).toBe("draft for knowledge");
+  });
+
+  it("marks background completion unread without interrupting the active tab", async () => {
+    const user = userEvent.setup();
+    const listeners = new Map<string, (event: ChatEvent) => void>();
+    const stores = createStores({
+      sessions: [
+        {
+          id: "s1",
+          chatId: "chat-1",
+          title: "Planning notes",
+          updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+          status: "running",
+        },
+        {
+          id: "s2",
+          chatId: "chat-2",
+          title: "Knowledge review",
+          updatedAtMs: Date.UTC(2026, 6, 4, 11, 50, 0),
+          status: "idle",
+        },
+      ],
+    });
+    stores.chatStore.subscribe = vi.fn((sessionId, listener) => {
+      listeners.set(sessionId, listener);
+      return () => {
+        if (listeners.get(sessionId) === listener) listeners.delete(sessionId);
+      };
+    });
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const sidebar = await screen.findByLabelText("Sessions");
+    await user.click(within(sidebar).getByRole("button", { name: "Knowledge review" }));
+    await waitFor(() => expect(listeners.has("s1")).toBe(true));
+
+    act(() => listeners.get("s1")?.({ type: "agent.event", eventType: "agent.turn.completed" }));
+
+    const backgroundTab = screen.getByRole("tab", { name: "Planning notes, running" }).closest(".react-session-tab");
+    expect(backgroundTab?.getAttribute("data-unread")).toBe("true");
+    expect(screen.getByRole("tab", { name: "Knowledge review" }).getAttribute("aria-selected")).toBe("true");
   });
 
   it("hides the session-list empty copy when the sidebar is collapsed", async () => {

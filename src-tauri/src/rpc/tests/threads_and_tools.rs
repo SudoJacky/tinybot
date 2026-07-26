@@ -4348,6 +4348,31 @@ fn dispatches_agent_turn_store_round_trip_requests() {
         clear_checkpoint.result.as_ref().unwrap()["checkpoint"],
         json!(null)
     );
+    let fork = router.dispatch(&WorkerRequest::new(
+        "req-agent-turn-fork",
+        "trace-agent-turn",
+        "thread.fork",
+        json!({
+            "threadId": "session-1",
+            "clientEventId": "fork:session-1:turn-1"
+        }),
+    ));
+    assert_eq!(fork.error, None);
+    let fork_thread_id = fork.result.as_ref().unwrap()["threadId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let fork_turns = router.dispatch(&WorkerRequest::new(
+        "req-agent-turn-fork-list",
+        "trace-agent-turn",
+        "thread.turn.list",
+        json!({ "threadId": fork_thread_id }),
+    ));
+    assert_eq!(fork_turns.error, None);
+    assert_eq!(
+        fork_turns.result.as_ref().unwrap()["turns"][0]["sessionId"],
+        fork_thread_id
+    );
 
     assert_removed_persistence_paths_absent(&fixture.root);
 

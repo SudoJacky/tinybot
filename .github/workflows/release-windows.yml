@@ -61,7 +61,7 @@ jobs:
 
       - name: Run updater tests
         working-directory: src-tauri
-        run: cargo test --lib desktop_update::tests -- --test-threads=1
+        run: cargo test --lib desktop::update::tests -- --test-threads=1
 
       - name: Build and upload signed updater artifacts
         uses: tauri-apps/tauri-action@v1

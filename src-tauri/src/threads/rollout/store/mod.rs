@@ -703,6 +703,7 @@ impl WorkerThreadLogRpc {
             fork_after_sequence,
             &fork.thread_id,
         )?;
+        let fork_session_id = fork.session_key.as_deref().unwrap_or(&fork.thread_id);
         let inherited_lines = inherited_indexes
             .into_iter()
             .filter_map(|index| {
@@ -710,7 +711,7 @@ impl WorkerThreadLogRpc {
                 fork_inherits_rollout_item(&line.item, include_checkpoints).then(|| ThreadLogLine {
                     timestamp: line.timestamp.clone(),
                     ordinal: None,
-                    item: line.item.clone(),
+                    item: forked_rollout_item(&line.item, fork_session_id, &fork.thread_id),
                 })
             })
             .collect::<Vec<_>>();
@@ -2465,6 +2466,38 @@ fn fork_inherits_rollout_item(item: &ThreadLogItem, include_checkpoints: bool) -
         Some(value) if value.starts_with("turn_") => false,
         Some("checkpoint_created") if !include_checkpoints => false,
         _ => true,
+    }
+}
+
+fn forked_rollout_item(
+    item: &ThreadLogItem,
+    fork_session_id: &str,
+    fork_thread_id: &str,
+) -> ThreadLogItem {
+    let ThreadLogItem::EventMsg(event) = item else {
+        return item.clone();
+    };
+    let mut payload = event.payload().clone();
+    let mut rebound = false;
+    if let Some(payload) = payload.as_object_mut() {
+        let identities = [("sessionId", fork_session_id), ("threadId", fork_thread_id)];
+        let mut rebind = |object: &mut serde_json::Map<String, Value>| {
+            for (field, value) in identities.iter().copied() {
+                if let Some(existing) = object.get_mut(field) {
+                    *existing = Value::String(value.to_string());
+                    rebound = true;
+                }
+            }
+        };
+        rebind(payload);
+        if let Some(turn) = payload.get_mut("turn").and_then(Value::as_object_mut) {
+            rebind(turn);
+        }
+    }
+    if rebound {
+        value_event(event.kind().clone(), payload)
+    } else {
+        item.clone()
     }
 }
 

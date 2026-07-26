@@ -8,6 +8,7 @@ pub(crate) use self::store::{runtime_events_from_thread_items, turn_summaries_fr
 pub use self::store::{
     MemoryThreadStore, ThreadPersistenceRepairMode, ThreadPersistenceRepairRequest, ThreadStore,
 };
+use self::types::ThreadMetadataPatch;
 pub use self::types::{
     AppendThreadItemsRequest, AppendThreadItemsResult, ArchiveThreadRequest,
     ContinueThreadTurnRequest, CreateThreadRequest, DeleteThreadRequest, DeleteThreadResult,
@@ -31,16 +32,18 @@ use std::path::PathBuf;
 pub struct WorkerThreadRpc {
     store: MemoryThreadStore,
     runtime: ThreadRuntime<MemoryThreadStore>,
+    workspace_root: PathBuf,
     policy: CapabilityPolicy,
 }
 
 impl WorkerThreadRpc {
-    pub fn new(_workspace_root: PathBuf, policy: CapabilityPolicy) -> Self {
+    pub fn new(workspace_root: PathBuf, policy: CapabilityPolicy) -> Self {
         let store = MemoryThreadStore::default();
         let runtime = ThreadRuntime::new(store.clone());
         Self {
             store,
             runtime,
+            workspace_root,
             policy,
         }
     }
@@ -63,9 +66,10 @@ impl WorkerThreadRpc {
 
     pub fn create_thread(
         &self,
-        request: CreateThreadRequest,
+        mut request: CreateThreadRequest,
     ) -> Result<ThreadRecord, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
+        self.resolve_metadata_working_directory("thread.create", &mut request.metadata)?;
         self.store.create_thread(request)
     }
 
@@ -111,9 +115,10 @@ impl WorkerThreadRpc {
 
     pub fn update_thread_metadata(
         &self,
-        request: UpdateThreadMetadataRequest,
+        mut request: UpdateThreadMetadataRequest,
     ) -> Result<ThreadRecord, WorkerProtocolError> {
         self.require(WorkerCapability::SessionWrite)?;
+        self.resolve_metadata_working_directory("thread.update_metadata", &mut request.metadata)?;
         let mut updated = self
             .store
             .update_thread_metadata(&request.thread_id, request.metadata)?;
@@ -123,6 +128,32 @@ impl WorkerThreadRpc {
                 .update_thread_session_key(&request.thread_id, session_key)?;
         }
         Ok(updated)
+    }
+
+    fn resolve_metadata_working_directory(
+        &self,
+        method: &str,
+        metadata: &mut ThreadMetadataPatch,
+    ) -> Result<(), WorkerProtocolError> {
+        let Some(requested) = metadata.working_directory.as_deref() else {
+            return Ok(());
+        };
+        let requested = requested.trim();
+        if requested.is_empty() {
+            return Err(thread_working_directory_error(
+                method,
+                requested,
+                "thread working directory must be a non-empty path".to_string(),
+            ));
+        }
+        let working_directory =
+            crate::runtime::working_directory::resolve_existing_working_directory(
+                &self.workspace_root,
+                std::path::Path::new(requested),
+            )
+            .map_err(|error| thread_working_directory_error(method, requested, error))?;
+        metadata.working_directory = Some(working_directory.display().to_string());
+        Ok(())
     }
 
     pub fn archive_thread(
@@ -288,4 +319,21 @@ impl WorkerThreadRpc {
             WorkerProtocolErrorSource::RustCore,
         ))
     }
+}
+
+fn thread_working_directory_error(
+    method: &str,
+    working_directory: &str,
+    message: String,
+) -> WorkerProtocolError {
+    WorkerProtocolError::new(
+        WorkerProtocolErrorCode::InvalidProtocol,
+        message,
+        serde_json::json!({
+            "method": method,
+            "workingDirectory": working_directory,
+        }),
+        false,
+        WorkerProtocolErrorSource::RustCore,
+    )
 }

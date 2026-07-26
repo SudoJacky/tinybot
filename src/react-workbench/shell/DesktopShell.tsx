@@ -9,7 +9,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { BookOpen, Bot, ChevronRight, Code2, Command, FileText, Folder, MessageSquare, Minus, Settings, Square, Wrench, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpen, Check, ChevronRight, Command, Folder, Minus, Settings, Square, X } from "lucide-react";
 import { createDesktopStopCommand } from "../../app-core/chat/desktopCommand";
 import { ChatPage } from "../chat/ChatPage";
 import { AgentDefaultsSettingsPage } from "../settings/AgentDefaultsSettingsPage";
@@ -19,21 +19,27 @@ import type { AppServices, ToolCatalogSummary, WorkspaceFileSummary } from "../s
 
 type AppRoute = "chat" | "files" | "cowork" | "github" | "docs" | "tools" | "settings";
 
+type RouteHistory = {
+  back: AppRoute[];
+  current: AppRoute;
+  forward: AppRoute[];
+};
+
 export type DesktopShellProps = {
   services: AppServices;
   now?: () => number;
   windowControls?: WindowFrameControls;
 };
 
-const routeItems: Array<{ id: AppRoute; label: string; icon: typeof MessageSquare }> = [
-  { id: "chat", label: "Chat", icon: MessageSquare },
-  { id: "files", label: "Files", icon: Folder },
-  { id: "cowork", label: "Cowork", icon: Bot },
-  { id: "github", label: "GitHub", icon: Code2 },
-  { id: "docs", label: "Docs", icon: FileText },
-  { id: "tools", label: "Tools", icon: Wrench },
-  { id: "settings", label: "Settings", icon: Settings },
-];
+const routeLabels: Record<AppRoute, string> = {
+  chat: "Chat",
+  files: "Workspace Files",
+  cowork: "Cowork",
+  github: "GitHub",
+  docs: "Docs",
+  tools: "Tools & Skills",
+  settings: "Settings",
+};
 
 type WindowFrameControls = {
   close(): Promise<void>;
@@ -48,6 +54,10 @@ type TopMenuCommandId =
   | "stop-generation"
   | "search-sessions"
   | "open-chat"
+  | "open-files"
+  | "open-cowork"
+  | "open-github"
+  | "open-tools"
   | "open-tinybot-repo"
   | "open-settings"
   | "open-docs"
@@ -64,6 +74,7 @@ type TopMenuCommand = {
   label: string;
   shortcut?: string;
   enabled?: boolean;
+  route?: AppRoute;
 };
 
 type TopMenuEntry =
@@ -74,7 +85,7 @@ type TopMenuEntry =
 type TopMenuItem = {
   label: TopMenuLabel;
   menuLabel: string;
-  icon: typeof MessageSquare;
+  icon: typeof Command;
   entries: TopMenuEntry[];
 };
 
@@ -101,7 +112,11 @@ const topMenuItems: TopMenuItem[] = [
     menuLabel: "Resources menu",
     icon: Folder,
     entries: [
-      menuCommand({ id: "open-chat", label: "Chat" }),
+      menuCommand({ id: "open-chat", label: routeLabels.chat, route: "chat" }),
+      menuCommand({ id: "open-files", label: routeLabels.files, route: "files" }),
+      menuCommand({ id: "open-cowork", label: routeLabels.cowork, route: "cowork" }),
+      menuCommand({ id: "open-github", label: routeLabels.github, route: "github" }),
+      menuCommand({ id: "open-tools", label: routeLabels.tools, route: "tools" }),
     ],
   },
   {
@@ -109,7 +124,7 @@ const topMenuItems: TopMenuItem[] = [
     menuLabel: "System menu",
     icon: Settings,
     entries: [
-      menuCommand({ id: "open-settings", label: "Settings", shortcut: "Ctrl+," }),
+      menuCommand({ id: "open-settings", label: routeLabels.settings, route: "settings", shortcut: "Ctrl+," }),
       menuSeparator("system-status-separator"),
       menuCommand({ id: "refresh-gateway-status", label: "Gateway Status", shortcut: "Ctrl+Shift+G", enabled: false }),
     ],
@@ -119,7 +134,7 @@ const topMenuItems: TopMenuItem[] = [
     menuLabel: "Help menu",
     icon: BookOpen,
     entries: [
-      menuCommand({ id: "open-docs", label: "Documentation", shortcut: "F1" }),
+      menuCommand({ id: "open-docs", label: "Documentation", route: "docs", shortcut: "F1" }),
       menuSeparator("help-more-separator"),
       {
         kind: "submenu",
@@ -139,7 +154,12 @@ const topMenuItems: TopMenuItem[] = [
 ];
 
 export function DesktopShell({ now, services, windowControls }: DesktopShellProps) {
-  const [route, setRoute] = useState<AppRoute>("chat");
+  const [routeHistory, setRouteHistory] = useState<RouteHistory>({
+    back: [],
+    current: "chat",
+    forward: [],
+  });
+  const route = routeHistory.current;
   const [activeTopMenu, setActiveTopMenu] = useState<TopMenuLabel | null>(null);
   const [activeTopSubmenu, setActiveTopSubmenu] = useState<string | null>(null);
   const [sessionSidebarCollapsed, setSessionSidebarCollapsed] = useState(false);
@@ -215,25 +235,61 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
     setActiveTopMenu((current) => current === label ? null : label);
   }
 
+  function navigateToRoute(nextRoute: AppRoute) {
+    setRouteHistory((current) => {
+      if (nextRoute === current.current) {
+        return current;
+      }
+      return {
+        back: [...current.back, current.current],
+        current: nextRoute,
+        forward: [],
+      };
+    });
+  }
+
+  function goBack() {
+    setRouteHistory((current) => {
+      const previous = current.back[current.back.length - 1];
+      if (!previous) {
+        return current;
+      }
+      return {
+        back: current.back.slice(0, -1),
+        current: previous,
+        forward: [current.current, ...current.forward],
+      };
+    });
+  }
+
+  function goForward() {
+    setRouteHistory((current) => {
+      const [next, ...remaining] = current.forward;
+      if (!next) {
+        return current;
+      }
+      return {
+        back: [...current.back, current.current],
+        current: next,
+        forward: remaining,
+      };
+    });
+  }
+
   function runTopMenuCommand(command: TopMenuCommand) {
     if (command.enabled === false) {
       return;
     }
     setActiveTopMenu(null);
     setActiveTopSubmenu(null);
+    if (command.route) {
+      navigateToRoute(command.route);
+      return;
+    }
     switch (command.id) {
       case "new-chat":
-        setRoute("chat");
+        navigateToRoute("chat");
         setCreateChatSignal((current) => current + 1);
-        return;
-      case "open-chat":
-        setRoute("chat");
-        return;
-      case "open-settings":
-        setRoute("settings");
-        return;
-      case "open-docs":
-        setRoute("docs");
         return;
       case "stop-generation":
         stopActiveGeneration();
@@ -255,6 +311,7 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
       : command;
     return (
       <button
+        aria-current={resolvedCommand.route === route ? "page" : undefined}
         aria-label={menuCommandAccessibleLabel(resolvedCommand)}
         className="react-top-menu__menu-item"
         disabled={resolvedCommand.enabled === false}
@@ -265,7 +322,14 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
         onClick={() => runTopMenuCommand(resolvedCommand)}
       >
         <span className="react-top-menu__menu-label">{resolvedCommand.label}</span>
-        {resolvedCommand.shortcut ? <span className="react-top-menu__shortcut">{resolvedCommand.shortcut}</span> : null}
+        {resolvedCommand.route === route || resolvedCommand.shortcut ? (
+          <span className="react-top-menu__menu-meta">
+            {resolvedCommand.route === route ? (
+              <Check aria-hidden="true" className="react-top-menu__current" size={15} />
+            ) : null}
+            {resolvedCommand.shortcut ? <span className="react-top-menu__shortcut">{resolvedCommand.shortcut}</span> : null}
+          </span>
+        ) : null}
       </button>
     );
   }
@@ -324,7 +388,26 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
         role="banner"
         onDoubleClick={handleFrameDoubleClick}
       >
-        <div className="react-window-frame__brand" data-tauri-drag-region="">Tinybot</div>
+        <nav aria-label="Page history" className="react-window-frame__history" data-no-window-drag="">
+          <button
+            aria-label="Go back"
+            disabled={routeHistory.back.length === 0}
+            title="Back"
+            type="button"
+            onClick={goBack}
+          >
+            <ArrowLeft aria-hidden="true" size={17} />
+          </button>
+          <button
+            aria-label="Go forward"
+            disabled={routeHistory.forward.length === 0}
+            title="Forward"
+            type="button"
+            onClick={goForward}
+          >
+            <ArrowRight aria-hidden="true" size={17} />
+          </button>
+        </nav>
         <nav className="react-top-menu" aria-label="Application menu">
           {topMenuItems.map(({ entries, icon: Icon, label, menuLabel }) => (
             <div className="react-top-menu__group" key={label}>
@@ -398,25 +481,6 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
       </header>
 
       <div className="react-workbench-layout">
-        <nav className="react-activity-rail" aria-label="Primary">
-          {routeItems.map((item) => {
-            const Icon = item.icon;
-            return (
-              <button
-                aria-label={item.label}
-                data-active={route === item.id}
-                data-label={item.label}
-                key={item.id}
-                title={item.label}
-                type="button"
-                onClick={() => setRoute(item.id)}
-              >
-                <Icon aria-hidden="true" size={18} />
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
-        </nav>
         <section className="react-route-surface">
           <RouteSurface
             createChatSignal={createChatSignal}
@@ -424,7 +488,7 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
           route={route}
           services={services}
           sessionSidebarCollapsed={sessionSidebarCollapsed}
-          onNavigate={setRoute}
+          onNavigate={navigateToRoute}
           onSessionSidebarCollapsedChange={setSessionSidebarCollapsed}
           onStopGenerationTargetChange={handleStopGenerationTargetChange}
         />
@@ -510,7 +574,7 @@ function RouteSurface({
     case "cowork":
     case "github":
     case "docs":
-      return <PlaceholderPage title={routeItems.find((item) => item.id === route)?.label ?? "Page"} />;
+      return <PlaceholderPage title={routeLabels[route]} />;
   }
 }
 

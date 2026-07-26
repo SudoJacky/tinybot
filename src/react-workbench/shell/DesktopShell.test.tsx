@@ -3,7 +3,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DesktopShell } from "./DesktopShell";
 import { buildAgentDefaultsSettings } from "../../app-core/settings/agentDefaultsSettings";
 import { buildProviderModelsSettings } from "../../app-core/settings/providerModelsSettings";
@@ -12,6 +12,7 @@ import type { ReactChatMessage } from "../chat/messageActions";
 import { timelineFromReactMessages } from "../chat/testTimelineFixtures";
 import { unavailableTinyOsEffectiveCapabilities } from "../../app-core/chat/tinyOsCapabilities";
 
+beforeEach(() => window.localStorage.clear());
 afterEach(() => cleanup());
 
 function createServices(options: { messages?: ReactChatMessage[]; sessions?: SessionSummary[] } = {}): AppServices & {
@@ -113,6 +114,9 @@ describe("DesktopShell", () => {
     const appMenuButton = screen.getByRole("button", { name: "App" });
     expect(appMenuButton.querySelector(".react-top-menu__icon")).toBeTruthy();
     expect(appMenuButton.querySelector(".react-top-menu__label")?.textContent).toBe("App");
+    expect(screen.getByRole("button", { name: "Go back" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Go forward" }).hasAttribute("disabled")).toBe(true);
+    expect(document.querySelector(".react-window-frame__brand")).toBeNull();
 
     fireEvent.pointerDown(appMenuButton);
 
@@ -147,13 +151,13 @@ describe("DesktopShell", () => {
   it("keeps shell navigation typography compact", () => {
     const css = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
 
-    expect(css).toMatch(/\.react-window-frame__brand\s*{[^}]*font-size:\s*13px;/s);
+    expect(css).toMatch(/\.react-window-frame__history button\s*{[^}]*width:\s*32px;[^}]*height:\s*32px;/s);
     expect(css).toMatch(/\.react-top-menu__trigger\s*{[^}]*font-size:\s*12px;/s);
     expect(css).toMatch(/\.react-top-menu__menu-item\s*{[^}]*font-size:\s*13px;/s);
-    expect(css).toMatch(/\.react-activity-rail button\s*{[^}]*font-size:\s*10px;/s);
-    expect(css).toMatch(/\.react-workbench-layout\s*{[^}]*grid-template-columns:\s*58px minmax\(0,\s*1fr\);/s);
-    expect(css).toMatch(/\.react-activity-rail button span\s*{[^}]*display:\s*none;/s);
-    expect(css).toMatch(/\.react-activity-rail button::after\s*{[^}]*content:\s*attr\(data-label\);/s);
+    expect(css).toMatch(/\.react-workbench-layout\s*{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/s);
+    expect(css).toMatch(/\.react-chat-surface\s*{[^}]*grid-template-rows:\s*45px minmax\(0,\s*1fr\) auto;/s);
+    expect(css).toMatch(/\.react-top-menu__menu-item\[aria-current="page"\]\s*{[^}]*background:/s);
+    expect(css).not.toMatch(/\.react-activity-rail/);
     expect(css).toMatch(/\.react-session-list\s*{[^}]*transition:\s*width 260ms var\(--motion-ease-standard\);/s);
     expect(css).toMatch(/\.react-session-list\[data-collapsed="true"\]\s*{[^}]*width:\s*64px;/s);
     expect(css).toMatch(/\.react-session-list__new\s*{[^}]*font-size:\s*12px;/s);
@@ -184,7 +188,10 @@ describe("DesktopShell", () => {
 
     await user.click(screen.getByRole("button", { name: "Resources" }));
     const resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
-    expect(within(resourcesMenu).getByRole("menuitem", { name: "Chat" })).toBeTruthy();
+    for (const item of ["Chat", "Workspace Files", "Cowork", "GitHub", "Tools & Skills"]) {
+      expect(within(resourcesMenu).getByRole("menuitem", { name: item })).toBeTruthy();
+    }
+    expect(within(resourcesMenu).getByRole("menuitem", { name: "Chat" }).getAttribute("aria-current")).toBe("page");
 
     await user.click(screen.getByRole("button", { name: "System" }));
     const systemMenu = screen.getByRole("menu", { name: "System menu" });
@@ -230,8 +237,38 @@ describe("DesktopShell", () => {
     fireEvent.pointerDown(appMenu);
     expect(screen.getByRole("menu", { name: "Application menu" })).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: "Files" }));
+    fireEvent.pointerDown(screen.getByRole("banner", { name: "Tinybot desktop window frame" }));
     expect(screen.queryByRole("menu", { name: "Application menu" })).toBeNull();
+  });
+
+  it("navigates backward and forward through shell routes", async () => {
+    const user = userEvent.setup();
+    render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={createServices()} />);
+
+    const backButton = screen.getByRole("button", { name: "Go back" });
+    const forwardButton = screen.getByRole("button", { name: "Go forward" });
+    expect(backButton.hasAttribute("disabled")).toBe(true);
+    expect(forwardButton.hasAttribute("disabled")).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "Resources" }));
+    await user.click(within(screen.getByRole("menu", { name: "Resources menu" })).getByRole("menuitem", { name: "Workspace Files" }));
+    expect(await screen.findByRole("heading", { name: "Workspace Files" })).toBeTruthy();
+    expect(backButton.hasAttribute("disabled")).toBe(false);
+    expect(forwardButton.hasAttribute("disabled")).toBe(true);
+
+    await user.click(backButton);
+    expect(await screen.findByRole("heading", { name: "Tinybot" })).toBeTruthy();
+    expect(backButton.hasAttribute("disabled")).toBe(true);
+    expect(forwardButton.hasAttribute("disabled")).toBe(false);
+
+    await user.click(forwardButton);
+    expect(await screen.findByRole("heading", { name: "Workspace Files" })).toBeTruthy();
+
+    await user.click(backButton);
+    await user.click(screen.getByRole("button", { name: "System" }));
+    await user.click(within(screen.getByRole("menu", { name: "System menu" })).getByRole("menuitem", { name: "Settings (Ctrl+,)" }));
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeTruthy();
+    expect(forwardButton.hasAttribute("disabled")).toBe(true);
   });
 
   it("renders native-style top menus and functional secondary pages", async () => {
@@ -242,22 +279,45 @@ describe("DesktopShell", () => {
     for (const menu of ["App", "Resources", "System", "Help"]) {
       expect(screen.getByRole("button", { name: menu })).toBeTruthy();
     }
+    expect(screen.queryByRole("navigation", { name: "Primary" })).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: "Files" }));
+    await user.click(screen.getByRole("button", { name: "Resources" }));
+    let resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
+    await user.click(within(resourcesMenu).getByRole("menuitem", { name: "Workspace Files" }));
     expect(await screen.findByRole("heading", { name: "Workspace Files" })).toBeTruthy();
     expect(screen.getByText("src/main.ts")).toBeTruthy();
     expect(services.workspaceStore.listFiles).toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "Tools" }));
+    await user.click(screen.getByRole("button", { name: "Resources" }));
+    resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
+    expect(within(resourcesMenu).getByRole("menuitem", { name: "Workspace Files" }).getAttribute("aria-current")).toBe("page");
+    await user.click(within(resourcesMenu).getByRole("menuitem", { name: "Cowork" }));
+    expect(await screen.findByRole("heading", { name: "Cowork" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Resources" }));
+    resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
+    await user.click(within(resourcesMenu).getByRole("menuitem", { name: "GitHub" }));
+    expect(await screen.findByRole("heading", { name: "GitHub" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Resources" }));
+    resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
+    await user.click(within(resourcesMenu).getByRole("menuitem", { name: "Tools & Skills" }));
     expect(await screen.findByRole("heading", { name: "Tools & Skills" })).toBeTruthy();
     expect(screen.getByText("Read file")).toBeTruthy();
     expect(screen.getByText("review-code")).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: "System" }));
+    const systemMenu = screen.getByRole("menu", { name: "System menu" });
+    await user.click(within(systemMenu).getByRole("menuitem", { name: "Settings (Ctrl+,)" }));
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeTruthy();
     expect(screen.getByText("Default model")).toBeTruthy();
-
     expect(screen.queryByText(/placeholder/i)).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Help" }));
+    const helpMenu = screen.getByRole("menu", { name: "Help menu" });
+    await user.click(within(helpMenu).getByRole("menuitem", { name: "Documentation (F1)" }));
+    expect(await screen.findByRole("heading", { name: "Docs" })).toBeTruthy();
+
     expect(screen.queryByText(/Vue/i)).toBeNull();
   });
 
@@ -318,7 +378,9 @@ describe("DesktopShell", () => {
     services.settingsStore.fetchProviderModels = fetchProviderModels;
     render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={services} />);
 
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: "System" }));
+    await user.click(within(screen.getByRole("menu", { name: "System menu" }))
+      .getByRole("menuitem", { name: "Settings (Ctrl+,)" }));
 
     expect(await screen.findByRole("heading", { name: "Provider & Models" })).toBeTruthy();
     expect(screen.getByRole("navigation", { name: "Settings categories" })).toBeTruthy();
@@ -420,7 +482,9 @@ describe("DesktopShell", () => {
     services.settingsStore.saveProviderSettings = saveProviderSettings;
     render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={services} />);
 
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: "System" }));
+    await user.click(within(screen.getByRole("menu", { name: "System menu" }))
+      .getByRole("menuitem", { name: "Settings (Ctrl+,)" }));
     await user.click(await screen.findByRole("button", { name: "Add provider" }));
     const dialog = screen.getByRole("dialog", { name: "Add provider" });
     await user.type(within(dialog).getByLabelText("Provider ID"), "local-openai");
@@ -488,7 +552,9 @@ describe("DesktopShell", () => {
     services.settingsStore.saveAgentDefaultsSettings = saveAgentDefaultsSettings;
     render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={services} />);
 
-    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await user.click(screen.getByRole("button", { name: "System" }));
+    await user.click(within(screen.getByRole("menu", { name: "System menu" }))
+      .getByRole("menuitem", { name: "Settings (Ctrl+,)" }));
     await user.click(await screen.findByRole("button", { name: "Agent Defaults" }));
 
     expect(await screen.findByRole("heading", { name: "Agent Defaults" })).toBeTruthy();
