@@ -10,20 +10,11 @@ impl WorkerRpcRouter {
             "thread.create" => {
                 let params: CreateThreadRequest = parse_params(request)?;
                 let thread = operation.thread().create_thread(params)?;
-                if let Err(error) = operation.thread_log().create_from_thread_record(&thread) {
-                    if let Err(cleanup_error) =
-                        operation.thread().delete_thread(DeleteThreadRequest {
-                            thread_id: thread.thread_id.clone(),
-                            delete_children: false,
-                        })
-                    {
-                        eprintln!(
-                            "thread_create_cleanup_failed thread_id={} error={}",
-                            thread.thread_id, cleanup_error.message
-                        );
-                    }
-                    return Err(error);
-                }
+                persist_thread_operation(
+                    &operation,
+                    request,
+                    ThreadPersistenceOperation::Create { thread: &thread },
+                )?;
                 serde_json::to_value(thread).map_err(serialization_error)
             }
             "thread.read" => {
@@ -115,12 +106,11 @@ impl WorkerRpcRouter {
                     .thread()
                     .archive_target_records(&params.thread_id, params.archive_children)?;
                 let thread = operation.thread().archive_thread(params)?;
-                for target in targets {
-                    operation.thread_log().create_from_thread_record(&target)?;
-                    operation
-                        .thread_log()
-                        .set_thread_archived(&target.thread_id, archived)?;
-                }
+                persist_thread_operation(
+                    &operation,
+                    request,
+                    ThreadPersistenceOperation::Archive { targets, archived },
+                )?;
                 serde_json::to_value(thread).map_err(serialization_error)
             }
             "thread.unarchive" => {
@@ -130,25 +120,28 @@ impl WorkerRpcRouter {
                     .thread()
                     .archive_target_records(&params.thread_id, params.archive_children)?;
                 let thread = operation.thread().unarchive_thread(params)?;
-                for target in targets {
-                    operation.thread_log().create_from_thread_record(&target)?;
-                    operation
-                        .thread_log()
-                        .set_thread_archived(&target.thread_id, false)?;
-                }
+                persist_thread_operation(
+                    &operation,
+                    request,
+                    ThreadPersistenceOperation::Archive {
+                        targets,
+                        archived: false,
+                    },
+                )?;
                 serde_json::to_value(thread).map_err(serialization_error)
             }
             "thread.delete" => {
                 let params: DeleteThreadRequest = parse_params(request)?;
                 let thread_id = params.thread_id.clone();
                 let result = operation.thread().delete_thread(params)?;
-                for deleted_thread_id in result
-                    .deleted_children
-                    .iter()
-                    .chain(std::iter::once(&thread_id))
-                {
-                    operation.thread_log().delete_thread(deleted_thread_id)?;
-                }
+                persist_thread_operation(
+                    &operation,
+                    request,
+                    ThreadPersistenceOperation::Delete {
+                        thread_id: &thread_id,
+                        deleted_children: &result.deleted_children,
+                    },
+                )?;
                 serde_json::to_value(result).map_err(serialization_error)
             }
             "thread.fork" => {
@@ -158,37 +151,17 @@ impl WorkerRpcRouter {
                 let include_children = params.include_children;
                 let include_checkpoints = params.include_checkpoints;
                 let fork = operation.thread().fork_thread(params)?;
-                let targets = operation
-                    .thread()
-                    .archive_target_records(&fork.thread_id, include_children)?;
-                for target in targets {
-                    let forked_from_thread_id = target
-                        .metadata
-                        .extra
-                        .get("forkedFromThreadId")
-                        .and_then(Value::as_str)
-                        .or_else(|| {
-                            (target.thread_id == fork.thread_id)
-                                .then_some(source_thread_id.as_str())
-                        })
-                        .ok_or_else(|| {
-                            WorkerProtocolError::new(
-                                WorkerProtocolErrorCode::InvalidProtocol,
-                                "forked thread metadata is missing source Rollout identity",
-                                serde_json::json!({ "threadId": target.thread_id }),
-                                false,
-                                WorkerProtocolErrorSource::RustCore,
-                            )
-                        })?;
-                    operation.thread_log().fork_from_rollout(
-                        forked_from_thread_id,
-                        &target,
-                        (target.thread_id == fork.thread_id)
-                            .then_some(fork_after_sequence)
-                            .flatten(),
+                persist_thread_operation(
+                    &operation,
+                    request,
+                    ThreadPersistenceOperation::Fork {
+                        source_thread_id: &source_thread_id,
+                        fork_thread_id: &fork.thread_id,
+                        fork_after_sequence,
+                        include_children,
                         include_checkpoints,
-                    )?;
-                }
+                    },
+                )?;
                 serde_json::to_value(fork).map_err(serialization_error)
             }
             "thread.rollback" => {
@@ -272,7 +245,11 @@ impl WorkerRpcRouter {
                     }
                 }
                 let result = operation.thread().start_turn(params)?;
-                persist_thread_runtime_result(&operation, &result)?;
+                persist_thread_operation(
+                    &operation,
+                    request,
+                    ThreadPersistenceOperation::RuntimeResult { result: &result },
+                )?;
                 serde_json::to_value(result).map_err(serialization_error)
             }
             "thread.apply_op" => {
@@ -294,13 +271,11 @@ impl WorkerRpcRouter {
                 };
                 let archive_state = matches!(&op, ThreadOp::Archive { .. });
                 let result = operation.thread().apply_op(params)?;
-                match op {
+                let persistence = match op {
                     ThreadOp::Archive { .. } | ThreadOp::Unarchive { .. } => {
-                        for target in archive_targets.unwrap_or_default() {
-                            operation.thread_log().create_from_thread_record(&target)?;
-                            operation
-                                .thread_log()
-                                .set_thread_archived(&target.thread_id, archive_state)?;
+                        ThreadPersistenceOperation::Archive {
+                            targets: archive_targets.unwrap_or_default(),
+                            archived: archive_state,
                         }
                     }
                     ThreadOp::Fork {
@@ -308,54 +283,36 @@ impl WorkerRpcRouter {
                         include_children,
                         include_checkpoints,
                         ..
-                    } => {
-                        let targets = operation.thread().archive_target_records(
-                            &result.snapshot.thread.thread_id,
-                            include_children,
-                        )?;
-                        for target in targets {
-                            let forked_from_thread_id = target
-                                .metadata
-                                .extra
-                                .get("forkedFromThreadId")
-                                .and_then(Value::as_str)
-                                .or_else(|| {
-                                    (target.thread_id == result.snapshot.thread.thread_id)
-                                        .then_some(source_thread_id.as_str())
-                                })
-                                .ok_or_else(|| {
-                                    WorkerProtocolError::new(
-                                        WorkerProtocolErrorCode::InvalidProtocol,
-                                        "forked thread metadata is missing source Rollout identity",
-                                        serde_json::json!({ "threadId": target.thread_id }),
-                                        false,
-                                        WorkerProtocolErrorSource::RustCore,
-                                    )
-                                })?;
-                            operation.thread_log().fork_from_rollout(
-                                forked_from_thread_id,
-                                &target,
-                                (target.thread_id == result.snapshot.thread.thread_id)
-                                    .then_some(fork_after_sequence)
-                                    .flatten(),
-                                include_checkpoints,
-                            )?;
-                        }
-                    }
-                    _ => persist_thread_runtime_result(&operation, &result)?,
-                }
+                    } => ThreadPersistenceOperation::Fork {
+                        source_thread_id: &source_thread_id,
+                        fork_thread_id: &result.snapshot.thread.thread_id,
+                        fork_after_sequence,
+                        include_children,
+                        include_checkpoints,
+                    },
+                    _ => ThreadPersistenceOperation::RuntimeResult { result: &result },
+                };
+                persist_thread_operation(&operation, request, persistence)?;
                 serde_json::to_value(result).map_err(serialization_error)
             }
             "thread.continue_turn" => {
                 let params: ContinueThreadTurnRequest = parse_params(request)?;
                 let result = operation.thread().continue_turn(params)?;
-                persist_thread_runtime_result(&operation, &result)?;
+                persist_thread_operation(
+                    &operation,
+                    request,
+                    ThreadPersistenceOperation::RuntimeResult { result: &result },
+                )?;
                 serde_json::to_value(result).map_err(serialization_error)
             }
             "thread.interrupt" => {
                 let params: InterruptThreadRequest = parse_params(request)?;
                 let result = operation.thread().interrupt(params)?;
-                persist_thread_runtime_result(&operation, &result)?;
+                persist_thread_operation(
+                    &operation,
+                    request,
+                    ThreadPersistenceOperation::RuntimeResult { result: &result },
+                )?;
                 serde_json::to_value(result).map_err(serialization_error)
             }
             "thread.append_turn_context" => {
@@ -416,10 +373,137 @@ impl WorkerRpcRouter {
             }
             _ => Err(unknown_method_error(request)),
         })();
-        if result.is_err() {
-            operation.reload_projection()?;
+        if let Err(error) = &result {
+            if let Err(reload_error) = operation.reload_projection() {
+                eprintln!(
+                    "thread_projection_reload_failed method={} request_id={} trace_id={} operation_error={} reload_error={}",
+                    request.method,
+                    request.id,
+                    request.trace_id,
+                    error.message,
+                    reload_error.message
+                );
+                return Err(reload_error);
+            }
         }
         result
+    }
+}
+
+enum ThreadPersistenceOperation<'a> {
+    Create {
+        thread: &'a crate::threads::domain::ThreadRecord,
+    },
+    Archive {
+        targets: Vec<crate::threads::domain::ThreadRecord>,
+        archived: bool,
+    },
+    Delete {
+        thread_id: &'a str,
+        deleted_children: &'a [String],
+    },
+    Fork {
+        source_thread_id: &'a str,
+        fork_thread_id: &'a str,
+        fork_after_sequence: Option<u64>,
+        include_children: bool,
+        include_checkpoints: bool,
+    },
+    RuntimeResult {
+        result: &'a crate::threads::domain::ThreadTurnRuntimeResult,
+    },
+}
+
+fn persist_thread_operation(
+    operation: &crate::threads::workspace_store::WorkspaceThreadOperation<'_>,
+    request: &WorkerRequest,
+    persistence: ThreadPersistenceOperation<'_>,
+) -> Result<(), WorkerProtocolError> {
+    match persistence {
+        ThreadPersistenceOperation::Create { thread } => {
+            if let Err(error) = operation.thread_log().create_from_thread_record(thread) {
+                if let Err(cleanup_error) = operation.thread().delete_thread(DeleteThreadRequest {
+                    thread_id: thread.thread_id.clone(),
+                    delete_children: false,
+                }) {
+                    eprintln!(
+                        "thread_create_cleanup_failed request_id={} trace_id={} thread_id={} persistence_error={} cleanup_error={}",
+                        request.id,
+                        request.trace_id,
+                        thread.thread_id,
+                        error.message,
+                        cleanup_error.message
+                    );
+                }
+                return Err(error);
+            }
+            operation.sync_thread_projection(&thread.thread_id)
+        }
+        ThreadPersistenceOperation::Archive { targets, archived } => {
+            for target in targets {
+                operation.thread_log().create_from_thread_record(&target)?;
+                operation
+                    .thread_log()
+                    .set_thread_archived(&target.thread_id, archived)?;
+                operation.sync_thread_projection(&target.thread_id)?;
+            }
+            Ok(())
+        }
+        ThreadPersistenceOperation::Delete {
+            thread_id,
+            deleted_children,
+        } => {
+            for deleted_thread_id in deleted_children
+                .iter()
+                .map(String::as_str)
+                .chain(std::iter::once(thread_id))
+            {
+                operation.thread_log().delete_thread(deleted_thread_id)?;
+            }
+            Ok(())
+        }
+        ThreadPersistenceOperation::Fork {
+            source_thread_id,
+            fork_thread_id,
+            fork_after_sequence,
+            include_children,
+            include_checkpoints,
+        } => {
+            let targets = operation
+                .thread()
+                .archive_target_records(fork_thread_id, include_children)?;
+            for target in targets {
+                let forked_from_thread_id = target
+                    .metadata
+                    .extra
+                    .get("forkedFromThreadId")
+                    .and_then(Value::as_str)
+                    .or_else(|| (target.thread_id == fork_thread_id).then_some(source_thread_id))
+                    .ok_or_else(|| {
+                        WorkerProtocolError::new(
+                            WorkerProtocolErrorCode::InvalidProtocol,
+                            "forked thread metadata is missing source Rollout identity",
+                            serde_json::json!({ "threadId": target.thread_id }),
+                            false,
+                            WorkerProtocolErrorSource::RustCore,
+                        )
+                    })?;
+                operation.thread_log().fork_from_rollout(
+                    forked_from_thread_id,
+                    &target,
+                    (target.thread_id == fork_thread_id)
+                        .then_some(fork_after_sequence)
+                        .flatten(),
+                    include_checkpoints,
+                )?;
+                operation.sync_thread_projection(&target.thread_id)?;
+            }
+            Ok(())
+        }
+        ThreadPersistenceOperation::RuntimeResult { result } => {
+            persist_thread_runtime_result(operation, result)?;
+            operation.sync_thread_projection(&result.snapshot.thread.thread_id)
+        }
     }
 }
 
