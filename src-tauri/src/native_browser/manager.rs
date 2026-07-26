@@ -1223,129 +1223,29 @@ impl BrowserSessionManager {
         let platform_action = {
             let mut state = self.lock_state();
             ensure_accepting(&state)?;
-            let validation = (|| -> Result<BrowserPlatformAction, (&'static str, String)> {
-                let session = ready_session(&state, &input.browser_session_id)
-                    .map_err(|error| ("browser.command.rejected.session", error))?;
-                if session.control.control_epoch != input.control_epoch {
-                    return Err((
-                        "browser.command.rejected.stale_epoch",
-                        format!(
-                            "Browser control epoch {} is stale; current epoch is {}",
-                            input.control_epoch, session.control.control_epoch
-                        ),
-                    ));
-                }
-                let tab = require_tab(session, &input.tab_id)
-                    .map_err(|error| ("browser.command.rejected.tab", error))?;
-                if input.action.requires_observation() {
-                    let expected_revision = input.observation_revision.ok_or_else(|| {
-                        (
-                            "browser.command.rejected.missing_observation",
-                            "Browser interaction requires an observation revision".to_string(),
-                        )
+            let validation = (|| -> Result<BrowserPlatformAction, BrowserInteractionRejection> {
+                let session =
+                    ready_session(&state, &input.browser_session_id).map_err(|reason| {
+                        BrowserInteractionRejection {
+                            metric: Some("browser.command.rejected.session"),
+                            reason,
+                        }
                     })?;
-                    if expected_revision != tab.observation_revision {
-                        return Err(("browser.command.rejected.stale_observation", format!(
-                            "Browser observation revision {expected_revision} is stale; current revision is {}",
-                            tab.observation_revision
-                        )));
+                let tab = require_tab(session, &input.tab_id).map_err(|reason| {
+                    BrowserInteractionRejection {
+                        metric: Some("browser.command.rejected.tab"),
+                        reason,
                     }
-                    if let Some(capture_id) = &input.capture_id {
-                        let current = tab.captures.back().map(|capture| &capture.capture_id);
-                        if current != Some(capture_id) {
-                            return Err((
-                                "browser.command.rejected.stale_capture",
-                                "Browser interaction capture is stale".to_string(),
-                            ));
-                        }
-                    }
-                }
-                match &input.action {
-                    BrowserAction::Click { x, y } => {
-                        if !x.is_finite() || !y.is_finite() || *x < 0.0 || *y < 0.0 {
-                            return Err((
-                                "browser.command.rejected.coordinates",
-                                "Browser click coordinates must be finite and non-negative"
-                                    .to_string(),
-                            ));
-                        }
-                        let capture_id = input.capture_id.as_ref().ok_or_else(|| {
-                            (
-                                "browser.command.rejected.missing_capture",
-                                "Coordinate interaction requires the current capture identity"
-                                    .to_string(),
-                            )
-                        })?;
-                        let capture = tab
-                            .captures
-                            .back()
-                            .filter(|capture| &capture.capture_id == capture_id)
-                            .ok_or_else(|| {
-                                (
-                                    "browser.command.rejected.stale_capture",
-                                    "Browser interaction capture is stale".to_string(),
-                                )
-                            })?;
-                        if *x > f64::from(capture.viewport_width)
-                            || *y > f64::from(capture.viewport_height)
-                        {
-                            return Err((
-                                "browser.command.rejected.coordinates",
-                                format!(
-                                    "Browser click ({x}, {y}) exceeds current viewport {}x{} at scale {}",
-                                    capture.viewport_width,
-                                    capture.viewport_height,
-                                    capture.device_scale
-                                ),
-                            ));
-                        }
-                        Ok(BrowserPlatformAction::Browser(input.action.clone()))
-                    }
-                    BrowserAction::ClickTarget { target_ref } => {
-                        let target = tab.semantic_targets.get(target_ref).ok_or_else(|| {
-                            (
-                                "browser.command.rejected.stale_target",
-                                "Browser semantic target is stale or unavailable".to_string(),
-                            )
-                        })?;
-                        if let Some(reason_code) = &target.protected_reason {
-                            Ok(BrowserPlatformAction::UserRequired {
-                                reason_code: reason_code.clone(),
-                                reason: protected_operation_reason(reason_code),
-                            })
-                        } else {
-                            Ok(BrowserPlatformAction::ClickSelector {
-                                selector: target.selector.clone(),
-                            })
-                        }
-                    }
-                    BrowserAction::Fill { target_ref, text } => {
-                        let target = tab.semantic_targets.get(target_ref).ok_or_else(|| {
-                            (
-                                "browser.command.rejected.stale_target",
-                                "Browser semantic target is stale or unavailable".to_string(),
-                            )
-                        })?;
-                        if let Some(reason_code) = &target.protected_reason {
-                            Ok(BrowserPlatformAction::UserRequired {
-                                reason_code: reason_code.clone(),
-                                reason: protected_operation_reason(reason_code),
-                            })
-                        } else {
-                            Ok(BrowserPlatformAction::FillSelector {
-                                selector: target.selector.clone(),
-                                text: text.clone(),
-                            })
-                        }
-                    }
-                    action => Ok(BrowserPlatformAction::Browser(action.clone())),
-                }
+                })?;
+                plan_browser_interaction(session, tab, &input)
             })();
             let platform_action = match validation {
                 Ok(action) => action,
-                Err((metric, error)) => {
-                    increment_counter(&mut state, metric);
-                    return Err(error);
+                Err(rejection) => {
+                    if let Some(metric) = rejection.metric {
+                        increment_counter(&mut state, metric);
+                    }
+                    return Err(rejection.reason);
                 }
             };
             let session = ready_session_mut(&mut state, &input.browser_session_id)?;
@@ -1372,11 +1272,10 @@ impl BrowserSessionManager {
                 self.diagnostic_command_result(&input, &result, started.elapsed());
                 return Ok(result);
             }
-            match &input.action {
-                BrowserAction::UserHandoff { reason } => {
+            match &platform_action {
+                BrowserPlatformAction::Browser(BrowserAction::UserHandoff { reason }) => {
                     session.control.state = BrowserControlState::UserRequired;
-                    session.control.reason =
-                        Some(required_text(reason.clone(), "Browser handoff reason")?);
+                    session.control.reason = Some(reason.clone());
                     session.control.active_command_id = None;
                     bump_revision(&mut state);
                     drop(state);
@@ -1390,7 +1289,7 @@ impl BrowserSessionManager {
                     self.diagnostic_command_result(&input, &result, started.elapsed());
                     return Ok(result);
                 }
-                BrowserAction::Resume => {
+                BrowserPlatformAction::Browser(BrowserAction::Resume) => {
                     session.control.state = BrowserControlState::Idle;
                     session.control.reason = None;
                     session.control.control_epoch = session.control.control_epoch.saturating_add(1);
@@ -2462,6 +2361,141 @@ fn complete_tab_creation(tab: &mut BrowserTabRecord) -> Result<(), String> {
         }
     };
     Ok(())
+}
+
+struct BrowserInteractionRejection {
+    metric: Option<&'static str>,
+    reason: String,
+}
+
+fn plan_browser_interaction(
+    session: &BrowserSessionRecord,
+    tab: &BrowserTabRecord,
+    input: &BrowserInteractionInput,
+) -> Result<BrowserPlatformAction, BrowserInteractionRejection> {
+    if session.control.control_epoch != input.control_epoch {
+        return Err(BrowserInteractionRejection {
+            metric: Some("browser.command.rejected.stale_epoch"),
+            reason: format!(
+                "Browser control epoch {} is stale; current epoch is {}",
+                input.control_epoch, session.control.control_epoch
+            ),
+        });
+    }
+    if input.action.requires_observation() {
+        let expected_revision =
+            input
+                .observation_revision
+                .ok_or_else(|| BrowserInteractionRejection {
+                    metric: Some("browser.command.rejected.missing_observation"),
+                    reason: "Browser interaction requires an observation revision".to_string(),
+                })?;
+        if expected_revision != tab.observation_revision {
+            return Err(BrowserInteractionRejection {
+                metric: Some("browser.command.rejected.stale_observation"),
+                reason: format!(
+                    "Browser observation revision {expected_revision} is stale; current revision is {}",
+                    tab.observation_revision
+                ),
+            });
+        }
+        if let Some(capture_id) = &input.capture_id {
+            let current = tab.captures.back().map(|capture| &capture.capture_id);
+            if current != Some(capture_id) {
+                return Err(BrowserInteractionRejection {
+                    metric: Some("browser.command.rejected.stale_capture"),
+                    reason: "Browser interaction capture is stale".to_string(),
+                });
+            }
+        }
+    }
+    match &input.action {
+        BrowserAction::Click { x, y } => {
+            if !x.is_finite() || !y.is_finite() || *x < 0.0 || *y < 0.0 {
+                return Err(BrowserInteractionRejection {
+                    metric: Some("browser.command.rejected.coordinates"),
+                    reason: "Browser click coordinates must be finite and non-negative".to_string(),
+                });
+            }
+            let capture_id =
+                input
+                    .capture_id
+                    .as_ref()
+                    .ok_or_else(|| BrowserInteractionRejection {
+                        metric: Some("browser.command.rejected.missing_capture"),
+                        reason: "Coordinate interaction requires the current capture identity"
+                            .to_string(),
+                    })?;
+            let capture = tab
+                .captures
+                .back()
+                .filter(|capture| &capture.capture_id == capture_id)
+                .ok_or_else(|| BrowserInteractionRejection {
+                    metric: Some("browser.command.rejected.stale_capture"),
+                    reason: "Browser interaction capture is stale".to_string(),
+                })?;
+            if *x > f64::from(capture.viewport_width) || *y > f64::from(capture.viewport_height) {
+                return Err(BrowserInteractionRejection {
+                    metric: Some("browser.command.rejected.coordinates"),
+                    reason: format!(
+                        "Browser click ({x}, {y}) exceeds current viewport {}x{} at scale {}",
+                        capture.viewport_width, capture.viewport_height, capture.device_scale
+                    ),
+                });
+            }
+            Ok(BrowserPlatformAction::Browser(input.action.clone()))
+        }
+        BrowserAction::ClickTarget { target_ref } => {
+            let target = tab.semantic_targets.get(target_ref).ok_or_else(|| {
+                BrowserInteractionRejection {
+                    metric: Some("browser.command.rejected.stale_target"),
+                    reason: "Browser semantic target is stale or unavailable".to_string(),
+                }
+            })?;
+            if let Some(reason_code) = &target.protected_reason {
+                Ok(BrowserPlatformAction::UserRequired {
+                    reason_code: reason_code.clone(),
+                    reason: protected_operation_reason(reason_code),
+                })
+            } else {
+                Ok(BrowserPlatformAction::ClickSelector {
+                    selector: target.selector.clone(),
+                })
+            }
+        }
+        BrowserAction::Fill { target_ref, text } => {
+            let target = tab.semantic_targets.get(target_ref).ok_or_else(|| {
+                BrowserInteractionRejection {
+                    metric: Some("browser.command.rejected.stale_target"),
+                    reason: "Browser semantic target is stale or unavailable".to_string(),
+                }
+            })?;
+            if let Some(reason_code) = &target.protected_reason {
+                Ok(BrowserPlatformAction::UserRequired {
+                    reason_code: reason_code.clone(),
+                    reason: protected_operation_reason(reason_code),
+                })
+            } else {
+                Ok(BrowserPlatformAction::FillSelector {
+                    selector: target.selector.clone(),
+                    text: text.clone(),
+                })
+            }
+        }
+        BrowserAction::UserHandoff { reason } => {
+            let reason =
+                required_text(reason.clone(), "Browser handoff reason").map_err(|reason| {
+                    BrowserInteractionRejection {
+                        metric: None,
+                        reason,
+                    }
+                })?;
+            Ok(BrowserPlatformAction::Browser(BrowserAction::UserHandoff {
+                reason,
+            }))
+        }
+        action => Ok(BrowserPlatformAction::Browser(action.clone())),
+    }
 }
 
 fn ready_session<'a>(
