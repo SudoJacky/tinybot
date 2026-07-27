@@ -84,7 +84,7 @@ export type NativeThreadsApi = {
   archive(body: { threadId: string; archived?: boolean }): Promise<NativeThreadRecord>;
   unarchive(body: { threadId: string }): Promise<NativeThreadRecord>;
   delete(body: { threadId: string; deleteChildren?: boolean }): Promise<unknown>;
-  fork(body: Record<string, unknown>): Promise<unknown>;
+  fork(body: Record<string, unknown>): Promise<NativeThreadRecord>;
   events(body: Record<string, unknown>): Promise<unknown>;
   restoreCheckpoint(body: Record<string, unknown>): Promise<unknown>;
   listTurns(threadId: string): Promise<unknown>;
@@ -114,7 +114,7 @@ export function createDesktopNativeThreadsApi(options: { invoke?: TauriInvoke } 
     archive: (body) => thread<NativeThreadRecord>("worker_thread_archive", body),
     unarchive: (body) => thread<NativeThreadRecord>("worker_thread_unarchive", body),
     delete: (body) => thread("worker_thread_delete", body),
-    fork: (body) => thread("worker_thread_fork", body),
+    fork: (body) => thread<NativeThreadRecord>("worker_thread_fork", body),
     events: (body) => thread("worker_thread_events", body),
     restoreCheckpoint: (body) => thread("worker_thread_restore_checkpoint", body),
     listTurns: (threadId) => thread("thread_list_turns", { threadId }),

@@ -1,28 +1,25 @@
-import {
-  canonicalSessionKey,
-  createNativeChatState,
-  activateSession,
-  normalizeSessionsPayload,
-  setSessions,
-  type NativeChatReference,
-  type NativeChatState,
-} from "./nativeChat";
+import type { AgentInputReference } from "./agentInputReference";
 import {
   createAgentTimelineModel,
   TimelineRevisionGapError,
   type ChatTimelineSnapshot,
 } from "./agentTimelineModel";
 import { logDesktopNativeDebug, summarizeDebugText } from "../native/desktopNativeChatDebug";
-import type { NativeThreadTurnInput, NativeThreadTurnResult } from "../native/desktopNativeThreads";
+import type {
+  NativeThreadListResult,
+  NativeThreadRecord,
+  NativeThreadTurnInput,
+  NativeThreadTurnResult,
+} from "../native/desktopNativeThreads";
 
 export interface DesktopChatSessionControllerApi {
-  listSessions(): Promise<unknown>;
-  listTurns?: (sessionKey: string) => Promise<unknown>;
-  getAgentTurnRuntimeState?: (sessionKey: string, turnId: string) => Promise<unknown>;
+  listThreads(): Promise<NativeThreadListResult>;
+  listTurns?: (threadId: string) => Promise<unknown>;
+  getAgentTurnRuntimeState?: (threadId: string, turnId: string) => Promise<unknown>;
   getDelegateTrace?: (filter: { sessionKey: string; delegateId?: string; traceRef?: string }) => Promise<unknown>;
   getArtifact?: (filter: { sessionKey: string; delegateId?: string; traceRef?: string; artifactId: string }) => Promise<unknown>;
-  deleteSession?: (sessionKey: string) => Promise<unknown>;
-  patchSession?: (sessionKey: string, body: unknown) => Promise<unknown>;
+  deleteThread?: (threadId: string) => Promise<unknown>;
+  patchThread?: (threadId: string, body: unknown) => Promise<unknown>;
   submitThreadTurn(input: NativeThreadTurnInput): Promise<NativeThreadTurnResult>;
 }
 
@@ -51,14 +48,21 @@ export type ChatDeleteSessionResult =
 
 export type ChatSubmitOptions = {
   model?: string;
-  references?: NativeChatReference[];
+  references?: AgentInputReference[];
   clientEventId?: string;
 };
 
+export type DesktopThreadSessionState = {
+  threads: NativeThreadRecord[];
+  activeThreadId: string;
+  respondingThreadIds: Set<string>;
+  error: string;
+};
+
 export interface DesktopChatSessionController {
-  readonly state: NativeChatState;
+  readonly state: DesktopThreadSessionState;
   loadSessions(): Promise<number>;
-  selectSession(sessionKey: string, chatId: string): Promise<void>;
+  selectSession(threadId: string): Promise<void>;
   deleteSession(sessionKey: string): Promise<ChatDeleteSessionResult>;
   patchSession(sessionKey: string, body: unknown): Promise<boolean>;
   submitMessage(content: string, options?: ChatSubmitOptions): Promise<ChatSubmitResult>;
@@ -74,7 +78,12 @@ export function createDesktopChatSessionController({
   createClientEventId = defaultClientEventId,
   createTurnId = defaultTurnId,
 }: DesktopChatSessionControllerOptions): DesktopChatSessionController {
-  const state = createNativeChatState();
+  const state: DesktopThreadSessionState = {
+    threads: [],
+    activeThreadId: "",
+    respondingThreadIds: new Set(),
+    error: "",
+  };
   const timelineModel = createAgentTimelineModel();
   const loadedTimelineSessions = new Set<string>();
   const loadingTimelineSessions = new Set<string>();
@@ -82,49 +91,45 @@ export function createDesktopChatSessionController({
 
   async function loadSessions(): Promise<number> {
     logDesktopNativeDebug("session.load.start", summarizeSessionState());
-    const sessions = normalizeSessionsPayload(await api.listSessions());
-    setSessions(state, sessions);
-    if (!state.activeSessionKey && sessions[0]) {
-      await selectSession(sessions[0].key, sessions[0].chatId);
+    const { threads } = await api.listThreads();
+    state.threads = threads;
+    if (!state.activeThreadId && threads[0]) {
+      await selectSession(threads[0].threadId);
     }
     logDesktopNativeDebug("session.load.complete", {
       ...summarizeSessionState(),
-      loadedCount: sessions.length,
+      loadedCount: threads.length,
     });
-    return sessions.length;
+    return threads.length;
   }
 
-  async function selectSession(sessionKey: string, chatId: string): Promise<void> {
-    sessionKey = canonicalSessionKey(sessionKey, chatId) || sessionKey;
+  async function selectSession(threadId: string): Promise<void> {
     logDesktopNativeDebug("session.select.start", {
       ...summarizeSessionState(),
-      chatId,
-      sessionKey,
+      threadId,
     });
-    activateSession(state, sessionKey, chatId);
+    state.activeThreadId = threadId;
     try {
-      await loadTimeline(sessionKey);
+      await loadTimeline(threadId);
       state.error = "";
     } catch (error) {
       state.error = error instanceof Error ? error.message : String(error);
       logDesktopNativeDebug("session.select.messages.failed", {
         ...summarizeSessionState(),
         error: state.error,
-        sessionKey,
+        threadId,
       });
       throw error;
     }
     logDesktopNativeDebug("session.select.complete", {
       ...summarizeSessionState(),
-      chatId,
-      sessionKey,
+      threadId,
     });
   }
 
   async function deleteSession(sessionKey: string): Promise<ChatDeleteSessionResult> {
     const deletedSessionKey = sessionKey;
-    sessionKey = canonicalSessionKey(sessionKey) || sessionKey;
-    const target = state.sessions.find((session) => session.key === sessionKey);
+    const target = state.threads.find((thread) => thread.threadId === sessionKey);
     logDesktopNativeDebug("session.delete.start", {
       ...summarizeSessionState(),
       found: Boolean(target),
@@ -134,44 +139,35 @@ export function createDesktopChatSessionController({
       logDesktopNativeDebug("session.delete.missing", { sessionKey });
       return { status: "missing", deletedSessionKey, nextSessionKey: "" };
     }
-    if (!api.deleteSession) {
+    if (!api.deleteThread) {
       logDesktopNativeDebug("session.delete.unavailable", { sessionKey });
       return { status: "unavailable", deletedSessionKey, nextSessionKey: "" };
     }
 
-    await deleteNativeSession(target);
-    state.respondingSessionKeys.delete(sessionKey);
+    await api.deleteThread(target.threadId);
+    logDesktopNativeDebug("session.delete.native", { threadId: target.threadId });
+    state.respondingThreadIds.delete(sessionKey);
 
-    const sessions = normalizeSessionsPayload(await api.listSessions());
-    setSessions(state, sessions);
-    if (state.activeSessionKey === sessionKey) {
-      const next = sessions[0];
+    const { threads } = await api.listThreads();
+    state.threads = threads;
+    if (state.activeThreadId === sessionKey) {
+      const next = threads[0];
       if (next) {
-        await selectSession(next.key, next.chatId);
+        await selectSession(next.threadId);
       } else {
-        state.activeSessionKey = "";
-        state.activeChatId = "";
+        state.activeThreadId = "";
       }
     }
     logDesktopNativeDebug("session.delete.complete", {
       ...summarizeSessionState(),
       deletedSessionKey,
-      nextSessionKey: state.activeSessionKey,
+      nextSessionKey: state.activeThreadId,
     });
     return {
       status: "deleted",
       deletedSessionKey,
-      nextSessionKey: state.activeSessionKey,
+      nextSessionKey: state.activeThreadId,
     };
-  }
-
-  async function deleteNativeSession(target: NativeChatState["sessions"][number]): Promise<void> {
-    if (!api.deleteSession) {
-      return;
-    }
-    const threadId = target.threadId || target.key;
-    await api.deleteSession(threadId);
-    logDesktopNativeDebug("session.delete.native", { threadId });
   }
 
   async function loadTimeline(sessionKey: string): Promise<ChatTimelineSnapshot> {
@@ -245,7 +241,7 @@ export function createDesktopChatSessionController({
     }
   }
 
-  function syncRespondingState(sessionKey: string, snapshot: ChatTimelineSnapshot): void {
+  function syncRespondingState(threadId: string, snapshot: ChatTimelineSnapshot): void {
     const responding = snapshot.turns.some((turn) => (
       turn.status === "pending"
       || turn.status === "running"
@@ -253,30 +249,28 @@ export function createDesktopChatSessionController({
       || turn.status === "awaiting_user"
     ));
     if (responding) {
-      state.respondingSessionKeys.add(sessionKey);
+      state.respondingThreadIds.add(threadId);
     } else {
-      state.respondingSessionKeys.delete(sessionKey);
+      state.respondingThreadIds.delete(threadId);
     }
   }
 
   async function patchSession(sessionKey: string, body: unknown): Promise<boolean> {
-    sessionKey = canonicalSessionKey(sessionKey) || sessionKey;
-    const target = state.sessions.find((session) => session.key === sessionKey);
+    const target = state.threads.find((thread) => thread.threadId === sessionKey);
     logDesktopNativeDebug("session.patch.start", {
       ...summarizeSessionState(),
       found: Boolean(target),
       sessionKey,
     });
-    if (!target || !api.patchSession) {
+    if (!target || !api.patchThread) {
       logDesktopNativeDebug("session.patch.unavailable", {
-        hasPatchSession: Boolean(api.patchSession),
+        hasPatchSession: Boolean(api.patchThread),
         sessionKey,
       });
       return false;
     }
-    await api.patchSession(target.threadId || target.key, body);
-    const sessions = normalizeSessionsPayload(await api.listSessions());
-    setSessions(state, sessions);
+    await api.patchThread(target.threadId, body);
+    state.threads = (await api.listThreads()).threads;
     logDesktopNativeDebug("session.patch.complete", {
       ...summarizeSessionState(),
       sessionKey,
@@ -289,14 +283,13 @@ export function createDesktopChatSessionController({
       logDesktopNativeDebug("session.message.empty", summarizeSessionState());
       return { status: "empty" };
     }
-    if (!state.activeSessionKey) {
+    if (!state.activeThreadId) {
       throw new Error("Cannot submit a turn without an active Thread");
     }
     const clientEventId = options.clientEventId || createClientEventId();
     const { model, references } = options;
     const turnId = createTurnId();
-    const activeSession = state.sessions.find((session) => session.key === state.activeSessionKey);
-    const threadId = activeSession?.threadId || state.activeSessionKey;
+    const threadId = state.activeThreadId;
     const request: NativeThreadTurnInput = {
       threadId,
       input: {
@@ -307,7 +300,7 @@ export function createDesktopChatSessionController({
       },
       spec: {
         turnId,
-        sessionId: state.activeSessionKey,
+        sessionId: threadId,
         stream: true,
         ...(model ? { model } : {}),
         metadata: {
@@ -316,7 +309,7 @@ export function createDesktopChatSessionController({
         },
       },
     };
-    const sessionId = state.activeSessionKey;
+    const sessionId = threadId;
     const completion = api.submitThreadTurn(request)
       .then(async (result) => {
         if (result.sessionId !== sessionId || result.turnId !== turnId) {
@@ -372,7 +365,6 @@ export function createDesktopChatSessionController({
   }
 
   async function reloadTimeline(sessionKey: string): Promise<ChatTimelineSnapshot> {
-    sessionKey = canonicalSessionKey(sessionKey) || sessionKey;
     loadedTimelineSessions.delete(sessionKey);
     return loadTimeline(sessionKey);
   }
@@ -433,9 +425,8 @@ export function createDesktopChatSessionController({
 
   function summarizeSessionState(): Record<string, unknown> {
     return {
-      activeChatId: state.activeChatId,
-      activeSessionKey: state.activeSessionKey,
-      sessionCount: state.sessions.length,
+      activeThreadId: state.activeThreadId,
+      threadCount: state.threads.length,
     };
   }
 }

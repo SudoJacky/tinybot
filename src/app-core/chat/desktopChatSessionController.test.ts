@@ -11,15 +11,16 @@ function createController(overrides: Record<string, unknown> = {}) {
     snapshot: {},
   }));
   const api = {
-    listSessions: vi.fn(async () => ({
+    listThreads: vi.fn(async () => ({
       threads: [{
         threadId: "thread-1",
         sessionKey: "thread-1",
         title: "Native thread",
-        status: "idle",
+        status: "idle" as const,
         createdAt: "2026-07-14T00:00:00.000Z",
         updatedAt: "2026-07-14T00:00:00.000Z",
       }],
+      total: 1,
     })),
     listTurns: vi.fn(async () => ({ turns: [] })),
     getAgentTurnRuntimeState: vi.fn(async () => null),
@@ -43,8 +44,30 @@ describe("desktop native chat session controller", () => {
 
     await expect(controller.loadSessions()).resolves.toBe(1);
 
-    expect(controller.state.activeSessionKey).toBe("thread-1");
-    expect(controller.state.activeChatId).toBe("thread-1");
+    expect(controller.state.activeThreadId).toBe("thread-1");
+    expect(controller.state.threads[0]?.threadId).toBe("thread-1");
+  });
+
+  test("preserves the exact canonical Thread ID without WebSocket alias rewriting", async () => {
+    const threadId = "WebSocket:thread-case-sensitive";
+    const { api, controller } = createController({
+      listThreads: vi.fn(async () => ({
+        threads: [{
+          threadId,
+          title: "Case-sensitive Thread",
+          status: "idle" as const,
+          createdAt: "2026-07-14T00:00:00.000Z",
+          updatedAt: "2026-07-14T00:00:00.000Z",
+        }],
+        total: 1,
+      })),
+    });
+
+    await controller.loadSessions();
+
+    expect(controller.state.activeThreadId).toBe(threadId);
+    expect(controller.state.threads[0]?.threadId).toBe(threadId);
+    expect(api.listTurns).toHaveBeenCalledWith(threadId);
   });
 
   test("submits a typed Thread turn and preserves optimistic references", async () => {

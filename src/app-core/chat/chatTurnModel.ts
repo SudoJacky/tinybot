@@ -1,4 +1,4 @@
-import type { NativeChatReference } from "./nativeChat";
+import type { AgentInputReference } from "./agentInputReference";
 
 export type ChatTurnStatus = "pending" | "running" | "awaiting_approval" | "awaiting_user" | "completed" | "failed" | "interrupted";
 export type ChatStepStatus = "pending" | "running" | "awaiting_approval" | "blocked" | "completed" | "failed" | "cancelled";
@@ -197,7 +197,7 @@ export type ScopedErrorState = {
 export type ChatMessage = {
   clientEventId?: string;
   id: string;
-  references?: NativeChatReference[];
+  references?: AgentInputReference[];
   role: "user" | "assistant";
   text: string;
   timestamp: string;
@@ -234,7 +234,7 @@ export type ChatStep = {
   modelCallId?: string;
   parentStepId?: string;
   plan?: PlanState;
-  references?: NativeChatReference[];
+  references?: AgentInputReference[];
   scopedErrors?: ScopedErrorState[];
   sequence: number;
   startedAt?: string;
@@ -1254,7 +1254,7 @@ function normalizeContextWindowUsedTokens(
   return totalTokens ?? promptTokens;
 }
 
-function normalizeReferences(value: unknown): NativeChatReference[] | undefined {
+function normalizeReferences(value: unknown): AgentInputReference[] | undefined {
   if (!Array.isArray(value)) {
     return undefined;
   }

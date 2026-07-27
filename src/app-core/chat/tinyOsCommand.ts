@@ -1,5 +1,5 @@
 import type { ChatTurn } from "./chatTurnModel";
-import type { NativeChatReference } from "./nativeChat";
+import type { AgentInputReference } from "./agentInputReference";
 
 export const TINYOS_COMMAND_ACK_TIMEOUT_MS = 5_000;
 
@@ -134,7 +134,7 @@ export type TinyOsAgentRequestChangeCommand = {
   request: {
     instruction: string;
     observedTurnId?: string;
-    references: NativeChatReference[];
+    references: AgentInputReference[];
   };
 };
 
@@ -510,7 +510,7 @@ export function createTinyOsAgentRequestChangeCommand(input: {
   instruction: string;
   issuedAt?: string;
   observedTurnId?: string;
-  references: NativeChatReference[];
+  references: AgentInputReference[];
   requestTurnId?: string;
   sessionId: string;
   source: TinyOsCommandSource;

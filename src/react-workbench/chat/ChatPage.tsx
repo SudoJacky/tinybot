@@ -80,7 +80,7 @@ import {
 } from "../../app-core/chat/chatTurnModel";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
 import type { TinyOsNativeBrowserSession, TinyOsNativeSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
-import type { NativeChatReference } from "../../app-core/chat/nativeChat";
+import type { AgentInputReference } from "../../app-core/chat/agentInputReference";
 import type { TinyOsAgentRequestIntent, TinyOsAgentRequestReference, TinyOsContextReference } from "../../app-core/chat/tinyOsUiState";
 import { readTinyOsReferenceTransfer, tinyOsReferenceAcceptedBy, TINYOS_REFERENCE_MIME } from "../../app-core/chat/tinyOsReferenceTransfer";
 import { useTinyOsFilesController } from "./useTinyOsFilesController";
@@ -1380,7 +1380,7 @@ export function ChatPage({
     sessionId: string,
     result: Exclude<SubmitComposerTextResult, { kind: "send_message" }>,
     options: ComposerSendOptions,
-    references: NativeChatReference[],
+    references: AgentInputReference[],
   ) {
     if (result.kind === "queue_limit_reached") {
       setQueueMessage("Already have 5 queued messages. Wait for processing or delete one before sending more.");
@@ -2492,7 +2492,7 @@ function composerReferenceFromTinyOs(reference: TinyOsContextReference): Compose
   };
 }
 
-function nativeReferenceFromTinyOs(reference: TinyOsAgentRequestReference): NativeChatReference {
+function nativeReferenceFromTinyOs(reference: TinyOsAgentRequestReference): AgentInputReference {
   const canonical = reference.kind === "file"
     ? reference.provenance.kind === "canonical" ? reference.provenance : undefined
     : { sourceItemId: reference.sourceItemId, turnId: reference.turnId };
@@ -2974,7 +2974,7 @@ function CanonicalMessage({
   messageId: string;
   onBranch?: () => void;
   reasoning?: ChatStep[];
-  references?: NativeChatReference[];
+  references?: AgentInputReference[];
   role: "user" | "assistant";
   streaming?: boolean;
   text: string;
@@ -3348,7 +3348,7 @@ function canonicalFormValue(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function canonicalReferenceSummary(reference: NativeChatReference, index: number): ContextReferenceSummary {
+function canonicalReferenceSummary(reference: AgentInputReference, index: number): ContextReferenceSummary {
   return {
     id: reference.noteId || reference.evidenceId || `${reference.kind}:${index}`,
     kind: reference.kind,
