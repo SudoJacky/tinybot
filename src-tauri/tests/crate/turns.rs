@@ -37,17 +37,18 @@ fn worker_run_agent_uses_rust_runtime_when_selected() {
 
     assert_eq!(result["runtime"], "rust");
     assert_eq!(result["finalContent"], "rust fixture answer");
-    let events = result["events"]
+    let events = result["runtimeEvents"]
         .as_array()
         .expect("Rust runtime events should be an array");
-    assert_eq!(events[0]["eventName"], "agent.delta");
+    assert!(events
+        .iter()
+        .any(|event| event["eventName"] == "agent.delta"));
     assert!(events
         .iter()
         .any(|event| event["eventName"] == "agent.usage"));
-    assert_eq!(
-        events[events.len() - 2]["eventName"],
-        "agent.message.completed"
-    );
+    assert!(events
+        .iter()
+        .any(|event| event["eventName"] == "agent.message.completed"));
     assert_eq!(events.last().unwrap()["eventName"], "agent.done");
 }
 
@@ -140,7 +141,7 @@ fn worker_run_agent_preserves_runtime_tool_content_with_envelope_payload() {
         Duration::from_millis(10),
     )
     .expect("Rust runtime should return enriched tool result payloads");
-    let tool_result = result["events"]
+    let tool_result = result["runtimeEvents"]
         .as_array()
         .expect("events should be an array")
         .iter()
@@ -457,7 +458,7 @@ fn native_agent_turn_record_includes_structured_token_usage_info() {
         "turnId": "turn-token-info",
         "sessionId": "websocket:chat-token-info",
         "stopReason": "final_response",
-        "events": [{
+        "runtimeEvents": [{
             "eventName": "agent.usage",
             "payload": {
                 "usage": {
@@ -959,7 +960,8 @@ fn worker_run_agent_rejects_terminal_run_reentry_before_provider_call() {
     assert_eq!(first["stopReason"], "final_response");
     assert_eq!(second["stopReason"], "terminal_turn");
     assert_eq!(second["terminalTurn"]["status"], "completed");
-    assert_eq!(second["events"][0]["eventName"], "agent.error");
+    assert!(second.get("events").is_none());
+    assert!(second.get("runtimeEvents").is_none());
     assert_eq!(
         calls
             .lock()

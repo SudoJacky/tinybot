@@ -1057,7 +1057,6 @@ impl<'a> NativeAgentTurnExecution<'a> {
             "stopReason": "final_response",
         })))?;
         let runtime_events = self.state.runtime_events();
-        let events = self.state.legacy_events();
         let final_message = serde_json::json!({
             "role": "assistant",
             "content": final_content
@@ -1074,7 +1073,6 @@ impl<'a> NativeAgentTurnExecution<'a> {
             "messages": [final_message.clone()],
             "toolsUsed": self.state.tools_used,
             "completedToolResults": self.state.completed_tool_results,
-            "events": events,
             "runtimeEvents": runtime_events,
         });
         if let Some(context_checkpoint) = context_checkpoint {
@@ -1107,7 +1105,6 @@ impl<'a> NativeAgentTurnExecution<'a> {
             .checkpoints
             .clear_for_turn(&self.context.session_id, &self.context.turn_id);
         let runtime_events = self.state.runtime_events();
-        let events = self.state.legacy_events();
         let context_checkpoint = self.state.finalized_context_checkpoint(None);
         let mut result = serde_json::json!({
             "runtime": "rust",
@@ -1119,7 +1116,6 @@ impl<'a> NativeAgentTurnExecution<'a> {
             "toolsUsed": self.state.tools_used,
             "completedToolResults": self.state.completed_tool_results,
             "error": error,
-            "events": events,
             "runtimeEvents": runtime_events,
         });
         if let Some(context_checkpoint) = context_checkpoint {
@@ -1247,7 +1243,6 @@ fn agent_failure_result(
         .checkpoints
         .clear_for_turn(&context.session_id, &context.turn_id);
     let runtime_events = state.runtime_events();
-    let events = state.legacy_events();
     let mut result = serde_json::json!({
         "runtime": "rust",
         "turnId": context.turn_id,
@@ -1258,7 +1253,6 @@ fn agent_failure_result(
         "toolsUsed": std::mem::take(&mut state.tools_used),
         "completedToolResults": std::mem::take(&mut state.completed_tool_results),
         "error": message,
-        "events": events,
         "runtimeEvents": runtime_events,
     });
     state.attach_context_checkpoint(&mut result, None);
@@ -1313,7 +1307,6 @@ fn hook_denied_result(
         .checkpoints
         .clear_for_turn(&context.session_id, &context.turn_id);
     let runtime_events = state.runtime_events();
-    let events = state.legacy_events();
     let mut result = serde_json::json!({
         "runtime": "rust",
         "turnId": context.turn_id,
@@ -1324,7 +1317,6 @@ fn hook_denied_result(
         "toolsUsed": std::mem::take(&mut state.tools_used),
         "completedToolResults": std::mem::take(&mut state.completed_tool_results),
         "error": reason,
-        "events": events,
         "runtimeEvents": runtime_events,
     });
     state.attach_context_checkpoint(&mut result, None);

@@ -224,9 +224,9 @@ fn runtime_transcript(result: &Value) -> Vec<Value> {
 }
 
 fn event_names(result: &Value) -> Vec<&str> {
-    result["events"]
+    result["runtimeEvents"]
         .as_array()
-        .expect("events should be an array")
+        .expect("runtimeEvents should be an array")
         .iter()
         .map(|event| event["eventName"].as_str().unwrap_or_default())
         .collect::<Vec<_>>()

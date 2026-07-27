@@ -7,8 +7,6 @@ function createController(overrides: Record<string, unknown> = {}) {
     threadId: "thread-1",
     sessionId: "thread-1",
     turnId: "turn-1",
-    agentResult: {},
-    snapshot: {},
   }));
   const api = {
     listThreads: vi.fn(async () => ({

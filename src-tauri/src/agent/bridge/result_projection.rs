@@ -114,7 +114,7 @@ pub(crate) fn native_agent_current_iteration(
         .and_then(serde_json::Value::as_i64)
         .or_else(|| {
             result
-                .get("events")
+                .get("runtimeEvents")
                 .and_then(serde_json::Value::as_array)
                 .and_then(|events| {
                     events
@@ -130,7 +130,7 @@ pub(crate) fn native_agent_current_iteration(
 
 pub(crate) fn native_agent_usage(result: &serde_json::Value) -> Vec<serde_json::Value> {
     result
-        .get("events")
+        .get("runtimeEvents")
         .and_then(serde_json::Value::as_array)
         .map(|events| {
             events

@@ -1049,7 +1049,6 @@ fn finish_tool_error_result(
         .checkpoints
         .clear_for_turn(&context.session_id, &context.turn_id);
     let runtime_events = state.runtime_events();
-    let events = state.legacy_events();
     Ok(NativeAgentToolExecutionOutcome::Finished(
         serde_json::json!({
             "runtime": "rust",
@@ -1061,7 +1060,6 @@ fn finish_tool_error_result(
             "toolsUsed": state.tools_used,
             "completedToolResults": state.completed_tool_results,
             "error": error,
-            "events": events,
             "runtimeEvents": runtime_events,
         }),
     ))
@@ -1105,7 +1103,6 @@ fn tool_cleanup_timeout_result(
         .checkpoints
         .clear_for_turn(&context.session_id, &context.turn_id);
     let runtime_events = state.runtime_events();
-    let events = state.legacy_events();
     Ok(NativeAgentToolExecutionOutcome::Finished(
         serde_json::json!({
             "runtime": "rust",
@@ -1117,7 +1114,6 @@ fn tool_cleanup_timeout_result(
             "toolsUsed": state.tools_used,
             "completedToolResults": state.completed_tool_results,
             "error": error,
-            "events": events,
             "runtimeEvents": runtime_events,
         }),
     ))

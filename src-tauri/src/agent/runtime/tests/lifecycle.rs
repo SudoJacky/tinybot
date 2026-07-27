@@ -896,7 +896,7 @@ fn guidance_continuation_is_inserted_before_next_model_call_after_tools() {
     assert!(seen_messages[1].iter().any(
         |message| message["role"] == "tool" && message["tool_call_id"] == "call-guidance-read"
     ));
-    assert!(result["events"]
+    assert!(result["runtimeEvents"]
         .as_array()
         .expect("events should be an array")
         .iter()
@@ -962,21 +962,21 @@ fn provider_stream_observer_emits_live_deltas_without_duplicate_final_delta() {
     )
     .expect("streaming provider run should succeed");
 
-    let deltas = result["events"]
+    let deltas = result["runtimeEvents"]
         .as_array()
         .expect("events should be an array")
         .iter()
         .filter(|event| event["eventName"] == "agent.delta")
         .map(|event| event["payload"]["delta"].as_str().unwrap_or_default())
         .collect::<Vec<_>>();
-    let reasoning_deltas = result["events"]
+    let reasoning_deltas = result["runtimeEvents"]
         .as_array()
         .expect("events should be an array")
         .iter()
         .filter(|event| event["eventName"] == "agent.reasoning_delta")
         .map(|event| event["payload"]["delta"].as_str().unwrap_or_default())
         .collect::<Vec<_>>();
-    let reasoning_completed = result["events"]
+    let reasoning_completed = result["runtimeEvents"]
         .as_array()
         .expect("events should be an array")
         .iter()
@@ -1521,7 +1521,7 @@ fn hanging_cleanup_tool_batch_times_out_without_hanging_the_owned_turn() {
         assert!(dropped.load(Ordering::SeqCst));
         assert_eq!(services.task_runtime().active_count(), 0);
         assert_eq!(services.task_runtime().draining_count(), 0);
-        assert!(result["events"]
+        assert!(result["runtimeEvents"]
             .as_array()
             .expect("cleanup timeout events should be an array")
             .iter()

@@ -882,7 +882,13 @@ fn direct_calls_to_unactivated_deferred_tools_are_rejected() {
 
     assert_eq!(result["stopReason"], "final_response");
     assert_eq!(result["finalContent"], "deferred tool rejection handled");
-    assert_eq!(result["events"][1]["payload"]["toolName"], "shell.execute");
+    let tool_result = result["runtimeEvents"]
+        .as_array()
+        .expect("runtime events should be present")
+        .iter()
+        .find(|event| event["eventName"] == "agent.tool.result")
+        .expect("tool result should be present");
+    assert_eq!(tool_result["payload"]["toolName"], "shell.execute");
 }
 
 #[test]
@@ -1567,7 +1573,7 @@ fn invalid_request_stops_before_provider_call() {
     assert_eq!(result["finalContent"], "");
     assert_eq!(event_names(&result), vec!["agent.error"]);
     assert_eq!(
-        result["events"][0]["payload"]["stopReason"],
+        result["runtimeEvents"][0]["payload"]["stopReason"],
         "invalid_request"
     );
 }

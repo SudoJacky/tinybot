@@ -984,7 +984,7 @@ async fn dispatch_tinyos_new_turn_command(
         .get("input")
         .cloned()
         .ok_or_else(|| format!("{command_kind} Agent turn input is missing"))?;
-    let agent_result = worker_run_agent_with_live_trace_sink_async(
+    worker_run_agent_with_live_trace_sink_async(
         shared,
         turn_spec,
         workspace_root,
@@ -1008,7 +1008,11 @@ async fn dispatch_tinyos_new_turn_command(
             "turn_id": &turn_id,
         }
     ]);
-    Ok(serde_json::json!({ "transport": transport, "agent": agent_result }))
+    Ok(serde_json::json!({
+        "transport": transport,
+        "sessionId": session_id,
+        "turnId": turn_id,
+    }))
 }
 
 fn validate_tinyos_followup_turn_state(

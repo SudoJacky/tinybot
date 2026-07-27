@@ -56,8 +56,6 @@ export type NativeThreadTurnResult = {
   threadId: string;
   sessionId: string;
   turnId: string;
-  agentResult: unknown;
-  snapshot: unknown;
 };
 
 export type NativeThreadFormInput = {

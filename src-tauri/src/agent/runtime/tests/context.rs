@@ -45,21 +45,29 @@ fn runs_fixture_streaming_final_answer_with_frontend_events() {
             .count(),
         1
     );
-    assert_eq!(result["events"][0]["eventName"], "agent.delta");
-    assert_eq!(
-        result["events"][1]["eventName"],
-        "agent.model_call.completed"
-    );
-    assert_eq!(result["events"][2]["eventName"], "agent.token_count");
-    assert_eq!(result["events"][3]["eventName"], "agent.usage");
-    assert_eq!(result["events"][4]["eventName"], "agent.message.completed");
-    assert_eq!(result["events"][4]["payload"]["content"], "fixture answer");
-    assert_eq!(result["events"][5]["eventName"], "agent.done");
-    assert_eq!(
-        result["events"][5]["payload"]["stopReason"],
-        "final_response"
-    );
-    assert!(result["events"][5]["payload"].get("finalContent").is_none());
+    for event_name in [
+        "agent.delta",
+        "agent.model_call.completed",
+        "agent.token_count",
+        "agent.usage",
+        "agent.message.completed",
+        "agent.done",
+    ] {
+        assert!(runtime_events
+            .iter()
+            .any(|event| event["eventName"] == event_name));
+    }
+    let message_completed = runtime_events
+        .iter()
+        .find(|event| event["eventName"] == "agent.message.completed")
+        .expect("message completion should be present");
+    assert_eq!(message_completed["payload"]["content"], "fixture answer");
+    let done = runtime_events
+        .iter()
+        .find(|event| event["eventName"] == "agent.done")
+        .expect("done event should be present");
+    assert_eq!(done["payload"]["stopReason"], "final_response");
+    assert!(done["payload"].get("finalContent").is_none());
     assert_eq!(
         runtime_transcript(&result),
         vec![
@@ -342,7 +350,7 @@ fn agent_turn_emits_context_trim_event_when_old_messages_are_discarded() {
     )
     .expect("fixture provider run should succeed");
 
-    let trim_event = result["events"]
+    let trim_event = result["runtimeEvents"]
         .as_array()
         .expect("events should be an array")
         .iter()
@@ -486,10 +494,12 @@ fn agent_turn_emits_compaction_failed_without_installing_a_checkpoint() {
 
     assert_eq!(result["stopReason"], "provider_error");
     assert!(result.get("contextCheckpoint").is_none());
-    assert!(result["events"].as_array().is_some_and(|events| !events
-        .iter()
-        .any(|event| { event["eventName"] == "agent.context.compacted" })));
-    let failed = result["events"]
+    assert!(result["runtimeEvents"]
+        .as_array()
+        .is_some_and(|events| !events
+            .iter()
+            .any(|event| { event["eventName"] == "agent.context.compacted" })));
+    let failed = result["runtimeEvents"]
         .as_array()
         .expect("events should be present")
         .iter()
@@ -547,7 +557,7 @@ fn agent_turn_emits_context_compaction_event_when_old_messages_are_summarized() 
     )
     .expect("fixture provider run should succeed");
 
-    let compact_event = result["events"]
+    let compact_event = result["runtimeEvents"]
         .as_array()
         .expect("events should be an array")
         .iter()
@@ -693,10 +703,12 @@ fn context_compaction_commit_failure_keeps_live_context_unmodified() {
 
     assert_eq!(result["stopReason"], "context_compaction_commit_failed");
     assert!(result.get("contextCheckpoint").is_none());
-    assert!(result["events"].as_array().is_some_and(|events| !events
-        .iter()
-        .any(|event| event["eventName"] == "agent.context.compacted")));
-    let failed = result["events"]
+    assert!(result["runtimeEvents"]
+        .as_array()
+        .is_some_and(|events| !events
+            .iter()
+            .any(|event| event["eventName"] == "agent.context.compacted")));
+    let failed = result["runtimeEvents"]
         .as_array()
         .expect("events should be present")
         .iter()
@@ -756,7 +768,7 @@ fn context_compaction_summarizes_oversized_history_in_bounded_layers() {
     )
     .expect("layered summary should fit every provider request");
 
-    let compact_event = result["events"]
+    let compact_event = result["runtimeEvents"]
         .as_array()
         .expect("events should be present")
         .iter()
@@ -824,7 +836,7 @@ fn context_compaction_masks_large_tool_output_without_splitting_its_call() {
     )
     .expect("compacted run should succeed");
 
-    let compact_event = result["events"]
+    let compact_event = result["runtimeEvents"]
         .as_array()
         .expect("events should be present")
         .iter()
@@ -947,7 +959,7 @@ fn compacted_context_becomes_the_next_tool_iteration_baseline() {
     )
     .expect("tool loop should finish");
 
-    let compact_events = result["events"]
+    let compact_events = result["runtimeEvents"]
         .as_array()
         .expect("events should be present")
         .iter()
@@ -994,7 +1006,7 @@ fn agent_usage_event_includes_context_window_budget() {
     )
     .expect("fixture provider run should succeed");
 
-    let usage_event = result["events"]
+    let usage_event = result["runtimeEvents"]
         .as_array()
         .expect("events should be an array")
         .iter()
@@ -1032,7 +1044,7 @@ fn user_file_and_image_parts_emit_typed_reference_items() {
     )
     .expect("fixture provider run should succeed");
 
-    let references = result["events"]
+    let references = result["runtimeEvents"]
         .as_array()
         .expect("events should be present")
         .iter()
@@ -1151,7 +1163,7 @@ fn agent_usage_event_falls_back_to_estimated_context_when_provider_omits_usage()
     )
     .expect("run should succeed");
 
-    let usage_event = result["events"]
+    let usage_event = result["runtimeEvents"]
         .as_array()
         .expect("events should be an array")
         .iter()
@@ -1202,9 +1214,5 @@ fn emits_user_visible_status_events_without_legacy_event_projection() {
             && event["phase"] == "streaming_model"
             && event["payload"]["label"] == "Streaming response"
     }));
-    assert!(result["events"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|event| event["eventName"] != "agent.status"));
+    assert!(result.get("events").is_none());
 }

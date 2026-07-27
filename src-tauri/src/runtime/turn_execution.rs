@@ -1,3 +1,4 @@
+use crate::agent::runtime::standalone_runtime_event;
 use crate::agent::runtime_protocol::AgentEventKind;
 use futures_util::FutureExt;
 use serde::Serialize;
@@ -1102,6 +1103,18 @@ fn turn_execution_thread_name(turn_id: &str) -> String {
 }
 
 fn cancelled_task_result(request: &StartAgentTurn, reason: &str) -> Value {
+    let runtime_event = standalone_runtime_event(
+        &request.turn_id,
+        &request.session_id,
+        AgentEventKind::Cancelled,
+        serde_json::json!({
+            "turnId": request.turn_id,
+            "sessionId": request.session_id,
+            "cancelled": true,
+            "stopReason": "cancelled",
+            "reason": reason
+        }),
+    );
     serde_json::json!({
         "runtime": "rust",
         "turnId": request.turn_id,
@@ -1123,20 +1136,22 @@ fn cancelled_task_result(request: &StartAgentTurn, reason: &str) -> Value {
         },
         "messages": [],
         "toolsUsed": [],
-        "events": [{
-            "eventName": AgentEventKind::Cancelled.wire_name(),
-            "payload": {
-                "turnId": request.turn_id,
-                "sessionId": request.session_id,
-                "cancelled": true,
-                "stopReason": "cancelled",
-                "reason": reason
-            }
-        }]
+        "runtimeEvents": [runtime_event]
     })
 }
 
 fn cancellation_cleanup_timeout_result(request: &StartAgentTurn, grace: Duration) -> Value {
+    let runtime_event = standalone_runtime_event(
+        &request.turn_id,
+        &request.session_id,
+        AgentEventKind::CleanupTimeout,
+        serde_json::json!({
+            "turnId": request.turn_id,
+            "sessionId": request.session_id,
+            "stopReason": "cancellation_cleanup_timeout",
+            "timeoutMs": grace.as_millis(),
+        }),
+    );
     serde_json::json!({
         "runtime": "rust",
         "turnId": request.turn_id,
@@ -1149,15 +1164,7 @@ fn cancellation_cleanup_timeout_result(request: &StartAgentTurn, grace: Duration
         ),
         "messages": [],
         "toolsUsed": [],
-        "events": [{
-            "eventName": AgentEventKind::CleanupTimeout.wire_name(),
-            "payload": {
-                "turnId": request.turn_id,
-                "sessionId": request.session_id,
-                "stopReason": "cancellation_cleanup_timeout",
-                "timeoutMs": grace.as_millis(),
-            }
-        }]
+        "runtimeEvents": [runtime_event]
     })
 }
 

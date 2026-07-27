@@ -127,7 +127,6 @@ pub(super) fn awaiting_user_input_result(
         "stopReason": "awaiting_form",
     })))?;
     let runtime_events = state.runtime_events();
-    let events = state.legacy_events();
     Ok(serde_json::json!({
         "runtime": "rust",
         "turnId": context.turn_id,
@@ -139,7 +138,6 @@ pub(super) fn awaiting_user_input_result(
         "completedToolResults": state.completed_tool_results,
         "form": form,
         "checkpoint": checkpoint,
-        "events": events,
         "runtimeEvents": runtime_events,
     }))
 }
@@ -263,7 +261,6 @@ fn cancelled_user_input_result(
         "error": message,
     })))?;
     let runtime_events = state.runtime_events();
-    let events = state.legacy_events();
     Ok(serde_json::json!({
         "runtime": "rust",
         "turnId": context.turn_id,
@@ -279,7 +276,6 @@ fn cancelled_user_input_result(
             "formId": form_id,
             "action": "cancel",
         },
-        "events": events,
         "runtimeEvents": runtime_events,
     }))
 }

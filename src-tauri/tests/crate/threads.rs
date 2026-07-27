@@ -49,36 +49,6 @@ fn worker_submit_thread_turn_creates_thread_and_runs_native_agent() {
     let thread_id = result["threadId"].as_str().expect("thread id").to_string();
     assert_eq!(result["turnId"], "turn-thread-submit-new");
     assert_eq!(result["sessionId"], thread_id);
-    assert_eq!(result["agentResult"]["stopReason"], "final_response");
-    assert!(result["agentResult"]["runtimeEvents"]
-        .as_array()
-        .expect("runtime events should be present")
-        .iter()
-        .all(|event| event["threadId"] == thread_id));
-    let trace_id = result["agentResult"]["traceContext"]["traceId"]
-        .as_str()
-        .expect("thread agent result should expose traceId");
-    assert!(result["agentResult"]["runtimeEvents"]
-        .as_array()
-        .expect("runtime events should be present")
-        .iter()
-        .all(|event| event["traceContext"]["traceId"] == trace_id));
-    assert!(result["snapshot"]["thread"]["sessionKey"].is_null());
-    assert!(result["snapshot"]["items"]
-        .as_array()
-        .expect("thread items should be present")
-        .iter()
-        .any(|item| item["kind"]["type"] == "assistant_message_completed"));
-    let started = result["snapshot"]["items"]
-        .as_array()
-        .expect("thread items should be present")
-        .iter()
-        .find(|item| item["kind"]["type"] == "turn_started")
-        .expect("thread turn start item should be present");
-    assert_eq!(
-        started["kind"]["payload"]["traceContext"]["traceId"],
-        trace_id
-    );
     let metadata = call_rust_state_service(
         &fixture.thread_store,
         config,
@@ -91,6 +61,21 @@ fn worker_submit_thread_turn_creates_thread_and_runs_native_agent() {
         "thread submit session metadata",
     )
     .expect("agent turn thread should be readable");
+    assert!(metadata["thread"]["sessionKey"].is_null());
+    assert!(metadata["items"]
+        .as_array()
+        .expect("thread items should be present")
+        .iter()
+        .any(|item| item["kind"]["type"] == "assistant_message_completed"));
+    let started = metadata["items"]
+        .as_array()
+        .expect("thread items should be present")
+        .iter()
+        .find(|item| item["kind"]["type"] == "turn_started")
+        .expect("thread turn start item should be present");
+    assert!(started["kind"]["payload"]["traceContext"]["traceId"]
+        .as_str()
+        .is_some_and(|trace_id| !trace_id.is_empty()));
     assert_eq!(metadata["thread"]["threadId"], thread_id);
     let rollout_paths = compatibility_thread_log_paths(&fixture.root);
     assert_eq!(rollout_paths.len(), 1, "{rollout_paths:?}");
@@ -253,7 +238,7 @@ fn worker_submit_thread_turn_forwards_live_streaming_timeline_patches() {
     )
     .expect("desktop thread submit should complete");
 
-    assert_eq!(result["agentResult"]["stopReason"], "final_response");
+    assert_eq!(result["turnId"], "turn-thread-live-stream");
     let patches = sink.patches.lock().expect("live patches should lock");
     let assistant_patches = patches
         .iter()
@@ -333,7 +318,20 @@ fn thread_owned_compaction_commits_installed_checkpoint_before_finalization() {
     )
     .expect("thread compaction should commit through thread authority");
 
-    let compactions = result["snapshot"]["items"]
+    let thread_id = result["threadId"].as_str().unwrap();
+    let snapshot = call_rust_state_service(
+        &fixture.thread_store,
+        config.clone(),
+        WorkerRequest::new(
+            "req-thread-compact-snapshot",
+            "trace-thread-compact-snapshot",
+            "thread.read",
+            serde_json::json!({ "threadId": thread_id }),
+        ),
+        "thread compact snapshot",
+    )
+    .expect("thread compact snapshot should be readable");
+    let compactions = snapshot["items"]
         .as_array()
         .expect("thread items should be present")
         .iter()
@@ -347,7 +345,6 @@ fn thread_owned_compaction_commits_installed_checkpoint_before_finalization() {
         let checkpoint = &item["kind"]["payload"]["payload"]["contextCheckpoint"];
         checkpoint["windowNumber"] == 1 && checkpoint["windowId"] == checkpoint["contextId"]
     }));
-    let thread_id = result["threadId"].as_str().unwrap();
     let metadata = call_rust_state_service(
         &fixture.thread_store,
         config,
@@ -425,8 +422,19 @@ fn thread_owned_terminal_reentry_uses_rollout_authority_after_restart() {
     .expect("terminal retry should return a stable rejection");
 
     assert_eq!(retry["threadId"], thread_id);
-    assert_eq!(retry["agentResult"]["stopReason"], "terminal_turn");
-    assert_eq!(retry["snapshot"]["thread"]["status"], "idle");
+    let retry_snapshot = call_rust_state_service(
+        &fixture.thread_store,
+        serde_json::json!({}),
+        WorkerRequest::new(
+            "req-thread-terminal-reentry",
+            "trace-thread-terminal-reentry",
+            "thread.read",
+            serde_json::json!({ "threadId": thread_id }),
+        ),
+        "terminal retry snapshot",
+    )
+    .expect("terminal retry thread should remain readable");
+    assert_eq!(retry_snapshot["thread"]["status"], "idle");
     let rollout_paths = compatibility_thread_log_paths(&fixture.root);
     assert_eq!(rollout_paths.len(), 1, "{rollout_paths:?}");
 }
@@ -497,25 +505,6 @@ fn worker_submit_thread_turn_uses_thread_id_as_rollout_id() {
 
     assert_eq!(result["threadId"], "thread-existing-submit");
     assert_eq!(result["sessionId"], "thread-existing-submit");
-    assert_eq!(result["agentResult"]["sessionId"], "thread-existing-submit");
-    assert_eq!(
-        result["snapshot"]["thread"]["threadId"],
-        "thread-existing-submit"
-    );
-    assert_eq!(
-        result["agentResult"]["instructionProvenance"]["workingDirectory"],
-        working_directory.display().to_string()
-    );
-    assert!(result["agentResult"]["instructionProvenance"]["sources"]
-        .as_array()
-        .expect("thread instruction provenance should list sources")
-        .iter()
-        .any(|source| source["kind"] == "project_agents"));
-    assert!(result["snapshot"]["items"]
-        .as_array()
-        .expect("thread items should be present")
-        .iter()
-        .any(|item| item["turnId"] == "turn-thread-submit-existing"));
     let run_request = next_worker_request_correlation();
     let persisted_run = call_rust_state_service(
         &fixture.thread_store,
@@ -536,6 +525,11 @@ fn worker_submit_thread_turn_uses_thread_id_as_rollout_id() {
         persisted_run["instructionProvenance"]["workingDirectory"],
         working_directory.display().to_string()
     );
+    assert!(persisted_run["instructionProvenance"]["sources"]
+        .as_array()
+        .expect("thread instruction provenance should list sources")
+        .iter()
+        .any(|source| source["kind"] == "project_agents"));
 }
 
 #[test]
@@ -719,15 +713,27 @@ fn worker_submit_thread_turn_does_not_require_a_session_key() {
             }),
         },
         fixture.root.clone(),
-        config,
+        config.clone(),
         Duration::from_millis(10),
     )
     .expect("thread submit should use the thread id as the Rollout id");
 
     assert_eq!(result["threadId"], "thread-submit-backfill");
     assert_eq!(result["sessionId"], "thread-submit-backfill");
-    assert!(result["snapshot"]["thread"]["sessionKey"].is_null());
-    assert!(result["snapshot"]["items"]
+    let snapshot = call_rust_state_service(
+        &fixture.thread_store,
+        config,
+        WorkerRequest::new(
+            "req-thread-submit-backfill-read",
+            "trace-thread-submit-backfill-read",
+            "thread.read",
+            serde_json::json!({ "threadId": "thread-submit-backfill" }),
+        ),
+        "thread submit backfill read",
+    )
+    .expect("backfilled thread should be readable");
+    assert!(snapshot["thread"]["sessionKey"].is_null());
+    assert!(snapshot["items"]
         .as_array()
         .expect("thread items should be present")
         .iter()

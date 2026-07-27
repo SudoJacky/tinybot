@@ -495,11 +495,12 @@ fn worker_transport_agent_request_change_starts_new_correlated_turn() {
         .as_array()
         .expect("Agent request timeline items should exist");
 
-    assert_eq!(dispatched["agent"]["stopReason"], "final_response");
-    assert_eq!(
-        dispatched["agent"]["finalContent"],
-        "The selected line is the project heading."
-    );
+    assert_eq!(dispatched["sessionId"], session_id);
+    assert_eq!(dispatched["turnId"], request_turn_id);
+    assert!(items.iter().any(|item| {
+        item["kind"] == "assistant_message"
+            && item["data"]["content"] == "The selected line is the project heading."
+    }));
     assert!(items.iter().any(|item| {
         item["kind"] == "tool_call"
             && item["data"]["toolCallId"] == "command-agent-request-1"
@@ -606,8 +607,8 @@ fn worker_transport_operation_retry_starts_new_correlated_turn() {
         retry_turn_id,
     );
 
-    assert_eq!(dispatched["agent"]["stopReason"], "final_response");
-    assert_eq!(dispatched["agent"]["finalContent"], "Recovered after retry");
+    assert_eq!(dispatched["sessionId"], session_id);
+    assert_eq!(dispatched["turnId"], retry_turn_id);
     assert!(retry_state["timeline"]["items"]
         .as_array()
         .expect("retry timeline items should exist")
@@ -616,6 +617,14 @@ fn worker_transport_operation_retry_starts_new_correlated_turn() {
             item["kind"] == "tool_call"
                 && item["data"]["toolCallId"] == "command-operation-retry-1"
                 && item["data"]["name"] == "operation.retry"
+        }));
+    assert!(retry_state["timeline"]["items"]
+        .as_array()
+        .expect("retry timeline items should exist")
+        .iter()
+        .any(|item| {
+            item["kind"] == "assistant_message"
+                && item["data"]["content"] == "Recovered after retry"
         }));
 }
 

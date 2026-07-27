@@ -409,7 +409,7 @@ fn cooperative_async_cancellation_reports_cleanup_timeout_and_releases_owner() {
         assert_eq!(outcome.state, "cancel_requested");
         assert!(!outcome.active_task_removed);
         assert_eq!(result["stopReason"], "cancellation_cleanup_timeout");
-        assert!(result["events"]
+        assert!(result["runtimeEvents"]
             .as_array()
             .expect("cleanup timeout events should be an array")
             .iter()

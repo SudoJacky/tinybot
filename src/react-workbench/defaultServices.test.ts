@@ -90,8 +90,6 @@ describe("desktop native app services", () => {
         threadId: "thread-1",
         sessionId: "thread-1",
         turnId: "turn-1",
-        agentResult: {},
-        snapshot: {},
       };
       return { command, args };
     });
@@ -306,8 +304,6 @@ describe("desktop native app services", () => {
       threadId: "thread-1",
       sessionId: "thread-1",
       turnId: completedTurnId,
-      agentResult: { finalContent: "hi", stopReason: "final_response" },
-      snapshot: {},
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -338,20 +334,6 @@ describe("desktop native app services", () => {
           threadId: "thread-1",
           sessionId: "thread-1",
           turnId: completedTurnId,
-          agentResult: {
-            finalContent: "hi",
-            stopReason: "final_response",
-          },
-          snapshot: {
-            items: [{
-              itemId: `${completedTurnId}:assistant`,
-              kind: {
-                type: "assistant_message_completed",
-                payload: { content: "hi", role: "assistant" },
-              },
-            }],
-            turnItems: [],
-          },
         };
       }
       return {};
